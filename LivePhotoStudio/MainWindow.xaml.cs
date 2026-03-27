@@ -94,11 +94,11 @@ namespace LivePhotoStudio
                 {
                     switch (tag)
                     {
-                        // 增加了 Home 导航逻辑
                         case "Home": MainFrame.Navigate(typeof(Views.HomePage)); break;
                         case "Combo": MainFrame.Navigate(typeof(Views.ComboPage)); break;
                         case "Split": MainFrame.Navigate(typeof(Views.SplitPage)); break;
                         case "Repair": MainFrame.Navigate(typeof(Views.RepairPage)); break;
+                        case "Console": MainFrame.Navigate(typeof(Views.ConsolePage)); break;
                         case "About": MainFrame.Navigate(typeof(Views.AboutPage)); break;
                     }
                 }

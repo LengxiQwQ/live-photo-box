@@ -41,6 +41,11 @@
             </NavigationView.MenuItems>
 
             <NavigationView.FooterMenuItems>
+                <NavigationViewItem Tag="Console" Content="控制台">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE756;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem Tag="About" Content="关于">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE946;"/>

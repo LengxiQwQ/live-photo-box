@@ -17,6 +17,7 @@
 	<ItemGroup>
 		<None Remove="Views\AboutPage.xaml" />
 		<None Remove="Views\ComboPage.xaml" />
+		<None Remove="Views\ConsolePage.xaml" />
 		<None Remove="Views\HomePage.xaml" />
 		<None Remove="Views\RepairPage.xaml" />
 		<None Remove="Views\SplitPage.xaml" />
@@ -47,6 +48,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Page Update="Views\ConsolePage.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</Page>
 		<Page Update="Views\ComboPage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
