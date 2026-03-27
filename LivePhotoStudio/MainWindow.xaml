@@ -17,6 +17,44 @@
             </StackPanel>
         </Grid>
 
+        <Grid Grid.Row="0" HorizontalAlignment="Right" Margin="0,0,138,0">
+            <Button x:Name="FeedbackButton" 
+                    Width="46" Height="32" 
+                    Padding="0"
+                    Click="FeedbackButton_Click"
+                    ToolTipService.ToolTip="提供反馈">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Grid x:Name="RootGrid" Background="Transparent">
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="PointerOver">
+                                        <Storyboard>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="RootGrid" Storyboard.TargetProperty="Background">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Pressed">
+                                        <Storyboard>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="RootGrid" Storyboard.TargetProperty="Background">
+                                                <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                            </ObjectAnimationUsingKeyFrames>
+                                        </Storyboard>
+                                    </VisualState>
+                                    <VisualState x:Name="Disabled" />
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Button.Template>
+
+                <FontIcon x:Name="FeedbackIcon" Glyph="&#xED15;" FontSize="14" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+            </Button>
+        </Grid>
+
         <NavigationView Grid.Row="1" x:Name="NavView" 
                         PaneDisplayMode="Left" 
                         IsBackButtonVisible="Collapsed"
@@ -25,13 +63,21 @@
                         SelectionChanged="NavView_SelectionChanged">
 
             <NavigationView.MenuItems>
-                <NavigationViewItem Icon="Edit" Content="实况合成" Tag="Combo" IsSelected="True"/>
-                <NavigationViewItem Icon="Cut" Content="实况拆解" Tag="Split"/>
-                <NavigationViewItem Icon="Repair" Content="元数据修复" Tag="Repair"/>
+                <NavigationViewItem Content="实况照片合成" Tag="Combo" IsSelected="True">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE91B;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem Icon="Cut" Content="实况照片拆解" Tag="Split"/>
+                <NavigationViewItem Icon="Repair" Content="缩略图修复" Tag="Repair"/>
             </NavigationView.MenuItems>
 
             <NavigationView.FooterMenuItems>
-                <NavigationViewItem Tag="About" Content="关于" Icon="ContactInfo" />
+                <NavigationViewItem Tag="About" Content="关于">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE946;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
             </NavigationView.FooterMenuItems>
 
             <Grid>

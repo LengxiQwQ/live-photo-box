@@ -37,11 +37,28 @@ namespace LivePhotoStudio
                 }
             };
 
+            // 监听窗口激活状态，实现失焦变灰效果
+            this.Activated += MainWindow_Activated;
+
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             UpdateBackdrop();
             UpdateTheme();
 
             MainFrame.Navigate(typeof(Views.ComboPage));
+        }
+
+        private void MainWindow_Activated(object sender, WindowActivatedEventArgs args)
+        {
+            if (args.WindowActivationState == WindowActivationState.Deactivated)
+            {
+                // 窗口失焦时，图标变为禁用状态的灰色
+                FeedbackIcon.Foreground = (Brush)Application.Current.Resources["TextFillColorDisabledBrush"];
+            }
+            else
+            {
+                // 窗口激活时，恢复正常颜色
+                FeedbackIcon.Foreground = (Brush)Application.Current.Resources["TextFillColorPrimaryBrush"];
+            }
         }
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -60,12 +77,10 @@ namespace LivePhotoStudio
                 _ => null
             };
 
-            // 修复：将 FrameworkElement 改为 Grid，因为 Grid 才有 Background 属性
             if (this.Content is Grid rootGrid)
             {
                 if (ViewModel.BackdropIndex == 3)
                 {
-                    // 使用跟随系统深浅模式的页面背景色
                     rootGrid.Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
                 }
                 else
@@ -98,10 +113,15 @@ namespace LivePhotoStudio
                         case "Combo": MainFrame.Navigate(typeof(Views.ComboPage)); break;
                         case "Split": MainFrame.Navigate(typeof(Views.SplitPage)); break;
                         case "Repair": MainFrame.Navigate(typeof(Views.RepairPage)); break;
-                        case "About": MainFrame.Navigate(typeof(Views.AboutPage)); break; // 新增关于页面路由
+                        case "About": MainFrame.Navigate(typeof(Views.AboutPage)); break;
                     }
                 }
             }
+        }
+
+        private async void FeedbackButton_Click(object sender, RoutedEventArgs e)
+        {
+            await Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/LengxiQwQ/live-photo-studio/issues"));
         }
     }
 }
