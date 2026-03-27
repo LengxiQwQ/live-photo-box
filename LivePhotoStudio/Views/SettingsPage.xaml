@@ -6,43 +6,98 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d" Background="Transparent">
 
-    <ScrollViewer Padding="24">
-        <StackPanel Spacing="20" MaxWidth="600" HorizontalAlignment="Left">
-            <TextBlock Text="设置" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,10"/>
+    <ScrollViewer Padding="40,24">
+        <StackPanel Spacing="32" MaxWidth="1100" HorizontalAlignment="Stretch">
+            <TextBlock Text="设置" FontSize="32" FontWeight="Bold" Margin="0,0,0,8"/>
 
-            <TextBlock Text="外观与个性化" FontSize="16" FontWeight="SemiBold"/>
-            <Border CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="16" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                <StackPanel Spacing="20">
-                    <ComboBox Header="应用主题" HorizontalAlignment="Stretch" 
-                              SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}">
-                        <ComboBoxItem Content="跟随系统"/>
-                        <ComboBoxItem Content="浅色模式"/>
-                        <ComboBoxItem Content="深色模式"/>
-                    </ComboBox>
-
-                    <ComboBox Header="窗口背景材质" HorizontalAlignment="Stretch" 
-                              SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}">
-                        <ComboBoxItem Content="Mica (标准云母)"/>
-                        <ComboBoxItem Content="Mica Alt (精致云母)"/>
-                        <ComboBoxItem Content="Desktop Acrylic (桌面亚克力)"/>
-                        <ComboBoxItem Content="None (纯色)"/>
-                    </ComboBox>
+            <StackPanel Spacing="16">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE790;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock Text="外观与个性化" FontSize="18" FontWeight="SemiBold"/>
                 </StackPanel>
-            </Border>
 
-            <TextBlock Text="实况合成任务" FontSize="16" FontWeight="SemiBold" Margin="0,10,0,0"/>
-            <Border CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="16" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                <StackPanel Spacing="20">
-                    <RadioButtons Header="合成协议" SelectedItem="{x:Bind ViewModel.SelectedMode, Mode=TwoWay}">
-                        <RadioButton Content="Google V2 (现代模式)" Tag="V2"/>
-                        <RadioButton Content="Google V1 (兼容模式)" Tag="V1"/>
-                    </RadioButtons>
+                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                        Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <Grid ColumnSpacing="40">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
 
-                    <NumberBox Header="并发线程数" Value="{x:Bind ViewModel.ThreadCount, Mode=TwoWay}" Minimum="1" Maximum="32" SpinButtonPlacementMode="Inline"/>
+                        <StackPanel Grid.Column="0" Spacing="8">
+                            <ComboBox Header="应用主题" HorizontalAlignment="Stretch" 
+                                      SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}">
+                                <ComboBoxItem Content="跟随系统"/>
+                                <ComboBoxItem Content="浅色模式"/>
+                                <ComboBoxItem Content="深色模式"/>
+                            </ComboBox>
+                            <TextBlock Text="调整应用整体视觉配色" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
 
-                    <ToggleSwitch Header="保留原始文件" IsOn="{x:Bind ViewModel.KeepOriginal, Mode=TwoWay}"/>
+                        <StackPanel Grid.Column="1" Spacing="8">
+                            <ComboBox Header="窗口材质" HorizontalAlignment="Stretch" 
+                                      SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}">
+                                <ComboBoxItem Content="Mica (标准云母)"/>
+                                <ComboBoxItem Content="Mica Alt (精致云母)"/>
+                                <ComboBoxItem Content="Desktop Acrylic (亚克力)"/>
+                                <ComboBoxItem Content="None (纯色)"/>
+                            </ComboBox>
+                            <TextBlock Text="选择 Windows 11 沉浸式背景" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2" Spacing="8">
+                            <ComboBox Header="显示语言" HorizontalAlignment="Stretch" 
+                                      SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}">
+                                <ComboBoxItem Content="中文 (简体)"/>
+                                <ComboBoxItem Content="English"/>
+                            </ComboBox>
+                            <TextBlock Text="切换界面显示的语言名称" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="16">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE943;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock Text="转换引擎设置" FontSize="18" FontWeight="SemiBold"/>
                 </StackPanel>
-            </Border>
+
+                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                        Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <Grid ColumnSpacing="40">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="12">
+                            <TextBlock Text="合成协议" FontWeight="SemiBold" FontSize="14"/>
+                            <RadioButtons SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}">
+                                <RadioButton Content="Google V2 (现代)"/>
+                                <RadioButton Content="Google V1 (兼容)"/>
+                            </RadioButtons>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Spacing="8">
+                            <NumberBox Header="并发线程数" 
+                                       Value="{x:Bind ViewModel.ThreadCount, Mode=TwoWay}" 
+                                       Minimum="1" Maximum="32" SpinButtonPlacementMode="Inline"/>
+                            <TextBlock Text="设置处理时的最大 CPU 线程数" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2" Spacing="10" VerticalAlignment="Top">
+                            <ToggleSwitch Header="保留原始文件" IsOn="{x:Bind ViewModel.KeepOriginal, Mode=TwoWay}"/>
+                            <TextBlock Text="处理完成后不清理源文件" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,-8,0,0"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <TextBlock Text="Live Photo Studio v1.1.0  |  Powered by LengxiQwQ" 
+                       HorizontalAlignment="Center" Opacity="0.4" FontSize="11" Margin="0,40,0,0"/>
         </StackPanel>
     </ScrollViewer>
 </Page>

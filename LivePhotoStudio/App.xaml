@@ -10,8 +10,10 @@
 
             <SolidColorBrush x:Key="CyberCyanBrush" Color="#00E5FF"/>
             <SolidColorBrush x:Key="CyberPurpleBrush" Color="#B388FF"/>
-            <SolidColorBrush x:Key="CardBackgroundBrush" Color="{ThemeResource SystemAltHighColor}" Opacity="0.6"/>
 
+            <SolidColorBrush x:Key="CardBackgroundBrush" 
+                             Color="{ThemeResource LayerOnAcrylicFillColorDefault}" 
+                             Opacity="0.8"/>
         </ResourceDictionary>
     </Application.Resources>
 </Application>
