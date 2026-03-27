@@ -43,6 +43,15 @@
                         <TextBlock Text="开源地址 :" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                         <HyperlinkButton Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ/live-photo-studio" Content="GitHub 仓库" Margin="8,0,0,0"/>
                     </Grid>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="问题反馈 :" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        <HyperlinkButton Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ/live-photo-studio/issues" Content="提交 Issue" Margin="8,0,0,0"/>
+                    </Grid>
                 </StackPanel>
             </Border>
         </StackPanel>
