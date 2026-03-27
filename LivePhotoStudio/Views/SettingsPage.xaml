@@ -1,0 +1,48 @@
+<Page
+    x:Class="LivePhotoStudio.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d" Background="Transparent">
+
+    <ScrollViewer Padding="24">
+        <StackPanel Spacing="20" MaxWidth="600" HorizontalAlignment="Left">
+            <TextBlock Text="设置" FontSize="28" FontWeight="SemiBold" Margin="0,0,0,10"/>
+
+            <TextBlock Text="外观与个性化" FontSize="16" FontWeight="SemiBold"/>
+            <Border CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="16" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                <StackPanel Spacing="20">
+                    <ComboBox Header="应用主题" HorizontalAlignment="Stretch" 
+                              SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}">
+                        <ComboBoxItem Content="跟随系统"/>
+                        <ComboBoxItem Content="浅色模式"/>
+                        <ComboBoxItem Content="深色模式"/>
+                    </ComboBox>
+
+                    <ComboBox Header="窗口背景材质" HorizontalAlignment="Stretch" 
+                              SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}">
+                        <ComboBoxItem Content="Mica (标准云母)"/>
+                        <ComboBoxItem Content="Mica Alt (精致云母)"/>
+                        <ComboBoxItem Content="Desktop Acrylic (桌面亚克力)"/>
+                        <ComboBoxItem Content="None (纯色)"/>
+                    </ComboBox>
+                </StackPanel>
+            </Border>
+
+            <TextBlock Text="实况合成任务" FontSize="16" FontWeight="SemiBold" Margin="0,10,0,0"/>
+            <Border CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="16" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                <StackPanel Spacing="20">
+                    <RadioButtons Header="合成协议" SelectedItem="{x:Bind ViewModel.SelectedMode, Mode=TwoWay}">
+                        <RadioButton Content="Google V2 (现代模式)" Tag="V2"/>
+                        <RadioButton Content="Google V1 (兼容模式)" Tag="V1"/>
+                    </RadioButtons>
+
+                    <NumberBox Header="并发线程数" Value="{x:Bind ViewModel.ThreadCount, Mode=TwoWay}" Minimum="1" Maximum="32" SpinButtonPlacementMode="Inline"/>
+
+                    <ToggleSwitch Header="保留原始文件" IsOn="{x:Bind ViewModel.KeepOriginal, Mode=TwoWay}"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
