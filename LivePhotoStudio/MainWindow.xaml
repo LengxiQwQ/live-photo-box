@@ -24,9 +24,9 @@
                         OpenPaneLength="200" 
                         SelectionChanged="NavView_SelectionChanged">
             <NavigationView.MenuItems>
-                <NavigationViewItem Icon="Edit" Content="实况合成" Tag="Combo" IsSelected="True"/>
-                <NavigationViewItem Icon="Cut" Content="实况拆解" Tag="Split"/>
-                <NavigationViewItem Icon="Repair" Content="元数据修复" Tag="Repair"/>
+                <NavigationViewItem Icon="Edit" Content="实况照片合成" Tag="Combo" IsSelected="True"/>
+                <NavigationViewItem Icon="Cut" Content="实况照片拆解" Tag="Split"/>
+                <NavigationViewItem Icon="Repair" Content="缩略图修复" Tag="Repair"/>
             </NavigationView.MenuItems>
 
             <Grid>
