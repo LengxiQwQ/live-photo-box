@@ -4,6 +4,9 @@ using Microsoft.UI.Xaml.Media;
 using System;
 using System.ComponentModel;
 using LivePhotoStudio.ViewModels;
+using Microsoft.UI.Windowing; // 必须
+using Microsoft.UI;           // 必须
+using Windows.Graphics;
 
 namespace LivePhotoStudio
 {
@@ -17,16 +20,25 @@ namespace LivePhotoStudio
             this.ExtendsContentIntoTitleBar = true;
             this.SetTitleBar(AppTitleBar);
 
-            // 监听设置变化
+            // 1. 设置窗口初始尺寸 (1100x750)
+            IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            WindowId windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
+            AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
+
+            if (appWindow != null)
+            {
+                appWindow.Resize(new SizeInt32(1318, 868));
+            }
+
+            // 2. 绑定设置变更监听
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             UpdateBackdrop();
             UpdateTheme();
 
-            // 导航到默认页面
             MainFrame.Navigate(typeof(Views.ComboPage));
         }
 
-        private void OnViewModelPropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(SharedViewModel.BackdropIndex)) UpdateBackdrop();
             if (e.PropertyName == nameof(SharedViewModel.ElementTheme)) UpdateTheme();
@@ -45,14 +57,9 @@ namespace LivePhotoStudio
 
         private void UpdateTheme()
         {
-            if (Content is FrameworkElement rootElement)
+            if (this.Content is FrameworkElement rootElement)
             {
-                rootElement.RequestedTheme = ViewModel.ElementTheme switch
-                {
-                    1 => ElementTheme.Light,
-                    2 => ElementTheme.Dark,
-                    _ => ElementTheme.Default
-                };
+                rootElement.RequestedTheme = (ElementTheme)ViewModel.ElementTheme;
             }
         }
 
@@ -64,18 +71,14 @@ namespace LivePhotoStudio
             }
             else if (args.SelectedItem is NavigationViewItem item)
             {
-                string tag = item.Tag as string;
-                switch (tag)
+                if (item.Tag is string tag)
                 {
-                    case "Combo":
-                        MainFrame.Navigate(typeof(Views.ComboPage));
-                        break;
-                    case "Split":
-                        MainFrame.Navigate(typeof(Views.SplitPage));
-                        break;
-                    case "Repair":
-                        MainFrame.Navigate(typeof(Views.RepairPage));
-                        break;
+                    switch (tag)
+                    {
+                        case "Combo": MainFrame.Navigate(typeof(Views.ComboPage)); break;
+                        case "Split": MainFrame.Navigate(typeof(Views.SplitPage)); break;
+                        case "Repair": MainFrame.Navigate(typeof(Views.RepairPage)); break;
+                    }
                 }
             }
         }
