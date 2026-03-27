@@ -4,8 +4,8 @@ using Microsoft.UI.Xaml.Media;
 using System;
 using System.ComponentModel;
 using LivePhotoStudio.ViewModels;
-using Microsoft.UI.Windowing; // 必须
-using Microsoft.UI;           // 必须
+using Microsoft.UI.Windowing;
+using Microsoft.UI;
 using Windows.Graphics;
 
 namespace LivePhotoStudio
@@ -20,7 +20,6 @@ namespace LivePhotoStudio
             this.ExtendsContentIntoTitleBar = true;
             this.SetTitleBar(AppTitleBar);
 
-            // 1. 设置窗口初始尺寸 (1100x750)
             IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             WindowId windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
             AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
@@ -30,7 +29,14 @@ namespace LivePhotoStudio
                 appWindow.Resize(new SizeInt32(1318, 868));
             }
 
-            // 2. 绑定设置变更监听
+            NavView.Loaded += (s, e) =>
+            {
+                if (NavView.SettingsItem is NavigationViewItem settingsItem)
+                {
+                    settingsItem.Content = "设置";
+                }
+            };
+
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             UpdateBackdrop();
             UpdateTheme();
@@ -49,10 +55,24 @@ namespace LivePhotoStudio
             this.SystemBackdrop = ViewModel.BackdropIndex switch
             {
                 0 => new MicaBackdrop() { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.Base },
-                1 => new MicaBackdrop() { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.Base },
+                1 => new MicaBackdrop() { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt },
                 2 => new DesktopAcrylicBackdrop(),
                 _ => null
             };
+
+            // 修复：将 FrameworkElement 改为 Grid，因为 Grid 才有 Background 属性
+            if (this.Content is Grid rootGrid)
+            {
+                if (ViewModel.BackdropIndex == 3)
+                {
+                    // 使用跟随系统深浅模式的页面背景色
+                    rootGrid.Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
+                }
+                else
+                {
+                    rootGrid.Background = new SolidColorBrush(Colors.Transparent);
+                }
+            }
         }
 
         private void UpdateTheme()
@@ -78,6 +98,7 @@ namespace LivePhotoStudio
                         case "Combo": MainFrame.Navigate(typeof(Views.ComboPage)); break;
                         case "Split": MainFrame.Navigate(typeof(Views.SplitPage)); break;
                         case "Repair": MainFrame.Navigate(typeof(Views.RepairPage)); break;
+                        case "About": MainFrame.Navigate(typeof(Views.AboutPage)); break; // 新增关于页面路由
                     }
                 }
             }

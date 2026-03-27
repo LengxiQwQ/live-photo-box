@@ -23,11 +23,16 @@
                         IsSettingsVisible="True"
                         OpenPaneLength="200" 
                         SelectionChanged="NavView_SelectionChanged">
+
             <NavigationView.MenuItems>
-                <NavigationViewItem Icon="Edit" Content="实况照片合成" Tag="Combo" IsSelected="True"/>
-                <NavigationViewItem Icon="Cut" Content="实况照片拆解" Tag="Split"/>
-                <NavigationViewItem Icon="Repair" Content="缩略图修复" Tag="Repair"/>
+                <NavigationViewItem Icon="Edit" Content="实况合成" Tag="Combo" IsSelected="True"/>
+                <NavigationViewItem Icon="Cut" Content="实况拆解" Tag="Split"/>
+                <NavigationViewItem Icon="Repair" Content="元数据修复" Tag="Repair"/>
             </NavigationView.MenuItems>
+
+            <NavigationView.FooterMenuItems>
+                <NavigationViewItem Tag="About" Content="关于" Icon="ContactInfo" />
+            </NavigationView.FooterMenuItems>
 
             <Grid>
                 <Grid.RowDefinitions>
@@ -45,10 +50,17 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
+
                         <TextBlock Grid.Column="0" Text="{x:Bind ViewModel.AppStatus, Mode=OneWay}" 
                                    VerticalAlignment="Center" FontSize="11" Opacity="0.8"/>
-                        <TextBlock Grid.Column="1" Text="By LengxiQwQ" 
-                                   VerticalAlignment="Center" FontSize="11" Opacity="0.4"/>
+
+                        <HyperlinkButton Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ" 
+                                         VerticalAlignment="Center" Opacity="0.5" Padding="4,2"
+                                         Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                            <HyperlinkButton.Content>
+                                <TextBlock Text="By LengxiQwQ" FontSize="11" />
+                            </HyperlinkButton.Content>
+                        </HyperlinkButton>
                     </Grid>
                 </Border>
             </Grid>

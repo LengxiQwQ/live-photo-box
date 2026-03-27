@@ -4,16 +4,16 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d" Background="Transparent">
+    mc:Ignorable="d" Background="Transparent" Language="zh-CN">
 
     <ScrollViewer Padding="40,24">
         <StackPanel Spacing="32" MaxWidth="1100" HorizontalAlignment="Stretch">
-            <TextBlock Text="设置" FontSize="32" FontWeight="Bold" Margin="0,0,0,8"/>
+            <TextBlock Text="设置" FontSize="32" FontWeight="Bold" Margin="0,0,0,8" FontFamily="Microsoft YaHei UI"/>
 
             <StackPanel Spacing="16">
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                     <FontIcon Glyph="&#xE790;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                    <TextBlock Text="外观与个性化" FontSize="18" FontWeight="SemiBold"/>
+                    <TextBlock Text="外观与个性化" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                 </StackPanel>
 
                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
@@ -26,13 +26,12 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" Spacing="8">
-                            <ComboBox Header="应用主题" HorizontalAlignment="Stretch" 
-                                      SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}">
-                                <ComboBoxItem Content="跟随系统"/>
-                                <ComboBoxItem Content="浅色模式"/>
-                                <ComboBoxItem Content="深色模式"/>
+                            <ComboBox Header="显示语言" HorizontalAlignment="Stretch" 
+                                      SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}">
+                                <ComboBoxItem Content="中文 (简体)"/>
+                                <ComboBoxItem Content="English"/>
                             </ComboBox>
-                            <TextBlock Text="调整应用整体视觉配色" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="切换界面显示的语言名称" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" Spacing="8">
@@ -41,18 +40,19 @@
                                 <ComboBoxItem Content="Mica (标准云母)"/>
                                 <ComboBoxItem Content="Mica Alt (精致云母)"/>
                                 <ComboBoxItem Content="Desktop Acrylic (亚克力)"/>
-                                <ComboBoxItem Content="None (纯色)"/>
+                                <ComboBoxItem Content="纯色"/>
                             </ComboBox>
                             <TextBlock Text="选择 Windows 11 沉浸式背景" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
 
                         <StackPanel Grid.Column="2" Spacing="8">
-                            <ComboBox Header="显示语言" HorizontalAlignment="Stretch" 
-                                      SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}">
-                                <ComboBoxItem Content="中文 (简体)"/>
-                                <ComboBoxItem Content="English"/>
+                            <ComboBox Header="应用主题" HorizontalAlignment="Stretch" 
+                                      SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}">
+                                <ComboBoxItem Content="跟随系统"/>
+                                <ComboBoxItem Content="浅色模式"/>
+                                <ComboBoxItem Content="深色模式"/>
                             </ComboBox>
-                            <TextBlock Text="切换界面显示的语言名称" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="调整应用整体视觉配色" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -60,8 +60,8 @@
 
             <StackPanel Spacing="16">
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE943;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                    <TextBlock Text="转换引擎设置" FontSize="18" FontWeight="SemiBold"/>
+                    <FontIcon Glyph="&#xE8B5;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock Text="实况照片合成" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                 </StackPanel>
 
                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
@@ -73,31 +73,72 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="0" Spacing="12">
-                            <TextBlock Text="合成协议" FontWeight="SemiBold" FontSize="14"/>
-                            <RadioButtons SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}">
-                                <RadioButton Content="Google V2 (现代)"/>
-                                <RadioButton Content="Google V1 (兼容)"/>
-                            </RadioButtons>
+                        <StackPanel Grid.Column="0" Spacing="8">
+                            <ComboBox Header="转换协议" HorizontalAlignment="Stretch"
+                                      SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}">
+                                <ComboBoxItem Content="Google Micro Video (V1)"/>
+                                <ComboBoxItem Content="Google Motion Photo (V2)"/>
+                            </ComboBox>
+                            <TextBlock Text="选择合适的安卓实况封装协议" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
 
                         <StackPanel Grid.Column="1" Spacing="8">
-                            <NumberBox Header="并发线程数" 
-                                       Value="{x:Bind ViewModel.ThreadCount, Mode=TwoWay}" 
-                                       Minimum="1" Maximum="32" SpinButtonPlacementMode="Inline"/>
-                            <TextBlock Text="设置处理时的最大 CPU 线程数" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <ComboBox Header="并发线程数" HorizontalAlignment="Stretch"
+                                      ItemsSource="{x:Bind ViewModel.ThreadOptions}"
+                                      SelectedItem="{x:Bind ViewModel.ThreadCount, Mode=TwoWay}" />
+                            <TextBlock FontSize="12" FontFamily="Microsoft YaHei UI" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                                <Run Text="处理时最大的线程数 1 - 10"/>
+                                <LineBreak/>
+                                <Run Text="设置过多容易导致处理失败"/>
+                            </TextBlock>
                         </StackPanel>
 
                         <StackPanel Grid.Column="2" Spacing="10" VerticalAlignment="Top">
-                            <ToggleSwitch Header="保留原始文件" IsOn="{x:Bind ViewModel.KeepOriginal, Mode=TwoWay}"/>
+                            <ToggleSwitch Header="保留原始文件" IsOn="{x:Bind ViewModel.KeepOriginal, Mode=TwoWay}" Margin="0,-4,0,0"/>
                             <TextBlock Text="处理完成后不清理源文件" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Margin="0,-8,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
             </StackPanel>
 
-            <TextBlock Text="Live Photo Studio v1.1.0  |  Powered by LengxiQwQ" 
-                       HorizontalAlignment="Center" Opacity="0.4" FontSize="11" Margin="0,40,0,0"/>
+            <StackPanel Spacing="16">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE8C6;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock Text="实况照片拆解" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                </StackPanel>
+
+                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                        Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <Grid ColumnSpacing="40">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="8">
+                            <ComboBox Header="导出视频格式" HorizontalAlignment="Stretch" 
+                                      SelectedIndex="{x:Bind ViewModel.SplitVideoFormat, Mode=TwoWay}">
+                                <ComboBoxItem Content="MP4 (H.264/HEVC)"/>
+                                <ComboBoxItem Content="MOV (QuickTime)"/>
+                            </ComboBox>
+                            <TextBlock Text="选择拆解后视频的保存格式" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Margin="0,20,0,0" Spacing="24">
+                <Button Content="恢复默认设置" Command="{x:Bind ViewModel.RestoreDefaultSettingsCommand}" 
+                        HorizontalAlignment="Right" Style="{ThemeResource DefaultButtonStyle}"/>
+
+                <HyperlinkButton NavigateUri="https://github.com/LengxiQwQ" HorizontalAlignment="Center" Opacity="0.5"
+                                 Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                    <HyperlinkButton.Content>
+                        <TextBlock Text="Live Photo Studio v1.1.0  | Powered by LengxiQwQ" FontSize="12" FontFamily="Microsoft YaHei UI"/>
+                    </HyperlinkButton.Content>
+                </HyperlinkButton>
+            </StackPanel>
         </StackPanel>
     </ScrollViewer>
 </Page>
