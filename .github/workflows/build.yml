@@ -1,0 +1,46 @@
+name: WinUI 3 构建与打包
+
+on:
+  push:
+    branches: [ "main" ] # 当推送到 main 分支时触发
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    # 关键：必须使用 Windows 运行器
+    runs-on: windows-latest 
+
+    steps:
+    - name: 检出代码
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: 安装 .NET SDK
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: 8.0.x # 对应你项目使用的 .NET 8 稳定版
+
+    - name: 安装 MSBuild (用于 WinUI 3 打包)
+      uses: microsoft/setup-msbuild@v2
+
+    - name: 还原 NuGet 包
+      run: dotnet restore
+
+    - name: 构建并打包 (生成 MSIX)
+      # 这里的参数非常关键，它决定了是否生成可以直接分发的安装包
+      run: |
+        msbuild /p:Configuration=Release `
+                /p:Platform=x64 `
+                /p:UapAppxPackageBuildMode=SideloadOnly `
+                /p:AppxBundle=Always `
+                /p:AppxPackageSigningEnabled=false `
+                /p:GenerateAppxPackageOnBuild=true
+      # 注：目前先禁用签名(AppxPackageSigningEnabled=false)，等你有了证书再开启
+
+    - name: 上传构建产物
+      uses: actions/upload-artifact@v4
+      with:
+        name: LivePhotoStudio-Binary
+        path: AppPackages/
