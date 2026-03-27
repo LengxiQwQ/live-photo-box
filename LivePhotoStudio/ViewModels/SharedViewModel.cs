@@ -1,8 +1,10 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoStudio.Models;
+using Microsoft.UI.Xaml;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Net.NetworkInformation;
 using Windows.Storage;
 
 namespace LivePhotoStudio.ViewModels

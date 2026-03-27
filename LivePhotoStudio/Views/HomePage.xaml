@@ -1,0 +1,78 @@
+<Page
+    x:Class="LivePhotoStudio.Views.HomePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d" Background="Transparent" Language="zh-CN">
+
+    <ScrollViewer Padding="40,0,40,24">
+        <StackPanel Spacing="24" MaxWidth="1000" HorizontalAlignment="Center">
+
+            <Grid Height="350" Margin="0,32,0,16" CornerRadius="12">
+
+                <Image Source="/Assets/BannerImage.png" Stretch="UniformToFill" />
+
+                <Border CornerRadius="12" Background="#40000000"/>
+
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+                    <TextBlock Text="Live Photo Studio" 
+                               FontSize="56" 
+                               FontWeight="Bold" 
+                               Foreground="#FFFFFF"
+                               FontFamily="Microsoft YaHei UI"
+                               HorizontalAlignment="Center"
+                               CharacterSpacing="80">
+                        <TextBlock.Shadow>
+                            <ThemeShadow />
+                        </TextBlock.Shadow>
+                    </TextBlock>
+
+                    <TextBlock Text="—— 让每一份回忆，都如动漫般灵动 (o・v・o)" 
+                               FontSize="16" 
+                               Foreground="#CCFFFFFF"
+                               Opacity="0.8"
+                               FontFamily="Microsoft YaHei UI"
+                               HorizontalAlignment="Center"
+                               FontWeight="Light"/>
+                </StackPanel>
+            </Grid>
+
+            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                <StackPanel Spacing="24">
+                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE916;" FontSize="24" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock Text="欢迎使用 Live Photo Studio" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
+
+                    <TextBlock TextWrapping="Wrap" LineHeight="26" FontFamily="Microsoft YaHei UI" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                        Live Photo Studio 是一款开源的实况照片处理工具箱，旨在为用户提供便捷、高效的 Android 与 iOS 实况照片合成与拆解体验。<Run FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}">不仅如此，作为一名深度二次元宅男开发的软件，我们更加关注每一张照片背后的故事和情感。</Run>
+                    </TextBlock>
+
+                    <TextBlock TextWrapping="Wrap" LineHeight="26" FontFamily="Microsoft YaHei UI" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                        在这里，你可以轻松将 Android 手机生成的 Google 实况照片，转化为 iOS 可识别的实况照片，反之亦然。无论是为了在 iOS 上获得更流畅的动画效果，还是为了在 Android 上体验原生的实况魅力，Live Photo Studio 都是你得力的助手。
+                    </TextBlock>
+
+                    <MenuFlyoutSeparator Margin="-32,0"/>
+
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE951;" FontSize="16" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="友情提示 :" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock Grid.Column="1" Text="在使用合成或拆解功能前，建议先确认你拥有原照片的备份，毕竟数据安全重于泰山。(^-^*)" 
+                                   Margin="12,0,0,0"
+                                   VerticalAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>
