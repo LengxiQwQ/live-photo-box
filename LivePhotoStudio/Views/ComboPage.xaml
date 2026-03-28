@@ -5,8 +5,14 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoStudio.Models"
+    xmlns:local="using:LivePhotoStudio.Views"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
+
+    <Page.Resources>
+        <local:StatusToColorConverter x:Key="StatusToColorConverter"/>
+        <local:ThemeAwareButtonHoverConverter x:Key="ThemeAwareButtonHoverConverter"/>
+    </Page.Resources>
 
     <Grid Padding="12,0,0,0" RowSpacing="12">
         <Grid.RowDefinitions>
@@ -14,8 +20,13 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
 
-        <Border Grid.Row="0" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="16">
+        <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="16">
             <StackPanel Spacing="12">
                 <Grid ColumnSpacing="8">
                     <Grid.ColumnDefinitions>
@@ -44,26 +55,12 @@
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <Button Grid.Column="0"
-                            Content="扫描实况照片" 
-                            Command="{x:Bind ViewModel.ScanDirectoryCommand}" 
-                            IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
-                            Height="32" VerticalAlignment="Center"
-                            Margin="0,0,16,0"/>
-
-                    <ToggleSwitch Grid.Column="1"
-                                  IsOn="{x:Bind ViewModel.IsMultiThreadEnabled, Mode=TwoWay}"
-                                  IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
-                                  OffContent="单线程" OnContent="多线程"
-                                  VerticalAlignment="Center"
-                                  Margin="0,0,0,0"/>
-
-                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <TextBlock Text="配对成功 :" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                             <TextBlock Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
@@ -77,54 +74,64 @@
                             <TextBlock Text="{x:Bind ViewModel.StandaloneVideosCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
                         </StackPanel>
                     </StackPanel>
+
+                    <ToggleSwitch Grid.Column="2"
+                                  IsOn="{x:Bind ViewModel.IsMultiThreadEnabled, Mode=TwoWay}"
+                                  IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
+                                  OffContent="单线程" OnContent="多线程"
+                                  VerticalAlignment="Center"
+                                  Margin="0,0,16,0"/>
+
+                    <Button Grid.Column="3"
+                            Content="扫描实况照片" 
+                            Command="{x:Bind ViewModel.ScanDirectoryCommand}" 
+                            IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
+                            Height="32" VerticalAlignment="Center"
+                            Margin="0,0,0,0"/>
                 </Grid>
             </StackPanel>
         </Border>
 
-        <Grid Grid.Row="1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
-                <TextBlock FontWeight="SemiBold" FontSize="13">
-                    <Run Text="当前队列进度："/>
-                    <Run Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"/>
-                </TextBlock>
-                <ProgressBar Value="{x:Bind ViewModel.ComboProgress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{ThemeResource CyberCyanBrush}" MaxWidth="400" HorizontalAlignment="Left"/>
-            </StackPanel>
+        <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Padding="16,12,16,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-            <Button Grid.Column="1" Margin="0,0,12,0"
-                    Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" 
-                    Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}" 
-                    Width="100" Height="36"/>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
+                    <TextBlock FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                        <Run Text="当前队列进度："/>
+                        <Run Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"/>
+                    </TextBlock>
+                    <ProgressBar Value="{x:Bind ViewModel.ComboProgress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{ThemeResource CyberCyanBrush}" MaxWidth="400" HorizontalAlignment="Left"/>
+                </StackPanel>
 
-            <Grid Grid.Column="2">
-                <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" 
-                        Command="{x:Bind ViewModel.ToggleProcessCommand}" 
-                        Visibility="{x:Bind InverseBoolToVisibility(ViewModel.IsProcessing), Mode=OneWay}"
-                        Style="{StaticResource AccentButtonStyle}" 
-                        Width="120" Height="36"/>
+                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
+                    <Button Margin="0,0,12,0"
+                            Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" 
+                            Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}" 
+                            Width="100" Height="36"/>
 
-                <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" 
-                        Command="{x:Bind ViewModel.ToggleProcessCommand}" 
-                        Visibility="{x:Bind BoolToVisibility(ViewModel.IsProcessing), Mode=OneWay}"
-                        Foreground="White" BorderBrush="#EF4444" BorderThickness="1" Background="#EF4444"
-                        Width="120" Height="36">
-                    <Button.Resources>
-                        <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#DC2626"/>
-                        <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#DC2626"/>
-                        <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="White"/>
-                        <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#B91C1C"/>
-                        <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#B91C1C"/>
-                        <SolidColorBrush x:Key="ButtonForegroundPressed" Color="White"/>
-                    </Button.Resources>
-                </Button>
+                    <Grid>
+                        <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" 
+                                Command="{x:Bind ViewModel.ToggleProcessCommand}" 
+                                Visibility="{x:Bind InverseBoolToVisibility(ViewModel.IsProcessing), Mode=OneWay}"
+                                Style="{StaticResource AccentButtonStyle}" 
+                                Width="120" Height="36"/>
+
+                        <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" 
+                                Command="{x:Bind ViewModel.ToggleProcessCommand}" 
+                                Visibility="{x:Bind BoolToVisibility(ViewModel.IsProcessing), Mode=OneWay}"
+                                Style="{StaticResource AccentButtonStyle}"
+                                Width="120" Height="36"/>
+                    </Grid>
+                </StackPanel>
             </Grid>
-        </Grid>
+        </Border>
 
-        <Border Grid.Row="2" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
+        <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
             <ListView ItemsSource="{x:Bind ViewModel.ComboTasks}" SelectionMode="None" ShowsScrollingPlaceholders="False">
                 <ListView.ItemsPanel>
                     <ItemsPanelTemplate>
@@ -194,33 +201,34 @@
 
                                 <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                                <Border Grid.Column="1" Width="46" Height="46" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,10,0">
-                                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
-                                </Border>
+                                <Button Grid.Column="1" 
+                                        VerticalAlignment="Center" 
+                                        HorizontalAlignment="Left" 
+                                        Margin="0,0,10,0"
+                                        Click="ThumbnailButton_Click"
+                                        Tag="{x:Bind ImagePath}"
+                                        Background="Transparent" 
+                                        BorderThickness="0" 
+                                        Padding="0" 
+                                        CornerRadius="6"
+                                        ToolTipService.ToolTip="在文件夹中查看">
+                                    <Border Width="46" Height="46" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                        <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                    </Border>
+                                </Button>
 
                                 <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
-                                    <Button Click="FileGroupButton_Click" Tag="{x:Bind ImagePath}" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" CornerRadius="4">
-                                        <Button.Resources>
-                                            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#B91C1C"/>
-                                            <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="White"/>
-                                            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#991B1B"/>
-                                            <SolidColorBrush x:Key="ButtonForegroundPressed" Color="White"/>
-                                        </Button.Resources>
+                                    <Button Click="FileGroupButton_Click" Tag="{x:Bind ImagePath}" ToolTipService.ToolTip="在默认应用打开" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
                                         <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
                                             <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
-                                            <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}" ToolTipService.ToolTip="{x:Bind ImageFileName}"/>
+                                            <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}"/>
                                         </StackPanel>
                                     </Button>
-                                    <Button Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" CornerRadius="4">
-                                        <Button.Resources>
-                                            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#B91C1C"/>
-                                            <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="White"/>
-                                            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#991B1B"/>
-                                            <SolidColorBrush x:Key="ButtonForegroundPressed" Color="White"/>
-                                        </Button.Resources>
+
+                                    <Button Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}" ToolTipService.ToolTip="在默认应用打开" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
                                         <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
                                             <FontIcon Glyph="&#xE714;" Foreground="#A855F7" FontSize="14" VerticalAlignment="Center"/>
-                                            <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayVideoName}" ToolTipService.ToolTip="{x:Bind VideoFileName}"/>
+                                            <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayVideoName}"/>
                                         </StackPanel>
                                     </Button>
                                 </StackPanel>
@@ -232,6 +240,7 @@
 
                                 <TextBlock Grid.Column="4" 
                                            Text="{x:Bind Details, Mode=OneWay}" 
+                                           Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
                                            VerticalAlignment="Center" 
                                            FontWeight="SemiBold" 
                                            FontSize="13" 
