@@ -34,16 +34,38 @@ namespace LivePhotoStudio.ViewModels
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsNotProcessing))]
+        [NotifyPropertyChangedFor(nameof(SecondaryBtnText))]
         private bool _isProcessing = false;
 
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(SecondaryBtnText))]
+        private bool _isPaused = false;
+
         public bool IsNotProcessing => !IsProcessing;
+
+        public string SecondaryBtnText
+        {
+            get
+            {
+                if (!IsProcessing) return "清空列表";
+                return IsPaused ? "继续" : "暂停";
+            }
+        }
 
         [ObservableProperty] private bool _isMultiThreadEnabled = true;
 
         private CancellationTokenSource? _cancellationTokenSource;
+        private ManualResetEventSlim _pauseEvent = new ManualResetEventSlim(true);
 
         private string _hwEncoder = "libx265";
         private string _hwEncoderName = "Software CPU";
+
+        // 移除 Index 初始排序状态
+        private string _lastSortColumn = "Name";
+        private bool _sortAscending = true;
+        [ObservableProperty] private string _nameSortIcon = "";
+        [ObservableProperty] private string _sizeSortIcon = "";
+        [ObservableProperty] private string _statusSortIcon = "";
 
         [ObservableProperty] private int _selectedModeIndex = 1;
         public int[] ThreadOptions { get; } = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
@@ -61,7 +83,6 @@ namespace LivePhotoStudio.ViewModels
         {
             LoadSettings();
             PropertyChanged += OnPropertyChangedSave;
-
             _ = DetectGPUAndInitializeAsync();
         }
 
@@ -86,10 +107,7 @@ namespace LivePhotoStudio.ViewModels
 
                 AppStatus = $"就绪 | 已识别视频加速: {_hwEncoderName}";
             }
-            catch
-            {
-                AppStatus = "就绪 | 显卡检测失败，默认使用 CPU 编码";
-            }
+            catch { AppStatus = "就绪 | 显卡检测失败，默认使用 CPU 编码"; }
         }
 
         private void LoadSettings()
@@ -107,23 +125,19 @@ namespace LivePhotoStudio.ViewModels
 
         private void OnPropertyChangedSave(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(AppStatus) ||
-                e.PropertyName == nameof(ComboProgress) ||
-                e.PropertyName == nameof(ProgressText) ||
-                e.PropertyName == nameof(InputDirectory) ||
-                e.PropertyName == nameof(OutputDirectory) ||
-                e.PropertyName == nameof(TotalPairsCount) ||
-                e.PropertyName == nameof(StandaloneImagesCount) ||
-                e.PropertyName == nameof(StandaloneVideosCount) ||
-                e.PropertyName == nameof(ActionBtnText) ||
-                e.PropertyName == nameof(IsProcessing) ||
-                e.PropertyName == nameof(IsNotProcessing)) return;
+            if (e.PropertyName == nameof(AppStatus) || e.PropertyName == nameof(ComboProgress) ||
+                e.PropertyName == nameof(ProgressText) || e.PropertyName == nameof(InputDirectory) ||
+                e.PropertyName == nameof(OutputDirectory) || e.PropertyName == nameof(TotalPairsCount) ||
+                e.PropertyName == nameof(StandaloneImagesCount) || e.PropertyName == nameof(StandaloneVideosCount) ||
+                e.PropertyName == nameof(ActionBtnText) || e.PropertyName == nameof(IsProcessing) ||
+                e.PropertyName == nameof(IsNotProcessing) || e.PropertyName == nameof(SecondaryBtnText) ||
+                e.PropertyName == nameof(IsPaused) || e.PropertyName == nameof(NameSortIcon) ||
+                e.PropertyName == nameof(SizeSortIcon) || e.PropertyName == nameof(StatusSortIcon)) return;
 
-            var settings = ApplicationData.Current.LocalSettings.Values;
             var propertyInfo = GetType().GetProperty(e.PropertyName!);
             if (propertyInfo != null)
             {
-                settings[e.PropertyName!] = propertyInfo.GetValue(this);
+                ApplicationData.Current.LocalSettings.Values[e.PropertyName!] = propertyInfo.GetValue(this);
             }
         }
 
@@ -140,19 +154,10 @@ namespace LivePhotoStudio.ViewModels
             IsMultiThreadEnabled = true;
         }
 
-        [RelayCommand]
-        private void ClearList()
+        private string FormatFileSize(long bytes)
         {
-            if (IsProcessing) return;
-
-            ComboTasks.Clear();
-            TotalPairsCount = 0;
-            StandaloneImagesCount = 0;
-            StandaloneVideosCount = 0;
-            ComboProgress = 0;
-            ProgressText = "0/0";
-
-            AppStatus = $"已清空列表 | 就绪环境: {_hwEncoderName}";
+            if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
+            return $"{bytes / (1024.0 * 1024.0):F2} MB";
         }
 
         [RelayCommand]
@@ -168,30 +173,29 @@ namespace LivePhotoStudio.ViewModels
             ComboTasks.Clear();
             var allFiles = Directory.GetFiles(InputDirectory);
 
-            var images = allFiles.Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                                             f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)).ToList();
-            var videos = allFiles.Where(f => f.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
-                                             f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)).ToList();
+            var images = allFiles.Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)).ToList();
+            var videos = allFiles.Where(f => f.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)).ToList();
 
             var imgDict = images.ToDictionary(Path.GetFileNameWithoutExtension, f => f, StringComparer.OrdinalIgnoreCase);
             var vidDict = videos.ToDictionary(Path.GetFileNameWithoutExtension, f => f, StringComparer.OrdinalIgnoreCase);
 
-            int standaloneImg = 0;
-            int standaloneVid = 0;
-
-            // 新增：序号计数器
-            int currentIndex = 1;
+            int standaloneImg = 0, standaloneVid = 0, currentIndex = 1;
 
             foreach (var kvp in imgDict)
             {
                 if (vidDict.TryGetValue(kvp.Key, out var vidPath))
                 {
-                    // 新增：赋值序号、图片名和视频名
+                    long imgBytes = new FileInfo(kvp.Value).Length;
+                    long vidBytes = new FileInfo(vidPath).Length;
+
                     ComboTasks.Add(new LivePhotoTask
                     {
                         Index = currentIndex++,
                         ImageFileName = Path.GetFileName(kvp.Value),
                         VideoFileName = Path.GetFileName(vidPath),
+                        ImageSize = FormatFileSize(imgBytes),
+                        VideoSize = FormatFileSize(vidBytes),
+                        TotalSizeBytes = imgBytes + vidBytes,
                         BaseName = kvp.Key,
                         ImagePath = kvp.Value,
                         VideoPath = vidPath,
@@ -199,16 +203,10 @@ namespace LivePhotoStudio.ViewModels
                         Details = "等待处理"
                     });
                 }
-                else
-                {
-                    standaloneImg++;
-                }
+                else standaloneImg++;
             }
 
-            foreach (var kvp in vidDict)
-            {
-                if (!imgDict.ContainsKey(kvp.Key)) standaloneVid++;
-            }
+            foreach (var kvp in vidDict) if (!imgDict.ContainsKey(kvp.Key)) standaloneVid++;
 
             TotalPairsCount = ComboTasks.Count;
             StandaloneImagesCount = standaloneImg;
@@ -217,12 +215,87 @@ namespace LivePhotoStudio.ViewModels
             ComboProgress = 0;
             ProgressText = $"0/{TotalPairsCount}";
 
+            _lastSortColumn = "Name";
+            _sortAscending = true;
+            NameSortIcon = ""; SizeSortIcon = ""; StatusSortIcon = "";
+
             if (string.IsNullOrWhiteSpace(OutputDirectory) && ComboTasks.Count > 0)
-            {
                 OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
-            }
 
             AppStatus = $"扫描完成：已成功匹配 {TotalPairsCount} 组实况文件";
+        }
+
+        [RelayCommand]
+        private void ToggleSecondaryAction()
+        {
+            if (!IsProcessing)
+            {
+                ComboTasks.Clear();
+                TotalPairsCount = 0;
+                StandaloneImagesCount = 0;
+                StandaloneVideosCount = 0;
+                ComboProgress = 0;
+                ProgressText = "0/0";
+                AppStatus = $"已清空列表 | 就绪环境: {_hwEncoderName}";
+            }
+            else
+            {
+                if (IsPaused)
+                {
+                    IsPaused = false;
+                    AppStatus = "已恢复合并队列运行...";
+                    _pauseEvent.Set();
+                }
+                else
+                {
+                    IsPaused = true;
+                    AppStatus = "已请求暂停，正在等待当前任务完结...";
+                    _pauseEvent.Reset();
+                }
+            }
+        }
+
+        [RelayCommand]
+        private void Sort(string columnName)
+        {
+            if (IsProcessing || ComboTasks.Count == 0) return;
+
+            if (_lastSortColumn == columnName)
+                _sortAscending = !_sortAscending;
+            else
+            {
+                _sortAscending = true;
+                _lastSortColumn = columnName;
+            }
+
+            NameSortIcon = ""; SizeSortIcon = ""; StatusSortIcon = "";
+            string iconStr = _sortAscending ? "▲" : "▼";
+
+            switch (columnName)
+            {
+                case "Name": NameSortIcon = iconStr; break;
+                case "Size": SizeSortIcon = iconStr; break;
+                case "Status": StatusSortIcon = iconStr; break;
+            }
+
+            IEnumerable<LivePhotoTask> sorted;
+            switch (columnName)
+            {
+                case "Name":
+                    sorted = _sortAscending ? ComboTasks.OrderBy(x => x.BaseName) : ComboTasks.OrderByDescending(x => x.BaseName);
+                    break;
+                case "Size":
+                    sorted = _sortAscending ? ComboTasks.OrderBy(x => x.TotalSizeBytes) : ComboTasks.OrderByDescending(x => x.TotalSizeBytes);
+                    break;
+                case "Status":
+                    sorted = _sortAscending ? ComboTasks.OrderBy(x => (int)x.Status) : ComboTasks.OrderByDescending(x => (int)x.Status);
+                    break;
+                default: return;
+            }
+
+            var sortedList = sorted.ToList();
+            ComboTasks.Clear();
+            foreach (var item in sortedList) ComboTasks.Add(item);
         }
 
         [RelayCommand]
@@ -231,11 +304,11 @@ namespace LivePhotoStudio.ViewModels
             if (IsProcessing)
             {
                 _cancellationTokenSource?.Cancel();
+                _pauseEvent.Set();
                 ActionBtnText = "正在停止...";
                 return;
             }
 
-            // 新增逻辑：如果是空列表，弹出提示框阻止运行
             if (ComboTasks.Count == 0)
             {
                 if (App.MainWindow?.Content?.XamlRoot != null)
@@ -249,7 +322,6 @@ namespace LivePhotoStudio.ViewModels
                     };
                     await dialog.ShowAsync();
                 }
-                AppStatus = "警告：队列为空，请先扫描实况照片";
                 return;
             }
 
@@ -259,24 +331,23 @@ namespace LivePhotoStudio.ViewModels
                 return;
             }
 
-            // 将发后即忘后台任务包装调用，以解绑 UI
             _ = RunComboTasksAsync();
         }
 
         private async Task RunComboTasksAsync()
         {
             IsProcessing = true;
+            IsPaused = false;
+            _pauseEvent.Set();
             ActionBtnText = "停止运行";
             ComboProgress = 0;
             ProgressText = $"0/{TotalPairsCount}";
             _cancellationTokenSource = new CancellationTokenSource();
 
-            // 点击开始合成时，才真正在硬盘上创建这个目录
             if (!Directory.Exists(OutputDirectory)) Directory.CreateDirectory(OutputDirectory);
 
             int completed = 0;
             AppStatus = "正在全速进行原生合并 (纯I/O模式)...";
-
             Stopwatch sw = Stopwatch.StartNew();
 
             try
@@ -292,6 +363,8 @@ namespace LivePhotoStudio.ViewModels
                 {
                     if (task.Status == ProcessStatus.Success) return;
 
+                    _pauseEvent.Wait(token);
+
                     App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                     {
                         task.Status = ProcessStatus.Processing;
@@ -304,7 +377,6 @@ namespace LivePhotoStudio.ViewModels
                     {
                         task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
                         task.Details = detailMsg;
-                        task.Progress = isSuccess ? 100 : 0;
 
                         Interlocked.Increment(ref completed);
                         ComboProgress = (completed * 100.0) / TotalPairsCount;
@@ -320,11 +392,10 @@ namespace LivePhotoStudio.ViewModels
             {
                 sw.Stop();
                 IsProcessing = false;
+                IsPaused = false;
+                _pauseEvent.Set();
                 ActionBtnText = "开始合成";
-                if (ComboProgress >= 100)
-                {
-                    AppStatus = $"全部合成任务完成！总共耗时 {sw.Elapsed.TotalSeconds:F1} 秒";
-                }
+                if (ComboProgress >= 100) AppStatus = $"全部合成任务完成！总共耗时 {sw.Elapsed.TotalSeconds:F1} 秒";
             }
         }
 
@@ -334,14 +405,10 @@ namespace LivePhotoStudio.ViewModels
             {
                 string outputName = SelectedModeIndex == 0 ? $"MVIMG_{baseName}.jpg" : $"{baseName}.MP.jpg";
                 string finalOutputPath = Path.Combine(OutputDirectory, outputName);
-
                 string toolsDir = Path.Combine(AppContext.BaseDirectory, "Tools");
                 string exiftoolPath = Path.Combine(toolsDir, "exiftool.exe");
 
-                if (!File.Exists(exiftoolPath))
-                {
-                    return (false, "缺少 ExifTool，请检查 Tools 文件夹");
-                }
+                if (!File.Exists(exiftoolPath)) return (false, "缺少 ExifTool，请检查 Tools 文件夹");
 
                 File.Copy(imagePath, finalOutputPath, true);
                 long videoSize = new FileInfo(videoPath).Length;
@@ -360,17 +427,15 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
 <Container:Directory><rdf:Seq><rdf:li rdf:parseType=""Resource""><Container:Item Item:Mime=""image/jpeg"" Item:Semantic=""Primary"" Item:Length=""0"" Item:Padding=""0""/></rdf:li>
 <rdf:li rdf:parseType=""Resource""><Container:Item Item:Mime=""video/mp4"" Item:Semantic=""MotionPhoto"" Item:Length=""{videoSize}"" Item:Padding=""0""/></rdf:li>
 </rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=""w""?>";
-
                     string tempXmp = Path.Combine(OutputDirectory, $"temp_{Guid.NewGuid()}.xmp");
                     File.WriteAllText(tempXmp, xmpContent);
-
                     var args = $"-xmp<=\"{tempXmp}\" \"{finalOutputPath}\" -overwrite_original";
                     await RunProcessAsync(exiftoolPath, args, token);
                     if (File.Exists(tempXmp)) File.Delete(tempXmp);
                 }
 
-                using (var fsOutput = new FileStream(finalOutputPath, FileMode.Append, FileAccess.Write))
-                using (var fsVideo = new FileStream(videoPath, FileMode.Open, FileAccess.Read))
+                using (var fsOutput = new FileStream(finalOutputPath, FileMode.Append, System.IO.FileAccess.Write))
+                using (var fsVideo = new FileStream(videoPath, FileMode.Open, System.IO.FileAccess.Read))
                 {
                     await fsVideo.CopyToAsync(fsOutput, token);
                 }
@@ -382,7 +447,6 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
                     {
                         var imgFile = await StorageFile.GetFileFromPathAsync(imagePath);
                         await imgFile.DeleteAsync(StorageDeleteOption.Default);
-
                         var vidFile = await StorageFile.GetFileFromPathAsync(videoPath);
                         await vidFile.DeleteAsync(StorageDeleteOption.Default);
                         resultStatus += " (已移至回收站)";
@@ -392,27 +456,14 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
 
                 return (true, resultStatus);
             }
-            catch (Exception ex)
-            {
-                return (false, "错误: " + ex.Message);
-            }
+            catch (Exception ex) { return (false, "错误: " + ex.Message); }
         }
 
         private async Task<string> RunProcessAndGetOutputAsync(string filePath, string args, CancellationToken token = default)
         {
             try
             {
-                using var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = filePath,
-                        Arguments = args,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true
-                    }
-                };
+                using var process = new Process { StartInfo = new ProcessStartInfo { FileName = filePath, Arguments = args, UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true } };
                 process.Start();
                 string output = await process.StandardOutput.ReadToEndAsync(token);
                 await process.WaitForExitAsync(token);
@@ -424,25 +475,9 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
         private Task<int> RunProcessAsync(string filePath, string args, CancellationToken token)
         {
             var tcs = new TaskCompletionSource<int>();
-            var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = filePath,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                },
-                EnableRaisingEvents = true
-            };
-
+            var process = new Process { StartInfo = new ProcessStartInfo { FileName = filePath, Arguments = args, UseShellExecute = false, CreateNoWindow = true }, EnableRaisingEvents = true };
             process.Exited += (sender, e) => { tcs.TrySetResult(process.ExitCode); };
-
-            using (token.Register(() =>
-            {
-                try { if (!process.HasExited) process.Kill(); } catch { }
-                tcs.TrySetCanceled();
-            }))
+            using (token.Register(() => { try { if (!process.HasExited) process.Kill(); } catch { } tcs.TrySetCanceled(); }))
             {
                 process.Start();
                 return tcs.Task;

@@ -100,7 +100,7 @@
                      VerticalAlignment="Stretch"
                      Margin="0"
                      Padding="8,4"
-                     Text="[System] 控制台已初始化，等待批量任务分配...&#x0a;[System] 已应用极致锁定 Terminal 样式。即使鼠标悬停，背景也不会变灰，文字也不会消失。&#x0a;[System] 强行停止按钮已更新，颜色已设定为用户指定的 RGB (244, 67, 54)。&#x0a;[System] 强行停止按钮已修复：图标更换为同根同源的 FontIcon (X形，大小 14)，彻底解决视觉偏差与居中对齐问题。"/>
+                     Text="功能开发中..."/>
         </Border>
     </Grid>
 </Page>

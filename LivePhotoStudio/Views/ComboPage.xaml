@@ -96,88 +96,152 @@
             </StackPanel>
 
             <Button Grid.Column="1" Margin="0,0,12,0"
-                    Content="清空列表" 
-                    Command="{x:Bind ViewModel.ClearListCommand}" 
-                    IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
+                    Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" 
+                    Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}" 
                     Width="100" Height="36"/>
 
-            <Button Grid.Column="2" 
-                    Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" 
-                    Command="{x:Bind ViewModel.ToggleProcessCommand}" 
-                    Style="{StaticResource AccentButtonStyle}" 
-                    Width="120" Height="36"/>
+            <Grid Grid.Column="2">
+                <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" 
+                        Command="{x:Bind ViewModel.ToggleProcessCommand}" 
+                        Visibility="{x:Bind InverseBoolToVisibility(ViewModel.IsProcessing), Mode=OneWay}"
+                        Style="{StaticResource AccentButtonStyle}" 
+                        Width="120" Height="36"/>
+
+                <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" 
+                        Command="{x:Bind ViewModel.ToggleProcessCommand}" 
+                        Visibility="{x:Bind BoolToVisibility(ViewModel.IsProcessing), Mode=OneWay}"
+                        Foreground="White" BorderBrush="#EF4444" BorderThickness="1" Background="#EF4444"
+                        Width="120" Height="36">
+                    <Button.Resources>
+                        <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#DC2626"/>
+                        <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="#DC2626"/>
+                        <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="White"/>
+                        <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#B91C1C"/>
+                        <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="#B91C1C"/>
+                        <SolidColorBrush x:Key="ButtonForegroundPressed" Color="White"/>
+                    </Button.Resources>
+                </Button>
+            </Grid>
         </Grid>
 
         <Border Grid.Row="2" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                <Grid Grid.Row="0" Padding="12,0,8,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="60"/>
-                        <ColumnDefinition Width="3.5*"/>
-                        <ColumnDefinition Width="2*"/>
-                        <ColumnDefinition Width="2*"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="序号" FontWeight="SemiBold" FontSize="13"/>
-                    <TextBlock Grid.Column="1" Text="文件组" FontWeight="SemiBold" FontSize="13"/>
-                    <TextBlock Grid.Column="2" Text="进度" FontWeight="SemiBold" FontSize="13"/>
-                    <TextBlock Grid.Column="3" Text="状态" FontWeight="SemiBold" FontSize="13"/>
-                </Grid>
+            <ListView ItemsSource="{x:Bind ViewModel.ComboTasks}" SelectionMode="None" ShowsScrollingPlaceholders="False">
+                <ListView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="2" />
+                    </ItemsPanelTemplate>
+                </ListView.ItemsPanel>
 
-                <ListView Grid.Row="1" ItemsSource="{x:Bind ViewModel.ComboTasks}" SelectionMode="None" Margin="0,8,0,0">
-                    <ListView.ItemContainerStyle>
-                        <Style TargetType="ListViewItem">
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            <Setter Property="Margin" Value="0,0,0,6"/>
-                            <Setter Property="Padding" Value="0"/>
-                        </Style>
-                    </ListView.ItemContainerStyle>
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:LivePhotoTask">
-                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}" 
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
-                                    BorderThickness="1" 
-                                    CornerRadius="6" 
-                                    Padding="12,10,8,10">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="60"/>
-                                        <ColumnDefinition Width="3.5*"/>
-                                        <ColumnDefinition Width="2*"/>
-                                        <ColumnDefinition Width="2*"/>
-                                    </Grid.ColumnDefinitions>
+                <ListView.Header>
+                    <Grid Padding="12,0,12,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="60"/>
+                            <ColumnDefinition Width="56"/>
+                            <ColumnDefinition Width="3*"/>
+                            <ColumnDefinition Width="1.5*"/>
+                            <ColumnDefinition Width="2.5*"/>
+                        </Grid.ColumnDefinitions>
 
-                                    <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Grid.Column="0" Text="序号" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
 
-                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
-                                        <TextBlock FontSize="13">
-                                            <Run Text="[图] " Foreground="#10B981" FontWeight="Bold"/>
-                                            <Run Text="{x:Bind DisplayImageName}" ToolTipService.ToolTip="{x:Bind ImageFileName}"/>
-                                        </TextBlock>
-                                        <TextBlock FontSize="13">
-                                            <Run Text="[视] " Foreground="#6366F1" FontWeight="Bold"/>
-                                            <Run Text="{x:Bind DisplayVideoName}" ToolTipService.ToolTip="{x:Bind VideoFileName}"/>
-                                        </TextBlock>
-                                    </StackPanel>
+                        <Button Grid.Column="1" Grid.ColumnSpan="2" Command="{x:Bind ViewModel.SortCommand}" CommandParameter="Name" Background="Transparent" BorderThickness="0" Padding="0,4,8,4" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="文件组" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.NameSortIcon, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
 
-                                    <ProgressBar Grid.Column="2" 
-                                                 Value="{x:Bind Progress, Mode=OneWay}" 
-                                                 Maximum="100" 
-                                                 VerticalAlignment="Center" 
-                                                 Height="14" 
-                                                 CornerRadius="7" 
-                                                 Margin="0,0,24,0" />
+                        <Button Grid.Column="3" Command="{x:Bind ViewModel.SortCommand}" CommandParameter="Size" Background="Transparent" BorderThickness="0" Padding="0,4,8,4" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="大小" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.SizeSortIcon, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
 
-                                    <TextBlock Grid.Column="3" Text="{x:Bind Details, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextTrimming="CharacterEllipsis"/>
-                                </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
-            </Grid>
+                        <Button Grid.Column="4" Command="{x:Bind ViewModel.SortCommand}" CommandParameter="Status" Background="Transparent" BorderThickness="0" Padding="0,4,8,4" HorizontalAlignment="Left">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="状态" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.StatusSortIcon, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </ListView.Header>
+
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Margin" Value="0,0,0,6"/>
+                        <Setter Property="Padding" Value="0"/>
+                        <Setter Property="MinHeight" Value="0"/>
+                    </Style>
+                </ListView.ItemContainerStyle>
+
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="models:LivePhotoTask">
+                        <Border Background="{ThemeResource LayerFillColorDefaultBrush}" 
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
+                                BorderThickness="1" 
+                                CornerRadius="6" 
+                                Padding="12,8,12,8">
+                            <Grid ColumnSpacing="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="60"/>
+                                    <ColumnDefinition Width="56"/>
+                                    <ColumnDefinition Width="3*"/>
+                                    <ColumnDefinition Width="1.5*"/>
+                                    <ColumnDefinition Width="2.5*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                                <Border Grid.Column="1" Width="46" Height="46" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,10,0">
+                                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                </Border>
+
+                                <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
+                                    <Button Click="FileGroupButton_Click" Tag="{x:Bind ImagePath}" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" CornerRadius="4">
+                                        <Button.Resources>
+                                            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#B91C1C"/>
+                                            <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="White"/>
+                                            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#991B1B"/>
+                                            <SolidColorBrush x:Key="ButtonForegroundPressed" Color="White"/>
+                                        </Button.Resources>
+                                        <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
+                                            <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
+                                            <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}" ToolTipService.ToolTip="{x:Bind ImageFileName}"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left" CornerRadius="4">
+                                        <Button.Resources>
+                                            <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="#B91C1C"/>
+                                            <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="White"/>
+                                            <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="#991B1B"/>
+                                            <SolidColorBrush x:Key="ButtonForegroundPressed" Color="White"/>
+                                        </Button.Resources>
+                                        <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
+                                            <FontIcon Glyph="&#xE714;" Foreground="#A855F7" FontSize="14" VerticalAlignment="Center"/>
+                                            <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayVideoName}" ToolTipService.ToolTip="{x:Bind VideoFileName}"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="6">
+                                    <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind ImageSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,4,0,0"/>
+                                    <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind VideoSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                </StackPanel>
+
+                                <TextBlock Grid.Column="4" 
+                                           Text="{x:Bind Details, Mode=OneWay}" 
+                                           VerticalAlignment="Center" 
+                                           FontWeight="SemiBold" 
+                                           FontSize="13" 
+                                           TextWrapping="Wrap" 
+                                           MaxLines="3" />
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
         </Border>
     </Grid>
 </Page>
