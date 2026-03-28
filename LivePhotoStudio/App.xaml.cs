@@ -27,7 +27,7 @@ namespace LivePhotoStudio
     /// </summary>
     public partial class App : Application
     {
-        private Window? _window;
+        public static Window? MainWindow { get; private set; }
 
         // Cache for banner image
         public static BitmapImage? CachedBannerImage { get; set; }
@@ -47,8 +47,8 @@ namespace LivePhotoStudio
         /// <param name="args">Details about the launch request and process.</param>
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            _window = new MainWindow();
-            _window.Activate();
+            MainWindow = new MainWindow();
+            MainWindow.Activate();
         }
     }
 }
