@@ -20,7 +20,7 @@ namespace LivePhotoStudio.Views
         private void Grid_DragOver(object _, DragEventArgs e)
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "释放以导入需要拆解的照片";
+            e.DragUIOverride.Caption = "释放以导入需要拆分的照片";
         }
 
         private async void Grid_Drop(object _, DragEventArgs e)
@@ -34,7 +34,7 @@ namespace LivePhotoStudio.Views
                     {
                         FileName = item.Name,
                         Status = ProcessStatus.Pending,
-                        Details = "等待拆解..."
+                        Details = "等待拆分..."
                     });
                 }
             }

@@ -7,6 +7,7 @@ using LivePhotoStudio.ViewModels;
 using Microsoft.UI.Windowing;
 using Microsoft.UI;
 using Windows.Graphics;
+using Windows.UI;
 
 namespace LivePhotoStudio
 {
@@ -26,7 +27,25 @@ namespace LivePhotoStudio
 
             if (appWindow != null)
             {
-                appWindow.Resize(new SizeInt32(1318, 868));
+                int windowWidth = 1414;
+                int windowHeight = 868;
+                appWindow.Resize(new SizeInt32(windowWidth, windowHeight));
+
+                // Center the window on the current display
+                try
+                {
+                    var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
+                    var workArea = displayArea.WorkArea;
+
+                    int x = workArea.X + (workArea.Width - windowWidth) / 2;
+                    int y = workArea.Y + (workArea.Height - windowHeight) / 2;
+
+                    appWindow.Move(new PointInt32(x, y));
+                }
+                catch
+                {
+                    // If centering fails, just use default position
+                }
             }
 
             NavView.Loaded += (s, e) =>
@@ -38,8 +57,9 @@ namespace LivePhotoStudio
             };
 
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
-            UpdateBackdrop();
+            // Apply theme first, then backdrop so pure color mode uses correct background
             UpdateTheme();
+            UpdateBackdrop();
 
             // 这里的导航改为了 HomePage
             MainFrame.Navigate(typeof(Views.HomePage));
@@ -65,7 +85,31 @@ namespace LivePhotoStudio
             {
                 if (ViewModel.BackdropIndex == 3)
                 {
-                    rootGrid.Background = (Brush)Application.Current.Resources["ApplicationPageBackgroundThemeBrush"];
+                    // Pure color mode: determine color based on current element theme
+                    ElementTheme currentTheme = ElementTheme.Default;
+                    if (rootGrid is FrameworkElement fe)
+                    {
+                        currentTheme = fe.RequestedTheme;
+                    }
+
+                    // If theme is Default, check the actual system theme
+                    if (currentTheme == ElementTheme.Default)
+                    {
+                        var settings = new Windows.UI.ViewManagement.UISettings();
+                        var frameworkTheme = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
+                        // If background is black (0,0,0), system is dark; otherwise light
+                        currentTheme = (frameworkTheme.R < 128) ? ElementTheme.Dark : ElementTheme.Light;
+                    }
+
+                    // Set appropriate background color based on theme
+                    if (currentTheme == ElementTheme.Dark)
+                    {
+                        rootGrid.Background = new SolidColorBrush(Microsoft.UI.Colors.Black);
+                    }
+                    else
+                    {
+                        rootGrid.Background = new SolidColorBrush(Microsoft.UI.Colors.White);
+                    }
                 }
                 else
                 {
@@ -79,6 +123,12 @@ namespace LivePhotoStudio
             if (this.Content is FrameworkElement rootElement)
             {
                 rootElement.RequestedTheme = (ElementTheme)ViewModel.ElementTheme;
+            }
+
+            // Also update backdrop when theme changes to ensure pure color mode uses correct background
+            if (ViewModel.BackdropIndex == 3)
+            {
+                UpdateBackdrop();
             }
         }
 

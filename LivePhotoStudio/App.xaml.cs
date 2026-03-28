@@ -9,6 +9,7 @@ using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Navigation;
 using Microsoft.UI.Xaml.Shapes;
 using Windows.ApplicationModel;
@@ -27,6 +28,9 @@ namespace LivePhotoStudio
     public partial class App : Application
     {
         private Window? _window;
+
+        // Cache for banner image
+        public static BitmapImage? CachedBannerImage { get; set; }
 
         /// <summary>
         /// Initializes the singleton application object.  This is the first line of authored code
@@ -48,3 +52,4 @@ namespace LivePhotoStudio
         }
     }
 }
+

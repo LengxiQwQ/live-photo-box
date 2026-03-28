@@ -5,7 +5,8 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoStudio.Models"
-    mc:Ignorable="d" Background="Transparent">
+    mc:Ignorable="d" Background="Transparent"
+    NavigationCacheMode="Required">
 
     <Grid Padding="12,0,0,0" RowSpacing="12">
         <Grid.RowDefinitions>

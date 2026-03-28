@@ -11,7 +11,7 @@
 
             <Grid Height="350" Margin="0,32,0,16" CornerRadius="12">
 
-                <Image Source="/Assets/BannerImage.png" Stretch="UniformToFill" />
+                <Image x:Name="BannerImage" Stretch="UniformToFill" CacheMode="BitmapCache" />
 
                 <Border CornerRadius="12" Background="#40000000"/>
 
@@ -47,7 +47,7 @@
                     </StackPanel>
 
                     <TextBlock TextWrapping="Wrap" LineHeight="26" FontFamily="Microsoft YaHei UI" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                        Live Photo Studio 是一款开源的实况照片处理工具箱，旨在为用户提供便捷、高效的 Android 与 iOS 实况照片合成与拆解体验。<Run FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}">不仅如此，作为一名深度二次元宅男开发的软件，我们更加关注每一张照片背后的故事和情感。</Run>
+                        Live Photo Studio 是一款开源的实况照片处理工具箱，旨在为用户提供便捷、高效的 Android 与 iOS 实况照片合成与拆分体验。<Run FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}">不仅如此，作为一名深度二次元宅男开发的软件，我们更加关注每一张照片背后的故事和情感。</Run>
                     </TextBlock>
 
                     <TextBlock TextWrapping="Wrap" LineHeight="26" FontFamily="Microsoft YaHei UI" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
@@ -65,7 +65,7 @@
                             <FontIcon Glyph="&#xE951;" FontSize="16" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <TextBlock Text="友情提示 :" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                         </StackPanel>
-                        <TextBlock Grid.Column="1" Text="在使用合成或拆解功能前，建议先确认你拥有原照片的备份，毕竟数据安全重于泰山。(^-^*)" 
+                        <TextBlock Grid.Column="1" Text="在使用合成或拆分功能前，建议先确认你拥有原照片的备份，毕竟数据安全重于泰山。(^-^*)" 
                                    Margin="12,0,0,0"
                                    VerticalAlignment="Center"
                                    TextWrapping="Wrap"

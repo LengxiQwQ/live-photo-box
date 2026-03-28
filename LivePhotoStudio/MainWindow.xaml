@@ -33,10 +33,10 @@
 
                 <NavigationViewItem Content="实况照片合成" Tag="Combo">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE91B;"/>
+                        <FontIcon Glyph="&#xE8B1;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Icon="Cut" Content="实况照片拆解" Tag="Split"/>
+                <NavigationViewItem Icon="Cut" Content="实况照片拆分" Tag="Split"/>
                 <NavigationViewItem Icon="Repair" Content="缩略图修复" Tag="Repair"/>
             </NavigationView.MenuItems>
 

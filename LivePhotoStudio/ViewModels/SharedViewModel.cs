@@ -26,7 +26,7 @@ namespace LivePhotoStudio.ViewModels
 
         [ObservableProperty] private bool _keepOriginal = true;
 
-        // === 实况照片拆解参数 ===
+        // === 实况照片拆分参数 ===
         // 0: MP4, 1: MOV
         [ObservableProperty] private int _splitVideoFormat = 1; // 默认改为 1 (MOV)
 

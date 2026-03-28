@@ -5,7 +5,8 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoStudio.Models"
-    mc:Ignorable="d" Background="Transparent">
+    mc:Ignorable="d" Background="Transparent"
+    NavigationCacheMode="Required">
 
     <Grid Padding="12,0,0,0" RowSpacing="12">
         <Grid.RowDefinitions>
@@ -16,7 +17,7 @@
 
         <Grid Grid.Row="0" AllowDrop="True" DragOver="Grid_DragOver" Drop="Grid_Drop">
             <Rectangle StrokeDashArray="4,4" Stroke="{ThemeResource CyberPurpleBrush}" StrokeThickness="2" RadiusX="8" RadiusY="8" Fill="{ThemeResource CardBackgroundBrush}"/>
-            <Image Source="ms-appx:///Assets/anime_lineart_bg.png" Opacity="0.1" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <Image x:Name="BgImage" Opacity="0.1" Stretch="UniformToFill" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
                 <FontIcon Glyph="&#xE8B5;" FontSize="32" Foreground="{ThemeResource CyberCyanBrush}"/>
                 <TextBlock Text="拖拽出现方向错误或拉伸的照片/视频至此进行修复" FontSize="14" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
