@@ -57,6 +57,7 @@ namespace LivePhotoStudio
             };
 
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+
             // Apply theme first, then backdrop so pure color mode uses correct background
             UpdateTheme();
             UpdateBackdrop();
@@ -125,10 +126,56 @@ namespace LivePhotoStudio
                 rootElement.RequestedTheme = (ElementTheme)ViewModel.ElementTheme;
             }
 
+            // [新增] 每次切换主题时，手动同步标题栏右侧三大金刚键的颜色
+            UpdateTitleBarButtonColors();
+
             // Also update backdrop when theme changes to ensure pure color mode uses correct background
             if (ViewModel.BackdropIndex == 3)
             {
                 UpdateBackdrop();
+            }
+        }
+
+        // [新增] 核心修复方法：根据当前深浅色模式重绘系统标题栏控制按钮的颜色
+        private void UpdateTitleBarButtonColors()
+        {
+            IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            WindowId windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
+            AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
+
+            // 检查系统 API 是否支持自定义标题栏颜色
+            if (AppWindowTitleBar.IsCustomizationSupported() && appWindow.TitleBar != null)
+            {
+                ElementTheme currentTheme = (ElementTheme)ViewModel.ElementTheme;
+
+                // 若为跟随系统，需主动读取系统当前的色彩设置
+                if (currentTheme == ElementTheme.Default)
+                {
+                    var settings = new Windows.UI.ViewManagement.UISettings();
+                    var frameworkTheme = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
+                    currentTheme = (frameworkTheme.R < 128) ? ElementTheme.Dark : ElementTheme.Light;
+                }
+
+                if (currentTheme == ElementTheme.Dark)
+                {
+                    // 深色模式下：图标设为纯白，悬停/按下时的底色调整为半透明白色
+                    appWindow.TitleBar.ButtonForegroundColor = Microsoft.UI.Colors.White;
+                    appWindow.TitleBar.ButtonHoverForegroundColor = Microsoft.UI.Colors.White;
+                    appWindow.TitleBar.ButtonHoverBackgroundColor = Color.FromArgb(25, 255, 255, 255);
+                    appWindow.TitleBar.ButtonPressedForegroundColor = Microsoft.UI.Colors.White;
+                    appWindow.TitleBar.ButtonPressedBackgroundColor = Color.FromArgb(51, 255, 255, 255);
+                    appWindow.TitleBar.ButtonInactiveForegroundColor = Microsoft.UI.Colors.DarkGray;
+                }
+                else
+                {
+                    // 浅色模式下：图标设为纯黑，悬停/按下时的底色调整为半透明黑色
+                    appWindow.TitleBar.ButtonForegroundColor = Microsoft.UI.Colors.Black;
+                    appWindow.TitleBar.ButtonHoverForegroundColor = Microsoft.UI.Colors.Black;
+                    appWindow.TitleBar.ButtonHoverBackgroundColor = Color.FromArgb(25, 0, 0, 0);
+                    appWindow.TitleBar.ButtonPressedForegroundColor = Microsoft.UI.Colors.Black;
+                    appWindow.TitleBar.ButtonPressedBackgroundColor = Color.FromArgb(51, 0, 0, 0);
+                    appWindow.TitleBar.ButtonInactiveForegroundColor = Microsoft.UI.Colors.Gray;
+                }
             }
         }
 
