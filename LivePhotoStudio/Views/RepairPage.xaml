@@ -48,7 +48,7 @@
                 </Grid>
                 <ListView Grid.Row="1" ItemsSource="{x:Bind RepairTasks}" SelectionMode="None">
                     <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:LivePhotoTask">
+                         <DataTemplate x:DataType="models:LivePhotoTask">
                             <Grid Padding="0,8" ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="3*"/>
@@ -57,7 +57,7 @@
                                     <ColumnDefinition Width="2*"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Grid.Column="0" Text="{x:Bind FileName}" VerticalAlignment="Center" FontSize="13"/>
-                                <TextBlock Grid.Column="1" Text="{x:Bind Status, Mode=OneWay}" VerticalAlignment="Center" FontSize="13"/>
+                                <TextBlock Grid.Column="1" Text="{x:Bind Status, Mode=OneWay}" VerticalAlignment="Center" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                                 <ProgressBar Grid.Column="2" Value="{x:Bind Progress, Mode=OneWay}" Maximum="100" VerticalAlignment="Center" Margin="0,0,16,0"/>
                                 <TextBlock Grid.Column="3" Text="{x:Bind Details, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" FontSize="13"/>
                             </Grid>

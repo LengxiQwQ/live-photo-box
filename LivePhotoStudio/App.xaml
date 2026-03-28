@@ -14,13 +14,16 @@
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <SolidColorBrush x:Key="CardBackgroundBrush" Color="#FFFFFFFF" Opacity="0.9"/>
+                    <SolidColorBrush x:Key="ButtonHoverBrush" Color="#E5E5E5"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
                     <!-- Dark theme: use true dark colors -->
                     <SolidColorBrush x:Key="CardBackgroundBrush" Color="#FF1E1E1E" Opacity="0.95"/>
+                    <SolidColorBrush x:Key="ButtonHoverBrush" Color="#3D3D3D"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Default">
                     <SolidColorBrush x:Key="CardBackgroundBrush" Color="{ThemeResource LayerOnAcrylicFillColorDefault}" Opacity="0.8"/>
+                    <SolidColorBrush x:Key="ButtonHoverBrush" Color="#E5E5E5"/>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>

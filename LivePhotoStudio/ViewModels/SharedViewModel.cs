@@ -476,10 +476,34 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
         {
             var tcs = new TaskCompletionSource<int>();
             var process = new Process { StartInfo = new ProcessStartInfo { FileName = filePath, Arguments = args, UseShellExecute = false, CreateNoWindow = true }, EnableRaisingEvents = true };
-            process.Exited += (sender, e) => { tcs.TrySetResult(process.ExitCode); };
-            using (token.Register(() => { try { if (!process.HasExited) process.Kill(); } catch { } tcs.TrySetCanceled(); }))
+
+            // 注册取消令牌处理
+            var registration = token.Register(() => 
+            { 
+                try 
+                { 
+                    if (!process.HasExited) 
+                        process.Kill(true); // true = kill entire process tree
+                } 
+                catch { } 
+                tcs.TrySetCanceled(); 
+            });
+
+            process.Exited += (sender, e) => 
+            { 
+                registration.Dispose();
+                tcs.TrySetResult(process.ExitCode); 
+            };
+
+            try
             {
                 process.Start();
+                return tcs.Task;
+            }
+            catch (Exception ex)
+            {
+                registration.Dispose();
+                tcs.TrySetException(ex);
                 return tcs.Task;
             }
         }
