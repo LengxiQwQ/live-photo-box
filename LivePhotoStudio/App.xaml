@@ -11,9 +11,18 @@
             <SolidColorBrush x:Key="CyberCyanBrush" Color="#00E5FF"/>
             <SolidColorBrush x:Key="CyberPurpleBrush" Color="#B388FF"/>
 
-            <SolidColorBrush x:Key="CardBackgroundBrush" 
-                             Color="{ThemeResource LayerOnAcrylicFillColorDefault}" 
-                             Opacity="0.8"/>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#FFFFFFFF" Opacity="0.9"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <!-- Dark theme: use true dark colors -->
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#FF1E1E1E" Opacity="0.95"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="{ThemeResource LayerOnAcrylicFillColorDefault}" Opacity="0.8"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
         </ResourceDictionary>
     </Application.Resources>
 </Application>

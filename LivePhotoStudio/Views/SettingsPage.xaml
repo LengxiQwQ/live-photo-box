@@ -4,7 +4,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d" Background="Transparent" Language="zh-CN">
+    mc:Ignorable="d" Background="Transparent" Language="zh-CN"
+    NavigationCacheMode="Required">
 
     <ScrollViewer Padding="40,24">
         <StackPanel Spacing="32" MaxWidth="1100" HorizontalAlignment="Stretch">
@@ -37,10 +38,10 @@
                         <StackPanel Grid.Column="1" Spacing="8">
                             <ComboBox Header="窗口材质" HorizontalAlignment="Stretch" 
                                       SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}">
-                                <ComboBoxItem Content="Mica (标准云母)"/>
-                                <ComboBoxItem Content="Mica Alt (精致云母)"/>
-                                <ComboBoxItem Content="Desktop Acrylic (亚克力)"/>
-                                <ComboBoxItem Content="纯色"/>
+                                <ComboBoxItem Content="Mica"/>
+                                <ComboBoxItem Content="Mica Alt"/>
+                                <ComboBoxItem Content="Desktop Acrylic"/>
+                                <ComboBoxItem Content="None"/>
                             </ComboBox>
                             <TextBlock Text="选择 Windows 11 沉浸式背景" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
@@ -104,7 +105,7 @@
             <StackPanel Spacing="16">
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                     <FontIcon Glyph="&#xE8C6;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                    <TextBlock Text="实况照片拆解" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    <TextBlock Text="实况照片拆分" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                 </StackPanel>
 
                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
@@ -122,7 +123,7 @@
                                 <ComboBoxItem Content="MP4 (H.264/HEVC)"/>
                                 <ComboBoxItem Content="MOV (QuickTime)"/>
                             </ComboBox>
-                            <TextBlock Text="选择拆解后视频的保存格式" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="选择拆分后视频的保存格式" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
                     </Grid>
                 </Border>

@@ -4,7 +4,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d" Background="Transparent" Language="zh-CN">
+    mc:Ignorable="d" Background="Transparent" Language="zh-CN"
+    NavigationCacheMode="Required">
 
     <ScrollViewer Padding="40,24">
         <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center">
@@ -21,7 +22,7 @@
                 <StackPanel Spacing="16">
                     <TextBlock Text="关于本应用" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     <TextBlock TextWrapping="Wrap" LineHeight="24" FontFamily="Microsoft YaHei UI" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                        Live Photo Studio 是一款开源的实况照片处理工具箱，致力于为用户提供便捷的 Android 与 iOS 实况照片合成与拆解体验。支持最新的 Google 封装协议与高效的批量处理能力。
+                        Live Photo Studio 是一款开源的实况照片处理工具箱，致力于为用户提供便捷的 Android 与 iOS 实况照片合成与拆分体验。支持最新的 Google 封装协议与高效的批量处理能力。
                     </TextBlock>
 
                     <MenuFlyoutSeparator Margin="0,10"/>
