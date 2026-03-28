@@ -28,7 +28,7 @@ namespace LivePhotoStudio
             if (appWindow != null)
             {
                 int windowWidth = 1414;
-                int windowHeight = 868;
+                int windowHeight = 928;
                 appWindow.Resize(new SizeInt32(windowWidth, windowHeight));
 
                 // Center the window on the current display

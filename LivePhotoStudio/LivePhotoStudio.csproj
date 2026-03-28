@@ -15,6 +15,9 @@
 	</PropertyGroup>
 
 	<ItemGroup>
+		<None Remove="Tools\exiftool.exe" />
+		<None Remove="Tools\ffmpeg.exe" />
+		<None Remove="Tools\ffprobe.exe" />
 		<None Remove="Views\AboutPage.xaml" />
 		<None Remove="Views\ComboPage.xaml" />
 		<None Remove="Views\ConsolePage.xaml" />
@@ -31,6 +34,15 @@
 		<Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
 		<Content Include="Assets\StoreLogo.png" />
 		<Content Include="Assets\Wide310x150Logo.scale-200.png" />
+		<Content Include="Tools\exiftool.exe">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\ffmpeg.exe">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\ffprobe.exe">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
 	</ItemGroup>
 
 	<ItemGroup>
@@ -71,10 +83,6 @@
 		</Page>
 	</ItemGroup>
 
-	<ItemGroup>
-		<Folder Include="Tools\" />
-	</ItemGroup>
-
 	<PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
 		<HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
 	</PropertyGroup>
@@ -85,4 +93,10 @@
 		<PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
 		<PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
 	</PropertyGroup>
+	<ItemGroup>
+		<None Include="Tools\**\*">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+			<Visible>false</Visible>
+		</None>
+	</ItemGroup>
 </Project>

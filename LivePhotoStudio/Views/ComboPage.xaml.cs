@@ -1,10 +1,8 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Windows.ApplicationModel.DataTransfer;
 using System;
-using System.IO;
+using Windows.Storage.Pickers;
 using LivePhotoStudio.ViewModels;
-using LivePhotoStudio.Models;
 
 namespace LivePhotoStudio.Views
 {
@@ -17,27 +15,34 @@ namespace LivePhotoStudio.Views
             this.InitializeComponent();
         }
 
-        private void Grid_DragOver(object _, DragEventArgs e)
+        private async void BrowseInput_Click(object sender, RoutedEventArgs e)
         {
-            e.AcceptedOperation = DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "释放以导入";
+            var folder = await PickFolderAsync();
+            if (folder != null)
+            {
+                ViewModel.InputDirectory = folder.Path;
+                // [修改] 移除了自动扫描，改为用户手动点击“开始匹配”按钮
+            }
         }
 
-        private async void Grid_Drop(object _, DragEventArgs e)
+        private async void BrowseOutput_Click(object sender, RoutedEventArgs e)
         {
-            if (e.DataView.Contains(StandardDataFormats.StorageItems))
+            var folder = await PickFolderAsync();
+            if (folder != null)
             {
-                var items = await e.DataView.GetStorageItemsAsync();
-                foreach (var item in items)
-                {
-                    ViewModel.ComboTasks.Add(new LivePhotoTask
-                    {
-                        FileName = item.Name,
-                        Status = ProcessStatus.Pending,
-                        Details = "等待处理..."
-                    });
-                }
+                ViewModel.OutputDirectory = folder.Path;
             }
+        }
+
+        private async System.Threading.Tasks.Task<Windows.Storage.StorageFolder?> PickFolderAsync()
+        {
+            var folderPicker = new FolderPicker();
+            folderPicker.FileTypeFilter.Add("*");
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+            WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, hwnd);
+
+            return await folderPicker.PickSingleFolderAsync();
         }
     }
 }
