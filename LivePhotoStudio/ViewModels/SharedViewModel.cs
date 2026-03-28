@@ -54,13 +54,14 @@ namespace LivePhotoStudio.ViewModels
 
         [ObservableProperty] private bool _isMultiThreadEnabled = true;
 
+        [ObservableProperty] private bool _isDirectoryPanelOpen = true;
+
         private CancellationTokenSource? _cancellationTokenSource;
         private ManualResetEventSlim _pauseEvent = new ManualResetEventSlim(true);
 
         private string _hwEncoder = "libx265";
         private string _hwEncoderName = "Software CPU";
 
-        // 移除 Index 初始排序状态
         private string _lastSortColumn = "Name";
         private bool _sortAscending = true;
         [ObservableProperty] private string _nameSortIcon = "";
@@ -132,7 +133,8 @@ namespace LivePhotoStudio.ViewModels
                 e.PropertyName == nameof(ActionBtnText) || e.PropertyName == nameof(IsProcessing) ||
                 e.PropertyName == nameof(IsNotProcessing) || e.PropertyName == nameof(SecondaryBtnText) ||
                 e.PropertyName == nameof(IsPaused) || e.PropertyName == nameof(NameSortIcon) ||
-                e.PropertyName == nameof(SizeSortIcon) || e.PropertyName == nameof(StatusSortIcon)) return;
+                e.PropertyName == nameof(SizeSortIcon) || e.PropertyName == nameof(StatusSortIcon) ||
+                e.PropertyName == nameof(IsDirectoryPanelOpen)) return;
 
             var propertyInfo = GetType().GetProperty(e.PropertyName!);
             if (propertyInfo != null)
@@ -237,6 +239,8 @@ namespace LivePhotoStudio.ViewModels
                 ComboProgress = 0;
                 ProgressText = "0/0";
                 AppStatus = $"已清空列表 | 就绪环境: {_hwEncoderName}";
+
+                IsDirectoryPanelOpen = true;
             }
             else
             {
@@ -330,6 +334,8 @@ namespace LivePhotoStudio.ViewModels
                 AppStatus = "警告：请先设置输出保存目录";
                 return;
             }
+
+            IsDirectoryPanelOpen = false;
 
             _ = RunComboTasksAsync();
         }
@@ -472,40 +478,42 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
             catch { return string.Empty; }
         }
 
+        // [核心修改] 使用绝对安全的进程取消和退出逻辑，避免抛出异常引发应用闪退
         private Task<int> RunProcessAsync(string filePath, string args, CancellationToken token)
         {
             var tcs = new TaskCompletionSource<int>();
             var process = new Process { StartInfo = new ProcessStartInfo { FileName = filePath, Arguments = args, UseShellExecute = false, CreateNoWindow = true }, EnableRaisingEvents = true };
 
-            // 注册取消令牌处理
-            var registration = token.Register(() => 
-            { 
-                try 
-                { 
-                    if (!process.HasExited) 
-                        process.Kill(true); // true = kill entire process tree
-                } 
-                catch { } 
-                tcs.TrySetCanceled(); 
-            });
-
-            process.Exited += (sender, e) => 
-            { 
-                registration.Dispose();
-                tcs.TrySetResult(process.ExitCode); 
+            process.Exited += (sender, e) =>
+            {
+                tcs.TrySetResult(process.ExitCode);
             };
 
             try
             {
                 process.Start();
-                return tcs.Task;
             }
             catch (Exception ex)
             {
-                registration.Dispose();
                 tcs.TrySetException(ex);
                 return tcs.Task;
             }
+
+            var registration = token.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill();
+                }
+                catch { }
+                tcs.TrySetCanceled();
+            });
+
+            // 任务结束后安全注销 Token 监听器，防止内存泄漏
+            tcs.Task.ContinueWith(_ => registration.Dispose());
+
+            return tcs.Task;
         }
     }
 }
