@@ -377,4 +377,7 @@
   <data name="Msg_GotIt" xml:space="preserve">
     <value>我知道了</value>
   </data>
+  <data name="SettingsPage_Language.Header" xml:space="preserve">
+    <value>语言 (Language)</value>
+  </data>
 </root>

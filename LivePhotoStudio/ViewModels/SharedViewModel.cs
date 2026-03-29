@@ -2,6 +2,7 @@
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoStudio.Models;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -19,14 +20,7 @@ namespace LivePhotoStudio.ViewModels
     {
         public static SharedViewModel Instance { get; } = new SharedViewModel();
 
-        // [核心新增]：全局共享的资源加载器，用于在 C# 逻辑中读取多语言文本
-        private static Microsoft.Windows.ApplicationModel.Resources.ResourceLoader? _resLoader;
-        public static Microsoft.Windows.ApplicationModel.Resources.ResourceLoader ResLoader =>
-            _resLoader ??= new Microsoft.Windows.ApplicationModel.Resources.ResourceLoader();
-
-        private bool _isInitialized = false;
-
-        [ObservableProperty] private string _appStatus = "";
+        [ObservableProperty] private string _appStatus = "正在初始化组件";
         [ObservableProperty] private double _comboProgress = 0;
         [ObservableProperty] private string _progressText = "0/0";
 
@@ -37,7 +31,7 @@ namespace LivePhotoStudio.ViewModels
         [ObservableProperty] private int _standaloneImagesCount = 0;
         [ObservableProperty] private int _standaloneVideosCount = 0;
 
-        [ObservableProperty] private string _actionBtnText = "";
+        [ObservableProperty] private string _actionBtnText = "开始合成";
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsNotProcessing))]
@@ -50,22 +44,20 @@ namespace LivePhotoStudio.ViewModels
 
         public bool IsNotProcessing => !IsProcessing;
 
-        // 动态读取多语言的次要按钮文本 (清空列表 / 暂停 / 继续)
         public string SecondaryBtnText
         {
             get
             {
-                if (!IsProcessing) return ResLoader.GetString("Btn_ClearList");
-                return IsPaused ? ResLoader.GetString("Btn_Resume") : ResLoader.GetString("Btn_Pause");
+                if (!IsProcessing) return "清空列表";
+                return IsPaused ? "继续" : "暂停";
             }
         }
 
         [ObservableProperty] private bool _isMultiThreadEnabled = true;
-
         [ObservableProperty] private bool _isDirectoryPanelOpen = true;
 
         private CancellationTokenSource? _cancellationTokenSource;
-        private ManualResetEventSlim _pauseEvent = new ManualResetEventSlim(true);
+        private ManualResetEventSlim _pauseEvent = new(true);
 
         private string _hwEncoder = "libx265";
         private string _hwEncoderName = "Software CPU";
@@ -77,64 +69,102 @@ namespace LivePhotoStudio.ViewModels
         [ObservableProperty] private string _statusSortIcon = "";
 
         [ObservableProperty] private int _selectedModeIndex = 1;
-        public int[] ThreadOptions { get; } = new[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+
+        public int[] ThreadOptions { get; } = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
         [ObservableProperty] private int _threadCount = 4;
         [ObservableProperty] private bool _keepOriginal = true;
         [ObservableProperty] private int _splitVideoFormat = 1;
 
+        // 语言：0=跟随系统, 1=中文, 2=English
         [ObservableProperty] private int _languageIndex = 0;
         [ObservableProperty] private int _elementTheme = 0;
         [ObservableProperty] private int _backdropIndex = 0;
 
-        public ObservableCollection<LivePhotoTask> ComboTasks { get; } = new();
+        public ObservableCollection<LivePhotoTask> ComboTasks { get; } = [];
+
+        private bool _isInitialized = false;
 
         public SharedViewModel()
         {
-            // 初始化时赋予多语言的默认文本
-            AppStatus = ResLoader.GetString("Status_Init");
-            ActionBtnText = ResLoader.GetString("Btn_StartCombo");
-
             LoadSettings();
+
+            // 启动时覆盖语言上下文，防系统中文变体导致的回退英文
+            Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = GetEffectiveLanguage(LanguageIndex);
+
             _isInitialized = true;
             PropertyChanged += OnPropertyChangedSave;
             _ = DetectGPUAndInitializeAsync();
         }
 
-        partial void OnLanguageIndexChanged(int value)
+        // ==========================================
+        // 核心修复：纯粹读取你已有的 resw 并执行真正的重启
+        // ==========================================
+        partial void OnLanguageIndexChanged(int oldValue, int newValue)
         {
             if (!_isInitialized) return;
 
-            string langCode = value switch
-            {
-                1 => "zh-CN",
-                2 => "en-US",
-                _ => ""
-            };
+            string oldLang = GetEffectiveLanguage(oldValue);
+            string newLang = GetEffectiveLanguage(newValue);
 
-            Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = langCode;
+            Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = newLang;
 
-            if (App.MainWindow?.Content?.XamlRoot != null)
+            if (oldLang != newLang)
             {
-                App.MainWindow.DispatcherQueue.TryEnqueue(async () =>
+                ShowLanguageRestartPrompt(newLang);
+            }
+        }
+
+        private string GetEffectiveLanguage(int index)
+        {
+            if (index == 1) return "zh-Hans";
+            if (index == 2) return "en-US";
+
+            var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
+            foreach (var lang in systemLangs)
+            {
+                if (lang.ToLowerInvariant().StartsWith("zh")) return "zh-Hans";
+            }
+            return "en-US";
+        }
+
+        private void ShowLanguageRestartPrompt(string targetLang)
+        {
+            var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            dispatcher?.TryEnqueue(async () =>
+            {
+                if (App.MainWindow?.Content?.XamlRoot != null)
                 {
+                    var resourceManager = new Microsoft.Windows.ApplicationModel.Resources.ResourceManager();
+                    var resourceContext = resourceManager.CreateResourceContext();
+                    resourceContext.QualifierValues["Language"] = targetLang;
+
                     var dialog = new ContentDialog
                     {
-                        Title = ResLoader.GetString("RestartDialog_Title"),
-                        Content = ResLoader.GetString("RestartDialog_Content"),
-                        PrimaryButtonText = ResLoader.GetString("RestartDialog_PrimaryButton"),
-                        CloseButtonText = ResLoader.GetString("RestartDialog_CloseButton"),
-                        XamlRoot = App.MainWindow.Content.XamlRoot,
-                        DefaultButton = ContentDialogButton.Primary
+                        Title = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_Title", resourceContext).ValueAsString,
+                        Content = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_Content", resourceContext).ValueAsString,
+
+                        // 【修改这里】：PrimaryButton在左边，SecondaryButton在右边
+                        PrimaryButtonText = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_CloseButton", resourceContext).ValueAsString,
+                        SecondaryButtonText = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_PrimaryButton", resourceContext).ValueAsString,
+
+                        // （可选）让右侧的“重启”按钮作为默认高亮的主按钮
+                        DefaultButton = ContentDialogButton.Secondary,
+
+                        XamlRoot = App.MainWindow.Content.XamlRoot
                     };
 
                     var result = await dialog.ShowAsync();
-                    if (result == ContentDialogResult.Primary)
+
+                    // 【修改这里】：因为“立即重启”绑定到了 SecondaryButton，所以判断条件改为 Secondary
+                    if (result == ContentDialogResult.Secondary)
                     {
                         Microsoft.Windows.AppLifecycle.AppInstance.Restart("");
                     }
-                });
-            }
+                }
+            });
         }
+        // ==========================================
 
         private async Task DetectGPUAndInitializeAsync()
         {
@@ -143,7 +173,7 @@ namespace LivePhotoStudio.ViewModels
 
             if (!File.Exists(ffmpegPath))
             {
-                AppStatus = ResLoader.GetString("Status_NoFFmpeg");
+                AppStatus = "就绪 | 未检测到 FFmpeg 组件";
                 return;
             }
 
@@ -155,19 +185,19 @@ namespace LivePhotoStudio.ViewModels
                 else if (output.Contains("hevc_amf")) { _hwEncoder = "hevc_amf"; _hwEncoderName = "AMD GPU (AMF)"; }
                 else { _hwEncoder = "libx265"; _hwEncoderName = "Software CPU"; }
 
-                AppStatus = string.Format(ResLoader.GetString("Status_GPUFound"), _hwEncoderName);
+                AppStatus = $"就绪 | 已识别视频加速: {_hwEncoderName}";
             }
-            catch { AppStatus = ResLoader.GetString("Status_GPUFail"); }
+            catch { AppStatus = "就绪 | 显卡检测失败，默认使用 CPU 编码"; }
         }
 
         private void LoadSettings()
         {
             var settings = ApplicationData.Current.LocalSettings.Values;
-            if (settings.TryGetValue(nameof(LanguageIndex), out var lang)) _languageIndex = (int)lang;
             if (settings.TryGetValue(nameof(SelectedModeIndex), out var mode)) SelectedModeIndex = (int)mode;
             if (settings.TryGetValue(nameof(ThreadCount), out var thread)) ThreadCount = (int)thread;
             if (settings.TryGetValue(nameof(KeepOriginal), out var keep)) KeepOriginal = (bool)keep;
             if (settings.TryGetValue(nameof(SplitVideoFormat), out var split)) SplitVideoFormat = (int)split;
+            if (settings.TryGetValue(nameof(LanguageIndex), out var lang)) LanguageIndex = (int)lang;
             if (settings.TryGetValue(nameof(ElementTheme), out var theme)) ElementTheme = (int)theme;
             if (settings.TryGetValue(nameof(BackdropIndex), out var backdrop)) BackdropIndex = (int)backdrop;
             if (settings.TryGetValue(nameof(IsMultiThreadEnabled), out var isMulti)) IsMultiThreadEnabled = (bool)isMulti;
@@ -175,15 +205,12 @@ namespace LivePhotoStudio.ViewModels
 
         private void OnPropertyChangedSave(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(AppStatus) || e.PropertyName == nameof(ComboProgress) ||
-                e.PropertyName == nameof(ProgressText) || e.PropertyName == nameof(InputDirectory) ||
-                e.PropertyName == nameof(OutputDirectory) || e.PropertyName == nameof(TotalPairsCount) ||
-                e.PropertyName == nameof(StandaloneImagesCount) || e.PropertyName == nameof(StandaloneVideosCount) ||
-                e.PropertyName == nameof(ActionBtnText) || e.PropertyName == nameof(IsProcessing) ||
-                e.PropertyName == nameof(IsNotProcessing) || e.PropertyName == nameof(SecondaryBtnText) ||
-                e.PropertyName == nameof(IsPaused) || e.PropertyName == nameof(NameSortIcon) ||
-                e.PropertyName == nameof(SizeSortIcon) || e.PropertyName == nameof(StatusSortIcon) ||
-                e.PropertyName == nameof(IsDirectoryPanelOpen)) return;
+            if (e.PropertyName is nameof(AppStatus) or nameof(ComboProgress) or nameof(ProgressText) or
+                nameof(InputDirectory) or nameof(OutputDirectory) or nameof(TotalPairsCount) or
+                nameof(StandaloneImagesCount) or nameof(StandaloneVideosCount) or nameof(ActionBtnText) or
+                nameof(IsProcessing) or nameof(IsNotProcessing) or nameof(SecondaryBtnText) or
+                nameof(IsPaused) or nameof(NameSortIcon) or nameof(SizeSortIcon) or nameof(StatusSortIcon) or
+                nameof(IsDirectoryPanelOpen)) return;
 
             var propertyInfo = GetType().GetProperty(e.PropertyName!);
             if (propertyInfo != null)
@@ -217,7 +244,7 @@ namespace LivePhotoStudio.ViewModels
             if (IsProcessing) return;
             if (string.IsNullOrWhiteSpace(InputDirectory) || !Directory.Exists(InputDirectory))
             {
-                AppStatus = ResLoader.GetString("Status_InvalidInput");
+                AppStatus = "输入目录无效，请检查路径";
                 return;
             }
 
@@ -251,7 +278,7 @@ namespace LivePhotoStudio.ViewModels
                         ImagePath = kvp.Value,
                         VideoPath = vidPath,
                         Status = ProcessStatus.Pending,
-                        Details = ResLoader.GetString("Task_Pending")
+                        Details = "等待处理"
                     });
                 }
                 else standaloneImg++;
@@ -273,7 +300,7 @@ namespace LivePhotoStudio.ViewModels
             if (string.IsNullOrWhiteSpace(OutputDirectory) && ComboTasks.Count > 0)
                 OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
 
-            AppStatus = string.Format(ResLoader.GetString("Status_ScanDone"), TotalPairsCount);
+            AppStatus = $"扫描完成：已成功匹配 {TotalPairsCount} 组实况文件";
         }
 
         [RelayCommand]
@@ -287,7 +314,7 @@ namespace LivePhotoStudio.ViewModels
                 StandaloneVideosCount = 0;
                 ComboProgress = 0;
                 ProgressText = "0/0";
-                AppStatus = string.Format(ResLoader.GetString("Status_Cleared"), _hwEncoderName);
+                AppStatus = $"已清空列表 | 就绪环境: {_hwEncoderName}";
 
                 IsDirectoryPanelOpen = true;
             }
@@ -296,13 +323,13 @@ namespace LivePhotoStudio.ViewModels
                 if (IsPaused)
                 {
                     IsPaused = false;
-                    AppStatus = ResLoader.GetString("Status_Resumed");
+                    AppStatus = "已恢复合并队列运行...";
                     _pauseEvent.Set();
                 }
                 else
                 {
                     IsPaused = true;
-                    AppStatus = ResLoader.GetString("Status_Paused");
+                    AppStatus = "已请求暂停，正在等待当前任务完结...";
                     _pauseEvent.Reset();
                 }
             }
@@ -331,20 +358,13 @@ namespace LivePhotoStudio.ViewModels
                 case "Status": StatusSortIcon = iconStr; break;
             }
 
-            IEnumerable<LivePhotoTask> sorted;
-            switch (columnName)
+            IEnumerable<LivePhotoTask> sorted = columnName switch
             {
-                case "Name":
-                    sorted = _sortAscending ? ComboTasks.OrderBy(x => x.BaseName) : ComboTasks.OrderByDescending(x => x.BaseName);
-                    break;
-                case "Size":
-                    sorted = _sortAscending ? ComboTasks.OrderBy(x => x.TotalSizeBytes) : ComboTasks.OrderByDescending(x => x.TotalSizeBytes);
-                    break;
-                case "Status":
-                    sorted = _sortAscending ? ComboTasks.OrderBy(x => (int)x.Status) : ComboTasks.OrderByDescending(x => (int)x.Status);
-                    break;
-                default: return;
-            }
+                "Name" => _sortAscending ? ComboTasks.OrderBy(x => x.BaseName) : ComboTasks.OrderByDescending(x => x.BaseName),
+                "Size" => _sortAscending ? ComboTasks.OrderBy(x => x.TotalSizeBytes) : ComboTasks.OrderByDescending(x => x.TotalSizeBytes),
+                "Status" => _sortAscending ? ComboTasks.OrderBy(x => (int)x.Status) : ComboTasks.OrderByDescending(x => (int)x.Status),
+                _ => ComboTasks
+            };
 
             var sortedList = sorted.ToList();
             ComboTasks.Clear();
@@ -358,7 +378,7 @@ namespace LivePhotoStudio.ViewModels
             {
                 _cancellationTokenSource?.Cancel();
                 _pauseEvent.Set();
-                ActionBtnText = ResLoader.GetString("Btn_Stopping");
+                ActionBtnText = "正在停止...";
                 return;
             }
 
@@ -368,9 +388,9 @@ namespace LivePhotoStudio.ViewModels
                 {
                     var dialog = new ContentDialog
                     {
-                        Title = ResLoader.GetString("Msg_EmptyQueueTitle"),
-                        Content = ResLoader.GetString("Msg_EmptyQueue"),
-                        CloseButtonText = ResLoader.GetString("Msg_GotIt"),
+                        Title = "操作提示",
+                        Content = "队列为空！\n\n请先设置输入目录，并点击【扫描实况照片】以读取需要合成的文件",
+                        CloseButtonText = "我知道了",
                         XamlRoot = App.MainWindow.Content.XamlRoot
                     };
                     await dialog.ShowAsync();
@@ -380,7 +400,7 @@ namespace LivePhotoStudio.ViewModels
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
-                AppStatus = ResLoader.GetString("Status_WarnOutput");
+                AppStatus = "警告：请先设置输出保存目录";
                 return;
             }
 
@@ -394,7 +414,7 @@ namespace LivePhotoStudio.ViewModels
             IsProcessing = true;
             IsPaused = false;
             _pauseEvent.Set();
-            ActionBtnText = ResLoader.GetString("Btn_StopRun");
+            ActionBtnText = "停止运行";
             ComboProgress = 0;
             ProgressText = $"0/{TotalPairsCount}";
             _cancellationTokenSource = new CancellationTokenSource();
@@ -402,7 +422,7 @@ namespace LivePhotoStudio.ViewModels
             if (!Directory.Exists(OutputDirectory)) Directory.CreateDirectory(OutputDirectory);
 
             int completed = 0;
-            AppStatus = ResLoader.GetString("Status_Running");
+            AppStatus = "正在全速进行原生合并 (纯I/O模式)...";
             Stopwatch sw = Stopwatch.StartNew();
 
             try
@@ -423,7 +443,7 @@ namespace LivePhotoStudio.ViewModels
                     App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                     {
                         task.Status = ProcessStatus.Processing;
-                        task.Details = ResLoader.GetString("Task_Processing");
+                        task.Details = "正在合并...";
                     });
 
                     var (isSuccess, detailMsg) = await ProcessSinglePairAsync(task.ImagePath, task.VideoPath, task.BaseName, token);
@@ -441,7 +461,7 @@ namespace LivePhotoStudio.ViewModels
             }
             catch (OperationCanceledException)
             {
-                AppStatus = ResLoader.GetString("Status_Aborted");
+                AppStatus = "任务已手动中止";
             }
             finally
             {
@@ -449,8 +469,8 @@ namespace LivePhotoStudio.ViewModels
                 IsProcessing = false;
                 IsPaused = false;
                 _pauseEvent.Set();
-                ActionBtnText = ResLoader.GetString("Btn_StartCombo");
-                if (ComboProgress >= 100) AppStatus = string.Format(ResLoader.GetString("Status_Done"), sw.Elapsed.TotalSeconds);
+                ActionBtnText = "开始合成";
+                if (ComboProgress >= 100) AppStatus = $"全部合成任务完成！总共耗时 {sw.Elapsed.TotalSeconds:F1} 秒";
             }
         }
 
@@ -463,7 +483,7 @@ namespace LivePhotoStudio.ViewModels
                 string toolsDir = Path.Combine(AppContext.BaseDirectory, "Tools");
                 string exiftoolPath = Path.Combine(toolsDir, "exiftool.exe");
 
-                if (!File.Exists(exiftoolPath)) return (false, ResLoader.GetString("Task_MissingExif"));
+                if (!File.Exists(exiftoolPath)) return (false, "缺少 ExifTool，请检查 Tools 文件夹");
 
                 File.Copy(imagePath, finalOutputPath, true);
                 long videoSize = new FileInfo(videoPath).Length;
@@ -495,7 +515,7 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
                     await fsVideo.CopyToAsync(fsOutput, token);
                 }
 
-                string resultStatus = ResLoader.GetString("Task_Success");
+                string resultStatus = "原生合成成功";
                 if (!KeepOriginal)
                 {
                     try
@@ -504,14 +524,14 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
                         await imgFile.DeleteAsync(StorageDeleteOption.Default);
                         var vidFile = await StorageFile.GetFileFromPathAsync(videoPath);
                         await vidFile.DeleteAsync(StorageDeleteOption.Default);
-                        resultStatus += ResLoader.GetString("Task_Recycled");
+                        resultStatus += " (已移至回收站)";
                     }
-                    catch (Exception ex) { resultStatus += string.Format(ResLoader.GetString("Task_CleanFail"), ex.Message); }
+                    catch (Exception ex) { resultStatus += $" (清理失败: {ex.Message})"; }
                 }
 
                 return (true, resultStatus);
             }
-            catch (Exception ex) { return (false, string.Format(ResLoader.GetString("Task_Error"), ex.Message)); }
+            catch (Exception ex) { return (false, "错误: " + ex.Message); }
         }
 
         private async Task<string> RunProcessAndGetOutputAsync(string filePath, string args, CancellationToken token = default)

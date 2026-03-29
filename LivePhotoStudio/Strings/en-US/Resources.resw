@@ -148,7 +148,8 @@
     <value>Later</value>
   </data>
   <data name="RestartDialog_Content" xml:space="preserve">
-    <value>Changing the language requires restarting the app to take full effect. Do you want to restart now?</value>
+    <value>Changing the language requires restarting the app to take full effect.
+Do you want to restart now?</value>
   </data>
   <data name="RestartDialog_PrimaryButton" xml:space="preserve">
     <value>Restart Now</value>
@@ -371,10 +372,12 @@
   </data>
   <data name="Msg_EmptyQueue" xml:space="preserve">
     <value>Queue is empty!
-
 Please set the input directory and click [Scan Files] to load files.</value>
   </data>
   <data name="Msg_GotIt" xml:space="preserve">
     <value>Got it</value>
+  </data>
+  <data name="SettingsPage_Language.Header" xml:space="preserve">
+    <value>Language</value>
   </data>
 </root>
