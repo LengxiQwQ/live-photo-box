@@ -93,14 +93,16 @@
 		<PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
 		<PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
 		<GenerateTemporaryStoreCertificate>True</GenerateTemporaryStoreCertificate>
-		<GenerateAppInstallerFile>False</GenerateAppInstallerFile>
-		<AppxPackageSigningEnabled>False</AppxPackageSigningEnabled>
+		<GenerateAppInstallerFile>True</GenerateAppInstallerFile>
+		<AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
 		<AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
 		<AppxAutoIncrementPackageRevision>True</AppxAutoIncrementPackageRevision>
 		<GenerateTestArtifacts>True</GenerateTestArtifacts>
 		<AppxBundle>Always</AppxBundle>
 		<AppxBundlePlatforms>x64|arm64</AppxBundlePlatforms>
 		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
+		<PackageCertificateKeyFile>LivePhotoStudio_TemporaryKey.pfx</PackageCertificateKeyFile>
+		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-studio</AppInstallerUri>
 	</PropertyGroup>
 	<ItemGroup>
 		<None Include="Tools\**\*">

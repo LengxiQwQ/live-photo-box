@@ -52,7 +52,9 @@ namespace LivePhotoStudio
             {
                 if (NavView.SettingsItem is NavigationViewItem settingsItem)
                 {
-                    settingsItem.Content = "设置";
+                    // 使用 ResourceLoader 动态读取本地化文本
+                    var resourceLoader = new Microsoft.Windows.ApplicationModel.Resources.ResourceLoader();
+                    settingsItem.Content = resourceLoader.GetString("Nav_Settings");
                 }
             };
 

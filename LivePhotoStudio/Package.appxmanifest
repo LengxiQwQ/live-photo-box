@@ -9,8 +9,8 @@
 
   <Identity
     Name="LengxiQwQ.LivePhotoStudio"
-    Publisher="CN=E08FA259-F14D-47DB-9306-9E776E531F86"
-    Version="1.0.0.0" />
+    Publisher="CN=LengxiQwQ"
+    Version="1.0.2.0" />
 
   <mp:PhoneIdentity PhoneProductId="3f15f4d1-f755-4a54-8e96-898f0380e6d0" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

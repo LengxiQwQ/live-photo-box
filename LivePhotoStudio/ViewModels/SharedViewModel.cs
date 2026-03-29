@@ -19,7 +19,14 @@ namespace LivePhotoStudio.ViewModels
     {
         public static SharedViewModel Instance { get; } = new SharedViewModel();
 
-        [ObservableProperty] private string _appStatus = "正在初始化组件";
+        // [核心新增]：全局共享的资源加载器，用于在 C# 逻辑中读取多语言文本
+        private static Microsoft.Windows.ApplicationModel.Resources.ResourceLoader? _resLoader;
+        public static Microsoft.Windows.ApplicationModel.Resources.ResourceLoader ResLoader =>
+            _resLoader ??= new Microsoft.Windows.ApplicationModel.Resources.ResourceLoader();
+
+        private bool _isInitialized = false;
+
+        [ObservableProperty] private string _appStatus = "";
         [ObservableProperty] private double _comboProgress = 0;
         [ObservableProperty] private string _progressText = "0/0";
 
@@ -30,7 +37,7 @@ namespace LivePhotoStudio.ViewModels
         [ObservableProperty] private int _standaloneImagesCount = 0;
         [ObservableProperty] private int _standaloneVideosCount = 0;
 
-        [ObservableProperty] private string _actionBtnText = "开始合成";
+        [ObservableProperty] private string _actionBtnText = "";
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsNotProcessing))]
@@ -43,12 +50,13 @@ namespace LivePhotoStudio.ViewModels
 
         public bool IsNotProcessing => !IsProcessing;
 
+        // 动态读取多语言的次要按钮文本 (清空列表 / 暂停 / 继续)
         public string SecondaryBtnText
         {
             get
             {
-                if (!IsProcessing) return "清空列表";
-                return IsPaused ? "继续" : "暂停";
+                if (!IsProcessing) return ResLoader.GetString("Btn_ClearList");
+                return IsPaused ? ResLoader.GetString("Btn_Resume") : ResLoader.GetString("Btn_Pause");
             }
         }
 
@@ -82,9 +90,50 @@ namespace LivePhotoStudio.ViewModels
 
         public SharedViewModel()
         {
+            // 初始化时赋予多语言的默认文本
+            AppStatus = ResLoader.GetString("Status_Init");
+            ActionBtnText = ResLoader.GetString("Btn_StartCombo");
+
             LoadSettings();
+            _isInitialized = true;
             PropertyChanged += OnPropertyChangedSave;
             _ = DetectGPUAndInitializeAsync();
+        }
+
+        partial void OnLanguageIndexChanged(int value)
+        {
+            if (!_isInitialized) return;
+
+            string langCode = value switch
+            {
+                1 => "zh-CN",
+                2 => "en-US",
+                _ => ""
+            };
+
+            Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = langCode;
+
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                App.MainWindow.DispatcherQueue.TryEnqueue(async () =>
+                {
+                    var dialog = new ContentDialog
+                    {
+                        Title = ResLoader.GetString("RestartDialog_Title"),
+                        Content = ResLoader.GetString("RestartDialog_Content"),
+                        PrimaryButtonText = ResLoader.GetString("RestartDialog_PrimaryButton"),
+                        CloseButtonText = ResLoader.GetString("RestartDialog_CloseButton"),
+                        XamlRoot = App.MainWindow.Content.XamlRoot,
+                        DefaultButton = ContentDialogButton.Primary
+                    };
+
+                    var result = await dialog.ShowAsync();
+                    if (result == ContentDialogResult.Primary)
+                    {
+                        Microsoft.Windows.AppLifecycle.AppInstance.Restart("");
+                    }
+                });
+            }
         }
 
         private async Task DetectGPUAndInitializeAsync()
@@ -94,7 +143,7 @@ namespace LivePhotoStudio.ViewModels
 
             if (!File.Exists(ffmpegPath))
             {
-                AppStatus = "就绪 | 未检测到 FFmpeg 组件";
+                AppStatus = ResLoader.GetString("Status_NoFFmpeg");
                 return;
             }
 
@@ -106,19 +155,19 @@ namespace LivePhotoStudio.ViewModels
                 else if (output.Contains("hevc_amf")) { _hwEncoder = "hevc_amf"; _hwEncoderName = "AMD GPU (AMF)"; }
                 else { _hwEncoder = "libx265"; _hwEncoderName = "Software CPU"; }
 
-                AppStatus = $"就绪 | 已识别视频加速: {_hwEncoderName}";
+                AppStatus = string.Format(ResLoader.GetString("Status_GPUFound"), _hwEncoderName);
             }
-            catch { AppStatus = "就绪 | 显卡检测失败，默认使用 CPU 编码"; }
+            catch { AppStatus = ResLoader.GetString("Status_GPUFail"); }
         }
 
         private void LoadSettings()
         {
             var settings = ApplicationData.Current.LocalSettings.Values;
+            if (settings.TryGetValue(nameof(LanguageIndex), out var lang)) _languageIndex = (int)lang;
             if (settings.TryGetValue(nameof(SelectedModeIndex), out var mode)) SelectedModeIndex = (int)mode;
             if (settings.TryGetValue(nameof(ThreadCount), out var thread)) ThreadCount = (int)thread;
             if (settings.TryGetValue(nameof(KeepOriginal), out var keep)) KeepOriginal = (bool)keep;
             if (settings.TryGetValue(nameof(SplitVideoFormat), out var split)) SplitVideoFormat = (int)split;
-            if (settings.TryGetValue(nameof(LanguageIndex), out var lang)) LanguageIndex = (int)lang;
             if (settings.TryGetValue(nameof(ElementTheme), out var theme)) ElementTheme = (int)theme;
             if (settings.TryGetValue(nameof(BackdropIndex), out var backdrop)) BackdropIndex = (int)backdrop;
             if (settings.TryGetValue(nameof(IsMultiThreadEnabled), out var isMulti)) IsMultiThreadEnabled = (bool)isMulti;
@@ -168,7 +217,7 @@ namespace LivePhotoStudio.ViewModels
             if (IsProcessing) return;
             if (string.IsNullOrWhiteSpace(InputDirectory) || !Directory.Exists(InputDirectory))
             {
-                AppStatus = "输入目录无效，请检查路径";
+                AppStatus = ResLoader.GetString("Status_InvalidInput");
                 return;
             }
 
@@ -202,7 +251,7 @@ namespace LivePhotoStudio.ViewModels
                         ImagePath = kvp.Value,
                         VideoPath = vidPath,
                         Status = ProcessStatus.Pending,
-                        Details = "等待处理"
+                        Details = ResLoader.GetString("Task_Pending")
                     });
                 }
                 else standaloneImg++;
@@ -224,7 +273,7 @@ namespace LivePhotoStudio.ViewModels
             if (string.IsNullOrWhiteSpace(OutputDirectory) && ComboTasks.Count > 0)
                 OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
 
-            AppStatus = $"扫描完成：已成功匹配 {TotalPairsCount} 组实况文件";
+            AppStatus = string.Format(ResLoader.GetString("Status_ScanDone"), TotalPairsCount);
         }
 
         [RelayCommand]
@@ -238,7 +287,7 @@ namespace LivePhotoStudio.ViewModels
                 StandaloneVideosCount = 0;
                 ComboProgress = 0;
                 ProgressText = "0/0";
-                AppStatus = $"已清空列表 | 就绪环境: {_hwEncoderName}";
+                AppStatus = string.Format(ResLoader.GetString("Status_Cleared"), _hwEncoderName);
 
                 IsDirectoryPanelOpen = true;
             }
@@ -247,13 +296,13 @@ namespace LivePhotoStudio.ViewModels
                 if (IsPaused)
                 {
                     IsPaused = false;
-                    AppStatus = "已恢复合并队列运行...";
+                    AppStatus = ResLoader.GetString("Status_Resumed");
                     _pauseEvent.Set();
                 }
                 else
                 {
                     IsPaused = true;
-                    AppStatus = "已请求暂停，正在等待当前任务完结...";
+                    AppStatus = ResLoader.GetString("Status_Paused");
                     _pauseEvent.Reset();
                 }
             }
@@ -309,7 +358,7 @@ namespace LivePhotoStudio.ViewModels
             {
                 _cancellationTokenSource?.Cancel();
                 _pauseEvent.Set();
-                ActionBtnText = "正在停止...";
+                ActionBtnText = ResLoader.GetString("Btn_Stopping");
                 return;
             }
 
@@ -319,9 +368,9 @@ namespace LivePhotoStudio.ViewModels
                 {
                     var dialog = new ContentDialog
                     {
-                        Title = "操作提示",
-                        Content = "队列为空！\n\n请先设置输入目录，并点击【扫描实况照片】以读取需要合成的文件",
-                        CloseButtonText = "我知道了",
+                        Title = ResLoader.GetString("Msg_EmptyQueueTitle"),
+                        Content = ResLoader.GetString("Msg_EmptyQueue"),
+                        CloseButtonText = ResLoader.GetString("Msg_GotIt"),
                         XamlRoot = App.MainWindow.Content.XamlRoot
                     };
                     await dialog.ShowAsync();
@@ -331,7 +380,7 @@ namespace LivePhotoStudio.ViewModels
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
-                AppStatus = "警告：请先设置输出保存目录";
+                AppStatus = ResLoader.GetString("Status_WarnOutput");
                 return;
             }
 
@@ -345,7 +394,7 @@ namespace LivePhotoStudio.ViewModels
             IsProcessing = true;
             IsPaused = false;
             _pauseEvent.Set();
-            ActionBtnText = "停止运行";
+            ActionBtnText = ResLoader.GetString("Btn_StopRun");
             ComboProgress = 0;
             ProgressText = $"0/{TotalPairsCount}";
             _cancellationTokenSource = new CancellationTokenSource();
@@ -353,7 +402,7 @@ namespace LivePhotoStudio.ViewModels
             if (!Directory.Exists(OutputDirectory)) Directory.CreateDirectory(OutputDirectory);
 
             int completed = 0;
-            AppStatus = "正在全速进行原生合并 (纯I/O模式)...";
+            AppStatus = ResLoader.GetString("Status_Running");
             Stopwatch sw = Stopwatch.StartNew();
 
             try
@@ -374,7 +423,7 @@ namespace LivePhotoStudio.ViewModels
                     App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                     {
                         task.Status = ProcessStatus.Processing;
-                        task.Details = "正在合并...";
+                        task.Details = ResLoader.GetString("Task_Processing");
                     });
 
                     var (isSuccess, detailMsg) = await ProcessSinglePairAsync(task.ImagePath, task.VideoPath, task.BaseName, token);
@@ -392,7 +441,7 @@ namespace LivePhotoStudio.ViewModels
             }
             catch (OperationCanceledException)
             {
-                AppStatus = "任务已手动中止";
+                AppStatus = ResLoader.GetString("Status_Aborted");
             }
             finally
             {
@@ -400,8 +449,8 @@ namespace LivePhotoStudio.ViewModels
                 IsProcessing = false;
                 IsPaused = false;
                 _pauseEvent.Set();
-                ActionBtnText = "开始合成";
-                if (ComboProgress >= 100) AppStatus = $"全部合成任务完成！总共耗时 {sw.Elapsed.TotalSeconds:F1} 秒";
+                ActionBtnText = ResLoader.GetString("Btn_StartCombo");
+                if (ComboProgress >= 100) AppStatus = string.Format(ResLoader.GetString("Status_Done"), sw.Elapsed.TotalSeconds);
             }
         }
 
@@ -414,7 +463,7 @@ namespace LivePhotoStudio.ViewModels
                 string toolsDir = Path.Combine(AppContext.BaseDirectory, "Tools");
                 string exiftoolPath = Path.Combine(toolsDir, "exiftool.exe");
 
-                if (!File.Exists(exiftoolPath)) return (false, "缺少 ExifTool，请检查 Tools 文件夹");
+                if (!File.Exists(exiftoolPath)) return (false, ResLoader.GetString("Task_MissingExif"));
 
                 File.Copy(imagePath, finalOutputPath, true);
                 long videoSize = new FileInfo(videoPath).Length;
@@ -446,7 +495,7 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
                     await fsVideo.CopyToAsync(fsOutput, token);
                 }
 
-                string resultStatus = "原生合成成功";
+                string resultStatus = ResLoader.GetString("Task_Success");
                 if (!KeepOriginal)
                 {
                     try
@@ -455,14 +504,14 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
                         await imgFile.DeleteAsync(StorageDeleteOption.Default);
                         var vidFile = await StorageFile.GetFileFromPathAsync(videoPath);
                         await vidFile.DeleteAsync(StorageDeleteOption.Default);
-                        resultStatus += " (已移至回收站)";
+                        resultStatus += ResLoader.GetString("Task_Recycled");
                     }
-                    catch (Exception ex) { resultStatus += $" (清理失败: {ex.Message})"; }
+                    catch (Exception ex) { resultStatus += string.Format(ResLoader.GetString("Task_CleanFail"), ex.Message); }
                 }
 
                 return (true, resultStatus);
             }
-            catch (Exception ex) { return (false, "错误: " + ex.Message); }
+            catch (Exception ex) { return (false, string.Format(ResLoader.GetString("Task_Error"), ex.Message)); }
         }
 
         private async Task<string> RunProcessAndGetOutputAsync(string filePath, string args, CancellationToken token = default)
@@ -478,7 +527,6 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
             catch { return string.Empty; }
         }
 
-        // [核心修改] 使用绝对安全的进程取消和退出逻辑，避免抛出异常引发应用闪退
         private Task<int> RunProcessAsync(string filePath, string args, CancellationToken token)
         {
             var tcs = new TaskCompletionSource<int>();
@@ -510,7 +558,6 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
                 tcs.TrySetCanceled();
             });
 
-            // 任务结束后安全注销 Token 监听器，防止内存泄漏
             tcs.Task.ContinueWith(_ => registration.Dispose());
 
             return tcs.Task;

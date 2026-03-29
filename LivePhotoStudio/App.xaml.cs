@@ -17,34 +17,33 @@ using Windows.ApplicationModel.Activation;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
 
-// To learn more about WinUI, the WinUI project structure,
-// and more about our project templates, see: http://aka.ms/winui-project-info.
-
 namespace LivePhotoStudio
 {
-    /// <summary>
-    /// Provides application-specific behavior to supplement the default Application class.
-    /// </summary>
     public partial class App : Application
     {
         public static Window? MainWindow { get; private set; }
 
-        // Cache for banner image
         public static BitmapImage? CachedBannerImage { get; set; }
 
-        /// <summary>
-        /// Initializes the singleton application object.  This is the first line of authored code
-        /// executed, and as such is the logical equivalent of main() or WinMain().
-        /// </summary>
         public App()
         {
+            // 【关键修复】：在一切 UI 组件初始化之前，先强行注入我们要的语言！
+            ApplyLanguageSetting();
+
             InitializeComponent();
         }
 
-        /// <summary>
-        /// Invoked when the application is launched.
-        /// </summary>
-        /// <param name="args">Details about the launch request and process.</param>
+        // [新增方法]：读取本地设置，拦截系统语言
+        private void ApplyLanguageSetting()
+        {
+            var settings = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
+            if (settings.TryGetValue("LanguageIndex", out var langObj) && langObj is int langIndex)
+            {
+                string langCode = langIndex switch { 1 => "zh-CN", 2 => "en-US", _ => "" };
+                Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = langCode;
+            }
+        }
+
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             MainWindow = new MainWindow();
@@ -52,4 +51,3 @@ namespace LivePhotoStudio
         }
     }
 }
-

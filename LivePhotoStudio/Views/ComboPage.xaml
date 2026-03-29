@@ -38,7 +38,7 @@
             <Expander.Header>
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Height="32">
                     <FontIcon Glyph="&#xE8B7;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
-                    <TextBlock Text="工作目录与扫描配置" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                    <TextBlock x:Uid="ComboPage_ConfigHeader" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
                 </StackPanel>
             </Expander.Header>
 
@@ -50,9 +50,9 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="输入目录:" VerticalAlignment="Center" FontWeight="SemiBold" Width="65"/>
-                        <TextBox Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay}" PlaceholderText="请选择包含照片和视频的源文件夹" VerticalAlignment="Center"/>
-                        <Button Grid.Column="2" Content="浏览..." Click="BrowseInput_Click"/>
+                        <TextBlock x:Uid="ComboPage_InputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
+                        <TextBox x:Uid="ComboPage_InputBox" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
+                        <Button x:Uid="ComboPage_BrowseBtn1" Grid.Column="2" Click="BrowseInput_Click"/>
                     </Grid>
 
                     <Grid ColumnSpacing="8">
@@ -61,9 +61,9 @@
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="输出目录:" VerticalAlignment="Center" FontWeight="SemiBold" Width="65"/>
-                        <TextBox Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay}" PlaceholderText="请选择生成后的实况照片保存路径" VerticalAlignment="Center"/>
-                        <Button Grid.Column="2" Content="浏览..." Click="BrowseOutput_Click"/>
+                        <TextBlock x:Uid="ComboPage_OutputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
+                        <TextBox x:Uid="ComboPage_OutputBox" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
+                        <Button x:Uid="ComboPage_BrowseBtn2" Grid.Column="2" Click="BrowseOutput_Click"/>
                     </Grid>
 
                     <MenuFlyoutSeparator Margin="0,4"/>
@@ -78,28 +78,27 @@
 
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="配对成功 :" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="ComboPage_StatPaired" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                                 <TextBlock Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="单独照片 :" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="ComboPage_StatImg" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                                 <TextBlock Text="{x:Bind ViewModel.StandaloneImagesCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock Text="单独视频 :" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="ComboPage_StatVid" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                                 <TextBlock Text="{x:Bind ViewModel.StandaloneVideosCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
                             </StackPanel>
                         </StackPanel>
 
                         <ToggleSwitch Grid.Column="2"
+                                      x:Uid="ComboPage_ThreadToggle"
                                       IsOn="{x:Bind ViewModel.IsMultiThreadEnabled, Mode=TwoWay}"
                                       IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
-                                      OffContent="单线程" OnContent="多线程"
                                       VerticalAlignment="Center"
                                       Margin="0,0,16,0"/>
 
-                        <Button Grid.Column="3"
-                                Content="扫描实况照片" 
+                        <Button x:Uid="ComboPage_ScanBtn" Grid.Column="3"
                                 Command="{x:Bind ViewModel.ScanDirectoryCommand}" 
                                 IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
                                 Height="32" VerticalAlignment="Center"
@@ -119,7 +118,7 @@
 
                 <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
                     <TextBlock FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}">
-                        <Run Text="当前队列进度："/>
+                        <Run x:Uid="ComboPage_QueueProgress"/>
                         <Run Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"/>
                     </TextBlock>
                     <ProgressBar Value="{x:Bind ViewModel.ComboProgress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{ThemeResource CyberCyanBrush}" MaxWidth="400" HorizontalAlignment="Left"/>
@@ -157,25 +156,25 @@
                             <ColumnDefinition Width="2.5*"/>
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Column="0" Text="序号" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="ComboPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
 
                         <Button Grid.Column="1" Grid.ColumnSpan="2" Command="{x:Bind ViewModel.SortCommand}" CommandParameter="Name" Background="Transparent" BorderThickness="0" Padding="0,4,8,4" HorizontalAlignment="Left">
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <TextBlock Text="文件组" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                <TextBlock x:Uid="ComboPage_ColFile" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                                 <TextBlock Text="{x:Bind ViewModel.NameSortIcon, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
 
                         <Button Grid.Column="3" Command="{x:Bind ViewModel.SortCommand}" CommandParameter="Size" Background="Transparent" BorderThickness="0" Padding="0,4,8,4" HorizontalAlignment="Left">
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <TextBlock Text="大小" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                <TextBlock x:Uid="ComboPage_ColSize" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                                 <TextBlock Text="{x:Bind ViewModel.SizeSortIcon, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
 
                         <Button Grid.Column="4" Command="{x:Bind ViewModel.SortCommand}" CommandParameter="Status" Background="Transparent" BorderThickness="0" Padding="0,4,8,4" HorizontalAlignment="Left">
                             <StackPanel Orientation="Horizontal" Spacing="4">
-                                <TextBlock Text="状态" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                <TextBlock x:Uid="ComboPage_ColStatus" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                                 <TextBlock Text="{x:Bind ViewModel.StatusSortIcon, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
@@ -209,7 +208,7 @@
 
                                 <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                                <Button Grid.Column="1" 
+                                <Button x:Uid="ComboPage_TipFolder" Grid.Column="1" 
                                         VerticalAlignment="Center" 
                                         HorizontalAlignment="Left" 
                                         Margin="0,0,10,0"
@@ -218,22 +217,21 @@
                                         Background="Transparent" 
                                         BorderThickness="0" 
                                         Padding="0" 
-                                        CornerRadius="6"
-                                        ToolTipService.ToolTip="在文件夹中查看">
+                                        CornerRadius="6">
                                     <Border Width="46" Height="46" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
                                         <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
                                     </Border>
                                 </Button>
 
                                 <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
-                                    <Button Click="FileGroupButton_Click" Tag="{x:Bind ImagePath}" ToolTipService.ToolTip="在默认应用打开" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                    <Button x:Uid="ComboPage_TipApp" Click="FileGroupButton_Click" Tag="{x:Bind ImagePath}" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
                                         <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
                                             <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
                                             <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}"/>
                                         </StackPanel>
                                     </Button>
 
-                                    <Button Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}" ToolTipService.ToolTip="在默认应用打开" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                    <Button x:Uid="ComboPage_TipApp" Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
                                         <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
                                             <FontIcon Glyph="&#xE714;" Foreground="#A855F7" FontSize="14" VerticalAlignment="Center"/>
                                             <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayVideoName}"/>
