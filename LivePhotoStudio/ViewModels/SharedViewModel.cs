@@ -14,6 +14,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Windows.Storage;
 
+// 测试注释功能
 namespace LivePhotoStudio.ViewModels
 {
     public partial class SharedViewModel : ObservableObject
