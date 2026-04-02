@@ -2,8 +2,8 @@
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoStudio.Models;
 using LivePhotoStudio.Services;
-using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -15,12 +15,11 @@ using System.Threading;
 using System.Threading.Tasks;
 using Windows.Storage;
 
-// 测试注释功能
 namespace LivePhotoStudio.ViewModels
 {
-    public partial class SharedViewModel : ObservableObject
+    public partial class AppViewModel : ObservableObject
     {
-        public static SharedViewModel Instance { get; } = new SharedViewModel();
+        public static AppViewModel Instance { get; } = new AppViewModel();
 
         [ObservableProperty] private string _appStatus = string.Empty;
         [ObservableProperty] private double _comboProgress = 0;
@@ -73,16 +72,15 @@ namespace LivePhotoStudio.ViewModels
         [ObservableProperty] private bool _keepOriginal = true;
         [ObservableProperty] private int _splitVideoFormat = 1;
 
-        // 语言：0=跟随系统, 1=中文, 2=English
-        [ObservableProperty] private int _languageIndex = 0;
-        [ObservableProperty] private int _elementTheme = 0;
-        [ObservableProperty] private int _backdropIndex = 0;
+        [ObservableProperty] private int _languageIndex;
+        [ObservableProperty] private int _elementTheme;
+        [ObservableProperty] private int _backdropIndex;
 
-        public ObservableCollection<LivePhotoTask> ComboTasks { get; } = [];
+        public ObservableCollection<LivePhotoMergeTask> ComboTasks { get; } = [];
 
-        private bool _isInitialized = false;
+        private bool _isInitialized;
 
-        public SharedViewModel()
+        public AppViewModel()
         {
             AppStatus = ResourceService.GetString("Status_Init");
             ActionBtnText = ResourceService.GetString("Btn_StartCombo");
@@ -174,16 +172,6 @@ namespace LivePhotoStudio.ViewModels
             return $"{bytes / (1024.0 * 1024.0):F2} MB";
         }
 
-        private Dictionary<string, string> CreateFileMap(IEnumerable<string> files)
-        {
-            return files
-                .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(
-                    group => group.Key,
-                    group => group.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).First(),
-                    StringComparer.OrdinalIgnoreCase);
-        }
-
         [RelayCommand]
         public void ScanDirectory()
         {
@@ -195,56 +183,44 @@ namespace LivePhotoStudio.ViewModels
             }
 
             ComboTasks.Clear();
-            var allFiles = Directory.GetFiles(InputDirectory);
+            var scanResult = LivePhotoScanService.Scan(InputDirectory);
 
-            var images = allFiles.Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)).ToList();
-            var videos = allFiles.Where(f => f.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) || f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)).ToList();
-
-            var imgDict = CreateFileMap(images);
-            var vidDict = CreateFileMap(videos);
-
-            int standaloneImg = 0, standaloneVid = 0, currentIndex = 1;
-
-            foreach (var kvp in imgDict)
+            int currentIndex = 1;
+            foreach (var pair in scanResult.Pairs)
             {
-                if (vidDict.TryGetValue(kvp.Key, out var vidPath))
+                ComboTasks.Add(new LivePhotoMergeTask
                 {
-                    long imgBytes = new FileInfo(kvp.Value).Length;
-                    long vidBytes = new FileInfo(vidPath).Length;
-
-                    ComboTasks.Add(new LivePhotoTask
-                    {
-                        Index = currentIndex++,
-                        ImageFileName = Path.GetFileName(kvp.Value),
-                        VideoFileName = Path.GetFileName(vidPath),
-                        ImageSize = FormatFileSize(imgBytes),
-                        VideoSize = FormatFileSize(vidBytes),
-                        TotalSizeBytes = imgBytes + vidBytes,
-                        BaseName = kvp.Key,
-                        ImagePath = kvp.Value,
-                        VideoPath = vidPath,
-                        Status = ProcessStatus.Pending,
-                        Details = ResourceService.GetString("Task_Pending")
-                    });
-                }
-                else standaloneImg++;
+                    Index = currentIndex++,
+                    ImageFileName = Path.GetFileName(pair.ImagePath),
+                    VideoFileName = Path.GetFileName(pair.VideoPath),
+                    ImageSize = FormatFileSize(pair.ImageSizeBytes),
+                    VideoSize = FormatFileSize(pair.VideoSizeBytes),
+                    TotalSizeBytes = pair.ImageSizeBytes + pair.VideoSizeBytes,
+                    BaseName = pair.BaseName,
+                    ImagePath = pair.ImagePath,
+                    VideoPath = pair.VideoPath,
+                    Status = ProcessStatus.Pending,
+                    Details = ResourceService.GetString("Task_Pending")
+                });
             }
 
-            foreach (var kvp in vidDict) if (!imgDict.ContainsKey(kvp.Key)) standaloneVid++;
-
             TotalPairsCount = ComboTasks.Count;
-            StandaloneImagesCount = standaloneImg;
-            StandaloneVideosCount = standaloneVid;
+            StandaloneImagesCount = scanResult.StandaloneImagesCount;
+            StandaloneVideosCount = scanResult.StandaloneVideosCount;
 
             ComboProgress = 0;
             ProgressText = $"0/{TotalPairsCount}";
 
             _lastSortColumn = "Name";
             _sortAscending = true;
-            NameSortIcon = ""; SizeSortIcon = ""; StatusSortIcon = "";
+            NameSortIcon = string.Empty;
+            SizeSortIcon = string.Empty;
+            StatusSortIcon = string.Empty;
 
             if (string.IsNullOrWhiteSpace(OutputDirectory) && ComboTasks.Count > 0)
+            {
                 OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
+            }
 
             AppStatus = ResourceService.Format("Status_ScanDone", TotalPairsCount);
         }
@@ -304,7 +280,7 @@ namespace LivePhotoStudio.ViewModels
                 case "Status": StatusSortIcon = iconStr; break;
             }
 
-            IEnumerable<LivePhotoTask> sorted = columnName switch
+            IEnumerable<LivePhotoMergeTask> sorted = columnName switch
             {
                 "Name" => _sortAscending ? ComboTasks.OrderBy(x => x.BaseName) : ComboTasks.OrderByDescending(x => x.BaseName),
                 "Size" => _sortAscending ? ComboTasks.OrderBy(x => x.TotalSizeBytes) : ComboTasks.OrderByDescending(x => x.TotalSizeBytes),
@@ -351,11 +327,10 @@ namespace LivePhotoStudio.ViewModels
             }
 
             IsDirectoryPanelOpen = false;
-
             await RunComboTasksAsync();
         }
 
-        private async Task RunComboTasksAsync()
+        private void InitializeRunState()
         {
             IsProcessing = true;
             IsPaused = false;
@@ -365,47 +340,62 @@ namespace LivePhotoStudio.ViewModels
             ProgressText = $"0/{TotalPairsCount}";
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = new CancellationTokenSource();
-
-            if (!Directory.Exists(OutputDirectory)) Directory.CreateDirectory(OutputDirectory);
-
-            int completed = 0;
             AppStatus = ResourceService.GetString("Status_Running");
-            Stopwatch sw = Stopwatch.StartNew();
+        }
+
+        private void FinalizeRunState(Stopwatch stopwatch)
+        {
+            stopwatch.Stop();
+            IsProcessing = false;
+            IsPaused = false;
+            _pauseEvent.Set();
+            ActionBtnText = ResourceService.GetString("Btn_StartCombo");
+
+            var cancellationTokenSource = _cancellationTokenSource;
+            _cancellationTokenSource = null;
+            cancellationTokenSource?.Dispose();
+
+            if (ComboProgress >= 100)
+            {
+                AppStatus = ResourceService.Format("Status_Done", stopwatch.Elapsed.TotalSeconds);
+            }
+        }
+
+        private void UpdateTaskStarted(LivePhotoMergeTask task)
+        {
+            task.Status = ProcessStatus.Processing;
+            task.Details = ResourceService.GetString("Task_Processing");
+        }
+
+        private void UpdateTaskCompleted(LivePhotoMergeTask task, bool isSuccess, string detailMessage, int completedCount)
+        {
+            task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
+            task.Details = detailMessage;
+            ComboProgress = (completedCount * 100.0) / TotalPairsCount;
+            ProgressText = $"{completedCount}/{TotalPairsCount}";
+        }
+
+        private async Task RunComboTasksAsync()
+        {
+            InitializeRunState();
+            Stopwatch stopwatch = Stopwatch.StartNew();
 
             try
             {
-                int actualThreadCount = Math.Min(Environment.ProcessorCount, 20);
-                var options = new ParallelOptions
+                var options = new LivePhotoBatchRunOptions
                 {
-                    MaxDegreeOfParallelism = actualThreadCount,
-                    CancellationToken = _cancellationTokenSource.Token
+                    OutputDirectory = OutputDirectory,
+                    SelectedModeIndex = SelectedModeIndex,
+                    KeepOriginal = KeepOriginal
                 };
 
-                await Parallel.ForEachAsync(ComboTasks, options, async (task, token) =>
-                {
-                    if (task.Status == ProcessStatus.Success) return;
-
-                    _pauseEvent.Wait(token);
-                    token.ThrowIfCancellationRequested();
-
-                    App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                    {
-                        task.Status = ProcessStatus.Processing;
-                        task.Details = ResourceService.GetString("Task_Processing");
-                    });
-
-                    var (isSuccess, detailMsg) = await ProcessSinglePairAsync(task.ImagePath, task.VideoPath, task.BaseName, token);
-
-                    App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                    {
-                        task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
-                        task.Details = detailMsg;
-
-                        Interlocked.Increment(ref completed);
-                        ComboProgress = (completed * 100.0) / TotalPairsCount;
-                        ProgressText = $"{completed}/{TotalPairsCount}";
-                    });
-                });
+                await LivePhotoBatchRunnerService.RunAsync(
+                    ComboTasks,
+                    options,
+                    _pauseEvent,
+                    _cancellationTokenSource!.Token,
+                    task => App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task)),
+                    (task, isSuccess, detailMessage, completedCount) => App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage, completedCount)));
             }
             catch (OperationCanceledException)
             {
@@ -413,48 +403,8 @@ namespace LivePhotoStudio.ViewModels
             }
             finally
             {
-                sw.Stop();
-                IsProcessing = false;
-                IsPaused = false;
-                _pauseEvent.Set();
-                ActionBtnText = ResourceService.GetString("Btn_StartCombo");
-
-                var cts = _cancellationTokenSource;
-                _cancellationTokenSource = null;
-                cts?.Dispose();
-
-                if (ComboProgress >= 100) AppStatus = ResourceService.Format("Status_Done", sw.Elapsed.TotalSeconds);
+                FinalizeRunState(stopwatch);
             }
-        }
-
-        private async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(string imagePath, string videoPath, string baseName, CancellationToken token)
-        {
-            try
-            {
-                token.ThrowIfCancellationRequested();
-
-                string outputName = LivePhotoCompositionService.CreateOutputFileName(baseName, SelectedModeIndex);
-                string finalOutputPath = Path.Combine(OutputDirectory, outputName);
-
-                await LivePhotoCompositionService.WriteLivePhotoAsync(imagePath, videoPath, finalOutputPath, SelectedModeIndex, token);
-
-                string resultStatus = ResourceService.GetString("Task_Success");
-                if (!KeepOriginal)
-                {
-                    try
-                    {
-                        var imgFile = await StorageFile.GetFileFromPathAsync(imagePath);
-                        await imgFile.DeleteAsync(StorageDeleteOption.Default);
-                        var vidFile = await StorageFile.GetFileFromPathAsync(videoPath);
-                        await vidFile.DeleteAsync(StorageDeleteOption.Default);
-                        resultStatus += ResourceService.GetString("Task_Recycled");
-                    }
-                    catch (Exception ex) { resultStatus += ResourceService.Format("Task_CleanFail", ex.Message); }
-                }
-
-                return (true, resultStatus);
-            }
-            catch (Exception ex) { return (false, ResourceService.Format("Task_Error", ex.Message)); }
         }
     }
 }
