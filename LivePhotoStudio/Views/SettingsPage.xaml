@@ -27,7 +27,7 @@
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" Spacing="8">
-                            <ComboBox x:Uid="SettingsPage_Language" Header=" " HorizontalAlignment="Stretch" 
+                            <ComboBox x:Uid="SettingsPage_Language" HorizontalAlignment="Stretch" 
                                       SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}">
                                 <ComboBoxItem x:Uid="SettingsPage_Language_System"/>
                                 <ComboBoxItem x:Uid="SettingsPage_Language_Chinese"/>
@@ -125,7 +125,7 @@
                 <HyperlinkButton NavigateUri="https://github.com/LengxiQwQ" HorizontalAlignment="Center" Opacity="0.5"
                                  Foreground="{ThemeResource TextFillColorPrimaryBrush}">
                     <HyperlinkButton.Content>
-                        <TextBlock Text="Live Photo Studio v1.1.0  | Powered by LengxiQwQ" FontSize="12" FontFamily="Microsoft YaHei UI"/>
+                        <TextBlock x:Uid="SettingsPage_Footer" FontSize="12" FontFamily="Microsoft YaHei UI"/>
                     </HyperlinkButton.Content>
                 </HyperlinkButton>
             </StackPanel>

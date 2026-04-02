@@ -202,15 +202,6 @@ Do you want to restart now?</value>
   <data name="SettingsPage_Protocol_Desc.Text" xml:space="preserve">
     <value>Choose the appropriate Android Live Photo packaging protocol</value>
   </data>
-  <data name="SettingsPage_Threads_Header.Header" xml:space="preserve">
-    <value>Concurrent Threads</value>
-  </data>
-  <data name="SettingsPage_Threads_Desc1.Text" xml:space="preserve">
-    <value>Maximum number of threads for processing (1 - 10)</value>
-  </data>
-  <data name="SettingsPage_Threads_Desc2.Text" xml:space="preserve">
-    <value>Setting too high may cause processing failures</value>
-  </data>
   <data name="SettingsPage_Keep_Header.Header" xml:space="preserve">
     <value>Keep Original Files</value>
   </data>
@@ -259,12 +250,6 @@ Do you want to restart now?</value>
   <data name="ComboPage_StatVid.Text" xml:space="preserve">
     <value>Lone Vid :</value>
   </data>
-  <data name="ComboPage_ThreadToggle.OffContent" xml:space="preserve">
-    <value>Single-Thread</value>
-  </data>
-  <data name="ComboPage_ThreadToggle.OnContent" xml:space="preserve">
-    <value>Multi-Thread</value>
-  </data>
   <data name="ComboPage_ScanBtn.Content" xml:space="preserve">
     <value>Scan Files</value>
   </data>
@@ -287,46 +272,37 @@ Do you want to restart now?</value>
     <value>Show in folder</value>
   </data>
   <data name="ComboPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Open in default app</value>
+    <value>Open with default app</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
-    <value>Initializing components...</value>
-  </data>
-  <data name="Status_NoFFmpeg" xml:space="preserve">
-    <value>Ready | FFmpeg components not detected</value>
-  </data>
-  <data name="Status_GPUFound" xml:space="preserve">
-    <value>Ready | HW Accel identified: {0}</value>
-  </data>
-  <data name="Status_GPUFail" xml:space="preserve">
-    <value>Ready | GPU detection failed, using CPU</value>
+    <value>Initializing components</value>
   </data>
   <data name="Status_InvalidInput" xml:space="preserve">
-    <value>Invalid input directory, please check the path</value>
+    <value>Invalid input directory. Please check the path.</value>
   </data>
   <data name="Status_ScanDone" xml:space="preserve">
-    <value>Scan complete: {0} pairs of Live files successfully matched</value>
+    <value>Scan complete: matched {0} live photo pairs</value>
   </data>
   <data name="Status_Cleared" xml:space="preserve">
-    <value>List cleared | Environment: {0}</value>
+    <value>List cleared | Ready environment: {0}</value>
   </data>
   <data name="Status_Resumed" xml:space="preserve">
-    <value>Resumed processing queue...</value>
+    <value>Queue resumed...</value>
   </data>
   <data name="Status_Paused" xml:space="preserve">
-    <value>Pause requested, waiting for current tasks to finish...</value>
+    <value>Pause requested. Waiting for the current task to finish...</value>
   </data>
   <data name="Status_WarnOutput" xml:space="preserve">
-    <value>Warning: Please set the output directory first</value>
+    <value>Warning: please set the output directory first</value>
   </data>
   <data name="Status_Running" xml:space="preserve">
-    <value>Processing native merge at full speed (Pure I/O mode)...</value>
+    <value>Running native merge at full speed (pure I/O mode)...</value>
   </data>
   <data name="Status_Aborted" xml:space="preserve">
-    <value>Task manually aborted</value>
+    <value>Task aborted manually</value>
   </data>
   <data name="Status_Done" xml:space="preserve">
-    <value>All tasks completed! Total time: {0:F1} sec</value>
+    <value>All merge tasks completed! Total time: {0:F1} s</value>
   </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>Start Merge</value>
@@ -352,14 +328,11 @@ Do you want to restart now?</value>
   <data name="Task_Processing" xml:space="preserve">
     <value>Merging...</value>
   </data>
-  <data name="Task_MissingExif" xml:space="preserve">
-    <value>ExifTool missing, check Tools folder</value>
-  </data>
   <data name="Task_Success" xml:space="preserve">
-    <value>Native merge success</value>
+    <value>Native merge succeeded</value>
   </data>
   <data name="Task_Recycled" xml:space="preserve">
-    <value> (Moved to bin)</value>
+    <value> (Moved to recycle bin)</value>
   </data>
   <data name="Task_CleanFail" xml:space="preserve">
     <value> (Cleanup failed: {0})</value>
@@ -538,6 +511,9 @@ Please set the input directory and click [Scan Files] to load files.</value>
   </data>
   <data name="RepairPage_TaskPending" xml:space="preserve">
     <value>Waiting to analyze metadata...</value>
+  </data>
+  <data name="SettingsPage_Footer.Text" xml:space="preserve">
+    <value>Live Photo Studio v1.1.0 | Powered by LengxiQwQ</value>
   </data>
 
 </root>

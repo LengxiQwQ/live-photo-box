@@ -5,13 +5,12 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoStudio.Models"
-    xmlns:local="using:LivePhotoStudio.Views"
+    xmlns:converters="using:LivePhotoStudio.Converters"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
     <Page.Resources>
-        <local:StatusToColorConverter x:Key="StatusToColorConverter"/>
-        <local:ThemeAwareButtonHoverConverter x:Key="ThemeAwareButtonHoverConverter"/>
+        <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
     </Page.Resources>
 
     <Grid Padding="12,0,0,0" RowSpacing="12">
@@ -183,7 +182,7 @@
                 </ListView.ItemContainerStyle>
 
                 <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="models:LivePhotoTask">
+                    <DataTemplate x:DataType="models:LivePhotoMergeTask">
                         <Border Background="{ThemeResource LayerFillColorDefaultBrush}" 
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
                                 BorderThickness="1" 

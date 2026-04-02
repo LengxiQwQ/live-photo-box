@@ -258,12 +258,6 @@
   <data name="ComboPage_StatVid.Text" xml:space="preserve">
     <value>单独视频 :</value>
   </data>
-  <data name="ComboPage_ThreadToggle.OffContent" xml:space="preserve">
-    <value>单线程</value>
-  </data>
-  <data name="ComboPage_ThreadToggle.OnContent" xml:space="preserve">
-    <value>多线程</value>
-  </data>
   <data name="ComboPage_ScanBtn.Content" xml:space="preserve">
     <value>扫描实况照片</value>
   </data>
@@ -538,6 +532,9 @@
   </data>
   <data name="RepairPage_TaskPending" xml:space="preserve">
     <value>等待分析元数据...</value>
+  </data>
+  <data name="SettingsPage_Footer.Text" xml:space="preserve">
+    <value>Live Photo Studio v1.1.0 | Powered by LengxiQwQ</value>
   </data>
 
 </root>
