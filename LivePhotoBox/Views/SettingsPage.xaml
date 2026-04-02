@@ -1,0 +1,76 @@
+<Page
+    x:Class="LivePhotoBox.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d" Background="Transparent"
+    NavigationCacheMode="Required">
+
+    <ScrollViewer Padding="40,24">
+        <StackPanel Spacing="32" MaxWidth="1100" HorizontalAlignment="Stretch">
+            <TextBlock x:Uid="SettingsPage_Title" FontSize="32" FontWeight="Bold" Margin="0,0,0,8" FontFamily="Microsoft YaHei UI"/>
+
+            <StackPanel Spacing="16">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE790;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock x:Uid="SettingsPage_Appearance_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                </StackPanel>
+
+                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                        Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <Grid ColumnSpacing="40">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Spacing="8">
+                            <ComboBox x:Uid="SettingsPage_Language" HorizontalAlignment="Stretch" 
+                                      SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}">
+                                <ComboBoxItem x:Uid="SettingsPage_Language_System"/>
+                                <ComboBoxItem x:Uid="SettingsPage_Language_Chinese"/>
+                                <ComboBoxItem x:Uid="SettingsPage_Language_English"/>
+                            </ComboBox>
+                            <TextBlock x:Uid="SettingsPage_Language_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="1" Spacing="8">
+                            <ComboBox x:Uid="SettingsPage_Backdrop_Header" HorizontalAlignment="Stretch" 
+                                      SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}">
+                                <ComboBoxItem x:Uid="SettingsPage_Backdrop_Mica"/>
+                                <ComboBoxItem x:Uid="SettingsPage_Backdrop_MicaAlt"/>
+                                <ComboBoxItem x:Uid="SettingsPage_Backdrop_Acrylic"/>
+                                <ComboBoxItem x:Uid="SettingsPage_Backdrop_None"/>
+                            </ComboBox>
+                            <TextBlock x:Uid="SettingsPage_Backdrop_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2" Spacing="8">
+                            <ComboBox x:Uid="SettingsPage_Theme_Header" HorizontalAlignment="Stretch" 
+                                      SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}">
+                                <ComboBoxItem x:Uid="SettingsPage_Theme_System"/>
+                                <ComboBoxItem x:Uid="SettingsPage_Theme_Light"/>
+                                <ComboBoxItem x:Uid="SettingsPage_Theme_Dark"/>
+                            </ComboBox>
+                            <TextBlock x:Uid="SettingsPage_Theme_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Margin="0,20,0,0" Spacing="24">
+                <Button x:Uid="SettingsPage_Restore_Button" Command="{x:Bind ViewModel.RestoreDefaultSettingsCommand}" 
+                        HorizontalAlignment="Right" Style="{ThemeResource DefaultButtonStyle}"/>
+
+                <HyperlinkButton NavigateUri="https://github.com/LengxiQwQ" HorizontalAlignment="Center" Opacity="0.5"
+                                 Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                    <HyperlinkButton.Content>
+                        <TextBlock x:Uid="SettingsPage_Footer" FontSize="12" FontFamily="Microsoft YaHei UI"/>
+                    </HyperlinkButton.Content>
+                </HyperlinkButton>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -1,0 +1,561 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!-- 
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
+
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="MainWindow_Footer.Text" xml:space="preserve">
+    <value>By LengxiQwQ</value>
+  </data>
+  <data name="MainWindow_Title.Text" xml:space="preserve">
+    <value>Live Photo Box</value>
+  </data>
+  <data name="Nav_About.Content" xml:space="preserve">
+    <value>关于</value>
+  </data>
+  <data name="Nav_Combo.Content" xml:space="preserve">
+    <value>实况照片合成</value>
+  </data>
+  <data name="Nav_Console.Content" xml:space="preserve">
+    <value>控制台</value>
+  </data>
+  <data name="Nav_Home.Content" xml:space="preserve">
+    <value>主页</value>
+  </data>
+  <data name="Nav_Repair.Content" xml:space="preserve">
+    <value>缩略图修复</value>
+  </data>
+  <data name="Nav_Settings" xml:space="preserve">
+    <value>设置</value>
+  </data>
+  <data name="Nav_Split.Content" xml:space="preserve">
+    <value>实况照片拆分</value>
+  </data>
+  <data name="RestartDialog_CloseButton" xml:space="preserve">
+    <value>稍后</value>
+  </data>
+  <data name="RestartDialog_Content" xml:space="preserve">
+    <value>更改语言需要重启应用才能完全生效。是否立即重启？</value>
+  </data>
+  <data name="RestartDialog_PrimaryButton" xml:space="preserve">
+    <value>立即重启</value>
+  </data>
+  <data name="RestartDialog_Title" xml:space="preserve">
+    <value>更改语言</value>
+  </data>
+  <data name="SettingsPage_Title.Text" xml:space="preserve">
+    <value>设置</value>
+  </data>
+  <data name="SettingsPage_Appearance_Header.Text" xml:space="preserve">
+    <value>外观与个性化</value>
+  </data>
+  <data name="SettingsPage_Language_Desc.Text" xml:space="preserve">
+    <value>需重启应用生效</value>
+  </data>
+  <data name="SettingsPage_Language_System.Content" xml:space="preserve">
+    <value>跟随系统 (System Default)</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Header.Header" xml:space="preserve">
+    <value>窗口材质</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Desc.Text" xml:space="preserve">
+    <value>选择 Windows 11 沉浸式背景</value>
+  </data>
+  <data name="SettingsPage_Backdrop_None.Content" xml:space="preserve">
+    <value>无</value>
+  </data>
+  <data name="SettingsPage_Theme_Header.Header" xml:space="preserve">
+    <value>应用主题</value>
+  </data>
+  <data name="SettingsPage_Theme_System.Content" xml:space="preserve">
+    <value>跟随系统</value>
+  </data>
+  <data name="SettingsPage_Theme_Light.Content" xml:space="preserve">
+    <value>浅色模式</value>
+  </data>
+  <data name="SettingsPage_Theme_Dark.Content" xml:space="preserve">
+    <value>深色模式</value>
+  </data>
+  <data name="SettingsPage_Theme_Desc.Text" xml:space="preserve">
+    <value>调整应用整体视觉配色</value>
+  </data>
+  <data name="SettingsPage_Combo_Header.Text" xml:space="preserve">
+    <value>实况照片合成</value>
+  </data>
+  <data name="SettingsPage_Protocol_Header.Header" xml:space="preserve">
+    <value>转换协议</value>
+  </data>
+  <data name="SettingsPage_Protocol_Desc.Text" xml:space="preserve">
+    <value>选择合适的安卓实况封装协议</value>
+  </data>
+  <data name="SettingsPage_Threads_Header.Header" xml:space="preserve">
+    <value>并发线程数</value>
+  </data>
+  <data name="SettingsPage_Threads_Desc1.Text" xml:space="preserve">
+    <value>处理时最大的线程数 1 - 10</value>
+  </data>
+  <data name="SettingsPage_Threads_Desc2.Text" xml:space="preserve">
+    <value>设置过多容易导致处理失败</value>
+  </data>
+  <data name="SettingsPage_Keep_Header.Header" xml:space="preserve">
+    <value>保留原始文件</value>
+  </data>
+  <data name="SettingsPage_Keep_Desc.Text" xml:space="preserve">
+    <value>处理完成后不清理源文件</value>
+  </data>
+  <data name="SettingsPage_Split_Header.Text" xml:space="preserve">
+    <value>实况照片拆分</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_Header.Header" xml:space="preserve">
+    <value>导出视频格式</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_Desc.Text" xml:space="preserve">
+    <value>选择拆分后视频的保存格式</value>
+  </data>
+  <data name="SettingsPage_Restore_Button.Content" xml:space="preserve">
+    <value>恢复默认设置</value>
+  </data>
+  <data name="ConsolePage_PlaceholderTitle.Text" xml:space="preserve">
+    <value>控制台页面暂未开放</value>
+  </data>
+  <data name="ConsolePage_PlaceholderDescription.Text" xml:space="preserve">
+    <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
+  </data>
+  <data name="RepairPage_PlaceholderTitle.Text" xml:space="preserve">
+    <value>缩略图修复页面暂未开放</value>
+  </data>
+  <data name="RepairPage_PlaceholderDescription.Text" xml:space="preserve">
+    <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
+  </data>
+  <data name="SplitPage_PlaceholderTitle.Text" xml:space="preserve">
+    <value>实况照片拆分页面暂未开放</value>
+  </data>
+  <data name="SplitPage_PlaceholderDescription.Text" xml:space="preserve">
+    <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
+  </data>
+  <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
+    <value>工作目录与扫描配置</value>
+  </data>
+  <data name="ComboPage_InputLabel.Text" xml:space="preserve">
+    <value>输入目录:</value>
+  </data>
+  <data name="ComboPage_InputBox.PlaceholderText" xml:space="preserve">
+    <value>请选择包含照片和视频的源文件夹</value>
+  </data>
+  <data name="ComboPage_BrowseBtn1.Content" xml:space="preserve">
+    <value>浏览...</value>
+  </data>
+  <data name="ComboPage_OutputLabel.Text" xml:space="preserve">
+    <value>输出目录:</value>
+  </data>
+  <data name="ComboPage_OutputBox.PlaceholderText" xml:space="preserve">
+    <value>请选择生成后的实况照片保存路径</value>
+  </data>
+  <data name="ComboPage_BrowseBtn2.Content" xml:space="preserve">
+    <value>浏览...</value>
+  </data>
+  <data name="ComboPage_StatPaired.Text" xml:space="preserve">
+    <value>配对成功 :</value>
+  </data>
+  <data name="ComboPage_StatImg.Text" xml:space="preserve">
+    <value>单独照片 :</value>
+  </data>
+  <data name="ComboPage_StatVid.Text" xml:space="preserve">
+    <value>单独视频 :</value>
+  </data>
+  <data name="ComboPage_ProtocolLabel.Text" xml:space="preserve">
+    <value>协议版本：</value>
+  </data>
+  <data name="ComboPage_ScanBtn.Content" xml:space="preserve">
+    <value>扫描实况照片</value>
+  </data>
+  <data name="ComboPage_QueueProgress.Text" xml:space="preserve">
+    <value>当前队列进度：</value>
+  </data>
+  <data name="ComboPage_ColSeq.Text" xml:space="preserve">
+    <value>序号</value>
+  </data>
+  <data name="ComboPage_ColFile.Text" xml:space="preserve">
+    <value>文件组</value>
+  </data>
+  <data name="ComboPage_ColSize.Text" xml:space="preserve">
+    <value>大小</value>
+  </data>
+  <data name="ComboPage_ColStatus.Text" xml:space="preserve">
+    <value>状态</value>
+  </data>
+  <data name="ComboPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
+    <value>在文件夹中查看</value>
+  </data>
+  <data name="ComboPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
+    <value>在默认应用打开</value>
+  </data>
+  <data name="Status_Init" xml:space="preserve">
+    <value>正在初始化组件</value>
+  </data>
+  <data name="Status_NoFFmpeg" xml:space="preserve">
+    <value>就绪 | 未检测到 FFmpeg 组件</value>
+  </data>
+  <data name="Status_GPUFound" xml:space="preserve">
+    <value>就绪 | 已识别视频加速: {0}</value>
+  </data>
+  <data name="Status_GPUFail" xml:space="preserve">
+    <value>就绪 | 显卡检测失败，默认使用 CPU 编码</value>
+  </data>
+  <data name="Status_InvalidInput" xml:space="preserve">
+    <value>输入目录无效，请检查路径</value>
+  </data>
+  <data name="Status_ScanDone" xml:space="preserve">
+    <value>扫描完成：已成功匹配 {0} 组实况文件</value>
+  </data>
+  <data name="Status_Cleared" xml:space="preserve">
+    <value>已清空列表 | 就绪环境: {0}</value>
+  </data>
+  <data name="Status_Resumed" xml:space="preserve">
+    <value>已恢复合并队列运行...</value>
+  </data>
+  <data name="Status_Paused" xml:space="preserve">
+    <value>已请求暂停，正在等待当前任务完结...</value>
+  </data>
+  <data name="Status_WarnOutput" xml:space="preserve">
+    <value>警告：请先设置输出保存目录</value>
+  </data>
+  <data name="Status_Running" xml:space="preserve">
+    <value>正在全速进行原生合并 (纯I/O模式)...</value>
+  </data>
+  <data name="Status_Aborted" xml:space="preserve">
+    <value>任务已手动中止</value>
+  </data>
+  <data name="Status_Done" xml:space="preserve">
+    <value>全部合成任务完成！总共耗时 {0:F1} 秒</value>
+  </data>
+  <data name="Btn_StartCombo" xml:space="preserve">
+    <value>开始合成</value>
+  </data>
+  <data name="Btn_StopRun" xml:space="preserve">
+    <value>停止运行</value>
+  </data>
+  <data name="Btn_Stopping" xml:space="preserve">
+    <value>正在停止...</value>
+  </data>
+  <data name="Btn_ClearList" xml:space="preserve">
+    <value>清空列表</value>
+  </data>
+  <data name="Btn_Pause" xml:space="preserve">
+    <value>暂停</value>
+  </data>
+  <data name="Btn_Resume" xml:space="preserve">
+    <value>继续</value>
+  </data>
+  <data name="Task_Pending" xml:space="preserve">
+    <value>等待处理</value>
+  </data>
+  <data name="Task_Processing" xml:space="preserve">
+    <value>正在合并...</value>
+  </data>
+  <data name="Task_MissingExif" xml:space="preserve">
+    <value>缺少 ExifTool，请检查 Tools 文件夹</value>
+  </data>
+  <data name="Task_Success" xml:space="preserve">
+    <value>原生合成成功</value>
+  </data>
+  <data name="Task_Recycled" xml:space="preserve">
+    <value> (已移至回收站)</value>
+  </data>
+  <data name="Task_CleanFail" xml:space="preserve">
+    <value> (清理失败: {0})</value>
+  </data>
+  <data name="Task_Error" xml:space="preserve">
+    <value>错误: {0}</value>
+  </data>
+  <data name="Msg_EmptyQueueTitle" xml:space="preserve">
+    <value>操作提示</value>
+  </data>
+  <data name="Msg_EmptyQueue" xml:space="preserve">
+    <value>队列为空！
+
+请先设置输入目录，并点击【扫描实况照片】以读取需要合成的文件</value>
+  </data>
+  <data name="Msg_GotIt" xml:space="preserve">
+    <value>我知道了</value>
+  </data>
+  <data name="SettingsPage_Language.Header" xml:space="preserve">
+    <value>界面语言</value>
+  </data>
+  <data name="SettingsPage_Language_Chinese.Content" xml:space="preserve">
+    <value>中文 (简体)</value>
+  </data>
+  <data name="SettingsPage_Language_English.Content" xml:space="preserve">
+    <value>English</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Mica.Content" xml:space="preserve">
+    <value>Mica</value>
+  </data>
+  <data name="SettingsPage_Backdrop_MicaAlt.Content" xml:space="preserve">
+    <value>Mica Alt</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Acrylic.Content" xml:space="preserve">
+    <value>Desktop Acrylic</value>
+  </data>
+  <data name="SettingsPage_Protocol_V1.Content" xml:space="preserve">
+    <value>Google Micro Video (V1)</value>
+  </data>
+  <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
+    <value>Google Motion Photo (V2)</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
+    <value>MP4 (H.264/HEVC)</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
+    <value>MOV (QuickTime)</value>
+  </data>
+  <data name="Status_Ready" xml:space="preserve">
+    <value>就绪</value>
+  </data>
+  <data name="ConsolePage_Title.Text" xml:space="preserve">
+    <value>任务控制台</value>
+  </data>
+  <data name="ConsolePage_CopyButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>复制全部输出内容</value>
+  </data>
+  <data name="ConsolePage_CopyButton_Text.Text" xml:space="preserve">
+    <value>复制全部</value>
+  </data>
+  <data name="ConsolePage_ClearButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>清空屏幕</value>
+  </data>
+  <data name="ConsolePage_ClearButton_Text.Text" xml:space="preserve">
+    <value>清空</value>
+  </data>
+  <data name="ConsolePage_StopButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>尝试中止当前任务</value>
+  </data>
+  <data name="ConsolePage_StopButton_Text.Text" xml:space="preserve">
+    <value>强行停止</value>
+  </data>
+  <data name="ConsolePage_Output.Text" xml:space="preserve">
+    <value>功能开发中...</value>
+  </data>
+  <data name="ConsolePage_Log_StopRequested" xml:space="preserve">
+    <value>[Warning] 已收到中止信号，准备强制停止当前任务...</value>
+  </data>
+  <data name="ConsolePage_Log_StopForced" xml:space="preserve">
+    <value>[System] 当前版本尚未接入真实停止控制。</value>
+  </data>
+  <data name="ConsolePage_Log_Cleared" xml:space="preserve">
+    <value>[System] 控制台输出已清空。</value>
+  </data>
+  <data name="ConsolePage_Log_Copied" xml:space="preserve">
+    <value>[System] 控制台内容已复制到剪贴板。</value>
+  </data>
+  <data name="HomePage_HeroTitle.Text" xml:space="preserve">
+    <value>Live Photo Box</value>
+  </data>
+  <data name="HomePage_HeroSubtitle.Text" xml:space="preserve">
+    <value>—— 让每一份回忆，都如动漫般灵动 (o・v・o)</value>
+  </data>
+  <data name="HomePage_WelcomeTitle.Text" xml:space="preserve">
+    <value>欢迎使用 Live Photo Box</value>
+  </data>
+  <data name="HomePage_Intro1.Text" xml:space="preserve">
+    <value>Live Photo Box 是一款开源的实况照片处理工具箱，旨在为用户提供便捷、高效的 Android 与 iOS 实况照片合成与拆分体验。不仅如此，作为一名深度二次元宅男开发的软件，我们更加关注每一张照片背后的故事和情感。</value>
+  </data>
+  <data name="HomePage_Intro2.Text" xml:space="preserve">
+    <value>在这里，你可以轻松将 Android 手机生成的 Google 实况照片，转化为 iOS 可识别的实况照片，反之亦然。无论是为了在 iOS 上获得更流畅的动画效果，还是为了在 Android 上体验原生的实况魅力，Live Photo Box 都是你得力的助手。</value>
+  </data>
+  <data name="HomePage_TipLabel.Text" xml:space="preserve">
+    <value>友情提示 :</value>
+  </data>
+  <data name="HomePage_TipText.Text" xml:space="preserve">
+    <value>在使用合成或拆分功能前，建议先确认你拥有原照片的备份，毕竟数据安全重于泰山。(^-^*)</value>
+  </data>
+  <data name="AboutPage_Title.Text" xml:space="preserve">
+    <value>Live Photo Box</value>
+  </data>
+  <data name="AboutPage_Version.Text" xml:space="preserve">
+    <value>版本 1.1.0</value>
+  </data>
+  <data name="AboutPage_Header.Text" xml:space="preserve">
+    <value>关于本应用</value>
+  </data>
+  <data name="AboutPage_Description.Text" xml:space="preserve">
+    <value>Live Photo Box 是一款开源的实况照片处理工具箱，致力于为用户提供便捷的 Android 与 iOS 实况照片合成与拆分体验。支持最新的 Google 封装协议与高效的批量处理能力。</value>
+  </data>
+  <data name="AboutPage_DeveloperLabel.Text" xml:space="preserve">
+    <value>开发者 :</value>
+  </data>
+  <data name="AboutPage_SourceLabel.Text" xml:space="preserve">
+    <value>开源地址 :</value>
+  </data>
+  <data name="AboutPage_SourceLink.Content" xml:space="preserve">
+    <value>GitHub 仓库</value>
+  </data>
+  <data name="AboutPage_IssueLabel.Text" xml:space="preserve">
+    <value>问题反馈 :</value>
+  </data>
+  <data name="AboutPage_IssueLink.Content" xml:space="preserve">
+    <value>提交 Issue</value>
+  </data>
+  <data name="SplitPage_DropHint.Text" xml:space="preserve">
+    <value>拖拽已有的实况照片至此进行拆分</value>
+  </data>
+  <data name="SplitPage_StartButton.Content" xml:space="preserve">
+    <value>开始拆分</value>
+  </data>
+  <data name="SplitPage_ColSource.Text" xml:space="preserve">
+    <value>源文件</value>
+  </data>
+  <data name="SplitPage_ColStatus.Text" xml:space="preserve">
+    <value>状态</value>
+  </data>
+  <data name="SplitPage_ColProgress.Text" xml:space="preserve">
+    <value>进度</value>
+  </data>
+  <data name="SplitPage_ColDetails.Text" xml:space="preserve">
+    <value>详情</value>
+  </data>
+  <data name="SplitPage_DragCaption" xml:space="preserve">
+    <value>释放以导入需要拆分的实况照片</value>
+  </data>
+  <data name="RepairPage_DropHint.Text" xml:space="preserve">
+    <value>拖拽出现方向错误或拉伸的照片/视频至此进行修复</value>
+  </data>
+  <data name="RepairPage_StartButton.Content" xml:space="preserve">
+    <value>开始修复</value>
+  </data>
+  <data name="RepairPage_ColSource.Text" xml:space="preserve">
+    <value>待修复文件</value>
+  </data>
+  <data name="RepairPage_ColStatus.Text" xml:space="preserve">
+    <value>状态</value>
+  </data>
+  <data name="RepairPage_ColProgress.Text" xml:space="preserve">
+    <value>进度</value>
+  </data>
+  <data name="RepairPage_ColDetails.Text" xml:space="preserve">
+    <value>分析详情</value>
+  </data>
+  <data name="RepairPage_DragCaption" xml:space="preserve">
+    <value>释放以导入需要修复的文件</value>
+  </data>
+  <data name="RepairPage_TaskPending" xml:space="preserve">
+    <value>等待分析元数据...</value>
+  </data>
+  <data name="SettingsPage_Footer.Text" xml:space="preserve">
+    <value>Live Photo Box v1.1.0 | Powered by LengxiQwQ</value>
+  </data>
+
+</root>

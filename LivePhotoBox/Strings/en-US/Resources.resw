@@ -1,0 +1,540 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!-- 
+    Microsoft ResX Schema 
+    
+    Version 2.0
+    
+    The primary goals of this format is to allow a simple XML format 
+    that is mostly human readable. The generation and parsing of the 
+    various data types are done through the TypeConverter classes 
+    associated with the data types.
+    
+    Example:
+    
+    ... ado.net/XML headers & schema ...
+    <resheader name="resmimetype">text/microsoft-resx</resheader>
+    <resheader name="version">2.0</resheader>
+    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
+    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
+    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
+    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
+    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
+        <value>[base64 mime encoded serialized .NET Framework object]</value>
+    </data>
+    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
+        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
+        <comment>This is a comment</comment>
+    </data>
+                
+    There are any number of "resheader" rows that contain simple 
+    name/value pairs.
+    
+    Each data row contains a name, and value. The row also contains a 
+    type or mimetype. Type corresponds to a .NET class that support 
+    text/value conversion through the TypeConverter architecture. 
+    Classes that don't support this are serialized and stored with the 
+    mimetype set.
+    
+    The mimetype is used for serialized objects, and tells the 
+    ResXResourceReader how to depersist the object. This is currently not 
+    extensible. For a given mimetype the value must be set accordingly:
+    
+    Note - application/x-microsoft.net.object.binary.base64 is the format 
+    that the ResXResourceWriter will generate, however the reader can 
+    read any of the formats listed below.
+    
+    mimetype: application/x-microsoft.net.object.binary.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
+            : and then encoded with base64 encoding.
+    
+    mimetype: application/x-microsoft.net.object.soap.base64
+    value   : The object must be serialized with 
+            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
+            : and then encoded with base64 encoding.
+
+    mimetype: application/x-microsoft.net.object.bytearray.base64
+    value   : The object must be serialized into a byte array 
+            : using a System.ComponentModel.TypeConverter
+            : and then encoded with base64 encoding.
+    -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="MainWindow_Footer.Text" xml:space="preserve">
+    <value>By LengxiQwQ</value>
+  </data>
+  <data name="MainWindow_Title.Text" xml:space="preserve">
+    <value>Live Photo Box</value>
+  </data>
+  <data name="Nav_About.Content" xml:space="preserve">
+    <value>About</value>
+  </data>
+  <data name="Nav_Combo.Content" xml:space="preserve">
+    <value>Merge Live Photo</value>
+  </data>
+  <data name="Nav_Console.Content" xml:space="preserve">
+    <value>Console</value>
+  </data>
+  <data name="Nav_Home.Content" xml:space="preserve">
+    <value>Home</value>
+  </data>
+  <data name="Nav_Repair.Content" xml:space="preserve">
+    <value>Repair Thumbnail</value>
+  </data>
+  <data name="Nav_Settings" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="Nav_Split.Content" xml:space="preserve">
+    <value>Split Live Photo</value>
+  </data>
+  <data name="RestartDialog_CloseButton" xml:space="preserve">
+    <value>Later</value>
+  </data>
+  <data name="RestartDialog_Content" xml:space="preserve">
+    <value>Changing the language requires restarting the app to take full effect.
+Do you want to restart now?</value>
+  </data>
+  <data name="RestartDialog_PrimaryButton" xml:space="preserve">
+    <value>Restart Now</value>
+  </data>
+  <data name="RestartDialog_Title" xml:space="preserve">
+    <value>Language Changed</value>
+  </data>
+  <data name="SettingsPage_Title.Text" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="SettingsPage_Appearance_Header.Text" xml:space="preserve">
+    <value>Appearance &amp; Personalization</value>
+  </data>
+  <data name="SettingsPage_Language_Desc.Text" xml:space="preserve">
+    <value>Requires app restart</value>
+  </data>
+  <data name="SettingsPage_Language_System.Content" xml:space="preserve">
+    <value>System Default</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Header.Header" xml:space="preserve">
+    <value>Window Backdrop</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Desc.Text" xml:space="preserve">
+    <value>Choose Windows 11 immersive background</value>
+  </data>
+  <data name="SettingsPage_Backdrop_None.Content" xml:space="preserve">
+    <value>None</value>
+  </data>
+  <data name="SettingsPage_Theme_Header.Header" xml:space="preserve">
+    <value>Theme</value>
+  </data>
+  <data name="SettingsPage_Theme_System.Content" xml:space="preserve">
+    <value>System Default</value>
+  </data>
+  <data name="SettingsPage_Theme_Light.Content" xml:space="preserve">
+    <value>Light</value>
+  </data>
+  <data name="SettingsPage_Theme_Dark.Content" xml:space="preserve">
+    <value>Dark</value>
+  </data>
+  <data name="SettingsPage_Theme_Desc.Text" xml:space="preserve">
+    <value>Adjust the overall visual color scheme</value>
+  </data>
+  <data name="SettingsPage_Combo_Header.Text" xml:space="preserve">
+    <value>Live Photo Merge</value>
+  </data>
+  <data name="SettingsPage_Protocol_Header.Header" xml:space="preserve">
+    <value>Conversion Protocol</value>
+  </data>
+  <data name="SettingsPage_Protocol_Desc.Text" xml:space="preserve">
+    <value>Choose the appropriate Android Live Photo packaging protocol</value>
+  </data>
+  <data name="SettingsPage_Keep_Header.Header" xml:space="preserve">
+    <value>Keep Original Files</value>
+  </data>
+  <data name="SettingsPage_Keep_Desc.Text" xml:space="preserve">
+    <value>Do not delete source files after processing</value>
+  </data>
+  <data name="SettingsPage_Split_Header.Text" xml:space="preserve">
+    <value>Live Photo Split</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_Header.Header" xml:space="preserve">
+    <value>Export Video Format</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_Desc.Text" xml:space="preserve">
+    <value>Choose the format for the extracted video</value>
+  </data>
+  <data name="SettingsPage_Restore_Button.Content" xml:space="preserve">
+    <value>Restore Default Settings</value>
+  </data>
+  <data name="ConsolePage_PlaceholderTitle.Text" xml:space="preserve">
+    <value>Console page is not available yet</value>
+  </data>
+  <data name="ConsolePage_PlaceholderDescription.Text" xml:space="preserve">
+    <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
+  </data>
+  <data name="RepairPage_PlaceholderTitle.Text" xml:space="preserve">
+    <value>Thumbnail repair page is not available yet</value>
+  </data>
+  <data name="RepairPage_PlaceholderDescription.Text" xml:space="preserve">
+    <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
+  </data>
+  <data name="SplitPage_PlaceholderTitle.Text" xml:space="preserve">
+    <value>Live Photo split page is not available yet</value>
+  </data>
+  <data name="SplitPage_PlaceholderDescription.Text" xml:space="preserve">
+    <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
+  </data>
+  <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
+    <value>Workspace &amp; Scan Config</value>
+  </data>
+  <data name="ComboPage_InputLabel.Text" xml:space="preserve">
+    <value>Input Dir:</value>
+  </data>
+  <data name="ComboPage_InputBox.PlaceholderText" xml:space="preserve">
+    <value>Select source folder with photos &amp; videos</value>
+  </data>
+  <data name="ComboPage_BrowseBtn1.Content" xml:space="preserve">
+    <value>Browse...</value>
+  </data>
+  <data name="ComboPage_OutputLabel.Text" xml:space="preserve">
+    <value>Output Dir:</value>
+  </data>
+  <data name="ComboPage_OutputBox.PlaceholderText" xml:space="preserve">
+    <value>Select destination folder to save Live Photos</value>
+  </data>
+  <data name="ComboPage_BrowseBtn2.Content" xml:space="preserve">
+    <value>Browse...</value>
+  </data>
+  <data name="ComboPage_StatPaired.Text" xml:space="preserve">
+    <value>Paired :</value>
+  </data>
+  <data name="ComboPage_StatImg.Text" xml:space="preserve">
+    <value>Lone Img :</value>
+  </data>
+  <data name="ComboPage_StatVid.Text" xml:space="preserve">
+    <value>Lone Vid :</value>
+  </data>
+  <data name="ComboPage_ProtocolLabel.Text" xml:space="preserve">
+    <value>Protocol:</value>
+  </data>
+  <data name="ComboPage_ScanBtn.Content" xml:space="preserve">
+    <value>Scan Files</value>
+  </data>
+  <data name="ComboPage_QueueProgress.Text" xml:space="preserve">
+    <value>Queue Progress: </value>
+  </data>
+  <data name="ComboPage_ColSeq.Text" xml:space="preserve">
+    <value>No.</value>
+  </data>
+  <data name="ComboPage_ColFile.Text" xml:space="preserve">
+    <value>File Group</value>
+  </data>
+  <data name="ComboPage_ColSize.Text" xml:space="preserve">
+    <value>Size</value>
+  </data>
+  <data name="ComboPage_ColStatus.Text" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="ComboPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Show in folder</value>
+  </data>
+  <data name="ComboPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Open with default app</value>
+  </data>
+  <data name="Status_Init" xml:space="preserve">
+    <value>Initializing components</value>
+  </data>
+  <data name="Status_InvalidInput" xml:space="preserve">
+    <value>Invalid input directory. Please check the path.</value>
+  </data>
+  <data name="Status_ScanDone" xml:space="preserve">
+    <value>Scan complete: matched {0} live photo pairs</value>
+  </data>
+  <data name="Status_Cleared" xml:space="preserve">
+    <value>List cleared | Ready environment: {0}</value>
+  </data>
+  <data name="Status_Resumed" xml:space="preserve">
+    <value>Queue resumed...</value>
+  </data>
+  <data name="Status_Paused" xml:space="preserve">
+    <value>Pause requested. Waiting for the current task to finish...</value>
+  </data>
+  <data name="Status_WarnOutput" xml:space="preserve">
+    <value>Warning: please set the output directory first</value>
+  </data>
+  <data name="Status_Running" xml:space="preserve">
+    <value>Running native merge at full speed (pure I/O mode)...</value>
+  </data>
+  <data name="Status_Aborted" xml:space="preserve">
+    <value>Task aborted manually</value>
+  </data>
+  <data name="Status_Done" xml:space="preserve">
+    <value>All merge tasks completed! Total time: {0:F1} s</value>
+  </data>
+  <data name="Btn_StartCombo" xml:space="preserve">
+    <value>Start Merge</value>
+  </data>
+  <data name="Btn_StopRun" xml:space="preserve">
+    <value>Stop</value>
+  </data>
+  <data name="Btn_Stopping" xml:space="preserve">
+    <value>Stopping...</value>
+  </data>
+  <data name="Btn_ClearList" xml:space="preserve">
+    <value>Clear List</value>
+  </data>
+  <data name="Btn_Pause" xml:space="preserve">
+    <value>Pause</value>
+  </data>
+  <data name="Btn_Resume" xml:space="preserve">
+    <value>Resume</value>
+  </data>
+  <data name="Task_Pending" xml:space="preserve">
+    <value>Pending</value>
+  </data>
+  <data name="Task_Processing" xml:space="preserve">
+    <value>Merging...</value>
+  </data>
+  <data name="Task_Success" xml:space="preserve">
+    <value>Native merge succeeded</value>
+  </data>
+  <data name="Task_Recycled" xml:space="preserve">
+    <value> (Moved to recycle bin)</value>
+  </data>
+  <data name="Task_CleanFail" xml:space="preserve">
+    <value> (Cleanup failed: {0})</value>
+  </data>
+  <data name="Task_Error" xml:space="preserve">
+    <value>Error: {0}</value>
+  </data>
+  <data name="Msg_EmptyQueueTitle" xml:space="preserve">
+    <value>Notice</value>
+  </data>
+  <data name="Msg_EmptyQueue" xml:space="preserve">
+    <value>Queue is empty!
+Please set the input directory and click [Scan Files] to load files.</value>
+  </data>
+  <data name="Msg_GotIt" xml:space="preserve">
+    <value>Got it</value>
+  </data>
+  <data name="SettingsPage_Language.Header" xml:space="preserve">
+    <value>Language</value>
+  </data>
+  <data name="SettingsPage_Language_Chinese.Content" xml:space="preserve">
+    <value>Chinese (Simplified)</value>
+  </data>
+  <data name="SettingsPage_Language_English.Content" xml:space="preserve">
+    <value>English</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Mica.Content" xml:space="preserve">
+    <value>Mica</value>
+  </data>
+  <data name="SettingsPage_Backdrop_MicaAlt.Content" xml:space="preserve">
+    <value>Mica Alt</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Acrylic.Content" xml:space="preserve">
+    <value>Desktop Acrylic</value>
+  </data>
+  <data name="SettingsPage_Protocol_V1.Content" xml:space="preserve">
+    <value>Google Micro Video (V1)</value>
+  </data>
+  <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
+    <value>Google Motion Photo (V2)</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
+    <value>MP4 (H.264/HEVC)</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
+    <value>MOV (QuickTime)</value>
+  </data>
+  <data name="Status_Ready" xml:space="preserve">
+    <value>Ready</value>
+  </data>
+  <data name="ConsolePage_Title.Text" xml:space="preserve">
+    <value>Task Console</value>
+  </data>
+  <data name="ConsolePage_CopyButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Copy all output</value>
+  </data>
+  <data name="ConsolePage_CopyButton_Text.Text" xml:space="preserve">
+    <value>Copy All</value>
+  </data>
+  <data name="ConsolePage_ClearButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Clear console</value>
+  </data>
+  <data name="ConsolePage_ClearButton_Text.Text" xml:space="preserve">
+    <value>Clear</value>
+  </data>
+  <data name="ConsolePage_StopButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Try to stop the current task</value>
+  </data>
+  <data name="ConsolePage_StopButton_Text.Text" xml:space="preserve">
+    <value>Force Stop</value>
+  </data>
+  <data name="ConsolePage_Output.Text" xml:space="preserve">
+    <value>Feature under development...</value>
+  </data>
+  <data name="ConsolePage_Log_StopRequested" xml:space="preserve">
+    <value>[Warning] Stop signal received. Preparing to terminate the current task...</value>
+  </data>
+  <data name="ConsolePage_Log_StopForced" xml:space="preserve">
+    <value>[System] Real stop control is not wired up in the current version.</value>
+  </data>
+  <data name="ConsolePage_Log_Cleared" xml:space="preserve">
+    <value>[System] Console output cleared.</value>
+  </data>
+  <data name="ConsolePage_Log_Copied" xml:space="preserve">
+    <value>[System] Console output copied to clipboard.</value>
+  </data>
+  <data name="HomePage_HeroTitle.Text" xml:space="preserve">
+    <value>Live Photo Box</value>
+  </data>
+  <data name="HomePage_HeroSubtitle.Text" xml:space="preserve">
+    <value>— Make every memory feel alive like anime (o・v・o)</value>
+  </data>
+  <data name="HomePage_WelcomeTitle.Text" xml:space="preserve">
+    <value>Welcome to Live Photo Box</value>
+  </data>
+  <data name="HomePage_Intro1.Text" xml:space="preserve">
+    <value>Live Photo Box is an open-source live photo toolkit designed to provide a convenient and efficient experience for merging and splitting Android and iOS live photos. Beyond the tooling itself, it also focuses on the story and emotion behind every photo.</value>
+  </data>
+  <data name="HomePage_Intro2.Text" xml:space="preserve">
+    <value>Here, you can easily convert Google Motion Photos generated on Android phones into live photos recognizable by iOS, and vice versa. Whether you want smoother animation playback on iOS or the native live photo experience on Android, Live Photo Box is built to help.</value>
+  </data>
+  <data name="HomePage_TipLabel.Text" xml:space="preserve">
+    <value>Tip :</value>
+  </data>
+  <data name="HomePage_TipText.Text" xml:space="preserve">
+    <value>Before using merge or split features, make sure you have backups of the original files. Data safety comes first.</value>
+  </data>
+  <data name="AboutPage_Title.Text" xml:space="preserve">
+    <value>Live Photo Box</value>
+  </data>
+  <data name="AboutPage_Version.Text" xml:space="preserve">
+    <value>Version 1.1.0</value>
+  </data>
+  <data name="AboutPage_Header.Text" xml:space="preserve">
+    <value>About This App</value>
+  </data>
+  <data name="AboutPage_Description.Text" xml:space="preserve">
+    <value>Live Photo Box is an open-source live photo toolkit dedicated to providing a convenient experience for merging and splitting Android and iOS live photos. It supports the latest Google packaging formats and efficient batch processing.</value>
+  </data>
+  <data name="AboutPage_DeveloperLabel.Text" xml:space="preserve">
+    <value>Developer :</value>
+  </data>
+  <data name="AboutPage_SourceLabel.Text" xml:space="preserve">
+    <value>Source :</value>
+  </data>
+  <data name="AboutPage_SourceLink.Content" xml:space="preserve">
+    <value>GitHub Repository</value>
+  </data>
+  <data name="AboutPage_IssueLabel.Text" xml:space="preserve">
+    <value>Feedback :</value>
+  </data>
+  <data name="AboutPage_IssueLink.Content" xml:space="preserve">
+    <value>Submit an Issue</value>
+  </data>
+  <data name="SplitPage_DropHint.Text" xml:space="preserve">
+    <value>Drag existing live photos here to split them</value>
+  </data>
+  <data name="SplitPage_StartButton.Content" xml:space="preserve">
+    <value>Start Split</value>
+  </data>
+  <data name="SplitPage_ColSource.Text" xml:space="preserve">
+    <value>Source File</value>
+  </data>
+  <data name="SplitPage_ColStatus.Text" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="SplitPage_ColProgress.Text" xml:space="preserve">
+    <value>Progress</value>
+  </data>
+  <data name="SplitPage_ColDetails.Text" xml:space="preserve">
+    <value>Details</value>
+  </data>
+  <data name="SplitPage_DragCaption" xml:space="preserve">
+    <value>Release to import live photos for splitting</value>
+  </data>
+  <data name="RepairPage_DropHint.Text" xml:space="preserve">
+    <value>Drag photos or videos with wrong orientation or stretching here to repair</value>
+  </data>
+  <data name="RepairPage_StartButton.Content" xml:space="preserve">
+    <value>Start Repair</value>
+  </data>
+  <data name="RepairPage_ColSource.Text" xml:space="preserve">
+    <value>File to Repair</value>
+  </data>
+  <data name="RepairPage_ColStatus.Text" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="RepairPage_ColProgress.Text" xml:space="preserve">
+    <value>Progress</value>
+  </data>
+  <data name="RepairPage_ColDetails.Text" xml:space="preserve">
+    <value>Analysis</value>
+  </data>
+  <data name="RepairPage_DragCaption" xml:space="preserve">
+    <value>Release to import files that need repair</value>
+  </data>
+  <data name="RepairPage_TaskPending" xml:space="preserve">
+    <value>Waiting to analyze metadata...</value>
+  </data>
+  <data name="SettingsPage_Footer.Text" xml:space="preserve">
+    <value>Live Photo Box v1.1.0 | Powered by LengxiQwQ</value>
+  </data>
+
+</root>
