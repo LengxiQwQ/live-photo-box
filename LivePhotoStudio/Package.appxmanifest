@@ -34,7 +34,7 @@
       Executable="$targetnametoken$.exe"
       EntryPoint="$targetentrypoint$">
       <uap:VisualElements
-        DisplayName="Live Photo Studio"
+        DisplayName="Live Photo Box"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png" Description="让你的 Apple 实况照片（JPG + MOV）无损转换为 Google 动态照片（JPG单文件），使其可在Windows上直接显示，同时修复缩略图显示错误等一系列问题。">
