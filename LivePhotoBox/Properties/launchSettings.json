@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "LivePhotoBox (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "LivePhotoBox (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
