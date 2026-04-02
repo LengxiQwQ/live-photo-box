@@ -73,7 +73,6 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
                         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
@@ -91,14 +90,7 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <ToggleSwitch Grid.Column="2"
-                                      x:Uid="ComboPage_ThreadToggle"
-                                      IsOn="{x:Bind ViewModel.IsMultiThreadEnabled, Mode=TwoWay}"
-                                      IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
-                                      VerticalAlignment="Center"
-                                      Margin="0,0,16,0"/>
-
-                        <Button x:Uid="ComboPage_ScanBtn" Grid.Column="3"
+                        <Button x:Uid="ComboPage_ScanBtn" Grid.Column="2"
                                 Command="{x:Bind ViewModel.ScanDirectoryCommand}" 
                                 IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
                                 Height="32" VerticalAlignment="Center"

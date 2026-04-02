@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d" Background="Transparent" Language="zh-CN"
+    mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
     <ScrollViewer Padding="40,24">
@@ -14,16 +14,14 @@
                 <Image Source="/Assets/StoreLogo.png" Stretch="UniformToFill"/>
             </Border>
 
-            <TextBlock Text="Live Photo Studio" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" FontFamily="Microsoft YaHei UI"/>
-            <TextBlock Text="版本 1.1.0" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" Margin="0,-16,0,0"/>
+            <TextBlock x:Uid="AboutPage_Title" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" FontFamily="Microsoft YaHei UI"/>
+            <TextBlock x:Uid="AboutPage_Version" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" Margin="0,-16,0,0"/>
 
             <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,20,0,0">
                 <StackPanel Spacing="16">
-                    <TextBlock Text="关于本应用" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
-                    <TextBlock TextWrapping="Wrap" LineHeight="24" FontFamily="Microsoft YaHei UI" Foreground="{ThemeResource TextFillColorSecondaryBrush}">
-                        Live Photo Studio 是一款开源的实况照片处理工具箱，致力于为用户提供便捷的 Android 与 iOS 实况照片合成与拆分体验。支持最新的 Google 封装协议与高效的批量处理能力。
-                    </TextBlock>
+                    <TextBlock x:Uid="AboutPage_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    <TextBlock x:Uid="AboutPage_Description" TextWrapping="Wrap" LineHeight="24" FontFamily="Microsoft YaHei UI" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                     <MenuFlyoutSeparator Margin="0,10"/>
 
@@ -32,7 +30,7 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="开发者 :" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="AboutPage_DeveloperLabel" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                         <HyperlinkButton Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ" Content="LengxiQwQ (冷汐OωO)" Margin="8,0,0,0"/>
                     </Grid>
 
@@ -41,8 +39,8 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="开源地址 :" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                        <HyperlinkButton Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ/live-photo-studio" Content="GitHub 仓库" Margin="8,0,0,0"/>
+                        <TextBlock x:Uid="AboutPage_SourceLabel" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        <HyperlinkButton x:Uid="AboutPage_SourceLink" Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ/live-photo-studio" Margin="8,0,0,0"/>
                     </Grid>
 
                     <Grid>
@@ -50,8 +48,8 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="问题反馈 :" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                        <HyperlinkButton Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ/live-photo-studio/issues" Content="提交 Issue" Margin="8,0,0,0"/>
+                        <TextBlock x:Uid="AboutPage_IssueLabel" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        <HyperlinkButton x:Uid="AboutPage_IssueLink" Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ/live-photo-studio/issues" Margin="8,0,0,0"/>
                     </Grid>
                 </StackPanel>
             </Border>

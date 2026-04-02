@@ -378,6 +378,166 @@
     <value>我知道了</value>
   </data>
   <data name="SettingsPage_Language.Header" xml:space="preserve">
-    <value>语言 (Language)</value>
+    <value>界面语言</value>
   </data>
+  <data name="SettingsPage_Language_Chinese.Content" xml:space="preserve">
+    <value>中文 (简体)</value>
+  </data>
+  <data name="SettingsPage_Language_English.Content" xml:space="preserve">
+    <value>English</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Mica.Content" xml:space="preserve">
+    <value>Mica</value>
+  </data>
+  <data name="SettingsPage_Backdrop_MicaAlt.Content" xml:space="preserve">
+    <value>Mica Alt</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Acrylic.Content" xml:space="preserve">
+    <value>Desktop Acrylic</value>
+  </data>
+  <data name="SettingsPage_Protocol_V1.Content" xml:space="preserve">
+    <value>Google Micro Video (V1)</value>
+  </data>
+  <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
+    <value>Google Motion Photo (V2)</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
+    <value>MP4 (H.264/HEVC)</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
+    <value>MOV (QuickTime)</value>
+  </data>
+  <data name="Status_Ready" xml:space="preserve">
+    <value>就绪</value>
+  </data>
+  <data name="ConsolePage_Title.Text" xml:space="preserve">
+    <value>任务控制台</value>
+  </data>
+  <data name="ConsolePage_CopyButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>复制全部输出内容</value>
+  </data>
+  <data name="ConsolePage_CopyButton_Text.Text" xml:space="preserve">
+    <value>复制全部</value>
+  </data>
+  <data name="ConsolePage_ClearButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>清空屏幕</value>
+  </data>
+  <data name="ConsolePage_ClearButton_Text.Text" xml:space="preserve">
+    <value>清空</value>
+  </data>
+  <data name="ConsolePage_StopButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>尝试中止当前任务</value>
+  </data>
+  <data name="ConsolePage_StopButton_Text.Text" xml:space="preserve">
+    <value>强行停止</value>
+  </data>
+  <data name="ConsolePage_Output.Text" xml:space="preserve">
+    <value>功能开发中...</value>
+  </data>
+  <data name="ConsolePage_Log_StopRequested" xml:space="preserve">
+    <value>[Warning] 已收到中止信号，准备强制停止当前任务...</value>
+  </data>
+  <data name="ConsolePage_Log_StopForced" xml:space="preserve">
+    <value>[System] 当前版本尚未接入真实停止控制。</value>
+  </data>
+  <data name="ConsolePage_Log_Cleared" xml:space="preserve">
+    <value>[System] 控制台输出已清空。</value>
+  </data>
+  <data name="ConsolePage_Log_Copied" xml:space="preserve">
+    <value>[System] 控制台内容已复制到剪贴板。</value>
+  </data>
+  <data name="HomePage_HeroTitle.Text" xml:space="preserve">
+    <value>Live Photo Studio</value>
+  </data>
+  <data name="HomePage_HeroSubtitle.Text" xml:space="preserve">
+    <value>—— 让每一份回忆，都如动漫般灵动 (o・v・o)</value>
+  </data>
+  <data name="HomePage_WelcomeTitle.Text" xml:space="preserve">
+    <value>欢迎使用 Live Photo Studio</value>
+  </data>
+  <data name="HomePage_Intro1.Text" xml:space="preserve">
+    <value>Live Photo Studio 是一款开源的实况照片处理工具箱，旨在为用户提供便捷、高效的 Android 与 iOS 实况照片合成与拆分体验。不仅如此，作为一名深度二次元宅男开发的软件，我们更加关注每一张照片背后的故事和情感。</value>
+  </data>
+  <data name="HomePage_Intro2.Text" xml:space="preserve">
+    <value>在这里，你可以轻松将 Android 手机生成的 Google 实况照片，转化为 iOS 可识别的实况照片，反之亦然。无论是为了在 iOS 上获得更流畅的动画效果，还是为了在 Android 上体验原生的实况魅力，Live Photo Studio 都是你得力的助手。</value>
+  </data>
+  <data name="HomePage_TipLabel.Text" xml:space="preserve">
+    <value>友情提示 :</value>
+  </data>
+  <data name="HomePage_TipText.Text" xml:space="preserve">
+    <value>在使用合成或拆分功能前，建议先确认你拥有原照片的备份，毕竟数据安全重于泰山。(^-^*)</value>
+  </data>
+  <data name="AboutPage_Title.Text" xml:space="preserve">
+    <value>Live Photo Studio</value>
+  </data>
+  <data name="AboutPage_Version.Text" xml:space="preserve">
+    <value>版本 1.1.0</value>
+  </data>
+  <data name="AboutPage_Header.Text" xml:space="preserve">
+    <value>关于本应用</value>
+  </data>
+  <data name="AboutPage_Description.Text" xml:space="preserve">
+    <value>Live Photo Studio 是一款开源的实况照片处理工具箱，致力于为用户提供便捷的 Android 与 iOS 实况照片合成与拆分体验。支持最新的 Google 封装协议与高效的批量处理能力。</value>
+  </data>
+  <data name="AboutPage_DeveloperLabel.Text" xml:space="preserve">
+    <value>开发者 :</value>
+  </data>
+  <data name="AboutPage_SourceLabel.Text" xml:space="preserve">
+    <value>开源地址 :</value>
+  </data>
+  <data name="AboutPage_SourceLink.Content" xml:space="preserve">
+    <value>GitHub 仓库</value>
+  </data>
+  <data name="AboutPage_IssueLabel.Text" xml:space="preserve">
+    <value>问题反馈 :</value>
+  </data>
+  <data name="AboutPage_IssueLink.Content" xml:space="preserve">
+    <value>提交 Issue</value>
+  </data>
+  <data name="SplitPage_DropHint.Text" xml:space="preserve">
+    <value>拖拽已有的实况照片至此进行拆分</value>
+  </data>
+  <data name="SplitPage_StartButton.Content" xml:space="preserve">
+    <value>开始拆分</value>
+  </data>
+  <data name="SplitPage_ColSource.Text" xml:space="preserve">
+    <value>源文件</value>
+  </data>
+  <data name="SplitPage_ColStatus.Text" xml:space="preserve">
+    <value>状态</value>
+  </data>
+  <data name="SplitPage_ColProgress.Text" xml:space="preserve">
+    <value>进度</value>
+  </data>
+  <data name="SplitPage_ColDetails.Text" xml:space="preserve">
+    <value>详情</value>
+  </data>
+  <data name="SplitPage_DragCaption" xml:space="preserve">
+    <value>释放以导入需要拆分的实况照片</value>
+  </data>
+  <data name="RepairPage_DropHint.Text" xml:space="preserve">
+    <value>拖拽出现方向错误或拉伸的照片/视频至此进行修复</value>
+  </data>
+  <data name="RepairPage_StartButton.Content" xml:space="preserve">
+    <value>开始修复</value>
+  </data>
+  <data name="RepairPage_ColSource.Text" xml:space="preserve">
+    <value>待修复文件</value>
+  </data>
+  <data name="RepairPage_ColStatus.Text" xml:space="preserve">
+    <value>状态</value>
+  </data>
+  <data name="RepairPage_ColProgress.Text" xml:space="preserve">
+    <value>进度</value>
+  </data>
+  <data name="RepairPage_ColDetails.Text" xml:space="preserve">
+    <value>分析详情</value>
+  </data>
+  <data name="RepairPage_DragCaption" xml:space="preserve">
+    <value>释放以导入需要修复的文件</value>
+  </data>
+  <data name="RepairPage_TaskPending" xml:space="preserve">
+    <value>等待分析元数据...</value>
+  </data>
+
 </root>

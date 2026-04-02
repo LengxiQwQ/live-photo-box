@@ -1,4 +1,5 @@
 using LivePhotoStudio.Models;
+using LivePhotoStudio.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
@@ -9,7 +10,6 @@ namespace LivePhotoStudio.Views
 {
     public sealed partial class SplitPage : Page
     {
-        // 独立的页面 UI 模拟列表
         public ObservableCollection<LivePhotoTask> SplitTasks { get; } = new();
 
         public SplitPage()
@@ -20,7 +20,7 @@ namespace LivePhotoStudio.Views
         private void Grid_DragOver(object _, DragEventArgs e)
         {
             e.AcceptedOperation = DataPackageOperation.Copy;
-            e.DragUIOverride.Caption = "释放以导入需要拆分的照片";
+            e.DragUIOverride.Caption = ResourceService.GetString("SplitPage_DragCaption");
         }
 
         private async void Grid_Drop(object _, DragEventArgs e)
@@ -34,7 +34,7 @@ namespace LivePhotoStudio.Views
                     {
                         FileName = item.Name,
                         Status = ProcessStatus.Pending,
-                        Details = "等待拆分..."
+                        Details = ResourceService.GetString("Task_Pending")
                     });
                 }
             }

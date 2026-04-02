@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
+using LivePhotoStudio.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -27,21 +28,14 @@ namespace LivePhotoStudio
 
         public App()
         {
-            // 【关键修复】：在一切 UI 组件初始化之前，先强行注入我们要的语言！
             ApplyLanguageSetting();
-
             InitializeComponent();
         }
 
-        // [新增方法]：读取本地设置，拦截系统语言
         private void ApplyLanguageSetting()
         {
-            var settings = Windows.Storage.ApplicationData.Current.LocalSettings.Values;
-            if (settings.TryGetValue("LanguageIndex", out var langObj) && langObj is int langIndex)
-            {
-                string langCode = langIndex switch { 1 => "zh-CN", 2 => "en-US", _ => "" };
-                Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = langCode;
-            }
+            int languageIndex = AppSettingsService.GetValue("LanguageIndex", 0);
+            LanguageService.ApplyLanguageOverride(languageIndex);
         }
 
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)

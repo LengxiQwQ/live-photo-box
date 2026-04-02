@@ -1,3 +1,4 @@
+using LivePhotoStudio.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.ApplicationModel.DataTransfer;
@@ -14,17 +15,14 @@ namespace LivePhotoStudio.Views
 
         private void StopButton_Click(object sender, RoutedEventArgs e)
         {
-            // 强行停止的 GUI 响应
-            AppendLog("[Warning] 接收到中断信号，正在强行停止当前队列任务...", isError: true);
-            AppendLog("[System] 任务已强行终止！", isError: true);
-
-            // TODO: 后续在这里触发后端多线程任务的 CancellationToken.Cancel()
+            AppendLog(ResourceService.GetString("ConsolePage_Log_StopRequested"), isError: true);
+            AppendLog(ResourceService.GetString("ConsolePage_Log_StopForced"), isError: true);
         }
 
         private void ClearButton_Click(object sender, RoutedEventArgs e)
         {
             ConsoleOutput.Text = string.Empty;
-            AppendLog("[System] 控制台输出已清空。");
+            AppendLog(ResourceService.GetString("ConsolePage_Log_Cleared"));
         }
 
         private void CopyButton_Click(object sender, RoutedEventArgs e)
@@ -34,7 +32,7 @@ namespace LivePhotoStudio.Views
             var dataPackage = new DataPackage();
             dataPackage.SetText(ConsoleOutput.Text);
             Clipboard.SetContent(dataPackage);
-            AppendLog("[System] 控制台输出已复制到剪贴板。");
+            AppendLog(ResourceService.GetString("ConsolePage_Log_Copied"));
         }
 
         /// <summary>

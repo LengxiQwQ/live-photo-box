@@ -4,7 +4,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d" Background="Transparent" Language="zh-CN"
+    mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
     <Grid Padding="12,0,12,12" RowSpacing="12">
@@ -16,25 +16,25 @@
         <Grid Grid.Row="0" Margin="0,12,0,0">
             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                 <FontIcon Glyph="&#xE756;" FontSize="20" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                <TextBlock Text="任务控制台" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                <TextBlock x:Uid="ConsolePage_Title" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
             </StackPanel>
 
             <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
-                <Button x:Name="CopyButton" Click="CopyButton_Click" ToolTipService.ToolTip="复制全部输出内容">
+                <Button x:Name="CopyButton" Click="CopyButton_Click" x:Uid="ConsolePage_CopyButton">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
-                        <TextBlock Text="复制全部" />
+                        <TextBlock x:Uid="ConsolePage_CopyButton_Text" />
                     </StackPanel>
                 </Button>
 
-                <Button x:Name="ClearButton" Click="ClearButton_Click" ToolTipService.ToolTip="清空屏幕">
+                <Button x:Name="ClearButton" Click="ClearButton_Click" x:Uid="ConsolePage_ClearButton">
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE74D;" FontSize="14"/>
-                        <TextBlock Text="清空" />
+                        <TextBlock x:Uid="ConsolePage_ClearButton_Text" />
                     </StackPanel>
                 </Button>
 
-                <Button x:Name="StopButton" Click="StopButton_Click" 
+                <Button x:Name="StopButton" Click="StopButton_Click" x:Uid="ConsolePage_StopButton"
                         Style="{StaticResource AccentButtonStyle}"
                         HorizontalContentAlignment="Center" VerticalContentAlignment="Center">
                     <Button.Resources>
@@ -61,15 +61,13 @@
 
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <FontIcon Glyph="&#xE10A;" FontSize="14" FontWeight="Bold" Foreground="White"/>
-
-                        <TextBlock Text="强行停止" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="ConsolePage_StopButton_Text" FontWeight="Bold" Foreground="White" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
             </StackPanel>
         </Grid>
 
         <Border Grid.Row="1" CornerRadius="8" Background="#0C0C0C" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="4">
-
             <Border.Resources>
                 <SolidColorBrush x:Key="TerminalBlackBrush" Color="#0C0C0C"/>
                 <SolidColorBrush x:Key="TerminalForegroundBrush" Color="#CCCCCC"/>
@@ -87,6 +85,7 @@
             </Border.Resources>
 
             <TextBox x:Name="ConsoleOutput" 
+                     x:Uid="ConsolePage_Output"
                      IsReadOnly="True" 
                      TextWrapping="Wrap" 
                      AcceptsReturn="True" 
@@ -99,8 +98,7 @@
                      HorizontalAlignment="Stretch"
                      VerticalAlignment="Stretch"
                      Margin="0"
-                     Padding="8,4"
-                     Text="功能开发中..."/>
+                     Padding="8,4"/>
         </Border>
     </Grid>
 </Page>

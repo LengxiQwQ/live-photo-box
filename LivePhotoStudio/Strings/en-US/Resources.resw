@@ -380,4 +380,164 @@ Please set the input directory and click [Scan Files] to load files.</value>
   <data name="SettingsPage_Language.Header" xml:space="preserve">
     <value>Language</value>
   </data>
+  <data name="SettingsPage_Language_Chinese.Content" xml:space="preserve">
+    <value>Chinese (Simplified)</value>
+  </data>
+  <data name="SettingsPage_Language_English.Content" xml:space="preserve">
+    <value>English</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Mica.Content" xml:space="preserve">
+    <value>Mica</value>
+  </data>
+  <data name="SettingsPage_Backdrop_MicaAlt.Content" xml:space="preserve">
+    <value>Mica Alt</value>
+  </data>
+  <data name="SettingsPage_Backdrop_Acrylic.Content" xml:space="preserve">
+    <value>Desktop Acrylic</value>
+  </data>
+  <data name="SettingsPage_Protocol_V1.Content" xml:space="preserve">
+    <value>Google Micro Video (V1)</value>
+  </data>
+  <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
+    <value>Google Motion Photo (V2)</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
+    <value>MP4 (H.264/HEVC)</value>
+  </data>
+  <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
+    <value>MOV (QuickTime)</value>
+  </data>
+  <data name="Status_Ready" xml:space="preserve">
+    <value>Ready</value>
+  </data>
+  <data name="ConsolePage_Title.Text" xml:space="preserve">
+    <value>Task Console</value>
+  </data>
+  <data name="ConsolePage_CopyButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Copy all output</value>
+  </data>
+  <data name="ConsolePage_CopyButton_Text.Text" xml:space="preserve">
+    <value>Copy All</value>
+  </data>
+  <data name="ConsolePage_ClearButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Clear console</value>
+  </data>
+  <data name="ConsolePage_ClearButton_Text.Text" xml:space="preserve">
+    <value>Clear</value>
+  </data>
+  <data name="ConsolePage_StopButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Try to stop the current task</value>
+  </data>
+  <data name="ConsolePage_StopButton_Text.Text" xml:space="preserve">
+    <value>Force Stop</value>
+  </data>
+  <data name="ConsolePage_Output.Text" xml:space="preserve">
+    <value>Feature under development...</value>
+  </data>
+  <data name="ConsolePage_Log_StopRequested" xml:space="preserve">
+    <value>[Warning] Stop signal received. Preparing to terminate the current task...</value>
+  </data>
+  <data name="ConsolePage_Log_StopForced" xml:space="preserve">
+    <value>[System] Real stop control is not wired up in the current version.</value>
+  </data>
+  <data name="ConsolePage_Log_Cleared" xml:space="preserve">
+    <value>[System] Console output cleared.</value>
+  </data>
+  <data name="ConsolePage_Log_Copied" xml:space="preserve">
+    <value>[System] Console output copied to clipboard.</value>
+  </data>
+  <data name="HomePage_HeroTitle.Text" xml:space="preserve">
+    <value>Live Photo Studio</value>
+  </data>
+  <data name="HomePage_HeroSubtitle.Text" xml:space="preserve">
+    <value>— Make every memory feel alive like anime (o・v・o)</value>
+  </data>
+  <data name="HomePage_WelcomeTitle.Text" xml:space="preserve">
+    <value>Welcome to Live Photo Studio</value>
+  </data>
+  <data name="HomePage_Intro1.Text" xml:space="preserve">
+    <value>Live Photo Studio is an open-source live photo toolkit designed to provide a convenient and efficient experience for merging and splitting Android and iOS live photos. Beyond the tooling itself, it also focuses on the story and emotion behind every photo.</value>
+  </data>
+  <data name="HomePage_Intro2.Text" xml:space="preserve">
+    <value>Here, you can easily convert Google Motion Photos generated on Android phones into live photos recognizable by iOS, and vice versa. Whether you want smoother animation playback on iOS or the native live photo experience on Android, Live Photo Studio is built to help.</value>
+  </data>
+  <data name="HomePage_TipLabel.Text" xml:space="preserve">
+    <value>Tip :</value>
+  </data>
+  <data name="HomePage_TipText.Text" xml:space="preserve">
+    <value>Before using merge or split features, make sure you have backups of the original files. Data safety comes first.</value>
+  </data>
+  <data name="AboutPage_Title.Text" xml:space="preserve">
+    <value>Live Photo Studio</value>
+  </data>
+  <data name="AboutPage_Version.Text" xml:space="preserve">
+    <value>Version 1.1.0</value>
+  </data>
+  <data name="AboutPage_Header.Text" xml:space="preserve">
+    <value>About This App</value>
+  </data>
+  <data name="AboutPage_Description.Text" xml:space="preserve">
+    <value>Live Photo Studio is an open-source live photo toolkit dedicated to providing a convenient experience for merging and splitting Android and iOS live photos. It supports the latest Google packaging formats and efficient batch processing.</value>
+  </data>
+  <data name="AboutPage_DeveloperLabel.Text" xml:space="preserve">
+    <value>Developer :</value>
+  </data>
+  <data name="AboutPage_SourceLabel.Text" xml:space="preserve">
+    <value>Source :</value>
+  </data>
+  <data name="AboutPage_SourceLink.Content" xml:space="preserve">
+    <value>GitHub Repository</value>
+  </data>
+  <data name="AboutPage_IssueLabel.Text" xml:space="preserve">
+    <value>Feedback :</value>
+  </data>
+  <data name="AboutPage_IssueLink.Content" xml:space="preserve">
+    <value>Submit an Issue</value>
+  </data>
+  <data name="SplitPage_DropHint.Text" xml:space="preserve">
+    <value>Drag existing live photos here to split them</value>
+  </data>
+  <data name="SplitPage_StartButton.Content" xml:space="preserve">
+    <value>Start Split</value>
+  </data>
+  <data name="SplitPage_ColSource.Text" xml:space="preserve">
+    <value>Source File</value>
+  </data>
+  <data name="SplitPage_ColStatus.Text" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="SplitPage_ColProgress.Text" xml:space="preserve">
+    <value>Progress</value>
+  </data>
+  <data name="SplitPage_ColDetails.Text" xml:space="preserve">
+    <value>Details</value>
+  </data>
+  <data name="SplitPage_DragCaption" xml:space="preserve">
+    <value>Release to import live photos for splitting</value>
+  </data>
+  <data name="RepairPage_DropHint.Text" xml:space="preserve">
+    <value>Drag photos or videos with wrong orientation or stretching here to repair</value>
+  </data>
+  <data name="RepairPage_StartButton.Content" xml:space="preserve">
+    <value>Start Repair</value>
+  </data>
+  <data name="RepairPage_ColSource.Text" xml:space="preserve">
+    <value>File to Repair</value>
+  </data>
+  <data name="RepairPage_ColStatus.Text" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="RepairPage_ColProgress.Text" xml:space="preserve">
+    <value>Progress</value>
+  </data>
+  <data name="RepairPage_ColDetails.Text" xml:space="preserve">
+    <value>Analysis</value>
+  </data>
+  <data name="RepairPage_DragCaption" xml:space="preserve">
+    <value>Release to import files that need repair</value>
+  </data>
+  <data name="RepairPage_TaskPending" xml:space="preserve">
+    <value>Waiting to analyze metadata...</value>
+  </data>
+
 </root>
