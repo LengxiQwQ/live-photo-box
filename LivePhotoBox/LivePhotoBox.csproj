@@ -47,6 +47,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
+	  <None Update="Controls\PageStatusBar.xaml">
+	    <Generator>MSBuild:Compile</Generator>
+	  </None>
+	</ItemGroup>
+
+	<ItemGroup>
 		<Page Update="Views\ConsolePage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
@@ -68,6 +74,10 @@
 		<Page Update="Views\SettingsPage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
+	</ItemGroup>
+
+	<ItemGroup>
+	  <Folder Include="Controls\" />
 	</ItemGroup>
 
 	<PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">

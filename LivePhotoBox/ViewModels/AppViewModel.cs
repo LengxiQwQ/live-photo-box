@@ -20,9 +20,78 @@ namespace LivePhotoBox.ViewModels
     {
         public static AppViewModel Instance { get; } = new AppViewModel();
 
-        [ObservableProperty] private string _appStatus = string.Empty;
+        private string _comboStatus = string.Empty;
+        private string _splitStatus = string.Empty;
+        private string _repairStatus = string.Empty;
+        private string? _currentStatusPageTag;
         [ObservableProperty] private double _comboProgress = 0;
         [ObservableProperty] private string _progressText = "0/0";
+
+        public string ComboStatus
+        {
+            get => _comboStatus;
+            set
+            {
+                if (SetProperty(ref _comboStatus, value) && CurrentStatusPageTag == "Combo")
+                {
+                    OnPropertyChanged(nameof(CurrentPageStatus));
+                }
+            }
+        }
+
+        public string SplitStatus
+        {
+            get => _splitStatus;
+            set
+            {
+                if (SetProperty(ref _splitStatus, value) && CurrentStatusPageTag == "Split")
+                {
+                    OnPropertyChanged(nameof(CurrentPageStatus));
+                }
+            }
+        }
+
+        public string RepairStatus
+        {
+            get => _repairStatus;
+            set
+            {
+                if (SetProperty(ref _repairStatus, value) && CurrentStatusPageTag == "Repair")
+                {
+                    OnPropertyChanged(nameof(CurrentPageStatus));
+                }
+            }
+        }
+
+        public string CurrentPageStatus => CurrentStatusPageTag switch
+        {
+            "Combo" => ComboStatus,
+            "Split" => SplitStatus,
+            "Repair" => RepairStatus,
+            _ => string.Empty
+        };
+
+        public bool IsStatusBarVisible => CurrentStatusPageTag is "Combo" or "Split" or "Repair";
+
+        public string? CurrentStatusPageTag
+        {
+            get => _currentStatusPageTag;
+            private set
+            {
+                if (!SetProperty(ref _currentStatusPageTag, value))
+                {
+                    return;
+                }
+
+                OnPropertyChanged(nameof(CurrentPageStatus));
+                OnPropertyChanged(nameof(IsStatusBarVisible));
+            }
+        }
+
+        public void SetCurrentStatusPage(string? pageTag)
+        {
+            CurrentStatusPageTag = pageTag;
+        }
 
         [ObservableProperty] private string _inputDirectory = string.Empty;
         [ObservableProperty] private string _outputDirectory = string.Empty;
@@ -78,7 +147,9 @@ namespace LivePhotoBox.ViewModels
 
         public AppViewModel()
         {
-            AppStatus = ResourceService.GetString("Status_Init");
+            ComboStatus = ResourceService.GetString("Status_Init");
+            SplitStatus = ResourceService.GetString("SplitPage_Status_Ready");
+            RepairStatus = ResourceService.GetString("RepairPage_Status_Ready");
             ActionBtnText = ResourceService.GetString("Btn_StartCombo");
 
             LoadSettings();
@@ -109,7 +180,7 @@ namespace LivePhotoBox.ViewModels
 
         private Task DetectGPUAndInitializeAsync()
         {
-            AppStatus = ResourceService.GetString("Status_Ready");
+            ComboStatus = ResourceService.GetString("Status_Ready");
             _hwEncoderName = "Software CPU";
             return Task.CompletedTask;
         }
@@ -164,7 +235,7 @@ namespace LivePhotoBox.ViewModels
             if (IsProcessing) return;
             if (string.IsNullOrWhiteSpace(InputDirectory) || !Directory.Exists(InputDirectory))
             {
-                AppStatus = ResourceService.GetString("Status_InvalidInput");
+                ComboStatus = ResourceService.GetString("Status_InvalidInput");
                 return;
             }
 
@@ -208,7 +279,7 @@ namespace LivePhotoBox.ViewModels
                 OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
             }
 
-            AppStatus = ResourceService.Format("Status_ScanDone", TotalPairsCount);
+            ComboStatus = ResourceService.Format("Status_ScanDone", TotalPairsCount);
         }
 
         [RelayCommand]
@@ -222,7 +293,7 @@ namespace LivePhotoBox.ViewModels
                 StandaloneVideosCount = 0;
                 ComboProgress = 0;
                 ProgressText = "0/0";
-                AppStatus = ResourceService.Format("Status_Cleared", _hwEncoderName);
+                ComboStatus = ResourceService.Format("Status_Cleared", _hwEncoderName);
 
                 IsDirectoryPanelOpen = true;
             }
@@ -231,13 +302,13 @@ namespace LivePhotoBox.ViewModels
                 if (IsPaused)
                 {
                     IsPaused = false;
-                    AppStatus = ResourceService.GetString("Status_Resumed");
+                    ComboStatus = ResourceService.GetString("Status_Resumed");
                     _pauseEvent.Set();
                 }
                 else
                 {
                     IsPaused = true;
-                    AppStatus = ResourceService.GetString("Status_Paused");
+                    ComboStatus = ResourceService.GetString("Status_Paused");
                     _pauseEvent.Reset();
                 }
             }
@@ -308,7 +379,7 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
-                AppStatus = ResourceService.GetString("Status_WarnOutput");
+                ComboStatus = ResourceService.GetString("Status_WarnOutput");
                 return;
             }
 
@@ -326,7 +397,7 @@ namespace LivePhotoBox.ViewModels
             ProgressText = $"0/{TotalPairsCount}";
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = new CancellationTokenSource();
-            AppStatus = ResourceService.GetString("Status_Running");
+            ComboStatus = ResourceService.GetString("Status_Running");
         }
 
         private void FinalizeRunState(Stopwatch stopwatch)
@@ -343,7 +414,7 @@ namespace LivePhotoBox.ViewModels
 
             if (ComboProgress >= 100)
             {
-                AppStatus = ResourceService.Format("Status_Done", stopwatch.Elapsed.TotalSeconds);
+                ComboStatus = ResourceService.Format("Status_Done", stopwatch.Elapsed.TotalSeconds);
             }
         }
 
@@ -384,7 +455,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                AppStatus = ResourceService.GetString("Status_Aborted");
+                ComboStatus = ResourceService.GetString("Status_Aborted");
             }
             finally
             {

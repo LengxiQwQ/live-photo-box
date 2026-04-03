@@ -62,8 +62,12 @@
 
                 <Frame x:Name="MainFrame" Grid.Row="0" Padding="24" Background="Transparent"/>
 
-                <Border Grid.Row="1" Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}" 
-                        BorderThickness="0,1,0,0" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                <Border x:Name="PageStatusBar"
+                        Grid.Row="1"
+                        Visibility="Collapsed"
+                        Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}"
+                        BorderThickness="0,1,0,0"
+                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                         Height="32">
                     <Grid Margin="16,0">
                         <Grid.ColumnDefinitions>
@@ -71,11 +75,19 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <TextBlock Grid.Column="0" Text="{x:Bind ViewModel.AppStatus, Mode=OneWay}" 
-                                   VerticalAlignment="Center" FontSize="11" Opacity="0.8"/>
+                        <TextBlock Grid.Column="0"
+                                   Text="{x:Bind ViewModel.CurrentPageStatus, Mode=OneWay}"
+                                   TextWrapping="NoWrap"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center"
+                                   FontSize="11"
+                                   Opacity="0.8"/>
 
-                        <HyperlinkButton Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ" 
-                                         VerticalAlignment="Center" Opacity="0.5" Padding="4,2"
+                        <HyperlinkButton Grid.Column="1"
+                                         NavigateUri="https://github.com/LengxiQwQ"
+                                         VerticalAlignment="Center"
+                                         Opacity="0.5"
+                                         Padding="4,2"
                                          Foreground="{ThemeResource TextFillColorPrimaryBrush}">
                             <HyperlinkButton.Content>
                                 <TextBlock x:Uid="MainWindow_Footer" FontSize="11" />

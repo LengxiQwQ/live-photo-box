@@ -238,6 +238,9 @@ Do you want to restart now?</value>
   <data name="SplitPage_PlaceholderDescription.Text" xml:space="preserve">
     <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
   </data>
+  <data name="SplitPage_Status_Ready" xml:space="preserve">
+    <value>Ready | Waiting to import live photos to split</value>
+  </data>
   <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
     <value>Workspace &amp; Scan Config</value>
   </data>
@@ -536,5 +539,7 @@ Please set the input directory and click [Scan Files] to load files.</value>
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
     <value>Live Photo Box v1.1.0 | Powered by LengxiQwQ</value>
   </data>
-
+  <data name="RepairPage_Status_Ready" xml:space="preserve">
+    <value>Ready | Waiting for files to repair</value>
+  </data>
 </root>

@@ -60,13 +60,20 @@ namespace LivePhotoBox
 
             UpdateTheme();
             UpdateBackdrop();
-            MainFrame.Navigate(typeof(Views.HomePage));
+            UpdateStatusBarVisibility();
+            NavigateToPage(typeof(Views.HomePage), null);
         }
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(AppViewModel.BackdropIndex)) UpdateBackdrop();
             if (e.PropertyName == nameof(AppViewModel.ElementTheme)) UpdateTheme();
+            if (e.PropertyName == nameof(AppViewModel.IsStatusBarVisible)) UpdateStatusBarVisibility();
+        }
+
+        private void UpdateStatusBarVisibility()
+        {
+            PageStatusBar.Visibility = ViewModel.IsStatusBarVisible ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void UpdateBackdrop()
@@ -156,7 +163,7 @@ namespace LivePhotoBox
         {
             if (args.IsSettingsSelected)
             {
-                MainFrame.Navigate(typeof(Views.SettingsPage));
+                NavigateToPage(typeof(Views.SettingsPage), null);
                 return;
             }
 
@@ -167,13 +174,19 @@ namespace LivePhotoBox
 
             switch (tag)
             {
-                case "Home": MainFrame.Navigate(typeof(Views.HomePage)); break;
-                case "Combo": MainFrame.Navigate(typeof(Views.ComboPage)); break;
-                case "Split": MainFrame.Navigate(typeof(Views.SplitPage)); break;
-                case "Repair": MainFrame.Navigate(typeof(Views.RepairPage)); break;
-                case "Console": MainFrame.Navigate(typeof(Views.ConsolePage)); break;
-                case "About": MainFrame.Navigate(typeof(Views.AboutPage)); break;
+                case "Home": NavigateToPage(typeof(Views.HomePage), null); break;
+                case "Combo": NavigateToPage(typeof(Views.ComboPage), "Combo"); break;
+                case "Split": NavigateToPage(typeof(Views.SplitPage), "Split"); break;
+                case "Repair": NavigateToPage(typeof(Views.RepairPage), "Repair"); break;
+                case "Console": NavigateToPage(typeof(Views.ConsolePage), null); break;
+                case "About": NavigateToPage(typeof(Views.AboutPage), null); break;
             }
+        }
+
+        private void NavigateToPage(Type pageType, string? statusPageTag)
+        {
+            ViewModel.SetCurrentStatusPage(statusPageTag);
+            MainFrame.Navigate(pageType);
         }
     }
 }

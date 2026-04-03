@@ -201,15 +201,6 @@
   <data name="SettingsPage_Protocol_Desc.Text" xml:space="preserve">
     <value>选择合适的安卓实况封装协议</value>
   </data>
-  <data name="SettingsPage_Threads_Header.Header" xml:space="preserve">
-    <value>并发线程数</value>
-  </data>
-  <data name="SettingsPage_Threads_Desc1.Text" xml:space="preserve">
-    <value>处理时最大的线程数 1 - 10</value>
-  </data>
-  <data name="SettingsPage_Threads_Desc2.Text" xml:space="preserve">
-    <value>设置过多容易导致处理失败</value>
-  </data>
   <data name="SettingsPage_Keep_Header.Header" xml:space="preserve">
     <value>保留原始文件</value>
   </data>
@@ -245,6 +236,9 @@
   </data>
   <data name="SplitPage_PlaceholderDescription.Text" xml:space="preserve">
     <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
+  </data>
+  <data name="SplitPage_Status_Ready" xml:space="preserve">
+    <value>就绪 | 等待导入待拆分的实况照片</value>
   </data>
   <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
     <value>工作目录与扫描配置</value>
@@ -306,15 +300,6 @@
   <data name="Status_Init" xml:space="preserve">
     <value>正在初始化组件</value>
   </data>
-  <data name="Status_NoFFmpeg" xml:space="preserve">
-    <value>就绪 | 未检测到 FFmpeg 组件</value>
-  </data>
-  <data name="Status_GPUFound" xml:space="preserve">
-    <value>就绪 | 已识别视频加速: {0}</value>
-  </data>
-  <data name="Status_GPUFail" xml:space="preserve">
-    <value>就绪 | 显卡检测失败，默认使用 CPU 编码</value>
-  </data>
   <data name="Status_InvalidInput" xml:space="preserve">
     <value>输入目录无效，请检查路径</value>
   </data>
@@ -366,9 +351,6 @@
   <data name="Task_Processing" xml:space="preserve">
     <value>正在合并...</value>
   </data>
-  <data name="Task_MissingExif" xml:space="preserve">
-    <value>缺少 ExifTool，请检查 Tools 文件夹</value>
-  </data>
   <data name="Task_Success" xml:space="preserve">
     <value>原生合成成功</value>
   </data>
@@ -393,7 +375,7 @@
     <value>我知道了</value>
   </data>
   <data name="SettingsPage_Language.Header" xml:space="preserve">
-    <value>界面语言</value>
+    <value>界面语言 (Language)</value>
   </data>
   <data name="SettingsPage_Language_Chinese.Content" xml:space="preserve">
     <value>中文 (简体)</value>
@@ -557,5 +539,7 @@
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
     <value>Live Photo Box v1.1.0 | Powered by LengxiQwQ</value>
   </data>
-
+  <data name="RepairPage_Status_Ready" xml:space="preserve">
+    <value>等待修复</value>
+  </data>
 </root>
