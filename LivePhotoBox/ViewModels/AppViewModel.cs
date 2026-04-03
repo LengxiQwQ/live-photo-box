@@ -63,6 +63,70 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        public string SplitInputDirectory
+        {
+            get => _splitInputDirectory;
+            set => SetProperty(ref _splitInputDirectory, value);
+        }
+
+        public string SplitOutputDirectory
+        {
+            get => _splitOutputDirectory;
+            set => SetProperty(ref _splitOutputDirectory, value);
+        }
+
+        public int SplitQueuedCount
+        {
+            get => _splitQueuedCount;
+            set => SetProperty(ref _splitQueuedCount, value);
+        }
+
+        public int SplitRecognizedCount
+        {
+            get => _splitRecognizedCount;
+            set => SetProperty(ref _splitRecognizedCount, value);
+        }
+
+        public int SplitSkippedCount
+        {
+            get => _splitSkippedCount;
+            set => SetProperty(ref _splitSkippedCount, value);
+        }
+
+        public string SplitActionBtnText
+        {
+            get => string.IsNullOrWhiteSpace(_splitActionBtnText)
+                ? ResourceService.GetString("Btn_StartSplit")
+                : _splitActionBtnText;
+            set => SetProperty(ref _splitActionBtnText, value);
+        }
+
+        public string SplitClearBtnText => ResourceService.GetString("Btn_ClearList");
+
+        public double SplitProgress
+        {
+            get => _splitProgress;
+            set => SetProperty(ref _splitProgress, value);
+        }
+
+        public string SplitProgressText
+        {
+            get => _splitProgressText;
+            set => SetProperty(ref _splitProgressText, value);
+        }
+
+        public int SelectedSplitFormatIndex
+        {
+            get => _selectedSplitFormatIndex;
+            set => SetProperty(ref _selectedSplitFormatIndex, value);
+        }
+
+        public bool IsSplitDirectoryPanelOpen
+        {
+            get => _isSplitDirectoryPanelOpen;
+            set => SetProperty(ref _isSplitDirectoryPanelOpen, value);
+        }
+
         public string CurrentPageStatus => CurrentStatusPageTag switch
         {
             "Combo" => ComboStatus,
@@ -96,11 +160,23 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private string _inputDirectory = string.Empty;
         [ObservableProperty] private string _outputDirectory = string.Empty;
 
+        private string _splitInputDirectory = string.Empty;
+        private string _splitOutputDirectory = string.Empty;
+
         [ObservableProperty] private int _totalPairsCount = 0;
         [ObservableProperty] private int _standaloneImagesCount = 0;
         [ObservableProperty] private int _standaloneVideosCount = 0;
 
+        private int _splitQueuedCount;
+        private int _splitRecognizedCount;
+        private int _splitSkippedCount;
+
         [ObservableProperty] private string _actionBtnText = string.Empty;
+
+        private string _splitActionBtnText = string.Empty;
+        private double _splitProgress;
+        private string _splitProgressText = "0/0";
+        private int _selectedSplitFormatIndex;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsNotProcessing))]
@@ -123,6 +199,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         [ObservableProperty] private bool _isDirectoryPanelOpen = true;
+        private bool _isSplitDirectoryPanelOpen = true;
 
         private CancellationTokenSource? _cancellationTokenSource;
         private readonly ManualResetEventSlim _pauseEvent = new(true);
@@ -142,6 +219,7 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private int _backdropIndex;
 
         public ObservableCollection<LivePhotoMergeTask> ComboTasks { get; } = [];
+        public ObservableCollection<LivePhotoSplitTask> SplitTasks { get; } = [];
 
         private bool _isInitialized;
 
@@ -151,7 +229,7 @@ namespace LivePhotoBox.ViewModels
             SplitStatus = ResourceService.GetString("SplitPage_Status_Ready");
             RepairStatus = ResourceService.GetString("RepairPage_Status_Ready");
             ActionBtnText = ResourceService.GetString("Btn_StartCombo");
-
+            SplitActionBtnText = ResourceService.GetString("Btn_StartSplit");
             LoadSettings();
             LanguageService.ApplyLanguageOverride(LanguageIndex);
 
@@ -212,6 +290,48 @@ namespace LivePhotoBox.ViewModels
                     AppSettingsService.SetValue(nameof(BackdropIndex), BackdropIndex);
                     break;
             }
+        }
+
+        [RelayCommand]
+        private void ScanSplitDirectory()
+        {
+            if (string.IsNullOrWhiteSpace(SplitInputDirectory) || !Directory.Exists(SplitInputDirectory))
+            {
+                SplitStatus = ResourceService.GetString("SplitPage_Status_InvalidInput");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(SplitOutputDirectory))
+            {
+                SplitOutputDirectory = Path.Combine(SplitInputDirectory, "Output_SplitPhotos");
+            }
+
+            ResetSplitQueue();
+            SplitStatus = ResourceService.GetString("SplitPage_Status_ScanPlaceholder");
+        }
+
+        [RelayCommand]
+        private void ClearSplitQueue()
+        {
+            ResetSplitQueue();
+            SplitStatus = ResourceService.GetString("SplitPage_Status_Cleared");
+            IsSplitDirectoryPanelOpen = true;
+        }
+
+        [RelayCommand]
+        private void StartSplit()
+        {
+            SplitStatus = ResourceService.GetString("SplitPage_Status_StartPlaceholder");
+        }
+
+        private void ResetSplitQueue()
+        {
+            SplitTasks.Clear();
+            SplitQueuedCount = 0;
+            SplitRecognizedCount = 0;
+            SplitSkippedCount = 0;
+            SplitProgress = 0;
+            SplitProgressText = "0/0";
         }
 
         [RelayCommand]

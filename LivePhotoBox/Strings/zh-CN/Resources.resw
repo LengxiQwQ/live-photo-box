@@ -240,6 +240,63 @@
   <data name="SplitPage_Status_Ready" xml:space="preserve">
     <value>就绪 | 等待导入待拆分的实况照片</value>
   </data>
+  <data name="SplitPage_ConfigHeader.Text" xml:space="preserve">
+    <value>工作目录与扫描配置</value>
+  </data>
+  <data name="SplitPage_InputLabel.Text" xml:space="preserve">
+    <value>输入目录:</value>
+  </data>
+  <data name="SplitPage_InputBox.PlaceholderText" xml:space="preserve">
+    <value>请选择包含实况照片的源文件夹</value>
+  </data>
+  <data name="SplitPage_BrowseBtn1.Content" xml:space="preserve">
+    <value>浏览...</value>
+  </data>
+  <data name="SplitPage_OutputLabel.Text" xml:space="preserve">
+    <value>输出目录:</value>
+  </data>
+  <data name="SplitPage_OutputBox.PlaceholderText" xml:space="preserve">
+    <value>请选择拆分后照片与视频的保存路径</value>
+  </data>
+  <data name="SplitPage_BrowseBtn2.Content" xml:space="preserve">
+    <value>浏览...</value>
+  </data>
+  <data name="SplitPage_StatQueued.Text" xml:space="preserve">
+    <value>队列任务 :</value>
+  </data>
+  <data name="SplitPage_StatRecognized.Text" xml:space="preserve">
+    <value>识别文件 :</value>
+  </data>
+  <data name="SplitPage_StatSkipped.Text" xml:space="preserve">
+    <value>已跳过 :</value>
+  </data>
+  <data name="SplitPage_FormatLabel.Text" xml:space="preserve">
+    <value>导出格式：</value>
+  </data>
+  <data name="SplitPage_ScanBtn.Content" xml:space="preserve">
+    <value>扫描实况照片</value>
+  </data>
+  <data name="SplitPage_QueueProgress.Text" xml:space="preserve">
+    <value>当前队列进度：</value>
+  </data>
+  <data name="SplitPage_ColSeq.Text" xml:space="preserve">
+    <value>序号</value>
+  </data>
+  <data name="SplitPage_ColSize.Text" xml:space="preserve">
+    <value>大小</value>
+  </data>
+  <data name="SplitPage_Status_InvalidInput" xml:space="preserve">
+    <value>输入目录无效，请检查路径</value>
+  </data>
+  <data name="SplitPage_Status_ScanPlaceholder" xml:space="preserve">
+    <value>扫描入口已就绪，拆分扫描逻辑将在下一步接入</value>
+  </data>
+  <data name="SplitPage_Status_Cleared" xml:space="preserve">
+    <value>已清空拆分队列</value>
+  </data>
+  <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
+    <value>拆分执行逻辑将在下一步接入，当前已完成界面准备</value>
+  </data>
   <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
     <value>工作目录与扫描配置</value>
   </data>
@@ -329,6 +386,9 @@
   </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>开始合成</value>
+  </data>
+  <data name="Btn_StartSplit" xml:space="preserve">
+    <value>开始拆分</value>
   </data>
   <data name="Btn_StopRun" xml:space="preserve">
     <value>停止运行</value>
