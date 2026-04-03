@@ -241,6 +241,63 @@ Do you want to restart now?</value>
   <data name="SplitPage_Status_Ready" xml:space="preserve">
     <value>Ready | Waiting to import live photos to split</value>
   </data>
+  <data name="SplitPage_ConfigHeader.Text" xml:space="preserve">
+    <value>Workspace &amp; Scan Config</value>
+  </data>
+  <data name="SplitPage_InputLabel.Text" xml:space="preserve">
+    <value>Input Dir:</value>
+  </data>
+  <data name="SplitPage_InputBox.PlaceholderText" xml:space="preserve">
+    <value>Select the source folder that contains live photos</value>
+  </data>
+  <data name="SplitPage_BrowseBtn1.Content" xml:space="preserve">
+    <value>Browse...</value>
+  </data>
+  <data name="SplitPage_OutputLabel.Text" xml:space="preserve">
+    <value>Output Dir:</value>
+  </data>
+  <data name="SplitPage_OutputBox.PlaceholderText" xml:space="preserve">
+    <value>Select where to save the extracted photo and video files</value>
+  </data>
+  <data name="SplitPage_BrowseBtn2.Content" xml:space="preserve">
+    <value>Browse...</value>
+  </data>
+  <data name="SplitPage_StatQueued.Text" xml:space="preserve">
+    <value>Queued :</value>
+  </data>
+  <data name="SplitPage_StatRecognized.Text" xml:space="preserve">
+    <value>Recognized :</value>
+  </data>
+  <data name="SplitPage_StatSkipped.Text" xml:space="preserve">
+    <value>Skipped :</value>
+  </data>
+  <data name="SplitPage_FormatLabel.Text" xml:space="preserve">
+    <value>Export Format:</value>
+  </data>
+  <data name="SplitPage_ScanBtn.Content" xml:space="preserve">
+    <value>Scan Live Photos</value>
+  </data>
+  <data name="SplitPage_QueueProgress.Text" xml:space="preserve">
+    <value>Queue Progress: </value>
+  </data>
+  <data name="SplitPage_ColSeq.Text" xml:space="preserve">
+    <value>No.</value>
+  </data>
+  <data name="SplitPage_ColSize.Text" xml:space="preserve">
+    <value>Size</value>
+  </data>
+  <data name="SplitPage_Status_InvalidInput" xml:space="preserve">
+    <value>Invalid input directory. Please check the path.</value>
+  </data>
+  <data name="SplitPage_Status_ScanPlaceholder" xml:space="preserve">
+    <value>The scan entry is ready. Split scanning logic will be connected next.</value>
+  </data>
+  <data name="SplitPage_Status_Cleared" xml:space="preserve">
+    <value>Split queue cleared</value>
+  </data>
+  <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
+    <value>Split execution logic will be connected next. The UI is now ready.</value>
+  </data>
   <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
     <value>Workspace &amp; Scan Config</value>
   </data>
@@ -330,6 +387,9 @@ Do you want to restart now?</value>
   </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>Start Merge</value>
+  </data>
+  <data name="Btn_StartSplit" xml:space="preserve">
+    <value>Start Split</value>
   </data>
   <data name="Btn_StopRun" xml:space="preserve">
     <value>Stop</value>
