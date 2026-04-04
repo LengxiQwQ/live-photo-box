@@ -201,11 +201,11 @@
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
                                     BorderThickness="1" 
                                     CornerRadius="6" 
-                                    Padding="12,8,12,8">
+                                    Padding="10,6,10,6">
                                 <Grid ColumnSpacing="0">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="60"/>
                                         <ColumnDefinition Width="56"/>
+                                        <ColumnDefinition Width="62"/>
                                         <ColumnDefinition Width="3*"/>
                                         <ColumnDefinition Width="1.5*"/>
                                         <ColumnDefinition Width="2.5*"/>
@@ -216,14 +216,14 @@
                                     <Button x:Uid="ComboPage_TipFolder" Grid.Column="1" 
                                             VerticalAlignment="Center" 
                                             HorizontalAlignment="Left" 
-                                            Margin="0,0,10,0"
+                                             Margin="0,0,8,0"
                                             Click="ThumbnailButton_Click"
                                             Tag="{x:Bind ImagePath}"
                                             Background="Transparent" 
                                             BorderThickness="0" 
                                             Padding="0" 
                                             CornerRadius="6">
-                                        <Border Width="46" Height="46" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                        <Border Width="52" Height="52" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
                                             <Grid>
                                                 <TextBlock x:Uid="ComboPage_ThumbnailLoadingText"
                                                            Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
@@ -239,24 +239,24 @@
                                         </Border>
                                     </Button>
 
-                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="2">
-                                        <Button x:Uid="ComboPage_TipApp" Click="FileGroupButton_Click" Tag="{x:Bind ImagePath}" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
-                                            <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
+                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
+                                        <Button x:Uid="ComboPage_TipApp" Click="FileGroupButton_Click" Tag="{x:Bind ImagePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                            <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
                                                 <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
                                                 <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}"/>
                                             </StackPanel>
                                         </Button>
 
-                                        <Button x:Uid="ComboPage_TipApp" Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}" Background="Transparent" BorderThickness="0" Padding="4" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
-                                            <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
+                                        <Button x:Uid="ComboPage_TipApp" Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                            <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
                                                 <FontIcon Glyph="&#xE714;" Foreground="#A855F7" FontSize="14" VerticalAlignment="Center"/>
                                                 <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayVideoName}"/>
                                             </StackPanel>
                                         </Button>
                                     </StackPanel>
 
-                                    <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="6">
-                                        <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind ImageSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,4,0,0"/>
+                                    <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="4">
+                                        <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind ImageSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,2,0,0"/>
                                         <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind VideoSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                     </StackPanel>
 
