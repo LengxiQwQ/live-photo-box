@@ -144,6 +144,9 @@
   <data name="Nav_Split.Content" xml:space="preserve">
     <value>Split Live Photo</value>
   </data>
+  <data name="AboutPage_Version_Format" xml:space="preserve">
+    <value>Version {0}</value>
+  </data>
   <data name="RestartDialog_CloseButton" xml:space="preserve">
     <value>Later</value>
   </data>
@@ -220,49 +223,6 @@ Do you want to restart now?</value>
   <data name="SettingsPage_Restore_Button.Content" xml:space="preserve">
     <value>Restore Default Settings</value>
   </data>
-  <data name="SettingsPage_Crash_Header.Text" xml:space="preserve">
-    <value>Crash Logs</value>
-  </data>
-  <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
-    <value>Last Crash:</value>
-  </data>
-  <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
-    <value>Not detected</value>
-  </data>
-  <data name="SettingsPage_CrashOpenFolder_Button.Content" xml:space="preserve">
-    <value>Open Log Folder</value>
-  </data>
-  <data name="SettingsPage_CrashExportLatest_Button.Content" xml:space="preserve">
-    <value>Export Latest Log</value>
-  </data>
-  <data name="SettingsPage_CrashClear_Button.Content" xml:space="preserve">
-    <value>Clear All Logs</value>
-  </data>
-  <data name="SettingsPage_CrashGenerateTest_Button.Content" xml:space="preserve">
-    <value>Generate Test Log</value>
-  </data>
-  <data name="CrashDialog_Title" xml:space="preserve">
-    <value>Previous Crash Detected</value>
-  </data>
-  <data name="CrashDialog_Content" xml:space="preserve">
-    <value>The app encountered an unexpected error during its previous run, and a crash log was created.
-
-You can open the log folder or export the latest log now to help diagnose the issue.
-
-Log file: {0}</value>
-  </data>
-  <data name="CrashDialog_OpenFolderButton" xml:space="preserve">
-    <value>Open Log Folder</value>
-  </data>
-  <data name="CrashDialog_ExportButton" xml:space="preserve">
-    <value>Export Log</value>
-  </data>
-  <data name="CrashDialog_CloseButton" xml:space="preserve">
-    <value>Close</value>
-  </data>
-  <data name="Picker_LogFileType" xml:space="preserve">
-    <value>Log File</value>
-  </data>
   <data name="ConsolePage_PlaceholderTitle.Text" xml:space="preserve">
     <value>Console page is not available yet</value>
   </data>
@@ -326,44 +286,17 @@ Log file: {0}</value>
   <data name="SplitPage_ColSeq.Text" xml:space="preserve">
     <value>No.</value>
   </data>
-  <data name="SplitPage_ColSourceHeader.Text" xml:space="preserve">
-    <value>Source</value>
-  </data>
   <data name="SplitPage_ColSize.Text" xml:space="preserve">
     <value>Size</value>
   </data>
-  <data name="SplitPage_ColProgressHeader.Text" xml:space="preserve">
-    <value>Progress</value>
-  </data>
-  <data name="SplitPage_ColStatusHeader.Text" xml:space="preserve">
-    <value>Status</value>
-  </data>
   <data name="SplitPage_Status_InvalidInput" xml:space="preserve">
     <value>Invalid input directory. Please check the path.</value>
-  </data>
-  <data name="SplitPage_Status_ScanDone" xml:space="preserve">
-    <value>Scan complete: recognized {0} splittable live photos</value>
-  </data>
-  <data name="SplitPage_Status_NoLivePhotos" xml:space="preserve">
-    <value>Scan complete: no splittable live photos were found</value>
   </data>
   <data name="SplitPage_Status_Cleared" xml:space="preserve">
     <value>Split queue cleared</value>
   </data>
   <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
     <value>Split execution logic will be connected next. The UI is now ready.</value>
-  </data>
-  <data name="SplitPage_Task_Pending" xml:space="preserve">
-    <value>Pending split</value>
-  </data>
-  <data name="SplitPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Show in folder</value>
-  </data>
-  <data name="SplitPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Open with default app</value>
-  </data>
-  <data name="SplitPage_ThumbnailLoadingText.Text" xml:space="preserve">
-    <value>Loading...</value>
   </data>
   <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
     <value>Workspace &amp; Scan Config</value>
@@ -421,9 +354,6 @@ Log file: {0}</value>
   </data>
   <data name="ComboPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
     <value>Open with default app</value>
-  </data>
-  <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
-    <value>Loading...</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
     <value>Initializing components</value>
@@ -484,9 +414,6 @@ Log file: {0}</value>
   </data>
   <data name="Task_Success" xml:space="preserve">
     <value>Native merge succeeded</value>
-  </data>
-  <data name="Task_Failed" xml:space="preserve">
-    <value>Failed</value>
   </data>
   <data name="Task_Recycled" xml:space="preserve">
     <value> (Moved to recycle bin)</value>
@@ -601,7 +528,7 @@ Please set the input directory and click [Scan Files] to load files.</value>
     <value>Live Photo Box</value>
   </data>
   <data name="AboutPage_Version.Text" xml:space="preserve">
-    <value>Version 1.1.0</value>
+    <value>Version 1.0.0</value>
   </data>
   <data name="AboutPage_Header.Text" xml:space="preserve">
     <value>About This App</value>
@@ -674,5 +601,81 @@ Please set the input directory and click [Scan Files] to load files.</value>
   </data>
   <data name="RepairPage_Status_Ready" xml:space="preserve">
     <value>Ready | Waiting for files to repair</value>
+  </data>
+  <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
+    <value>Loading...</value>
+  </data>
+  <data name="SplitPage_Status_ScanDone" xml:space="preserve">
+    <value>Scan complete: recognized {0} splittable live photos</value>
+  </data>
+  <data name="SplitPage_Status_NoLivePhotos" xml:space="preserve">
+    <value>Scan complete: no splittable live photos were found</value>
+  </data>
+  <data name="SplitPage_Task_Pending" xml:space="preserve">
+    <value>Pending split</value>
+  </data>
+  <data name="SplitPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Show in folder</value>
+  </data>
+  <data name="SplitPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Open with default app</value>
+  </data>
+  <data name="SplitPage_ThumbnailLoadingText.Text" xml:space="preserve">
+    <value>Loading...</value>
+  </data>
+  <data name="SplitPage_ColSourceHeader.Text" xml:space="preserve">
+    <value>Source</value>
+  </data>
+  <data name="SplitPage_ColStatusHeader.Text" xml:space="preserve">
+    <value>Status</value>
+  </data>
+  <data name="SplitPage_ColProgressHeader.Text" xml:space="preserve">
+    <value>Progress</value>
+  </data>
+  <data name="Task_Failed" xml:space="preserve">
+    <value>Failed</value>
+  </data>
+  <data name="SettingsPage_Crash_Header.Text" xml:space="preserve">
+    <value>Crash Logs</value>
+  </data>
+  <data name="CrashDialog_Title" xml:space="preserve">
+    <value>Previous Crash Detected</value>
+  </data>
+  <data name="CrashDialog_Content" xml:space="preserve">
+    <value>The app encountered an unexpected error during its previous run, and a crash log was created.
+
+You can open the log folder or export the latest log now to help diagnose the issue.
+
+Log file: {0}</value>
+  </data>
+  <data name="CrashDialog_ExportButton" xml:space="preserve">
+    <value>Export Log</value>
+  </data>
+  <data name="CrashDialog_CloseButton" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="Picker_LogFileType" xml:space="preserve">
+    <value>Log File</value>
+  </data>
+  <data name="SettingsPage_CrashOpenFolder_Button.Content" xml:space="preserve">
+    <value>Open Log Folder</value>
+  </data>
+  <data name="SettingsPage_CrashExportLatest_Button.Content" xml:space="preserve">
+    <value>Export Latest Log</value>
+  </data>
+  <data name="SettingsPage_CrashClear_Button.Content" xml:space="preserve">
+    <value>Clear All Logs</value>
+  </data>
+  <data name="CrashDialog_OpenFolderButton" xml:space="preserve">
+    <value>Open Log Folder</value>
+  </data>
+  <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
+    <value>Last Crash:</value>
+  </data>
+  <data name="SettingsPage_CrashGenerateTest_Button.Content" xml:space="preserve">
+    <value>Generate Test Log</value>
+  </data>
+  <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
+    <value>Not detected</value>
   </data>
 </root>
