@@ -355,6 +355,9 @@ Do you want to restart now?</value>
   <data name="ComboPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
     <value>Open with default app</value>
   </data>
+  <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
+    <value>Loading...</value>
+  </data>
   <data name="Status_Init" xml:space="preserve">
     <value>Initializing components</value>
   </data>

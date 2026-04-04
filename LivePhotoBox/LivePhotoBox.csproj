@@ -15,6 +15,11 @@
 		<DefaultLanguage>zh-Hans</DefaultLanguage>
 		<Nullable>enable</Nullable>
 	</PropertyGroup>
+	<ItemGroup>
+     <Compile Remove="Old-SharedViewModel.cs" />
+	  <Compile Remove="**\Old-SharedViewModel.cs" />
+	  <None Include="Old-SharedViewModel.cs" />
+	</ItemGroup>
 
 	<ItemGroup>
 		<None Remove="Views\AboutPage.xaml" />
