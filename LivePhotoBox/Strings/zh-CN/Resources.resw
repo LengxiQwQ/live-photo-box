@@ -144,6 +144,9 @@
   <data name="Nav_Split.Content" xml:space="preserve">
     <value>实况照片拆分</value>
   </data>
+  <data name="AboutPage_Version_Format" xml:space="preserve">
+    <value>版本 {0}</value>
+  </data>
   <data name="RestartDialog_CloseButton" xml:space="preserve">
     <value>稍后</value>
   </data>
@@ -525,7 +528,7 @@
     <value>Live Photo Box</value>
   </data>
   <data name="AboutPage_Version.Text" xml:space="preserve">
-    <value>版本 1.1.0</value>
+    <value>版本 1.0.0</value>
   </data>
   <data name="AboutPage_Header.Text" xml:space="preserve">
     <value>关于本应用</value>

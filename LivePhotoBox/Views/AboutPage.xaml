@@ -15,7 +15,7 @@
             </Border>
 
             <TextBlock x:Uid="AboutPage_Title" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" FontFamily="Microsoft YaHei UI"/>
-            <TextBlock x:Uid="AboutPage_Version" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" Margin="0,-16,0,0"/>
+            <TextBlock x:Name="VersionTextBlock" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" Margin="0,-16,0,0"/>
 
             <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,20,0,0">
