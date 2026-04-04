@@ -363,6 +363,4 @@ MigrationBackup/
 FodyWeavers.xsd
 
 
-
-*.exe
 Tools/
