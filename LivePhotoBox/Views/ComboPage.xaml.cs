@@ -4,6 +4,8 @@ using LivePhotoBox.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace LivePhotoBox.Views
 {
@@ -13,6 +15,7 @@ namespace LivePhotoBox.Views
         private const int ForwardPreloadRadius = 10;
 
         private int _lastRealizedItemIndex = -1;
+        private int _preloadGeneration;
 
         public AppViewModel ViewModel => AppViewModel.Instance;
 
@@ -85,12 +88,19 @@ namespace LivePhotoBox.Views
             }
 
             _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue);
-            PreloadNeighborThumbnails(args.ItemIndex);
+            _ = PreloadNeighborThumbnailsAsync(args.ItemIndex);
         }
 
-        private void PreloadNeighborThumbnails(int centerIndex)
+        private async Task PreloadNeighborThumbnailsAsync(int centerIndex)
         {
             if (ViewModel.ComboTasks.Count == 0)
+            {
+                return;
+            }
+
+            int generation = ++_preloadGeneration;
+            await Task.Delay(80);
+            if (generation != _preloadGeneration || ViewModel.ComboTasks.Count == 0)
             {
                 return;
             }
@@ -113,10 +123,14 @@ namespace LivePhotoBox.Views
 
             _lastRealizedItemIndex = centerIndex;
 
-            for (int index = startIndex; index <= endIndex; index++)
-            {
-                _ = ViewModel.ComboTasks[index].EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue);
-            }
+            ThumbnailService.Preload(
+                ViewModel.ComboTasks
+                    .Skip(startIndex)
+                    .Take(endIndex - startIndex + 1)
+                    .Where(task => task.Index != centerIndex + 1)
+                    .Where(task => task.Thumbnail is null)
+                    .Select(task => task.ImagePath),
+                App.MainWindow?.DispatcherQueue);
         }
     }
 }

@@ -220,7 +220,7 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private int _backdropIndex;
 
         public BulkObservableCollection<LivePhotoMergeTask> ComboTasks { get; } = [];
-        public ObservableCollection<LivePhotoSplitTask> SplitTasks { get; } = [];
+        public BulkObservableCollection<LivePhotoSplitTask> SplitTasks { get; } = [];
 
         private bool _isInitialized;
 
@@ -293,8 +293,32 @@ namespace LivePhotoBox.ViewModels
                 SplitOutputDirectory = Path.Combine(SplitInputDirectory, "Output_SplitPhotos");
             }
 
-            ResetSplitQueue();
-            SplitStatus = ResourceService.GetString("SplitPage_Status_ScanPlaceholder");
+            SplitThumbnailService.ClearCache();
+
+            var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
+            var scanResult = LivePhotoSplitScanService.Scan(SplitInputDirectory);
+            var tasks = scanResult.Files.Select((file, index) => new LivePhotoSplitTask
+            {
+                Index = index + 1,
+                SourceFileName = Path.GetFileName(file.SourcePath),
+                SourcePath = file.SourcePath,
+                FileSize = FormatFileSize(file.FileSizeBytes),
+                ProgressText = "0%",
+                Status = ProcessStatus.Pending,
+                Details = pendingText
+            });
+
+            SplitTasks.ReplaceRange(tasks);
+            SplitQueuedCount = scanResult.Files.Count;
+            SplitRecognizedCount = scanResult.RecognizedCount;
+            SplitSkippedCount = scanResult.SkippedCount;
+            SplitProgress = 0;
+            SplitProgressText = $"0/{SplitQueuedCount}";
+            IsSplitDirectoryPanelOpen = SplitQueuedCount == 0;
+
+            SplitStatus = SplitQueuedCount > 0
+                ? ResourceService.Format("SplitPage_Status_ScanDone", SplitQueuedCount)
+                : ResourceService.GetString("SplitPage_Status_NoLivePhotos");
         }
 
         [RelayCommand]
@@ -313,7 +337,8 @@ namespace LivePhotoBox.ViewModels
 
         private void ResetSplitQueue()
         {
-            SplitTasks.Clear();
+            SplitTasks.ReplaceRange([]);
+            SplitThumbnailService.ClearCache();
             SplitQueuedCount = 0;
             SplitRecognizedCount = 0;
             SplitSkippedCount = 0;
@@ -464,7 +489,7 @@ namespace LivePhotoBox.ViewModels
             ComboTasks.ReplaceRange(sorted);
         }
 
-        [RelayCommand]
+        [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleProcessAsync()
         {
             if (IsProcessing)

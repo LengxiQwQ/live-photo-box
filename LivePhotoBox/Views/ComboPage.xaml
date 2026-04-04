@@ -154,11 +154,11 @@
                     <ListView.Header>
                         <Grid Padding="12,0,12,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="60"/>
                                 <ColumnDefinition Width="56"/>
-                                <ColumnDefinition Width="3*"/>
-                                <ColumnDefinition Width="1.5*"/>
-                                <ColumnDefinition Width="2.5*"/>
+                                <ColumnDefinition Width="62"/>
+                                <ColumnDefinition Width="2.7*"/>
+                                <ColumnDefinition Width="1.15*"/>
+                                <ColumnDefinition Width="1.85*"/>
                             </Grid.ColumnDefinitions>
 
                             <TextBlock x:Uid="ComboPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
@@ -206,9 +206,9 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="56"/>
                                         <ColumnDefinition Width="62"/>
-                                        <ColumnDefinition Width="3*"/>
-                                        <ColumnDefinition Width="1.5*"/>
-                                        <ColumnDefinition Width="2.5*"/>
+                                        <ColumnDefinition Width="2.7*"/>
+                                        <ColumnDefinition Width="1.15*"/>
+                                        <ColumnDefinition Width="1.85*"/>
                                     </Grid.ColumnDefinitions>
 
                                     <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
