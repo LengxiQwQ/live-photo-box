@@ -140,10 +140,14 @@
             </Border>
 
             <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
-                <ListView ItemsSource="{x:Bind ViewModel.ComboTasks}" SelectionMode="None" ShowsScrollingPlaceholders="False">
+                <ListView x:Name="ComboTaskListView"
+                          ItemsSource="{x:Bind ViewModel.ComboTasks}"
+                          SelectionMode="None"
+                          ShowsScrollingPlaceholders="False"
+                          ContainerContentChanging="ComboTaskListView_ContainerContentChanging">
                     <ListView.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="2" />
+                            <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="1" />
                         </ItemsPanelTemplate>
                     </ListView.ItemsPanel>
 
@@ -220,7 +224,18 @@
                                             Padding="0" 
                                             CornerRadius="6">
                                         <Border Width="46" Height="46" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
-                                            <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                            <Grid>
+                                                <TextBlock x:Uid="ComboPage_ThumbnailLoadingText"
+                                                           Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"
+                                                           TextAlignment="Center"
+                                                           TextWrapping="WrapWholeWords"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                           FontSize="9"
+                                                           Margin="4"/>
+                                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                            </Grid>
                                         </Border>
                                     </Button>
 

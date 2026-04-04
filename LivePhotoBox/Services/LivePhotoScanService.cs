@@ -25,43 +25,43 @@ namespace LivePhotoBox.Services
     {
         public static LivePhotoScanResult Scan(string inputDirectory)
         {
-            var allFiles = Directory.GetFiles(inputDirectory);
-            var images = allFiles.Where(IsImageFile).ToList();
-            var videos = allFiles.Where(IsVideoFile).ToList();
+            var imgDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var vidDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            var imageMap = CreateFileMap(images);
-            var videoMap = CreateFileMap(videos);
-
-            var pairs = new List<LivePhotoFilePairInfo>();
-            int standaloneImagesCount = 0;
-            int standaloneVideosCount = 0;
-
-            foreach (var imageEntry in imageMap)
+            foreach (var path in Directory.EnumerateFiles(inputDirectory))
             {
-                if (videoMap.TryGetValue(imageEntry.Key, out var videoPath))
+                if (IsImageFile(path))
+                {
+                    imgDict[Path.GetFileNameWithoutExtension(path)] = path;
+                    continue;
+                }
+
+                if (IsVideoFile(path))
+                {
+                    vidDict[Path.GetFileNameWithoutExtension(path)] = path;
+                }
+            }
+
+            var pairs = new List<LivePhotoFilePairInfo>(Math.Min(imgDict.Count, vidDict.Count));
+
+            foreach (var kvp in imgDict)
+            {
+                if (vidDict.TryGetValue(kvp.Key, out var vidPath))
                 {
                     pairs.Add(new LivePhotoFilePairInfo
                     {
-                        BaseName = imageEntry.Key,
-                        ImagePath = imageEntry.Value,
-                        VideoPath = videoPath,
-                        ImageSizeBytes = new FileInfo(imageEntry.Value).Length,
-                        VideoSizeBytes = new FileInfo(videoPath).Length
+                        BaseName = kvp.Key,
+                        ImagePath = kvp.Value,
+                        VideoPath = vidPath,
+                        // 仅对匹配上的文件获取大小，开销极小
+                        ImageSizeBytes = new FileInfo(kvp.Value).Length,
+                        VideoSizeBytes = new FileInfo(vidPath).Length
                     });
-                }
-                else
-                {
-                    standaloneImagesCount++;
                 }
             }
 
-            foreach (var videoEntry in videoMap)
-            {
-                if (!imageMap.ContainsKey(videoEntry.Key))
-                {
-                    standaloneVideosCount++;
-                }
-            }
+            int standaloneImagesCount = imgDict.Count - pairs.Count;
+            int standaloneVideosCount = vidDict.Count - pairs.Count;
 
             return new LivePhotoScanResult
             {
@@ -81,16 +81,6 @@ namespace LivePhotoBox.Services
         {
             return path.EndsWith(".mov", StringComparison.OrdinalIgnoreCase)
                 || path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static Dictionary<string, string> CreateFileMap(IEnumerable<string> files)
-        {
-            return files
-                .GroupBy(Path.GetFileNameWithoutExtension, StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(
-                    group => group.Key,
-                    group => group.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).First(),
-                    StringComparer.OrdinalIgnoreCase);
         }
     }
 }

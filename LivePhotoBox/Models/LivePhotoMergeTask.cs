@@ -1,6 +1,8 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using LivePhotoBox.Services;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -30,42 +32,89 @@ namespace LivePhotoBox.Models
         public string BaseName { get; set; } = string.Empty;
         public string DisplayImageName => TruncateFileName(ImageFileName);
         public string DisplayVideoName => TruncateFileName(VideoFileName);
+        public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
-        private bool _isLoadingThumbnail;
+        // ==========================================
+        // 完全使用老版本 LivePhotoTask.cs 的极速加载逻辑
+        // ==========================================
+        private bool _isLoadingThumbnail = false;
         private ImageSource? _thumbnail;
-
         public ImageSource? Thumbnail
         {
             get
             {
-                if (_thumbnail == null && !_isLoadingThumbnail && !string.IsNullOrWhiteSpace(ImagePath))
+                if (_thumbnail != null)
                 {
-                    _isLoadingThumbnail = true;
-                    _ = LoadThumbnailAsync();
+                    return _thumbnail;
+                }
+
+                if (string.IsNullOrWhiteSpace(ImagePath))
+                {
+                    return null;
+                }
+
+                if (ThumbnailService.GetCached(ImagePath) is { } cachedThumbnail)
+                {
+                    _thumbnail = cachedThumbnail;
+                    return _thumbnail;
                 }
 
                 return _thumbnail;
             }
-            private set => SetProperty(ref _thumbnail, value);
+            set
+            {
+                if (SetProperty(ref _thumbnail, value))
+                {
+                    OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
+                }
+            }
         }
 
-        private async Task LoadThumbnailAsync()
+        partial void OnImagePathChanged(string value)
         {
-            Thumbnail = await ThumbnailService.LoadAsync(ImagePath);
             _isLoadingThumbnail = false;
+            Thumbnail = ThumbnailService.GetCached(value);
+            OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
         }
 
-        private static string TruncateFileName(string fileName)
+        public async Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
+        {
+            if (_thumbnail != null || _isLoadingThumbnail || string.IsNullOrWhiteSpace(ImagePath))
+            {
+                return;
+            }
+
+            if (ThumbnailService.GetCached(ImagePath) is { } cachedThumbnail)
+            {
+                Thumbnail = cachedThumbnail;
+                return;
+            }
+
+            _isLoadingThumbnail = true;
+            try
+            {
+                dispatcher ??= App.MainWindow?.DispatcherQueue ?? Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+                Thumbnail = await ThumbnailService.LoadAsync(ImagePath, dispatcher);
+            }
+            finally
+            {
+                _isLoadingThumbnail = false;
+            }
+        }
+
+        private string TruncateFileName(string fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return fileName;
 
-            string extension = Path.GetExtension(fileName);
-            string nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
-            if (nameWithoutExtension.Length <= 30) return fileName;
+            string ext = Path.GetExtension(fileName);
+            string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
 
-            string left = nameWithoutExtension[..22];
-            string right = nameWithoutExtension[^8..];
-            return $"{left}...{right}{extension}";
+            if (nameWithoutExt.Length <= 30) return fileName;
+
+            string leftStr = nameWithoutExt.Substring(0, 22);
+            string rightStr = nameWithoutExt.Substring(nameWithoutExt.Length - 8);
+
+            return $"{leftStr}...{rightStr}{ext}";
         }
     }
 }

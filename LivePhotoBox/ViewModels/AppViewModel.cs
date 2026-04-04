@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LivePhotoBox.Collections;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
@@ -218,7 +219,7 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private int _elementTheme;
         [ObservableProperty] private int _backdropIndex;
 
-        public ObservableCollection<LivePhotoMergeTask> ComboTasks { get; } = [];
+        public BulkObservableCollection<LivePhotoMergeTask> ComboTasks { get; } = [];
         public ObservableCollection<LivePhotoSplitTask> SplitTasks { get; } = [];
 
         private bool _isInitialized;
@@ -238,16 +239,11 @@ namespace LivePhotoBox.ViewModels
             _ = DetectGPUAndInitializeAsync();
         }
 
-        // ==========================================
-        // 核心修复：纯粹读取你已有的 resw 并执行真正的重启
-        // ==========================================
         partial void OnLanguageIndexChanged(int oldValue, int newValue)
         {
             if (!_isInitialized) return;
-
             string oldLang = LanguageService.GetEffectiveLanguage(oldValue);
             string newLang = LanguageService.GetEffectiveLanguage(newValue);
-
             LanguageService.ApplyLanguageOverride(newLang);
 
             if (oldLang != newLang)
@@ -274,21 +270,12 @@ namespace LivePhotoBox.ViewModels
         private void OnPropertyChangedSave(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName is null) return;
-
             switch (e.PropertyName)
             {
-                case nameof(SelectedModeIndex):
-                    AppSettingsService.SetValue(nameof(SelectedModeIndex), SelectedModeIndex);
-                    break;
-                case nameof(LanguageIndex):
-                    AppSettingsService.SetValue(nameof(LanguageIndex), LanguageIndex);
-                    break;
-                case nameof(ElementTheme):
-                    AppSettingsService.SetValue(nameof(ElementTheme), ElementTheme);
-                    break;
-                case nameof(BackdropIndex):
-                    AppSettingsService.SetValue(nameof(BackdropIndex), BackdropIndex);
-                    break;
+                case nameof(SelectedModeIndex): AppSettingsService.SetValue(nameof(SelectedModeIndex), SelectedModeIndex); break;
+                case nameof(LanguageIndex): AppSettingsService.SetValue(nameof(LanguageIndex), LanguageIndex); break;
+                case nameof(ElementTheme): AppSettingsService.SetValue(nameof(ElementTheme), ElementTheme); break;
+                case nameof(BackdropIndex): AppSettingsService.SetValue(nameof(BackdropIndex), BackdropIndex); break;
             }
         }
 
@@ -359,29 +346,37 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            ComboTasks.Clear();
-            var scanResult = LivePhotoScanService.Scan(InputDirectory);
+            ThumbnailService.ClearCache();
 
-            int currentIndex = 1;
-            foreach (var pair in scanResult.Pairs)
+            var pendingText = ResourceService.GetString("Task_Pending");
+            var scanResult = LivePhotoScanService.Scan(InputDirectory);
+            var tasks = scanResult.Pairs.Select((pair, index) => new LivePhotoMergeTask
             {
-                ComboTasks.Add(new LivePhotoMergeTask
-                {
-                    Index = currentIndex++,
-                    ImageFileName = Path.GetFileName(pair.ImagePath),
-                    VideoFileName = Path.GetFileName(pair.VideoPath),
-                    ImageSize = FormatFileSize(pair.ImageSizeBytes),
-                    VideoSize = FormatFileSize(pair.VideoSizeBytes),
-                    TotalSizeBytes = pair.ImageSizeBytes + pair.VideoSizeBytes,
-                    BaseName = pair.BaseName,
-                    ImagePath = pair.ImagePath,
-                    VideoPath = pair.VideoPath,
-                    Status = ProcessStatus.Pending,
-                    Details = ResourceService.GetString("Task_Pending")
-                });
+                Index = index + 1,
+                ImageFileName = Path.GetFileName(pair.ImagePath),
+                VideoFileName = Path.GetFileName(pair.VideoPath),
+                ImageSize = FormatFileSize(pair.ImageSizeBytes),
+                VideoSize = FormatFileSize(pair.VideoSizeBytes),
+                TotalSizeBytes = pair.ImageSizeBytes + pair.VideoSizeBytes,
+                BaseName = pair.BaseName,
+                ImagePath = pair.ImagePath,
+                VideoPath = pair.VideoPath,
+                Status = ProcessStatus.Pending,
+                Details = pendingText
+            });
+
+            ComboTasks.ReplaceRange(tasks);
+
+            if (ComboTasks.Count > 0)
+            {
+                IsDirectoryPanelOpen = false;
+            }
+            else
+            {
+                IsDirectoryPanelOpen = true;
             }
 
-            TotalPairsCount = ComboTasks.Count;
+            TotalPairsCount = scanResult.Pairs.Count;
             StandaloneImagesCount = scanResult.StandaloneImagesCount;
             StandaloneVideosCount = scanResult.StandaloneVideosCount;
 
@@ -407,7 +402,8 @@ namespace LivePhotoBox.ViewModels
         {
             if (!IsProcessing)
             {
-                ComboTasks.Clear();
+                ComboTasks.ReplaceRange([]);
+                ThumbnailService.ClearCache();
                 TotalPairsCount = 0;
                 StandaloneImagesCount = 0;
                 StandaloneVideosCount = 0;
@@ -465,9 +461,7 @@ namespace LivePhotoBox.ViewModels
                 _ => ComboTasks
             };
 
-            var sortedList = sorted.ToList();
-            ComboTasks.Clear();
-            foreach (var item in sortedList) ComboTasks.Add(item);
+            ComboTasks.ReplaceRange(sorted);
         }
 
         [RelayCommand]
