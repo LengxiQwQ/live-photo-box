@@ -68,7 +68,7 @@ namespace LivePhotoBox.Services
                     }
 
                     StorageFile file = await StorageFile.GetFileFromPathAsync(imagePath);
-                    using var thumbnail = await file.GetThumbnailAsync(ThumbnailMode.ListView, 64, ThumbnailOptions.UseCurrentScale);
+                    using var thumbnail = await file.GetThumbnailAsync(ThumbnailMode.ListView, 80, ThumbnailOptions.UseCurrentScale);
 
                     if (thumbnail == null)
                     {
