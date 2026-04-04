@@ -1,4 +1,5 @@
 using LivePhotoBox.ViewModels;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
 namespace LivePhotoBox.Views
@@ -10,6 +11,11 @@ namespace LivePhotoBox.Views
         public SettingsPage()
         {
             this.InitializeComponent();
+        }
+
+        private void GenerateTestCrashLogButton_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.GenerateTestCrashLogActionCommand.Execute(null);
         }
     }
 }

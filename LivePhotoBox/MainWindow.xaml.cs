@@ -22,6 +22,7 @@ namespace LivePhotoBox
         public MainWindow()
         {
             InitializeComponent();
+            CrashLogService.RecordBreadcrumb("MainWindow constructed.");
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
 
@@ -185,6 +186,7 @@ namespace LivePhotoBox
 
         private void NavigateToPage(Type pageType, string? statusPageTag)
         {
+            CrashLogService.RecordBreadcrumb($"NavigateToPage: {pageType.Name}, StatusTag={statusPageTag ?? "(null)"}");
             ViewModel.SetCurrentStatusPage(statusPageTag);
             MainFrame.Navigate(pageType);
         }

@@ -282,44 +282,17 @@
   <data name="SplitPage_ColSeq.Text" xml:space="preserve">
     <value>序号</value>
   </data>
-  <data name="SplitPage_ColSourceHeader.Text" xml:space="preserve">
-    <value>源文件</value>
-  </data>
   <data name="SplitPage_ColSize.Text" xml:space="preserve">
     <value>大小</value>
   </data>
-  <data name="SplitPage_ColProgressHeader.Text" xml:space="preserve">
-    <value>进度</value>
-  </data>
-  <data name="SplitPage_ColStatusHeader.Text" xml:space="preserve">
-    <value>状态</value>
-  </data>
   <data name="SplitPage_Status_InvalidInput" xml:space="preserve">
     <value>输入目录无效，请检查路径</value>
-  </data>
-  <data name="SplitPage_Status_ScanDone" xml:space="preserve">
-    <value>扫描完成：已识别 {0} 个可拆分实况照片</value>
-  </data>
-  <data name="SplitPage_Status_NoLivePhotos" xml:space="preserve">
-    <value>扫描完成：未找到可拆分的实况照片</value>
   </data>
   <data name="SplitPage_Status_Cleared" xml:space="preserve">
     <value>已清空拆分队列</value>
   </data>
   <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
     <value>拆分执行逻辑将在下一步接入，当前已完成界面准备</value>
-  </data>
-  <data name="SplitPage_Task_Pending" xml:space="preserve">
-    <value>等待拆分</value>
-  </data>
-  <data name="SplitPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
-    <value>在文件夹中查看</value>
-  </data>
-  <data name="SplitPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>在默认应用打开</value>
-  </data>
-  <data name="SplitPage_ThumbnailLoadingText.Text" xml:space="preserve">
-    <value>加载中...</value>
   </data>
   <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
     <value>工作目录与扫描配置</value>
@@ -377,9 +350,6 @@
   </data>
   <data name="ComboPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
     <value>在默认应用打开</value>
-  </data>
-  <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
-    <value>加载中...</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
     <value>正在初始化组件</value>
@@ -440,9 +410,6 @@
   </data>
   <data name="Task_Success" xml:space="preserve">
     <value>原生合成成功</value>
-  </data>
-  <data name="Task_Failed" xml:space="preserve">
-    <value>处理失败</value>
   </data>
   <data name="Task_Recycled" xml:space="preserve">
     <value> (已移至回收站)</value>
@@ -631,5 +598,81 @@
   </data>
   <data name="RepairPage_Status_Ready" xml:space="preserve">
     <value>等待修复</value>
+  </data>
+  <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
+    <value>加载中...</value>
+  </data>
+  <data name="SplitPage_Status_ScanDone" xml:space="preserve">
+    <value>扫描完成：已识别 {0} 个可拆分实况照片</value>
+  </data>
+  <data name="SplitPage_Status_NoLivePhotos" xml:space="preserve">
+    <value>扫描完成：未找到可拆分的实况照片</value>
+  </data>
+  <data name="SplitPage_Task_Pending" xml:space="preserve">
+    <value>等待拆分</value>
+  </data>
+  <data name="SplitPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
+    <value>在文件夹中查看</value>
+  </data>
+  <data name="SplitPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
+    <value>在默认应用打开</value>
+  </data>
+  <data name="SplitPage_ThumbnailLoadingText.Text" xml:space="preserve">
+    <value>加载中...</value>
+  </data>
+  <data name="SplitPage_ColSourceHeader.Text" xml:space="preserve">
+    <value>源文件</value>
+  </data>
+  <data name="SplitPage_ColStatusHeader.Text" xml:space="preserve">
+    <value>状态</value>
+  </data>
+  <data name="SplitPage_ColProgressHeader.Text" xml:space="preserve">
+    <value>进度</value>
+  </data>
+  <data name="Task_Failed" xml:space="preserve">
+    <value>处理失败</value>
+  </data>
+  <data name="SettingsPage_Crash_Header.Text" xml:space="preserve">
+    <value>崩溃日志</value>
+  </data>
+  <data name="CrashDialog_Title" xml:space="preserve">
+    <value>检测到上次异常退出</value>
+  </data>
+  <data name="CrashDialog_Content" xml:space="preserve">
+    <value>应用上次运行时发生了异常，已自动生成崩溃日志。
+
+你可以打开日志文件夹，或立即导出最新日志以帮助定位问题。
+
+日志文件：{0}</value>
+  </data>
+  <data name="CrashDialog_ExportButton" xml:space="preserve">
+    <value>导出日志</value>
+  </data>
+  <data name="CrashDialog_CloseButton" xml:space="preserve">
+    <value>知道了</value>
+  </data>
+  <data name="Picker_LogFileType" xml:space="preserve">
+    <value>日志文件</value>
+  </data>
+  <data name="SettingsPage_CrashOpenFolder_Button.Content" xml:space="preserve">
+    <value>打开日志文件夹</value>
+  </data>
+  <data name="SettingsPage_CrashExportLatest_Button.Content" xml:space="preserve">
+    <value>导出最新日志</value>
+  </data>
+  <data name="SettingsPage_CrashClear_Button.Content" xml:space="preserve">
+    <value>清理全部日志</value>
+  </data>
+  <data name="CrashDialog_OpenFolderButton" xml:space="preserve">
+    <value>打开日志文件夹</value>
+  </data>
+  <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
+    <value>上一次崩溃：</value>
+  </data>
+  <data name="SettingsPage_CrashGenerateTest_Button.Content" xml:space="preserve">
+    <value>生成测试日志</value>
+  </data>
+  <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
+    <value>暂无</value>
   </data>
 </root>

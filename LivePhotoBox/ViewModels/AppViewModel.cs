@@ -7,7 +7,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
@@ -19,11 +18,16 @@ namespace LivePhotoBox.ViewModels
 {
     public partial class AppViewModel : ObservableObject
     {
+        private const string CrashLogLanguageTag = "en-US";
+
         public static AppViewModel Instance { get; } = new AppViewModel();
 
         private string _comboStatus = string.Empty;
         private string _splitStatus = string.Empty;
         private string _repairStatus = string.Empty;
+        private string _comboStatusForLog = string.Empty;
+        private string _splitStatusForLog = string.Empty;
+        private string _repairStatusForLog = string.Empty;
         private string? _currentStatusPageTag;
         [ObservableProperty] private double _comboProgress = 0;
         [ObservableProperty] private string _progressText = "0/0";
@@ -138,6 +142,17 @@ namespace LivePhotoBox.ViewModels
 
         public bool IsStatusBarVisible => CurrentStatusPageTag is "Combo" or "Split" or "Repair";
 
+        public string ComboStatusForLog => _comboStatusForLog;
+        public string SplitStatusForLog => _splitStatusForLog;
+        public string RepairStatusForLog => _repairStatusForLog;
+        public string CurrentPageStatusForLog => CurrentStatusPageTag switch
+        {
+            "Combo" => ComboStatusForLog,
+            "Split" => SplitStatusForLog,
+            "Repair" => RepairStatusForLog,
+            _ => string.Empty
+        };
+
         public string? CurrentStatusPageTag
         {
             get => _currentStatusPageTag;
@@ -219,20 +234,38 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private int _elementTheme;
         [ObservableProperty] private int _backdropIndex;
 
+        private string? _latestCrashLogPath;
+        private IRelayCommand? _openCrashLogFolderActionCommand;
+        private IAsyncRelayCommand? _openLatestCrashLogActionCommand;
+        private IAsyncRelayCommand? _exportLatestCrashLogActionCommand;
+        private IRelayCommand? _clearCrashLogsActionCommand;
+        private IRelayCommand? _generateTestCrashLogActionCommand;
+
         public BulkObservableCollection<LivePhotoMergeTask> ComboTasks { get; } = [];
         public BulkObservableCollection<LivePhotoSplitTask> SplitTasks { get; } = [];
+
+        public bool HasCrashLogs => !string.IsNullOrWhiteSpace(_latestCrashLogPath) && File.Exists(_latestCrashLogPath);
+        public string LastCrashFileNameText => HasCrashLogs
+            ? Path.GetFileName(_latestCrashLogPath!)
+            : ResourceService.GetString("SettingsPage_CrashNoCrashValue");
+        public IRelayCommand OpenCrashLogFolderActionCommand => _openCrashLogFolderActionCommand ??= new RelayCommand(OpenCrashLogFolder);
+        public IAsyncRelayCommand OpenLatestCrashLogActionCommand => _openLatestCrashLogActionCommand ??= new AsyncRelayCommand(OpenLatestCrashLogAsync, () => HasCrashLogs);
+        public IAsyncRelayCommand ExportLatestCrashLogActionCommand => _exportLatestCrashLogActionCommand ??= new AsyncRelayCommand(ExportLatestCrashLogAsync, CanExportLatestCrashLog);
+        public IRelayCommand ClearCrashLogsActionCommand => _clearCrashLogsActionCommand ??= new RelayCommand(ClearCrashLogs, CanClearCrashLogs);
+        public IRelayCommand GenerateTestCrashLogActionCommand => _generateTestCrashLogActionCommand ??= new RelayCommand(GenerateTestCrashLog);
 
         private bool _isInitialized;
 
         public AppViewModel()
         {
-            ComboStatus = ResourceService.GetString("Status_Init");
-            SplitStatus = ResourceService.GetString("SplitPage_Status_Ready");
-            RepairStatus = ResourceService.GetString("RepairPage_Status_Ready");
+            SetComboStatus("Status_Init");
+            SetSplitStatus("SplitPage_Status_Ready");
+            SetRepairStatus("RepairPage_Status_Ready");
             ActionBtnText = ResourceService.GetString("Btn_StartCombo");
             SplitActionBtnText = ResourceService.GetString("Btn_StartSplit");
             LoadSettings();
             LanguageService.ApplyLanguageOverride(LanguageIndex);
+            RefreshCrashLogs();
 
             _isInitialized = true;
             PropertyChanged += OnPropertyChangedSave;
@@ -254,9 +287,27 @@ namespace LivePhotoBox.ViewModels
 
         private Task DetectGPUAndInitializeAsync()
         {
-            ComboStatus = ResourceService.GetString("Status_Ready");
+            SetComboStatus("Status_Ready");
             _hwEncoderName = "Software CPU";
             return Task.CompletedTask;
+        }
+
+        private void SetComboStatus(string resourceKey, params object[] args)
+        {
+            ComboStatus = ResourceService.Format(resourceKey, args);
+            _comboStatusForLog = ResourceService.FormatForLanguage(CrashLogLanguageTag, resourceKey, args);
+        }
+
+        private void SetSplitStatus(string resourceKey, params object[] args)
+        {
+            SplitStatus = ResourceService.Format(resourceKey, args);
+            _splitStatusForLog = ResourceService.FormatForLanguage(CrashLogLanguageTag, resourceKey, args);
+        }
+
+        private void SetRepairStatus(string resourceKey, params object[] args)
+        {
+            RepairStatus = ResourceService.Format(resourceKey, args);
+            _repairStatusForLog = ResourceService.FormatForLanguage(CrashLogLanguageTag, resourceKey, args);
         }
 
         private void LoadSettings()
@@ -282,9 +333,11 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ScanSplitDirectory()
         {
+            CrashLogService.RecordBreadcrumb($"ScanSplitDirectory requested. Input='{SplitInputDirectory}', Output='{SplitOutputDirectory}'");
+
             if (string.IsNullOrWhiteSpace(SplitInputDirectory) || !Directory.Exists(SplitInputDirectory))
             {
-                SplitStatus = ResourceService.GetString("SplitPage_Status_InvalidInput");
+                SetSplitStatus("SplitPage_Status_InvalidInput");
                 return;
             }
 
@@ -316,23 +369,30 @@ namespace LivePhotoBox.ViewModels
             SplitProgressText = $"0/{SplitQueuedCount}";
             IsSplitDirectoryPanelOpen = SplitQueuedCount == 0;
 
-            SplitStatus = SplitQueuedCount > 0
-                ? ResourceService.Format("SplitPage_Status_ScanDone", SplitQueuedCount)
-                : ResourceService.GetString("SplitPage_Status_NoLivePhotos");
+            if (SplitQueuedCount > 0)
+            {
+                SetSplitStatus("SplitPage_Status_ScanDone", SplitQueuedCount);
+            }
+            else
+            {
+                SetSplitStatus("SplitPage_Status_NoLivePhotos");
+            }
         }
 
         [RelayCommand]
         private void ClearSplitQueue()
         {
+            CrashLogService.RecordBreadcrumb("ClearSplitQueue requested.");
             ResetSplitQueue();
-            SplitStatus = ResourceService.GetString("SplitPage_Status_Cleared");
+            SetSplitStatus("SplitPage_Status_Cleared");
             IsSplitDirectoryPanelOpen = true;
         }
 
         [RelayCommand]
         private void StartSplit()
         {
-            SplitStatus = ResourceService.GetString("SplitPage_Status_StartPlaceholder");
+            CrashLogService.RecordBreadcrumb("StartSplit requested.");
+            SetSplitStatus("SplitPage_Status_StartPlaceholder");
         }
 
         private void ResetSplitQueue()
@@ -346,6 +406,69 @@ namespace LivePhotoBox.ViewModels
             SplitProgressText = "0/0";
         }
 
+        private void RefreshCrashLogs()
+        {
+            _latestCrashLogPath = CrashLogService.GetLatestCrashLogPath();
+
+            if (!string.IsNullOrWhiteSpace(_latestCrashLogPath) && !File.Exists(_latestCrashLogPath))
+            {
+                _latestCrashLogPath = null;
+            }
+
+            OpenLatestCrashLogActionCommand.NotifyCanExecuteChanged();
+            ExportLatestCrashLogActionCommand.NotifyCanExecuteChanged();
+            ClearCrashLogsActionCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(HasCrashLogs));
+            OnPropertyChanged(nameof(LastCrashFileNameText));
+        }
+
+        private void OpenCrashLogFolder()
+        {
+            string logDirectory = CrashLogService.EnsureLogDirectoryPath();
+            CrashLogService.RecordBreadcrumb($"OpenCrashLogFolder requested. Path='{logDirectory}'");
+            FilePickerService.OpenFolderInExplorer(logDirectory);
+        }
+
+        private async Task OpenLatestCrashLogAsync()
+        {
+            string? latestCrashLogPath = _latestCrashLogPath;
+            if (string.IsNullOrWhiteSpace(latestCrashLogPath) || !File.Exists(latestCrashLogPath))
+            {
+                RefreshCrashLogs();
+                return;
+            }
+
+            CrashLogService.RecordBreadcrumb($"OpenLatestCrashLog requested. File='{Path.GetFileName(latestCrashLogPath)}'");
+            await FilePickerService.OpenFileAsync(latestCrashLogPath);
+        }
+
+        private async Task ExportLatestCrashLogAsync()
+        {
+            string? latestCrashLogPath = _latestCrashLogPath;
+            if (string.IsNullOrWhiteSpace(latestCrashLogPath) || !File.Exists(latestCrashLogPath))
+            {
+                RefreshCrashLogs();
+                return;
+            }
+
+            CrashLogService.RecordBreadcrumb($"ExportLatestCrashLog requested. File='{Path.GetFileName(latestCrashLogPath)}'");
+            await FilePickerService.ExportFileCopyAsync(latestCrashLogPath, Path.GetFileName(latestCrashLogPath));
+        }
+
+        private void ClearCrashLogs()
+        {
+            CrashLogService.RecordBreadcrumb("ClearCrashLogs requested.");
+            CrashLogService.DeleteAllCrashLogs();
+            RefreshCrashLogs();
+        }
+
+        private void GenerateTestCrashLog()
+        {
+            CrashLogService.RecordBreadcrumb("GenerateTestCrashLog requested.");
+            CrashLogService.GenerateTestCrashLog();
+            RefreshCrashLogs();
+        }
+
         [RelayCommand]
         private void RestoreDefaultSettings()
         {
@@ -353,6 +476,16 @@ namespace LivePhotoBox.ViewModels
             BackdropIndex = 0;
             ElementTheme = 0;
             SelectedModeIndex = 1;
+        }
+
+        private bool CanExportLatestCrashLog()
+        {
+            return HasCrashLogs;
+        }
+
+        private bool CanClearCrashLogs()
+        {
+            return HasCrashLogs;
         }
 
         private string FormatFileSize(long bytes)
@@ -364,10 +497,12 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         public void ScanDirectory()
         {
+            CrashLogService.RecordBreadcrumb($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
+
             if (IsProcessing) return;
             if (string.IsNullOrWhiteSpace(InputDirectory) || !Directory.Exists(InputDirectory))
             {
-                ComboStatus = ResourceService.GetString("Status_InvalidInput");
+                SetComboStatus("Status_InvalidInput");
                 return;
             }
 
@@ -419,12 +554,14 @@ namespace LivePhotoBox.ViewModels
                 OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
             }
 
-            ComboStatus = ResourceService.Format("Status_ScanDone", TotalPairsCount);
+            SetComboStatus("Status_ScanDone", TotalPairsCount);
         }
 
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
+            CrashLogService.RecordBreadcrumb($"ToggleSecondaryAction requested. IsProcessing={IsProcessing}, IsPaused={IsPaused}");
+
             if (!IsProcessing)
             {
                 ComboTasks.ReplaceRange([]);
@@ -434,7 +571,7 @@ namespace LivePhotoBox.ViewModels
                 StandaloneVideosCount = 0;
                 ComboProgress = 0;
                 ProgressText = "0/0";
-                ComboStatus = ResourceService.Format("Status_Cleared", _hwEncoderName);
+                SetComboStatus("Status_Cleared", _hwEncoderName);
 
                 IsDirectoryPanelOpen = true;
             }
@@ -443,13 +580,13 @@ namespace LivePhotoBox.ViewModels
                 if (IsPaused)
                 {
                     IsPaused = false;
-                    ComboStatus = ResourceService.GetString("Status_Resumed");
+                    SetComboStatus("Status_Resumed");
                     _pauseEvent.Set();
                 }
                 else
                 {
                     IsPaused = true;
-                    ComboStatus = ResourceService.GetString("Status_Paused");
+                    SetComboStatus("Status_Paused");
                     _pauseEvent.Reset();
                 }
             }
@@ -492,6 +629,8 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleProcessAsync()
         {
+            CrashLogService.RecordBreadcrumb($"ToggleProcessAsync requested. IsProcessing={IsProcessing}, QueueCount={ComboTasks.Count}");
+
             if (IsProcessing)
             {
                 _cancellationTokenSource?.Cancel();
@@ -518,7 +657,7 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
-                ComboStatus = ResourceService.GetString("Status_WarnOutput");
+                SetComboStatus("Status_WarnOutput");
                 return;
             }
 
@@ -528,6 +667,7 @@ namespace LivePhotoBox.ViewModels
 
         private void InitializeRunState()
         {
+            CrashLogService.RecordBreadcrumb($"InitializeRunState. Output='{OutputDirectory}', Mode={SelectedModeIndex}, TotalPairs={TotalPairsCount}");
             IsProcessing = true;
             IsPaused = false;
             _pauseEvent.Set();
@@ -536,11 +676,12 @@ namespace LivePhotoBox.ViewModels
             ProgressText = $"0/{TotalPairsCount}";
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = new CancellationTokenSource();
-            ComboStatus = ResourceService.GetString("Status_Running");
+            SetComboStatus("Status_Running");
         }
 
         private void FinalizeRunState(Stopwatch stopwatch)
         {
+            CrashLogService.RecordBreadcrumb($"FinalizeRunState. ElapsedSeconds={stopwatch.Elapsed.TotalSeconds:F3}, Progress={ComboProgress:F2}");
             stopwatch.Stop();
             IsProcessing = false;
             IsPaused = false;
@@ -553,7 +694,7 @@ namespace LivePhotoBox.ViewModels
 
             if (ComboProgress >= 100)
             {
-                ComboStatus = ResourceService.Format("Status_Done", stopwatch.Elapsed.TotalSeconds);
+                SetComboStatus("Status_Done", stopwatch.Elapsed.TotalSeconds);
             }
         }
 
@@ -594,7 +735,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                ComboStatus = ResourceService.GetString("Status_Aborted");
+                SetComboStatus("Status_Aborted");
             }
             finally
             {
