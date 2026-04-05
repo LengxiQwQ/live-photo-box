@@ -7,6 +7,23 @@
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
+    <Page.Resources>
+        <Style x:Key="AboutLinkButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="3"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="MinWidth" Value="0"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+            <Setter Property="HorizontalAlignment" Value="Left"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+        </Style>
+    </Page.Resources>
+
     <ScrollViewer Padding="40,24">
         <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center">
 
@@ -23,33 +40,50 @@
                     <TextBlock x:Uid="AboutPage_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     <TextBlock x:Uid="AboutPage_Description" TextWrapping="Wrap" LineHeight="24" FontFamily="Microsoft YaHei UI" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                    <MenuFlyoutSeparator Margin="0,10"/>
+                    <TextBlock x:Uid="AboutPage_InfoHeader" FontSize="16" FontWeight="SemiBold" Margin="0,10,0,4" FontFamily="Microsoft YaHei UI"/>
 
-                    <Grid>
+                    <Grid ColumnSpacing="16">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="96"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Uid="AboutPage_DeveloperLabel" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                        <HyperlinkButton Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ" Content="LengxiQwQ (冷汐OωO)" Margin="8,0,0,0"/>
+                        <FontIcon Glyph="&#xE77B;" FontSize="15" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="AboutPage_DeveloperLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Button x:Uid="AboutPage_DeveloperValue" Grid.Column="2" Click="DeveloperLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
                     </Grid>
 
-                    <Grid>
+                    <Grid ColumnSpacing="16">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="96"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Uid="AboutPage_SourceLabel" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                        <HyperlinkButton x:Uid="AboutPage_SourceLink" Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ/live-photo-studio" Margin="8,0,0,0"/>
+                        <FontIcon Glyph="&#xE8A5;" FontSize="15" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="AboutPage_SourceLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Button x:Uid="AboutPage_SourceLink" Grid.Column="2" Click="RepositoryLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
                     </Grid>
 
-                    <Grid>
+                    <Grid ColumnSpacing="16">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="96"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Uid="AboutPage_IssueLabel" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                        <HyperlinkButton x:Uid="AboutPage_IssueLink" Grid.Column="1" NavigateUri="https://github.com/LengxiQwQ/live-photo-studio/issues" Margin="8,0,0,0"/>
+                        <FontIcon Glyph="&#xE71D;" FontSize="15" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="AboutPage_LicenseLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Button x:Uid="AboutPage_LicenseValue" Grid.Column="2" Click="LicenseLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
+                    </Grid>
+
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="96"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Glyph="&#xE8A7;" FontSize="15" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="AboutPage_IssueLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                        <Button x:Uid="AboutPage_IssueLink" Grid.Column="2" Click="IssueLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
                     </Grid>
                 </StackPanel>
             </Border>

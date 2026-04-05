@@ -96,13 +96,38 @@
                                     <TextBlock x:Uid="SettingsPage_CrashClear_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <Button Click="GenerateTestCrashLogButton_Click">
+                            <Button Command="{x:Bind ViewModel.OpenIssueFeedbackActionCommand}">
                                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <FontIcon Glyph="&#xE9D2;" FontSize="14"/>
-                                    <TextBlock x:Uid="SettingsPage_CrashGenerateTest_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                    <FontIcon Glyph="&#xE8A7;" FontSize="14"/>
+                                    <TextBlock x:Uid="SettingsPage_CrashIssue_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                         </StackPanel>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <StackPanel Spacing="16">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE943;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock x:Uid="SettingsPage_Test_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                </StackPanel>
+
+                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                        Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Click="GenerateTestCrashLogButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE9D2;" FontSize="14"/>
+                                <TextBlock x:Uid="SettingsPage_CrashGenerateTest_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Click="PreviewCrashDialogButton_Click">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE8A1;" FontSize="14"/>
+                                <TextBlock x:Uid="SettingsPage_CrashPreviewDialog_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -116,12 +141,12 @@
                     </StackPanel>
                 </Button>
 
-                <HyperlinkButton NavigateUri="https://github.com/LengxiQwQ" HorizontalAlignment="Center" Opacity="0.5"
-                                 Foreground="{ThemeResource TextFillColorPrimaryBrush}">
-                    <HyperlinkButton.Content>
-                        <TextBlock x:Uid="SettingsPage_Footer" FontSize="12" FontFamily="Microsoft YaHei UI"/>
-                    </HyperlinkButton.Content>
-                </HyperlinkButton>
+                <TextBlock x:Uid="SettingsPage_Footer"
+                           HorizontalAlignment="Center"
+                           Opacity="0.55"
+                           FontSize="12"
+                           FontFamily="Microsoft YaHei UI"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </StackPanel>
         </StackPanel>
     </ScrollViewer>

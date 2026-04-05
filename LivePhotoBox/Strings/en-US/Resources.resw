@@ -160,6 +160,9 @@ Do you want to restart now?</value>
   <data name="RestartDialog_Title" xml:space="preserve">
     <value>Language Changed</value>
   </data>
+  <data name="CrashDialog_ReportIssueButton" xml:space="preserve">
+    <value>Report on GitHub</value>
+  </data>
   <data name="SettingsPage_Title.Text" xml:space="preserve">
     <value>Settings</value>
   </data>
@@ -225,6 +228,9 @@ Do you want to restart now?</value>
   </data>
   <data name="SettingsPage_Restore_Button_Text.Text" xml:space="preserve">
     <value>Restore Default Settings</value>
+  </data>
+  <data name="SettingsPage_CrashIssue_Button_Text.Text" xml:space="preserve">
+    <value>Report on GitHub</value>
   </data>
   <data name="ConsolePage_PlaceholderTitle.Text" xml:space="preserve">
     <value>Console page is not available yet</value>
@@ -516,10 +522,12 @@ Please set the input directory and click [Scan Files] to load files.</value>
     <value>Welcome to Live Photo Box</value>
   </data>
   <data name="HomePage_Intro1.Text" xml:space="preserve">
-    <value>Live Photo Box is an open-source live photo toolkit designed to provide a convenient and efficient experience for merging and splitting Android and iOS live photos. Beyond the tooling itself, it also focuses on the story and emotion behind every photo.</value>
+    <value>This professional yet easy-to-use Live Photo processing tool is designed to effortlessly break the ecosystem barriers between Apple and Android. It losslessly converts Live Photos shot on iPhone into formats natively supported by Google Photos. By perfectly preserving the original video quality and dynamic frame rates, it ensures your vivid memories are flawlessly presented across any platform.</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
-    <value>Here, you can easily convert Google Motion Photos generated on Android phones into live photos recognizable by iOS, and vice versa. Whether you want smoother animation playback on iOS or the native live photo experience on Android, Live Photo Box is built to help.</value>
+    <value>Beyond ultimate format conversion, the software offers a suite of powerful local processing capabilities. You can "unbind" Live Photos with a single click, splitting them into high-quality static images and independent video files. For selfies taken with the front camera, it intelligently analyzes the underlying video data to accurately identify and fix mirror inversion issues. Coupled with a highly efficient concurrent batch processing engine, even massive photo collections can be handled at once with ease.
+
+Click the [Batch Convert], [Extract &amp; Split], or [Repair Tool] buttons on the page to start your processing journey right now!</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>Tip :</value>
@@ -537,16 +545,32 @@ Please set the input directory and click [Scan Files] to load files.</value>
     <value>About This App</value>
   </data>
   <data name="AboutPage_Description.Text" xml:space="preserve">
-    <value>Live Photo Box is an open-source live photo toolkit dedicated to providing a convenient experience for merging and splitting Android and iOS live photos. It supports the latest Google packaging formats and efficient batch processing.</value>
+    <value>Welcome to Live Photo Box! This professional yet easy-to-use Live Photo processing tool is designed to effortlessly break the ecosystem barriers between Apple and Android. It losslessly converts Live Photos shot on iPhone into formats natively supported by Google Photos. By perfectly preserving the original video quality and dynamic frame rates, it ensures your vivid memories are flawlessly presented across any platform.
+
+Beyond ultimate format conversion, the software offers a suite of powerful local processing capabilities. You can "unbind" Live Photos with a single click, splitting them into high-quality static images and independent video files. For selfies taken with the front camera, it intelligently analyzes the underlying video data to accurately identify and fix mirror inversion issues. Coupled with a highly efficient concurrent batch processing engine, even massive photo collections can be handled at once with ease.
+
+Click the [Batch Convert], [Extract &amp; Split], or [Repair Tool] buttons on the page to start your processing journey right now!</value>
+  </data>
+  <data name="AboutPage_InfoHeader.Text" xml:space="preserve">
+    <value>Project Information</value>
   </data>
   <data name="AboutPage_DeveloperLabel.Text" xml:space="preserve">
     <value>Developer :</value>
   </data>
+  <data name="AboutPage_DeveloperValue.Content" xml:space="preserve">
+    <value>LengxiQwQ (冷汐OωO)</value>
+  </data>
   <data name="AboutPage_SourceLabel.Text" xml:space="preserve">
-    <value>Source :</value>
+    <value>Repository :</value>
   </data>
   <data name="AboutPage_SourceLink.Content" xml:space="preserve">
     <value>GitHub Repository</value>
+  </data>
+  <data name="AboutPage_LicenseLabel.Text" xml:space="preserve">
+    <value>License :</value>
+  </data>
+  <data name="AboutPage_LicenseValue.Content" xml:space="preserve">
+    <value>GPL-3.0 license</value>
   </data>
   <data name="AboutPage_IssueLabel.Text" xml:space="preserve">
     <value>Feedback :</value>
@@ -600,7 +624,7 @@ Please set the input directory and click [Scan Files] to load files.</value>
     <value>Waiting to analyze metadata...</value>
   </data>
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
-    <value>Live Photo Box v1.1.0 | Powered by LengxiQwQ</value>
+    <value>© 2026 LengxiQwQ All rights reserved</value>
   </data>
   <data name="RepairPage_Status_Ready" xml:space="preserve">
     <value>Ready | Waiting for files to repair</value>
@@ -689,6 +713,12 @@ Log file: {0}</value>
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button_Text.Text" xml:space="preserve">
     <value>Generate Test Log</value>
+  </data>
+  <data name="SettingsPage_CrashPreviewDialog_Button_Text.Text" xml:space="preserve">
+    <value>Preview Crash Dialog</value>
+  </data>
+  <data name="SettingsPage_Test_Header.Text" xml:space="preserve">
+    <value>Test Tools</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>Not detected</value>

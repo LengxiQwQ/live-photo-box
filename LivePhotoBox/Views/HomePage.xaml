@@ -9,34 +9,44 @@
     <ScrollViewer Padding="40,0,40,24">
         <StackPanel Spacing="24" MaxWidth="1000" HorizontalAlignment="Center">
 
-            <Grid Height="350" Margin="0,32,0,16" CornerRadius="12">
+            <Grid x:Name="BannerRoot" Height="350" Margin="0,32,0,8" CornerRadius="12">
 
-                <Image x:Name="BannerImage" Stretch="UniformToFill" CacheMode="BitmapCache" />
+                <Image x:Name="BannerImage"
+                       Stretch="UniformToFill"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       CacheMode="BitmapCache" />
 
-                <Border CornerRadius="12" Background="#40000000"/>
+                <Border CornerRadius="12" Background="#22000000"/>
 
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
-                    <TextBlock x:Uid="HomePage_HeroTitle"
-                               FontSize="56" 
-                               FontWeight="Bold" 
+                <Grid HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Margin="0,-24,0,0">
+                    <TextBlock x:Name="HeroTitleShadow"
+                               FontSize="56"
+                               FontWeight="Bold"
+                               Foreground="#77000000"
+                               FontFamily="Microsoft YaHei UI"
+                               CharacterSpacing="80"
+                               Margin="2,3,0,0"/>
+                    <TextBlock x:Name="HeroTitleText"
+                               x:Uid="HomePage_HeroTitle"
+                               FontSize="56"
+                               FontWeight="Bold"
                                Foreground="#FFFFFF"
                                FontFamily="Microsoft YaHei UI"
-                               HorizontalAlignment="Center"
-                               CharacterSpacing="80">
-                        <TextBlock.Shadow>
-                            <ThemeShadow />
-                        </TextBlock.Shadow>
-                    </TextBlock>
-
-                    <TextBlock x:Uid="HomePage_HeroSubtitle"
-                               FontSize="16" 
-                               Foreground="#CCFFFFFF"
-                               Opacity="0.8"
-                               FontFamily="Microsoft YaHei UI"
-                               HorizontalAlignment="Center"
-                               FontWeight="Light"/>
-                </StackPanel>
+                               CharacterSpacing="80"/>
+                </Grid>
             </Grid>
+
+            <TextBlock x:Uid="HomePage_HeroSubtitle"
+                       FontSize="16" 
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       FontFamily="Microsoft YaHei UI"
+                       HorizontalAlignment="Center"
+                       TextAlignment="Center"
+                       FontWeight="Light"
+                       Margin="0,0,0,8"/>
 
             <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
@@ -57,10 +67,7 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Orientation="Horizontal" Spacing="8">
-                            <FontIcon Glyph="&#xE951;" FontSize="16" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock x:Uid="HomePage_TipLabel" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                        </StackPanel>
+                        <TextBlock x:Uid="HomePage_TipLabel" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                         <TextBlock x:Uid="HomePage_TipText"
                                    Grid.Column="1"
                                    Margin="12,0,0,0"

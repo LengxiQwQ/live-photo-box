@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 
@@ -12,15 +13,23 @@ namespace LivePhotoBox.Views
             this.Loaded += HomePage_Loaded;
         }
 
-        private void HomePage_Loaded(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        private void HomePage_Loaded(object sender, RoutedEventArgs e)
         {
-            // Load or cache the banner image
             if (App.CachedBannerImage == null)
             {
                 App.CachedBannerImage = new BitmapImage(new Uri("ms-appx:///Assets/BannerImage.jpg"));
             }
 
-            BannerImage.Source = App.CachedBannerImage;
+            if (this.FindName("BannerImage") is Image bannerImage)
+            {
+                bannerImage.Source = App.CachedBannerImage;
+            }
+
+            if (this.FindName("HeroTitleText") is TextBlock heroTitleText &&
+                this.FindName("HeroTitleShadow") is TextBlock heroTitleShadow)
+            {
+                heroTitleShadow.Text = heroTitleText.Text;
+            }
         }
     }
 }

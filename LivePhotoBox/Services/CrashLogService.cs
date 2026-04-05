@@ -359,32 +359,83 @@ namespace LivePhotoBox.Services
 
             ClearPendingCrash();
 
-            var dialog = new ContentDialog
-            {
-                Title = ResourceService.GetString("CrashDialog_Title"),
-                Content = ResourceService.Format("CrashDialog_Content", Path.GetFileName(logPath)),
-                PrimaryButtonText = ResourceService.GetString("CrashDialog_OpenFolderButton"),
-                SecondaryButtonText = ResourceService.GetString("CrashDialog_ExportButton"),
-                CloseButtonText = ResourceService.GetString("CrashDialog_CloseButton"),
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = xamlRoot
-            };
+            await ShowCrashDialogAsync(xamlRoot, logPath);
+        }
 
-            ContentDialogResult result = await dialog.ShowAsync();
-
-            if (!File.Exists(logPath))
+        public static async Task ShowCrashDialogAsync(XamlRoot xamlRoot, string logPath)
+        {
+            if (xamlRoot == null || string.IsNullOrWhiteSpace(logPath) || !File.Exists(logPath))
             {
                 return;
             }
 
-            if (result == ContentDialogResult.Primary)
+            Button CreateDialogActionButton(string resourceKey)
             {
+                return new Button
+                {
+                    Content = ResourceService.GetString(resourceKey),
+                    HorizontalAlignment = HorizontalAlignment.Stretch
+                };
+            }
+
+            Button openFolderButton = CreateDialogActionButton("CrashDialog_OpenFolderButton");
+            Button exportButton = CreateDialogActionButton("CrashDialog_ExportButton");
+            Button reportIssueButton = CreateDialogActionButton("CrashDialog_ReportIssueButton");
+
+            openFolderButton.Click += (_, _) =>
+            {
+                RecordBreadcrumb("OpenCrashLogFolder requested from crash dialog.");
                 FilePickerService.OpenFolderInExplorer(EnsureLogDirectoryPath());
-            }
-            else if (result == ContentDialogResult.Secondary)
+            };
+
+            exportButton.Click += async (_, _) =>
             {
+                if (!File.Exists(logPath))
+                {
+                    return;
+                }
+
+                RecordBreadcrumb($"ExportLatestCrashArtifact requested from crash dialog. File='{Path.GetFileName(logPath)}'");
                 await FilePickerService.ExportFileCopyAsync(logPath, Path.GetFileName(logPath));
-            }
+            };
+
+            reportIssueButton.Click += async (_, _) =>
+            {
+                RecordBreadcrumb("OpenIssueFeedback requested from crash dialog.");
+                await FeedbackService.OpenIssuePageAsync();
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = ResourceService.GetString("CrashDialog_Title"),
+                Content = new StackPanel
+                {
+                    Spacing = 16,
+                    Children =
+                    {
+                        new TextBlock
+                        {
+                            Text = ResourceService.Format("CrashDialog_Content", Path.GetFileName(logPath)),
+                            TextWrapping = TextWrapping.Wrap
+                        },
+                        new StackPanel
+                        {
+                            Spacing = 12,
+                            Children =
+                            {
+                                openFolderButton,
+                                exportButton,
+                                reportIssueButton
+                            }
+                        }
+                    }
+                },
+                CloseButtonText = ResourceService.GetString("CrashDialog_CloseButton"),
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = xamlRoot
+            };
+
+            await dialog.ShowAsync();
         }
 
         private static string? WriteCrashLog(string source, Exception? exception, IEnumerable<(string Key, string Value)>? extraFields = null)
