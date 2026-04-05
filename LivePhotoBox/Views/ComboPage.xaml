@@ -163,26 +163,9 @@
 
                             <TextBlock x:Uid="ComboPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
 
-                            <Button Grid.Column="1" Grid.ColumnSpan="2" Command="{x:Bind ViewModel.SortCommand}" CommandParameter="Name" Background="Transparent" BorderThickness="0" Padding="0,4,8,4" HorizontalAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock x:Uid="ComboPage_ColFile" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                    <TextBlock Text="{x:Bind ViewModel.NameSortIcon, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-
-                            <Button Grid.Column="3" Command="{x:Bind ViewModel.SortCommand}" CommandParameter="Size" Background="Transparent" BorderThickness="0" Padding="0,4,8,4" HorizontalAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock x:Uid="ComboPage_ColSize" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                    <TextBlock Text="{x:Bind ViewModel.SizeSortIcon, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-
-                            <Button Grid.Column="4" Command="{x:Bind ViewModel.SortCommand}" CommandParameter="Status" Background="Transparent" BorderThickness="0" Padding="0,4,8,4" HorizontalAlignment="Left">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock x:Uid="ComboPage_ColStatus" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                    <TextBlock Text="{x:Bind ViewModel.StatusSortIcon, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
+                            <TextBlock x:Uid="ComboPage_ColFile" Grid.Column="1" Grid.ColumnSpan="2" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="ComboPage_ColSize" Grid.Column="3" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="ComboPage_ColStatus" Grid.Column="4" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                         </Grid>
                     </ListView.Header>
 

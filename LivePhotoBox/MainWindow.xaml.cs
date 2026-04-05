@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System;
 using System.ComponentModel;
+using System.IO;
 using Windows.Graphics;
 using Windows.UI;
 
@@ -37,6 +38,12 @@ namespace LivePhotoBox
 
             if (appWindow != null)
             {
+                string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+                if (File.Exists(iconPath))
+                {
+                    appWindow.SetIcon(iconPath);
+                }
+
                 appWindow.Resize(new SizeInt32(DefaultWindowWidth, DefaultWindowHeight));
 
                 try
