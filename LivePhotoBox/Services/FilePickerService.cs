@@ -27,6 +27,16 @@ namespace LivePhotoBox.Services
             await Windows.System.Launcher.LaunchFileAsync(file);
         }
 
+        public static async Task<bool> OpenUriAsync(Uri uri)
+        {
+            if (uri == null)
+            {
+                return false;
+            }
+
+            return await Windows.System.Launcher.LaunchUriAsync(uri);
+        }
+
         public static async Task<bool> ExportFileCopyAsync(string sourcePath, string suggestedFileName)
         {
             if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))

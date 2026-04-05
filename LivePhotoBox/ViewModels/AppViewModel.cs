@@ -258,6 +258,7 @@ namespace LivePhotoBox.ViewModels
         private IAsyncRelayCommand? _exportLatestCrashLogActionCommand;
         private IRelayCommand? _clearCrashLogsActionCommand;
         private IRelayCommand? _generateTestCrashLogActionCommand;
+        private IAsyncRelayCommand? _openIssueFeedbackActionCommand;
 
         public BulkObservableCollection<LivePhotoMergeTask> ComboTasks { get; } = [];
         public BulkObservableCollection<LivePhotoSplitTask> SplitTasks { get; } = [];
@@ -271,6 +272,7 @@ namespace LivePhotoBox.ViewModels
         public IAsyncRelayCommand ExportLatestCrashLogActionCommand => _exportLatestCrashLogActionCommand ??= new AsyncRelayCommand(ExportLatestCrashLogAsync, CanExportLatestCrashLog);
         public IRelayCommand ClearCrashLogsActionCommand => _clearCrashLogsActionCommand ??= new RelayCommand(ClearCrashLogs, CanClearCrashLogs);
         public IRelayCommand GenerateTestCrashLogActionCommand => _generateTestCrashLogActionCommand ??= new RelayCommand(GenerateTestCrashLog);
+        public IAsyncRelayCommand OpenIssueFeedbackActionCommand => _openIssueFeedbackActionCommand ??= new AsyncRelayCommand(OpenIssueFeedbackAsync);
 
         private bool _isInitialized;
 
@@ -497,6 +499,12 @@ namespace LivePhotoBox.ViewModels
             CrashLogService.RecordBreadcrumb("GenerateTestCrashLog requested.");
             CrashLogService.GenerateTestCrashLog();
             RefreshCrashLogs();
+        }
+
+        private async Task OpenIssueFeedbackAsync()
+        {
+            CrashLogService.RecordBreadcrumb("OpenIssueFeedback requested.");
+            await FeedbackService.OpenIssuePageAsync();
         }
 
         [RelayCommand]

@@ -159,6 +159,9 @@
   <data name="RestartDialog_Title" xml:space="preserve">
     <value>更改语言</value>
   </data>
+  <data name="CrashDialog_ReportIssueButton" xml:space="preserve">
+    <value>前往 GitHub 反馈</value>
+  </data>
   <data name="SettingsPage_Title.Text" xml:space="preserve">
     <value>设置</value>
   </data>
@@ -224,6 +227,9 @@
   </data>
   <data name="SettingsPage_Restore_Button_Text.Text" xml:space="preserve">
     <value>恢复默认设置</value>
+  </data>
+  <data name="SettingsPage_CrashIssue_Button_Text.Text" xml:space="preserve">
+    <value>前往 GitHub 反馈</value>
   </data>
   <data name="ConsolePage_PlaceholderTitle.Text" xml:space="preserve">
     <value>控制台页面暂未开放</value>
@@ -516,10 +522,12 @@
     <value>欢迎使用 Live Photo Box</value>
   </data>
   <data name="HomePage_Intro1.Text" xml:space="preserve">
-    <value>Live Photo Box 是一款开源的实况照片处理工具箱，旨在为用户提供便捷、高效的 Android 与 iOS 实况照片合成与拆分体验。不仅如此，作为一名深度二次元宅男开发的软件，我们更加关注每一张照片背后的故事和情感。</value>
+    <value>这是一款专业且易用的实况照片处理工具，旨在帮你轻松打破 Apple 与 Android 之间的设备生态壁垒。它能将 iPhone 拍摄的 Live Photo 无损转换为 Google 相册原生支持的格式，在完美锁定原始视频画质和动态帧率的同时，让你的生动回忆在任何平台上都能完美呈现。</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
-    <value>在这里，你可以轻松将 Android 手机生成的 Google 实况照片，转化为 iOS 可识别的实况照片，反之亦然。无论是为了在 iOS 上获得更流畅的动画效果，还是为了在 Android 上体验原生的实况魅力，Live Photo Box 都是你得力的助手。</value>
+    <value>除了极致的格式转换，软件还提供了一系列强大的本地处理能力。你可以一键将实况照片“解绑”，拆分为高画质的静态图片与独立的动态视频文件；面对前置摄像头拍摄的自拍，它能通过智能解析视频底层数据，精准识别并修复画面的镜像反转问题。搭配高效的批量并发处理引擎，海量照片也能一次性轻松搞定。
+
+请点击页面上的 [批量转换]、[提取拆分] 或 [修复工具] 按钮，立即开启你的处理之旅！</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>友情提示 :</value>
@@ -539,14 +547,26 @@
   <data name="AboutPage_Description.Text" xml:space="preserve">
     <value>Live Photo Box 是一款开源的实况照片处理工具箱，致力于为用户提供便捷的 Android 与 iOS 实况照片合成与拆分体验。支持最新的 Google 封装协议与高效的批量处理能力。</value>
   </data>
+  <data name="AboutPage_InfoHeader.Text" xml:space="preserve">
+    <value>项目信息</value>
+  </data>
   <data name="AboutPage_DeveloperLabel.Text" xml:space="preserve">
     <value>开发者 :</value>
   </data>
+  <data name="AboutPage_DeveloperValue.Content" xml:space="preserve">
+    <value>LengxiQwQ (冷汐OωO)</value>
+  </data>
   <data name="AboutPage_SourceLabel.Text" xml:space="preserve">
-    <value>开源地址 :</value>
+    <value>仓库地址 :</value>
   </data>
   <data name="AboutPage_SourceLink.Content" xml:space="preserve">
     <value>GitHub 仓库</value>
+  </data>
+  <data name="AboutPage_LicenseLabel.Text" xml:space="preserve">
+    <value>开源协议 :</value>
+  </data>
+  <data name="AboutPage_LicenseValue.Content" xml:space="preserve">
+    <value>GPL-3.0 license</value>
   </data>
   <data name="AboutPage_IssueLabel.Text" xml:space="preserve">
     <value>问题反馈 :</value>
@@ -600,7 +620,7 @@
     <value>等待分析元数据...</value>
   </data>
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
-    <value>Live Photo Box v1.1.0 | Powered by LengxiQwQ</value>
+    <value>© 2026 LengxiQwQ 保留所有权利</value>
   </data>
   <data name="RepairPage_Status_Ready" xml:space="preserve">
     <value>等待修复</value>
@@ -689,6 +709,12 @@
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button_Text.Text" xml:space="preserve">
     <value>生成测试日志</value>
+  </data>
+  <data name="SettingsPage_CrashPreviewDialog_Button_Text.Text" xml:space="preserve">
+    <value>预览崩溃报告</value>
+  </data>
+  <data name="SettingsPage_Test_Header.Text" xml:space="preserve">
+    <value>测试工具</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>暂无</value>
