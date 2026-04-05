@@ -17,7 +17,7 @@
   <Properties>
     <DisplayName>Live Photo Box</DisplayName>
     <PublisherDisplayName>LengxiQwQ</PublisherDisplayName>
-    <Logo>Assets\StoreLogo.png</Logo>
+    <Logo>Assets\AppIcon.png</Logo>
   </Properties>
 
   <Dependencies>
@@ -37,9 +37,10 @@
         DisplayName="Live Photo Box"
         BackgroundColor="transparent"
         Square150x150Logo="Assets\Square150x150Logo.png"
-        Square44x44Logo="Assets\Square44x44Logo.png" Description="让你的 Apple 实况照片（JPG + MOV）无损转换为 Google 动态照片（JPG单文件），使其可在Windows上直接显示，同时修复缩略图显示错误等一系列问题。">
-        <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
-        <uap:SplashScreen Image="Assets\SplashScreen.png" />
+        Description="让你的 Apple 实况照片（JPG + MOV）无损转换为 Google 动态照片（JPG单文件），使其可在Windows上直接显示，同时修复缩略图显示错误等一系列问题。"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\AppIcon.png" />
+        <uap:SplashScreen Image="Assets\AppIcon.png" />
       </uap:VisualElements>
     </Application>
   </Applications>
@@ -48,3 +49,7 @@
     <rescap:Capability Name="runFullTrust" />
   </Capabilities>
 </Package>
+
+
+
+

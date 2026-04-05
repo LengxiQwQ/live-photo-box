@@ -11,8 +11,8 @@
         </Grid.RowDefinitions>
 
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent">
-            <StackPanel Orientation="Horizontal" Margin="16,0,0,0" VerticalAlignment="Center" Spacing="8">
-                <FontIcon Glyph="&#xE8B9;" FontSize="14" />
+            <StackPanel Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="8">
+                <Image Source="/Assets/AppIcon-2D-Translucence.png" Width="16" Height="16" Stretch="Uniform" />
                 <TextBlock x:Uid="MainWindow_Title" FontSize="12" FontWeight="SemiBold"/>
             </StackPanel>
         </Grid>

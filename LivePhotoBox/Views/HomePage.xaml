@@ -25,7 +25,7 @@
                     <TextBlock x:Name="HeroTitleShadow"
                                FontSize="56"
                                FontWeight="Bold"
-                               Foreground="#77000000"
+                               Foreground="#44000000"
                                FontFamily="Microsoft YaHei UI"
                                CharacterSpacing="80"
                                Margin="2,3,0,0"/>

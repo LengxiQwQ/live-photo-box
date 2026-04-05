@@ -238,12 +238,6 @@ namespace LivePhotoBox.ViewModels
 
         private string _hwEncoderName = "Software CPU";
 
-        private string _lastSortColumn = "Name";
-        private bool _sortAscending = true;
-        [ObservableProperty] private string _nameSortIcon = "";
-        [ObservableProperty] private string _sizeSortIcon = "";
-        [ObservableProperty] private string _statusSortIcon = "";
-
         [ObservableProperty] private int _selectedModeIndex = 1;
 
         [ObservableProperty] private int _languageIndex;
@@ -589,12 +583,6 @@ namespace LivePhotoBox.ViewModels
             ComboProgress = 0;
             ProgressText = $"0/{TotalPairsCount}";
 
-            _lastSortColumn = "Name";
-            _sortAscending = true;
-            NameSortIcon = string.Empty;
-            SizeSortIcon = string.Empty;
-            StatusSortIcon = string.Empty;
-
             if (string.IsNullOrWhiteSpace(OutputDirectory) && ComboTasks.Count > 0)
             {
                 OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
@@ -636,40 +624,6 @@ namespace LivePhotoBox.ViewModels
                     _pauseEvent.Reset();
                 }
             }
-        }
-
-        [RelayCommand]
-        private void Sort(string columnName)
-        {
-            if (IsProcessing || ComboTasks.Count == 0) return;
-
-            if (_lastSortColumn == columnName)
-                _sortAscending = !_sortAscending;
-            else
-            {
-                _sortAscending = true;
-                _lastSortColumn = columnName;
-            }
-
-            NameSortIcon = ""; SizeSortIcon = ""; StatusSortIcon = "";
-            string iconStr = _sortAscending ? "▲" : "▼";
-
-            switch (columnName)
-            {
-                case "Name": NameSortIcon = iconStr; break;
-                case "Size": SizeSortIcon = iconStr; break;
-                case "Status": StatusSortIcon = iconStr; break;
-            }
-
-            IEnumerable<LivePhotoMergeTask> sorted = columnName switch
-            {
-                "Name" => _sortAscending ? ComboTasks.OrderBy(x => x.BaseName) : ComboTasks.OrderByDescending(x => x.BaseName),
-                "Size" => _sortAscending ? ComboTasks.OrderBy(x => x.TotalSizeBytes) : ComboTasks.OrderByDescending(x => x.TotalSizeBytes),
-                "Status" => _sortAscending ? ComboTasks.OrderBy(x => (int)x.Status) : ComboTasks.OrderByDescending(x => (int)x.Status),
-                _ => ComboTasks
-            };
-
-            ComboTasks.ReplaceRange(sorted);
         }
 
         [RelayCommand(AllowConcurrentExecutions = true)]

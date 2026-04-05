@@ -8,11 +8,42 @@
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
-    <ScrollViewer Padding="40,24">
-        <StackPanel Spacing="32" MaxWidth="1100" HorizontalAlignment="Stretch">
-            <TextBlock x:Uid="SettingsPage_Title" FontSize="32" FontWeight="Bold" Margin="0,0,0,8" FontFamily="Microsoft YaHei UI"/>
+    <ScrollViewer x:Name="PageScrollViewer" Padding="0,24">
+        <Grid HorizontalAlignment="Stretch">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" MinWidth="16"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*" MinWidth="16"/>
+            </Grid.ColumnDefinitions>
+            <VisualStateManager.VisualStateGroups>
+                <VisualStateGroup>
+                    <VisualState x:Name="NarrowState"/>
+                    <VisualState x:Name="MediumState">
+                        <VisualState.StateTriggers>
+                            <AdaptiveTrigger MinWindowWidth="720"/>
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="PageScrollViewer.Padding" Value="0,18"/>
+                            <Setter Target="ContentPanel.Spacing" Value="28"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                    <VisualState x:Name="WideState">
+                        <VisualState.StateTriggers>
+                            <AdaptiveTrigger MinWindowWidth="1040"/>
+                        </VisualState.StateTriggers>
+                        <VisualState.Setters>
+                            <Setter Target="PageScrollViewer.Padding" Value="0,24"/>
+                            <Setter Target="ContentPanel.Spacing" Value="32"/>
+                            <Setter Target="AppearanceOptionsGrid.ColumnSpacing" Value="40"/>
+                        </VisualState.Setters>
+                    </VisualState>
+                </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
 
-            <StackPanel Spacing="16">
+            <StackPanel x:Name="ContentPanel" Grid.Column="1" Spacing="24" MaxWidth="1160" HorizontalAlignment="Center">
+                <TextBlock x:Uid="SettingsPage_Title" FontSize="32" FontWeight="Bold" Margin="0,0,0,8" FontFamily="Microsoft YaHei UI"/>
+
+                <StackPanel Spacing="16">
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                     <FontIcon Glyph="&#xE790;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
                     <TextBlock x:Uid="SettingsPage_Appearance_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
@@ -20,7 +51,7 @@
 
                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
                         Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <Grid ColumnSpacing="40">
+                    <Grid x:Name="AppearanceOptionsGrid" ColumnSpacing="40">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="*"/>
@@ -59,9 +90,9 @@
                         </StackPanel>
                     </Grid>
                 </Border>
-            </StackPanel>
+                </StackPanel>
 
-            <StackPanel Spacing="16">
+                <StackPanel Spacing="16">
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                     <FontIcon Glyph="&#xE7BA;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
                     <TextBlock x:Uid="SettingsPage_Crash_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
@@ -105,9 +136,9 @@
                         </StackPanel>
                     </StackPanel>
                 </Border>
-            </StackPanel>
+                </StackPanel>
 
-            <StackPanel Spacing="16">
+                <StackPanel Spacing="16">
                 <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                     <FontIcon Glyph="&#xE943;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
                     <TextBlock x:Uid="SettingsPage_Test_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
@@ -130,9 +161,9 @@
                         </Button>
                     </StackPanel>
                 </Border>
-            </StackPanel>
+                </StackPanel>
 
-            <StackPanel Margin="0,20,0,0" Spacing="24">
+                <StackPanel Margin="0,20,0,0" Spacing="24">
                 <Button Command="{x:Bind ViewModel.RestoreDefaultSettingsCommand}" 
                         HorizontalAlignment="Right" Style="{ThemeResource DefaultButtonStyle}">
                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -147,7 +178,8 @@
                            FontSize="12"
                            FontFamily="Microsoft YaHei UI"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
             </StackPanel>
-        </StackPanel>
+        </Grid>
     </ScrollViewer>
 </Page>
