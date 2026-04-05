@@ -37,9 +37,14 @@ namespace LivePhotoBox.ViewModels
             get => _comboStatus;
             set
             {
-                if (SetProperty(ref _comboStatus, value) && CurrentStatusPageTag == "Combo")
+                if (SetProperty(ref _comboStatus, value))
                 {
-                    OnPropertyChanged(nameof(CurrentPageStatus));
+                    if (CurrentStatusPageTag == "Combo")
+                    {
+                        OnPropertyChanged(nameof(CurrentPageStatus));
+                    }
+
+                    CrashLogService.UpdateSessionState();
                 }
             }
         }
@@ -49,9 +54,14 @@ namespace LivePhotoBox.ViewModels
             get => _splitStatus;
             set
             {
-                if (SetProperty(ref _splitStatus, value) && CurrentStatusPageTag == "Split")
+                if (SetProperty(ref _splitStatus, value))
                 {
-                    OnPropertyChanged(nameof(CurrentPageStatus));
+                    if (CurrentStatusPageTag == "Split")
+                    {
+                        OnPropertyChanged(nameof(CurrentPageStatus));
+                    }
+
+                    CrashLogService.UpdateSessionState();
                 }
             }
         }
@@ -61,9 +71,14 @@ namespace LivePhotoBox.ViewModels
             get => _repairStatus;
             set
             {
-                if (SetProperty(ref _repairStatus, value) && CurrentStatusPageTag == "Repair")
+                if (SetProperty(ref _repairStatus, value))
                 {
-                    OnPropertyChanged(nameof(CurrentPageStatus));
+                    if (CurrentStatusPageTag == "Repair")
+                    {
+                        OnPropertyChanged(nameof(CurrentPageStatus));
+                    }
+
+                    CrashLogService.UpdateSessionState();
                 }
             }
         }
@@ -165,6 +180,7 @@ namespace LivePhotoBox.ViewModels
 
                 OnPropertyChanged(nameof(CurrentPageStatus));
                 OnPropertyChanged(nameof(IsStatusBarVisible));
+                CrashLogService.UpdateSessionState();
             }
         }
 
@@ -235,6 +251,8 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private int _backdropIndex;
 
         private string? _latestCrashLogPath;
+        private string? _latestCrashDumpPath;
+        private string? _latestRecoveredCrashLogPath;
         private IRelayCommand? _openCrashLogFolderActionCommand;
         private IAsyncRelayCommand? _openLatestCrashLogActionCommand;
         private IAsyncRelayCommand? _exportLatestCrashLogActionCommand;
@@ -244,12 +262,12 @@ namespace LivePhotoBox.ViewModels
         public BulkObservableCollection<LivePhotoMergeTask> ComboTasks { get; } = [];
         public BulkObservableCollection<LivePhotoSplitTask> SplitTasks { get; } = [];
 
-        public bool HasCrashLogs => !string.IsNullOrWhiteSpace(_latestCrashLogPath) && File.Exists(_latestCrashLogPath);
-        public string LastCrashFileNameText => HasCrashLogs
-            ? Path.GetFileName(_latestCrashLogPath!)
+        public bool HasCrashArtifacts => GetLatestCrashArtifactPath() != null;
+        public string LastCrashFileNameText => GetLatestCrashArtifactPath() is string latestCrashArtifactPath
+            ? Path.GetFileName(latestCrashArtifactPath)
             : ResourceService.GetString("SettingsPage_CrashNoCrashValue");
         public IRelayCommand OpenCrashLogFolderActionCommand => _openCrashLogFolderActionCommand ??= new RelayCommand(OpenCrashLogFolder);
-        public IAsyncRelayCommand OpenLatestCrashLogActionCommand => _openLatestCrashLogActionCommand ??= new AsyncRelayCommand(OpenLatestCrashLogAsync, () => HasCrashLogs);
+        public IAsyncRelayCommand OpenLatestCrashLogActionCommand => _openLatestCrashLogActionCommand ??= new AsyncRelayCommand(OpenLatestCrashLogAsync, () => HasCrashArtifacts);
         public IAsyncRelayCommand ExportLatestCrashLogActionCommand => _exportLatestCrashLogActionCommand ??= new AsyncRelayCommand(ExportLatestCrashLogAsync, CanExportLatestCrashLog);
         public IRelayCommand ClearCrashLogsActionCommand => _clearCrashLogsActionCommand ??= new RelayCommand(ClearCrashLogs, CanClearCrashLogs);
         public IRelayCommand GenerateTestCrashLogActionCommand => _generateTestCrashLogActionCommand ??= new RelayCommand(GenerateTestCrashLog);
@@ -409,16 +427,28 @@ namespace LivePhotoBox.ViewModels
         private void RefreshCrashLogs()
         {
             _latestCrashLogPath = CrashLogService.GetLatestCrashLogPath();
+            _latestCrashDumpPath = CrashLogService.GetLatestCrashDumpPath();
+            _latestRecoveredCrashLogPath = CrashLogService.GetLatestRecoveredCrashLogPath();
 
             if (!string.IsNullOrWhiteSpace(_latestCrashLogPath) && !File.Exists(_latestCrashLogPath))
             {
                 _latestCrashLogPath = null;
             }
 
+            if (!string.IsNullOrWhiteSpace(_latestCrashDumpPath) && !File.Exists(_latestCrashDumpPath))
+            {
+                _latestCrashDumpPath = null;
+            }
+
+            if (!string.IsNullOrWhiteSpace(_latestRecoveredCrashLogPath) && !File.Exists(_latestRecoveredCrashLogPath))
+            {
+                _latestRecoveredCrashLogPath = null;
+            }
+
             OpenLatestCrashLogActionCommand.NotifyCanExecuteChanged();
             ExportLatestCrashLogActionCommand.NotifyCanExecuteChanged();
             ClearCrashLogsActionCommand.NotifyCanExecuteChanged();
-            OnPropertyChanged(nameof(HasCrashLogs));
+            OnPropertyChanged(nameof(HasCrashArtifacts));
             OnPropertyChanged(nameof(LastCrashFileNameText));
         }
 
@@ -431,34 +461,34 @@ namespace LivePhotoBox.ViewModels
 
         private async Task OpenLatestCrashLogAsync()
         {
-            string? latestCrashLogPath = _latestCrashLogPath;
-            if (string.IsNullOrWhiteSpace(latestCrashLogPath) || !File.Exists(latestCrashLogPath))
+            string? latestCrashArtifactPath = GetLatestCrashArtifactPath();
+            if (string.IsNullOrWhiteSpace(latestCrashArtifactPath) || !File.Exists(latestCrashArtifactPath))
             {
                 RefreshCrashLogs();
                 return;
             }
 
-            CrashLogService.RecordBreadcrumb($"OpenLatestCrashLog requested. File='{Path.GetFileName(latestCrashLogPath)}'");
-            await FilePickerService.OpenFileAsync(latestCrashLogPath);
+            CrashLogService.RecordBreadcrumb($"OpenLatestCrashArtifact requested. File='{Path.GetFileName(latestCrashArtifactPath)}'");
+            await FilePickerService.OpenFileAsync(latestCrashArtifactPath);
         }
 
         private async Task ExportLatestCrashLogAsync()
         {
-            string? latestCrashLogPath = _latestCrashLogPath;
-            if (string.IsNullOrWhiteSpace(latestCrashLogPath) || !File.Exists(latestCrashLogPath))
+            string? latestCrashArtifactPath = GetLatestCrashArtifactPath();
+            if (string.IsNullOrWhiteSpace(latestCrashArtifactPath) || !File.Exists(latestCrashArtifactPath))
             {
                 RefreshCrashLogs();
                 return;
             }
 
-            CrashLogService.RecordBreadcrumb($"ExportLatestCrashLog requested. File='{Path.GetFileName(latestCrashLogPath)}'");
-            await FilePickerService.ExportFileCopyAsync(latestCrashLogPath, Path.GetFileName(latestCrashLogPath));
+            CrashLogService.RecordBreadcrumb($"ExportLatestCrashArtifact requested. File='{Path.GetFileName(latestCrashArtifactPath)}'");
+            await FilePickerService.ExportFileCopyAsync(latestCrashArtifactPath, Path.GetFileName(latestCrashArtifactPath));
         }
 
         private void ClearCrashLogs()
         {
             CrashLogService.RecordBreadcrumb("ClearCrashLogs requested.");
-            CrashLogService.DeleteAllCrashLogs();
+            CrashLogService.DeleteAllCrashArtifacts();
             RefreshCrashLogs();
         }
 
@@ -480,12 +510,20 @@ namespace LivePhotoBox.ViewModels
 
         private bool CanExportLatestCrashLog()
         {
-            return HasCrashLogs;
+            return HasCrashArtifacts;
         }
 
         private bool CanClearCrashLogs()
         {
-            return HasCrashLogs;
+            return HasCrashArtifacts;
+        }
+
+        private string? GetLatestCrashArtifactPath()
+        {
+            return new[] { _latestCrashLogPath, _latestCrashDumpPath, _latestRecoveredCrashLogPath }
+                .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                .OrderByDescending(path => File.GetLastWriteTimeUtc(path!))
+                .FirstOrDefault();
         }
 
         private string FormatFileSize(long bytes)

@@ -10,6 +10,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Storage;
@@ -20,12 +21,43 @@ namespace LivePhotoBox.Services
     public static class CrashLogService
     {
         private const string CrashLogSearchPattern = "crash-*.log";
+        private const string CrashDumpRelativeDirectory = "Logs\\Dumps";
+        private const string SessionStateFileName = "crash-session.json";
         private const int MaxBreadcrumbCount = 30;
         private const string HasPendingCrashKey = "HasPendingCrash";
         private const string PendingCrashLogPathKey = "PendingCrashLogPath";
         private static readonly object SyncRoot = new();
         private static readonly Queue<string> Breadcrumbs = [];
+        private static readonly JsonSerializerOptions SessionStateSerializerOptions = new() { WriteIndented = true };
         private static bool _initialized;
+
+        private sealed class CrashSessionState
+        {
+            public string SessionId { get; set; } = string.Empty;
+            public DateTimeOffset StartedAt { get; set; }
+            public DateTimeOffset LastUpdatedAt { get; set; }
+            public bool CleanShutdown { get; set; }
+            public bool MainWindowCreated { get; set; }
+            public string CurrentStatusPageTag { get; set; } = string.Empty;
+            public string CurrentPageStatus { get; set; } = string.Empty;
+            public string ComboStatus { get; set; } = string.Empty;
+            public string SplitStatus { get; set; } = string.Empty;
+            public string RepairStatus { get; set; } = string.Empty;
+            public bool? IsProcessing { get; set; }
+            public bool? IsPaused { get; set; }
+            public int? SelectedModeIndex { get; set; }
+            public string InputDirectory { get; set; } = string.Empty;
+            public string OutputDirectory { get; set; } = string.Empty;
+            public string SplitInputDirectory { get; set; } = string.Empty;
+            public string SplitOutputDirectory { get; set; } = string.Empty;
+            public int? ComboTaskCount { get; set; }
+            public int? SplitTaskCount { get; set; }
+            public double? ComboProgress { get; set; }
+            public double? SplitProgress { get; set; }
+            public string ProgressText { get; set; } = string.Empty;
+            public string SplitProgressText { get; set; } = string.Empty;
+            public List<string> Breadcrumbs { get; set; } = [];
+        }
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto)]
         private struct MemoryStatusEx
@@ -45,6 +77,9 @@ namespace LivePhotoBox.Services
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx buffer);
 
+        [DllImport("KernelBase.dll", CharSet = CharSet.Unicode)]
+        private static extern int WerRegisterAppLocalDump(string localAppDataRelativePath);
+
         public static void Initialize(Application app)
         {
             if (_initialized)
@@ -59,9 +94,12 @@ namespace LivePhotoBox.Services
                     return;
                 }
 
+                RecoverPreviousSessionIfNeeded();
+                StartSession();
                 app.UnhandledException += OnApplicationUnhandledException;
                 AppDomain.CurrentDomain.UnhandledException += OnCurrentDomainUnhandledException;
                 TaskScheduler.UnobservedTaskException += OnTaskSchedulerUnobservedTaskException;
+                RegisterLocalDumpCapture();
                 _initialized = true;
             }
 
@@ -83,6 +121,27 @@ namespace LivePhotoBox.Services
                 {
                     Breadcrumbs.Dequeue();
                 }
+            }
+
+            PersistSessionState();
+        }
+
+        public static void UpdateSessionState()
+        {
+            PersistSessionState();
+        }
+
+        public static void MarkCleanShutdown()
+        {
+            try
+            {
+                CrashSessionState sessionState = ReadSessionState() ?? new CrashSessionState();
+                sessionState.CleanShutdown = true;
+                sessionState.LastUpdatedAt = DateTimeOffset.Now;
+                WriteSessionState(sessionState);
+            }
+            catch
+            {
             }
         }
 
@@ -129,6 +188,13 @@ namespace LivePhotoBox.Services
             return logDirectory;
         }
 
+        public static string EnsureDumpDirectoryPath()
+        {
+            string dumpDirectory = GetDumpDirectory();
+            Directory.CreateDirectory(dumpDirectory);
+            return dumpDirectory;
+        }
+
         public static IReadOnlyList<string> GetCrashLogPaths()
         {
             string logDirectory = GetLogDirectory();
@@ -152,7 +218,30 @@ namespace LivePhotoBox.Services
 
         public static string? GetLatestCrashLogPath()
         {
-            return GetCrashLogPaths().FirstOrDefault();
+            return GetCrashLogPaths().FirstOrDefault(path => !IsRecoveredCrashLogPath(path));
+        }
+
+        public static IReadOnlyList<string> GetCrashDumpPaths()
+        {
+            string dumpDirectory = GetDumpDirectory();
+            if (!Directory.Exists(dumpDirectory))
+            {
+                return [];
+            }
+
+            return Directory.EnumerateFiles(dumpDirectory, "*.dmp", SearchOption.TopDirectoryOnly)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .ToArray();
+        }
+
+        public static string? GetLatestCrashDumpPath()
+        {
+            return GetCrashDumpPaths().FirstOrDefault();
+        }
+
+        public static string? GetLatestRecoveredCrashLogPath()
+        {
+            return GetCrashLogPaths().FirstOrDefault(IsRecoveredCrashLogPath);
         }
 
         public static int DeleteAllCrashLogs()
@@ -178,6 +267,86 @@ namespace LivePhotoBox.Services
             }
 
             return deletedCount;
+        }
+
+        public static int DeleteAllCrashArtifacts()
+        {
+            int deletedCount = DeleteAllCrashLogs();
+
+            foreach (string dumpPath in GetCrashDumpPaths())
+            {
+                try
+                {
+                    File.Delete(dumpPath);
+                    deletedCount++;
+                }
+                catch
+                {
+                }
+            }
+
+            return deletedCount;
+        }
+
+        private static void RecoverPreviousSessionIfNeeded()
+        {
+            try
+            {
+                CrashSessionState? sessionState = ReadSessionState();
+                if (sessionState == null || sessionState.CleanShutdown)
+                {
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(GetPendingCrashLogPath()))
+                {
+                    return;
+                }
+
+                string? recoveredLogPath = WriteRecoveredCrashLog(sessionState);
+                MarkPendingCrash(recoveredLogPath);
+            }
+            catch
+            {
+            }
+        }
+
+        private static bool IsRecoveredCrashLogPath(string path)
+        {
+            return Path.GetFileName(path).Contains("-recovered.", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void StartSession()
+        {
+            try
+            {
+                DateTimeOffset now = DateTimeOffset.Now;
+                CrashSessionState sessionState = new()
+                {
+                    SessionId = Guid.NewGuid().ToString("N"),
+                    StartedAt = now,
+                    LastUpdatedAt = now,
+                    CleanShutdown = false,
+                    Breadcrumbs = []
+                };
+
+                WriteSessionState(sessionState);
+            }
+            catch
+            {
+            }
+        }
+
+        private static void RegisterLocalDumpCapture()
+        {
+            try
+            {
+                Directory.CreateDirectory(GetDumpDirectory());
+                _ = WerRegisterAppLocalDump(CrashDumpRelativeDirectory);
+            }
+            catch
+            {
+            }
         }
 
         public static async Task ShowPendingCrashDialogAsync(XamlRoot xamlRoot)
@@ -222,12 +391,7 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                string logDirectory = GetLogDirectory();
-                Directory.CreateDirectory(logDirectory);
-
-                string logPath = Path.Combine(
-                    logDirectory,
-                    $"crash-{DateTimeOffset.Now:yyyyMMdd-HHmmss-fff}.log");
+                string logPath = CreateCrashLogPath();
 
                 using FileStream stream = new(logPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
                 using StreamWriter writer = new(stream, new UTF8Encoding(false));
@@ -237,6 +401,40 @@ namespace LivePhotoBox.Services
                 WriteAppState(writer);
                 WriteBreadcrumbs(writer);
                 WriteException(writer, exception);
+
+                writer.Flush();
+                stream.Flush(true);
+                return logPath;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string? WriteRecoveredCrashLog(CrashSessionState sessionState)
+        {
+            try
+            {
+                string logPath = CreateCrashLogPath(sessionState.LastUpdatedAt == default ? null : sessionState.LastUpdatedAt, "-recovered");
+
+                using FileStream stream = new(logPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
+                using StreamWriter writer = new(stream, new UTF8Encoding(false));
+
+                WriteHeader(
+                    writer,
+                    "Recovered.PreviousUncleanShutdown",
+                    [
+                        ("RecoveredFromSessionId", sessionState.SessionId),
+                        ("SessionStartedAt", sessionState.StartedAt == default ? "(unknown)" : sessionState.StartedAt.ToString("O")),
+                        ("LastUpdatedAt", sessionState.LastUpdatedAt == default ? "(unknown)" : sessionState.LastUpdatedAt.ToString("O")),
+                        ("RecoveryReason", "Previous app session ended without a clean shutdown marker.")
+                    ]);
+
+                WriteEnvironment(writer);
+                WriteRecoveredAppState(writer, sessionState);
+                WriteRecoveredBreadcrumbs(writer, sessionState);
+                WriteException(writer, new InvalidOperationException("No managed exception was captured. This crash log was recovered from the last persisted session state after an unexpected termination."));
 
                 writer.Flush();
                 stream.Flush(true);
@@ -308,6 +506,27 @@ namespace LivePhotoBox.Services
             return logDirectory;
         }
 
+        private static string GetSessionStatePath()
+        {
+            return Path.Combine(GetLogDirectory(), SessionStateFileName);
+        }
+
+        private static string GetDumpDirectory()
+        {
+            try
+            {
+                return Path.Combine(ApplicationData.Current.LocalFolder.Path, "Logs", "Dumps");
+            }
+            catch
+            {
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "LivePhotoBox",
+                    "Logs",
+                    "Dumps");
+            }
+        }
+
         private static void MigrateLegacyCrashLogs(string legacyLogDirectory, string logDirectory)
         {
             if (string.Equals(legacyLogDirectory, logDirectory, StringComparison.OrdinalIgnoreCase)
@@ -361,6 +580,14 @@ namespace LivePhotoBox.Services
             writer.WriteLine();
         }
 
+        private static string CreateCrashLogPath(DateTimeOffset? timestamp = null, string suffix = "")
+        {
+            string logDirectory = GetLogDirectory();
+            Directory.CreateDirectory(logDirectory);
+            DateTimeOffset effectiveTimestamp = timestamp ?? DateTimeOffset.Now;
+            return Path.Combine(logDirectory, $"crash-{effectiveTimestamp:yyyyMMdd-HHmmss-fff}{suffix}.log");
+        }
+
         private static void WriteEnvironment(StreamWriter writer)
         {
             writer.WriteLine("[Environment]");
@@ -405,6 +632,31 @@ namespace LivePhotoBox.Services
             writer.WriteLine($"GCMemoryLoad: {FormatNullableByteSize(gcMemoryInfo.MemoryLoadBytes)}");
             writer.WriteLine($"GCHighMemoryLoadThreshold: {FormatNullableByteSize(gcMemoryInfo.HighMemoryLoadThresholdBytes)}");
             writer.WriteLine($"GCTotalAvailableMemory: {FormatNullableByteSize(gcMemoryInfo.TotalAvailableMemoryBytes)}");
+            writer.WriteLine();
+        }
+
+        private static void WriteRecoveredAppState(StreamWriter writer, CrashSessionState sessionState)
+        {
+            writer.WriteLine("[AppState]");
+            writer.WriteLine($"MainWindowCreated: {sessionState.MainWindowCreated}");
+            writer.WriteLine($"CurrentStatusPageTag: {GetValueOrUnknown(sessionState.CurrentStatusPageTag)}");
+            writer.WriteLine($"CurrentPageStatus: {GetValueOrUnknown(sessionState.CurrentPageStatus)}");
+            writer.WriteLine($"ComboStatus: {GetValueOrUnknown(sessionState.ComboStatus)}");
+            writer.WriteLine($"SplitStatus: {GetValueOrUnknown(sessionState.SplitStatus)}");
+            writer.WriteLine($"RepairStatus: {GetValueOrUnknown(sessionState.RepairStatus)}");
+            writer.WriteLine($"IsProcessing: {FormatNullableValue(sessionState.IsProcessing)}");
+            writer.WriteLine($"IsPaused: {FormatNullableValue(sessionState.IsPaused)}");
+            writer.WriteLine($"SelectedModeIndex: {FormatNullableValue(sessionState.SelectedModeIndex)}");
+            writer.WriteLine($"InputDirectory: {GetValueOrUnknown(sessionState.InputDirectory)}");
+            writer.WriteLine($"OutputDirectory: {GetValueOrUnknown(sessionState.OutputDirectory)}");
+            writer.WriteLine($"SplitInputDirectory: {GetValueOrUnknown(sessionState.SplitInputDirectory)}");
+            writer.WriteLine($"SplitOutputDirectory: {GetValueOrUnknown(sessionState.SplitOutputDirectory)}");
+            writer.WriteLine($"ComboTaskCount: {FormatNullableValue(sessionState.ComboTaskCount)}");
+            writer.WriteLine($"SplitTaskCount: {FormatNullableValue(sessionState.SplitTaskCount)}");
+            writer.WriteLine($"ComboProgress: {FormatNullableValue(sessionState.ComboProgress)}");
+            writer.WriteLine($"SplitProgress: {FormatNullableValue(sessionState.SplitProgress)}");
+            writer.WriteLine($"ProgressText: {GetValueOrUnknown(sessionState.ProgressText)}");
+            writer.WriteLine($"SplitProgressText: {GetValueOrUnknown(sessionState.SplitProgressText)}");
             writer.WriteLine();
         }
 
@@ -574,6 +826,25 @@ namespace LivePhotoBox.Services
             writer.WriteLine();
         }
 
+        private static void WriteRecoveredBreadcrumbs(StreamWriter writer, CrashSessionState sessionState)
+        {
+            writer.WriteLine("[Breadcrumbs]");
+
+            if (sessionState.Breadcrumbs.Count == 0)
+            {
+                writer.WriteLine("(empty)");
+            }
+            else
+            {
+                foreach (string breadcrumb in sessionState.Breadcrumbs)
+                {
+                    writer.WriteLine(breadcrumb);
+                }
+            }
+
+            writer.WriteLine();
+        }
+
         private static void WriteBreadcrumbs(StreamWriter writer)
         {
             writer.WriteLine("[Breadcrumbs]");
@@ -600,6 +871,98 @@ namespace LivePhotoBox.Services
         {
             writer.WriteLine("[Exception]");
             writer.WriteLine(exception?.ToString() ?? "(null)");
+        }
+
+        private static void PersistSessionState()
+        {
+            try
+            {
+                CrashSessionState sessionState = ReadSessionState() ?? new CrashSessionState();
+                if (string.IsNullOrWhiteSpace(sessionState.SessionId))
+                {
+                    sessionState.SessionId = Guid.NewGuid().ToString("N");
+                }
+
+                if (sessionState.StartedAt == default)
+                {
+                    sessionState.StartedAt = DateTimeOffset.Now;
+                }
+
+                sessionState.LastUpdatedAt = DateTimeOffset.Now;
+                sessionState.CleanShutdown = false;
+
+                if (App.MainWindow is MainWindow window)
+                {
+                    AppViewModel viewModel = window.ViewModel;
+                    sessionState.MainWindowCreated = true;
+                    sessionState.CurrentStatusPageTag = viewModel.CurrentStatusPageTag ?? string.Empty;
+                    sessionState.CurrentPageStatus = viewModel.CurrentPageStatusForLog;
+                    sessionState.ComboStatus = viewModel.ComboStatusForLog;
+                    sessionState.SplitStatus = viewModel.SplitStatusForLog;
+                    sessionState.RepairStatus = viewModel.RepairStatusForLog;
+                    sessionState.IsProcessing = viewModel.IsProcessing;
+                    sessionState.IsPaused = viewModel.IsPaused;
+                    sessionState.SelectedModeIndex = viewModel.SelectedModeIndex;
+                    sessionState.InputDirectory = viewModel.InputDirectory;
+                    sessionState.OutputDirectory = viewModel.OutputDirectory;
+                    sessionState.SplitInputDirectory = viewModel.SplitInputDirectory;
+                    sessionState.SplitOutputDirectory = viewModel.SplitOutputDirectory;
+                    sessionState.ComboTaskCount = viewModel.ComboTasks.Count;
+                    sessionState.SplitTaskCount = viewModel.SplitTasks.Count;
+                    sessionState.ComboProgress = viewModel.ComboProgress;
+                    sessionState.SplitProgress = viewModel.SplitProgress;
+                    sessionState.ProgressText = viewModel.ProgressText;
+                    sessionState.SplitProgressText = viewModel.SplitProgressText;
+                }
+
+                lock (SyncRoot)
+                {
+                    sessionState.Breadcrumbs = Breadcrumbs.ToList();
+                }
+
+                WriteSessionState(sessionState);
+            }
+            catch
+            {
+            }
+        }
+
+        private static CrashSessionState? ReadSessionState()
+        {
+            try
+            {
+                string sessionStatePath = GetSessionStatePath();
+                if (!File.Exists(sessionStatePath))
+                {
+                    return null;
+                }
+
+                string json = File.ReadAllText(sessionStatePath, Encoding.UTF8);
+                return JsonSerializer.Deserialize<CrashSessionState>(json, SessionStateSerializerOptions);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void WriteSessionState(CrashSessionState sessionState)
+        {
+            string sessionStatePath = GetSessionStatePath();
+            Directory.CreateDirectory(Path.GetDirectoryName(sessionStatePath)!);
+            string json = JsonSerializer.Serialize(sessionState, SessionStateSerializerOptions);
+            File.WriteAllText(sessionStatePath, json, new UTF8Encoding(false));
+        }
+
+        private static string GetValueOrUnknown(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? "(unknown)" : value;
+        }
+
+        private static string FormatNullableValue<T>(T? value)
+            where T : struct
+        {
+            return value?.ToString() ?? "(unknown)";
         }
     }
 }

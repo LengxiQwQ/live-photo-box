@@ -223,6 +223,9 @@ Do you want to restart now?</value>
   <data name="SettingsPage_Restore_Button.Content" xml:space="preserve">
     <value>Restore Default Settings</value>
   </data>
+  <data name="SettingsPage_Restore_Button_Text.Text" xml:space="preserve">
+    <value>Restore Default Settings</value>
+  </data>
   <data name="ConsolePage_PlaceholderTitle.Text" xml:space="preserve">
     <value>Console page is not available yet</value>
   </data>
@@ -660,19 +663,31 @@ Log file: {0}</value>
   <data name="SettingsPage_CrashOpenFolder_Button.Content" xml:space="preserve">
     <value>Open Log Folder</value>
   </data>
+  <data name="SettingsPage_CrashOpenFolder_Button_Text.Text" xml:space="preserve">
+    <value>Open Log Folder</value>
+  </data>
   <data name="SettingsPage_CrashExportLatest_Button.Content" xml:space="preserve">
-    <value>Export Latest Log</value>
+    <value>Export Latest Record</value>
+  </data>
+  <data name="SettingsPage_CrashExportLatest_Button_Text.Text" xml:space="preserve">
+    <value>Export Latest Record</value>
   </data>
   <data name="SettingsPage_CrashClear_Button.Content" xml:space="preserve">
-    <value>Clear All Logs</value>
+    <value>Clear All Records</value>
+  </data>
+  <data name="SettingsPage_CrashClear_Button_Text.Text" xml:space="preserve">
+    <value>Clear All Records</value>
   </data>
   <data name="CrashDialog_OpenFolderButton" xml:space="preserve">
     <value>Open Log Folder</value>
   </data>
   <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
-    <value>Last Crash:</value>
+    <value>Latest Crash Record:</value>
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button.Content" xml:space="preserve">
+    <value>Generate Test Log</value>
+  </data>
+  <data name="SettingsPage_CrashGenerateTest_Button_Text.Text" xml:space="preserve">
     <value>Generate Test Log</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">

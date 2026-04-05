@@ -23,6 +23,11 @@ namespace LivePhotoBox
         {
             InitializeComponent();
             CrashLogService.RecordBreadcrumb("MainWindow constructed.");
+            Closed += (_, _) =>
+            {
+                CrashLogService.RecordBreadcrumb("MainWindow closed.");
+                CrashLogService.MarkCleanShutdown();
+            };
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
 

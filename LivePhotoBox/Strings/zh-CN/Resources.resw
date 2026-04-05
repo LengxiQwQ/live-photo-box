@@ -222,6 +222,9 @@
   <data name="SettingsPage_Restore_Button.Content" xml:space="preserve">
     <value>恢复默认设置</value>
   </data>
+  <data name="SettingsPage_Restore_Button_Text.Text" xml:space="preserve">
+    <value>恢复默认设置</value>
+  </data>
   <data name="ConsolePage_PlaceholderTitle.Text" xml:space="preserve">
     <value>控制台页面暂未开放</value>
   </data>
@@ -660,19 +663,31 @@
   <data name="SettingsPage_CrashOpenFolder_Button.Content" xml:space="preserve">
     <value>打开日志文件夹</value>
   </data>
+  <data name="SettingsPage_CrashOpenFolder_Button_Text.Text" xml:space="preserve">
+    <value>打开日志文件夹</value>
+  </data>
   <data name="SettingsPage_CrashExportLatest_Button.Content" xml:space="preserve">
-    <value>导出最新日志</value>
+    <value>导出最新记录</value>
+  </data>
+  <data name="SettingsPage_CrashExportLatest_Button_Text.Text" xml:space="preserve">
+    <value>导出最新记录</value>
   </data>
   <data name="SettingsPage_CrashClear_Button.Content" xml:space="preserve">
-    <value>清理全部日志</value>
+    <value>清理全部记录</value>
+  </data>
+  <data name="SettingsPage_CrashClear_Button_Text.Text" xml:space="preserve">
+    <value>清理全部记录</value>
   </data>
   <data name="CrashDialog_OpenFolderButton" xml:space="preserve">
     <value>打开日志文件夹</value>
   </data>
   <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
-    <value>上一次崩溃：</value>
+    <value>最近一次异常记录：</value>
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button.Content" xml:space="preserve">
+    <value>生成测试日志</value>
+  </data>
+  <data name="SettingsPage_CrashGenerateTest_Button_Text.Text" xml:space="preserve">
     <value>生成测试日志</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
