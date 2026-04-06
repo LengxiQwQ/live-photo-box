@@ -110,19 +110,23 @@
 
 	<PropertyGroup>
 		<PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
-		<PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
+       <PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' == 'true'">True</PublishReadyToRun>
+		<PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' != 'true'">False</PublishReadyToRun>
 		<PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
-		<PublishTrimmed Condition="'$(Configuration)' != 'Debug'">True</PublishTrimmed>
-		<GenerateTemporaryStoreCertificate>True</GenerateTemporaryStoreCertificate>
-		<GenerateAppInstallerFile>True</GenerateAppInstallerFile>
-		<AppxPackageSigningEnabled>True</AppxPackageSigningEnabled>
+     <PublishTrimmed Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' == 'true'">True</PublishTrimmed>
+		<PublishTrimmed Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' != 'true'">False</PublishTrimmed>
+     <GenerateTemporaryStoreCertificate Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">True</GenerateTemporaryStoreCertificate>
+		<GenerateTemporaryStoreCertificate Condition="!Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">False</GenerateTemporaryStoreCertificate>
+		<GenerateAppInstallerFile>False</GenerateAppInstallerFile>
+     <AppxPackageSigningEnabled Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">True</AppxPackageSigningEnabled>
+		<AppxPackageSigningEnabled Condition="!Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">False</AppxPackageSigningEnabled>
 		<AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
-		<AppxAutoIncrementPackageRevision>True</AppxAutoIncrementPackageRevision>
+		<AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
 		<GenerateTestArtifacts>True</GenerateTestArtifacts>
-		<AppxBundle>Always</AppxBundle>
+		<AppxBundle>Auto</AppxBundle>
 		<AppxBundlePlatforms>x64|arm64</AppxBundlePlatforms>
 		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
-		<PackageCertificateKeyFile>LivePhotoBox_TemporaryKey.pfx</PackageCertificateKeyFile>
+        <PackageCertificateKeyFile Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">LivePhotoBox_TemporaryKey.pfx</PackageCertificateKeyFile>
 		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-studio</AppInstallerUri>
 	</PropertyGroup>
 </Project>

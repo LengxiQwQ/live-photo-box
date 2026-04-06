@@ -11,7 +11,7 @@ namespace LivePhotoBox.Services
         public static string GetEffectiveLanguage(int index)
         {
             if (index == 1) return "zh-Hans";
-            if (index == 2) return "en-US";
+            if (index == 2) return "en";
 
             var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
             foreach (var lang in systemLangs)
@@ -19,7 +19,7 @@ namespace LivePhotoBox.Services
                 if (lang.ToLowerInvariant().StartsWith("zh")) return "zh-Hans";
             }
 
-            return "en-US";
+            return "en";
         }
 
         public static void ApplyLanguageOverride(int languageIndex)
