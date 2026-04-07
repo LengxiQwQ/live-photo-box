@@ -687,4 +687,10 @@ Log file: {0}</value>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>Not detected</value>
   </data>
+  <data name="Package_DisplayName" xml:space="preserve">
+    <value>Live Photo Box</value>
+  </data>
+  <data name="Package_Description" xml:space="preserve">
+    <value>Display and process Apple Live Photos directly on Windows.</value>
+  </data>
 </root>

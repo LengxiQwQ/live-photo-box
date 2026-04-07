@@ -51,17 +51,12 @@
             </NavigationView.FooterMenuItems>
 
             <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
-                <Frame x:Name="MainFrame" Grid.Row="0" Padding="24" Background="Transparent"/>
+                <Frame x:Name="MainFrame" Padding="0" Background="Transparent"/>
 
                 <Border x:Name="PageStatusBar"
-                        Grid.Row="1"
                         Visibility="Collapsed"
-                        Background="{ThemeResource LayerOnAcrylicFillColorDefaultBrush}"
+                        VerticalAlignment="Bottom"
+                        Background="{ThemeResource PageStatusBarBackgroundBrush}"
                         BorderThickness="0,1,0,0"
                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                         Height="32">

@@ -683,4 +683,10 @@
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>暂无</value>
   </data>
+  <data name="Package_DisplayName" xml:space="preserve">
+    <value>Live Photo Box</value>
+  </data>
+  <data name="Package_Description" xml:space="preserve">
+    <value>让你的 Apple 实况照片也可以在 Windows 上直接显示与处理。</value>
+  </data>
 </root>
