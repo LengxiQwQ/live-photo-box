@@ -129,8 +129,8 @@
   <data name="Nav_Combo.Content" xml:space="preserve">
     <value>Merge Live Photo</value>
   </data>
-  <data name="Nav_Console.Content" xml:space="preserve">
-    <value>Console</value>
+  <data name="Nav_KeyPhoto.Content" xml:space="preserve">
+    <value>Replace Key Photo</value>
   </data>
   <data name="Nav_Home.Content" xml:space="preserve">
     <value>Home</value>
@@ -232,10 +232,10 @@ Do you want to restart now?</value>
   <data name="SettingsPage_CrashIssue_Button_Text.Text" xml:space="preserve">
     <value>Report on GitHub</value>
   </data>
-  <data name="ConsolePage_PlaceholderTitle.Text" xml:space="preserve">
-    <value>Console page is not available yet</value>
+  <data name="KeyPhotoPage_PlaceholderTitle.Text" xml:space="preserve">
+    <value>Replace key photo is not available yet</value>
   </data>
-  <data name="ConsolePage_PlaceholderDescription.Text" xml:space="preserve">
+  <data name="KeyPhotoPage_PlaceholderDescription.Text" xml:space="preserve">
     <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
   </data>
   <data name="RepairPage_PlaceholderTitle.Text" xml:space="preserve">
@@ -475,42 +475,6 @@ Please set the input directory and click [Scan Files] to load files.</value>
   </data>
   <data name="Status_Ready" xml:space="preserve">
     <value>Ready</value>
-  </data>
-  <data name="ConsolePage_Title.Text" xml:space="preserve">
-    <value>Task Console</value>
-  </data>
-  <data name="ConsolePage_CopyButton.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Copy all output</value>
-  </data>
-  <data name="ConsolePage_CopyButton_Text.Text" xml:space="preserve">
-    <value>Copy All</value>
-  </data>
-  <data name="ConsolePage_ClearButton.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Clear console</value>
-  </data>
-  <data name="ConsolePage_ClearButton_Text.Text" xml:space="preserve">
-    <value>Clear</value>
-  </data>
-  <data name="ConsolePage_StopButton.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Try to stop the current task</value>
-  </data>
-  <data name="ConsolePage_StopButton_Text.Text" xml:space="preserve">
-    <value>Force Stop</value>
-  </data>
-  <data name="ConsolePage_Output.Text" xml:space="preserve">
-    <value>Feature under development...</value>
-  </data>
-  <data name="ConsolePage_Log_StopRequested" xml:space="preserve">
-    <value>[Warning] Stop signal received. Preparing to terminate the current task...</value>
-  </data>
-  <data name="ConsolePage_Log_StopForced" xml:space="preserve">
-    <value>[System] Real stop control is not wired up in the current version.</value>
-  </data>
-  <data name="ConsolePage_Log_Cleared" xml:space="preserve">
-    <value>[System] Console output cleared.</value>
-  </data>
-  <data name="ConsolePage_Log_Copied" xml:space="preserve">
-    <value>[System] Console output copied to clipboard.</value>
   </data>
   <data name="HomePage_HeroTitle.Text" xml:space="preserve">
     <value>Live Photo Box</value>
