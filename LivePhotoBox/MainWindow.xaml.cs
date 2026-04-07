@@ -190,8 +190,8 @@ namespace LivePhotoBox
                 case "Home": NavigateToPage(typeof(Views.HomePage), null); break;
                 case "Combo": NavigateToPage(typeof(Views.ComboPage), "Combo"); break;
                 case "Split": NavigateToPage(typeof(Views.SplitPage), "Split"); break;
+                case "KeyPhoto": NavigateToPage(typeof(Views.KeyPhotoPage), null); break;
                 case "Repair": NavigateToPage(typeof(Views.RepairPage), "Repair"); break;
-                case "Console": NavigateToPage(typeof(Views.ConsolePage), null); break;
                 case "About": NavigateToPage(typeof(Views.AboutPage), null); break;
             }
         }

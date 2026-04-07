@@ -38,15 +38,11 @@
                 </NavigationViewItem>
 
                 <NavigationViewItem Icon="Cut" x:Uid="Nav_Split" Tag="Split"/>
+                <NavigationViewItem Icon="Pictures" x:Uid="Nav_KeyPhoto" Tag="KeyPhoto"/>
                 <NavigationViewItem Icon="Repair" x:Uid="Nav_Repair" Tag="Repair"/>
             </NavigationView.MenuItems>
 
             <NavigationView.FooterMenuItems>
-                <NavigationViewItem Tag="Console" x:Uid="Nav_Console">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE756;"/>
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
                 <NavigationViewItem Tag="About" x:Uid="Nav_About">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE946;"/>

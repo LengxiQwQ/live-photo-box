@@ -2,9 +2,9 @@ using Microsoft.UI.Xaml.Controls;
 
 namespace LivePhotoBox.Views
 {
-    public sealed partial class ConsolePage : Page
+    public sealed partial class KeyPhotoPage : Page
     {
-        public ConsolePage()
+        public KeyPhotoPage()
         {
             InitializeComponent();
         }
