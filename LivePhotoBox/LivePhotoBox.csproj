@@ -86,9 +86,6 @@
 		<Page Update="Views\AboutPage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
-       <Page Update="Views\KeyPhotoPage.xaml">
-			<Generator>MSBuild:Compile</Generator>
-		</Page>
 		<Page Update="Views\RepairPage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
@@ -98,10 +95,14 @@
 		<Page Update="Views\SettingsPage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
+        <Page Update="Views\KeyPhotoPage.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</Page>
 	</ItemGroup>
 
 	<ItemGroup>
 	  <Folder Include="Controls\" />
+	  <Folder Include="Strings\en\" />
 	</ItemGroup>
 
 	<PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">

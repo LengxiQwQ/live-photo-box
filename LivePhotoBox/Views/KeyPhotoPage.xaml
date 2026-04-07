@@ -8,7 +8,7 @@
     Background="Transparent"
     NavigationCacheMode="Required">
 
-    <Grid>
+    <Grid Padding="24,24,24,0">
         <Border MaxWidth="720"
                 Padding="32"
                 CornerRadius="12"
@@ -19,7 +19,10 @@
                 VerticalAlignment="Center">
             <StackPanel Spacing="12">
                 <FontIcon Glyph="&#xE7C3;" FontSize="28" HorizontalAlignment="Center"/>
-                <TextBlock x:Uid="KeyPhotoPage_PlaceholderTitle" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                <TextBlock x:Uid="KeyPhotoPage_PlaceholderTitle"
+                           FontSize="20"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"/>
                 <TextBlock x:Uid="KeyPhotoPage_PlaceholderDescription"
                            TextWrapping="Wrap"
                            HorizontalAlignment="Center"

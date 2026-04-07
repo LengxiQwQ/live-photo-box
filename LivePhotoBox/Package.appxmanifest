@@ -1,9 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap rescap">
   <Identity Name="LengxiQwQ.LivePhotoStudio" Publisher="CN=E08FA259-F14D-47DB-9306-9E776E531F86" Version="1.2.4.0" />
   <mp:PhoneIdentity PhoneProductId="0028f416-246d-4379-9219-6a033b9af280" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
-    <DisplayName>Live Photo Box</DisplayName>
+    <DisplayName>ms-resource:Package_DisplayName</DisplayName>
     <PublisherDisplayName>LengxiQwQ</PublisherDisplayName>
     <Logo>Assets\AppIcon.png</Logo>
   </Properties>
@@ -12,12 +12,12 @@
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
   </Dependencies>
   <Resources>
-    <Resource Language="en" />
+    <Resource Language="en-US" />
     <Resource Language="zh-Hans" />
   </Resources>
   <Applications>
     <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$">
-      <uap:VisualElements DisplayName="Live Photo Box" BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Description="让你的 Apple 实况照片也可以在Windows上直接显示。" Square44x44Logo="Assets\Square44x44Logo.png">
+      <uap:VisualElements DisplayName="ms-resource:Package_DisplayName" BackgroundColor="transparent" Square150x150Logo="Assets\Square150x150Logo.png" Description="ms-resource:Package_Description" Square44x44Logo="Assets\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\AppIcon.png" />
         <uap:SplashScreen Image="Assets\AppIcon.png" />
       </uap:VisualElements>
@@ -27,3 +27,4 @@
     <rescap:Capability Name="runFullTrust" />
   </Capabilities>
 </Package>
+

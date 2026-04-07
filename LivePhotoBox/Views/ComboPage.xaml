@@ -13,18 +13,19 @@
         <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
     </Page.Resources>
 
-    <Grid Padding="12,0,0,0"
-          RowSpacing="12">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
+    <Grid>
+            <Grid RowSpacing="12"
+                  Padding="24,24,24,40">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
             <Expander Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
                       IsExpanded="{x:Bind ViewModel.IsDirectoryPanelOpen, Mode=TwoWay}"
@@ -257,5 +258,7 @@
                     </ListView.ItemTemplate>
                 </ListView>
             </Border>
+
+            </Grid>
     </Grid>
 </Page>
