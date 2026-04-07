@@ -473,6 +473,9 @@ Please set the input directory and click [Scan Files] to load files.</value>
   <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
     <value>MOV (QuickTime)</value>
   </data>
+  <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
+    <value>Video Default Format</value>
+  </data>
   <data name="Status_Ready" xml:space="preserve">
     <value>Ready</value>
   </data>
@@ -501,9 +504,6 @@ Click the [Batch Convert], [Extract &amp; Split], or [Repair Tool] buttons on th
   </data>
   <data name="AboutPage_Title.Text" xml:space="preserve">
     <value>Live Photo Box</value>
-  </data>
-  <data name="AboutPage_Version.Text" xml:space="preserve">
-    <value>Version 1.0.0</value>
   </data>
   <data name="AboutPage_Header.Text" xml:space="preserve">
     <value>About This App</value>
@@ -683,6 +683,12 @@ Log file: {0}</value>
   </data>
   <data name="SettingsPage_Test_Header.Text" xml:space="preserve">
     <value>Test Tools</value>
+  </data>
+  <data name="SettingsPage_TestShow_Button_Text" xml:space="preserve">
+    <value>Show Test Tools</value>
+  </data>
+  <data name="SettingsPage_TestHide_Button_Text" xml:space="preserve">
+    <value>Hide Test Tools</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>Not detected</value>
