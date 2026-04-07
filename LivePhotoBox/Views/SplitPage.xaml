@@ -96,6 +96,7 @@
                             <ComboBox Width="180"
                                       SelectedIndex="{x:Bind ViewModel.SelectedSplitFormatIndex, Mode=TwoWay}"
                                       VerticalAlignment="Center">
+                                <ComboBoxItem x:Uid="SettingsPage_SplitFormat_ImageDefault"/>
                                 <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
                                 <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
                             </ComboBox>

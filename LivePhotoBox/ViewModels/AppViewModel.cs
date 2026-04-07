@@ -330,6 +330,7 @@ namespace LivePhotoBox.ViewModels
             LanguageIndex = AppSettingsService.GetValue(nameof(LanguageIndex), 0);
             ElementTheme = AppSettingsService.GetValue(nameof(ElementTheme), 0);
             BackdropIndex = AppSettingsService.GetValue(nameof(BackdropIndex), 0);
+            SelectedSplitFormatIndex = Math.Clamp(AppSettingsService.GetValue(nameof(SelectedSplitFormatIndex), 0), 0, 2);
         }
 
         private void OnPropertyChangedSave(object? sender, PropertyChangedEventArgs e)
@@ -341,6 +342,7 @@ namespace LivePhotoBox.ViewModels
                 case nameof(LanguageIndex): AppSettingsService.SetValue(nameof(LanguageIndex), LanguageIndex); break;
                 case nameof(ElementTheme): AppSettingsService.SetValue(nameof(ElementTheme), ElementTheme); break;
                 case nameof(BackdropIndex): AppSettingsService.SetValue(nameof(BackdropIndex), BackdropIndex); break;
+                case nameof(SelectedSplitFormatIndex): AppSettingsService.SetValue(nameof(SelectedSplitFormatIndex), SelectedSplitFormatIndex); break;
             }
         }
 
@@ -508,6 +510,7 @@ namespace LivePhotoBox.ViewModels
             BackdropIndex = 0;
             ElementTheme = 0;
             SelectedModeIndex = 1;
+            SelectedSplitFormatIndex = 0;
         }
 
         private bool CanExportLatestCrashLog()

@@ -473,6 +473,9 @@
   <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
     <value>MOV (QuickTime)</value>
   </data>
+  <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
+    <value>视频默认格式</value>
+  </data>
   <data name="Status_Ready" xml:space="preserve">
     <value>就绪</value>
   </data>
@@ -501,9 +504,6 @@
   </data>
   <data name="AboutPage_Title.Text" xml:space="preserve">
     <value>Live Photo Box</value>
-  </data>
-  <data name="AboutPage_Version.Text" xml:space="preserve">
-    <value>版本 1.0.0</value>
   </data>
   <data name="AboutPage_Header.Text" xml:space="preserve">
     <value>关于本应用</value>
@@ -679,6 +679,12 @@
   </data>
   <data name="SettingsPage_Test_Header.Text" xml:space="preserve">
     <value>测试工具</value>
+  </data>
+  <data name="SettingsPage_TestShow_Button_Text" xml:space="preserve">
+    <value>显示测试工具</value>
+  </data>
+  <data name="SettingsPage_TestHide_Button_Text" xml:space="preserve">
+    <value>隐藏测试工具</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>暂无</value>
