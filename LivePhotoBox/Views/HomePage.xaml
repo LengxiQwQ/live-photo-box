@@ -6,10 +6,11 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
-    <ScrollViewer Padding="40,0,40,24">
-        <StackPanel Spacing="24" MaxWidth="1000" HorizontalAlignment="Center">
 
-            <Grid x:Name="BannerRoot" Height="350" Margin="0,32,0,8" CornerRadius="12">
+    <ScrollViewer Padding="40,24">
+        <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center">
+
+            <Grid x:Name="BannerRoot" Height="350" Margin="0,8,0,8" CornerRadius="12">
 
                 <Image x:Name="BannerImage"
                        Stretch="UniformToFill"
