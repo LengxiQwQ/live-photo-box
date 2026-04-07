@@ -8,13 +8,8 @@
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
-    <ScrollViewer x:Name="PageScrollViewer" Padding="0,24">
+    <ScrollViewer x:Name="PageScrollViewer" Padding="40,24">
         <Grid HorizontalAlignment="Stretch">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" MinWidth="16"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*" MinWidth="16"/>
-            </Grid.ColumnDefinitions>
             <VisualStateManager.VisualStateGroups>
                 <VisualStateGroup>
                     <VisualState x:Name="NarrowState"/>
@@ -23,7 +18,7 @@
                             <AdaptiveTrigger MinWindowWidth="720"/>
                         </VisualState.StateTriggers>
                         <VisualState.Setters>
-                            <Setter Target="PageScrollViewer.Padding" Value="0,18"/>
+                            <Setter Target="PageScrollViewer.Padding" Value="40,18"/>
                             <Setter Target="ContentPanel.Spacing" Value="28"/>
                         </VisualState.Setters>
                     </VisualState>
@@ -32,7 +27,7 @@
                             <AdaptiveTrigger MinWindowWidth="1040"/>
                         </VisualState.StateTriggers>
                         <VisualState.Setters>
-                            <Setter Target="PageScrollViewer.Padding" Value="0,24"/>
+                            <Setter Target="PageScrollViewer.Padding" Value="40,24"/>
                             <Setter Target="ContentPanel.Spacing" Value="32"/>
                             <Setter Target="AppearanceOptionsGrid.ColumnSpacing" Value="40"/>
                         </VisualState.Setters>
@@ -40,139 +35,139 @@
                 </VisualStateGroup>
             </VisualStateManager.VisualStateGroups>
 
-            <StackPanel x:Name="ContentPanel" Grid.Column="1" Spacing="24" MaxWidth="1160" HorizontalAlignment="Center">
+            <StackPanel x:Name="ContentPanel" Spacing="24" MaxWidth="800" HorizontalAlignment="Center">
                 <TextBlock x:Uid="SettingsPage_Title" FontSize="32" FontWeight="Bold" Margin="0,0,0,8" FontFamily="Microsoft YaHei UI"/>
 
                 <StackPanel Spacing="16">
-                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE790;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                    <TextBlock x:Uid="SettingsPage_Appearance_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
-                </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE790;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Appearance_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
 
-                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
                         Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <Grid x:Name="AppearanceOptionsGrid" ColumnSpacing="40">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+                        <Grid x:Name="AppearanceOptionsGrid" ColumnSpacing="40">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="0" Spacing="8">
-                            <ComboBox x:Uid="SettingsPage_Language" HorizontalAlignment="Stretch" 
+                            <StackPanel Grid.Column="0" Spacing="8">
+                                <ComboBox x:Uid="SettingsPage_Language" HorizontalAlignment="Stretch" 
                                       SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}">
-                                <ComboBoxItem x:Uid="SettingsPage_Language_System"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Language_Chinese"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Language_English"/>
-                            </ComboBox>
-                            <TextBlock x:Uid="SettingsPage_Language_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </StackPanel>
+                                    <ComboBoxItem x:Uid="SettingsPage_Language_System"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Language_Chinese"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Language_English"/>
+                                </ComboBox>
+                                <TextBlock x:Uid="SettingsPage_Language_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
 
-                        <StackPanel Grid.Column="1" Spacing="8">
-                            <ComboBox x:Uid="SettingsPage_Backdrop_Header" HorizontalAlignment="Stretch" 
+                            <StackPanel Grid.Column="1" Spacing="8">
+                                <ComboBox x:Uid="SettingsPage_Backdrop_Header" HorizontalAlignment="Stretch" 
                                       SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}">
-                                <ComboBoxItem x:Uid="SettingsPage_Backdrop_Mica"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Backdrop_MicaAlt"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Backdrop_Acrylic"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Backdrop_None"/>
-                            </ComboBox>
-                            <TextBlock x:Uid="SettingsPage_Backdrop_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </StackPanel>
+                                    <ComboBoxItem x:Uid="SettingsPage_Backdrop_Mica"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Backdrop_MicaAlt"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Backdrop_Acrylic"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Backdrop_None"/>
+                                </ComboBox>
+                                <TextBlock x:Uid="SettingsPage_Backdrop_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
 
-                        <StackPanel Grid.Column="2" Spacing="8">
-                            <ComboBox x:Uid="SettingsPage_Theme_Header" HorizontalAlignment="Stretch" 
+                            <StackPanel Grid.Column="2" Spacing="8">
+                                <ComboBox x:Uid="SettingsPage_Theme_Header" HorizontalAlignment="Stretch" 
                                       SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}">
-                                <ComboBoxItem x:Uid="SettingsPage_Theme_System"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Theme_Light"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Theme_Dark"/>
-                            </ComboBox>
-                            <TextBlock x:Uid="SettingsPage_Theme_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </StackPanel>
-                    </Grid>
-                </Border>
+                                    <ComboBoxItem x:Uid="SettingsPage_Theme_System"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Theme_Light"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Theme_Dark"/>
+                                </ComboBox>
+                                <TextBlock x:Uid="SettingsPage_Theme_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
                 </StackPanel>
 
                 <StackPanel Spacing="16">
-                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE7BA;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                    <TextBlock x:Uid="SettingsPage_Crash_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE7BA;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Crash_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
+
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                        Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <StackPanel Spacing="16">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <TextBlock x:Uid="SettingsPage_CrashLastTime_Label" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <HyperlinkButton Command="{x:Bind ViewModel.OpenLatestCrashLogActionCommand}" Padding="0" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ViewModel.LastCrashFileNameText, Mode=OneWay}" TextWrapping="Wrap" FontSize="15" FontWeight="SemiBold"/>
+                                </HyperlinkButton>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <Button Command="{x:Bind ViewModel.OpenCrashLogFolderActionCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE838;" FontSize="14"/>
+                                        <TextBlock x:Uid="SettingsPage_CrashOpenFolder_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Command="{x:Bind ViewModel.ExportLatestCrashLogActionCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE74E;" FontSize="14"/>
+                                        <TextBlock x:Uid="SettingsPage_CrashExportLatest_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Command="{x:Bind ViewModel.ClearCrashLogsActionCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="14"/>
+                                        <TextBlock x:Uid="SettingsPage_CrashClear_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <Button Command="{x:Bind ViewModel.OpenIssueFeedbackActionCommand}">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE8A7;" FontSize="14"/>
+                                        <TextBlock x:Uid="SettingsPage_CrashIssue_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
                 </StackPanel>
 
-                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
-                        Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <StackPanel Spacing="16">
-                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                            <TextBlock x:Uid="SettingsPage_CrashLastTime_Label" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                            <HyperlinkButton Command="{x:Bind ViewModel.OpenLatestCrashLogActionCommand}" Padding="0" VerticalAlignment="Center">
-                                <TextBlock Text="{x:Bind ViewModel.LastCrashFileNameText, Mode=OneWay}" TextWrapping="Wrap" FontSize="15" FontWeight="SemiBold"/>
-                            </HyperlinkButton>
-                        </StackPanel>
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE943;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Test_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
 
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                        Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                         <StackPanel Orientation="Horizontal" Spacing="12">
-                            <Button Command="{x:Bind ViewModel.OpenCrashLogFolderActionCommand}">
+                            <Button Click="GenerateTestCrashLogButton_Click">
                                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <FontIcon Glyph="&#xE838;" FontSize="14"/>
-                                    <TextBlock x:Uid="SettingsPage_CrashOpenFolder_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                    <FontIcon Glyph="&#xE9D2;" FontSize="14"/>
+                                    <TextBlock x:Uid="SettingsPage_CrashGenerateTest_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
-                            <Button Command="{x:Bind ViewModel.ExportLatestCrashLogActionCommand}">
+                            <Button Click="PreviewCrashDialogButton_Click">
                                 <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <FontIcon Glyph="&#xE74E;" FontSize="14"/>
-                                    <TextBlock x:Uid="SettingsPage_CrashExportLatest_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <Button Command="{x:Bind ViewModel.ClearCrashLogsActionCommand}">
-                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <FontIcon Glyph="&#xE74D;" FontSize="14"/>
-                                    <TextBlock x:Uid="SettingsPage_CrashClear_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <Button Command="{x:Bind ViewModel.OpenIssueFeedbackActionCommand}">
-                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <FontIcon Glyph="&#xE8A7;" FontSize="14"/>
-                                    <TextBlock x:Uid="SettingsPage_CrashIssue_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                    <FontIcon Glyph="&#xE8A1;" FontSize="14"/>
+                                    <TextBlock x:Uid="SettingsPage_CrashPreviewDialog_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                         </StackPanel>
-                    </StackPanel>
-                </Border>
-                </StackPanel>
-
-                <StackPanel Spacing="16">
-                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE943;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                    <TextBlock x:Uid="SettingsPage_Test_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
-                </StackPanel>
-
-                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
-                        Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <Button Click="GenerateTestCrashLogButton_Click">
-                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xE9D2;" FontSize="14"/>
-                                <TextBlock x:Uid="SettingsPage_CrashGenerateTest_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                        <Button Click="PreviewCrashDialogButton_Click">
-                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xE8A1;" FontSize="14"/>
-                                <TextBlock x:Uid="SettingsPage_CrashPreviewDialog_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
-                </Border>
+                    </Border>
                 </StackPanel>
 
                 <StackPanel Margin="0,20,0,0" Spacing="24">
-                <Button Command="{x:Bind ViewModel.RestoreDefaultSettingsCommand}" 
+                    <Button Command="{x:Bind ViewModel.RestoreDefaultSettingsCommand}" 
                         HorizontalAlignment="Right" Style="{ThemeResource DefaultButtonStyle}">
-                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                        <FontIcon Glyph="&#xE72C;" FontSize="14"/>
-                        <TextBlock x:Uid="SettingsPage_Restore_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                            <TextBlock x:Uid="SettingsPage_Restore_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
 
-                <TextBlock x:Uid="SettingsPage_Footer"
+                    <TextBlock x:Uid="SettingsPage_Footer"
                            HorizontalAlignment="Center"
                            Opacity="0.55"
                            FontSize="12"
