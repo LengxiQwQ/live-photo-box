@@ -70,12 +70,9 @@
 		<PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
 	</ItemGroup>
 
-	<ItemGroup>
+ <ItemGroup>
 	  <None Update="Controls\PageStatusBar.xaml">
-	    <Generator>MSBuild:Compile</Generator>
-	  </None>
-	  <None Update="Views\KeyPhotoPage.xaml">
-	    <Generator>MSBuild:Compile</Generator>
+		<Generator>MSBuild:Compile</Generator>
 	  </None>
 	</ItemGroup>
 
@@ -89,13 +86,13 @@
 		<Page Update="Views\AboutPage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
+       <Page Update="Views\KeyPhotoPage.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</Page>
 		<Page Update="Views\RepairPage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
 		<Page Update="Views\SplitPage.xaml">
-			<Generator>MSBuild:Compile</Generator>
-		</Page>
-     <Page Update="Views\KeyPhotoPage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
 		<Page Update="Views\SettingsPage.xaml">
