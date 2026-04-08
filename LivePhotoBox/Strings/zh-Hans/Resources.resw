@@ -716,4 +716,67 @@
   <data name="Package_Description" xml:space="preserve">
     <value>让你的 Apple 实况照片也可以在 Windows 上直接显示与处理。</value>
   </data>
+  <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
+    <value>缩略图修复配置</value>
+  </data>
+  <data name="RepairPage_InputLabel.Text" xml:space="preserve">
+    <value>输入目录：</value>
+  </data>
+  <data name="RepairPage_InputBox.PlaceholderText" xml:space="preserve">
+    <value>请选择需要修复的实况照片目录</value>
+  </data>
+  <data name="RepairPage_BrowseBtn1.Content" xml:space="preserve">
+    <value>浏览...</value>
+  </data>
+  <data name="RepairPage_OutputLabel.Text" xml:space="preserve">
+    <value>输出目录：</value>
+  </data>
+  <data name="RepairPage_OutputBox.PlaceholderText" xml:space="preserve">
+    <value>修复后文件的保存路径</value>
+  </data>
+  <data name="RepairPage_BrowseBtn2.Content" xml:space="preserve">
+    <value>浏览...</value>
+  </data>
+  <data name="RepairPage_StatTotal.Text" xml:space="preserve">
+    <value>总任务数：</value>
+  </data>
+  <data name="RepairPage_StatSuccess.Text" xml:space="preserve">
+    <value>成功：</value>
+  </data>
+  <data name="RepairPage_StatFailed.Text" xml:space="preserve">
+    <value>失败：</value>
+  </data>
+  <data name="RepairPage_ProtocolLabel.Text" xml:space="preserve">
+    <value>修复模式：</value>
+  </data>
+  <data name="RepairPage_Mode_V1.Content" xml:space="preserve">
+    <value>模式一 (常规修复)</value>
+  </data>
+  <data name="RepairPage_Mode_V2.Content" xml:space="preserve">
+    <value>模式二 (深度修复)</value>
+  </data>
+  <data name="RepairPage_ScanBtn.Content" xml:space="preserve">
+    <value>扫描目录</value>
+  </data>
+  <data name="RepairPage_QueueProgress.Text" xml:space="preserve">
+    <value>队列进度：</value>
+  </data>
+  <data name="RepairPage_ColSeq.Text" xml:space="preserve">
+    <value>序号</value>
+  </data>
+  <data name="RepairPage_ColFile.Text" xml:space="preserve">
+    <value>文件名称</value>
+  </data>
+  <data name="RepairPage_ColSize.Text" xml:space="preserve">
+    <value>大小</value>
+  </data>
+  <data name="RepairPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
+    <value>在资源管理器中打开文件位置</value>
+  </data>
+  <data name="RepairPage_ThumbnailLoadingText.Text" xml:space="preserve">
+    <value>加载中...</value>
+  </data>
+  <data name="RepairPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
+    <value>打开文件</value>
+  </data>
 </root>

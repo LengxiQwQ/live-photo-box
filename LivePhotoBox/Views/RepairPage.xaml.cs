@@ -9,7 +9,7 @@ namespace LivePhotoBox.Views
 
         public RepairPage()
         {
-            InitializeComponent();
+            this.InitializeComponent();
         }
     }
 }
