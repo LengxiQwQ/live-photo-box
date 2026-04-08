@@ -779,4 +779,22 @@
   <data name="RepairPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
     <value>打开文件</value>
   </data>
+  <data name="RepairPage_OutputModeLabel.Text" xml:space="preserve">
+    <value>输出模式：</value>
+  </data>
+  <data name="RepairPage_OutputModeSwitch.OnContent" xml:space="preserve">
+    <value>输出到目录</value>
+  </data>
+  <data name="RepairPage_OutputModeSwitch.OffContent" xml:space="preserve">
+    <value>原文件替换</value>
+  </data>
+  <data name="RepairPage_StatTotalPhotos.Text" xml:space="preserve">
+    <value>总照片数：</value>
+  </data>
+  <data name="RepairPage_StatThumbCorrect.Text" xml:space="preserve">
+    <value>缩略图正确：</value>
+  </data>
+  <data name="RepairPage_StatThumbError.Text" xml:space="preserve">
+    <value>缩略图错误：</value>
+  </data>
 </root>

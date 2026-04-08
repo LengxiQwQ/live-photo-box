@@ -943,10 +943,21 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private bool _isRepairDirectoryPanelOpen = true;
         [ObservableProperty] private string _repairInputDirectory = string.Empty;
         [ObservableProperty] private string _repairOutputDirectory = string.Empty;
-        [ObservableProperty] private int _totalRepairCount = 0;
-        [ObservableProperty] private int _repairSuccessCount = 0;
-        [ObservableProperty] private int _repairFailedCount = 0;
-        [ObservableProperty] private int _repairSelectedModeIndex = 0;
+
+        // 输出模式开关：true = 输出到目录，false = 原文件替换
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RepairOutputGridVisibility))]
+        private bool _isRepairOutputToDirectory = false;
+
+        // 控制输出目录那一行的显示与隐藏
+        public Microsoft.UI.Xaml.Visibility RepairOutputGridVisibility =>
+            IsRepairOutputToDirectory ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
+
+        // 统计数据 (总照片、正确、错误)
+        [ObservableProperty] private int _repairTotalPhotosCount = 0;
+        [ObservableProperty] private int _repairThumbCorrectCount = 0;
+        [ObservableProperty] private int _repairThumbErrorCount = 0;
+
         [ObservableProperty] private bool _isRepairNotProcessing = true;
         [ObservableProperty] private string _repairProgressText = "0/0";
         [ObservableProperty] private double _repairProgress = 0;
@@ -972,5 +983,6 @@ namespace LivePhotoBox.ViewModels
         {
             // 占位命令，暂时不写逻辑
         }
+
     }
 }

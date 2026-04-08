@@ -783,4 +783,22 @@ Log file: {0}</value>
   <data name="RepairPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
     <value>Open File</value>
   </data>
+  <data name="RepairPage_OutputModeLabel.Text" xml:space="preserve">
+    <value>Output Mode:</value>
+  </data>
+  <data name="RepairPage_OutputModeSwitch.OnContent" xml:space="preserve">
+    <value>Output to Directory</value>
+  </data>
+  <data name="RepairPage_OutputModeSwitch.OffContent" xml:space="preserve">
+    <value>Replace Original</value>
+  </data>
+  <data name="RepairPage_StatTotalPhotos.Text" xml:space="preserve">
+    <value>Total Photos:</value>
+  </data>
+  <data name="RepairPage_StatThumbCorrect.Text" xml:space="preserve">
+    <value>Thumbnails Correct:</value>
+  </data>
+  <data name="RepairPage_StatThumbError.Text" xml:space="preserve">
+    <value>Thumbnails Error:</value>
+  </data>
 </root>
