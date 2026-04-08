@@ -936,5 +936,41 @@ namespace LivePhotoBox.ViewModels
                 FinalizeRunState(stopwatch);
             }
         }
+        // ==========================================
+        // 修复页面 (RepairPage) 绑定的属性与命令 (纯UI占位)
+        // ==========================================
+
+        [ObservableProperty] private bool _isRepairDirectoryPanelOpen = true;
+        [ObservableProperty] private string _repairInputDirectory = string.Empty;
+        [ObservableProperty] private string _repairOutputDirectory = string.Empty;
+        [ObservableProperty] private int _totalRepairCount = 0;
+        [ObservableProperty] private int _repairSuccessCount = 0;
+        [ObservableProperty] private int _repairFailedCount = 0;
+        [ObservableProperty] private int _repairSelectedModeIndex = 0;
+        [ObservableProperty] private bool _isRepairNotProcessing = true;
+        [ObservableProperty] private string _repairProgressText = "0/0";
+        [ObservableProperty] private double _repairProgress = 0;
+        [ObservableProperty] private string _repairSecondaryBtnText = "取消";
+        [ObservableProperty] private string _repairActionBtnText = "开始修复";
+
+        public BulkObservableCollection<LivePhotoRepairTask> RepairTasks { get; } = [];
+
+        [RelayCommand]
+        private void ScanRepairDirectory()
+        {
+            // 占位命令，暂时不写逻辑
+        }
+
+        [RelayCommand]
+        private void ToggleRepairSecondaryAction()
+        {
+            // 占位命令，暂时不写逻辑
+        }
+
+        [RelayCommand]
+        private void ToggleRepairProcess()
+        {
+            // 占位命令，暂时不写逻辑
+        }
     }
 }

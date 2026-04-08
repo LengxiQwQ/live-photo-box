@@ -4,30 +4,260 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-    mc:Ignorable="d"
-    Background="Transparent"
+    xmlns:models="using:LivePhotoBox.Models"
+    xmlns:converters="using:LivePhotoBox.Converters"
+    mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
+    <Page.Resources>
+        <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
+    </Page.Resources>
+
     <Grid>
-        <Grid Padding="24,24,24,40">
-            <Border MaxWidth="720"
-                Padding="32"
-                CornerRadius="12"
-                Background="{ThemeResource CardBackgroundBrush}"
-                BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                BorderThickness="1"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center">
-                <StackPanel Spacing="12">
-                    <FontIcon Glyph="&#xE7C5;" FontSize="28" HorizontalAlignment="Center"/>
-                    <TextBlock x:Uid="RepairPage_PlaceholderTitle" FontSize="20" FontWeight="SemiBold" HorizontalAlignment="Center"/>
-                    <TextBlock x:Uid="RepairPage_PlaceholderDescription"
-                               TextWrapping="Wrap"
-                               HorizontalAlignment="Center"
-                               TextAlignment="Center"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                </StackPanel>
+        <Grid RowSpacing="12" Padding="24,24,24,40">
+           
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+                
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Expander Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
+                      IsExpanded="{x:Bind ViewModel.IsRepairDirectoryPanelOpen, Mode=TwoWay}"
+                      HorizontalAlignment="Stretch" 
+                      HorizontalContentAlignment="Stretch"
+                      Background="{ThemeResource CardBackgroundBrush}" 
+                      CornerRadius="8"
+                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                      BorderThickness="1">
+
+                <Expander.Header>
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Height="32">
+                        <FontIcon Glyph="&#xE7C5;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="RepairPage_ConfigHeader" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Expander.Header>
+
+                <Expander.Content>
+                    <StackPanel Spacing="12" Padding="0,4,0,0">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Uid="RepairPage_InputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
+                            <TextBox x:Uid="RepairPage_InputBox" Grid.Column="1" Text="{x:Bind ViewModel.RepairInputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
+                            <Button x:Uid="RepairPage_BrowseBtn1" Grid.Column="2"/>
+                        </Grid>
+
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Uid="RepairPage_OutputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
+                            <TextBox x:Uid="RepairPage_OutputBox" Grid.Column="1" Text="{x:Bind ViewModel.RepairOutputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
+                            <Button x:Uid="RepairPage_BrowseBtn2" Grid.Column="2"/>
+                        </Grid>
+
+                        <MenuFlyoutSeparator Margin="0,4"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Uid="RepairPage_StatTotal" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.TotalRepairCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Uid="RepairPage_StatSuccess" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.RepairSuccessCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Uid="RepairPage_StatFailed" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.RepairFailedCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock x:Uid="RepairPage_ProtocolLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <ComboBox Width="220"
+                                          SelectedIndex="{x:Bind ViewModel.RepairSelectedModeIndex, Mode=TwoWay}"
+                                          VerticalAlignment="Center">
+                                    <ComboBoxItem x:Uid="RepairPage_Mode_V1"/>
+                                    <ComboBoxItem x:Uid="RepairPage_Mode_V2"/>
+                                </ComboBox>
+                                <Button x:Uid="RepairPage_ScanBtn"
+                                        Command="{x:Bind ViewModel.ScanRepairDirectoryCommand}" 
+                                        IsEnabled="{x:Bind ViewModel.IsRepairNotProcessing, Mode=OneWay}"
+                                        Height="32" VerticalAlignment="Center"
+                                        Margin="0,0,0,0"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Expander.Content>
+            </Expander>
+
+            <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Padding="16,12,16,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
+                        <TextBlock FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                            <Run x:Uid="RepairPage_QueueProgress"/>
+                            <Run Text="{x:Bind ViewModel.RepairProgressText, Mode=OneWay}"/>
+                        </TextBlock>
+                        <ProgressBar Value="{x:Bind ViewModel.RepairProgress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{ThemeResource CyberCyanBrush}" MaxWidth="400" HorizontalAlignment="Left"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
+                        <Button Margin="0,0,12,0"
+                                Content="{x:Bind ViewModel.RepairSecondaryBtnText, Mode=OneWay}" 
+                                Command="{x:Bind ViewModel.ToggleRepairSecondaryActionCommand}" 
+                                Width="100" Height="36"/>
+
+                        <Button Content="{x:Bind ViewModel.RepairActionBtnText, Mode=OneWay}" 
+                                Command="{x:Bind ViewModel.ToggleRepairProcessCommand}" 
+                                Style="{StaticResource AccentButtonStyle}" 
+                                Width="120" Height="36"/>
+                    </StackPanel>
+                </Grid>
             </Border>
+
+            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
+                <ListView x:Name="RepairTaskListView"
+                          ItemsSource="{x:Bind ViewModel.RepairTasks}"
+                          SelectionMode="None"
+                          ShowsScrollingPlaceholders="False">
+                    
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="1" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
+
+                    <ListView.Header>
+                        <Grid Padding="12,0,12,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="56"/>
+                                <ColumnDefinition Width="62"/>
+                                <ColumnDefinition Width="2.7*"/>
+                                <ColumnDefinition Width="1.15*"/>
+                                <ColumnDefinition Width="1.85*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <TextBlock x:Uid="RepairPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="RepairPage_ColFile" Grid.Column="1" Grid.ColumnSpan="2" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="RepairPage_ColSize" Grid.Column="3" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="RepairPage_ColStatus" Grid.Column="4" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListView.Header>
+
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Margin" Value="0,0,0,6"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="MinHeight" Value="0"/>
+                        </Style>
+                    </ListView.ItemContainerStyle>
+
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:LivePhotoRepairTask">
+                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}" 
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
+                                    BorderThickness="1" 
+                                    CornerRadius="6" 
+                                    Padding="10,6,10,6">
+                                <Grid ColumnSpacing="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="56"/>
+                                        <ColumnDefinition Width="62"/>
+                                        <ColumnDefinition Width="2.7*"/>
+                                        <ColumnDefinition Width="1.15*"/>
+                                        <ColumnDefinition Width="1.85*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                                    <Button x:Uid="RepairPage_TipFolder" Grid.Column="1" 
+                                            VerticalAlignment="Center" 
+                                            HorizontalAlignment="Left" 
+                                            Margin="0,0,8,0"
+                                            Tag="{x:Bind ImagePath}"
+                                            Background="Transparent" 
+                                            BorderThickness="0" 
+                                            Padding="0" 
+                                            CornerRadius="6">
+                                        <Border Width="52" Height="52" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                            <Grid>
+                                                <TextBlock x:Uid="RepairPage_ThumbnailLoadingText"
+                                                           Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
+                                                           HorizontalAlignment="Center"
+                                                           VerticalAlignment="Center"
+                                                           TextAlignment="Center"
+                                                           TextWrapping="WrapWholeWords"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                           FontSize="9"
+                                                           Margin="4"/>
+                                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                            </Grid>
+                                        </Border>
+                                    </Button>
+
+                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
+                                        <Button x:Uid="RepairPage_TipApp" Tag="{x:Bind ImagePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                            <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
+                                                <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
+                                                <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}"/>
+                                            </StackPanel>
+                                        </Button>
+
+                                        <Button x:Uid="RepairPage_TipApp" Tag="{x:Bind VideoPath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                            <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
+                                                <FontIcon Glyph="&#xE714;" Foreground="#A855F7" FontSize="14" VerticalAlignment="Center"/>
+                                                <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayVideoName}"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </StackPanel>
+
+                                    <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="4">
+                                        <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind ImageSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,2,0,0"/>
+                                        <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind VideoSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    </StackPanel>
+
+                                    <TextBlock Grid.Column="4" 
+                                               Text="{x:Bind Details, Mode=OneWay}" 
+                                               Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
+                                               VerticalAlignment="Center" 
+                                               FontWeight="SemiBold" 
+                                               FontSize="13" 
+                                               TextWrapping="Wrap" 
+                                               MaxLines="3" />
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
+
         </Grid>
     </Grid>
 </Page>

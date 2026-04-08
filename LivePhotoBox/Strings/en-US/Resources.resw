@@ -720,4 +720,67 @@ Log file: {0}</value>
   <data name="Package_Description" xml:space="preserve">
     <value>Display and process Apple Live Photos directly on Windows.</value>
   </data>
+  <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
+    <value>Thumbnail Repair Settings</value>
+  </data>
+  <data name="RepairPage_InputLabel.Text" xml:space="preserve">
+    <value>Input Dir:</value>
+  </data>
+  <data name="RepairPage_InputBox.PlaceholderText" xml:space="preserve">
+    <value>Select directory containing Live Photos</value>
+  </data>
+  <data name="RepairPage_BrowseBtn1.Content" xml:space="preserve">
+    <value>Browse...</value>
+  </data>
+  <data name="RepairPage_OutputLabel.Text" xml:space="preserve">
+    <value>Output Dir:</value>
+  </data>
+  <data name="RepairPage_OutputBox.PlaceholderText" xml:space="preserve">
+    <value>Save location for repaired files</value>
+  </data>
+  <data name="RepairPage_BrowseBtn2.Content" xml:space="preserve">
+    <value>Browse...</value>
+  </data>
+  <data name="RepairPage_StatTotal.Text" xml:space="preserve">
+    <value>Total Tasks:</value>
+  </data>
+  <data name="RepairPage_StatSuccess.Text" xml:space="preserve">
+    <value>Success:</value>
+  </data>
+  <data name="RepairPage_StatFailed.Text" xml:space="preserve">
+    <value>Failed:</value>
+  </data>
+  <data name="RepairPage_ProtocolLabel.Text" xml:space="preserve">
+    <value>Repair Mode:</value>
+  </data>
+  <data name="RepairPage_Mode_V1.Content" xml:space="preserve">
+    <value>Mode 1 (Standard)</value>
+  </data>
+  <data name="RepairPage_Mode_V2.Content" xml:space="preserve">
+    <value>Mode 2 (Deep)</value>
+  </data>
+  <data name="RepairPage_ScanBtn.Content" xml:space="preserve">
+    <value>Scan Directory</value>
+  </data>
+  <data name="RepairPage_QueueProgress.Text" xml:space="preserve">
+    <value>Queue Progress:</value>
+  </data>
+  <data name="RepairPage_ColSeq.Text" xml:space="preserve">
+    <value>No.</value>
+  </data>
+  <data name="RepairPage_ColFile.Text" xml:space="preserve">
+    <value>File Name</value>
+  </data>
+  <data name="RepairPage_ColSize.Text" xml:space="preserve">
+    <value>Size</value>
+  </data>
+  <data name="RepairPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Open file location in Explorer</value>
+  </data>
+  <data name="RepairPage_ThumbnailLoadingText.Text" xml:space="preserve">
+    <value>Loading...</value>
+  </data>
+  <data name="RepairPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Open File</value>
+  </data>
 </root>
