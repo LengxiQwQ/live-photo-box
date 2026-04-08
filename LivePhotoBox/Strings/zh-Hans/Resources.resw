@@ -468,10 +468,10 @@
     <value>Google Motion Photo (V2)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
-    <value>MP4 (H.264/HEVC)</value>
+    <value>MP4 (H.264/HEVC) (开发中)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
-    <value>MOV (QuickTime)</value>
+    <value>MOV (QuickTime) (开发中)</value>
   </data>
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
     <value>视频默认格式</value>
