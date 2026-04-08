@@ -32,13 +32,13 @@
                     MaxWidth="220"
                     MinWidth="220"
                     Height="220"
-                    Padding="6"
-                    CornerRadius="28"
+                    Padding="0"
+                    CornerRadius="30"
                     HorizontalAlignment="Center"
                     Background="{ThemeResource CardBackgroundBrush}"
                     BorderThickness="1"
                     BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <Image Source="/Assets/AppIcon.png" Stretch="Uniform"/>
+                    <Image Source="/Assets/AppIcon-full.png" Stretch="Uniform"/>
                 </Border>
             </Grid>
 
