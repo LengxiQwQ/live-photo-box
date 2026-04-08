@@ -476,6 +476,21 @@
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
     <value>视频默认格式</value>
   </data>
+  <data name="SplitPage_Status_EmptyQueue" xml:space="preserve">
+    <value>当前没有可拆分的实况照片，请先扫描目录</value>
+  </data>
+  <data name="SplitPage_Status_WarnOutput" xml:space="preserve">
+    <value>请设置有效的输出目录</value>
+  </data>
+  <data name="SplitPage_Status_Running" xml:space="preserve">
+    <value>正在拆分实况照片...</value>
+  </data>
+  <data name="SplitPage_Status_Done" xml:space="preserve">
+    <value>拆分完成，用时 {0:F1} 秒</value>
+  </data>
+  <data name="SplitPage_Status_Aborted" xml:space="preserve">
+    <value>拆分已取消</value>
+  </data>
   <data name="Status_Ready" xml:space="preserve">
     <value>就绪</value>
   </data>
@@ -600,6 +615,12 @@
   </data>
   <data name="SplitPage_Task_Pending" xml:space="preserve">
     <value>等待拆分</value>
+  </data>
+  <data name="SplitPage_Task_Processing" xml:space="preserve">
+    <value>正在拆分...</value>
+  </data>
+  <data name="SplitPage_Task_Success" xml:space="preserve">
+    <value>拆分完成</value>
   </data>
   <data name="SplitPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
     <value>在文件夹中查看</value>

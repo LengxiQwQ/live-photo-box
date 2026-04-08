@@ -23,9 +23,9 @@ namespace LivePhotoBox.Models
         public string DisplaySourceFileName => TruncateFileName(SourceFileName);
         public string DisplayStatus => Status switch
         {
-            ProcessStatus.Pending => ResourceService.GetString("Task_Pending"),
-            ProcessStatus.Processing => ResourceService.GetString("Task_Processing"),
-            ProcessStatus.Success => ResourceService.GetString("Task_Success"),
+            ProcessStatus.Pending => ResourceService.GetString("SplitPage_Task_Pending"),
+            ProcessStatus.Processing => ResourceService.GetString("SplitPage_Task_Processing"),
+            ProcessStatus.Success => ResourceService.GetString("SplitPage_Task_Success"),
             ProcessStatus.Failed => ResourceService.GetString("Task_Failed"),
             _ => Status.ToString()
         };

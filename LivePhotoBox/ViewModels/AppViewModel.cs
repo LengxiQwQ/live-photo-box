@@ -234,7 +234,9 @@ namespace LivePhotoBox.ViewModels
         private bool _isSplitDirectoryPanelOpen = true;
 
         private CancellationTokenSource? _cancellationTokenSource;
+        private CancellationTokenSource? _splitCancellationTokenSource;
         private readonly ManualResetEventSlim _pauseEvent = new(true);
+        private bool _isSplitProcessing;
 
         private string _hwEncoderName = "Software CPU";
 
@@ -351,6 +353,11 @@ namespace LivePhotoBox.ViewModels
         {
             CrashLogService.RecordBreadcrumb($"ScanSplitDirectory requested. Input='{SplitInputDirectory}', Output='{SplitOutputDirectory}'");
 
+            if (_isSplitProcessing)
+            {
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(SplitInputDirectory) || !Directory.Exists(SplitInputDirectory))
             {
                 SetSplitStatus("SplitPage_Status_InvalidInput");
@@ -398,17 +405,47 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ClearSplitQueue()
         {
+            if (_isSplitProcessing)
+            {
+                return;
+            }
+
             CrashLogService.RecordBreadcrumb("ClearSplitQueue requested.");
             ResetSplitQueue();
             SetSplitStatus("SplitPage_Status_Cleared");
             IsSplitDirectoryPanelOpen = true;
         }
 
-        [RelayCommand]
-        private void StartSplit()
+        [RelayCommand(AllowConcurrentExecutions = true)]
+        private async Task StartSplit()
         {
             CrashLogService.RecordBreadcrumb("StartSplit requested.");
-            SetSplitStatus("SplitPage_Status_StartPlaceholder");
+
+            if (_isSplitProcessing)
+            {
+                _splitCancellationTokenSource?.Cancel();
+                SplitActionBtnText = ResourceService.GetString("Btn_Stopping");
+                return;
+            }
+
+            if (SplitTasks.Count == 0)
+            {
+                SetSplitStatus("SplitPage_Status_EmptyQueue");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(SplitOutputDirectory))
+            {
+                SplitOutputDirectory = Path.Combine(SplitInputDirectory, "Output_SplitPhotos");
+            }
+
+            if (string.IsNullOrWhiteSpace(SplitOutputDirectory))
+            {
+                SetSplitStatus("SplitPage_Status_WarnOutput");
+                return;
+            }
+
+            await RunSplitTasksAsync();
         }
 
         private void ResetSplitQueue()
@@ -420,6 +457,103 @@ namespace LivePhotoBox.ViewModels
             SplitSkippedCount = 0;
             SplitProgress = 0;
             SplitProgressText = "0/0";
+            SplitActionBtnText = ResourceService.GetString("Btn_StartSplit");
+        }
+
+        private void InitializeSplitRunState()
+        {
+            _isSplitProcessing = true;
+            SplitActionBtnText = ResourceService.GetString("Btn_StopRun");
+            _splitCancellationTokenSource?.Dispose();
+            _splitCancellationTokenSource = new CancellationTokenSource();
+
+            int completedCount = SplitTasks.Count(task => task.Status == ProcessStatus.Success);
+            SplitProgress = SplitQueuedCount == 0 ? 0 : (completedCount * 100.0) / SplitQueuedCount;
+            SplitProgressText = $"{completedCount}/{SplitQueuedCount}";
+            SetSplitStatus("SplitPage_Status_Running");
+        }
+
+        private void FinalizeSplitRunState(Stopwatch stopwatch)
+        {
+            stopwatch.Stop();
+            _isSplitProcessing = false;
+            SplitActionBtnText = ResourceService.GetString("Btn_StartSplit");
+
+            var splitCancellationTokenSource = _splitCancellationTokenSource;
+            _splitCancellationTokenSource = null;
+            splitCancellationTokenSource?.Dispose();
+
+            if (SplitQueuedCount > 0 && SplitProgress >= 100)
+            {
+                SetSplitStatus("SplitPage_Status_Done", stopwatch.Elapsed.TotalSeconds);
+            }
+        }
+
+        private void UpdateSplitTaskStarted(LivePhotoSplitTask task)
+        {
+            task.Status = ProcessStatus.Processing;
+            task.ProgressText = "0%";
+            task.Details = ResourceService.GetString("SplitPage_Task_Processing");
+        }
+
+        private void UpdateSplitTaskCompleted(LivePhotoSplitTask task, bool isSuccess, string detailMessage, int completedCount)
+        {
+            task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
+            task.ProgressText = isSuccess ? "100%" : "0%";
+            task.Details = detailMessage;
+            SplitProgress = SplitQueuedCount == 0 ? 0 : (completedCount * 100.0) / SplitQueuedCount;
+            SplitProgressText = $"{completedCount}/{SplitQueuedCount}";
+        }
+
+        private async Task RunSplitTasksAsync()
+        {
+            InitializeSplitRunState();
+            Stopwatch stopwatch = Stopwatch.StartNew();
+
+            try
+            {
+                int completedCount = SplitTasks.Count(task => task.Status == ProcessStatus.Success);
+                foreach (var task in SplitTasks)
+                {
+                    if (task.Status == ProcessStatus.Success)
+                    {
+                        continue;
+                    }
+
+                    _splitCancellationTokenSource!.Token.ThrowIfCancellationRequested();
+                    UpdateSplitTaskStarted(task);
+
+                    bool isSuccess;
+                    string detailMessage;
+
+                    try
+                    {
+                        await LivePhotoSplitService.SplitAsync(task.SourcePath, SplitOutputDirectory, SelectedSplitFormatIndex, _splitCancellationTokenSource.Token);
+                        isSuccess = true;
+                        detailMessage = ResourceService.GetString("SplitPage_Task_Success");
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        isSuccess = false;
+                        detailMessage = ResourceService.Format("Task_Error", ex.Message);
+                    }
+
+                    completedCount++;
+                    UpdateSplitTaskCompleted(task, isSuccess, detailMessage, completedCount);
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                SetSplitStatus("SplitPage_Status_Aborted");
+            }
+            finally
+            {
+                FinalizeSplitRunState(stopwatch);
+            }
         }
 
         private void RefreshCrashLogs()
