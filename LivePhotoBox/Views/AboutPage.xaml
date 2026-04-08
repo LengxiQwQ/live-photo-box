@@ -70,7 +70,7 @@
                             <ColumnDefinition Width="96"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <FontIcon Glyph="&#xE8A5;" FontSize="15" VerticalAlignment="Center"/>
+                        <FontIcon Glyph="&#xE94F;" FontSize="15" VerticalAlignment="Center"/>
                         <TextBlock x:Uid="AboutPage_SourceLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
                         <Button x:Uid="AboutPage_SourceLink" Grid.Column="2" Click="RepositoryLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
                     </Grid>

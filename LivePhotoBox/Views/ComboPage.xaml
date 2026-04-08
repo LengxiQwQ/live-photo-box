@@ -38,7 +38,7 @@
 
                 <Expander.Header>
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Height="32">
-                        <FontIcon Glyph="&#xE8B7;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <FontIcon Glyph="&#xE8B1;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
                         <TextBlock x:Uid="ComboPage_ConfigHeader" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Expander.Header>

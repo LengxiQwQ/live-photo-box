@@ -21,14 +21,28 @@ namespace LivePhotoBox.Models
         private ImageSource? _thumbnail;
 
         public string DisplaySourceFileName => TruncateFileName(SourceFileName);
-        public string DisplayStatus => Status switch
+
+        // 【修复核心】：优先展示 Details (比如具体的报错信息)，如果为空则按状态显示多语言文本
+        public string DisplayStatus
         {
-            ProcessStatus.Pending => ResourceService.GetString("SplitPage_Task_Pending"),
-            ProcessStatus.Processing => ResourceService.GetString("SplitPage_Task_Processing"),
-            ProcessStatus.Success => ResourceService.GetString("SplitPage_Task_Success"),
-            ProcessStatus.Failed => ResourceService.GetString("Task_Failed"),
-            _ => Status.ToString()
-        };
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(Details))
+                {
+                    return Details;
+                }
+
+                return Status switch
+                {
+                    ProcessStatus.Pending => ResourceService.GetString("SplitPage_Task_Pending"),
+                    ProcessStatus.Processing => ResourceService.GetString("SplitPage_Task_Processing"),
+                    ProcessStatus.Success => ResourceService.GetString("SplitPage_Task_Success"),
+                    ProcessStatus.Failed => ResourceService.GetString("Task_Failed"),
+                    _ => Status.ToString()
+                };
+            }
+        }
+
         public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
         public ImageSource? Thumbnail
@@ -70,6 +84,12 @@ namespace LivePhotoBox.Models
         }
 
         partial void OnStatusChanged(ProcessStatus value)
+        {
+            OnPropertyChanged(nameof(DisplayStatus));
+        }
+
+        // 新增：如果强行更新了 Details，也联动刷新 DisplayStatus 文本
+        partial void OnDetailsChanged(string value)
         {
             OnPropertyChanged(nameof(DisplayStatus));
         }

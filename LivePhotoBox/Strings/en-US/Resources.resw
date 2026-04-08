@@ -254,7 +254,7 @@ Do you want to restart now?</value>
     <value>Ready | Waiting to import live photos to split</value>
   </data>
   <data name="SplitPage_ConfigHeader.Text" xml:space="preserve">
-    <value>Workspace &amp; Scan Config</value>
+    <value>Live Photo Split Settings</value>
   </data>
   <data name="SplitPage_InputLabel.Text" xml:space="preserve">
     <value>Input Dir:</value>
@@ -308,7 +308,7 @@ Do you want to restart now?</value>
     <value>Split execution logic will be connected next. The UI is now ready.</value>
   </data>
   <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
-    <value>Workspace &amp; Scan Config</value>
+    <value>Live Photo Merge Settings</value>
   </data>
   <data name="ComboPage_InputLabel.Text" xml:space="preserve">
     <value>Input Dir:</value>
@@ -350,7 +350,7 @@ Do you want to restart now?</value>
     <value>No.</value>
   </data>
   <data name="ComboPage_ColFile.Text" xml:space="preserve">
-    <value>File Group</value>
+    <value>Source File Group</value>
   </data>
   <data name="ComboPage_ColSize.Text" xml:space="preserve">
     <value>Size</value>
@@ -703,13 +703,13 @@ Log file: {0}</value>
     <value>Preview Crash Dialog</value>
   </data>
   <data name="SettingsPage_Test_Header.Text" xml:space="preserve">
-    <value>Test Tools</value>
+    <value>Debug Tools</value>
   </data>
   <data name="SettingsPage_TestShow_Button_Text" xml:space="preserve">
-    <value>Show Test Tools</value>
+    <value>Show Debug Tools</value>
   </data>
   <data name="SettingsPage_TestHide_Button_Text" xml:space="preserve">
-    <value>Hide Test Tools</value>
+    <value>Hide Debug Tools</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>Not detected</value>

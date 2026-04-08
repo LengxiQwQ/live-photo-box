@@ -27,7 +27,7 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-        <Expander Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
+            <Expander Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
                   IsExpanded="{x:Bind ViewModel.IsSplitDirectoryPanelOpen, Mode=TwoWay}"
                   HorizontalAlignment="Stretch"
                   HorizontalContentAlignment="Stretch"
@@ -36,167 +36,168 @@
                   BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                   BorderThickness="1">
 
-            <Expander.Header>
-                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Height="32">
-                    <FontIcon Glyph="&#xE8B5;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
-                    <TextBlock x:Uid="SplitPage_ConfigHeader" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
-                </StackPanel>
-            </Expander.Header>
+                <Expander.Header>
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Height="32">
+                        <FontIcon Glyph="&#xE8C6;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SplitPage_ConfigHeader" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Expander.Header>
 
-            <Expander.Content>
-                <StackPanel Spacing="12" Padding="0,4,0,0">
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Uid="SplitPage_InputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                        <TextBox x:Uid="SplitPage_InputBox" Grid.Column="1" Text="{x:Bind ViewModel.SplitInputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
-                        <Button x:Uid="SplitPage_BrowseBtn1" Grid.Column="2" Click="BrowseInput_Click"/>
-                    </Grid>
+                <Expander.Content>
+                    <StackPanel Spacing="12" Padding="0,4,0,0">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Uid="SplitPage_InputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
+                            <TextBox x:Uid="SplitPage_InputBox" Grid.Column="1" Text="{x:Bind ViewModel.SplitInputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
+                            <Button x:Uid="SplitPage_BrowseBtn1" Grid.Column="2" Click="BrowseInput_Click"/>
+                        </Grid>
 
-                    <Grid ColumnSpacing="8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <TextBlock x:Uid="SplitPage_OutputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                        <TextBox x:Uid="SplitPage_OutputBox" Grid.Column="1" Text="{x:Bind ViewModel.SplitOutputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
-                        <Button x:Uid="SplitPage_BrowseBtn2" Grid.Column="2" Click="BrowseOutput_Click"/>
-                    </Grid>
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Uid="SplitPage_OutputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
+                            <TextBox x:Uid="SplitPage_OutputBox" Grid.Column="1" Text="{x:Bind ViewModel.SplitOutputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
+                            <Button x:Uid="SplitPage_BrowseBtn2" Grid.Column="2" Click="BrowseOutput_Click"/>
+                        </Grid>
 
-                    <MenuFlyoutSeparator Margin="0,4"/>
+                        <MenuFlyoutSeparator Margin="0,4"/>
 
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="SplitPage_StatQueued" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.SplitQueuedCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Uid="SplitPage_StatQueued" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.SplitQueuedCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Uid="SplitPage_StatRecognized" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.SplitRecognizedCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <TextBlock x:Uid="SplitPage_StatSkipped" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.SplitSkippedCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                </StackPanel>
                             </StackPanel>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="SplitPage_StatRecognized" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.SplitRecognizedCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="SplitPage_StatSkipped" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.SplitSkippedCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
-                        </StackPanel>
 
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock x:Uid="SplitPage_FormatLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <ComboBox Width="180"
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock x:Uid="SplitPage_FormatLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <ComboBox Width="180"
                                       SelectedIndex="{x:Bind ViewModel.SelectedSplitFormatIndex, Mode=TwoWay}"
                                       VerticalAlignment="Center">
-                                <ComboBoxItem x:Uid="SettingsPage_SplitFormat_ImageDefault"/>
-                                <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
-                                <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
-                            </ComboBox>
-                            <Button x:Uid="SplitPage_ScanBtn"
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_ImageDefault"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
+                                </ComboBox>
+                                <Button x:Uid="SplitPage_ScanBtn"
                                     Command="{x:Bind ViewModel.ScanSplitDirectoryCommand}"
+                                    IsEnabled="{x:Bind ViewModel.IsSplitNotProcessing, Mode=OneWay}"
                                     Height="32"
                                     VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Grid>
-                </StackPanel>
-            </Expander.Content>
-        </Expander>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Expander.Content>
+            </Expander>
 
-        <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Padding="16,12,16,12">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+            <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Padding="16,12,16,12">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
 
-                <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
-                    <TextBlock FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}">
+                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
+                        <TextBlock FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}">
                         <Run x:Uid="SplitPage_QueueProgress"/>
                         <Run Text="{x:Bind ViewModel.SplitProgressText, Mode=OneWay}"/>
-                    </TextBlock>
-                    <ProgressBar Value="{x:Bind ViewModel.SplitProgress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{ThemeResource CyberCyanBrush}" MaxWidth="400" HorizontalAlignment="Left"/>
-                </StackPanel>
+                        </TextBlock>
+                        <ProgressBar Value="{x:Bind ViewModel.SplitProgress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{ThemeResource CyberCyanBrush}" MaxWidth="400" HorizontalAlignment="Left"/>
+                    </StackPanel>
 
-                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
-                    <Button Margin="0,0,12,0"
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
+                        <Button Margin="0,0,12,0"
                             Content="{x:Bind ViewModel.SplitClearBtnText, Mode=OneWay}"
-                            Command="{x:Bind ViewModel.ClearSplitQueueCommand}"
+                            Command="{x:Bind ViewModel.ToggleSplitSecondaryActionCommand}"
                             Width="100" Height="36"/>
 
-                    <Button Content="{x:Bind ViewModel.SplitActionBtnText, Mode=OneWay}"
+                        <Button Content="{x:Bind ViewModel.SplitActionBtnText, Mode=OneWay}"
                             Command="{x:Bind ViewModel.StartSplitCommand}"
                             Style="{StaticResource AccentButtonStyle}"
                             Width="120" Height="36"/>
-                </StackPanel>
-            </Grid>
-        </Border>
+                    </StackPanel>
+                </Grid>
+            </Border>
 
-        <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
-            <ListView x:Name="SplitTaskListView"
+            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
+                <ListView x:Name="SplitTaskListView"
                       ItemsSource="{x:Bind ViewModel.SplitTasks}"
                       SelectionMode="None"
                       ShowsScrollingPlaceholders="False"
                       ContainerContentChanging="SplitTaskListView_ContainerContentChanging">
-                <ListView.ItemsPanel>
-                    <ItemsPanelTemplate>
-                        <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="1" />
-                    </ItemsPanelTemplate>
-                </ListView.ItemsPanel>
+                    <ListView.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="1" />
+                        </ItemsPanelTemplate>
+                    </ListView.ItemsPanel>
 
-                <ListView.Header>
-                    <Grid Padding="12,0,12,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="56"/>
-                            <ColumnDefinition Width="62"/>
-                            <ColumnDefinition Width="2.7*"/>
-                            <ColumnDefinition Width="1.15*"/>
-                            <ColumnDefinition Width="1.85*"/>
-                        </Grid.ColumnDefinitions>
+                    <ListView.Header>
+                        <Grid Padding="12,0,12,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="56"/>
+                                <ColumnDefinition Width="62"/>
+                                <ColumnDefinition Width="2.7*"/>
+                                <ColumnDefinition Width="1.15*"/>
+                                <ColumnDefinition Width="1.85*"/>
+                            </Grid.ColumnDefinitions>
 
-                        <TextBlock x:Uid="SplitPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                        <TextBlock x:Uid="SplitPage_ColSourceHeader" Grid.Column="1" Grid.ColumnSpan="2" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                        <TextBlock x:Uid="SplitPage_ColSize" Grid.Column="3" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                        <TextBlock x:Uid="SplitPage_ColStatusHeader" Grid.Column="4" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                    </Grid>
-                </ListView.Header>
+                            <TextBlock x:Uid="SplitPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="SplitPage_ColSourceHeader" Grid.Column="1" Grid.ColumnSpan="2" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="SplitPage_ColSize" Grid.Column="3" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="SplitPage_ColStatusHeader" Grid.Column="4" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        </Grid>
+                    </ListView.Header>
 
-                <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                        <Setter Property="Margin" Value="0,0,0,6"/>
-                        <Setter Property="Padding" Value="0"/>
-                        <Setter Property="MinHeight" Value="0"/>
-                    </Style>
-                </ListView.ItemContainerStyle>
+                    <ListView.ItemContainerStyle>
+                        <Style TargetType="ListViewItem">
+                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            <Setter Property="Margin" Value="0,0,0,6"/>
+                            <Setter Property="Padding" Value="0"/>
+                            <Setter Property="MinHeight" Value="0"/>
+                        </Style>
+                    </ListView.ItemContainerStyle>
 
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="models:LivePhotoSplitTask">
-                        <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:LivePhotoSplitTask">
+                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1"
                                 CornerRadius="6"
                                 Padding="10,6,10,6">
-                            <Grid ColumnSpacing="0">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="56"/>
-                                    <ColumnDefinition Width="62"/>
-                                    <ColumnDefinition Width="2.7*"/>
-                                    <ColumnDefinition Width="1.15*"/>
-                                    <ColumnDefinition Width="1.85*"/>
-                                </Grid.ColumnDefinitions>
+                                <Grid ColumnSpacing="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="56"/>
+                                        <ColumnDefinition Width="62"/>
+                                        <ColumnDefinition Width="2.7*"/>
+                                        <ColumnDefinition Width="1.15*"/>
+                                        <ColumnDefinition Width="1.85*"/>
+                                    </Grid.ColumnDefinitions>
 
-                                <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                                <Button x:Uid="SplitPage_TipFolder"
+                                    <Button x:Uid="SplitPage_TipFolder"
                                         Grid.Column="1"
                                         VerticalAlignment="Center"
                                         HorizontalAlignment="Left"
@@ -207,9 +208,9 @@
                                         BorderThickness="0"
                                         Padding="0"
                                         CornerRadius="6">
-                                    <Border Width="52" Height="52" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
-                                        <Grid>
-                                            <TextBlock x:Uid="SplitPage_ThumbnailLoadingText"
+                                        <Border Width="52" Height="52" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                            <Grid>
+                                                <TextBlock x:Uid="SplitPage_ThumbnailLoadingText"
                                                        Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
                                                        HorizontalAlignment="Center"
                                                        VerticalAlignment="Center"
@@ -218,23 +219,31 @@
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                        FontSize="9"
                                                        Margin="4"/>
-                                            <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
-                                        </Grid>
-                                    </Border>
-                                </Button>
+                                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                            </Grid>
+                                        </Border>
+                                    </Button>
 
-                                <Button x:Uid="SplitPage_TipApp" Grid.Column="2" Click="FileButton_Click" Tag="{x:Bind SourcePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" VerticalAlignment="Center" CornerRadius="4">
-                                    <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplaySourceFileName}"/>
-                                </Button>
+                                    <Button x:Uid="SplitPage_TipApp" Grid.Column="2" Click="FileButton_Click" Tag="{x:Bind SourcePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" VerticalAlignment="Center" CornerRadius="4">
+                                        <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplaySourceFileName}"/>
+                                    </Button>
 
-                                <TextBlock Grid.Column="3" Text="{x:Bind FileSize}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                <TextBlock Grid.Column="4" Text="{x:Bind Details, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                            </Grid>
-                        </Border>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-        </Border>
+                                    <TextBlock Grid.Column="3" Text="{x:Bind FileSize}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+
+                                    <TextBlock Grid.Column="4" 
+                                           Text="{x:Bind DisplayStatus, Mode=OneWay}" 
+                                           Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" 
+                                           VerticalAlignment="Center" 
+                                           FontWeight="SemiBold"
+                                           FontSize="13" 
+                                           TextWrapping="Wrap" 
+                                           MaxLines="3"/>
+                                </Grid>
+                            </Border>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Border>
 
         </Grid>
     </Grid>

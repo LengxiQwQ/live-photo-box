@@ -253,7 +253,7 @@
     <value>就绪 | 等待导入待拆分的实况照片</value>
   </data>
   <data name="SplitPage_ConfigHeader.Text" xml:space="preserve">
-    <value>工作目录与扫描配置</value>
+    <value>实况照片拆分配置</value>
   </data>
   <data name="SplitPage_InputLabel.Text" xml:space="preserve">
     <value>输入目录:</value>
@@ -307,7 +307,7 @@
     <value>拆分执行逻辑将在下一步接入，当前已完成界面准备</value>
   </data>
   <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
-    <value>工作目录与扫描配置</value>
+    <value>实况照片合成配置</value>
   </data>
   <data name="ComboPage_InputLabel.Text" xml:space="preserve">
     <value>输入目录:</value>
@@ -349,7 +349,7 @@
     <value>序号</value>
   </data>
   <data name="ComboPage_ColFile.Text" xml:space="preserve">
-    <value>文件组</value>
+    <value>源文件组</value>
   </data>
   <data name="ComboPage_ColSize.Text" xml:space="preserve">
     <value>大小</value>
@@ -699,13 +699,13 @@
     <value>预览崩溃报告</value>
   </data>
   <data name="SettingsPage_Test_Header.Text" xml:space="preserve">
-    <value>测试工具</value>
+    <value>调试工具</value>
   </data>
   <data name="SettingsPage_TestShow_Button_Text" xml:space="preserve">
-    <value>显示测试工具</value>
+    <value>显示调试工具</value>
   </data>
   <data name="SettingsPage_TestHide_Button_Text" xml:space="preserve">
-    <value>隐藏测试工具</value>
+    <value>隐藏调试工具</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>暂无</value>

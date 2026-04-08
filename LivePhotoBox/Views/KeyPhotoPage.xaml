@@ -18,7 +18,7 @@
                 HorizontalAlignment="Center"
                 VerticalAlignment="Center">
             <StackPanel Spacing="12">
-                <FontIcon Glyph="&#xE7C3;" FontSize="28" HorizontalAlignment="Center"/>
+                <FontIcon Glyph="&#xE895;" FontSize="28" HorizontalAlignment="Center"/>
                 <TextBlock x:Uid="KeyPhotoPage_PlaceholderTitle"
                            FontSize="20"
                            FontWeight="SemiBold"
