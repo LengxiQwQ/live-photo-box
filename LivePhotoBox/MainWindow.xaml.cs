@@ -33,7 +33,7 @@ namespace LivePhotoBox
             SetTitleBar(AppTitleBar);
 
             IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            WindowId windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
+            Microsoft.UI.WindowId windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
             AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
 
             if (appWindow != null)
@@ -132,7 +132,7 @@ namespace LivePhotoBox
         private void UpdateTitleBarButtonColors()
         {
             IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-            WindowId windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
+            Microsoft.UI.WindowId windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
             AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
 
             if (!AppWindowTitleBar.IsCustomizationSupported() || appWindow.TitleBar == null)
