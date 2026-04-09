@@ -44,6 +44,17 @@
 
 	<ItemGroup>
 		<None Remove="Tools\exiftool\exiftool.exe" />
+		<None Remove="Tools\exiftool\exiftool_files\exiftool.pl" />
+		<None Remove="Tools\exiftool\exiftool_files\libgcc_s_seh-1.dll" />
+		<None Remove="Tools\exiftool\exiftool_files\liblzma-5__.dll" />
+		<None Remove="Tools\exiftool\exiftool_files\libstdc++-6.dll" />
+		<None Remove="Tools\exiftool\exiftool_files\libwinpthread-1.dll" />
+		<None Remove="Tools\exiftool\exiftool_files\LICENSE" />
+		<None Remove="Tools\exiftool\exiftool_files\Licenses_Strawberry_Perl.zip" />
+		<None Remove="Tools\exiftool\exiftool_files\perl.exe" />
+		<None Remove="Tools\exiftool\exiftool_files\perl532.dll" />
+		<None Remove="Tools\exiftool\exiftool_files\readme_windows.txt" />
+		<None Remove="Tools\exiftool\exiftool_files\windows_exiftool.txt" />
 		<None Remove="Tools\jpegtran\jpegtran.exe" />
 		<None Remove="Views\AboutPage.xaml" />
 		<None Remove="Views\ComboPage.xaml" />
@@ -59,6 +70,39 @@
 		<Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
 		<Content Include="Assets\StoreLogo.png" />
 		<Content Include="Tools\exiftool\exiftool.exe">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\exiftool.pl">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\libgcc_s_seh-1.dll">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\liblzma-5__.dll">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\libstdc++-6.dll">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\libwinpthread-1.dll">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\LICENSE">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\Licenses_Strawberry_Perl.zip">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\perl.exe">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\perl532.dll">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\readme_windows.txt">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="Tools\exiftool\exiftool_files\windows_exiftool.txt">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
 		<Content Include="Tools\jpegtran\jpegtran.exe">

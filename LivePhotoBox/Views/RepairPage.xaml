@@ -54,7 +54,7 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Uid="RepairPage_InputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
                             <TextBox x:Uid="RepairPage_InputBox" Grid.Column="1" Text="{x:Bind ViewModel.RepairInputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
-                            <Button x:Uid="RepairPage_BrowseBtn1" Grid.Column="2"/>
+                            <Button x:Uid="RepairPage_BrowseBtn1" Grid.Column="2" Command="{x:Bind ViewModel.PickRepairInputDirectoryCommand}"/>
                         </Grid>
 
                         <Grid ColumnSpacing="8" Visibility="{x:Bind ViewModel.RepairOutputGridVisibility, Mode=OneWay}">
@@ -65,7 +65,7 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Uid="RepairPage_OutputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
                             <TextBox x:Uid="RepairPage_OutputBox" Grid.Column="1" Text="{x:Bind ViewModel.RepairOutputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
-                            <Button x:Uid="RepairPage_BrowseBtn2" Grid.Column="2"/>
+                            <Button x:Uid="RepairPage_BrowseBtn2" Grid.Column="2" Command="{x:Bind ViewModel.PickRepairOutputDirectoryCommand}"/>
                         </Grid>
 
                         <MenuFlyoutSeparator Margin="0,4"/>
@@ -155,16 +155,15 @@
                         <Grid Padding="12,0,12,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="56"/>
-                                <ColumnDefinition Width="62"/>
-                                <ColumnDefinition Width="2.7*"/>
-                                <ColumnDefinition Width="1.15*"/>
-                                <ColumnDefinition Width="1.85*"/>
+                                <ColumnDefinition Width="3*"/>
+                                <ColumnDefinition Width="2.5*"/>
+                                <ColumnDefinition Width="1.5*"/>
                             </Grid.ColumnDefinitions>
 
                             <TextBlock x:Uid="RepairPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="RepairPage_ColFile" Grid.Column="1" Grid.ColumnSpan="2" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="RepairPage_ColSize" Grid.Column="3" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="RepairPage_ColStatus" Grid.Column="4" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="RepairPage_ColFile" Grid.Column="1" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="RepairPage_ColIssue" Grid.Column="2" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="RepairPage_ColStatus" Grid.Column="3" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                         </Grid>
                     </ListView.Header>
 
@@ -184,71 +183,53 @@
                                     BorderThickness="1" 
                                     CornerRadius="6" 
                                     Padding="10,6,10,6">
-                                <Grid ColumnSpacing="0">
+
+                                <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="56"/>
-                                        <ColumnDefinition Width="62"/>
-                                        <ColumnDefinition Width="2.7*"/>
-                                        <ColumnDefinition Width="1.15*"/>
-                                        <ColumnDefinition Width="1.85*"/>
+                                        <ColumnDefinition Width="3*"/>
+                                        <ColumnDefinition Width="2.5*"/>
+                                        <ColumnDefinition Width="1.5*"/>
                                     </Grid.ColumnDefinitions>
 
                                     <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                                    <Button x:Uid="RepairPage_TipFolder" Grid.Column="1" 
-                                            VerticalAlignment="Center" 
-                                            HorizontalAlignment="Left" 
-                                            Margin="0,0,8,0"
-                                            Tag="{x:Bind ImagePath}"
-                                            Background="Transparent" 
-                                            BorderThickness="0" 
-                                            Padding="0" 
-                                            CornerRadius="6">
-                                        <Border Width="52" Height="52" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
-                                            <Grid>
-                                                <TextBlock x:Uid="RepairPage_ThumbnailLoadingText"
-                                                           Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                                           HorizontalAlignment="Center"
-                                                           VerticalAlignment="Center"
-                                                           TextAlignment="Center"
-                                                           TextWrapping="WrapWholeWords"
-                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                           FontSize="9"
-                                                           Margin="4"/>
-                                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
-                                            </Grid>
-                                        </Border>
-                                    </Button>
-
-                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
-                                        <Button x:Uid="RepairPage_TipApp" Tag="{x:Bind ImagePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
-                                            <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
-                                                <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
-                                                <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}"/>
-                                            </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                        <Button x:Uid="RepairPage_TipFolder" Tag="{x:Bind FilePath}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6">
+                                            <Border Width="40" Height="40" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                                <Grid>
+                                                    <TextBlock x:Uid="RepairPage_ThumbnailLoadingText" 
+                                                               Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}" 
+                                                               HorizontalAlignment="Center" 
+                                                               VerticalAlignment="Center" 
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" 
+                                                               FontSize="10"/>
+                                                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                                </Grid>
+                                            </Border>
                                         </Button>
-
-                                        <Button x:Uid="RepairPage_TipApp" Tag="{x:Bind VideoPath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
-                                            <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
-                                                <FontIcon Glyph="&#xE714;" Foreground="#A855F7" FontSize="14" VerticalAlignment="Center"/>
-                                                <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayVideoName}"/>
-                                            </StackPanel>
-                                        </Button>
+                                        <StackPanel VerticalAlignment="Center">
+                                            <Button x:Uid="RepairPage_TipApp" Tag="{x:Bind FilePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                                <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
+                                                    <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
+                                                    <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayFileName}"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
                                     </StackPanel>
 
-                                    <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="4">
-                                        <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind ImageSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,2,0,0"/>
-                                        <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind VideoSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                        <TextBlock Text="{x:Bind IssueDescription}" 
+                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" 
+                                                   FontSize="13" TextWrapping="Wrap" MaxLines="2"/>
                                     </StackPanel>
 
-                                    <TextBlock Grid.Column="4" 
+                                    <TextBlock Grid.Column="3" 
                                                Text="{x:Bind Details, Mode=OneWay}" 
                                                Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
                                                VerticalAlignment="Center" 
                                                FontWeight="SemiBold" 
-                                               FontSize="13" 
-                                               TextWrapping="Wrap" 
-                                               MaxLines="3" />
+                                               FontSize="13" />
                                 </Grid>
                             </Border>
                         </DataTemplate>

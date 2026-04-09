@@ -936,24 +936,22 @@ namespace LivePhotoBox.ViewModels
                 FinalizeRunState(stopwatch);
             }
         }
+
         // ==========================================
-        // 修复页面 (RepairPage) 绑定的属性与命令 (纯UI占位)
+        // 修复页面 (RepairPage) 绑定的属性与命令
         // ==========================================
 
         [ObservableProperty] private bool _isRepairDirectoryPanelOpen = true;
         [ObservableProperty] private string _repairInputDirectory = string.Empty;
         [ObservableProperty] private string _repairOutputDirectory = string.Empty;
 
-        // 输出模式开关：true = 输出到目录，false = 原文件替换
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RepairOutputGridVisibility))]
         private bool _isRepairOutputToDirectory = false;
 
-        // 控制输出目录那一行的显示与隐藏
         public Microsoft.UI.Xaml.Visibility RepairOutputGridVisibility =>
             IsRepairOutputToDirectory ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
 
-        // 统计数据 (总照片、正确、错误)
         [ObservableProperty] private int _repairTotalPhotosCount = 0;
         [ObservableProperty] private int _repairThumbCorrectCount = 0;
         [ObservableProperty] private int _repairThumbErrorCount = 0;
@@ -961,28 +959,203 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private bool _isRepairNotProcessing = true;
         [ObservableProperty] private string _repairProgressText = "0/0";
         [ObservableProperty] private double _repairProgress = 0;
-        [ObservableProperty] private string _repairSecondaryBtnText = "取消";
+        [ObservableProperty] private string _repairSecondaryBtnText = "清空列表";
         [ObservableProperty] private string _repairActionBtnText = "开始修复";
 
         public BulkObservableCollection<LivePhotoRepairTask> RepairTasks { get; } = [];
 
+        private CancellationTokenSource? _repairCancellationTokenSource;
+
+        // 【在这里！新增了选择输入目录的命令】
         [RelayCommand]
-        private void ScanRepairDirectory()
+        private async Task PickRepairInputDirectoryAsync()
         {
-            // 占位命令，暂时不写逻辑
+            var folder = await Services.FilePickerService.PickFolderAsync();
+            if (folder != null)
+            {
+                RepairInputDirectory = folder.Path;
+            }
+        }
+
+        // 【在这里！新增了选择输出目录的命令】
+        [RelayCommand]
+        private async Task PickRepairOutputDirectoryAsync()
+        {
+            var folder = await Services.FilePickerService.PickFolderAsync();
+            if (folder != null)
+            {
+                RepairOutputDirectory = folder.Path;
+            }
+        }
+
+        [RelayCommand]
+        private async Task ScanRepairDirectoryAsync()
+        {
+            if (string.IsNullOrWhiteSpace(RepairInputDirectory) || !Directory.Exists(RepairInputDirectory)) return;
+
+            IsRepairNotProcessing = false;
+            RepairTasks.ReplaceRange([]);
+            RepairTotalPhotosCount = 0;
+            RepairThumbCorrectCount = 0;
+            RepairThumbErrorCount = 0;
+            RepairProgress = 0;
+            RepairProgressText = "0/0";
+
+            var files = Directory.GetFiles(RepairInputDirectory, "*.*", SearchOption.TopDirectoryOnly)
+                                 .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                             f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                                             f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase))
+                                 .ToList();
+
+            RepairTotalPhotosCount = files.Count;
+
+            await Task.Run(async () =>
+            {
+                int index = 1;
+                foreach (var file in files)
+                {
+                    var analysis = await LivePhotoRepairService.AnalyzeFileAsync(file);
+
+                    var task = new LivePhotoRepairTask
+                    {
+                        Index = index++,
+                        FileName = Path.GetFileName(file),
+                        FilePath = file,
+                        IssueDescription = analysis.IssueDescription,
+                        NeedsRepair = analysis.NeedsRepair,
+                        Status = ProcessStatus.Pending,
+                        Details = analysis.NeedsRepair ? "等待修复" : "跳过",
+                        AnalysisResult = analysis
+                    };
+
+                    App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        RepairTasks.Add(task);
+                        if (analysis.NeedsRepair) RepairThumbErrorCount++;
+                        else RepairThumbCorrectCount++;
+                    });
+                }
+            });
+
+            IsRepairNotProcessing = true;
+            IsRepairDirectoryPanelOpen = RepairTotalPhotosCount == 0;
+            SetRepairStatus("Status_ScanDone", RepairTotalPhotosCount);
         }
 
         [RelayCommand]
         private void ToggleRepairSecondaryAction()
         {
-            // 占位命令，暂时不写逻辑
+            if (IsRepairNotProcessing)
+            {
+                RepairTasks.ReplaceRange([]);
+                RepairTotalPhotosCount = 0;
+                RepairThumbCorrectCount = 0;
+                RepairThumbErrorCount = 0;
+                RepairProgress = 0;
+                RepairProgressText = "0/0";
+                IsRepairDirectoryPanelOpen = true;
+                SetRepairStatus("Status_Cleared");
+            }
+            else
+            {
+                _repairCancellationTokenSource?.Cancel();
+            }
         }
 
-        [RelayCommand]
-        private void ToggleRepairProcess()
+        [RelayCommand(AllowConcurrentExecutions = true)]
+        private async Task ToggleRepairProcessAsync()
         {
-            // 占位命令，暂时不写逻辑
+            if (!IsRepairNotProcessing)
+            {
+                _repairCancellationTokenSource?.Cancel();
+                RepairActionBtnText = "正在停止...";
+                return;
+            }
+
+            if (RepairTasks.Count == 0) return;
+
+            if (IsRepairOutputToDirectory)
+            {
+                if (string.IsNullOrWhiteSpace(RepairOutputDirectory))
+                {
+                    RepairOutputDirectory = Path.Combine(RepairInputDirectory, "Output_Repaired");
+                }
+                if (!Directory.Exists(RepairOutputDirectory))
+                {
+                    Directory.CreateDirectory(RepairOutputDirectory);
+                }
+            }
+
+            IsRepairDirectoryPanelOpen = false;
+            await RunRepairTasksAsync();
         }
 
+        private async Task RunRepairTasksAsync()
+        {
+            IsRepairNotProcessing = false;
+            RepairActionBtnText = "停止修复";
+            RepairSecondaryBtnText = "取消任务";
+            SetRepairStatus("Status_Running");
+
+            _repairCancellationTokenSource?.Dispose();
+            _repairCancellationTokenSource = new CancellationTokenSource();
+
+            int completedOrSkipped = 0;
+            Stopwatch stopwatch = Stopwatch.StartNew();
+
+            try
+            {
+                await Task.Run(async () =>
+                {
+                    foreach (var task in RepairTasks)
+                    {
+                        _repairCancellationTokenSource.Token.ThrowIfCancellationRequested();
+
+                        if (!task.NeedsRepair || task.Status == ProcessStatus.Success)
+                        {
+                            completedOrSkipped++;
+                            continue;
+                        }
+
+                        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                        {
+                            task.Status = ProcessStatus.Processing;
+                            task.Details = "修复中...";
+                        });
+
+                        string targetPath = IsRepairOutputToDirectory
+                            ? Path.Combine(RepairOutputDirectory, task.FileName)
+                            : task.FilePath;
+
+                        var result = await LivePhotoRepairService.RepairAsync(task.FilePath, targetPath, task.AnalysisResult!, _repairCancellationTokenSource.Token);
+
+                        completedOrSkipped++;
+                        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                        {
+                            task.Status = result.Success ? ProcessStatus.Success : ProcessStatus.Failed;
+                            task.Details = result.Message;
+                            RepairProgress = (completedOrSkipped * 100.0) / RepairTotalPhotosCount;
+                            RepairProgressText = $"{completedOrSkipped}/{RepairTotalPhotosCount}";
+                        });
+                    }
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                SetRepairStatus("Status_Aborted");
+            }
+            finally
+            {
+                stopwatch.Stop();
+                IsRepairNotProcessing = true;
+                RepairActionBtnText = "开始修复";
+                RepairSecondaryBtnText = "清空列表";
+
+                if (RepairProgress >= 100)
+                {
+                    SetRepairStatus("Status_Done", stopwatch.Elapsed.TotalSeconds);
+                }
+            }
+        }
     }
 }

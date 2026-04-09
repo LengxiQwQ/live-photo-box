@@ -797,4 +797,7 @@
   <data name="RepairPage_StatThumbError.Text" xml:space="preserve">
     <value>缩略图错误：</value>
   </data>
+  <data name="RepairPage_ColIssue.Text" xml:space="preserve">
+    <value>诊断结果</value>
+  </data>
 </root>

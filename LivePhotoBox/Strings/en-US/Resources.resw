@@ -801,4 +801,7 @@ Log file: {0}</value>
   <data name="RepairPage_StatThumbError.Text" xml:space="preserve">
     <value>Thumbnails Error:</value>
   </data>
+  <data name="RepairPage_ColIssue.Text" xml:space="preserve">
+    <value>Diagnosis</value>
+  </data>
 </root>
