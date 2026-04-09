@@ -255,9 +255,9 @@ namespace LivePhotoBox.ViewModels
         // 👇=== 修改这里的资源键名 ===👇
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RepairScanBtnText))]
-        [NotifyPropertyChangedFor(nameof(IsRepairNotScanning))] // 新增这行
+        [NotifyPropertyChangedFor(nameof(IsRepairNotScanning))]
         private bool _isRepairScanning = false;
-        public bool IsRepairNotScanning => !IsRepairScanning; // 新增这行，用于锁住底部按钮
+        public bool IsRepairNotScanning => !IsRepairScanning;
         private CancellationTokenSource? _repairScanCancellationTokenSource;
 
         public string RepairScanBtnText => IsRepairScanning
