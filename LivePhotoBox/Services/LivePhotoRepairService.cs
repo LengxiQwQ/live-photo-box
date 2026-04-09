@@ -25,8 +25,8 @@ namespace LivePhotoBox.Services
 
     public static class LivePhotoRepairService
     {
-        private static readonly string ExifToolPath = Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool", "exiftool.exe");
-        private static readonly string JpegTranPath = Path.Combine(AppContext.BaseDirectory, "Tools", "jpegtran", "jpegtran.exe");
+        private static readonly string ExifToolPath = Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
+        private static readonly string JpegTranPath = Path.Combine(AppContext.BaseDirectory, "Tools", "jpegtran.exe");
 
         /// <summary>
         /// 1. 扫描与诊断文件
@@ -35,9 +35,9 @@ namespace LivePhotoBox.Services
         {
             // 防御1：检查工具是否真的被复制到了运行目录
             if (!File.Exists(ExifToolPath))
-                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "找不到: Tools\\exiftool\\exiftool.exe" };
+                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "找不到: Tools\\exiftool.exe" };
             if (!File.Exists(JpegTranPath))
-                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "找不到: Tools\\jpegtran\\jpegtran.exe" };
+                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "找不到: Tools\\jpegtran.exe" };
 
             try
             {
