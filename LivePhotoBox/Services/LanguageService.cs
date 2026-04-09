@@ -22,6 +22,17 @@ namespace LivePhotoBox.Services
             return "en-US";
         }
 
+        public static string GetCurrentLanguageTag()
+        {
+            var primary = Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride;
+            if (!string.IsNullOrWhiteSpace(primary)) return primary;
+
+            var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
+            if (systemLangs.Count > 0) return systemLangs[0];
+
+            return "en-US";
+        }
+
         public static void ApplyLanguageOverride(int languageIndex)
         {
             ApplyLanguageOverride(GetEffectiveLanguage(languageIndex));

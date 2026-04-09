@@ -297,6 +297,7 @@ namespace LivePhotoBox.ViewModels
             SetRepairStatus("RepairPage_Status_Ready");
             ActionBtnText = ResourceService.GetString("Btn_StartCombo");
             SplitActionBtnText = ResourceService.GetString("Btn_StartSplit");
+            RepairActionBtnText = ResourceService.GetString("Btn_StartRepair");
             LoadSettings();
             LanguageService.ApplyLanguageOverride(LanguageIndex);
             RefreshCrashLogs();
@@ -956,15 +957,38 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private int _repairThumbCorrectCount = 0;
         [ObservableProperty] private int _repairThumbErrorCount = 0;
 
-        [ObservableProperty] private bool _isRepairNotProcessing = true;
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RepairSecondaryBtnText))]
+        [NotifyPropertyChangedFor(nameof(RepairActionBtnText))]
+        private bool _isRepairProcessing = false;
+        public bool IsRepairNotProcessing => !IsRepairProcessing;
         [ObservableProperty] private string _repairProgressText = "0/0";
         [ObservableProperty] private double _repairProgress = 0;
-        [ObservableProperty] private string _repairSecondaryBtnText = "清空列表";
-        [ObservableProperty] private string _repairActionBtnText = "开始修复";
+        private string _repairActionBtnText = string.Empty;
+        public string RepairActionBtnText
+        {
+            get => string.IsNullOrWhiteSpace(_repairActionBtnText)
+                ? ResourceService.GetString("RepairPage_StartButton.Content")
+                : _repairActionBtnText;
+            set => SetProperty(ref _repairActionBtnText, value);
+        }
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RepairSecondaryBtnText))]
+private bool _isRepairPaused = false;
 
         public BulkObservableCollection<LivePhotoRepairTask> RepairTasks { get; } = [];
 
         private CancellationTokenSource? _repairCancellationTokenSource;
+        private readonly ManualResetEventSlim _repairPauseEvent = new(true);
+
+        public string RepairSecondaryBtnText
+        {
+            get
+            {
+                if (!IsRepairProcessing) return ResourceService.GetString("Btn_ClearList");
+                return IsRepairPaused ? ResourceService.GetString("Btn_Resume") : ResourceService.GetString("Btn_Pause");
+            }
+        }
 
         // 【在这里！新增了选择输入目录的命令】
         [RelayCommand]
@@ -993,7 +1017,6 @@ namespace LivePhotoBox.ViewModels
         {
             if (string.IsNullOrWhiteSpace(RepairInputDirectory) || !Directory.Exists(RepairInputDirectory)) return;
 
-            IsRepairNotProcessing = false;
             RepairTasks.ReplaceRange([]);
             RepairTotalPhotosCount = 0;
             RepairThumbCorrectCount = 0;
@@ -1024,7 +1047,7 @@ namespace LivePhotoBox.ViewModels
                         IssueDescription = analysis.IssueDescription,
                         NeedsRepair = analysis.NeedsRepair,
                         Status = ProcessStatus.Pending,
-                        Details = analysis.NeedsRepair ? "等待修复" : "跳过",
+                        Details = analysis.NeedsRepair ? ResourceService.GetString("RepairPage_Task_WaitingRepair") : ResourceService.GetString("RepairPage_Task_Skipped"),
                         AnalysisResult = analysis
                     };
 
@@ -1037,7 +1060,7 @@ namespace LivePhotoBox.ViewModels
                 }
             });
 
-            IsRepairNotProcessing = true;
+            // Leave processing flag unchanged; scanning is not the same as running repair
             IsRepairDirectoryPanelOpen = RepairTotalPhotosCount == 0;
             SetRepairStatus("Status_ScanDone", RepairTotalPhotosCount);
         }
@@ -1045,7 +1068,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ToggleRepairSecondaryAction()
         {
-            if (IsRepairNotProcessing)
+            if (!IsRepairProcessing)
             {
                 RepairTasks.ReplaceRange([]);
                 RepairTotalPhotosCount = 0;
@@ -1058,17 +1081,29 @@ namespace LivePhotoBox.ViewModels
             }
             else
             {
-                _repairCancellationTokenSource?.Cancel();
+                if (IsRepairPaused)
+                {
+                    IsRepairPaused = false;
+                    SetRepairStatus("Status_Resumed");
+                    _repairPauseEvent.Set();
+                }
+                else
+                {
+                    IsRepairPaused = true;
+                    SetRepairStatus("Status_Paused");
+                    _repairPauseEvent.Reset();
+                }
             }
         }
 
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleRepairProcessAsync()
         {
-            if (!IsRepairNotProcessing)
+            if (IsRepairProcessing)
             {
                 _repairCancellationTokenSource?.Cancel();
-                RepairActionBtnText = "正在停止...";
+                _repairPauseEvent.Set();
+                RepairActionBtnText = ResourceService.GetString("Btn_Stopping");
                 return;
             }
 
@@ -1092,9 +1127,8 @@ namespace LivePhotoBox.ViewModels
 
         private async Task RunRepairTasksAsync()
         {
-            IsRepairNotProcessing = false;
-            RepairActionBtnText = "停止修复";
-            RepairSecondaryBtnText = "取消任务";
+            IsRepairProcessing = true;
+            RepairActionBtnText = ResourceService.GetString("Btn_StopRun");
             SetRepairStatus("Status_Running");
 
             _repairCancellationTokenSource?.Dispose();
@@ -1109,6 +1143,8 @@ namespace LivePhotoBox.ViewModels
                 {
                     foreach (var task in RepairTasks)
                     {
+                        // 支持暂停/继续
+                        _repairPauseEvent.Wait(_repairCancellationTokenSource!.Token);
                         _repairCancellationTokenSource.Token.ThrowIfCancellationRequested();
 
                         if (!task.NeedsRepair || task.Status == ProcessStatus.Success)
@@ -1127,13 +1163,28 @@ namespace LivePhotoBox.ViewModels
                             ? Path.Combine(RepairOutputDirectory, task.FileName)
                             : task.FilePath;
 
-                        var result = await LivePhotoRepairService.RepairAsync(task.FilePath, targetPath, task.AnalysisResult!, _repairCancellationTokenSource.Token);
+                        try
+                        {
+                            var result = await LivePhotoRepairService.RepairAsync(task.FilePath, targetPath, task.AnalysisResult!, _repairCancellationTokenSource.Token);
+                            App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                            {
+                                task.Status = result.Success ? ProcessStatus.Success : ProcessStatus.Failed;
+                                task.Details = result.Message;
+                            });
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                            {
+                                task.Status = ProcessStatus.Failed;
+                                task.Details = ResourceService.GetString("Status_Aborted") ?? "已停止";
+                            });
+                            throw;
+                        }
 
                         completedOrSkipped++;
                         App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                         {
-                            task.Status = result.Success ? ProcessStatus.Success : ProcessStatus.Failed;
-                            task.Details = result.Message;
                             RepairProgress = (completedOrSkipped * 100.0) / RepairTotalPhotosCount;
                             RepairProgressText = $"{completedOrSkipped}/{RepairTotalPhotosCount}";
                         });
@@ -1147,9 +1198,9 @@ namespace LivePhotoBox.ViewModels
             finally
             {
                 stopwatch.Stop();
-                IsRepairNotProcessing = true;
-                RepairActionBtnText = "开始修复";
-                RepairSecondaryBtnText = "清空列表";
+                IsRepairProcessing = false;
+                RepairActionBtnText = ResourceService.GetString("Btn_StartRepair");
+                IsRepairPaused = false;
 
                 if (RepairProgress >= 100)
                 {

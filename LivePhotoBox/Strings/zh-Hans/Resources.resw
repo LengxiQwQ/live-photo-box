@@ -580,6 +580,9 @@
   <data name="RepairPage_StartButton.Content" xml:space="preserve">
     <value>开始修复</value>
   </data>
+  <data name="Btn_StartRepair" xml:space="preserve">
+    <value>开始修复</value>
+  </data>
   <data name="RepairPage_ColSource.Text" xml:space="preserve">
     <value>待修复文件</value>
   </data>
@@ -597,6 +600,15 @@
   </data>
   <data name="RepairPage_TaskPending" xml:space="preserve">
     <value>等待分析元数据...</value>
+  </data>
+  <data name="RepairPage_Task_WaitingRepair" xml:space="preserve">
+    <value>等待修复</value>
+  </data>
+  <data name="RepairPage_Task_Skipped" xml:space="preserve">
+    <value>跳过</value>
+  </data>
+  <data name="RepairPage_Task_NoRepair" xml:space="preserve">
+    <value>无需修复</value>
   </data>
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
     <value>© 2026 LengxiQwQ 保留所有权利</value>
@@ -799,5 +811,50 @@
   </data>
   <data name="RepairPage_ColIssue.Text" xml:space="preserve">
     <value>诊断结果</value>
+  </data>
+  <data name="Error_ExifToolMissing" xml:space="preserve">
+    <value>找不到核心工具: Tools\exiftool.exe</value>
+  </data>
+  <data name="Error_JpegTranMissing" xml:space="preserve">
+    <value>找不到核心工具: Tools\jpegtran.exe</value>
+  </data>
+  <data name="Error_CannotStartExifTool" xml:space="preserve">
+    <value>无法启动 exiftool 进程</value>
+  </data>
+  <data name="Error_CannotStartJpegTran" xml:space="preserve">
+    <value>无法启动 jpegtran 进程</value>
+  </data>
+  <data name="Error_ExifToolError" xml:space="preserve">
+    <value>ExifTool 报错: {0}</value>
+  </data>
+  <data name="Error_CSharpException" xml:space="preserve">
+    <value>内部异常: {0}</value>
+  </data>
+  <data name="Tag_HorizontalStretch" xml:space="preserve">
+    <value>像素横向拉伸</value>
+  </data>
+  <data name="Tag_VerticalStretch" xml:space="preserve">
+    <value>像素纵向拉伸</value>
+  </data>
+  <data name="Tag_RotationLabel" xml:space="preserve">
+    <value>带 {0}° 旋转标签</value>
+  </data>
+  <data name="Tag_MissingRotationLabel" xml:space="preserve">
+    <value>缺失旋转标签</value>
+  </data>
+  <data name="Tag_ExtraThumbnail" xml:space="preserve">
+    <value>多余缩略图</value>
+  </data>
+  <data name="Status_Perfect" xml:space="preserve">
+    <value>无需修复</value>
+  </data>
+  <data name="Status_RepairSuccess" xml:space="preserve">
+    <value>修复成功</value>
+  </data>
+  <data name="Status_Cancelled" xml:space="preserve">
+    <value>已取消</value>
+  </data>
+  <data name="Status_RepairFailed" xml:space="preserve">
+    <value>修复失败: {0}</value>
   </data>
 </root>

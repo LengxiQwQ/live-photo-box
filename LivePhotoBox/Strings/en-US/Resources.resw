@@ -584,6 +584,9 @@ Click the [Batch Convert], [Extract &amp; Split], or [Repair Tool] buttons on th
   <data name="RepairPage_StartButton.Content" xml:space="preserve">
     <value>Start Repair</value>
   </data>
+  <data name="Btn_StartRepair" xml:space="preserve">
+    <value>Start Repair</value>
+  </data>
   <data name="RepairPage_ColSource.Text" xml:space="preserve">
     <value>File to Repair</value>
   </data>
@@ -601,6 +604,15 @@ Click the [Batch Convert], [Extract &amp; Split], or [Repair Tool] buttons on th
   </data>
   <data name="RepairPage_TaskPending" xml:space="preserve">
     <value>Waiting to analyze metadata...</value>
+  </data>
+  <data name="RepairPage_Task_WaitingRepair" xml:space="preserve">
+    <value>Waiting for repair</value>
+  </data>
+  <data name="RepairPage_Task_Skipped" xml:space="preserve">
+    <value>Skipped</value>
+  </data>
+  <data name="RepairPage_Task_NoRepair" xml:space="preserve">
+    <value>No repair needed</value>
   </data>
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
     <value>© 2026 LengxiQwQ All rights reserved</value>
@@ -803,5 +815,50 @@ Log file: {0}</value>
   </data>
   <data name="RepairPage_ColIssue.Text" xml:space="preserve">
     <value>Diagnosis</value>
+  </data>
+  <data name="Error_ExifToolMissing" xml:space="preserve">
+    <value>Missing core tool: Tools\exiftool.exe</value>
+  </data>
+  <data name="Error_JpegTranMissing" xml:space="preserve">
+    <value>Missing core tool: Tools\jpegtran.exe</value>
+  </data>
+  <data name="Error_CannotStartExifTool" xml:space="preserve">
+    <value>Failed to start exiftool process</value>
+  </data>
+  <data name="Error_CannotStartJpegTran" xml:space="preserve">
+    <value>Failed to start jpegtran process</value>
+  </data>
+  <data name="Error_ExifToolError" xml:space="preserve">
+    <value>ExifTool error: {0}</value>
+  </data>
+  <data name="Error_CSharpException" xml:space="preserve">
+    <value>Internal exception: {0}</value>
+  </data>
+  <data name="Tag_HorizontalStretch" xml:space="preserve">
+    <value>Horizontally stretched</value>
+  </data>
+  <data name="Tag_VerticalStretch" xml:space="preserve">
+    <value>Vertically stretched</value>
+  </data>
+  <data name="Tag_RotationLabel" xml:space="preserve">
+    <value>With {0}° rotation label</value>
+  </data>
+  <data name="Tag_MissingRotationLabel" xml:space="preserve">
+    <value>Missing rotation label</value>
+  </data>
+  <data name="Tag_ExtraThumbnail" xml:space="preserve">
+    <value>Extra thumbnail</value>
+  </data>
+  <data name="Status_Perfect" xml:space="preserve">
+    <value>No repair needed</value>
+  </data>
+  <data name="Status_RepairSuccess" xml:space="preserve">
+    <value>Repair successful</value>
+  </data>
+  <data name="Status_Cancelled" xml:space="preserve">
+    <value>Cancelled</value>
+  </data>
+  <data name="Status_RepairFailed" xml:space="preserve">
+    <value>Repair failed: {0}</value>
   </data>
 </root>

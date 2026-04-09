@@ -16,24 +16,63 @@ namespace LivePhotoBox.Models
 
         [ObservableProperty] private string _issueDescription = string.Empty;
         [ObservableProperty] private bool _needsRepair = false;
-        [ObservableProperty] private string _details = "等待扫描";
+        [ObservableProperty] private string _details = ResourceService.GetString("RepairPage_TaskPending");
 
         public RepairAnalysisResult? AnalysisResult { get; set; }
 
         public string DisplayFileName => TruncateFileName(FileName);
 
-        [ObservableProperty]
-        [NotifyPropertyChangedFor(nameof(ThumbnailPlaceholderVisibility))]
-        private ImageSource? _thumbnail;
-
         public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
         private bool _isLoadingThumbnail = false;
+        private ImageSource? _thumbnail;
+
+        public ImageSource? Thumbnail
+        {
+            get => _thumbnail;
+            set
+            {
+                if (_thumbnail == value) return;
+
+                var dispatcher = App.MainWindow?.DispatcherQueue;
+                if (dispatcher != null && !dispatcher.HasThreadAccess)
+                {
+                    dispatcher.TryEnqueue(() => Thumbnail = value);
+                    return;
+                }
+
+                SetProperty(ref _thumbnail, value);
+                OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
+            }
+        }
 
         partial void OnFilePathChanged(string value)
         {
             _isLoadingThumbnail = false;
             Thumbnail = ThumbnailService.GetCached(value);
+
+            if (Thumbnail == null && !string.IsNullOrWhiteSpace(value))
+            {
+                var dispatcher = App.MainWindow?.DispatcherQueue;
+                if (dispatcher != null)
+                {
+                    _ = AutoLoadThumbnailAsync(value, dispatcher);
+                }
+            }
+        }
+
+        private async Task AutoLoadThumbnailAsync(string path, Microsoft.UI.Dispatching.DispatcherQueue dispatcher)
+        {
+            if (_isLoadingThumbnail) return;
+            _isLoadingThumbnail = true;
+            try
+            {
+                Thumbnail = await ThumbnailService.LoadAsync(path, dispatcher);
+            }
+            finally
+            {
+                _isLoadingThumbnail = false;
+            }
         }
 
         public async Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
@@ -46,16 +85,39 @@ namespace LivePhotoBox.Models
                 return;
             }
 
-            _isLoadingThumbnail = true;
-            try
+            dispatcher ??= App.MainWindow?.DispatcherQueue;
+            if (dispatcher != null)
             {
-                dispatcher ??= App.MainWindow?.DispatcherQueue ?? Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-                Thumbnail = await ThumbnailService.LoadAsync(FilePath, dispatcher);
+                await AutoLoadThumbnailAsync(FilePath, dispatcher);
             }
-            finally
+        }
+
+        // ==========================================
+        // UI 显示优化拦截器：仅将 "跳过/无需修复" 的颜色强制转为绿色，不改变文字
+        // ==========================================
+        public ProcessStatus DisplayStatus
+        {
+            get
             {
-                _isLoadingThumbnail = false;
+                var skipped = ResourceService.GetString("RepairPage_Task_Skipped");
+                var noRepair = ResourceService.GetString("RepairPage_Task_NoRepair");
+                // Keep checking for the English word "Perfect" as a fallback
+                if (!string.IsNullOrEmpty(Details) && (Details.Contains(skipped) || Details.Contains(noRepair) || Details.Contains("Perfect")))
+                {
+                    return ProcessStatus.Success; // 强制返回 Success 以触发绿色显示
+                }
+                return Status;
             }
+        }
+
+        partial void OnDetailsChanged(string value)
+        {
+            OnPropertyChanged(nameof(DisplayStatus));
+        }
+
+        partial void OnStatusChanged(ProcessStatus value)
+        {
+            OnPropertyChanged(nameof(DisplayStatus));
         }
 
         private string TruncateFileName(string fileName)
@@ -64,7 +126,7 @@ namespace LivePhotoBox.Models
             string ext = Path.GetExtension(fileName);
             string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
             if (nameWithoutExt.Length <= 30) return fileName;
-            return $"{nameWithoutExt.Substring(0, 22)}...{nameWithoutExt.Substring(nameWithoutExt.Length - 8)}{ext}";
+            return $"{nameWithoutExt.Substring(0, 21)}...{nameWithoutExt.Substring(nameWithoutExt.Length - 8)}{ext}";
         }
     }
 }

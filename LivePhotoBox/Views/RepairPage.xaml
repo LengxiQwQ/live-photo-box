@@ -162,7 +162,7 @@
 
                             <TextBlock x:Uid="RepairPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                             <TextBlock x:Uid="RepairPage_ColFile" Grid.Column="1" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="RepairPage_ColIssue" Grid.Column="2" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="RepairPage_ColIssue" Grid.Column="2" Margin="24,0,0,0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                             <TextBlock x:Uid="RepairPage_ColStatus" Grid.Column="3" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                         </Grid>
                     </ListView.Header>
@@ -218,15 +218,15 @@
                                         </StackPanel>
                                     </StackPanel>
 
-                                    <StackPanel Grid.Column="2" VerticalAlignment="Center">
+                                    <StackPanel Grid.Column="2" Margin="24,0,0,0" VerticalAlignment="Center">
                                         <TextBlock Text="{x:Bind IssueDescription}" 
                                                    Foreground="{ThemeResource TextFillColorPrimaryBrush}" 
-                                                   FontSize="13" TextWrapping="Wrap" MaxLines="2"/>
+                                                   FontSize="13" TextWrapping="Wrap" />
                                     </StackPanel>
 
                                     <TextBlock Grid.Column="3" 
                                                Text="{x:Bind Details, Mode=OneWay}" 
-                                               Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
+                                               Foreground="{x:Bind DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
                                                VerticalAlignment="Center" 
                                                FontWeight="SemiBold" 
                                                FontSize="13" />

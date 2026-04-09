@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -33,22 +35,20 @@ namespace LivePhotoBox.Services
         /// </summary>
         public static async Task<RepairAnalysisResult> AnalyzeFileAsync(string filePath)
         {
-            // 防御1：检查工具是否真的被复制到了运行目录
             if (!File.Exists(ExifToolPath))
-                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "找不到: Tools\\exiftool.exe" };
+                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_ExifToolMissing") };
             if (!File.Exists(JpegTranPath))
-                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "找不到: Tools\\jpegtran.exe" };
+                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_JpegTranMissing") };
 
             try
             {
-                // 【核心修复区域：绕过 WinUI 3 沙盒解压限制】
                 string tempDir = Path.GetTempPath();
                 string toolDir = Path.GetDirectoryName(ExifToolPath) ?? AppContext.BaseDirectory;
 
                 var psi = new ProcessStartInfo
                 {
                     FileName = ExifToolPath,
-                    WorkingDirectory = toolDir, // 显式指定工作目录
+                    WorkingDirectory = toolDir,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -56,7 +56,6 @@ namespace LivePhotoBox.Services
                     StandardOutputEncoding = System.Text.Encoding.UTF8
                 };
 
-                // 强制将 ExifTool 的临时解压目录指向本机实际的 Temp 文件夹
                 psi.Environment["TEMP"] = tempDir;
                 psi.Environment["TMP"] = tempDir;
                 psi.Environment["PAR_GLOBAL_TMPDIR"] = tempDir;
@@ -69,7 +68,7 @@ namespace LivePhotoBox.Services
                 psi.ArgumentList.Add(filePath);
 
                 using var process = Process.Start(psi);
-                if (process == null) throw new Exception("无法启动 exiftool 进程");
+                if (process == null) throw new Exception(ResourceService.GetString("Error_CannotStartExifTool"));
 
                 string output = await process.StandardOutput.ReadToEndAsync();
                 string error = await process.StandardError.ReadToEndAsync();
@@ -77,7 +76,7 @@ namespace LivePhotoBox.Services
 
                 if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
                 {
-                    return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = $"ExifTool报错: {error.Trim()}" };
+                    return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.Format("Error_ExifToolError", error.Trim()) };
                 }
 
                 using var doc = JsonDocument.Parse(output);
@@ -91,26 +90,74 @@ namespace LivePhotoBox.Services
                 bool hasThumb = root.TryGetProperty("ThumbnailImage", out _);
 
                 int angle = 0;
-                if (orientation.Contains("Rotate 90 CW", StringComparison.OrdinalIgnoreCase)) angle = 90;
-                else if (orientation.Contains("Rotate 180", StringComparison.OrdinalIgnoreCase)) angle = 180;
-                else if (orientation.Contains("Rotate 270 CW", StringComparison.OrdinalIgnoreCase)) angle = 270;
+                if (orientation.Contains("90", StringComparison.OrdinalIgnoreCase)) angle = 90;
+                else if (orientation.Contains("180", StringComparison.OrdinalIgnoreCase)) angle = 180;
+                else if (orientation.Contains("270", StringComparison.OrdinalIgnoreCase)) angle = 270;
 
-                if (w > h && angle > 0)
+                var tags = new List<string>();
+
+                if (w > h)
                 {
-                    return new RepairAnalysisResult { IssueType = RepairIssueType.NeedsRebuild, IssueDescription = "底层歪斜，需重构并剥离", RotationAngle = angle };
+                    tags.Add($"[{ResourceService.GetString("Tag_HorizontalStretch")}]");
+                    if (angle > 0)
+                        tags.Add($"[{ResourceService.Format("Tag_RotationLabel", angle)}]");
+                    else
+                        tags.Add($"[{ResourceService.GetString("Tag_MissingRotationLabel")}]");
                 }
-                else if (hasThumb)
+                else if (w < h && angle > 0)
                 {
-                    return new RepairAnalysisResult { IssueType = RepairIssueType.NeedsStrip, IssueDescription = "包含多余缩略图，需瘦身清理" };
+                    tags.Add($"[{ResourceService.GetString("Tag_VerticalStretch")}]");
+                    tags.Add($"[{ResourceService.Format("Tag_RotationLabel", angle)}]");
+                }
+
+                if (hasThumb)
+                {
+                    tags.Add($"[{ResourceService.GetString("Tag_ExtraThumbnail")}]");
+                }
+
+                if (tags.Count == 0)
+                {
+                    return new RepairAnalysisResult
+                    {
+                        IssueType = RepairIssueType.Perfect,
+                        IssueDescription = $"[{ResourceService.GetString("Status_Perfect")}]",
+                        RotationAngle = 0
+                    };
                 }
                 else
                 {
-                    return new RepairAnalysisResult { IssueType = RepairIssueType.Perfect, IssueDescription = "状态完美，无需修复" };
+                    bool needsRebuild = (w > h) || angle > 0;
+                    RepairIssueType type = needsRebuild ? RepairIssueType.NeedsRebuild : RepairIssueType.NeedsStrip;
+
+                    // 根据语言决定格式：中文环境每两个标签换行，其他语言一行显示所有标签
+                    string lang = LanguageService.GetCurrentLanguageTag();
+                    string finalDescription;
+                    if (!string.IsNullOrWhiteSpace(lang) && lang.StartsWith("zh", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var formattedLines = new List<string>();
+                        for (int i = 0; i < tags.Count; i += 2)
+                        {
+                            var lineTags = tags.Skip(i).Take(2);
+                            formattedLines.Add(string.Join(" ", lineTags));
+                        }
+                        finalDescription = string.Join("\n", formattedLines);
+                    }
+                    else
+                    {
+                        finalDescription = string.Join(" ", tags);
+                    }
+
+                    return new RepairAnalysisResult
+                    {
+                        IssueType = type,
+                        IssueDescription = finalDescription,
+                        RotationAngle = angle
+                    };
                 }
             }
             catch (Exception ex)
             {
-                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = $"C#内部异常: {ex.Message}" };
+                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.Format("Error_CSharpException", ex.Message) };
             }
         }
 
@@ -141,15 +188,15 @@ namespace LivePhotoBox.Services
                 if (File.Exists(targetPath)) File.Delete(targetPath);
                 File.Move(tempJpg, targetPath);
 
-                return (true, "修复成功");
+                return (true, ResourceService.GetString("Status_RepairSuccess"));
             }
             catch (OperationCanceledException)
             {
-                return (false, "已取消");
+                return (false, ResourceService.GetString("Status_Cancelled"));
             }
             catch (Exception ex)
             {
-                return (false, $"修复失败: {ex.Message}");
+                return (false, ResourceService.Format("Status_RepairFailed", ex.Message));
             }
             finally
             {
@@ -172,7 +219,7 @@ namespace LivePhotoBox.Services
             foreach (var arg in args) psi.ArgumentList.Add(arg);
 
             using var process = Process.Start(psi);
-            if (process == null) throw new Exception("无法启动 jpegtran");
+            if (process == null) throw new Exception(ResourceService.GetString("Error_CannotStartJpegTran"));
 
             string error = await process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
@@ -196,7 +243,6 @@ namespace LivePhotoBox.Services
                 StandardOutputEncoding = System.Text.Encoding.UTF8
             };
 
-            // 【核心修复区域】
             psi.Environment["TEMP"] = tempDir;
             psi.Environment["TMP"] = tempDir;
             psi.Environment["PAR_GLOBAL_TMPDIR"] = tempDir;
@@ -206,7 +252,7 @@ namespace LivePhotoBox.Services
             foreach (var arg in args) psi.ArgumentList.Add(arg);
 
             using var process = Process.Start(psi);
-            if (process == null) throw new Exception("无法启动 exiftool");
+            if (process == null) throw new Exception(ResourceService.GetString("Error_CannotStartExifTool"));
 
             string error = await process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
