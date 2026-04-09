@@ -22,24 +22,33 @@
             <Setter Property="HorizontalContentAlignment" Value="Left"/>
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
+
+        <Style x:Key="AboutSectionHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,12,0,4"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+        </Style>
+
+        <Style x:Key="AboutContentTextStyle" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="LineHeight" Value="22"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
     </Page.Resources>
 
     <ScrollViewer Padding="40,24,40,0">
-        <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center" Margin="0,0,0,40">
+        <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center" Margin="0,0,0="40">
 
             <Grid Margin="0,28,0,4" HorizontalAlignment="Stretch">
-                <Border
-                    MaxWidth="220"
-                    MinWidth="220"
-                    Height="220"
-                    Padding="0"
-                    CornerRadius="30"
-                    HorizontalAlignment="Center"
-                    Background="{ThemeResource CardBackgroundBrush}"
-                    BorderThickness="1"
-                    BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <Image Source="/Assets/AppIcon-full.png" Stretch="Uniform"/>
-                </Border>
+            <Border MaxWidth="220" MinWidth="220" Height="220" Padding="0" CornerRadius="30"
+                        HorizontalAlignment="Center" Background="{ThemeResource CardBackgroundBrush}"
+                        BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                <Image Source="/Assets/AppIcon-full.png" Stretch="Uniform"/>
+            </Border>
             </Grid>
 
             <TextBlock x:Uid="AboutPage_Title" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" FontFamily="Microsoft YaHei UI"/>
@@ -98,6 +107,25 @@
                     </Grid>
                 </StackPanel>
             </Border>
+
+            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                <StackPanel>
+                    <TextBlock x:Uid="AboutPage_MotivationTitle" Style="{StaticResource AboutSectionHeaderStyle}"/>
+                    <TextBlock x:Uid="AboutPage_MotivationContent" Style="{StaticResource AboutContentTextStyle}"/>
+
+                    <TextBlock x:Uid="AboutPage_CreditsTitle" Style="{StaticResource AboutSectionHeaderStyle}"/>
+                    <TextBlock x:Uid="AboutPage_ExifToolDesc" Style="{StaticResource AboutContentTextStyle}"/>
+                    <TextBlock x:Uid="AboutPage_JpegTranDesc" Style="{StaticResource AboutContentTextStyle}"/>
+
+                    <TextBlock x:Uid="AboutPage_PrivacyTitle" Style="{StaticResource AboutSectionHeaderStyle}"/>
+                    <TextBlock x:Uid="AboutPage_PrivacyContent" Style="{StaticResource AboutContentTextStyle}"/>
+
+                    <TextBlock x:Uid="AboutPage_DisclaimerTitle" Style="{StaticResource AboutSectionHeaderStyle}"/>
+                    <TextBlock x:Uid="AboutPage_DisclaimerContent" Style="{StaticResource AboutContentTextStyle}" FontSize="13" Opacity="0.8"/>
+                </StackPanel>
+            </Border>
+
         </StackPanel>
     </ScrollViewer>
 </Page>

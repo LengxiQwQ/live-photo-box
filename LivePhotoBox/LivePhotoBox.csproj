@@ -59,6 +59,9 @@
 		<None Remove="Views\AboutPage.xaml" />
 		<None Remove="Views\ComboPage.xaml" />
 		<None Remove="Views\HomePage.xaml" />
+        <!-- Remove any residual font assets that were deleted from disk but still referenced by the project -->
+		<Content Remove="Assets\Fonts\**\*.*" />
+		<None Remove="Assets\Fonts\**\*.*" />
 	</ItemGroup>
 
  <ItemGroup>

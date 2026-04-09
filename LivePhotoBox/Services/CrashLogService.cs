@@ -77,8 +77,54 @@ namespace LivePhotoBox.Services
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx buffer);
 
-        [DllImport("KernelBase.dll", CharSet = CharSet.Unicode)]
-        private static extern int WerRegisterAppLocalDump(string localAppDataRelativePath);
+        // Dynamically resolve WerRegisterAppLocalDump to avoid hard P/Invoke which may cause
+        // access violations on some Windows versions or configurations when the symbol
+        // is unavailable or has mismatched signature. We attempt to load the function
+        // at runtime and call it safely.
+        private delegate int WerRegisterAppLocalDumpDelegate([MarshalAs(UnmanagedType.LPWStr)] string localAppDataRelativePath);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern IntPtr LoadLibrary(string lpFileName);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, SetLastError = true)]
+        private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool FreeLibrary(IntPtr hModule);
+
+        private static bool TryRegisterAppLocalDump(string localAppDataRelativePath)
+        {
+            IntPtr hModule = LoadLibrary("KernelBase.dll");
+            if (hModule == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            try
+            {
+                IntPtr proc = GetProcAddress(hModule, "WerRegisterAppLocalDump");
+                if (proc == IntPtr.Zero)
+                {
+                    return false;
+                }
+
+                var del = Marshal.GetDelegateForFunctionPointer<WerRegisterAppLocalDumpDelegate>(proc);
+
+                try
+                {
+                    _ = del(localAppDataRelativePath);
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+            finally
+            {
+                FreeLibrary(hModule);
+            }
+        }
 
         public static void Initialize(Application app)
         {
@@ -342,7 +388,8 @@ namespace LivePhotoBox.Services
             try
             {
                 Directory.CreateDirectory(GetDumpDirectory());
-                _ = WerRegisterAppLocalDump(CrashDumpRelativeDirectory);
+                // Try to register local dump capture if the function is available on this system.
+                _ = TryRegisterAppLocalDump(CrashDumpRelativeDirectory);
             }
             catch
             {

@@ -878,14 +878,14 @@
     <value>将静态图片与视频无缝结合，生成一张能在各设备上灵动显示的实况照片（Live Photo）。</value>
   </data>
   <data name="HomePage_MergeUsage.Text" xml:space="preserve">
-    <value>将准备好的图片和视频文件配对导入，点击“开始合成”，剩下的交给我们哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈。</value>
+    <value>将准备好的图片和视频文件配对导入，点击“开始合成”，剩下的交给我们。</value>
   </data>
 
   <data name="HomePage_SplitTitle.Text" xml:space="preserve">
     <value>实况照片拆分</value>
   </data>
   <data name="HomePage_SplitDesc.Text" xml:space="preserve">
-    <value>将现有的实况照片进行无损解包，提取出原始的静态画面与动态视频。</value>
+    <value>将现有的实况照片进行无损解包，提取出原始的静态画面与动态视频哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈。</value>
   </data>
   <data name="HomePage_SplitUsage.Text" xml:space="preserve">
     <value>拖入你的实况照片，一键即可分离出独立的图像和视频文件。</value>
@@ -912,5 +912,35 @@
   </data>
   <data name="HomePage_KeyPhotoUsage.Text" xml:space="preserve">
     <value>敬请期待！我们正在快马加鞭地为你打造此功能，很快就能与你见面。</value>
+  </data>
+
+
+  <data name="AboutPage_MotivationTitle.Text" xml:space="preserve">
+    <value>开发初衷</value>
+  </data>
+  <data name="AboutPage_MotivationContent.Text" xml:space="preserve">
+    <value>我有个习惯，喜欢把照片备份到电脑。但苹果的实况照片在 Windows 上会变成为独立的图片和视频，查看体验极差。一气之下就开发了这款工具。强迫症患者迎来春天！</value>
+  </data>
+  <data name="AboutPage_CreditsTitle.Text" xml:space="preserve">
+    <value>开源致谢</value>
+  </data>
+  <data name="AboutPage_ExifToolDesc.Text" xml:space="preserve">
+    <value>ExifTool (by Phil Harvey)：负责全局复杂的元数据解析、注入与 XMP 结构重构。</value>
+  </data>
+  <data name="AboutPage_JpegTranDesc.Text" xml:space="preserve">
+    <value>JPEGTran (IJG)：负责 JPEG 图像的无损处理。通过 DCT 系数空间无损变换算法，在不重新编码的情况下实现物理层面的零损耗旋转。</value>
+  </data>
+  <data name="AboutPage_PrivacyTitle.Text" xml:space="preserve">
+    <value>隐私政策</value>
+  </data>
+  <data name="AboutPage_PrivacyContent.Text" xml:space="preserve">
+    <value>全本地化处理：本应用不包含任何网络请求代码。
+零隐私收集：所有操作均在您的本地计算机安全完成。</value>
+  </data>
+  <data name="AboutPage_DisclaimerTitle.Text" xml:space="preserve">
+    <value>免责声明</value>
+  </data>
+  <data name="AboutPage_DisclaimerContent.Text" xml:space="preserve">
+    <value>本软件按“原样”提供，不附带任何形式的明示或暗示担保。开发者 LengxiQwQ 不对因使用本软件（包括但不限于操作失误、系统兼容性或意外错误）导致的数据损坏、丢失或硬件故障承担法律责任。在进行大批量处理前，请务必养成先备份、后处理的习惯。</value>
   </data>
 </root>
