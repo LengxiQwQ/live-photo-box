@@ -860,4 +860,57 @@
   <data name="RepairPage_DynamicCancelText" xml:space="preserve">
     <value>取消扫描</value>
   </data>
+  <data name="HomePage_CoreFeaturesTitle.Text" xml:space="preserve">
+    <value>核心功能指南</value>
+  </data>
+
+  <data name="HomePage_FeatureIntroLabel.Text" xml:space="preserve">
+    <value>功能简介：</value>
+  </data>
+  <data name="HomePage_HowToUseLabel.Text" xml:space="preserve">
+    <value>如何使用：</value>
+  </data>
+  
+  <data name="HomePage_MergeTitle.Text" xml:space="preserve">
+    <value>实况照片合成</value>
+  </data>
+  <data name="HomePage_MergeDesc.Text" xml:space="preserve">
+    <value>将静态图片与视频无缝结合，生成一张能在各设备上灵动显示的实况照片（Live Photo）。</value>
+  </data>
+  <data name="HomePage_MergeUsage.Text" xml:space="preserve">
+    <value>将准备好的图片和视频文件配对导入，点击“开始合成”，剩下的交给我们哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈。</value>
+  </data>
+
+  <data name="HomePage_SplitTitle.Text" xml:space="preserve">
+    <value>实况照片拆分</value>
+  </data>
+  <data name="HomePage_SplitDesc.Text" xml:space="preserve">
+    <value>将现有的实况照片进行无损解包，提取出原始的静态画面与动态视频。</value>
+  </data>
+  <data name="HomePage_SplitUsage.Text" xml:space="preserve">
+    <value>拖入你的实况照片，一键即可分离出独立的图像和视频文件。</value>
+  </data>
+
+  <data name="HomePage_RepairTitle.Text" xml:space="preserve">
+    <value>缩略图修复</value>
+  </data>
+  <data name="HomePage_RepairDesc.Text" xml:space="preserve">
+    <value>修复因跨平台传输导致的实况照片不被识别、元数据丢失或缩略图显示异常等问题。</value>
+  </data>
+  <data name="HomePage_RepairUsage.Text" xml:space="preserve">
+    <value>选择遇到问题的实况照片，程序会自动重构并修复底层元数据，让照片恢复正常。</value>
+  </data>
+
+  <data name="HomePage_KeyPhotoTitle.Text" xml:space="preserve">
+    <value>主图切换</value>
+  </data>
+  <data name="HomePage_WIPLabel.Text" xml:space="preserve">
+    <value>开发中 🚧</value>
+  </data>
+  <data name="HomePage_KeyPhotoDesc.Text" xml:space="preserve">
+    <value>自由更改实况照片的封面主图，从动态画面中挑出最完美的一刻作为静态展示。</value>
+  </data>
+  <data name="HomePage_KeyPhotoUsage.Text" xml:space="preserve">
+    <value>敬请期待！我们正在快马加鞭地为你打造此功能，很快就能与你见面。</value>
+  </data>
 </root>
