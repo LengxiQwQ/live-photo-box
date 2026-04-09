@@ -864,4 +864,58 @@ Log file: {0}</value>
   <data name="RepairPage_DynamicCancelText" xml:space="preserve">
     <value>Cancel Scan</value>
   </data>
+
+  <data name="HomePage_CoreFeaturesTitle.Text" xml:space="preserve">
+    <value>Core Features Guide</value>
+  </data>
+
+  <data name="HomePage_FeatureIntroLabel.Text" xml:space="preserve">
+    <value>Overview: </value>
+  </data>
+  <data name="HomePage_HowToUseLabel.Text" xml:space="preserve">
+    <value>How to use: </value>
+  </data>
+  
+  <data name="HomePage_MergeTitle.Text" xml:space="preserve">
+    <value>Live Photo Merge</value>
+  </data>
+  <data name="HomePage_MergeDesc.Text" xml:space="preserve">
+    <value>Seamlessly combine a static image and a video to generate a dynamic Live Photo that works across devices.</value>
+  </data>
+  <data name="HomePage_MergeUsage.Text" xml:space="preserve">
+    <value>Import your paired image and video files, click "Start Merge", and let us handle the rest.</value>
+  </data>
+
+  <data name="HomePage_SplitTitle.Text" xml:space="preserve">
+    <value>Live Photo Split</value>
+  </data>
+  <data name="HomePage_SplitDesc.Text" xml:space="preserve">
+    <value>Losslessly unpack existing Live Photos to extract the original static frame and dynamic video.</value>
+  </data>
+  <data name="HomePage_SplitUsage.Text" xml:space="preserve">
+    <value>Drag and drop your Live Photos, and extract independent image and video files with a single click.</value>
+  </data>
+
+  <data name="HomePage_RepairTitle.Text" xml:space="preserve">
+    <value>Thumbnail Repair</value>
+  </data>
+  <data name="HomePage_RepairDesc.Text" xml:space="preserve">
+    <value>Fix unrecognized Live Photos, lost metadata, or thumbnail display issues caused by cross-platform transfers.</value>
+  </data>
+  <data name="HomePage_RepairUsage.Text" xml:space="preserve">
+    <value>Select the problematic Live Photos, and the program will automatically reconstruct the metadata to bring them back to life.</value>
+  </data>
+
+  <data name="HomePage_KeyPhotoTitle.Text" xml:space="preserve">
+    <value>Key Photo Switch</value>
+  </data>
+  <data name="HomePage_WIPLabel.Text" xml:space="preserve">
+    <value>WIP 🚧</value>
+  </data>
+  <data name="HomePage_KeyPhotoDesc.Text" xml:space="preserve">
+    <value>Freely change the cover photo of your Live Photo, picking the perfect moment from the dynamic frame.</value>
+  </data>
+  <data name="HomePage_KeyPhotoUsage.Text" xml:space="preserve">
+    <value>Stay tuned! We are working hard to build this feature and it will meet you soon.</value>
+  </data>
 </root>
