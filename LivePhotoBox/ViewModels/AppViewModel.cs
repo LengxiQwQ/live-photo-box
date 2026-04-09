@@ -352,6 +352,7 @@ namespace LivePhotoBox.ViewModels
             ElementTheme = AppSettingsService.GetValue(nameof(ElementTheme), 0);
             BackdropIndex = AppSettingsService.GetValue(nameof(BackdropIndex), 0);
             SelectedSplitFormatIndex = Math.Clamp(AppSettingsService.GetValue(nameof(SelectedSplitFormatIndex), 0), 0, 2);
+            IsRepairOutputToDirectory = AppSettingsService.GetValue(nameof(IsRepairOutputToDirectory), false);
         }
 
         private void OnPropertyChangedSave(object? sender, PropertyChangedEventArgs e)
@@ -364,6 +365,7 @@ namespace LivePhotoBox.ViewModels
                 case nameof(ElementTheme): AppSettingsService.SetValue(nameof(ElementTheme), ElementTheme); break;
                 case nameof(BackdropIndex): AppSettingsService.SetValue(nameof(BackdropIndex), BackdropIndex); break;
                 case nameof(SelectedSplitFormatIndex): AppSettingsService.SetValue(nameof(SelectedSplitFormatIndex), SelectedSplitFormatIndex); break;
+                case nameof(IsRepairOutputToDirectory): AppSettingsService.SetValue(nameof(IsRepairOutputToDirectory), IsRepairOutputToDirectory); break;
             }
         }
 
@@ -703,6 +705,7 @@ namespace LivePhotoBox.ViewModels
             ElementTheme = 0;
             SelectedModeIndex = 1;
             SelectedSplitFormatIndex = 0;
+            IsRepairOutputToDirectory = false;
         }
 
         private bool CanExportLatestCrashLog()
