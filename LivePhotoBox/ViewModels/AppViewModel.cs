@@ -222,6 +222,14 @@ namespace LivePhotoBox.ViewModels
         [NotifyPropertyChangedFor(nameof(SecondaryBtnText))]
         private bool _isProcessing = false;
 
+        // 👇=== 新增这部分：扫描状态 ===👇
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsNotScanning))]
+        private bool _isScanning = false;
+
+        public bool IsNotScanning => !IsScanning;
+        // 👆===========================👆
+
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(SecondaryBtnText))]
         private bool _isPaused = false;
@@ -733,60 +741,68 @@ namespace LivePhotoBox.ViewModels
         }
 
         [RelayCommand]
-        public void ScanDirectory()
+        public async Task ScanDirectoryAsync() // 修改为异步方法
         {
             CrashLogService.RecordBreadcrumb($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
 
-            if (IsProcessing) return;
+            // 如果正在合成或正在扫描，则不响应
+            if (IsProcessing || IsScanning) return;
+
             if (string.IsNullOrWhiteSpace(InputDirectory) || !Directory.Exists(InputDirectory))
             {
                 SetComboStatus("Status_InvalidInput");
                 return;
             }
 
-            ThumbnailService.ClearCache();
+            IsScanning = true; // 锁定按钮
 
-            var pendingText = ResourceService.GetString("Task_Pending");
-            var scanResult = LivePhotoScanService.Scan(InputDirectory);
-            var tasks = scanResult.Pairs.Select((pair, index) => new LivePhotoMergeTask
+            try
             {
-                Index = index + 1,
-                ImageFileName = Path.GetFileName(pair.ImagePath),
-                VideoFileName = Path.GetFileName(pair.VideoPath),
-                ImageSize = FormatFileSize(pair.ImageSizeBytes),
-                VideoSize = FormatFileSize(pair.VideoSizeBytes),
-                TotalSizeBytes = pair.ImageSizeBytes + pair.VideoSizeBytes,
-                BaseName = pair.BaseName,
-                ImagePath = pair.ImagePath,
-                VideoPath = pair.VideoPath,
-                Status = ProcessStatus.Pending,
-                Details = pendingText
-            });
+                ThumbnailService.ClearCache();
 
-            ComboTasks.ReplaceRange(tasks);
+                var pendingText = ResourceService.GetString("Task_Pending");
 
-            if (ComboTasks.Count > 0)
-            {
-                IsDirectoryPanelOpen = false;
-            }
-            else
-            {
+                // 将扫描过程放到后台线程执行，防止 UI 卡死，让按钮的锁定状态能够渲染出来
+                var scanResult = await Task.Run(() => LivePhotoScanService.Scan(InputDirectory));
+
+                var tasks = scanResult.Pairs.Select((pair, index) => new LivePhotoMergeTask
+                {
+                    Index = index + 1,
+                    ImageFileName = Path.GetFileName(pair.ImagePath),
+                    VideoFileName = Path.GetFileName(pair.VideoPath),
+                    ImageSize = FormatFileSize(pair.ImageSizeBytes),
+                    VideoSize = FormatFileSize(pair.VideoSizeBytes),
+                    TotalSizeBytes = pair.ImageSizeBytes + pair.VideoSizeBytes,
+                    BaseName = pair.BaseName,
+                    ImagePath = pair.ImagePath,
+                    VideoPath = pair.VideoPath,
+                    Status = ProcessStatus.Pending,
+                    Details = pendingText
+                });
+
+                ComboTasks.ReplaceRange(tasks);
+
+                // 【关键修改】：不管有没有扫描出文件，都保持配置面板展开
                 IsDirectoryPanelOpen = true;
+
+                TotalPairsCount = scanResult.Pairs.Count;
+                StandaloneImagesCount = scanResult.StandaloneImagesCount;
+                StandaloneVideosCount = scanResult.StandaloneVideosCount;
+
+                ComboProgress = 0;
+                ProgressText = $"0/{TotalPairsCount}";
+
+                if (string.IsNullOrWhiteSpace(OutputDirectory) && ComboTasks.Count > 0)
+                {
+                    OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
+                }
+
+                SetComboStatus("Status_ScanDone", TotalPairsCount);
             }
-
-            TotalPairsCount = scanResult.Pairs.Count;
-            StandaloneImagesCount = scanResult.StandaloneImagesCount;
-            StandaloneVideosCount = scanResult.StandaloneVideosCount;
-
-            ComboProgress = 0;
-            ProgressText = $"0/{TotalPairsCount}";
-
-            if (string.IsNullOrWhiteSpace(OutputDirectory) && ComboTasks.Count > 0)
+            finally
             {
-                OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
+                IsScanning = false; // 扫描结束，解锁按钮
             }
-
-            SetComboStatus("Status_ScanDone", TotalPairsCount);
         }
 
         [RelayCommand]
