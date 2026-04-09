@@ -238,9 +238,6 @@ Do you want to restart now?</value>
   <data name="KeyPhotoPage_PlaceholderDescription.Text" xml:space="preserve">
     <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
   </data>
-  <data name="RepairPage_PlaceholderTitle.Text" xml:space="preserve">
-    <value>Thumbnail repair page is not available yet</value>
-  </data>
   <data name="RepairPage_PlaceholderDescription.Text" xml:space="preserve">
     <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
   </data>
@@ -733,7 +730,7 @@ Log file: {0}</value>
     <value>Display and process Apple Live Photos directly on Windows.</value>
   </data>
   <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
-    <value>Thumbnail Repair Settings</value>
+    <value>Thumbnail Repair Settings (Video restoration is under development)</value>
   </data>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>Input Dir:</value>
@@ -808,10 +805,10 @@ Log file: {0}</value>
     <value>Total Photos:</value>
   </data>
   <data name="RepairPage_StatThumbCorrect.Text" xml:space="preserve">
-    <value>Thumbnails Correct:</value>
+    <value>Normal:</value>
   </data>
   <data name="RepairPage_StatThumbError.Text" xml:space="preserve">
-    <value>Thumbnails Error:</value>
+    <value>Broken:</value>
   </data>
   <data name="RepairPage_ColIssue.Text" xml:space="preserve">
     <value>Diagnosis</value>

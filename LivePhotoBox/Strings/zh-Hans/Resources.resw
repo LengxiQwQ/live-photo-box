@@ -136,7 +136,7 @@
     <value>主页</value>
   </data>
   <data name="Nav_Repair.Content" xml:space="preserve">
-    <value>缩略图修复</value>
+    <value>缩略图显示修复</value>
   </data>
   <data name="Nav_Settings" xml:space="preserve">
     <value>设置</value>
@@ -236,9 +236,6 @@
   </data>
   <data name="KeyPhotoPage_PlaceholderDescription.Text" xml:space="preserve">
     <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
-  </data>
-  <data name="RepairPage_PlaceholderTitle.Text" xml:space="preserve">
-    <value>缩略图修复页面暂未开放</value>
   </data>
   <data name="RepairPage_PlaceholderDescription.Text" xml:space="preserve">
     <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
@@ -729,7 +726,7 @@
     <value>让你的 Apple 实况照片也可以在 Windows 上直接显示与处理。</value>
   </data>
   <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
-    <value>缩略图修复配置</value>
+    <value>缩略图修复配置（视频修复正在开发中）</value>
   </data>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>输入目录：</value>
@@ -804,10 +801,10 @@
     <value>总照片数：</value>
   </data>
   <data name="RepairPage_StatThumbCorrect.Text" xml:space="preserve">
-    <value>缩略图正确：</value>
+    <value>正常：</value>
   </data>
   <data name="RepairPage_StatThumbError.Text" xml:space="preserve">
-    <value>缩略图错误：</value>
+    <value>异常：</value>
   </data>
   <data name="RepairPage_ColIssue.Text" xml:space="preserve">
     <value>诊断结果</value>
