@@ -23,32 +23,31 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
-        <Style x:Key="AboutSectionHeaderStyle" TargetType="TextBlock">
+        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
             <Setter Property="FontSize" Value="16"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Margin" Value="0,12,0,4"/>
             <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
+            <Setter Property="Margin" Value="0,0,0,10"/>
         </Style>
 
-        <Style x:Key="AboutContentTextStyle" TargetType="TextBlock">
+        <Style x:Key="ContentTextStyle" TargetType="TextBlock">
             <Setter Property="TextWrapping" Value="Wrap"/>
             <Setter Property="LineHeight" Value="22"/>
             <Setter Property="FontSize" Value="14"/>
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
             <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
-            <Setter Property="Margin" Value="0,0,0,8"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
         </Style>
     </Page.Resources>
 
     <ScrollViewer Padding="40,24,40,0">
-        <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center" Margin="0,0,0="40">
+        <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center">
 
             <Grid Margin="0,28,0,4" HorizontalAlignment="Stretch">
-            <Border MaxWidth="220" MinWidth="220" Height="220" Padding="0" CornerRadius="30"
+                <Border MaxWidth="220" MinWidth="220" Height="220" Padding="0" CornerRadius="30"
                         HorizontalAlignment="Center" Background="{ThemeResource CardBackgroundBrush}"
                         BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                <Image Source="/Assets/AppIcon-full.png" Stretch="Uniform"/>
-            </Border>
+                    <Image Source="/Assets/AppIcon-full.png" Stretch="Uniform"/>
+                </Border>
             </Grid>
 
             <TextBlock x:Uid="AboutPage_Title" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" FontFamily="Microsoft YaHei UI"/>
@@ -56,75 +55,81 @@
 
             <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,20,0,0">
-                <StackPanel Spacing="16">
-                    <TextBlock x:Uid="AboutPage_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
-                    <TextBlock x:Uid="AboutPage_Description" TextWrapping="Wrap" LineHeight="24" FontFamily="Microsoft YaHei UI" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-
-                    <TextBlock x:Uid="AboutPage_InfoHeader" FontSize="16" FontWeight="SemiBold" Margin="0,10,0,4" FontFamily="Microsoft YaHei UI"/>
-
-                    <Grid ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="96"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <FontIcon Glyph="&#xE77B;" FontSize="15" VerticalAlignment="Center"/>
-                        <TextBlock x:Uid="AboutPage_DeveloperLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                        <Button x:Uid="AboutPage_DeveloperValue" Grid.Column="2" Click="DeveloperLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
-                    </Grid>
-
-                    <Grid ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="96"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <FontIcon Glyph="&#xEBC3;" FontSize="15" VerticalAlignment="Center"/>
-                        <TextBlock x:Uid="AboutPage_SourceLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                        <Button x:Uid="AboutPage_SourceLink" Grid.Column="2" Click="RepositoryLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
-                    </Grid>
-
-                    <Grid ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="96"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <FontIcon Glyph="&#xE71D;" FontSize="15" VerticalAlignment="Center"/>
-                        <TextBlock x:Uid="AboutPage_LicenseLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                        <Button x:Uid="AboutPage_LicenseValue" Grid.Column="2" Click="LicenseLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
-                    </Grid>
-
-                    <Grid ColumnSpacing="16">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="96"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <FontIcon Glyph="&#xE8A7;" FontSize="15" VerticalAlignment="Center"/>
-                        <TextBlock x:Uid="AboutPage_IssueLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                        <Button x:Uid="AboutPage_IssueLink" Grid.Column="2" Click="IssueLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
-                    </Grid>
+                <StackPanel Spacing="40">
+                    <StackPanel>
+                        <TextBlock x:Uid="AboutPage_Header" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBlock x:Uid="AboutPage_Description" Style="{StaticResource ContentTextStyle}"/>
+                    </StackPanel>
+                    
+                    <StackPanel>
+                        <TextBlock x:Uid="AboutPage_MotivationTitle" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBlock x:Uid="AboutPage_MotivationContent" Style="{StaticResource ContentTextStyle}"/>
+                    </StackPanel>
                 </StackPanel>
             </Border>
 
             <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
-                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                <StackPanel>
-                    <TextBlock x:Uid="AboutPage_MotivationTitle" Style="{StaticResource AboutSectionHeaderStyle}"/>
-                    <TextBlock x:Uid="AboutPage_MotivationContent" Style="{StaticResource AboutContentTextStyle}"/>
+                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,20,0,0">
+                <StackPanel Spacing="40">
+                    <StackPanel>
+                        <TextBlock x:Uid="AboutPage_InfoHeader" Style="{StaticResource SectionHeaderStyle}"/>
+                        <StackPanel Spacing="10" Margin="0,4,0,0">
+                            <Grid ColumnSpacing="16">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE77B;" FontSize="15" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="AboutPage_DeveloperLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <Button x:Uid="AboutPage_DeveloperValue" Grid.Column="2" Click="DeveloperLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
+                            </Grid>
+                            <Grid ColumnSpacing="16">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xEBC3;" FontSize="15" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="AboutPage_SourceLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <Button x:Uid="AboutPage_SourceLink" Grid.Column="2" Click="RepositoryLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
+                            </Grid>
+                            <Grid ColumnSpacing="16">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE71D;" FontSize="15" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="AboutPage_LicenseLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <Button x:Uid="AboutPage_LicenseValue" Grid.Column="2" Click="LicenseLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
+                            </Grid>
+                            <Grid ColumnSpacing="16">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <FontIcon Glyph="&#xE8A7;" FontSize="15" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="AboutPage_IssueLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <Button x:Uid="AboutPage_IssueLink" Grid.Column="2" Click="IssueLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
 
-                    <TextBlock x:Uid="AboutPage_CreditsTitle" Style="{StaticResource AboutSectionHeaderStyle}"/>
-                    <TextBlock x:Uid="AboutPage_ExifToolDesc" Style="{StaticResource AboutContentTextStyle}"/>
-                    <TextBlock x:Uid="AboutPage_JpegTranDesc" Style="{StaticResource AboutContentTextStyle}"/>
+                    <StackPanel>
+                        <TextBlock x:Uid="AboutPage_CreditsTitle" Style="{StaticResource SectionHeaderStyle}"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                            <Button Content="ExifTool" Click="ExifTool_Click" Style="{StaticResource AboutLinkButtonStyle}" Padding="0,0,4,0"/>
+                            <TextBlock x:Uid="AboutPage_ExifToolSuffix" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="JPEGTran" Click="JpegTran_Click" Style="{StaticResource AboutLinkButtonStyle}" Padding="0,0,4,0"/>
+                            <TextBlock x:Uid="AboutPage_JpegTranSuffix" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </StackPanel>
 
-                    <TextBlock x:Uid="AboutPage_PrivacyTitle" Style="{StaticResource AboutSectionHeaderStyle}"/>
-                    <TextBlock x:Uid="AboutPage_PrivacyContent" Style="{StaticResource AboutContentTextStyle}"/>
+                    <StackPanel>
+                        <TextBlock x:Uid="AboutPage_PrivacyTitle" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBlock x:Uid="AboutPage_Privacy_Local" Style="{StaticResource ContentTextStyle}"/>
+                        <TextBlock x:Uid="AboutPage_Privacy_NoCollect" Style="{StaticResource ContentTextStyle}" Margin="0,4,0,0"/>
+                    </StackPanel>
 
-                    <TextBlock x:Uid="AboutPage_DisclaimerTitle" Style="{StaticResource AboutSectionHeaderStyle}"/>
-                    <TextBlock x:Uid="AboutPage_DisclaimerContent" Style="{StaticResource AboutContentTextStyle}" FontSize="13" Opacity="0.8"/>
+                    <StackPanel>
+                        <TextBlock x:Uid="AboutPage_DisclaimerTitle" Style="{StaticResource SectionHeaderStyle}"/>
+                        <TextBlock x:Uid="AboutPage_DisclaimerContent" Style="{StaticResource ContentTextStyle}"/>
+                    </StackPanel>
                 </StackPanel>
             </Border>
+
+            <TextBlock x:Uid="SettingsPage_Footer" 
+                       FontSize="12" Opacity="0.3" 
+                       HorizontalAlignment="Center" 
+                       Margin="0,30,0,60"/>
 
         </StackPanel>
     </ScrollViewer>

@@ -929,23 +929,25 @@ Log file: {0}</value>
   <data name="AboutPage_CreditsTitle.Text" xml:space="preserve">
     <value>Open Source Credits</value>
   </data>
-  <data name="AboutPage_ExifToolDesc.Text" xml:space="preserve">
-    <value>ExifTool (by Phil Harvey): Responsible for complex metadata parsing, injection, and XMP structure reconstruction.</value>
+  <data name="AboutPage_ExifToolSuffix.Text" xml:space="preserve">
+    <value>(by Phil Harvey): Responsible for complex metadata parsing, injection, and XMP structure reconstruction.</value>
   </data>
-  <data name="AboutPage_JpegTranDesc.Text" xml:space="preserve">
-    <value>JPEGTran (IJG): Responsible for lossless JPEG processing. Using DCT coefficient space transformation, it achieves bit-for-bit lossless rotation without re-encoding.</value>
+  <data name="AboutPage_JpegTranSuffix.Text" xml:space="preserve">
+    <value>(IJG): By using the lossless transformation algorithm of DCT coefficient space, zero-loss rotation at the physical level can be achieved without recoding.</value>
   </data>
   <data name="AboutPage_PrivacyTitle.Text" xml:space="preserve">
     <value>Privacy Policy</value>
   </data>
-  <data name="AboutPage_PrivacyContent.Text" xml:space="preserve">
-    <value>Fully Localized: This application contains no network request code.
-Zero Data Collection: All operations are performed safely on your local machine.</value>
+  <data name="AboutPage_Privacy_Local.Text" xml:space="preserve">
+    <value>Fully Localized: This application contains no network request code.</value>
+  </data>
+  <data name="AboutPage_Privacy_NoCollect.Text" xml:space="preserve">
+    <value>Zero Data Collection: All operations are performed safely on your local machine.</value>
   </data>
   <data name="AboutPage_DisclaimerTitle.Text" xml:space="preserve">
-    <value>Disclaimer</value>
+  <value>Disclaimer</value>
   </data>
   <data name="AboutPage_DisclaimerContent.Text" xml:space="preserve">
-    <value>This software is provided "as-is," without warranty of any kind. The developer, LengxiQwQ, shall not be liable for any data corruption, loss, or hardware failure resulting from the use of this software (including but not limited to user error or system incompatibility). Please back up your files before batch processing.</value>
+  <value>This software is provided "as-is" without any warranty. LengxiQwQ shall not be liable for any data corruption, loss, or hardware failure resulting from the use of this software. Always back up your files before processing.</value>
   </data>
 </root>
