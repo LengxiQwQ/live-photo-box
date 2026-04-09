@@ -41,10 +41,14 @@ namespace LivePhotoBox.Services
 
             try
             {
-                // 防御2：使用 ArgumentList 彻底杜绝中文路径和空格带来的解析灾难
+                // 【核心修复区域：绕过 WinUI 3 沙盒解压限制】
+                string tempDir = Path.GetTempPath();
+                string toolDir = Path.GetDirectoryName(ExifToolPath) ?? AppContext.BaseDirectory;
+
                 var psi = new ProcessStartInfo
                 {
                     FileName = ExifToolPath,
+                    WorkingDirectory = toolDir, // 显式指定工作目录
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     UseShellExecute = false,
@@ -52,33 +56,33 @@ namespace LivePhotoBox.Services
                     StandardOutputEncoding = System.Text.Encoding.UTF8
                 };
 
-                psi.ArgumentList.Add("-charset");
-                psi.ArgumentList.Add("filename=utf8");
+                // 强制将 ExifTool 的临时解压目录指向本机实际的 Temp 文件夹
+                psi.Environment["TEMP"] = tempDir;
+                psi.Environment["TMP"] = tempDir;
+                psi.Environment["PAR_GLOBAL_TMPDIR"] = tempDir;
+
                 psi.ArgumentList.Add("-j");
                 psi.ArgumentList.Add("-ImageWidth");
                 psi.ArgumentList.Add("-ImageHeight");
                 psi.ArgumentList.Add("-Orientation");
                 psi.ArgumentList.Add("-ThumbnailImage");
-                psi.ArgumentList.Add(filePath); // 直接传入绝对路径，不需要加引号
+                psi.ArgumentList.Add(filePath);
 
                 using var process = Process.Start(psi);
                 if (process == null) throw new Exception("无法启动 exiftool 进程");
 
-                // 防御3：异步读取流，防止缓冲区塞满导致死锁
                 string output = await process.StandardOutput.ReadToEndAsync();
                 string error = await process.StandardError.ReadToEndAsync();
                 await process.WaitForExitAsync();
 
                 if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
                 {
-                    // 如果 ExifTool 返回的不是 JSON，直接把原生报错显示在界面上！
                     return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = $"ExifTool报错: {error.Trim()}" };
                 }
 
                 using var doc = JsonDocument.Parse(output);
                 var root = doc.RootElement[0];
 
-                // 防御4：极其宽容的 JSON 解析 (兼容文本和数字类型)
                 int w = 0, h = 0;
                 if (root.TryGetProperty("ImageWidth", out var wProp)) int.TryParse(wProp.ToString(), out w);
                 if (root.TryGetProperty("ImageHeight", out var hProp)) int.TryParse(hProp.ToString(), out h);
@@ -91,7 +95,6 @@ namespace LivePhotoBox.Services
                 else if (orientation.Contains("Rotate 180", StringComparison.OrdinalIgnoreCase)) angle = 180;
                 else if (orientation.Contains("Rotate 270 CW", StringComparison.OrdinalIgnoreCase)) angle = 270;
 
-                // 核心诊断逻辑
                 if (w > h && angle > 0)
                 {
                     return new RepairAnalysisResult { IssueType = RepairIssueType.NeedsRebuild, IssueDescription = "底层歪斜，需重构并剥离", RotationAngle = angle };
@@ -160,6 +163,7 @@ namespace LivePhotoBox.Services
             var psi = new ProcessStartInfo
             {
                 FileName = JpegTranPath,
+                WorkingDirectory = Path.GetDirectoryName(JpegTranPath) ?? AppContext.BaseDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -178,15 +182,24 @@ namespace LivePhotoBox.Services
 
         private static async Task RunExifToolAsync(params string[] args)
         {
+            string tempDir = Path.GetTempPath();
+            string toolDir = Path.GetDirectoryName(ExifToolPath) ?? AppContext.BaseDirectory;
+
             var psi = new ProcessStartInfo
             {
                 FileName = ExifToolPath,
+                WorkingDirectory = toolDir,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 StandardOutputEncoding = System.Text.Encoding.UTF8
             };
+
+            // 【核心修复区域】
+            psi.Environment["TEMP"] = tempDir;
+            psi.Environment["TMP"] = tempDir;
+            psi.Environment["PAR_GLOBAL_TMPDIR"] = tempDir;
 
             psi.ArgumentList.Add("-charset");
             psi.ArgumentList.Add("filename=utf8");
@@ -198,7 +211,6 @@ namespace LivePhotoBox.Services
             string error = await process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
 
-            // Exiftool 有时警告也抛出 ExitCode 1，所以我们只抓取含有 "Error:" 的硬报错
             if (error.Contains("Error:", StringComparison.OrdinalIgnoreCase)) throw new Exception(error);
         }
     }
