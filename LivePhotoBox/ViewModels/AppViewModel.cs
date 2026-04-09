@@ -230,6 +230,13 @@ namespace LivePhotoBox.ViewModels
         public bool IsNotScanning => !IsScanning;
         // 👆===========================👆
 
+        // 👇=== 拆分页面扫描状态 ===👇
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsSplitNotScanning))]
+        private bool _isSplitScanning = false;
+
+        public bool IsSplitNotScanning => !IsSplitScanning;
+        // 👆===========================👆
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(SecondaryBtnText))]
         private bool _isPaused = false;
@@ -244,6 +251,19 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(SplitClearBtnText))]
         private bool _isSplitPaused = false;
+
+        // 👇=== 修改这里的资源键名 ===👇
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(RepairScanBtnText))]
+        [NotifyPropertyChangedFor(nameof(IsRepairNotScanning))] // 新增这行
+        private bool _isRepairScanning = false;
+        public bool IsRepairNotScanning => !IsRepairScanning; // 新增这行，用于锁住底部按钮
+        private CancellationTokenSource? _repairScanCancellationTokenSource;
+
+        public string RepairScanBtnText => IsRepairScanning
+            ? ResourceService.GetString("RepairPage_DynamicCancelText")
+            : ResourceService.GetString("RepairPage_DynamicScanText");
+        // 👆========================================👆
 
         public bool IsSplitNotProcessing => !IsSplitProcessing;
 
@@ -378,56 +398,69 @@ namespace LivePhotoBox.ViewModels
         }
 
         [RelayCommand]
-        private void ScanSplitDirectory()
+        public async Task ScanSplitDirectoryAsync() // 修改为异步方法
         {
             CrashLogService.RecordBreadcrumb($"ScanSplitDirectory requested. Input='{SplitInputDirectory}', Output='{SplitOutputDirectory}'");
 
-            if (IsSplitProcessing)
-            {
-                return;
-            }
+            // 如果正在拆分或正在扫描，则不响应
+            if (IsSplitProcessing || IsSplitScanning) return;
 
             if (string.IsNullOrWhiteSpace(SplitInputDirectory) || !Directory.Exists(SplitInputDirectory))
             {
                 SetSplitStatus("SplitPage_Status_InvalidInput");
+
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(SplitOutputDirectory))
+            IsSplitScanning = true; // 锁定按钮
+
+            try
             {
-                SplitOutputDirectory = Path.Combine(SplitInputDirectory, "Output_SplitPhotos");
+                if (string.IsNullOrWhiteSpace(SplitOutputDirectory))
+                {
+                    SplitOutputDirectory = Path.Combine(SplitInputDirectory, "Output_SplitPhotos");
+                }
+
+                SplitThumbnailService.ClearCache();
+
+                var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
+
+                // 将扫描过程放到后台线程执行，防止 UI 卡死
+                var scanResult = await Task.Run(() => LivePhotoSplitScanService.Scan(SplitInputDirectory));
+
+                var tasks = scanResult.Files.Select((file, index) => new LivePhotoSplitTask
+                {
+                    Index = index + 1,
+                    SourceFileName = Path.GetFileName(file.SourcePath),
+                    SourcePath = file.SourcePath,
+                    FileSize = FormatFileSize(file.FileSizeBytes),
+                    ProgressText = "0%",
+                    Status = ProcessStatus.Pending,
+                    Details = pendingText
+                });
+
+                SplitTasks.ReplaceRange(tasks);
+                SplitQueuedCount = scanResult.Files.Count;
+                SplitRecognizedCount = scanResult.RecognizedCount;
+                SplitSkippedCount = scanResult.SkippedCount;
+                SplitProgress = 0;
+                SplitProgressText = $"0/{SplitQueuedCount}";
+
+                // 【关键修改】：不管有没有扫描出文件，都保持配置面板展开
+                IsSplitDirectoryPanelOpen = true;
+
+                if (SplitQueuedCount > 0)
+                {
+                    SetSplitStatus("SplitPage_Status_ScanDone", SplitQueuedCount);
+                }
+                else
+                {
+                    SetSplitStatus("SplitPage_Status_NoLivePhotos");
+                }
             }
-
-            SplitThumbnailService.ClearCache();
-
-            var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
-            var scanResult = LivePhotoSplitScanService.Scan(SplitInputDirectory);
-            var tasks = scanResult.Files.Select((file, index) => new LivePhotoSplitTask
+            finally
             {
-                Index = index + 1,
-                SourceFileName = Path.GetFileName(file.SourcePath),
-                SourcePath = file.SourcePath,
-                FileSize = FormatFileSize(file.FileSizeBytes),
-                ProgressText = "0%",
-                Status = ProcessStatus.Pending,
-                Details = pendingText
-            });
-
-            SplitTasks.ReplaceRange(tasks);
-            SplitQueuedCount = scanResult.Files.Count;
-            SplitRecognizedCount = scanResult.RecognizedCount;
-            SplitSkippedCount = scanResult.SkippedCount;
-            SplitProgress = 0;
-            SplitProgressText = $"0/{SplitQueuedCount}";
-            IsSplitDirectoryPanelOpen = SplitQueuedCount == 0;
-
-            if (SplitQueuedCount > 0)
-            {
-                SetSplitStatus("SplitPage_Status_ScanDone", SplitQueuedCount);
-            }
-            else
-            {
-                SetSplitStatus("SplitPage_Status_NoLivePhotos");
+                IsSplitScanning = false; // 扫描结束，解锁按钮
             }
         }
 
@@ -469,6 +502,7 @@ namespace LivePhotoBox.ViewModels
                 _splitCancellationTokenSource?.Cancel();
                 _splitPauseEvent.Set();
                 SplitActionBtnText = ResourceService.GetString("Btn_Stopping");
+                IsSplitDirectoryPanelOpen = true;
                 return;
             }
 
@@ -488,6 +522,8 @@ namespace LivePhotoBox.ViewModels
                 SetSplitStatus("SplitPage_Status_WarnOutput");
                 return;
             }
+            // 【关键修改】：点击开始拆分后，折叠配置面板
+            IsSplitDirectoryPanelOpen = false;
 
             await RunSplitTasksAsync();
         }
@@ -850,6 +886,8 @@ namespace LivePhotoBox.ViewModels
                 _cancellationTokenSource?.Cancel();
                 _pauseEvent.Set();
                 ActionBtnText = ResourceService.GetString("Btn_Stopping");
+                // 👇=== 新增这行：点击停止时自动展开合成配置面板 ===👇
+                IsDirectoryPanelOpen = true;
                 return;
             }
 
@@ -1031,10 +1069,22 @@ private bool _isRepairPaused = false;
             }
         }
 
-        [RelayCommand]
+        [RelayCommand(AllowConcurrentExecutions = true)] // 👈 关键修改：允许并发执行，按钮才不会变灰
         private async Task ScanRepairDirectoryAsync()
         {
+            // 如果已经在扫描，点击则执行“取消”逻辑
+            if (IsRepairScanning)
+            {
+                _repairScanCancellationTokenSource?.Cancel();
+                return;
+            }
+
             if (string.IsNullOrWhiteSpace(RepairInputDirectory) || !Directory.Exists(RepairInputDirectory)) return;
+
+            // 初始化扫描状态
+            IsRepairScanning = true;
+            _repairScanCancellationTokenSource = new CancellationTokenSource();
+            var token = _repairScanCancellationTokenSource.Token;
 
             RepairTasks.ReplaceRange([]);
             RepairTotalPhotosCount = 0;
@@ -1043,45 +1093,68 @@ private bool _isRepairPaused = false;
             RepairProgress = 0;
             RepairProgressText = "0/0";
 
-            var files = Directory.GetFiles(RepairInputDirectory, "*.*", SearchOption.TopDirectoryOnly)
-                                 .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                                             f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
-                                             f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase))
-                                 .ToList();
-
-            RepairTotalPhotosCount = files.Count;
-
-            await Task.Run(async () =>
+            try
             {
-                int index = 1;
-                foreach (var file in files)
+                // 将文件获取也放到后台线程，防止大目录卡死
+                var files = await Task.Run(() =>
+                    Directory.GetFiles(RepairInputDirectory, "*.*", SearchOption.TopDirectoryOnly)
+                             .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                         f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                                         f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase))
+                             .ToList(), token);
+
+                RepairTotalPhotosCount = files.Count;
+
+                await Task.Run(async () =>
                 {
-                    var analysis = await LivePhotoRepairService.AnalyzeFileAsync(file);
-
-                    var task = new LivePhotoRepairTask
+                    int index = 1;
+                    foreach (var file in files)
                     {
-                        Index = index++,
-                        FileName = Path.GetFileName(file),
-                        FilePath = file,
-                        IssueDescription = analysis.IssueDescription,
-                        NeedsRepair = analysis.NeedsRepair,
-                        Status = ProcessStatus.Pending,
-                        Details = analysis.NeedsRepair ? ResourceService.GetString("RepairPage_Task_WaitingRepair") : ResourceService.GetString("RepairPage_Task_Skipped"),
-                        AnalysisResult = analysis
-                    };
+                        // 关键：检查是否已请求取消
+                        if (token.IsCancellationRequested)
+                            token.ThrowIfCancellationRequested();
 
-                    App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                    {
-                        RepairTasks.Add(task);
-                        if (analysis.NeedsRepair) RepairThumbErrorCount++;
-                        else RepairThumbCorrectCount++;
-                    });
-                }
-            });
+                        var analysis = await LivePhotoRepairService.AnalyzeFileAsync(file);
 
-            // Leave processing flag unchanged; scanning is not the same as running repair
-            IsRepairDirectoryPanelOpen = RepairTotalPhotosCount == 0;
-            SetRepairStatus("Status_ScanDone", RepairTotalPhotosCount);
+                        var task = new LivePhotoRepairTask
+                        {
+                            Index = index++,
+                            FileName = Path.GetFileName(file),
+                            FilePath = file,
+                            IssueDescription = analysis.IssueDescription,
+                            NeedsRepair = analysis.NeedsRepair,
+                            Status = ProcessStatus.Pending,
+                            Details = analysis.NeedsRepair
+                                ? ResourceService.GetString("RepairPage_Task_WaitingRepair")
+                                : ResourceService.GetString("RepairPage_Task_Skipped"),
+                            AnalysisResult = analysis
+                        };
+
+                        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                        {
+                            RepairTasks.Add(task);
+                            if (analysis.NeedsRepair) RepairThumbErrorCount++;
+                            else RepairThumbCorrectCount++;
+                        });
+                    }
+                }, token);
+
+                SetRepairStatus("Status_ScanDone", RepairTotalPhotosCount);
+            }
+            catch (OperationCanceledException)
+            {
+                SetRepairStatus("Status_Aborted"); // 在资源文件中定义为“已取消”或“已停止”
+            }
+            catch (Exception ex)
+            {
+                CrashLogService.RecordBreadcrumb($"ScanRepairDirectory error: {ex.Message}");
+            }
+            finally
+            {
+                IsRepairScanning = false;
+                _repairScanCancellationTokenSource?.Dispose();
+                _repairScanCancellationTokenSource = null;
+            }
         }
 
         [RelayCommand]

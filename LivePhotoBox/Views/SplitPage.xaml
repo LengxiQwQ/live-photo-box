@@ -128,15 +128,19 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
+
                         <Button Margin="0,0,12,0"
-                            Content="{x:Bind ViewModel.SplitClearBtnText, Mode=OneWay}"
-                            Command="{x:Bind ViewModel.ToggleSplitSecondaryActionCommand}"
-                            Width="100" Height="36"/>
+            Content="{x:Bind ViewModel.SplitClearBtnText, Mode=OneWay}"
+            Command="{x:Bind ViewModel.ToggleSplitSecondaryActionCommand}"
+            IsEnabled="{x:Bind ViewModel.IsSplitNotScanning, Mode=OneWay}"
+            Width="100" Height="36"/>
 
                         <Button Content="{x:Bind ViewModel.SplitActionBtnText, Mode=OneWay}"
-                            Command="{x:Bind ViewModel.StartSplitCommand}"
-                            Style="{StaticResource AccentButtonStyle}"
-                            Width="120" Height="36"/>
+            Command="{x:Bind ViewModel.StartSplitCommand}"
+            Style="{StaticResource AccentButtonStyle}"
+            IsEnabled="{x:Bind ViewModel.IsSplitNotScanning, Mode=OneWay}"
+            Width="120" Height="36"/>
+
                     </StackPanel>
                 </Grid>
             </Border>

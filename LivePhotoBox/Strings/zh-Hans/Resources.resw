@@ -854,4 +854,10 @@
   <data name="Status_RepairFailed" xml:space="preserve">
     <value>修复失败: {0}</value>
   </data>
+  <data name="RepairPage_DynamicScanText" xml:space="preserve">
+    <value>扫描目录</value>
+  </data>
+  <data name="RepairPage_DynamicCancelText" xml:space="preserve">
+    <value>取消扫描</value>
+  </data>
 </root>

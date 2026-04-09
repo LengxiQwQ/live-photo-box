@@ -858,4 +858,10 @@ Log file: {0}</value>
   <data name="Status_RepairFailed" xml:space="preserve">
     <value>Repair failed: {0}</value>
   </data>
+  <data name="RepairPage_DynamicScanText" xml:space="preserve">
+    <value>Scan Directory</value>
+  </data>
+  <data name="RepairPage_DynamicCancelText" xml:space="preserve">
+    <value>Cancel Scan</value>
+  </data>
 </root>
