@@ -252,7 +252,7 @@ namespace LivePhotoBox.ViewModels
         [NotifyPropertyChangedFor(nameof(SplitClearBtnText))]
         private bool _isSplitPaused = false;
 
-        // 👇=== 修改这里的资源键名 ===👇
+        // === 修改这里的资源键名 ===
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RepairScanBtnText))]
         [NotifyPropertyChangedFor(nameof(IsRepairNotScanning))]
@@ -263,7 +263,7 @@ namespace LivePhotoBox.ViewModels
         public string RepairScanBtnText => IsRepairScanning
             ? ResourceService.GetString("RepairPage_DynamicCancelText")
             : ResourceService.GetString("RepairPage_DynamicScanText");
-        // 👆========================================👆
+        // ========================================
 
         public bool IsSplitNotProcessing => !IsSplitProcessing;
 
