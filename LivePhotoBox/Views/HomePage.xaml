@@ -67,24 +67,26 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <FontIcon Glyph="&#xE710;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
-                    <StackPanel Grid.Column="1" Spacing="8">
-                        <TextBlock Text="实况照片合成" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    <FontIcon Glyph="&#xE8B1;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
+                    <StackPanel Grid.Column="1" Spacing="12">
+                        <TextBlock x:Uid="HomePage_MergeTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,0,0,4"/>
+
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="功能简介：" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Grid.Column="1" Text="将静态图片与视频无缝结合，生成一张能在各设备上灵动显示的实况照片（Live Photo）。" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Uid="HomePage_FeatureIntroLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <TextBlock x:Uid="HomePage_MergeDesc" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                         </Grid>
+
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="如何使用：" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Grid.Column="1" Text="将准备好的图片和视频文件配对导入，点击“开始合成”，剩下的交给我们。" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <TextBlock x:Uid="HomePage_MergeUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                         </Grid>
                     </StackPanel>
                 </Grid>
@@ -97,54 +99,63 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <FontIcon Glyph="&#xE8A4;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
-                    <StackPanel Grid.Column="1" Spacing="8">
-                        <TextBlock Text="实况照片拆分" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    <FontIcon Glyph="&#xE8C6;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
+                    <StackPanel Grid.Column="1" Spacing="12">
+                        <TextBlock x:Uid="HomePage_SplitTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,0,0,4"/>
+
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="功能简介：" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Grid.Column="1" Text="将现有的实况照片进行无损解包，提取出原始的静态画面与动态视频。" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Uid="HomePage_FeatureIntroLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <TextBlock x:Uid="HomePage_SplitDesc" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                         </Grid>
+
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="如何使用：" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Grid.Column="1" Text="拖入你的实况照片，一键即可分离出独立的图像和视频文件。" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <TextBlock x:Uid="HomePage_SplitUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                         </Grid>
                     </StackPanel>
                 </Grid>
             </Border>
 
             <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
-                    Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+        Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <FontIcon Glyph="&#xE90F;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
-                    <StackPanel Grid.Column="1" Spacing="8">
-                        <TextBlock Text="缩略图修复" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    <FontIcon Glyph="&#xE895;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
+                    <StackPanel Grid.Column="1" Spacing="12">
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" Margin="0,0,0,4">
+                            <TextBlock x:Uid="HomePage_KeyPhotoTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                            <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                                <TextBlock x:Uid="HomePage_WIPLabel" FontSize="12" Foreground="White" FontWeight="Bold"/>
+                            </Border>
+                        </StackPanel>
+
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="功能简介：" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Grid.Column="1" Text="修复因跨平台传输导致的实况照片不被识别、元数据丢失或缩略图显示异常等问题。" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Uid="HomePage_FeatureIntroLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <TextBlock x:Uid="HomePage_KeyPhotoDesc" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                         </Grid>
+
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="如何使用：" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Grid.Column="1" Text="选择遇到问题的实况照片，程序会自动重构并修复底层元数据，让照片恢复正常。" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <TextBlock x:Uid="HomePage_KeyPhotoUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                         </Grid>
                     </StackPanel>
                 </Grid>
@@ -158,32 +169,31 @@
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
                     <FontIcon Glyph="&#xE7C5;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
-                    <StackPanel Grid.Column="1" Spacing="8">
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock Text="主图切换" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
-                            <Border Background="{ThemeResource SystemAccentColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
-                                <TextBlock Text="开发中 🚧" FontSize="12" Foreground="White" FontWeight="Bold"/>
-                            </Border>
-                        </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="12">
+                        <TextBlock x:Uid="HomePage_RepairTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,0,0,4"/>
+
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="功能简介：" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Grid.Column="1" Text="自由更改实况照片的封面主图，从动态画面中挑出最完美的一刻作为静态展示。" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Uid="HomePage_FeatureIntroLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <TextBlock x:Uid="HomePage_RepairDesc" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                         </Grid>
+
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
-                            <TextBlock Text="如何使用：" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Grid.Column="1" Text="敬请期待！我们正在快马加鞭地为你打造此功能，很快就能与你见面。" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <TextBlock x:Uid="HomePage_RepairUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                         </Grid>
                     </StackPanel>
                 </Grid>
             </Border>
+
+            
 
             <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
                     Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
@@ -192,12 +202,13 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock x:Uid="HomePage_TipLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                    <TextBlock x:Uid="HomePage_TipLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                     <TextBlock x:Uid="HomePage_TipText"
                                Grid.Column="1"
-                               Margin="12,0,0,0"
-                               VerticalAlignment="Center"
+                               Margin="8,0,0,0"
+                               VerticalAlignment="Top"
                                TextWrapping="Wrap"
+                               LineHeight="22"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </Grid>
             </Border>

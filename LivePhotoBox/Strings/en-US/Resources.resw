@@ -918,4 +918,34 @@ Log file: {0}</value>
   <data name="HomePage_KeyPhotoUsage.Text" xml:space="preserve">
     <value>Stay tuned! We are working hard to build this feature and it will meet you soon.</value>
   </data>
+
+
+  <data name="AboutPage_MotivationTitle.Text" xml:space="preserve">
+    <value>Motivation</value>
+  </data>
+  <data name="AboutPage_MotivationContent.Text" xml:space="preserve">
+    <value>I have a habit of backing up photos to my PC. However, Apple's Live Photos turn into separate images and videos on Windows, resulting in a fragmented viewing experience. I developed this tool out of frustration. A blessing for perfectionists!</value>
+  </data>
+  <data name="AboutPage_CreditsTitle.Text" xml:space="preserve">
+    <value>Open Source Credits</value>
+  </data>
+  <data name="AboutPage_ExifToolDesc.Text" xml:space="preserve">
+    <value>ExifTool (by Phil Harvey): Responsible for complex metadata parsing, injection, and XMP structure reconstruction.</value>
+  </data>
+  <data name="AboutPage_JpegTranDesc.Text" xml:space="preserve">
+    <value>JPEGTran (IJG): Responsible for lossless JPEG processing. Using DCT coefficient space transformation, it achieves bit-for-bit lossless rotation without re-encoding.</value>
+  </data>
+  <data name="AboutPage_PrivacyTitle.Text" xml:space="preserve">
+    <value>Privacy Policy</value>
+  </data>
+  <data name="AboutPage_PrivacyContent.Text" xml:space="preserve">
+    <value>Fully Localized: This application contains no network request code.
+Zero Data Collection: All operations are performed safely on your local machine.</value>
+  </data>
+  <data name="AboutPage_DisclaimerTitle.Text" xml:space="preserve">
+    <value>Disclaimer</value>
+  </data>
+  <data name="AboutPage_DisclaimerContent.Text" xml:space="preserve">
+    <value>This software is provided "as-is," without warranty of any kind. The developer, LengxiQwQ, shall not be liable for any data corruption, loss, or hardware failure resulting from the use of this software (including but not limited to user error or system incompatibility). Please back up your files before batch processing.</value>
+  </data>
 </root>
