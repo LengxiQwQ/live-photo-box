@@ -62,47 +62,18 @@
 	</ItemGroup>
 
  <ItemGroup>
-		<Content Include="Assets\AppIcon.ico" />
+        <Content Include="Assets\AppIcon.ico" />
 		<Content Include="Assets\AppIcon.png" />
 		<Content Include="Assets\LockScreenLogo.scale-200.png" />
 		<Content Include="Assets\Square150x150Logo.scale-200.png" />
 		<Content Include="Assets\Square44x44Logo.scale-200.png" />
 		<Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
 		<Content Include="Assets\StoreLogo.png" />
+		<!-- Include exiftool executable and any files under exiftool_files if present. Using wildcard avoids MSBuild errors when files are absent. -->
 		<Content Include="Tools\exiftool\exiftool.exe">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\exiftool.pl">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\libgcc_s_seh-1.dll">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\liblzma-5__.dll">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\libstdc++-6.dll">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\libwinpthread-1.dll">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\LICENSE">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\Licenses_Strawberry_Perl.zip">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\perl.exe">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\perl532.dll">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\readme_windows.txt">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool\exiftool_files\windows_exiftool.txt">
+		<Content Include="Tools\exiftool\exiftool_files\**\*.*">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
 		<Content Include="Tools\jpegtran\jpegtran.exe">
