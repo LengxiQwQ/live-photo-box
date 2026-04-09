@@ -222,21 +222,21 @@ namespace LivePhotoBox.ViewModels
         [NotifyPropertyChangedFor(nameof(SecondaryBtnText))]
         private bool _isProcessing = false;
 
-        // 👇=== 新增这部分：扫描状态 ===👇
+        // === 新增这部分：扫描状态 ===
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsNotScanning))]
         private bool _isScanning = false;
 
         public bool IsNotScanning => !IsScanning;
-        // 👆===========================👆
+        // ===========================
 
-        // 👇=== 拆分页面扫描状态 ===👇
+        // === 拆分页面扫描状态 ===
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsSplitNotScanning))]
         private bool _isSplitScanning = false;
 
         public bool IsSplitNotScanning => !IsSplitScanning;
-        // 👆===========================👆
+        // ===========================
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(SecondaryBtnText))]
         private bool _isPaused = false;
