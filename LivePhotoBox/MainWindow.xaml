@@ -42,14 +42,14 @@
                         <FontIcon Glyph="&#xE8C6;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Uid="Nav_KeyPhoto" Tag="KeyPhoto">
-                    <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE895;"/>
-                    </NavigationViewItem.Icon>
-                </NavigationViewItem>
                 <NavigationViewItem x:Uid="Nav_Repair" Tag="Repair">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7C5;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Uid="Nav_KeyPhoto" Tag="KeyPhoto">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE895;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>

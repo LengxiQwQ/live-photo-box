@@ -501,12 +501,10 @@
     <value>欢迎使用 Live Photo Box</value>
   </data>
   <data name="HomePage_Intro1.Text" xml:space="preserve">
-    <value>这是一款专业且易用的实况照片处理工具，旨在帮你轻松打破 Apple 与 Android 之间的设备生态壁垒。它能将 iPhone 拍摄的 Live Photo 无损转换为 Google 相册原生支持的格式，在完美锁定原始视频画质和动态帧率的同时，让你的生动回忆在任何平台上都能完美呈现。</value>
+    <value>这是一款专业且易用的实况照片处理工具，旨在帮你轻松打破 iOS 与 Android 之间的设备生态壁垒。它能将 iPhone 拍摄的 Live Photo 无损转换为 Google 相册原生支持的格式，在完美锁定原始视频画质和动态帧率的同时，让你的生动回忆在任何平台上都能完美呈现。</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
-    <value>除了极致的格式转换，软件还提供了一系列强大的本地处理能力。你可以一键将实况照片“解绑”，拆分为高画质的静态图片与独立的动态视频文件；面对前置摄像头拍摄的自拍，它能通过智能解析视频底层数据，精准识别并修复画面的镜像反转问题。搭配高效的批量并发处理引擎，海量照片也能一次性轻松搞定。
-
-请点击页面上的 [批量转换]、[提取拆分] 或 [修复工具] 按钮，立即开启你的处理之旅！</value>
+    <value>除了实况照片的适配，我还发现苹果一个巨大的包袱，苹果为优化前置拍摄性能，实况照片中，视频部分的物理像素使用横向存储，并使用内置的 Rotation 标签来判断照片方向。但 Windows 等系统缩略图会忽略标签而直接渲染原始像素，导致画面旋转。大约在 iOS17.3 之前还有一个缩略图会被拉伸的问题，中间苹果尝试加入额外的低像素缩略图来保证正确显示，但是都无用。缩略图修复功能因此诞生，通过底层物理级矫正，实现无损像素级重构，彻底解决在非苹果设备上的缩略图兼容性顽疾。</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>友情提示 :</value>
@@ -521,7 +519,7 @@
     <value>关于本应用</value>
   </data>
   <data name="AboutPage_Description.Text" xml:space="preserve">
-    <value>Live Photo Box 是一款开源的实况照片处理工具箱，致力于为用户提供便捷的 Android 与 iOS 实况照片合成与拆分体验。支持最新的 Google 封装协议与高效的批量处理能力。</value>
+    <value>Live Photo Box 是一款开源的实况照片处理工具箱，致力于为用户提供便捷的 Android 与 iOS 实况照片制作等功能。目前支持最新的 Google 封装协议，后续将适配各家安卓厂商私有协议。</value>
   </data>
   <data name="AboutPage_InfoHeader.Text" xml:space="preserve">
     <value>项目信息</value>
@@ -608,7 +606,7 @@
     <value>无需修复</value>
   </data>
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
-    <value>© 2026 LengxiQwQ 保留所有权利</value>
+    <value>© 2026 LengxiQwQ · 基于 GPL-3.0 开源协议发布</value>
   </data>
   <data name="RepairPage_Status_Ready" xml:space="preserve">
     <value>等待修复</value>
@@ -863,44 +861,39 @@
   <data name="HomePage_CoreFeaturesTitle.Text" xml:space="preserve">
     <value>核心功能指南</value>
   </data>
-
   <data name="HomePage_FeatureIntroLabel.Text" xml:space="preserve">
     <value>功能简介：</value>
   </data>
   <data name="HomePage_HowToUseLabel.Text" xml:space="preserve">
     <value>如何使用：</value>
   </data>
-  
   <data name="HomePage_MergeTitle.Text" xml:space="preserve">
     <value>实况照片合成</value>
   </data>
   <data name="HomePage_MergeDesc.Text" xml:space="preserve">
-    <value>将静态图片与视频无缝结合，生成一张能在各设备上灵动显示的实况照片（Live Photo）。</value>
+    <value>将苹果实况照片转换为单文件，使用各家安卓协议，使其可在 Windows 等设备上查看。</value>
   </data>
   <data name="HomePage_MergeUsage.Text" xml:space="preserve">
-    <value>将准备好的图片和视频文件配对导入，点击“开始合成”，剩下的交给我们。</value>
+    <value>将准备好的 JPG + MOV/MP4 放在同一文件夹，点击“开始合成”即可。</value>
   </data>
-
   <data name="HomePage_SplitTitle.Text" xml:space="preserve">
     <value>实况照片拆分</value>
   </data>
   <data name="HomePage_SplitDesc.Text" xml:space="preserve">
-    <value>将现有的实况照片进行无损解包，提取出原始的静态画面与动态视频哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈。</value>
+    <value>将现有的单文件实况照片进行无损解包，提取出原始的静态画面与动态视频。</value>
   </data>
   <data name="HomePage_SplitUsage.Text" xml:space="preserve">
-    <value>拖入你的实况照片，一键即可分离出独立的图像和视频文件。</value>
+    <value>选择你想拆分的照片文件夹，点击“开始拆分”即可。</value>
   </data>
-
   <data name="HomePage_RepairTitle.Text" xml:space="preserve">
     <value>缩略图修复</value>
   </data>
   <data name="HomePage_RepairDesc.Text" xml:space="preserve">
-    <value>修复因跨平台传输导致的实况照片不被识别、元数据丢失或缩略图显示异常等问题。</value>
+    <value>这可是个重头戏，修复上述简介中，苹果照片缩略图前置会旋转，iOS17.3之前会拉伸的问题，如果有其他新的问题，请在关于或设置页面反馈。</value>
   </data>
   <data name="HomePage_RepairUsage.Text" xml:space="preserve">
-    <value>选择遇到问题的实况照片，程序会自动重构并修复底层元数据，让照片恢复正常。</value>
+    <value>选择要修复的图片文件夹，程序会自动识别缩略图错误的图片并无损修复。</value>
   </data>
-
   <data name="HomePage_KeyPhotoTitle.Text" xml:space="preserve">
     <value>主图切换</value>
   </data>
@@ -911,15 +904,13 @@
     <value>自由更改实况照片的封面主图，从动态画面中挑出最完美的一刻作为静态展示。</value>
   </data>
   <data name="HomePage_KeyPhotoUsage.Text" xml:space="preserve">
-    <value>敬请期待！我们正在快马加鞭地为你打造此功能，很快就能与你见面。</value>
+    <value>敬请期待！导入图片，选择照片中的主图。</value>
   </data>
-
-
   <data name="AboutPage_MotivationTitle.Text" xml:space="preserve">
     <value>开发初衷</value>
   </data>
   <data name="AboutPage_MotivationContent.Text" xml:space="preserve">
-    <value>我有个习惯，喜欢把照片备份到电脑。但苹果的实况照片在 Windows 上会变成为独立的图片和视频，查看体验极差。一气之下就开发了这款工具。强迫症患者迎来春天！</value>
+    <value>因为作者习惯把照片备份到电脑，因为手机存储空间紧张。但苹果的实况照片在 Windows 上会变成为独立的图片和视频，浏览体验极差。一气之下就开发了这款工具。让作者这强迫症患者得到解放 []~(￣▽￣)~*</value>
   </data>
   <data name="AboutPage_CreditsTitle.Text" xml:space="preserve">
     <value>开源致谢</value>
@@ -940,9 +931,12 @@
     <value>零隐私收集：所有操作均在您的本地计算机安全完成。</value>
   </data>
   <data name="AboutPage_DisclaimerTitle.Text" xml:space="preserve">
-  <value>免责声明</value>
+    <value>免责声明</value>
   </data>
   <data name="AboutPage_DisclaimerContent.Text" xml:space="preserve">
-  <value>本软件按“原样”提供，不附带任何形式的明示或暗示担保。开发者 LengxiQwQ 不对因使用本软件导致的数据损坏、丢失或硬件故障承担法律责任。请务必养成先备份、后处理的习惯。</value>
+    <value>本软件按“原样”提供，不附带任何形式的明示或暗示担保。开发者 LengxiQwQ 不对因使用本软件导致的数据损坏、丢失或硬件故障承担法律责任。请务必养成先备份、后处理的习惯。</value>
+  </data>
+  <data name="HomePage_Intro3.Text" xml:space="preserve">
+    <value> </value>
   </data>
 </root>
