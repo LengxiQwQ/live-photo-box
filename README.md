@@ -1,6 +1,4 @@
-![Live Photo Box Logo](LivePhotoBox/Assets/StoreLogo.png)
-
-# 📦 Live Photo Box (实况照片工具箱)
+# Live Photo Box (实况照片工具箱)
 
 *一款专为 Windows 打造的现代化 Apple 实况照片 (Live Photos) 管理与修复利器。*
 
@@ -10,6 +8,8 @@
 ![Language C#](https://img.shields.io/badge/Language-C%23-239120?logo=csharp)
 ![Framework WinUI 3](https://img.shields.io/badge/Framework-WinUI%203-blue?logo=windows)
 [![License](https://img.shields.io/github/license/lengxiqwq/live-photo-box)](LICENSE)
+
+![Live Photo Box Logo](LivePhotoBox/Assets/Square150x150Logo.png)
 
 ---
 
@@ -41,17 +41,19 @@
 
 *(提示：您可以在下面填入您应用的实际运行截图路径)*
 
-![主页演示](路径/到/您的/截图1.png)
-![分离合成功能演示](路径/到/您的/截图2.png)
+![主页演示](这里替换为您的截图路径1.png)
+![分离合成功能演示](这里替换为您的截图路径2.png)
 
 ## 🚀 下载与安装
 
 ### 发行版下载 (推荐)
+
 1. 前往 [Releases 页面](https://github.com/lengxiqwq/live-photo-box/releases)。
 2. 下载最新版本的安装包 (`.msix` 或 `.zip`)。
 3. 双击安装并运行。
 
 ### 运行环境要求
+
 * **操作系统**: Windows 10 (版本 1809 及以上) 或 Windows 11。
 * **运行时**: 需要系统安装有 [Windows App SDK](https://learn.microsoft.com/windows/apps/windows-app-sdk/downloads) 运行时（通常内置于最新版 Windows 或在安装应用时自动部署）。
 
@@ -60,8 +62,12 @@
 如果您希望参与本项目的开发或自行编译代码：
 
 1. **环境准备**: 
+
    * 安装 [Visual Studio 2022](https://visualstudio.microsoft.com/)。
    * 确保在 VS Installer 中勾选了 **.NET 桌面开发** 和 **通用 Windows 平台开发 (UWP)** 工作负载，并包含 Windows App SDK 组件。
+
 2. **克隆仓库**:
+
    ```bash
    git clone [https://github.com/lengxiqwq/live-photo-box.git](https://github.com/lengxiqwq/live-photo-box.git)
+   ```
