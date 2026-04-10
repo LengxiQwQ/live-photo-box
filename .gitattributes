@@ -63,3 +63,19 @@
 ###############################################################################
 
 #*.RTF   diff=astextplain
+
+
+# 二进制文件不参与语言统计
+*.exe linguist-vendored
+*.dll linguist-vendored
+*.bin linguist-vendored
+*.dat linguist-vendored
+
+# 图片资源
+#*.png linguist-vendored
+#*.jpg linguist-vendored
+#*.jpeg linguist-vendored
+
+# 音频视频
+#*.mp3 linguist-vendored
+#*.mp4 linguist-vendored
