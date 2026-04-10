@@ -55,6 +55,7 @@
                     </StackPanel>
                     <TextBlock x:Uid="HomePage_Intro1" TextWrapping="Wrap" LineHeight="26" FontFamily="Microsoft YaHei UI" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock x:Uid="HomePage_Intro2" TextWrapping="Wrap" LineHeight="26" FontFamily="Microsoft YaHei UI" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <!--<TextBlock x:Uid="HomePage_Intro3" TextWrapping="Wrap" LineHeight="26" FontFamily="Microsoft YaHei UI" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>-->
                 </StackPanel>
             </Border>
 
@@ -125,6 +126,38 @@
             </Border>
 
             <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                    Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <FontIcon Glyph="&#xE7C5;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
+                    <StackPanel Grid.Column="1" Spacing="12">
+                        <TextBlock x:Uid="HomePage_RepairTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,0,0,4"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Uid="HomePage_FeatureIntroLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <TextBlock x:Uid="HomePage_RepairDesc" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                        </Grid>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <TextBlock x:Uid="HomePage_RepairUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                        </Grid>
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
         Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -156,38 +189,6 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                             <TextBlock x:Uid="HomePage_KeyPhotoUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
-                        </Grid>
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
-                    Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <FontIcon Glyph="&#xE7C5;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
-                    <StackPanel Grid.Column="1" Spacing="12">
-                        <TextBlock x:Uid="HomePage_RepairTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,0,0,4"/>
-
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock x:Uid="HomePage_FeatureIntroLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
-                            <TextBlock x:Uid="HomePage_RepairDesc" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
-                        </Grid>
-
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
-                            <TextBlock x:Uid="HomePage_RepairUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                         </Grid>
                     </StackPanel>
                 </Grid>

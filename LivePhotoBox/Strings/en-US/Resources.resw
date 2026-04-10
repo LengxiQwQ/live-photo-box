@@ -501,12 +501,10 @@ Please set the input directory and click [Scan Files] to load files.</value>
     <value>Welcome to Live Photo Box</value>
   </data>
   <data name="HomePage_Intro1.Text" xml:space="preserve">
-    <value>This professional yet easy-to-use Live Photo processing tool is designed to effortlessly break the ecosystem barriers between Apple and Android. It losslessly converts Live Photos shot on iPhone into formats natively supported by Google Photos. By perfectly preserving the original video quality and dynamic frame rates, it ensures your vivid memories are flawlessly presented across any platform.</value>
+    <value>This is a professional yet easy-to-use Live Photo editing tool designed to help you easily break down the device ecosystem barriers between iOS and Android. It can losslessly convert Live Photos taken on your iPhone into formats natively supported by Google Photos, perfectly preserving the original video quality and dynamic frame rate, allowing your vivid memories to be perfectly presented on any platform.</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
-    <value>Beyond ultimate format conversion, the software offers a suite of powerful local processing capabilities. You can "unbind" Live Photos with a single click, splitting them into high-quality static images and independent video files. For selfies taken with the front camera, it intelligently analyzes the underlying video data to accurately identify and fix mirror inversion issues. Coupled with a highly efficient concurrent batch processing engine, even massive photo collections can be handled at once with ease.
-
-Click the [Batch Convert], [Extract &amp; Split], or [Repair Tool] buttons on the page to start your processing journey right now!</value>
+    <value>Beyond the Live Photos compatibility, I also discovered a significant drawback of Apple's design. To optimize front-facing camera performance, Live Photos uses horizontal storage for the video portion of the physical pixels and employs a built-in Rotation tag to determine the photo's orientation. However, Windows and other systems ignore the tag and directly render the raw pixels, causing the image to rotate. Prior to iOS 17.3, there was also an issue with stretched thumbnails. Apple attempted to add additional low-resolution thumbnails to ensure correct display, but these efforts were unsuccessful. The Thumbnail Fix feature was thus created, achieving lossless pixel-level reconstruction through underlying physical correction, completely resolving the persistent thumbnail compatibility problem on non-Apple devices.</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>Tip :</value>
@@ -521,11 +519,7 @@ Click the [Batch Convert], [Extract &amp; Split], or [Repair Tool] buttons on th
     <value>About This App</value>
   </data>
   <data name="AboutPage_Description.Text" xml:space="preserve">
-    <value>Welcome to Live Photo Box! This professional yet easy-to-use Live Photo processing tool is designed to effortlessly break the ecosystem barriers between Apple and Android. It losslessly converts Live Photos shot on iPhone into formats natively supported by Google Photos. By perfectly preserving the original video quality and dynamic frame rates, it ensures your vivid memories are flawlessly presented across any platform.
-
-Beyond ultimate format conversion, the software offers a suite of powerful local processing capabilities. You can "unbind" Live Photos with a single click, splitting them into high-quality static images and independent video files. For selfies taken with the front camera, it intelligently analyzes the underlying video data to accurately identify and fix mirror inversion issues. Coupled with a highly efficient concurrent batch processing engine, even massive photo collections can be handled at once with ease.
-
-Click the [Batch Convert], [Extract &amp; Split], or [Repair Tool] buttons on the page to start your processing journey right now!</value>
+    <value>Live Photo Box is an open-source toolkit for creating live photos, designed to provide users with convenient features for creating live photos on Android and iOS. It currently supports the latest Google encapsulation protocol and will be adapted to the proprietary protocols of various Android manufacturers in the future.</value>
   </data>
   <data name="AboutPage_InfoHeader.Text" xml:space="preserve">
     <value>Project Information</value>
@@ -612,7 +606,7 @@ Click the [Batch Convert], [Extract &amp; Split], or [Repair Tool] buttons on th
     <value>No repair needed</value>
   </data>
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
-    <value>© 2026 LengxiQwQ All rights reserved</value>
+    <value>© 2026 LengxiQwQ · Licensed under GPL-3.0</value>
   </data>
   <data name="RepairPage_Status_Ready" xml:space="preserve">
     <value>Ready | Waiting for files to repair</value>
@@ -864,18 +858,15 @@ Log file: {0}</value>
   <data name="RepairPage_DynamicCancelText" xml:space="preserve">
     <value>Cancel Scan</value>
   </data>
-
   <data name="HomePage_CoreFeaturesTitle.Text" xml:space="preserve">
     <value>Core Features Guide</value>
   </data>
-
   <data name="HomePage_FeatureIntroLabel.Text" xml:space="preserve">
     <value>Overview: </value>
   </data>
   <data name="HomePage_HowToUseLabel.Text" xml:space="preserve">
     <value>How to use: </value>
   </data>
-  
   <data name="HomePage_MergeTitle.Text" xml:space="preserve">
     <value>Live Photo Merge</value>
   </data>
@@ -885,7 +876,6 @@ Log file: {0}</value>
   <data name="HomePage_MergeUsage.Text" xml:space="preserve">
     <value>Import your paired image and video files, click "Start Merge", and let us handle the rest.</value>
   </data>
-
   <data name="HomePage_SplitTitle.Text" xml:space="preserve">
     <value>Live Photo Split</value>
   </data>
@@ -895,7 +885,6 @@ Log file: {0}</value>
   <data name="HomePage_SplitUsage.Text" xml:space="preserve">
     <value>Drag and drop your Live Photos, and extract independent image and video files with a single click.</value>
   </data>
-
   <data name="HomePage_RepairTitle.Text" xml:space="preserve">
     <value>Thumbnail Repair</value>
   </data>
@@ -905,7 +894,6 @@ Log file: {0}</value>
   <data name="HomePage_RepairUsage.Text" xml:space="preserve">
     <value>Select the problematic Live Photos, and the program will automatically reconstruct the metadata to bring them back to life.</value>
   </data>
-
   <data name="HomePage_KeyPhotoTitle.Text" xml:space="preserve">
     <value>Key Photo Switch</value>
   </data>
@@ -918,13 +906,11 @@ Log file: {0}</value>
   <data name="HomePage_KeyPhotoUsage.Text" xml:space="preserve">
     <value>Stay tuned! We are working hard to build this feature and it will meet you soon.</value>
   </data>
-
-
   <data name="AboutPage_MotivationTitle.Text" xml:space="preserve">
     <value>Motivation</value>
   </data>
   <data name="AboutPage_MotivationContent.Text" xml:space="preserve">
-    <value>I have a habit of backing up photos to my PC. However, Apple's Live Photos turn into separate images and videos on Windows, resulting in a fragmented viewing experience. I developed this tool out of frustration. A blessing for perfectionists!</value>
+    <value>The author habitually backs up photos to their computer due to limited storage space on their phone. However, Apple's Live Photos function on Windows results in separate images and videos, leading to a terrible browsing experience. Frustrated, the author developed this tool, finally liberating this perfectionist! []~(￣▽￣)~*</value>
   </data>
   <data name="AboutPage_CreditsTitle.Text" xml:space="preserve">
     <value>Open Source Credits</value>
@@ -945,9 +931,12 @@ Log file: {0}</value>
     <value>Zero Data Collection: All operations are performed safely on your local machine.</value>
   </data>
   <data name="AboutPage_DisclaimerTitle.Text" xml:space="preserve">
-  <value>Disclaimer</value>
+    <value>Disclaimer</value>
   </data>
   <data name="AboutPage_DisclaimerContent.Text" xml:space="preserve">
-  <value>This software is provided "as-is" without any warranty. LengxiQwQ shall not be liable for any data corruption, loss, or hardware failure resulting from the use of this software. Always back up your files before processing.</value>
+    <value>This software is provided "as-is" without any warranty. LengxiQwQ shall not be liable for any data corruption, loss, or hardware failure resulting from the use of this software. Always back up your files before processing.</value>
+  </data>
+  <data name="HomePage_Intro3.Text" xml:space="preserve">
+    <value> </value>
   </data>
 </root>
