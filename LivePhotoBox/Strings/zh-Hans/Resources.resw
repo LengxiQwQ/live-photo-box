@@ -871,10 +871,10 @@
     <value>实况照片合成</value>
   </data>
   <data name="HomePage_MergeDesc.Text" xml:space="preserve">
-    <value>将苹果实况照片转换为单文件，使用各家安卓协议，使其可在 Windows 等设备上查看。</value>
+    <value>将苹果实况照片转换为单文件，使用各家安卓协议，使其可在 Windows 等设备上查看。目前仅支持 (照片JPG + MOV/MP4视频)，暂不支持 (照片HEIC/HEIF + MOV/MP4视频) 的实况照片，后续会加入对 HEIC/HEIF 格式的支持, 以及封装为 HEIF 的实况照片。</value>
   </data>
   <data name="HomePage_MergeUsage.Text" xml:space="preserve">
-    <value>将准备好的 JPG + MOV/MP4 放在同一文件夹，点击“开始合成”即可。</value>
+    <value>将准备好的 (照片JPG + MOV/MP4视频) 放在同一文件夹，点击“开始合成”即可。</value>
   </data>
   <data name="HomePage_SplitTitle.Text" xml:space="preserve">
     <value>实况照片拆分</value>
@@ -889,7 +889,7 @@
     <value>缩略图修复</value>
   </data>
   <data name="HomePage_RepairDesc.Text" xml:space="preserve">
-    <value>这可是个重头戏，修复上述简介中，苹果照片缩略图前置会旋转，iOS17.3之前会拉伸的问题，如果有其他新的问题，请在关于或设置页面反馈。</value>
+    <value>这可是个重头戏，修复上述简介中，苹果照片缩略图前置会旋转，iOS17.3 之前会拉伸的问题，如果有其他新的问题，请在关于或设置页面反馈。</value>
   </data>
   <data name="HomePage_RepairUsage.Text" xml:space="preserve">
     <value>选择要修复的图片文件夹，程序会自动识别缩略图错误的图片并无损修复。</value>

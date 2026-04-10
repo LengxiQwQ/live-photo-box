@@ -16,8 +16,8 @@
                        HorizontalAlignment="Center"
                        VerticalAlignment="Center"
                        CacheMode="BitmapCache" />
-                <Border CornerRadius="12" Background="#22000000"/>
-                <Grid HorizontalAlignment="Center"
+                <!--<Border CornerRadius="12" Background="#22000000"/>-->
+                <!--<Grid HorizontalAlignment="Center"
                       VerticalAlignment="Center"
                       Margin="0,-24,0,0">
                     <TextBlock x:Name="HeroTitleShadow"
@@ -34,7 +34,7 @@
                                Foreground="#FFFFFF"
                                FontFamily="Microsoft YaHei UI"
                                CharacterSpacing="80"/>
-                </Grid>
+                </Grid>-->
             </Grid>
 
             <TextBlock x:Uid="HomePage_HeroSubtitle"
