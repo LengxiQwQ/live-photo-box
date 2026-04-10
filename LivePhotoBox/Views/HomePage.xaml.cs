@@ -31,5 +31,19 @@ namespace LivePhotoBox.Views
                 heroTitleShadow.Text = heroTitleText.Text;
             }
         }
+
+        private void FloatingGuideButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (this.FindName("CoreFeaturesTitle") is TextBlock target && this.FindName("RootScrollViewer") is ScrollViewer sv)
+                {
+                    var transform = target.TransformToVisual(sv.Content as UIElement ?? sv);
+                    var point = transform.TransformPoint(new Windows.Foundation.Point(0, 0));
+                    sv.ChangeView(null, point.Y - 24, null, false);
+                }
+            }
+            catch { }
+        }
     }
 }

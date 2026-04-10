@@ -871,25 +871,25 @@ Log file: {0}</value>
     <value>Live Photo Merge</value>
   </data>
   <data name="HomePage_MergeDesc.Text" xml:space="preserve">
-    <value>Seamlessly combine a static image and a video to generate a dynamic Live Photo that works across devices.</value>
+    <value>Converts Apple Live Photos into single files using various Android protocols, allowing them to be viewed on devices such as Windows. Currently, only (JPG photos + MOV/MP4 video) is supported; (HEIC/HEIF photos + MOV/MP4 video) Live Photos are not yet supported. Support for HEIC/HEIF formats, as well as Live Photos packaged as HEIF files, will be added in the future.</value>
   </data>
   <data name="HomePage_MergeUsage.Text" xml:space="preserve">
-    <value>Import your paired image and video files, click "Start Merge", and let us handle the rest.</value>
+    <value>Place the prepared (photos JPG + MOV/MP4 video) in the same folder, and click "Start Combining".</value>
   </data>
   <data name="HomePage_SplitTitle.Text" xml:space="preserve">
     <value>Live Photo Split</value>
   </data>
   <data name="HomePage_SplitDesc.Text" xml:space="preserve">
-    <value>Losslessly unpack existing Live Photos to extract the original static frame and dynamic video.</value>
+    <value>The existing single-file live photos are losslessly unpacked to extract the original still images and dynamic videos.</value>
   </data>
   <data name="HomePage_SplitUsage.Text" xml:space="preserve">
-    <value>Drag and drop your Live Photos, and extract independent image and video files with a single click.</value>
+    <value>Select the folder of photos you want to split, and click "Start Splitting".</value>
   </data>
   <data name="HomePage_RepairTitle.Text" xml:space="preserve">
     <value>Thumbnail Repair</value>
   </data>
   <data name="HomePage_RepairDesc.Text" xml:space="preserve">
-    <value>Fix unrecognized Live Photos, lost metadata, or thumbnail display issues caused by cross-platform transfers.</value>
+    <value>This is the main event: fixing the issue mentioned in the above description where Apple photo thumbnails rotate when viewed from the front and stretch in versions prior to iOS 17.3. If you encounter any other new issues, please report them on the About or Settings page.</value>
   </data>
   <data name="HomePage_RepairUsage.Text" xml:space="preserve">
     <value>Select the problematic Live Photos, and the program will automatically reconstruct the metadata to bring them back to life.</value>

@@ -7,8 +7,9 @@
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
-    <ScrollViewer Padding="40,24,40,0">
-        <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center" Margin="0,0,0,40">
+    <Grid>
+        <ScrollViewer x:Name="RootScrollViewer" Padding="40,24,40,0">
+            <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center" Margin="0,0,0,40">
 
             <Grid x:Name="BannerRoot" Height="350" Margin="0,8,0,8" CornerRadius="12">
                 <Image x:Name="BannerImage"
@@ -59,7 +60,7 @@
                 </StackPanel>
             </Border>
 
-            <TextBlock x:Uid="HomePage_CoreFeaturesTitle" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,16,0,-8"/>
+            <TextBlock x:Name="CoreFeaturesTitle" x:Uid="HomePage_CoreFeaturesTitle" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,16,0,-8"/>
 
             <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
                     Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
@@ -214,6 +215,22 @@
                 </Grid>
             </Border>
 
-        </StackPanel>
-    </ScrollViewer>
+            <!-- end of content stack -->
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Floating guide button (bottom-right) -->
+        <Button x:Name="FloatingGuideButton"
+                Width="34" Height="34"
+                HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                Margin="0,0,41,40"
+                Click="FloatingGuideButton_Click">
+            <ToolTipService.ToolTip>
+                <TextBlock x:Uid="HomePage_GuideButton_Tooltip" />
+            </ToolTipService.ToolTip>
+            <Border CornerRadius="10" Background="Transparent" Width="30" Height="30" HorizontalAlignment="Center" VerticalAlignment="Center" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1">
+                <FontIcon Glyph="&#xE897;" FontSize="14" Foreground="{ThemeResource TextFillColorPrimaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+        </Button>
+    </Grid>
 </Page>
