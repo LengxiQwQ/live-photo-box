@@ -16,9 +16,12 @@ namespace LivePhotoBox.Services
             var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
             foreach (var lang in systemLangs)
             {
-                if (lang.ToLowerInvariant().StartsWith("zh")) return "zh-Hans";
+                var lowerLang = lang.ToLowerInvariant();
+                if (lowerLang.StartsWith("zh")) return "zh-Hans";
+                if (lowerLang.StartsWith("en")) return "en-US"; // 加上这一句，先匹配到英文就返回英文
             }
 
+            // 如果用户的系统语言既不是中文也不是英文（比如日文），默认回退到英文
             return "en-US";
         }
 

@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System;
+using System.Runtime.InteropServices;
 using System.ComponentModel;
 using System.IO;
 using Windows.Graphics;
@@ -15,8 +16,12 @@ namespace LivePhotoBox
 {
     public sealed partial class MainWindow : Window
     {
-        private const int DefaultWindowWidth = 1414;
-        private const int DefaultWindowHeight = 928;
+        // 这里是你设置的基准宽度和高度（对应 100% 缩放下的逻辑大小）
+        private const int DefaultWindowWidth = 1120;
+        private const int DefaultWindowHeight = 694;
+
+        [DllImport("user32.dll")]
+        private static extern uint GetDpiForWindow(IntPtr hwnd);
 
         public AppViewModel ViewModel => AppViewModel.Instance;
 
@@ -38,26 +43,50 @@ namespace LivePhotoBox
 
             if (appWindow != null)
             {
+                // 加载任务栏和窗口图标
                 string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
                 if (File.Exists(iconPath))
                 {
                     appWindow.SetIcon(iconPath);
                 }
 
-                appWindow.Resize(new SizeInt32(DefaultWindowWidth, DefaultWindowHeight));
-
+                // =================================================================
+                // 窗口大小 DPI 自适应与屏幕自适应居中逻辑
+                // =================================================================
                 try
                 {
+                    // 获取当前窗口所在显示器的实际 DPI
+                    uint dpi = GetDpiForWindow(hWnd);
+                    float scaleFactor = dpi / 96f;
+
+                    // 计算当前缩放率下，实际需要的物理像素大小
+                    int scaledWidth = (int)(DefaultWindowWidth * scaleFactor);
+                    int scaledHeight = (int)(DefaultWindowHeight * scaleFactor);
+
+                    // 动态调整窗口到自适应的物理大小
+                    appWindow.Resize(new SizeInt32(scaledWidth, scaledHeight));
+
+                    // 获取当前显示器的可用工作区（避开任务栏），让窗口完美居中
                     var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
-                    var workArea = displayArea.WorkArea;
+                    if (displayArea != null)
+                    {
+                        var workArea = displayArea.WorkArea;
 
-                    int x = workArea.X + (workArea.Width - DefaultWindowWidth) / 2;
-                    int y = workArea.Y + (workArea.Height - DefaultWindowHeight) / 2;
+                        int x = workArea.X + (workArea.Width - scaledWidth) / 2;
+                        int y = workArea.Y + (workArea.Height - scaledHeight) / 2;
 
-                    appWindow.Move(new PointInt32(x, y));
+                        // 确保窗口不会移出屏幕边界
+                        x = Math.Max(workArea.X, x);
+                        y = Math.Max(workArea.Y, y);
+
+                        appWindow.Move(new PointInt32(x, y));
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    // 防御性设计：如果缩放逻辑失败，回退到默认大小，防止程序崩溃
+                    System.Diagnostics.Debug.WriteLine($"DPI Scaling initialization failed: {ex.Message}");
+                    appWindow.Resize(new SizeInt32(DefaultWindowWidth, DefaultWindowHeight));
                 }
             }
 

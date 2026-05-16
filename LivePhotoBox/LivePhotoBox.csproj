@@ -4,18 +4,24 @@
 		<TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
 		<TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
 		<LangVersion>13.0</LangVersion>
+		<Nullable>enable</Nullable>
+
 		<RootNamespace>LivePhotoBox</RootNamespace>
-       <AssemblyName>LivePhotoBox</AssemblyName>
+		<AssemblyName>LivePhotoBox</AssemblyName>
 		<ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
+		<DefaultLanguage>zh-Hans</DefaultLanguage>
+
 		<Platforms>x86;x64;ARM64</Platforms>
 		<RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
 		<PublishProfile>win-$(Platform).pubxml</PublishProfile>
 		<UseWinUI>true</UseWinUI>
 		<EnableMsixTooling>true</EnableMsixTooling>
-		<DefaultLanguage>zh-Hans</DefaultLanguage>
-		<Nullable>enable</Nullable>
 		<WindowsSdkPackageVersion>10.0.22621.56</WindowsSdkPackageVersion>
+
+		<AppxBundle>Never</AppxBundle>
+		<SelfContained>true</SelfContained>
+		<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
 	</PropertyGroup>
 	
 	<ItemGroup>
@@ -140,22 +146,21 @@
 		<PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
        <PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' == 'true'">True</PublishReadyToRun>
 		<PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' != 'true'">False</PublishReadyToRun>
-		<PublishTrimmed Condition="'$(Configuration)' == 'Debug'">False</PublishTrimmed>
-     <PublishTrimmed Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' == 'true'">True</PublishTrimmed>
-		<PublishTrimmed Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' != 'true'">False</PublishTrimmed>
+		<PublishTrimmed>False</PublishTrimmed>
      <GenerateTemporaryStoreCertificate Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">True</GenerateTemporaryStoreCertificate>
 		<GenerateTemporaryStoreCertificate Condition="!Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">False</GenerateTemporaryStoreCertificate>
 		<GenerateAppInstallerFile>False</GenerateAppInstallerFile>
      <AppxPackageSigningEnabled Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">True</AppxPackageSigningEnabled>
 		<AppxPackageSigningEnabled Condition="!Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">False</AppxPackageSigningEnabled>
 		<AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
-		<AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
-		<GenerateTestArtifacts>False</GenerateTestArtifacts>
-		<AppxBundle>Always</AppxBundle>
-		<AppxBundlePlatforms>x64|arm64</AppxBundlePlatforms>
+		<AppxAutoIncrementPackageRevision>True</AppxAutoIncrementPackageRevision>
+		<!--<GenerateTestArtifacts>False</GenerateTestArtifacts>
+		<AppxBundle>Always</AppxBundle>-->
+		<AppxBundlePlatforms>x64</AppxBundlePlatforms>
 		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
         <PackageCertificateKeyFile Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">LivePhotoBox_TemporaryKey.pfx</PackageCertificateKeyFile>
 		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-studio</AppInstallerUri>
 		<GenerateTemporaryStoreCertificate>True</GenerateTemporaryStoreCertificate>
+		<GenerateTestArtifacts>False</GenerateTestArtifacts>
 	</PropertyGroup>
 </Project>
