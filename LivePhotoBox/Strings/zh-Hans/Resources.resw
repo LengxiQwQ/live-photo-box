@@ -429,6 +429,12 @@
   <data name="Task_Error" xml:space="preserve">
     <value>错误: {0}</value>
   </data>
+  <data name="Msg_NoInputDirectoryTitle" xml:space="preserve">
+    <value>未设置输入目录</value>
+  </data>
+  <data name="Msg_NoInputDirectory" xml:space="preserve">
+    <value>请先设置输入目录。</value>
+  </data>
   <data name="Msg_EmptyQueueTitle" xml:space="preserve">
     <value>队列为空</value>
   </data>
@@ -940,13 +946,31 @@
   <data name="HomePage_Intro3.Text" xml:space="preserve">
     <value> </value>
   </data>
+  <data name="HomePage_TryMergeDemo.Content" xml:space="preserve">
+    <value>载入合成样例并体验</value>
+  </data>
+  <data name="HomePage_TrySplitDemo.Content" xml:space="preserve">
+    <value>载入拆分样例并体验</value>
+  </data>
+  <data name="HomePage_TryRepairDemo.Content" xml:space="preserve">
+    <value>载入修复样例并体验</value>
+  </data>
   <data name="HomePage_TryMergeDemoText.Text" xml:space="preserve">
+    <value>载入合成样例并体验</value>
+  </data>
+  <data name="HomePage_TryMergeDemoText.Content" xml:space="preserve">
     <value>载入合成样例并体验</value>
   </data>
   <data name="HomePage_TrySplitDemoText.Text" xml:space="preserve">
     <value>载入拆分样例并体验</value>
   </data>
+  <data name="HomePage_TrySplitDemoText.Content" xml:space="preserve">
+    <value>载入拆分样例并体验</value>
+  </data>
   <data name="HomePage_TryRepairDemoText.Text" xml:space="preserve">
+    <value>载入修复样例并体验</value>
+  </data>
+  <data name="HomePage_TryRepairDemoText.Content" xml:space="preserve">
     <value>载入修复样例并体验</value>
   </data>
   <data name="HomePage_DemoOutputFolder" xml:space="preserve">

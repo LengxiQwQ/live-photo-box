@@ -71,6 +71,8 @@
                                 <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                                 <TextBlock x:Uid="HomePage_MergeUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                             </Grid>
+
+                            <Button x:Uid="HomePage_TryMergeDemo" x:Name="TryMergeDemoButton" Click="TryMergeDemo_Click" Margin="0,8,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -103,6 +105,8 @@
                                 <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                                 <TextBlock x:Uid="HomePage_SplitUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                             </Grid>
+
+                            <Button x:Uid="HomePage_TrySplitDemo" Click="TrySplitDemo_Click" Margin="0,8,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -135,6 +139,8 @@
                                 <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                                 <TextBlock x:Uid="HomePage_RepairUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                             </Grid>
+
+                            <Button x:Uid="HomePage_TryRepairDemo" Click="TryRepairDemo_Click" Margin="0,8,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>

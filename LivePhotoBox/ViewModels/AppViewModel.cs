@@ -228,6 +228,29 @@ namespace LivePhotoBox.ViewModels
                 }
             }
         }
+
+        private async Task ShowNoInputDirectoryDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_NoInputDirectoryTitle"),
+                    Content = new TextBlock
+                    {
+                        Text = ResourceService.GetString("Msg_NoInputDirectory"),
+                        FontSize = 16,
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+
+                await dialog.ShowAsync();
+            }
+        }
+
         public void SetCurrentStatusPage(string? pageTag)
         {
             CurrentStatusPageTag = pageTag;
@@ -444,8 +467,7 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(SplitInputDirectory) || !Directory.Exists(SplitInputDirectory))
             {
-                SetSplitStatus("SplitPage_Status_InvalidInput");
-
+                await ShowNoInputDirectoryDialogAsync();
                 return;
             }
 
@@ -824,7 +846,7 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(InputDirectory) || !Directory.Exists(InputDirectory))
             {
-                SetComboStatus("Status_InvalidInput");
+                await ShowNoInputDirectoryDialogAsync();
                 return;
             }
 
@@ -1108,7 +1130,11 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(RepairInputDirectory) || !Directory.Exists(RepairInputDirectory)) return;
+            if (string.IsNullOrWhiteSpace(RepairInputDirectory) || !Directory.Exists(RepairInputDirectory))
+            {
+                await ShowNoInputDirectoryDialogAsync();
+                return;
+            }
 
             // 初始化扫描状态
             IsRepairScanning = true;

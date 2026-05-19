@@ -430,6 +430,12 @@ Do you want to restart now?</value>
   <data name="Task_Error" xml:space="preserve">
     <value>Error: {0}</value>
   </data>
+  <data name="Msg_NoInputDirectoryTitle" xml:space="preserve">
+    <value>No Input Directory</value>
+  </data>
+  <data name="Msg_NoInputDirectory" xml:space="preserve">
+    <value>Please set an input directory first.</value>
+  </data>
   <data name="Msg_EmptyQueueTitle" xml:space="preserve">
     <value>Queue Empty</value>
   </data>
@@ -941,13 +947,31 @@ Log file: {0}</value>
   <data name="HomePage_Intro3.Text" xml:space="preserve">
     <value> </value>
   </data>
+  <data name="HomePage_TryMergeDemo.Content" xml:space="preserve">
+    <value>Load Merge Sample &amp; Try</value>
+  </data>
+  <data name="HomePage_TrySplitDemo.Content" xml:space="preserve">
+    <value>Load Split Sample &amp; Try</value>
+  </data>
+  <data name="HomePage_TryRepairDemo.Content" xml:space="preserve">
+    <value>Load Repair Sample &amp; Try</value>
+  </data>
   <data name="HomePage_TryMergeDemoText.Text" xml:space="preserve">
+    <value>Load Merge Sample &amp; Try</value>
+  </data>
+  <data name="HomePage_TryMergeDemoText.Content" xml:space="preserve">
     <value>Load Merge Sample &amp; Try</value>
   </data>
   <data name="HomePage_TrySplitDemoText.Text" xml:space="preserve">
     <value>Load Split Sample &amp; Try</value>
   </data>
+  <data name="HomePage_TrySplitDemoText.Content" xml:space="preserve">
+    <value>Load Split Sample &amp; Try</value>
+  </data>
   <data name="HomePage_TryRepairDemoText.Text" xml:space="preserve">
+    <value>Load Repair Sample &amp; Try</value>
+  </data>
+  <data name="HomePage_TryRepairDemoText.Content" xml:space="preserve">
     <value>Load Repair Sample &amp; Try</value>
   </data>
   <data name="HomePage_DemoOutputFolder" xml:space="preserve">
