@@ -137,7 +137,7 @@
 
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock x:Uid="ComboPage_ProtocolLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                <ComboBox Width="220"
+                                <ComboBox Width="260"
                                           SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}"
                                            VerticalAlignment="Center">
                                     <ComboBoxItem x:Uid="SettingsPage_Protocol_V1"/>
