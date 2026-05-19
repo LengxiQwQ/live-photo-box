@@ -191,7 +191,7 @@ namespace LivePhotoBox.ViewModels
                 CrashLogService.UpdateSessionState();
             }
         }
-        // 【新增】：点击问号按钮直接跳转教程的命令
+
         [RelayCommand]
         private void GoToTutorial(string feature)
         {
@@ -205,7 +205,6 @@ namespace LivePhotoBox.ViewModels
                 var dialog = new ContentDialog
                 {
                     Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    // 使用 TextBlock 设置较大的字体
                     Content = new TextBlock
                     {
                         Text = ResourceService.GetString("Msg_EmptyQueue"),
@@ -220,25 +219,23 @@ namespace LivePhotoBox.ViewModels
 
                 var result = await dialog.ShowAsync();
 
-                // 如果用户点击了“查看操作教程”
                 if (result == ContentDialogResult.Primary)
                 {
-                    // 触发事件通知 MainWindow 跳转到主页
                     RequestNavigateToPage?.Invoke(this, $"Home_{targetFeature}");
                 }
             }
         }
 
-        private async Task ShowNoInputDirectoryDialogAsync()
+        private async Task ShowNoInputDirectoryDialogAsync(string targetFeature)
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
             {
                 var dialog = new ContentDialog
                 {
-                    Title = ResourceService.GetString("Msg_NoInputDirectoryTitle"),
+                    Title = ResourceService.GetString($"{targetFeature}Page_Msg_NoInputDirectoryTitle"),
                     Content = new TextBlock
                     {
-                        Text = ResourceService.GetString("Msg_NoInputDirectory"),
+                        Text = ResourceService.GetString($"{targetFeature}Page_Msg_NoInputDirectory"),
                         FontSize = 16,
                         TextWrapping = TextWrapping.Wrap
                     },
@@ -282,21 +279,18 @@ namespace LivePhotoBox.ViewModels
         [NotifyPropertyChangedFor(nameof(SecondaryBtnText))]
         private bool _isProcessing = false;
 
-        // === 新增这部分：扫描状态 ===
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsNotScanning))]
         private bool _isScanning = false;
 
         public bool IsNotScanning => !IsScanning;
-        // ===========================
 
-        // === 拆分页面扫描状态 ===
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsSplitNotScanning))]
         private bool _isSplitScanning = false;
 
         public bool IsSplitNotScanning => !IsSplitScanning;
-        // ===========================
+
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(SecondaryBtnText))]
         private bool _isPaused = false;
@@ -312,7 +306,6 @@ namespace LivePhotoBox.ViewModels
         [NotifyPropertyChangedFor(nameof(SplitClearBtnText))]
         private bool _isSplitPaused = false;
 
-        // === 修改这里的资源键名 ===
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RepairScanBtnText))]
         [NotifyPropertyChangedFor(nameof(IsRepairNotScanning))]
@@ -323,7 +316,6 @@ namespace LivePhotoBox.ViewModels
         public string RepairScanBtnText => IsRepairScanning
             ? ResourceService.GetString("RepairPage_DynamicCancelText")
             : ResourceService.GetString("RepairPage_DynamicScanText");
-        // ========================================
 
         public bool IsSplitNotProcessing => !IsSplitProcessing;
 
@@ -458,20 +450,19 @@ namespace LivePhotoBox.ViewModels
         }
 
         [RelayCommand]
-        public async Task ScanSplitDirectoryAsync() // 修改为异步方法
+        public async Task ScanSplitDirectoryAsync()
         {
             CrashLogService.RecordBreadcrumb($"ScanSplitDirectory requested. Input='{SplitInputDirectory}', Output='{SplitOutputDirectory}'");
 
-            // 如果正在拆分或正在扫描，则不响应
             if (IsSplitProcessing || IsSplitScanning) return;
 
             if (string.IsNullOrWhiteSpace(SplitInputDirectory) || !Directory.Exists(SplitInputDirectory))
             {
-                await ShowNoInputDirectoryDialogAsync();
+                await ShowNoInputDirectoryDialogAsync("Split");
                 return;
             }
 
-            IsSplitScanning = true; // 锁定按钮
+            IsSplitScanning = true;
 
             try
             {
@@ -484,7 +475,6 @@ namespace LivePhotoBox.ViewModels
 
                 var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
 
-                // 将扫描过程放到后台线程执行，防止 UI 卡死
                 var scanResult = await Task.Run(() => LivePhotoSplitScanService.Scan(SplitInputDirectory));
 
                 var tasks = scanResult.Files.Select((file, index) => new LivePhotoSplitTask
@@ -505,7 +495,6 @@ namespace LivePhotoBox.ViewModels
                 SplitProgress = 0;
                 SplitProgressText = $"0/{SplitQueuedCount}";
 
-                // 【关键修改】：不管有没有扫描出文件，都保持配置面板展开
                 IsSplitDirectoryPanelOpen = true;
 
                 if (SplitQueuedCount > 0)
@@ -519,7 +508,7 @@ namespace LivePhotoBox.ViewModels
             }
             finally
             {
-                IsSplitScanning = false; // 扫描结束，解锁按钮
+                IsSplitScanning = false;
             }
         }
 
@@ -582,7 +571,7 @@ namespace LivePhotoBox.ViewModels
                 SetSplitStatus("SplitPage_Status_WarnOutput");
                 return;
             }
-            // 【关键修改】：点击开始拆分后，折叠配置面板
+
             IsSplitDirectoryPanelOpen = false;
 
             await RunSplitTasksAsync();
@@ -649,9 +638,6 @@ namespace LivePhotoBox.ViewModels
             SplitProgressText = $"{completedCount}/{SplitQueuedCount}";
         }
 
-        // ==========================================
-        // 【核心修复】：将循环转移到 Task.Run 后台线程，UI 更新使用 DispatcherQueue
-        // ==========================================
         private async Task RunSplitTasksAsync()
         {
             InitializeSplitRunState();
@@ -665,8 +651,6 @@ namespace LivePhotoBox.ViewModels
                 await Task.Run(async () =>
                 {
                     int completedCount = SplitTasks.Count(task => task.Status == ProcessStatus.Success);
-
-                    // 为了防止迭代时遇到跨线程读写问题，我们抓取一份需要处理的任务列表快照
                     var tasksToProcess = SplitTasks.ToList();
 
                     foreach (var task in tasksToProcess)
@@ -676,11 +660,9 @@ namespace LivePhotoBox.ViewModels
                             continue;
                         }
 
-                        // 这里会在后台线程中等待，不再卡死 UI 主界面
                         _splitPauseEvent.Wait(_splitCancellationTokenSource!.Token);
                         _splitCancellationTokenSource.Token.ThrowIfCancellationRequested();
 
-                        // 任何涉及到界面的数据更新，都必须切回到主线程执行
                         App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateSplitTaskStarted(task));
 
                         bool isSuccess;
@@ -837,20 +819,19 @@ namespace LivePhotoBox.ViewModels
         }
 
         [RelayCommand]
-        public async Task ScanDirectoryAsync() // 修改为异步方法
+        public async Task ScanDirectoryAsync()
         {
             CrashLogService.RecordBreadcrumb($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
 
-            // 如果正在合成或正在扫描，则不响应
             if (IsProcessing || IsScanning) return;
 
             if (string.IsNullOrWhiteSpace(InputDirectory) || !Directory.Exists(InputDirectory))
             {
-                await ShowNoInputDirectoryDialogAsync();
+                await ShowNoInputDirectoryDialogAsync("Combo");
                 return;
             }
 
-            IsScanning = true; // 锁定按钮
+            IsScanning = true;
 
             try
             {
@@ -858,7 +839,6 @@ namespace LivePhotoBox.ViewModels
 
                 var pendingText = ResourceService.GetString("Task_Pending");
 
-                // 将扫描过程放到后台线程执行，防止 UI 卡死，让按钮的锁定状态能够渲染出来
                 var scanResult = await Task.Run(() => LivePhotoScanService.Scan(InputDirectory));
 
                 var tasks = scanResult.Pairs.Select((pair, index) => new LivePhotoMergeTask
@@ -878,7 +858,6 @@ namespace LivePhotoBox.ViewModels
 
                 ComboTasks.ReplaceRange(tasks);
 
-                // 【关键修改】：不管有没有扫描出文件，都保持配置面板展开
                 IsDirectoryPanelOpen = true;
 
                 TotalPairsCount = scanResult.Pairs.Count;
@@ -897,7 +876,7 @@ namespace LivePhotoBox.ViewModels
             }
             finally
             {
-                IsScanning = false; // 扫描结束，解锁按钮
+                IsScanning = false;
             }
         }
 
@@ -946,7 +925,6 @@ namespace LivePhotoBox.ViewModels
                 _cancellationTokenSource?.Cancel();
                 _pauseEvent.Set();
                 ActionBtnText = ResourceService.GetString("Btn_Stopping");
-                // 👇=== 新增这行：点击停止时自动展开合成配置面板 ===👇
                 IsDirectoryPanelOpen = true;
                 return;
             }
@@ -1045,10 +1023,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // ==========================================
-        // 修复页面 (RepairPage) 绑定的属性与命令
-        // ==========================================
-
         [ObservableProperty] private bool _isRepairDirectoryPanelOpen = true;
         [ObservableProperty] private string _repairInputDirectory = string.Empty;
         [ObservableProperty] private string _repairOutputDirectory = string.Empty;
@@ -1081,7 +1055,6 @@ namespace LivePhotoBox.ViewModels
         }
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RepairSecondaryBtnText))]
-
         private bool _isRepairPaused = false;
 
         public BulkObservableCollection<LivePhotoRepairTask> RepairTasks { get; } = [];
@@ -1098,7 +1071,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 【在这里！新增了选择输入目录的命令】
         [RelayCommand]
         private async Task PickRepairInputDirectoryAsync()
         {
@@ -1109,7 +1081,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 【在这里！新增了选择输出目录的命令】
         [RelayCommand]
         private async Task PickRepairOutputDirectoryAsync()
         {
@@ -1120,10 +1091,9 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        [RelayCommand(AllowConcurrentExecutions = true)] // 👈 关键修改：允许并发执行，按钮才不会变灰
+        [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ScanRepairDirectoryAsync()
         {
-            // 如果已经在扫描，点击则执行“取消”逻辑
             if (IsRepairScanning)
             {
                 _repairScanCancellationTokenSource?.Cancel();
@@ -1132,11 +1102,10 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(RepairInputDirectory) || !Directory.Exists(RepairInputDirectory))
             {
-                await ShowNoInputDirectoryDialogAsync();
+                await ShowNoInputDirectoryDialogAsync("Repair");
                 return;
             }
 
-            // 初始化扫描状态
             IsRepairScanning = true;
             _repairScanCancellationTokenSource = new CancellationTokenSource();
             var token = _repairScanCancellationTokenSource.Token;
@@ -1150,7 +1119,6 @@ namespace LivePhotoBox.ViewModels
 
             try
             {
-                // 将文件获取也放到后台线程，防止大目录卡死
                 var files = await Task.Run(() =>
                     Directory.GetFiles(RepairInputDirectory, "*.*", SearchOption.TopDirectoryOnly)
                              .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
@@ -1165,7 +1133,6 @@ namespace LivePhotoBox.ViewModels
                     int index = 1;
                     foreach (var file in files)
                     {
-                        // 关键：检查是否已请求取消
                         if (token.IsCancellationRequested)
                             token.ThrowIfCancellationRequested();
 
@@ -1198,7 +1165,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                SetRepairStatus("Status_Aborted"); // 在资源文件中定义为“已取消”或“已停止”
+                SetRepairStatus("Status_Aborted");
             }
             catch (Exception ex)
             {
@@ -1294,7 +1261,6 @@ namespace LivePhotoBox.ViewModels
                 {
                     foreach (var task in RepairTasks)
                     {
-                        // 支持暂停/继续
                         _repairPauseEvent.Wait(_repairCancellationTokenSource!.Token);
                         _repairCancellationTokenSource.Token.ThrowIfCancellationRequested();
 

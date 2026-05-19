@@ -956,24 +956,6 @@ Log file: {0}</value>
   <data name="HomePage_TryRepairDemo.Content" xml:space="preserve">
     <value>Load Repair Sample &amp; Try</value>
   </data>
-  <data name="HomePage_TryMergeDemoText.Text" xml:space="preserve">
-    <value>Load Merge Sample &amp; Try</value>
-  </data>
-  <data name="HomePage_TryMergeDemoText.Content" xml:space="preserve">
-    <value>Load Merge Sample &amp; Try</value>
-  </data>
-  <data name="HomePage_TrySplitDemoText.Text" xml:space="preserve">
-    <value>Load Split Sample &amp; Try</value>
-  </data>
-  <data name="HomePage_TrySplitDemoText.Content" xml:space="preserve">
-    <value>Load Split Sample &amp; Try</value>
-  </data>
-  <data name="HomePage_TryRepairDemoText.Text" xml:space="preserve">
-    <value>Load Repair Sample &amp; Try</value>
-  </data>
-  <data name="HomePage_TryRepairDemoText.Content" xml:space="preserve">
-    <value>Load Repair Sample &amp; Try</value>
-  </data>
   <data name="HomePage_DemoOutputFolder" xml:space="preserve">
     <value>LivePhotoBox_Output</value>
   </data>
@@ -986,19 +968,34 @@ Log file: {0}</value>
   <data name="ComboPage_HelpBtnText.Text" xml:space="preserve">
     <value>Help &amp; Tutorials</value>
   </data>
-  <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>View Detailed Tutorial</value>
-  </data>
   <data name="SplitPage_HelpBtnText.Text" xml:space="preserve">
     <value>Help &amp; Tutorials</value>
-  </data>
-  <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>View Detailed Tutorial</value>
   </data>
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>Help &amp; Tutorials</value>
   </data>
-  <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>View Detailed Tutorial</value>
+  <data name="Msg_GotIt" xml:space="preserve">
+    <value>Got it</value>
+  </data>
+  <data name="Msg_GoToTutorial" xml:space="preserve">
+    <value>View Tutorial</value>
+  </data>
+  <data name="ComboPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
+    <value>Input Folder Not Selected</value>
+  </data>
+  <data name="ComboPage_Msg_NoInputDirectory" xml:space="preserve">
+    <value>Please select a folder containing the files to be merged. The folder should contain static photos (currently supports JPG) and dynamic videos (MOV or MP4) with the same name. The app will automatically scan the directory and pair them.</value>
+  </data>
+  <data name="SplitPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
+    <value>Input Folder Not Selected</value>
+  </data>
+  <data name="SplitPage_Msg_NoInputDirectory" xml:space="preserve">
+    <value>Please select a folder containing Live Photos to be split. The app will scan for single-file Live Photos and losslessly extract the original static image and dynamic video.</value>
+  </data>
+  <data name="RepairPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
+    <value>Input Folder Not Selected</value>
+  </data>
+  <data name="RepairPage_Msg_NoInputDirectory" xml:space="preserve">
+    <value>Please select a folder containing images to be repaired. The app will automatically scan for images with thumbnail rotation or stretching issues caused by device compatibility and perform a lossless repair.</value>
   </data>
 </root>

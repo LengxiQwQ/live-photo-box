@@ -947,31 +947,13 @@
     <value> </value>
   </data>
   <data name="HomePage_TryMergeDemo.Content" xml:space="preserve">
-    <value>载入合成样例并体验</value>
+    <value>载入样例并体验</value>
   </data>
   <data name="HomePage_TrySplitDemo.Content" xml:space="preserve">
-    <value>载入拆分样例并体验</value>
+    <value>载入样例并体验</value>
   </data>
   <data name="HomePage_TryRepairDemo.Content" xml:space="preserve">
-    <value>载入修复样例并体验</value>
-  </data>
-  <data name="HomePage_TryMergeDemoText.Text" xml:space="preserve">
-    <value>载入合成样例并体验</value>
-  </data>
-  <data name="HomePage_TryMergeDemoText.Content" xml:space="preserve">
-    <value>载入合成样例并体验</value>
-  </data>
-  <data name="HomePage_TrySplitDemoText.Text" xml:space="preserve">
-    <value>载入拆分样例并体验</value>
-  </data>
-  <data name="HomePage_TrySplitDemoText.Content" xml:space="preserve">
-    <value>载入拆分样例并体验</value>
-  </data>
-  <data name="HomePage_TryRepairDemoText.Text" xml:space="preserve">
-    <value>载入修复样例并体验</value>
-  </data>
-  <data name="HomePage_TryRepairDemoText.Content" xml:space="preserve">
-    <value>载入修复样例并体验</value>
+    <value>载入样例并体验</value>
   </data>
   <data name="HomePage_DemoOutputFolder" xml:space="preserve">
     <value>LivePhotoBox_样例输出</value>
@@ -985,19 +967,34 @@
   <data name="ComboPage_HelpBtnText.Text" xml:space="preserve">
     <value>帮助 &amp; 教程</value>
   </data>
-  <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>查看详细操作教程</value>
-  </data>
   <data name="SplitPage_HelpBtnText.Text" xml:space="preserve">
     <value>帮助 &amp; 教程</value>
-  </data>
-  <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>查看详细操作教程</value>
   </data>
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>帮助 &amp; 教程</value>
   </data>
-  <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>查看详细操作教程</value>
+  <data name="Msg_GotIt" xml:space="preserve">
+    <value>我知道了</value>
+  </data>
+  <data name="Msg_GoToTutorial" xml:space="preserve">
+    <value>查看操作教程</value>
+  </data>
+  <data name="ComboPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
+    <value>尚未选择输入文件夹</value>
+  </data>
+  <data name="ComboPage_Msg_NoInputDirectory" xml:space="preserve">
+    <value>请先选择包含待合成文件的文件夹。文件夹内需要准备好静态照片（目前支持 JPG）以及同名的动态视频（MOV 或 MP4 格式）。程序会自动扫描目录并将它们配对合并。</value>
+  </data>
+  <data name="SplitPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
+    <value>尚未选择输入文件夹</value>
+  </data>
+  <data name="SplitPage_Msg_NoInputDirectory" xml:space="preserve">
+    <value>请先选择包含待拆分实况照片的文件夹。程序会扫描该目录下的单文件实况照片，并无损解包提取出原始的静态画面与动态视频。</value>
+  </data>
+  <data name="RepairPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
+    <value>尚未选择输入文件夹</value>
+  </data>
+  <data name="RepairPage_Msg_NoInputDirectory" xml:space="preserve">
+    <value>请先选择需要修复的图片文件夹。程序会自动扫描目录，识别出因设备兼容性导致在 Windows 上出现缩略图旋转或拉伸问题的图片，并进行无损修复。</value>
   </data>
 </root>

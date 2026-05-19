@@ -12,12 +12,12 @@
             <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center" Margin="0,0,0,40">
 
                 <Grid x:Name="BannerRoot" Height="350" Margin="0,8,0,8" CornerRadius="12">
-                    <Image x:Name="BannerImage"
+                    <Image 
+                       x:Name="BannerImage"
                        Stretch="UniformToFill"
                        HorizontalAlignment="Center"
                        VerticalAlignment="Center"
                        CacheMode="BitmapCache" />
-
                 </Grid>
 
                 <TextBlock x:Uid="HomePage_HeroSubtitle"
@@ -52,7 +52,14 @@
                         </Grid.ColumnDefinitions>
                         <FontIcon Glyph="&#xE8B1;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
                         <StackPanel Grid.Column="1" Spacing="12">
-                            <TextBlock x:Uid="HomePage_MergeTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,0,0,4"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Uid="HomePage_MergeTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" VerticalAlignment="Center"/>
+                                <Button x:Uid="HomePage_TryMergeDemo" x:Name="TryMergeDemoButton" Style="{ThemeResource AccentButtonStyle}" Click="TryMergeDemo_Click" Grid.Column="1" VerticalAlignment="Center"/>
+                            </Grid>
 
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -71,8 +78,6 @@
                                 <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                                 <TextBlock x:Uid="HomePage_MergeUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                             </Grid>
-
-                            <Button x:Uid="HomePage_TryMergeDemo" x:Name="TryMergeDemoButton" Click="TryMergeDemo_Click" Margin="0,8,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -86,7 +91,14 @@
                         </Grid.ColumnDefinitions>
                         <FontIcon Glyph="&#xE8C6;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
                         <StackPanel Grid.Column="1" Spacing="12">
-                            <TextBlock x:Uid="HomePage_SplitTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,0,0,4"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Uid="HomePage_SplitTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" VerticalAlignment="Center"/>
+                                <Button x:Uid="HomePage_TrySplitDemo" Style="{ThemeResource AccentButtonStyle}" Click="TrySplitDemo_Click" Grid.Column="1" VerticalAlignment="Center"/>
+                            </Grid>
 
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -105,8 +117,6 @@
                                 <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                                 <TextBlock x:Uid="HomePage_SplitUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                             </Grid>
-
-                            <Button x:Uid="HomePage_TrySplitDemo" Click="TrySplitDemo_Click" Margin="0,8,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -120,7 +130,14 @@
                         </Grid.ColumnDefinitions>
                         <FontIcon Glyph="&#xE7C5;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
                         <StackPanel Grid.Column="1" Spacing="12">
-                            <TextBlock x:Uid="HomePage_RepairTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,0,0,4"/>
+                            <Grid Margin="0,0,0,4">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Uid="HomePage_RepairTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" VerticalAlignment="Center"/>
+                                <Button x:Uid="HomePage_TryRepairDemo" Style="{ThemeResource AccentButtonStyle}" Click="TryRepairDemo_Click" Grid.Column="1" VerticalAlignment="Center"/>
+                            </Grid>
 
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -139,8 +156,6 @@
                                 <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                                 <TextBlock x:Uid="HomePage_RepairUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
                             </Grid>
-
-                            <Button x:Uid="HomePage_TryRepairDemo" Click="TryRepairDemo_Click" Margin="0,8,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
