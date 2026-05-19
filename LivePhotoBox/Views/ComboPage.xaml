@@ -11,21 +11,65 @@
 
     <Page.Resources>
         <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
+
+        <Style x:Key="HelpIconButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Width" Value="32"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="RootBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="{TemplateBinding CornerRadius}"
+                                Padding="{TemplateBinding Padding}">
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal" />
+                                    <VisualState x:Name="PointerOver">
+                                        <VisualState.Setters>
+                                            <Setter Target="RootBorder.Background" Value="{ThemeResource ButtonHoverBrush}" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="Pressed">
+                                        <VisualState.Setters>
+                                            <Setter Target="RootBorder.Background" Value="{ThemeResource ButtonHoverBrush}" />
+                                            <Setter Target="RootBorder.Opacity" Value="0.6" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="Disabled" />
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                            <FontIcon Glyph="&#xE897;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Page.Resources>
 
     <Grid>
-            <Grid RowSpacing="12"
-                  Padding="24,24,24,40">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="*"/>
-                </Grid.RowDefinitions>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
+        <Grid RowSpacing="12"
+              Padding="24,24,24,40">
+
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
 
             <Expander Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
                       IsExpanded="{x:Bind ViewModel.IsDirectoryPanelOpen, Mode=TwoWay}"
@@ -95,15 +139,15 @@
                                 <TextBlock x:Uid="ComboPage_ProtocolLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                 <ComboBox Width="220"
                                           SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}"
-                                          VerticalAlignment="Center">
+                                           VerticalAlignment="Center">
                                     <ComboBoxItem x:Uid="SettingsPage_Protocol_V1"/>
                                     <ComboBoxItem x:Uid="SettingsPage_Protocol_V2"/>
                                 </ComboBox>
                                 <Button x:Uid="ComboPage_ScanBtn"
                                         Command="{x:Bind ViewModel.ScanDirectoryCommand}" 
-                                        IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
+                                         IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
                                         Height="32" VerticalAlignment="Center"
-                                        Margin="0,0,0,0"/>
+                                         Margin="0,0,0,0"/>
                             </StackPanel>
                         </Grid>
                     </StackPanel>
@@ -127,15 +171,27 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
+
+                        <Button Margin="0,0,10,0"
+                            x:Uid="ComboPage_HelpBtn"
+        Command="{x:Bind ViewModel.GoToTutorialCommand}"
+        CommandParameter="Combo"
+        Height="36">
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE9CE;" FontSize="15" VerticalAlignment="Center" Margin="0,1,0,0"/>
+                                <TextBlock x:Uid="ComboPage_HelpBtnText" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
                         <Button Margin="0,0,12,0"
                                 Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" 
                                 Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}" 
                                 IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"
-                                Width="100" Height="36"/>
+                                 Width="100" Height="36"/>
 
                         <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" 
                                 Command="{x:Bind ViewModel.ToggleProcessCommand}" 
-                                Style="{StaticResource AccentButtonStyle}" 
+                                 Style="{StaticResource AccentButtonStyle}" 
                                 IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"
                                 Width="120" Height="36"/>
                     </StackPanel>
@@ -144,7 +200,7 @@
 
             <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
                 <ListView x:Name="ComboTaskListView"
-                          ItemsSource="{x:Bind ViewModel.ComboTasks}"
+                           ItemsSource="{x:Bind ViewModel.ComboTasks}"
                           SelectionMode="None"
                           ShowsScrollingPlaceholders="False"
                           ContainerContentChanging="ComboTaskListView_ContainerContentChanging">
@@ -164,7 +220,8 @@
                                 <ColumnDefinition Width="1.85*"/>
                             </Grid.ColumnDefinitions>
 
-                            <TextBlock x:Uid="ComboPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="ComboPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" 
+                                       FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
 
                             <TextBlock x:Uid="ComboPage_ColFile" Grid.Column="1" Grid.ColumnSpan="2" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                             <TextBlock x:Uid="ComboPage_ColSize" Grid.Column="3" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
@@ -185,7 +242,7 @@
                         <DataTemplate x:DataType="models:LivePhotoMergeTask">
                             <Border Background="{ThemeResource LayerFillColorDefaultBrush}" 
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" 
-                                    BorderThickness="1" 
+                                     BorderThickness="1" 
                                     CornerRadius="6" 
                                     Padding="10,6,10,6">
                                 <Grid ColumnSpacing="0">
@@ -200,25 +257,25 @@
                                     <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                                     <Button x:Uid="ComboPage_TipFolder" Grid.Column="1" 
-                                            VerticalAlignment="Center" 
+                                             VerticalAlignment="Center" 
                                             HorizontalAlignment="Left" 
-                                             Margin="0,0,8,0"
+                                              Margin="0,0,8,0"
                                             Click="ThumbnailButton_Click"
-                                            Tag="{x:Bind ImagePath}"
+                                             Tag="{x:Bind ImagePath}"
                                             Background="Transparent" 
                                             BorderThickness="0" 
-                                            Padding="0" 
+                                             Padding="0" 
                                             CornerRadius="6">
                                         <Border Width="52" Height="52" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
                                             <Grid>
                                                 <TextBlock x:Uid="ComboPage_ThumbnailLoadingText"
                                                            Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                                           HorizontalAlignment="Center"
+                                                              HorizontalAlignment="Center"
                                                            VerticalAlignment="Center"
-                                                           TextAlignment="Center"
-                                                           TextWrapping="WrapWholeWords"
+                                                                TextAlignment="Center"
+                                                            TextWrapping="WrapWholeWords"
                                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                           FontSize="9"
+                                                             FontSize="9"
                                                            Margin="4"/>
                                                 <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
                                             </Grid>
@@ -261,6 +318,6 @@
                 </ListView>
             </Border>
 
-            </Grid>
+        </Grid>
     </Grid>
 </Page>

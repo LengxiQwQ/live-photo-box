@@ -55,18 +55,14 @@ namespace LivePhotoBox
                 // =================================================================
                 try
                 {
-                    // 获取当前窗口所在显示器的实际 DPI
                     uint dpi = GetDpiForWindow(hWnd);
                     float scaleFactor = dpi / 96f;
 
-                    // 计算当前缩放率下，实际需要的物理像素大小
                     int scaledWidth = (int)(DefaultWindowWidth * scaleFactor);
                     int scaledHeight = (int)(DefaultWindowHeight * scaleFactor);
 
-                    // 动态调整窗口到自适应的物理大小
                     appWindow.Resize(new SizeInt32(scaledWidth, scaledHeight));
 
-                    // 获取当前显示器的可用工作区（避开任务栏），让窗口完美居中
                     var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
                     if (displayArea != null)
                     {
@@ -75,7 +71,6 @@ namespace LivePhotoBox
                         int x = workArea.X + (workArea.Width - scaledWidth) / 2;
                         int y = workArea.Y + (workArea.Height - scaledHeight) / 2;
 
-                        // 确保窗口不会移出屏幕边界
                         x = Math.Max(workArea.X, x);
                         y = Math.Max(workArea.Y, y);
 
@@ -84,7 +79,6 @@ namespace LivePhotoBox
                 }
                 catch (Exception ex)
                 {
-                    // 防御性设计：如果缩放逻辑失败，回退到默认大小，防止程序崩溃
                     System.Diagnostics.Debug.WriteLine($"DPI Scaling initialization failed: {ex.Message}");
                     appWindow.Resize(new SizeInt32(DefaultWindowWidth, DefaultWindowHeight));
                 }
@@ -99,6 +93,7 @@ namespace LivePhotoBox
             };
 
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+            ViewModel.RequestNavigateToPage += OnRequestNavigateToPage;
 
             UpdateTheme();
             UpdateBackdrop();
@@ -111,6 +106,27 @@ namespace LivePhotoBox
             if (e.PropertyName == nameof(AppViewModel.BackdropIndex)) UpdateBackdrop();
             if (e.PropertyName == nameof(AppViewModel.ElementTheme)) UpdateTheme();
             if (e.PropertyName == nameof(AppViewModel.IsStatusBarVisible)) UpdateStatusBarVisibility();
+        }
+
+        private void OnRequestNavigateToPage(object? sender, string pageTag)
+        {
+            if (pageTag.StartsWith("Home"))
+            {
+                // 同步左侧导航栏选中项为主页
+                NavView.SelectedItem = NavView.MenuItems[0];
+
+                // 解析出具体的 feature 模块名 (Combo / Split / Repair)
+                string? feature = null;
+                if (pageTag.Contains("_"))
+                {
+                    feature = pageTag.Split('_')[1];
+                }
+
+                // 调用带参数的导航方法，将 feature 传入主页
+                CrashLogService.RecordBreadcrumb($"NavigateToPage: HomePage, Parameter={feature}");
+                ViewModel.SetCurrentStatusPage(null);
+                MainFrame.Navigate(typeof(Views.HomePage), feature); // 👈 核心：这里把参数带过去
+            }
         }
 
         private void UpdateStatusBarVisibility()
@@ -230,6 +246,23 @@ namespace LivePhotoBox
             CrashLogService.RecordBreadcrumb($"NavigateToPage: {pageType.Name}, StatusTag={statusPageTag ?? "(null)"}");
             ViewModel.SetCurrentStatusPage(statusPageTag);
             MainFrame.Navigate(pageType);
+        }
+
+        /// <summary>
+        /// 外部引流公开方法：通过传入页面配置的 Tag 标签安全触发 NavigationView 切换
+        /// </summary>
+        public void SwitchToPageByTag(string tag)
+        {
+            if (NavView == null) return;
+
+            foreach (var item in NavView.MenuItems)
+            {
+                if (item is NavigationViewItem navItem && navItem.Tag?.ToString() == tag)
+                {
+                    NavView.SelectedItem = navItem;
+                    break;
+                }
+            }
         }
     }
 }

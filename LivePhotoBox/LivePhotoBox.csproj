@@ -138,6 +138,21 @@
 	  <Folder Include="Controls\" />
 	</ItemGroup>
 
+	<ItemGroup>
+	  <Content Update="Assets\Samples\Merge\2023_04_20_00_54_IMG_5865.JPG">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </Content>
+	  <Content Update="Assets\Samples\Merge\2023_04_20_00_54_IMG_5865.MOV">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </Content>
+	  <Content Update="Assets\Sample\Merge\2023_04_20_00_54_IMG_5865.JPG">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </Content>
+	  <Content Update="Assets\Sample\Merge\2023_04_20_00_54_IMG_5865.MOV">
+	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  </Content>
+	</ItemGroup>
+
 	<PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
 		<HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
 	</PropertyGroup>

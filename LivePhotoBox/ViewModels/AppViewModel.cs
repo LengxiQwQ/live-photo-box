@@ -21,6 +21,7 @@ namespace LivePhotoBox.ViewModels
         private const string CrashLogLanguageTag = "en-US";
 
         public static AppViewModel Instance { get; } = new AppViewModel();
+        public event EventHandler<string>? RequestNavigateToPage;
 
         private string _comboStatus = string.Empty;
         private string _splitStatus = string.Empty;
@@ -190,7 +191,43 @@ namespace LivePhotoBox.ViewModels
                 CrashLogService.UpdateSessionState();
             }
         }
+        // 【新增】：点击问号按钮直接跳转教程的命令
+        [RelayCommand]
+        private void GoToTutorial(string feature)
+        {
+            RequestNavigateToPage?.Invoke(this, $"Home_{feature}");
+        }
 
+        private async Task ShowEmptyQueueDialogAsync(string targetFeature)
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    // 使用 TextBlock 设置较大的字体
+                    Content = new TextBlock
+                    {
+                        Text = ResourceService.GetString("Msg_EmptyQueue"),
+                        FontSize = 16,
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    PrimaryButtonText = ResourceService.GetString("Msg_GoToTutorial"),
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+
+                var result = await dialog.ShowAsync();
+
+                // 如果用户点击了“查看操作教程”
+                if (result == ContentDialogResult.Primary)
+                {
+                    // 触发事件通知 MainWindow 跳转到主页
+                    RequestNavigateToPage?.Invoke(this, $"Home_{targetFeature}");
+                }
+            }
+        }
         public void SetCurrentStatusPage(string? pageTag)
         {
             CurrentStatusPageTag = pageTag;
@@ -509,6 +546,7 @@ namespace LivePhotoBox.ViewModels
             if (SplitTasks.Count == 0)
             {
                 SetSplitStatus("SplitPage_Status_EmptyQueue");
+                await ShowEmptyQueueDialogAsync("Split");
                 return;
             }
 
@@ -893,17 +931,7 @@ namespace LivePhotoBox.ViewModels
 
             if (ComboTasks.Count == 0)
             {
-                if (App.MainWindow?.Content?.XamlRoot != null)
-                {
-                    var dialog = new ContentDialog
-                    {
-                        Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                        Content = ResourceService.GetString("Msg_EmptyQueue"),
-                        CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                        XamlRoot = App.MainWindow.Content.XamlRoot
-                    };
-                    await dialog.ShowAsync();
-                }
+                await ShowEmptyQueueDialogAsync("Combo");
                 return;
             }
 
@@ -1031,7 +1059,8 @@ namespace LivePhotoBox.ViewModels
         }
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RepairSecondaryBtnText))]
-private bool _isRepairPaused = false;
+
+        private bool _isRepairPaused = false;
 
         public BulkObservableCollection<LivePhotoRepairTask> RepairTasks { get; } = [];
 
@@ -1199,7 +1228,11 @@ private bool _isRepairPaused = false;
                 return;
             }
 
-            if (RepairTasks.Count == 0) return;
+            if (RepairTasks.Count == 0)
+            {
+                await ShowEmptyQueueDialogAsync("Repair");
+                return;
+            }
 
             if (IsRepairOutputToDirectory)
             {

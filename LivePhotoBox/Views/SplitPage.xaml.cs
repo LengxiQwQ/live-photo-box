@@ -30,6 +30,12 @@ namespace LivePhotoBox.Views
             if (folder != null)
             {
                 ViewModel.SplitInputDirectory = folder.Path;
+
+                // 选择有效路径后，自动触发扫描操作
+                if (ViewModel.ScanSplitDirectoryCommand.CanExecute(null))
+                {
+                    ViewModel.ScanSplitDirectoryCommand.Execute(null);
+                }
             }
         }
 

@@ -337,7 +337,7 @@
     <value>协议版本：</value>
   </data>
   <data name="ComboPage_ScanBtn.Content" xml:space="preserve">
-    <value>扫描实况照片</value>
+    <value>扫描文件</value>
   </data>
   <data name="ComboPage_QueueProgress.Text" xml:space="preserve">
     <value>当前队列进度：</value>
@@ -430,12 +430,13 @@
     <value>错误: {0}</value>
   </data>
   <data name="Msg_EmptyQueueTitle" xml:space="preserve">
-    <value>操作提示</value>
+    <value>队列为空</value>
   </data>
   <data name="Msg_EmptyQueue" xml:space="preserve">
-    <value>队列为空！
-
-请先设置输入目录，并点击【扫描实况照片】以读取需要合成的文件</value>
+    <value>当前没有可处理的文件。请先设置输入目录，并点击【扫描】按钮。</value>
+  </data>
+  <data name="Msg_GoToTutorial" xml:space="preserve">
+    <value>查看操作教程</value>
   </data>
   <data name="Msg_GotIt" xml:space="preserve">
     <value>我知道了</value>
@@ -459,10 +460,10 @@
     <value>Desktop Acrylic</value>
   </data>
   <data name="SettingsPage_Protocol_V1.Content" xml:space="preserve">
-    <value>Google Micro Video (V1)</value>
+    <value>(旧版) Google Micro Video (V1)</value>
   </data>
   <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
-    <value>Google Motion Photo (V2)</value>
+    <value>(推荐) Google Motion Photo (V2)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264/HEVC) (开发中)</value>
@@ -938,5 +939,41 @@
   </data>
   <data name="HomePage_Intro3.Text" xml:space="preserve">
     <value> </value>
+  </data>
+  <data name="HomePage_TryMergeDemoText.Text" xml:space="preserve">
+    <value>载入合成样例并体验</value>
+  </data>
+  <data name="HomePage_TrySplitDemoText.Text" xml:space="preserve">
+    <value>载入拆分样例并体验</value>
+  </data>
+  <data name="HomePage_TryRepairDemoText.Text" xml:space="preserve">
+    <value>载入修复样例并体验</value>
+  </data>
+  <data name="HomePage_DemoOutputFolder" xml:space="preserve">
+    <value>LivePhotoBox_样例输出</value>
+  </data>
+  <data name="HomePage_GuideButton_Tooltip.Text" xml:space="preserve">
+    <value>新手操作指南</value>
+  </data>
+  <data name="ComboPage_HelpButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>查看教程</value>
+  </data>
+  <data name="ComboPage_HelpBtnText.Text" xml:space="preserve">
+    <value>帮助 &amp; 教程</value>
+  </data>
+  <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>查看详细操作教程</value>
+  </data>
+  <data name="SplitPage_HelpBtnText.Text" xml:space="preserve">
+    <value>帮助 &amp; 教程</value>
+  </data>
+  <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>查看详细操作教程</value>
+  </data>
+  <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
+    <value>帮助 &amp; 教程</value>
+  </data>
+  <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>查看详细操作教程</value>
   </data>
 </root>
