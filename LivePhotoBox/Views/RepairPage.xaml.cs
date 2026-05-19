@@ -38,5 +38,23 @@ namespace LivePhotoBox.Views
                 ViewModel.RepairOutputDirectory = folder.Path;
             }
         }
+
+        // 🎯 补上了这个缺失的点击打开文件方法
+        private async void FileButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path))
+            {
+                return;
+            }
+
+            try
+            {
+                await FilePickerService.OpenFileAsync(path);
+            }
+            catch
+            {
+                // 忽略打开失败的异常
+            }
+        }
     }
 }

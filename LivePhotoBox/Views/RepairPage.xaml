@@ -39,30 +39,10 @@
                           BorderThickness="1">
 
                     <Expander.Header>
-                        <Grid HorizontalAlignment="Stretch">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Height="32">
-                                <FontIcon Glyph="&#xE7C5;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
-                                <TextBlock x:Uid="RepairPage_ConfigHeader" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
-                            </StackPanel>
-
-                            <Button Grid.Column="2" 
-                                    Command="{x:Bind ViewModel.GoToTutorialCommand}"
-                                    CommandParameter="Repair"
-                                    Width="32" Height="32" Padding="0"
-                                    Background="Transparent" 
-                                    BorderThickness="0" 
-                                    CornerRadius="4" 
-                                    VerticalAlignment="Center"
-                                    Margin="0,0,4,0"
-                                    ToolTipService.ToolTip="查看修复教程">
-                                <FontIcon Glyph="&#xE897;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Button>
-                        </Grid>
+                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Height="32">
+                            <FontIcon Glyph="&#xE7C5;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
+                            <TextBlock x:Uid="RepairPage_ConfigHeader" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                        </StackPanel>
                     </Expander.Header>
 
                     <Expander.Content>
@@ -151,6 +131,17 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
+
+                        <Button Margin="0,0,10,0"
+                                x:Uid="RepairPage_HelpBtn"
+                                Command="{x:Bind ViewModel.GoToTutorialCommand}"
+                                CommandParameter="Repair"
+                                Height="36">
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE9CE;" FontSize="15" VerticalAlignment="Center" Margin="0,1,0,0"/>
+                                <TextBlock x:Uid="RepairPage_HelpBtnText" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
 
                         <Button Margin="0,0,12,0"
             Content="{x:Bind ViewModel.RepairSecondaryBtnText, Mode=OneWay}" 
