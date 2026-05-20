@@ -31,14 +31,48 @@ namespace LivePhotoBox.Services
         private static readonly string JpegTranPath = Path.Combine(AppContext.BaseDirectory, "Tools", "jpegtran.exe");
 
         /// <summary>
+        /// 统一的内部日志记录器，将所有第三方工具报错、异常输出到本地
+        /// </summary>
+        private static void WriteDebugLog(string level, string source, string message, string details = "")
+        {
+            try
+            {
+                string logDir = Path.Combine(AppContext.BaseDirectory, "Logs");
+                if (!Directory.Exists(logDir)) Directory.CreateDirectory(logDir);
+
+                string logPath = Path.Combine(logDir, $"RepairService_{DateTime.Now:yyyyMMdd}.log");
+                string logLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{level}] [{source}] {message}\n";
+
+                if (!string.IsNullOrWhiteSpace(details))
+                {
+                    logLine += $"--- 详细信息 (Details) ---\n{details.Trim()}\n--------------------------\n";
+                }
+
+                File.AppendAllText(logPath, logLine);
+                Debug.WriteLine(logLine);
+            }
+            catch
+            {
+                // 忽略日志系统本身的异常，保证主业务不崩溃
+            }
+        }
+
+        /// <summary>
         /// 1. 扫描与诊断文件
         /// </summary>
         public static async Task<RepairAnalysisResult> AnalyzeFileAsync(string filePath)
         {
             if (!File.Exists(ExifToolPath))
+            {
+                WriteDebugLog("ERROR", "Analyze", ResourceService.GetString("Log_MissingDependency"), $"File not found: {ExifToolPath}");
                 return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_ExifToolMissing") };
+            }
+
             if (!File.Exists(JpegTranPath))
+            {
+                WriteDebugLog("ERROR", "Analyze", ResourceService.GetString("Log_MissingDependency"), $"File not found: {JpegTranPath}");
                 return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_JpegTranMissing") };
+            }
 
             try
             {
@@ -68,7 +102,11 @@ namespace LivePhotoBox.Services
                 psi.ArgumentList.Add(filePath);
 
                 using var process = Process.Start(psi);
-                if (process == null) throw new Exception(ResourceService.GetString("Error_CannotStartExifTool"));
+                if (process == null)
+                {
+                    WriteDebugLog("ERROR", "Analyze", ResourceService.GetString("Log_ExifToolStartFailed"), "Process.Start returned null.");
+                    throw new Exception(ResourceService.GetString("Error_CannotStartExifTool"));
+                }
 
                 string output = await process.StandardOutput.ReadToEndAsync();
                 string error = await process.StandardError.ReadToEndAsync();
@@ -76,7 +114,8 @@ namespace LivePhotoBox.Services
 
                 if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
                 {
-                    return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.Format("Error_ExifToolError", error.Trim()) };
+                    WriteDebugLog("ERROR", "Analyze", ResourceService.Format("Log_ExifToolParseFailed", Path.GetFileName(filePath)), $"StdError:\n{error}\n\nStdOutput:\n{output}");
+                    return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_CheckLog") };
                 }
 
                 using var doc = JsonDocument.Parse(output);
@@ -129,7 +168,6 @@ namespace LivePhotoBox.Services
                     bool needsRebuild = (w > h) || angle > 0;
                     RepairIssueType type = needsRebuild ? RepairIssueType.NeedsRebuild : RepairIssueType.NeedsStrip;
 
-                    // 根据语言决定格式：中文环境每两个标签换行，其他语言一行显示所有标签
                     string lang = LanguageService.GetCurrentLanguageTag();
                     string finalDescription;
                     if (!string.IsNullOrWhiteSpace(lang) && lang.StartsWith("zh", StringComparison.OrdinalIgnoreCase))
@@ -157,7 +195,8 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.Format("Error_CSharpException", ex.Message) };
+                WriteDebugLog("ERROR", "Analyze", ResourceService.Format("Log_CSharpException", Path.GetFileName(filePath)), ex.ToString());
+                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_InternalCheckLog") };
             }
         }
 
@@ -170,17 +209,30 @@ namespace LivePhotoBox.Services
 
             try
             {
-                if (analysis.IssueType == RepairIssueType.NeedsRebuild)
+                if (analysis.IssueType == RepairIssueType.NeedsRebuild || analysis.IssueType == RepairIssueType.NeedsStrip)
                 {
-                    await RunJpegTranAsync("-copy", "none", "-rotate", analysis.RotationAngle.ToString(), "-outfile", tempJpg, sourcePath);
+                    var jpegtranArgs = new List<string> { "-copy", "none" };
+                    if (analysis.RotationAngle > 0)
+                    {
+                        jpegtranArgs.Add("-rotate");
+                        jpegtranArgs.Add(analysis.RotationAngle.ToString());
+                    }
+                    jpegtranArgs.Add("-outfile");
+                    jpegtranArgs.Add(tempJpg);
+                    jpegtranArgs.Add(sourcePath);
+
+                    await RunJpegTranAsync(jpegtranArgs.ToArray());
                     token.ThrowIfCancellationRequested();
-                    await RunExifToolAsync("-m", "-tagsfromfile", sourcePath, "-all:all", "-ThumbnailImage=", "-Orientation=", "-overwrite_original", tempJpg);
-                }
-                else if (analysis.IssueType == RepairIssueType.NeedsStrip)
-                {
-                    await RunJpegTranAsync("-copy", "none", "-outfile", tempJpg, sourcePath);
-                    token.ThrowIfCancellationRequested();
-                    await RunExifToolAsync("-m", "-tagsfromfile", sourcePath, "-all:all", "-ThumbnailImage=", "-overwrite_original", tempJpg);
+
+                    var exifArgs = new List<string> { "-m", "-tagsfromfile", sourcePath, "-all:all", "-ThumbnailImage=" };
+                    if (analysis.IssueType == RepairIssueType.NeedsRebuild)
+                    {
+                        exifArgs.Add("-Orientation=");
+                    }
+                    exifArgs.Add("-overwrite_original");
+                    exifArgs.Add(tempJpg);
+
+                    await RunExifToolAsync(exifArgs.ToArray());
                 }
 
                 token.ThrowIfCancellationRequested();
@@ -188,15 +240,18 @@ namespace LivePhotoBox.Services
                 if (File.Exists(targetPath)) File.Delete(targetPath);
                 File.Move(tempJpg, targetPath);
 
+                WriteDebugLog("INFO", "Repair", ResourceService.Format("Log_RepairSuccess", Path.GetFileName(sourcePath)));
                 return (true, ResourceService.GetString("Status_RepairSuccess"));
             }
             catch (OperationCanceledException)
             {
+                WriteDebugLog("WARN", "Repair", ResourceService.Format("Log_RepairCancelled", Path.GetFileName(sourcePath)));
                 return (false, ResourceService.GetString("Status_Cancelled"));
             }
             catch (Exception ex)
             {
-                return (false, ResourceService.Format("Status_RepairFailed", ex.Message));
+                WriteDebugLog("ERROR", "Repair", ResourceService.Format("Log_RepairFailed", Path.GetFileName(sourcePath)), ex.Message);
+                return (false, ResourceService.GetString("Error_RepairFailedCheckLog"));
             }
             finally
             {
@@ -219,12 +274,20 @@ namespace LivePhotoBox.Services
             foreach (var arg in args) psi.ArgumentList.Add(arg);
 
             using var process = Process.Start(psi);
-            if (process == null) throw new Exception(ResourceService.GetString("Error_CannotStartJpegTran"));
+            if (process == null)
+            {
+                WriteDebugLog("ERROR", "JpegTran", ResourceService.GetString("Log_JpegTranStartFailed"), $"Path: {JpegTranPath}");
+                throw new Exception(ResourceService.GetString("Error_CannotStartJpegTran"));
+            }
 
             string error = await process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
 
-            if (process.ExitCode != 0) throw new Exception(error);
+            if (process.ExitCode != 0)
+            {
+                WriteDebugLog("ERROR", "JpegTran", ResourceService.Format("Log_JpegTranExecuteFailed", process.ExitCode), $"Args:\njpegtran {string.Join(" ", args)}\n\nOutput:\n{error}");
+                throw new Exception($"JpegTran failed (ExitCode: {process.ExitCode})");
+            }
         }
 
         private static async Task RunExifToolAsync(params string[] args)
@@ -252,12 +315,24 @@ namespace LivePhotoBox.Services
             foreach (var arg in args) psi.ArgumentList.Add(arg);
 
             using var process = Process.Start(psi);
-            if (process == null) throw new Exception(ResourceService.GetString("Error_CannotStartExifTool"));
+            if (process == null)
+            {
+                WriteDebugLog("ERROR", "ExifTool", ResourceService.GetString("Log_ExifToolStartFailed"), $"Path: {ExifToolPath}");
+                throw new Exception(ResourceService.GetString("Error_CannotStartExifTool"));
+            }
 
             string error = await process.StandardError.ReadToEndAsync();
             await process.WaitForExitAsync();
 
-            if (error.Contains("Error:", StringComparison.OrdinalIgnoreCase)) throw new Exception(error);
+            if (error.Contains("Error:", StringComparison.OrdinalIgnoreCase))
+            {
+                WriteDebugLog("ERROR", "ExifTool", ResourceService.GetString("Log_ExifToolFatalError"), $"Args:\nexiftool {string.Join(" ", args)}\n\nOutput:\n{error}");
+                throw new Exception("ExifTool process encountered a fatal error.");
+            }
+            else if (!string.IsNullOrWhiteSpace(error))
+            {
+                WriteDebugLog("WARN", "ExifTool", ResourceService.GetString("Log_ExifToolWarning"), $"Args:\nexiftool {string.Join(" ", args)}\n\nOutput:\n{error}");
+            }
         }
     }
 }

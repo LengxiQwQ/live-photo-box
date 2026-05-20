@@ -1021,4 +1021,46 @@
   <data name="Msg_InvalidInputDirectory" xml:space="preserve">
     <value>指定的输入目录不存在，请检查路径是否正确后重试。</value>
   </data>
+  <data name="Log_MissingDependency" xml:space="preserve">
+    <value>缺失核心依赖文件</value>
+  </data>
+  <data name="Log_ExifToolStartFailed" xml:space="preserve">
+    <value>ExifTool 进程启动失败</value>
+  </data>
+  <data name="Log_ExifToolParseFailed" xml:space="preserve">
+    <value>ExifTool 解析 [{0}] 失败</value>
+  </data>
+  <data name="Log_CSharpException" xml:space="preserve">
+    <value>发生未处理的 C# 异常: {0}</value>
+  </data>
+  <data name="Log_RepairSuccess" xml:space="preserve">
+    <value>修复成功: {0}</value>
+  </data>
+  <data name="Log_RepairCancelled" xml:space="preserve">
+    <value>用户取消修复任务: {0}</value>
+  </data>
+  <data name="Log_RepairFailed" xml:space="preserve">
+    <value>修复文件失败: {0}</value>
+  </data>
+  <data name="Log_JpegTranStartFailed" xml:space="preserve">
+    <value>无法启动 JpegTran 进程</value>
+  </data>
+  <data name="Log_JpegTranExecuteFailed" xml:space="preserve">
+    <value>进程退出码 {0}，运行失败</value>
+  </data>
+  <data name="Log_ExifToolFatalError" xml:space="preserve">
+    <value>工具返回致命错误</value>
+  </data>
+  <data name="Log_ExifToolWarning" xml:space="preserve">
+    <value>工具发出了警告信息 (非致命)</value>
+  </data>
+  <data name="Error_CheckLog" xml:space="preserve">
+    <value>解析失败，请查看日志</value>
+  </data>
+  <data name="Error_InternalCheckLog" xml:space="preserve">
+    <value>内部错误，请查看日志</value>
+  </data>
+  <data name="Error_RepairFailedCheckLog" xml:space="preserve">
+    <value>修复失败，请查看日志</value>
+  </data>
 </root>

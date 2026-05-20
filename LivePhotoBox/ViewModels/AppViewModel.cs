@@ -84,30 +84,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        public string SplitInputDirectory
-        {
-            get => _splitInputDirectory;
-            set
-            {
-                if (SetProperty(ref _splitInputDirectory, value))
-                {
-                    _openSplitInputFolderCommand?.NotifyCanExecuteChanged();
-                }
-            }
-        }
-
-        public string SplitOutputDirectory
-        {
-            get => _splitOutputDirectory;
-            set
-            {
-                if (SetProperty(ref _splitOutputDirectory, value))
-                {
-                    _openSplitOutputFolderCommand?.NotifyCanExecuteChanged();
-                }
-            }
-        }
-
         public int SplitQueuedCount
         {
             get => _splitQueuedCount;
@@ -287,14 +263,54 @@ namespace LivePhotoBox.ViewModels
             CurrentStatusPageTag = pageTag;
         }
 
+        // ==========================================
+        // Combo Page 逻辑
+        // ==========================================
         [ObservableProperty] private string _inputDirectory = string.Empty;
-        partial void OnInputDirectoryChanged(string value) => _openComboInputFolderCommand?.NotifyCanExecuteChanged();
+
+        partial void OnInputDirectoryChanged(string value)
+        {
+            _openComboInputFolderCommand?.NotifyCanExecuteChanged();
+
+            // 核心痛点修复：一旦更换输入目录，立刻清空旧的输出目录，防止照片混在一起
+            OutputDirectory = string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(value) && Directory.Exists(value))
+            {
+                if (ScanDirectoryCommand.CanExecute(null) && !IsScanning)
+                {
+                    ScanDirectoryCommand.Execute(null);
+                }
+            }
+        }
 
         [ObservableProperty] private string _outputDirectory = string.Empty;
         partial void OnOutputDirectoryChanged(string value) => _openComboOutputFolderCommand?.NotifyCanExecuteChanged();
 
-        private string _splitInputDirectory = string.Empty;
-        private string _splitOutputDirectory = string.Empty;
+        // ==========================================
+        // Split Page 逻辑统一升级
+        // ==========================================
+        [ObservableProperty] private string _splitInputDirectory = string.Empty;
+
+        partial void OnSplitInputDirectoryChanged(string value)
+        {
+            _openSplitInputFolderCommand?.NotifyCanExecuteChanged();
+
+            // 核心痛点修复：彻底统一 Split 页面的清空和自动扫描逻辑
+            SplitOutputDirectory = string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(value) && Directory.Exists(value))
+            {
+                if (ScanSplitDirectoryCommand.CanExecute(null) && !IsSplitScanning)
+                {
+                    ScanSplitDirectoryCommand.Execute(null);
+                }
+            }
+        }
+
+        [ObservableProperty] private string _splitOutputDirectory = string.Empty;
+        partial void OnSplitOutputDirectoryChanged(string value) => _openSplitOutputFolderCommand?.NotifyCanExecuteChanged();
+
 
         [ObservableProperty] private int _totalPairsCount = 0;
         [ObservableProperty] private int _standaloneImagesCount = 0;
@@ -392,7 +408,6 @@ namespace LivePhotoBox.ViewModels
         private IRelayCommand? _generateTestCrashLogActionCommand;
         private IAsyncRelayCommand? _openIssueFeedbackActionCommand;
 
-        // ⚠️ 重点修复区：打开文件夹的命令防呆设计
         private IAsyncRelayCommand? _openComboInputFolderCommand;
         private IRelayCommand? _openComboOutputFolderCommand;
         private IAsyncRelayCommand? _openSplitInputFolderCommand;
@@ -414,7 +429,6 @@ namespace LivePhotoBox.ViewModels
         public IRelayCommand GenerateTestCrashLogActionCommand => _generateTestCrashLogActionCommand ??= new RelayCommand(GenerateTestCrashLog);
         public IAsyncRelayCommand OpenIssueFeedbackActionCommand => _openIssueFeedbackActionCommand ??= new AsyncRelayCommand(OpenIssueFeedbackAsync);
 
-        // 绑定命令，所有输入框都变为异步，便于弹出提示框
         public IAsyncRelayCommand OpenComboInputFolderCommand => _openComboInputFolderCommand ??= new AsyncRelayCommand(OpenComboInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
         public IRelayCommand OpenComboOutputFolderCommand => _openComboOutputFolderCommand ??= new RelayCommand(OpenComboOutputFolder, () => !string.IsNullOrWhiteSpace(OutputDirectory));
         public IAsyncRelayCommand OpenSplitInputFolderCommand => _openSplitInputFolderCommand ??= new AsyncRelayCommand(OpenSplitInputFolderAsync, () => !string.IsNullOrWhiteSpace(SplitInputDirectory));
@@ -518,13 +532,14 @@ namespace LivePhotoBox.ViewModels
 
             IsSplitScanning = true;
 
+            // 逻辑前移：一旦开始扫描，就提前填写输出目录
+            if (string.IsNullOrWhiteSpace(SplitOutputDirectory))
+            {
+                SplitOutputDirectory = Path.Combine(SplitInputDirectory, "Output_SplitPhotos");
+            }
+
             try
             {
-                if (string.IsNullOrWhiteSpace(SplitOutputDirectory))
-                {
-                    SplitOutputDirectory = Path.Combine(SplitInputDirectory, "Output_SplitPhotos");
-                }
-
                 SplitThumbnailService.ClearCache();
 
                 var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
@@ -799,7 +814,6 @@ namespace LivePhotoBox.ViewModels
             FilePickerService.OpenFolderInExplorer(logDirectory);
         }
 
-        // 🎯 核心防呆与闪退修复区域
         private async Task OpenComboInputFolderAsync()
         {
             try
@@ -822,7 +836,6 @@ namespace LivePhotoBox.ViewModels
             {
                 if (string.IsNullOrWhiteSpace(OutputDirectory)) return;
 
-                // 输出目录：允许智能创建，但增加了 Try-Catch 拦截异常路径 (例如 C )
                 if (!Directory.Exists(OutputDirectory))
                 {
                     Directory.CreateDirectory(OutputDirectory);
@@ -988,6 +1001,12 @@ namespace LivePhotoBox.ViewModels
 
             IsScanning = true;
 
+            // 逻辑前移：一旦开始扫描，就提前填写输出目录
+            if (string.IsNullOrWhiteSpace(OutputDirectory))
+            {
+                OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
+            }
+
             try
             {
                 ThumbnailService.ClearCache();
@@ -1021,11 +1040,6 @@ namespace LivePhotoBox.ViewModels
 
                 ComboProgress = 0;
                 ProgressText = $"0/{TotalPairsCount}";
-
-                if (string.IsNullOrWhiteSpace(OutputDirectory) && ComboTasks.Count > 0)
-                {
-                    OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
-                }
 
                 SetComboStatus("Status_ScanDone", TotalPairsCount);
             }
@@ -1189,7 +1203,22 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private bool _isRepairDirectoryPanelOpen = true;
 
         [ObservableProperty] private string _repairInputDirectory = string.Empty;
-        partial void OnRepairInputDirectoryChanged(string value) => _openRepairInputFolderCommand?.NotifyCanExecuteChanged();
+
+        partial void OnRepairInputDirectoryChanged(string value)
+        {
+            _openRepairInputFolderCommand?.NotifyCanExecuteChanged();
+
+            // 核心痛点修复：更换输入目录时立刻清空旧输出，防止照片混在一起
+            RepairOutputDirectory = string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(value) && Directory.Exists(value))
+            {
+                if (ScanRepairDirectoryCommand.CanExecute(null) && !IsRepairScanning)
+                {
+                    ScanRepairDirectoryCommand.Execute(null);
+                }
+            }
+        }
 
         [ObservableProperty] private string _repairOutputDirectory = string.Empty;
         partial void OnRepairOutputDirectoryChanged(string value) => _openRepairOutputFolderCommand?.NotifyCanExecuteChanged();
@@ -1197,6 +1226,14 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RepairOutputGridVisibility))]
         private bool _isRepairOutputToDirectory = false;
+
+        partial void OnIsRepairOutputToDirectoryChanged(bool value)
+        {
+            if (value && string.IsNullOrWhiteSpace(RepairOutputDirectory) && !string.IsNullOrWhiteSpace(RepairInputDirectory) && Directory.Exists(RepairInputDirectory))
+            {
+                RepairOutputDirectory = Path.Combine(RepairInputDirectory, "Output_RepairedPhotos");
+            }
+        }
 
         public Microsoft.UI.Xaml.Visibility RepairOutputGridVisibility =>
             IsRepairOutputToDirectory ? Microsoft.UI.Xaml.Visibility.Visible : Microsoft.UI.Xaml.Visibility.Collapsed;
@@ -1208,8 +1245,11 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RepairSecondaryBtnText))]
         [NotifyPropertyChangedFor(nameof(RepairActionBtnText))]
+        [NotifyPropertyChangedFor(nameof(IsRepairNotProcessing))]
         private bool _isRepairProcessing = false;
+
         public bool IsRepairNotProcessing => !IsRepairProcessing;
+
         [ObservableProperty] private string _repairProgressText = "0/0";
         [ObservableProperty] private double _repairProgress = 0;
         private string _repairActionBtnText = string.Empty;
@@ -1261,6 +1301,8 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ScanRepairDirectoryAsync()
         {
+            if (IsRepairProcessing) return;
+
             if (IsRepairScanning)
             {
                 _repairScanCancellationTokenSource?.Cancel();
@@ -1274,6 +1316,13 @@ namespace LivePhotoBox.ViewModels
             }
 
             IsRepairScanning = true;
+
+            // 逻辑前移：提前填写输出目录
+            if (IsRepairOutputToDirectory && string.IsNullOrWhiteSpace(RepairOutputDirectory))
+            {
+                RepairOutputDirectory = Path.Combine(RepairInputDirectory, "Output_RepairedPhotos");
+            }
+
             _repairScanCancellationTokenSource = new CancellationTokenSource();
             var token = _repairScanCancellationTokenSource.Token;
 
@@ -1398,7 +1447,7 @@ namespace LivePhotoBox.ViewModels
             {
                 if (string.IsNullOrWhiteSpace(RepairOutputDirectory))
                 {
-                    RepairOutputDirectory = Path.Combine(RepairInputDirectory, "Output_Repaired");
+                    RepairOutputDirectory = Path.Combine(RepairInputDirectory, "Output_RepairedPhotos");
                 }
                 if (!Directory.Exists(RepairOutputDirectory))
                 {

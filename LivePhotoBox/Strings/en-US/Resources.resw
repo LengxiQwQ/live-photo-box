@@ -1022,4 +1022,46 @@ Log file: {0}</value>
   <data name="Msg_InvalidInputDirectory" xml:space="preserve">
     <value>The specified input directory does not exist. Please check the path and try again.</value>
   </data>
+  <data name="Log_MissingDependency" xml:space="preserve">
+    <value>Missing core dependency file</value>
+  </data>
+  <data name="Log_ExifToolStartFailed" xml:space="preserve">
+    <value>Failed to start ExifTool process</value>
+  </data>
+  <data name="Log_ExifToolParseFailed" xml:space="preserve">
+    <value>ExifTool failed to parse [{0}]</value>
+  </data>
+  <data name="Log_CSharpException" xml:space="preserve">
+    <value>Unhandled C# exception occurred: {0}</value>
+  </data>
+  <data name="Log_RepairSuccess" xml:space="preserve">
+    <value>Repair successful: {0}</value>
+  </data>
+  <data name="Log_RepairCancelled" xml:space="preserve">
+    <value>User cancelled the repair task: {0}</value>
+  </data>
+  <data name="Log_RepairFailed" xml:space="preserve">
+    <value>Failed to repair file: {0}</value>
+  </data>
+  <data name="Log_JpegTranStartFailed" xml:space="preserve">
+    <value>Unable to start JpegTran process</value>
+  </data>
+  <data name="Log_JpegTranExecuteFailed" xml:space="preserve">
+    <value>Process exited with code {0}, execution failed</value>
+  </data>
+  <data name="Log_ExifToolFatalError" xml:space="preserve">
+    <value>Tool returned a fatal error</value>
+  </data>
+  <data name="Log_ExifToolWarning" xml:space="preserve">
+    <value>Tool issued a warning message (non-fatal)</value>
+  </data>
+  <data name="Error_CheckLog" xml:space="preserve">
+    <value>Parsing failed, please check logs</value>
+  </data>
+  <data name="Error_InternalCheckLog" xml:space="preserve">
+    <value>Internal error, please check logs</value>
+  </data>
+  <data name="Error_RepairFailedCheckLog" xml:space="preserve">
+    <value>Repair failed, please check logs</value>
+  </data>
 </root>
