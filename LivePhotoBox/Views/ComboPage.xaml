@@ -101,13 +101,13 @@
                             </Grid.RowDefinitions>
 
                             <TextBlock x:Uid="ComboPage_InputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                            <TextBox x:Uid="ComboPage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"/>
-                            <Button x:Uid="ComboPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Click="BrowseInput_Click"/>
+                            <TextBox x:Uid="ComboPage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"/>
+                            <Button x:Uid="ComboPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Click="BrowseInput_Click" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"/>
                             <Button x:Uid="ComboPage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenComboInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
 
                             <TextBlock x:Uid="ComboPage_OutputLabel" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                            <TextBox x:Uid="ComboPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"/>
-                            <Button x:Uid="ComboPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Click="BrowseOutput_Click"/>
+                            <TextBox x:Uid="ComboPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"/>
+                            <Button x:Uid="ComboPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Click="BrowseOutput_Click" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"/>
                             <Button x:Uid="ComboPage_OpenOutputBtn" Grid.Row="1" Grid.Column="3" Command="{x:Bind ViewModel.OpenComboOutputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
                         </Grid>
 
@@ -137,7 +137,7 @@
 
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock x:Uid="ComboPage_ProtocolLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                <ComboBox Width="260" SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}" VerticalAlignment="Center">
+                                <ComboBox Width="260" SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}">
                                     <ComboBoxItem x:Uid="SettingsPage_Protocol_V1"/>
                                     <ComboBoxItem x:Uid="SettingsPage_Protocol_V2"/>
                                 </ComboBox>
