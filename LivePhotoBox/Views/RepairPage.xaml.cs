@@ -16,6 +16,15 @@ namespace LivePhotoBox.Views
             this.InitializeComponent();
         }
 
+        // --- 新增：文本框获取焦点时自动清空 ---
+        private void DirectoryBox_GotFocus(object sender, RoutedEventArgs e)
+        {
+            if (sender is TextBox textBox)
+            {
+                textBox.Text = string.Empty;
+            }
+        }
+
         private async void BrowseInput_Click(object sender, RoutedEventArgs e)
         {
             var folder = await FilePickerService.PickFolderAsync();
