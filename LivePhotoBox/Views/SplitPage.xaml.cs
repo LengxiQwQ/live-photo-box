@@ -45,7 +45,7 @@ namespace LivePhotoBox.Views
 
                 if (ViewModel.ScanSplitDirectoryCommand.CanExecute(null))
                 {
-                    ViewModel.ScanSplitDirectoryCommand.Execute(null);
+                    await ViewModel.ScanSplitDirectoryCommand.ExecuteAsync(null);
                 }
             }
         }

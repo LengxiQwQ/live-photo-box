@@ -286,6 +286,12 @@ Do you want to restart now?</value>
   <data name="SplitPage_ScanBtn.Content" xml:space="preserve">
     <value>Scan Live Photos</value>
   </data>
+  <data name="SplitPage_DynamicScanText" xml:space="preserve">
+    <value>Scan Live Photos</value>
+  </data>
+  <data name="SplitPage_DynamicCancelText" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
   <data name="SplitPage_QueueProgress.Text" xml:space="preserve">
     <value>Queue Progress: </value>
   </data>
@@ -340,6 +346,12 @@ Do you want to restart now?</value>
   <data name="ComboPage_ScanBtn.Content" xml:space="preserve">
     <value>Scan Files</value>
   </data>
+  <data name="ComboPage_DynamicScanText" xml:space="preserve">
+    <value>Scan Files</value>
+  </data>
+  <data name="ComboPage_DynamicCancelText" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
   <data name="ComboPage_QueueProgress.Text" xml:space="preserve">
     <value>Queue Progress: </value>
   </data>
@@ -387,6 +399,9 @@ Do you want to restart now?</value>
   </data>
   <data name="Status_Aborted" xml:space="preserve">
     <value>Task aborted manually</value>
+  </data>
+  <data name="Status_Error" xml:space="preserve">
+    <value>Error: {0}</value>
   </data>
   <data name="Status_Done" xml:space="preserve">
     <value>All merge tasks completed! Total time: {0:F1} s</value>

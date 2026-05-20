@@ -28,18 +28,31 @@ namespace LivePhotoBox.Services
             var imgDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var vidDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var path in Directory.EnumerateFiles(inputDirectory))
+            try
             {
-                if (IsImageFile(path))
+                foreach (var path in Directory.EnumerateFiles(inputDirectory))
                 {
-                    imgDict[Path.GetFileNameWithoutExtension(path)] = path;
-                    continue;
-                }
+                    if (IsImageFile(path))
+                    {
+                        imgDict[Path.GetFileNameWithoutExtension(path)] = path;
+                        continue;
+                    }
 
-                if (IsVideoFile(path))
-                {
-                    vidDict[Path.GetFileNameWithoutExtension(path)] = path;
+                    if (IsVideoFile(path))
+                    {
+                        vidDict[Path.GetFileNameWithoutExtension(path)] = path;
+                    }
                 }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // No permission to access directory, return empty result
+                return new LivePhotoScanResult
+                {
+                    Pairs = new List<LivePhotoFilePairInfo>(),
+                    StandaloneImagesCount = 0,
+                    StandaloneVideosCount = 0
+                };
             }
 
             var pairs = new List<LivePhotoFilePairInfo>(Math.Min(imgDict.Count, vidDict.Count));
@@ -48,15 +61,23 @@ namespace LivePhotoBox.Services
             {
                 if (vidDict.TryGetValue(kvp.Key, out var vidPath))
                 {
-                    pairs.Add(new LivePhotoFilePairInfo
+                    try
                     {
-                        BaseName = kvp.Key,
-                        ImagePath = kvp.Value,
-                        VideoPath = vidPath,
-                        // 仅对匹配上的文件获取大小，开销极小
-                        ImageSizeBytes = new FileInfo(kvp.Value).Length,
-                        VideoSizeBytes = new FileInfo(vidPath).Length
-                    });
+                        pairs.Add(new LivePhotoFilePairInfo
+                        {
+                            BaseName = kvp.Key,
+                            ImagePath = kvp.Value,
+                            VideoPath = vidPath,
+                            // 仅对匹配上的文件获取大小，开销极小
+                            ImageSizeBytes = new FileInfo(kvp.Value).Length,
+                            VideoSizeBytes = new FileInfo(vidPath).Length
+                        });
+                    }
+                    catch (IOException)
+                    {
+                        // File might be deleted or inaccessible, skip this pair
+                        continue;
+                    }
                 }
             }
 

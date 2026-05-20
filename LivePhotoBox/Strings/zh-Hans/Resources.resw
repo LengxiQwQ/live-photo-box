@@ -285,6 +285,12 @@
   <data name="SplitPage_ScanBtn.Content" xml:space="preserve">
     <value>扫描实况照片</value>
   </data>
+  <data name="SplitPage_DynamicScanText" xml:space="preserve">
+    <value>扫描实况照片</value>
+  </data>
+  <data name="SplitPage_DynamicCancelText" xml:space="preserve">
+    <value>取消扫描</value>
+  </data>
   <data name="SplitPage_QueueProgress.Text" xml:space="preserve">
     <value>当前队列进度：</value>
   </data>
@@ -339,6 +345,12 @@
   <data name="ComboPage_ScanBtn.Content" xml:space="preserve">
     <value>扫描文件</value>
   </data>
+  <data name="ComboPage_DynamicScanText" xml:space="preserve">
+    <value>扫描文件</value>
+  </data>
+  <data name="ComboPage_DynamicCancelText" xml:space="preserve">
+    <value>取消</value>
+  </data>
   <data name="ComboPage_QueueProgress.Text" xml:space="preserve">
     <value>当前队列进度：</value>
   </data>
@@ -386,6 +398,9 @@
   </data>
   <data name="Status_Aborted" xml:space="preserve">
     <value>任务已手动中止</value>
+  </data>
+  <data name="Status_Error" xml:space="preserve">
+    <value>错误: {0}</value>
   </data>
   <data name="Status_Done" xml:space="preserve">
     <value>全部合成任务完成！总共耗时 {0:F1} 秒</value>

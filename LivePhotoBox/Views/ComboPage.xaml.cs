@@ -46,7 +46,7 @@ namespace LivePhotoBox.Views
                 // 选择有效路径后，自动触发扫描操作
                 if (ViewModel.ScanDirectoryCommand.CanExecute(null))
                 {
-                    ViewModel.ScanDirectoryCommand.Execute(null);
+                    await ViewModel.ScanDirectoryCommand.ExecuteAsync(null);
                 }
             }
         }

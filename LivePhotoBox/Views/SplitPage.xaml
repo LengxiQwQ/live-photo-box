@@ -63,8 +63,8 @@
                             <Button x:Uid="SplitPage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenSplitInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
 
                             <TextBlock x:Uid="SplitPage_OutputLabel" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                            <TextBox x:Uid="SplitPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.SplitOutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsSplitNotScanning, Mode=OneWay}"/>
-                            <Button x:Uid="SplitPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Click="BrowseOutput_Click" IsEnabled="{x:Bind ViewModel.IsSplitNotScanning, Mode=OneWay}"/>
+                            <TextBox x:Uid="SplitPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.SplitOutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsSplitNotProcessing, Mode=OneWay}"/>
+                            <Button x:Uid="SplitPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Click="BrowseOutput_Click" IsEnabled="{x:Bind ViewModel.IsSplitNotProcessing, Mode=OneWay}"/>
                             <Button x:Uid="SplitPage_OpenOutputBtn" Grid.Row="1" Grid.Column="3" Command="{x:Bind ViewModel.OpenSplitOutputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
                         </Grid>
 
@@ -99,7 +99,7 @@
                                     <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
                                     <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
                                 </ComboBox>
-                                <Button x:Uid="SplitPage_ScanBtn" Command="{x:Bind ViewModel.ScanSplitDirectoryCommand}" IsEnabled="{x:Bind ViewModel.IsSplitNotScanning, Mode=OneWay}" Height="32" VerticalAlignment="Center"/>
+                                <Button Command="{x:Bind ViewModel.ScanSplitDirectoryCommand}" Content="{x:Bind ViewModel.SplitScanBtnText, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.IsSplitNotProcessing, Mode=OneWay}" Height="32" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Grid>
                     </StackPanel>

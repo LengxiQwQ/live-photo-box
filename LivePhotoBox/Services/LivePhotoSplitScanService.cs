@@ -110,8 +110,19 @@ namespace LivePhotoBox.Services
                     }
                 }
             }
+            catch (IOException)
+            {
+                // File is locked or inaccessible, skip it
+                return false;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // No permission to read file, skip it
+                return false;
+            }
             catch
             {
+                // Other exceptions, safely skip this file
                 return false;
             }
 
