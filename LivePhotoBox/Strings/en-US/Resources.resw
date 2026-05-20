@@ -1016,4 +1016,10 @@ Log file: {0}</value>
   <data name="RepairPage_OpenOutputBtn.Content" xml:space="preserve">
     <value>Open Output Folder</value>
   </data>
+  <data name="Msg_InvalidInputDirectoryTitle" xml:space="preserve">
+    <value>Invalid Input Directory</value>
+  </data>
+  <data name="Msg_InvalidInputDirectory" xml:space="preserve">
+    <value>The specified input directory does not exist. Please check the path and try again.</value>
+  </data>
 </root>

@@ -260,6 +260,28 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        private async Task ShowInvalidInputDirectoryDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_InvalidInputDirectoryTitle"),
+                    Content = new TextBlock
+                    {
+                        Text = ResourceService.GetString("Msg_InvalidInputDirectory"),
+                        FontSize = 16,
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+
+                await dialog.ShowAsync();
+            }
+        }
+
         public void SetCurrentStatusPage(string? pageTag)
         {
             CurrentStatusPageTag = pageTag;
@@ -784,10 +806,9 @@ namespace LivePhotoBox.ViewModels
             {
                 if (string.IsNullOrWhiteSpace(InputDirectory)) return;
 
-                // 输入目录：绝不自动创建。如果不存在，阻断并弹出提示
                 if (!Directory.Exists(InputDirectory))
                 {
-                    await ShowNoInputDirectoryDialogAsync("Combo");
+                    await ShowInvalidInputDirectoryDialogAsync();
                     return;
                 }
                 FilePickerService.OpenFolderInExplorer(InputDirectory);
@@ -816,9 +837,10 @@ namespace LivePhotoBox.ViewModels
             try
             {
                 if (string.IsNullOrWhiteSpace(SplitInputDirectory)) return;
+
                 if (!Directory.Exists(SplitInputDirectory))
                 {
-                    await ShowNoInputDirectoryDialogAsync("Split");
+                    await ShowInvalidInputDirectoryDialogAsync();
                     return;
                 }
                 FilePickerService.OpenFolderInExplorer(SplitInputDirectory);
@@ -845,9 +867,10 @@ namespace LivePhotoBox.ViewModels
             try
             {
                 if (string.IsNullOrWhiteSpace(RepairInputDirectory)) return;
+
                 if (!Directory.Exists(RepairInputDirectory))
                 {
-                    await ShowNoInputDirectoryDialogAsync("Repair");
+                    await ShowInvalidInputDirectoryDialogAsync();
                     return;
                 }
                 FilePickerService.OpenFolderInExplorer(RepairInputDirectory);
