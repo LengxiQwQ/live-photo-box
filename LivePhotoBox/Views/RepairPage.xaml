@@ -55,7 +55,7 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock x:Uid="RepairPage_InputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                                <TextBox x:Uid="RepairPage_InputBox" Grid.Column="1" Text="{x:Bind ViewModel.RepairInputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                <TextBox x:Uid="RepairPage_InputBox" Grid.Column="1" Text="{x:Bind ViewModel.RepairInputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"/>
                                 <Button x:Uid="RepairPage_BrowseBtn1" Grid.Column="2" Command="{x:Bind ViewModel.PickRepairInputDirectoryCommand}"/>
                                 <Button x:Uid="RepairPage_OpenInputBtn" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairInputFolderCommand}" Margin="8,0,0,0"/>
                             </Grid>
@@ -68,7 +68,7 @@
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock x:Uid="RepairPage_OutputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                                <TextBox x:Uid="RepairPage_OutputBox" Grid.Column="1" Text="{x:Bind ViewModel.RepairOutputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
+                                <TextBox x:Uid="RepairPage_OutputBox" Grid.Column="1" Text="{x:Bind ViewModel.RepairOutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center"/>
                                 <Button x:Uid="RepairPage_BrowseBtn2" Grid.Column="2" Command="{x:Bind ViewModel.PickRepairOutputDirectoryCommand}"/>
                                 <Button x:Uid="RepairPage_OpenOutputBtn" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairOutputFolderCommand}" Margin="8,0,0,0"/>
                             </Grid>
@@ -110,9 +110,10 @@
                                           VerticalAlignment="Center" />
 
                             <Button Command="{x:Bind ViewModel.ScanRepairDirectoryCommand}" 
-        Content="{x:Bind ViewModel.RepairScanBtnText, Mode=OneWay}"
-        Height="32" VerticalAlignment="Center"
-        Margin="12,0,0,0"/>
+                                    Content="{x:Bind ViewModel.RepairScanBtnText, Mode=OneWay}"
+                                    IsEnabled="{x:Bind ViewModel.IsRepairNotScanning, Mode=OneWay}"
+                                    Height="32" VerticalAlignment="Center"
+                                    Margin="12,0,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>
@@ -148,16 +149,16 @@
                         </Button>
 
                         <Button Margin="0,0,12,0"
-            Content="{x:Bind ViewModel.RepairSecondaryBtnText, Mode=OneWay}" 
-            Command="{x:Bind ViewModel.ToggleRepairSecondaryActionCommand}" 
-            IsEnabled="{x:Bind ViewModel.IsRepairNotScanning, Mode=OneWay}" 
-            Width="100" Height="36"/>
+                            Content="{x:Bind ViewModel.RepairSecondaryBtnText, Mode=OneWay}" 
+                            Command="{x:Bind ViewModel.ToggleRepairSecondaryActionCommand}" 
+                            IsEnabled="{x:Bind ViewModel.IsRepairNotScanning, Mode=OneWay}" 
+                            Width="100" Height="36"/>
 
                         <Button Content="{x:Bind ViewModel.RepairActionBtnText, Mode=OneWay}" 
-            Command="{x:Bind ViewModel.ToggleRepairProcessCommand}" 
-            Style="{StaticResource AccentButtonStyle}" 
-            IsEnabled="{x:Bind ViewModel.IsRepairNotScanning, Mode=OneWay}" 
-            Width="120" Height="36"/>
+                            Command="{x:Bind ViewModel.ToggleRepairProcessCommand}" 
+                            Style="{StaticResource AccentButtonStyle}" 
+                            IsEnabled="{x:Bind ViewModel.IsRepairNotScanning, Mode=OneWay}" 
+                            Width="120" Height="36"/>
 
                     </StackPanel>
                 </Grid>
@@ -219,7 +220,7 @@
                                     <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                        <Button x:Uid="RepairPage_TipFolder" Tag="{x:Bind FilePath}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6">
+                                        <Button x:Uid="RepairPage_TipFolder" Tag="{x:Bind FilePath}" Click="ThumbnailButton_Click" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6">
                                             <Border Width="40" Height="40" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
                                                 <Grid>
                                                     <TextBlock x:Uid="RepairPage_ThumbnailLoadingText" 
@@ -233,7 +234,7 @@
                                             </Border>
                                         </Button>
                                         <StackPanel VerticalAlignment="Center">
-                                            <Button x:Uid="RepairPage_TipApp" Tag="{x:Bind FilePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                            <Button x:Uid="RepairPage_TipApp" Tag="{x:Bind FilePath}" Click="FileButton_Click" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
                                                 <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
                                                     <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
                                                     <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayFileName}"/>

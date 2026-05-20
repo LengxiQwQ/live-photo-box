@@ -87,13 +87,25 @@ namespace LivePhotoBox.ViewModels
         public string SplitInputDirectory
         {
             get => _splitInputDirectory;
-            set => SetProperty(ref _splitInputDirectory, value);
+            set
+            {
+                if (SetProperty(ref _splitInputDirectory, value))
+                {
+                    _openSplitInputFolderCommand?.NotifyCanExecuteChanged();
+                }
+            }
         }
 
         public string SplitOutputDirectory
         {
             get => _splitOutputDirectory;
-            set => SetProperty(ref _splitOutputDirectory, value);
+            set
+            {
+                if (SetProperty(ref _splitOutputDirectory, value))
+                {
+                    _openSplitOutputFolderCommand?.NotifyCanExecuteChanged();
+                }
+            }
         }
 
         public int SplitQueuedCount
@@ -254,7 +266,10 @@ namespace LivePhotoBox.ViewModels
         }
 
         [ObservableProperty] private string _inputDirectory = string.Empty;
+        partial void OnInputDirectoryChanged(string value) => _openComboInputFolderCommand?.NotifyCanExecuteChanged();
+
         [ObservableProperty] private string _outputDirectory = string.Empty;
+        partial void OnOutputDirectoryChanged(string value) => _openComboOutputFolderCommand?.NotifyCanExecuteChanged();
 
         private string _splitInputDirectory = string.Empty;
         private string _splitOutputDirectory = string.Empty;
@@ -347,17 +362,20 @@ namespace LivePhotoBox.ViewModels
         private string? _latestCrashLogPath;
         private string? _latestCrashDumpPath;
         private string? _latestRecoveredCrashLogPath;
+
         private IRelayCommand? _openCrashLogFolderActionCommand;
         private IAsyncRelayCommand? _openLatestCrashLogActionCommand;
         private IAsyncRelayCommand? _exportLatestCrashLogActionCommand;
         private IRelayCommand? _clearCrashLogsActionCommand;
         private IRelayCommand? _generateTestCrashLogActionCommand;
         private IAsyncRelayCommand? _openIssueFeedbackActionCommand;
-        private IRelayCommand? _openComboInputFolderCommand;
+
+        // ⚠️ 重点修复区：打开文件夹的命令防呆设计
+        private IAsyncRelayCommand? _openComboInputFolderCommand;
         private IRelayCommand? _openComboOutputFolderCommand;
-        private IRelayCommand? _openSplitInputFolderCommand;
+        private IAsyncRelayCommand? _openSplitInputFolderCommand;
         private IRelayCommand? _openSplitOutputFolderCommand;
-        private IRelayCommand? _openRepairInputFolderCommand;
+        private IAsyncRelayCommand? _openRepairInputFolderCommand;
         private IRelayCommand? _openRepairOutputFolderCommand;
 
         public BulkObservableCollection<LivePhotoMergeTask> ComboTasks { get; } = [];
@@ -373,11 +391,13 @@ namespace LivePhotoBox.ViewModels
         public IRelayCommand ClearCrashLogsActionCommand => _clearCrashLogsActionCommand ??= new RelayCommand(ClearCrashLogs, CanClearCrashLogs);
         public IRelayCommand GenerateTestCrashLogActionCommand => _generateTestCrashLogActionCommand ??= new RelayCommand(GenerateTestCrashLog);
         public IAsyncRelayCommand OpenIssueFeedbackActionCommand => _openIssueFeedbackActionCommand ??= new AsyncRelayCommand(OpenIssueFeedbackAsync);
-        public IRelayCommand OpenComboInputFolderCommand => _openComboInputFolderCommand ??= new RelayCommand(OpenComboInputFolder, () => !string.IsNullOrWhiteSpace(InputDirectory));
+
+        // 绑定命令，所有输入框都变为异步，便于弹出提示框
+        public IAsyncRelayCommand OpenComboInputFolderCommand => _openComboInputFolderCommand ??= new AsyncRelayCommand(OpenComboInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
         public IRelayCommand OpenComboOutputFolderCommand => _openComboOutputFolderCommand ??= new RelayCommand(OpenComboOutputFolder, () => !string.IsNullOrWhiteSpace(OutputDirectory));
-        public IRelayCommand OpenSplitInputFolderCommand => _openSplitInputFolderCommand ??= new RelayCommand(OpenSplitInputFolder, () => !string.IsNullOrWhiteSpace(SplitInputDirectory));
+        public IAsyncRelayCommand OpenSplitInputFolderCommand => _openSplitInputFolderCommand ??= new AsyncRelayCommand(OpenSplitInputFolderAsync, () => !string.IsNullOrWhiteSpace(SplitInputDirectory));
         public IRelayCommand OpenSplitOutputFolderCommand => _openSplitOutputFolderCommand ??= new RelayCommand(OpenSplitOutputFolder, () => !string.IsNullOrWhiteSpace(SplitOutputDirectory));
-        public IRelayCommand OpenRepairInputFolderCommand => _openRepairInputFolderCommand ??= new RelayCommand(OpenRepairInputFolder, () => !string.IsNullOrWhiteSpace(RepairInputDirectory));
+        public IAsyncRelayCommand OpenRepairInputFolderCommand => _openRepairInputFolderCommand ??= new AsyncRelayCommand(OpenRepairInputFolderAsync, () => !string.IsNullOrWhiteSpace(RepairInputDirectory));
         public IRelayCommand OpenRepairOutputFolderCommand => _openRepairOutputFolderCommand ??= new RelayCommand(OpenRepairOutputFolder, () => !string.IsNullOrWhiteSpace(RepairOutputDirectory));
 
         private bool _isInitialized;
@@ -461,7 +481,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        [RelayCommand]
+        [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ScanSplitDirectoryAsync()
         {
             CrashLogService.RecordBreadcrumb($"ScanSplitDirectory requested. Input='{SplitInputDirectory}', Output='{SplitOutputDirectory}'");
@@ -517,6 +537,10 @@ namespace LivePhotoBox.ViewModels
                 {
                     SetSplitStatus("SplitPage_Status_NoLivePhotos");
                 }
+            }
+            catch (Exception ex)
+            {
+                CrashLogService.RecordBreadcrumb($"ScanSplitDirectory error: {ex.Message}");
             }
             finally
             {
@@ -708,6 +732,10 @@ namespace LivePhotoBox.ViewModels
             {
                 SetSplitStatus("SplitPage_Status_Aborted");
             }
+            catch (Exception ex)
+            {
+                CrashLogService.RecordBreadcrumb($"RunSplitTasksAsync error: {ex.Message}");
+            }
             finally
             {
                 FinalizeSplitRunState(stopwatch);
@@ -749,52 +777,96 @@ namespace LivePhotoBox.ViewModels
             FilePickerService.OpenFolderInExplorer(logDirectory);
         }
 
-        private void OpenComboInputFolder()
+        // 🎯 核心防呆与闪退修复区域
+        private async Task OpenComboInputFolderAsync()
         {
-            if (!string.IsNullOrWhiteSpace(InputDirectory))
+            try
             {
+                if (string.IsNullOrWhiteSpace(InputDirectory)) return;
+
+                // 输入目录：绝不自动创建。如果不存在，阻断并弹出提示
+                if (!Directory.Exists(InputDirectory))
+                {
+                    await ShowNoInputDirectoryDialogAsync("Combo");
+                    return;
+                }
                 FilePickerService.OpenFolderInExplorer(InputDirectory);
             }
+            catch (Exception ex) { CrashLogService.RecordBreadcrumb($"OpenComboInput error: {ex.Message}"); }
         }
 
         private void OpenComboOutputFolder()
         {
-            if (!string.IsNullOrWhiteSpace(OutputDirectory))
+            try
             {
+                if (string.IsNullOrWhiteSpace(OutputDirectory)) return;
+
+                // 输出目录：允许智能创建，但增加了 Try-Catch 拦截异常路径 (例如 C )
+                if (!Directory.Exists(OutputDirectory))
+                {
+                    Directory.CreateDirectory(OutputDirectory);
+                }
                 FilePickerService.OpenFolderInExplorer(OutputDirectory);
             }
+            catch (Exception ex) { CrashLogService.RecordBreadcrumb($"OpenComboOutput error: {ex.Message}"); }
         }
 
-        private void OpenSplitInputFolder()
+        private async Task OpenSplitInputFolderAsync()
         {
-            if (!string.IsNullOrWhiteSpace(SplitInputDirectory))
+            try
             {
+                if (string.IsNullOrWhiteSpace(SplitInputDirectory)) return;
+                if (!Directory.Exists(SplitInputDirectory))
+                {
+                    await ShowNoInputDirectoryDialogAsync("Split");
+                    return;
+                }
                 FilePickerService.OpenFolderInExplorer(SplitInputDirectory);
             }
+            catch (Exception ex) { CrashLogService.RecordBreadcrumb($"OpenSplitInput error: {ex.Message}"); }
         }
 
         private void OpenSplitOutputFolder()
         {
-            if (!string.IsNullOrWhiteSpace(SplitOutputDirectory))
+            try
             {
+                if (string.IsNullOrWhiteSpace(SplitOutputDirectory)) return;
+                if (!Directory.Exists(SplitOutputDirectory))
+                {
+                    Directory.CreateDirectory(SplitOutputDirectory);
+                }
                 FilePickerService.OpenFolderInExplorer(SplitOutputDirectory);
             }
+            catch (Exception ex) { CrashLogService.RecordBreadcrumb($"OpenSplitOutput error: {ex.Message}"); }
         }
 
-        private void OpenRepairInputFolder()
+        private async Task OpenRepairInputFolderAsync()
         {
-            if (!string.IsNullOrWhiteSpace(RepairInputDirectory))
+            try
             {
+                if (string.IsNullOrWhiteSpace(RepairInputDirectory)) return;
+                if (!Directory.Exists(RepairInputDirectory))
+                {
+                    await ShowNoInputDirectoryDialogAsync("Repair");
+                    return;
+                }
                 FilePickerService.OpenFolderInExplorer(RepairInputDirectory);
             }
+            catch (Exception ex) { CrashLogService.RecordBreadcrumb($"OpenRepairInput error: {ex.Message}"); }
         }
 
         private void OpenRepairOutputFolder()
         {
-            if (!string.IsNullOrWhiteSpace(RepairOutputDirectory))
+            try
             {
+                if (string.IsNullOrWhiteSpace(RepairOutputDirectory)) return;
+                if (!Directory.Exists(RepairOutputDirectory))
+                {
+                    Directory.CreateDirectory(RepairOutputDirectory);
+                }
                 FilePickerService.OpenFolderInExplorer(RepairOutputDirectory);
             }
+            catch (Exception ex) { CrashLogService.RecordBreadcrumb($"OpenRepairOutput error: {ex.Message}"); }
         }
 
         private async Task OpenLatestCrashLogAsync()
@@ -878,7 +950,7 @@ namespace LivePhotoBox.ViewModels
             return $"{bytes / (1024.0 * 1024.0):F2} MB";
         }
 
-        [RelayCommand]
+        [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ScanDirectoryAsync()
         {
             CrashLogService.RecordBreadcrumb($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
@@ -933,6 +1005,10 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 SetComboStatus("Status_ScanDone", TotalPairsCount);
+            }
+            catch (Exception ex)
+            {
+                CrashLogService.RecordBreadcrumb($"ScanDirectory error: {ex.Message}");
             }
             finally
             {
@@ -1077,6 +1153,10 @@ namespace LivePhotoBox.ViewModels
             {
                 SetComboStatus("Status_Aborted");
             }
+            catch (Exception ex)
+            {
+                CrashLogService.RecordBreadcrumb($"RunComboTasksAsync error: {ex.Message}");
+            }
             finally
             {
                 FinalizeRunState(stopwatch);
@@ -1084,8 +1164,12 @@ namespace LivePhotoBox.ViewModels
         }
 
         [ObservableProperty] private bool _isRepairDirectoryPanelOpen = true;
+
         [ObservableProperty] private string _repairInputDirectory = string.Empty;
+        partial void OnRepairInputDirectoryChanged(string value) => _openRepairInputFolderCommand?.NotifyCanExecuteChanged();
+
         [ObservableProperty] private string _repairOutputDirectory = string.Empty;
+        partial void OnRepairOutputDirectoryChanged(string value) => _openRepairOutputFolderCommand?.NotifyCanExecuteChanged();
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RepairOutputGridVisibility))]
@@ -1371,6 +1455,10 @@ namespace LivePhotoBox.ViewModels
             catch (OperationCanceledException)
             {
                 SetRepairStatus("Status_Aborted");
+            }
+            catch (Exception ex)
+            {
+                CrashLogService.RecordBreadcrumb($"RunRepairTasksAsync error: {ex.Message}");
             }
             finally
             {

@@ -31,7 +31,9 @@ namespace LivePhotoBox.Views
             {
                 ViewModel.SplitInputDirectory = folder.Path;
 
-                // 选择有效路径后，自动触发扫描操作
+                // 【核心修复】延迟 100 毫秒，防止底层 UI 状态消息丢失
+                await Task.Delay(100);
+
                 if (ViewModel.ScanSplitDirectoryCommand.CanExecute(null))
                 {
                     ViewModel.ScanSplitDirectoryCommand.Execute(null);
