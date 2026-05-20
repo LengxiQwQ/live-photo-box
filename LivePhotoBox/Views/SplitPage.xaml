@@ -50,10 +50,12 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Uid="SplitPage_InputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
                             <TextBox x:Uid="SplitPage_InputBox" Grid.Column="1" Text="{x:Bind ViewModel.SplitInputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
                             <Button x:Uid="SplitPage_BrowseBtn1" Grid.Column="2" Click="BrowseInput_Click"/>
+                            <Button x:Uid="SplitPage_OpenInputBtn" Grid.Column="3" Command="{x:Bind ViewModel.OpenSplitInputFolderCommand}" Margin="8,0,0,0"/>
                         </Grid>
 
                         <Grid ColumnSpacing="8">
@@ -61,10 +63,12 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Uid="SplitPage_OutputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
                             <TextBox x:Uid="SplitPage_OutputBox" Grid.Column="1" Text="{x:Bind ViewModel.SplitOutputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
                             <Button x:Uid="SplitPage_BrowseBtn2" Grid.Column="2" Click="BrowseOutput_Click"/>
+                            <Button x:Uid="SplitPage_OpenOutputBtn" Grid.Column="3" Command="{x:Bind ViewModel.OpenSplitOutputFolderCommand}" Margin="8,0,0,0"/>
                         </Grid>
 
                         <MenuFlyoutSeparator Margin="0,4"/>

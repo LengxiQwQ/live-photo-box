@@ -52,10 +52,12 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock x:Uid="RepairPage_InputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
                                 <TextBox x:Uid="RepairPage_InputBox" Grid.Column="1" Text="{x:Bind ViewModel.RepairInputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
                                 <Button x:Uid="RepairPage_BrowseBtn1" Grid.Column="2" Command="{x:Bind ViewModel.PickRepairInputDirectoryCommand}"/>
+                                <Button x:Uid="RepairPage_OpenInputBtn" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairInputFolderCommand}" Margin="8,0,0,0"/>
                             </Grid>
 
                             <Grid ColumnSpacing="8" Visibility="{x:Bind ViewModel.RepairOutputGridVisibility, Mode=OneWay}">
@@ -63,10 +65,12 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock x:Uid="RepairPage_OutputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
                                 <TextBox x:Uid="RepairPage_OutputBox" Grid.Column="1" Text="{x:Bind ViewModel.RepairOutputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
                                 <Button x:Uid="RepairPage_BrowseBtn2" Grid.Column="2" Command="{x:Bind ViewModel.PickRepairOutputDirectoryCommand}"/>
+                                <Button x:Uid="RepairPage_OpenOutputBtn" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairOutputFolderCommand}" Margin="8,0,0,0"/>
                             </Grid>
                         </StackPanel>
                     </Expander.Content>

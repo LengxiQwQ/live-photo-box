@@ -94,10 +94,12 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Uid="ComboPage_InputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
                             <TextBox x:Uid="ComboPage_InputBox" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
                             <Button x:Uid="ComboPage_BrowseBtn1" Grid.Column="2" Click="BrowseInput_Click"/>
+                            <Button x:Uid="ComboPage_OpenInputBtn" Grid.Column="3" Command="{x:Bind ViewModel.OpenComboInputFolderCommand}" Margin="8,0,0,0"/>
                         </Grid>
 
                         <Grid ColumnSpacing="8">
@@ -105,10 +107,12 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock x:Uid="ComboPage_OutputLabel" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
                             <TextBox x:Uid="ComboPage_OutputBox" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay}" VerticalAlignment="Center"/>
                             <Button x:Uid="ComboPage_BrowseBtn2" Grid.Column="2" Click="BrowseOutput_Click"/>
+                            <Button x:Uid="ComboPage_OpenOutputBtn" Grid.Column="3" Command="{x:Bind ViewModel.OpenComboOutputFolderCommand}" Margin="8,0,0,0"/>
                         </Grid>
 
                         <MenuFlyoutSeparator Margin="0,4"/>

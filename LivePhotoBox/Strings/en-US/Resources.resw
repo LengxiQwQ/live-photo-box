@@ -998,4 +998,22 @@ Log file: {0}</value>
   <data name="RepairPage_Msg_NoInputDirectory" xml:space="preserve">
     <value>Please select a folder containing images to be repaired. The app will automatically scan for images with thumbnail rotation or stretching issues caused by device compatibility and perform a lossless repair.</value>
   </data>
+  <data name="ComboPage_OpenInputBtn.Content" xml:space="preserve">
+    <value>Open Input Folder</value>
+  </data>
+  <data name="ComboPage_OpenOutputBtn.Content" xml:space="preserve">
+    <value>Open Output Folder</value>
+  </data>
+  <data name="SplitPage_OpenInputBtn.Content" xml:space="preserve">
+    <value>Open Input Folder</value>
+  </data>
+  <data name="SplitPage_OpenOutputBtn.Content" xml:space="preserve">
+    <value>Open Output Folder</value>
+  </data>
+  <data name="RepairPage_OpenInputBtn.Content" xml:space="preserve">
+    <value>Open Input Folder</value>
+  </data>
+  <data name="RepairPage_OpenOutputBtn.Content" xml:space="preserve">
+    <value>Open Output Folder</value>
+  </data>
 </root>

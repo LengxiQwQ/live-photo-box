@@ -353,6 +353,12 @@ namespace LivePhotoBox.ViewModels
         private IRelayCommand? _clearCrashLogsActionCommand;
         private IRelayCommand? _generateTestCrashLogActionCommand;
         private IAsyncRelayCommand? _openIssueFeedbackActionCommand;
+        private IRelayCommand? _openComboInputFolderCommand;
+        private IRelayCommand? _openComboOutputFolderCommand;
+        private IRelayCommand? _openSplitInputFolderCommand;
+        private IRelayCommand? _openSplitOutputFolderCommand;
+        private IRelayCommand? _openRepairInputFolderCommand;
+        private IRelayCommand? _openRepairOutputFolderCommand;
 
         public BulkObservableCollection<LivePhotoMergeTask> ComboTasks { get; } = [];
         public BulkObservableCollection<LivePhotoSplitTask> SplitTasks { get; } = [];
@@ -367,6 +373,12 @@ namespace LivePhotoBox.ViewModels
         public IRelayCommand ClearCrashLogsActionCommand => _clearCrashLogsActionCommand ??= new RelayCommand(ClearCrashLogs, CanClearCrashLogs);
         public IRelayCommand GenerateTestCrashLogActionCommand => _generateTestCrashLogActionCommand ??= new RelayCommand(GenerateTestCrashLog);
         public IAsyncRelayCommand OpenIssueFeedbackActionCommand => _openIssueFeedbackActionCommand ??= new AsyncRelayCommand(OpenIssueFeedbackAsync);
+        public IRelayCommand OpenComboInputFolderCommand => _openComboInputFolderCommand ??= new RelayCommand(OpenComboInputFolder, () => !string.IsNullOrWhiteSpace(InputDirectory));
+        public IRelayCommand OpenComboOutputFolderCommand => _openComboOutputFolderCommand ??= new RelayCommand(OpenComboOutputFolder, () => !string.IsNullOrWhiteSpace(OutputDirectory));
+        public IRelayCommand OpenSplitInputFolderCommand => _openSplitInputFolderCommand ??= new RelayCommand(OpenSplitInputFolder, () => !string.IsNullOrWhiteSpace(SplitInputDirectory));
+        public IRelayCommand OpenSplitOutputFolderCommand => _openSplitOutputFolderCommand ??= new RelayCommand(OpenSplitOutputFolder, () => !string.IsNullOrWhiteSpace(SplitOutputDirectory));
+        public IRelayCommand OpenRepairInputFolderCommand => _openRepairInputFolderCommand ??= new RelayCommand(OpenRepairInputFolder, () => !string.IsNullOrWhiteSpace(RepairInputDirectory));
+        public IRelayCommand OpenRepairOutputFolderCommand => _openRepairOutputFolderCommand ??= new RelayCommand(OpenRepairOutputFolder, () => !string.IsNullOrWhiteSpace(RepairOutputDirectory));
 
         private bool _isInitialized;
 
@@ -735,6 +747,54 @@ namespace LivePhotoBox.ViewModels
             string logDirectory = CrashLogService.EnsureLogDirectoryPath();
             CrashLogService.RecordBreadcrumb($"OpenCrashLogFolder requested. Path='{logDirectory}'");
             FilePickerService.OpenFolderInExplorer(logDirectory);
+        }
+
+        private void OpenComboInputFolder()
+        {
+            if (!string.IsNullOrWhiteSpace(InputDirectory))
+            {
+                FilePickerService.OpenFolderInExplorer(InputDirectory);
+            }
+        }
+
+        private void OpenComboOutputFolder()
+        {
+            if (!string.IsNullOrWhiteSpace(OutputDirectory))
+            {
+                FilePickerService.OpenFolderInExplorer(OutputDirectory);
+            }
+        }
+
+        private void OpenSplitInputFolder()
+        {
+            if (!string.IsNullOrWhiteSpace(SplitInputDirectory))
+            {
+                FilePickerService.OpenFolderInExplorer(SplitInputDirectory);
+            }
+        }
+
+        private void OpenSplitOutputFolder()
+        {
+            if (!string.IsNullOrWhiteSpace(SplitOutputDirectory))
+            {
+                FilePickerService.OpenFolderInExplorer(SplitOutputDirectory);
+            }
+        }
+
+        private void OpenRepairInputFolder()
+        {
+            if (!string.IsNullOrWhiteSpace(RepairInputDirectory))
+            {
+                FilePickerService.OpenFolderInExplorer(RepairInputDirectory);
+            }
+        }
+
+        private void OpenRepairOutputFolder()
+        {
+            if (!string.IsNullOrWhiteSpace(RepairOutputDirectory))
+            {
+                FilePickerService.OpenFolderInExplorer(RepairOutputDirectory);
+            }
         }
 
         private async Task OpenLatestCrashLogAsync()
