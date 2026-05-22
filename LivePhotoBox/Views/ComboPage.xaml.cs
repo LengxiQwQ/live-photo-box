@@ -38,16 +38,8 @@ namespace LivePhotoBox.Views
             var folder = await FilePickerService.PickFolderAsync();
             if (folder != null)
             {
+                // 设置路径后由 OnInputDirectoryChanged 自动触发扫描，避免重复扫描导致误取消
                 ViewModel.InputDirectory = folder.Path;
-
-                // 【核心修复】延迟 100 毫秒，等 WinUI 3 完全关闭文件夹弹窗并恢复窗口焦点
-                await Task.Delay(100);
-
-                // 选择有效路径后，自动触发扫描操作
-                if (ViewModel.ScanDirectoryCommand.CanExecute(null))
-                {
-                    await ViewModel.ScanDirectoryCommand.ExecuteAsync(null);
-                }
             }
         }
 

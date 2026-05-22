@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
 		<TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
@@ -104,10 +104,10 @@
 		<PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
 	</ItemGroup>
 
- <ItemGroup>
-	  <None Update="Controls\PageStatusBar.xaml">
-		<Generator>MSBuild:Compile</Generator>
-	  </None>
+	<ItemGroup>
+		<Page Update="Controls\PageStatusBar.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</Page>
 	</ItemGroup>
 
 	<ItemGroup>

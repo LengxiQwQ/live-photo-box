@@ -99,7 +99,7 @@
                                     <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
                                     <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
                                 </ComboBox>
-                                <Button Command="{x:Bind ViewModel.ScanSplitDirectoryCommand}" Content="{x:Bind ViewModel.SplitScanBtnText, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.IsSplitNotProcessing, Mode=OneWay}" Height="32" VerticalAlignment="Center"/>
+                                <Button Command="{x:Bind ViewModel.ScanSplitDirectoryCommand}" Content="{x:Bind ViewModel.SplitScanBtnText, Mode=OneWay}" Style="{StaticResource DefaultButtonStyle}" Background="{x:Bind ViewModel.SplitScanButtonBackground, Mode=OneWay}" Foreground="{x:Bind ViewModel.SplitScanButtonForeground, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.CanClickSplitScanButton, Mode=OneWay}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Grid>
                     </StackPanel>

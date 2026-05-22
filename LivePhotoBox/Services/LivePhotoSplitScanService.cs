@@ -1,8 +1,10 @@
+using LivePhotoBox.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace LivePhotoBox.Services
 {
@@ -21,7 +23,8 @@ namespace LivePhotoBox.Services
 
     public static class LivePhotoSplitScanService
     {
-        private const int MetadataProbeBytes = 1024 * 1024;
+        private const int MetadataProbeBytes = 256 * 1024;
+        private const int MetadataCheckInterval = 4;
         private static readonly byte[][] MetadataMarkers =
         [
             Encoding.ASCII.GetBytes("GCamera:MotionPhoto"),
@@ -31,19 +34,40 @@ namespace LivePhotoBox.Services
             Encoding.ASCII.GetBytes("MotionPhoto")
         ];
 
-        public static LivePhotoSplitScanResult Scan(string inputDirectory)
+        public static LivePhotoSplitScanResult Scan(
+            string inputDirectory,
+            CancellationToken cancellationToken = default,
+            IProgress<WorkProgressSnapshot>? progress = null)
         {
+            var candidates = new List<string>();
+            int enumerated = 0;
+            foreach (var path in Directory.EnumerateFiles(inputDirectory))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                enumerated++;
+                if (IsSupportedImage(path))
+                {
+                    candidates.Add(path);
+                }
+
+                if (enumerated % 64 == 0)
+                {
+                    progress?.Report(new WorkProgressSnapshot(0, enumerated));
+                }
+            }
+
             var files = new List<LivePhotoSplitFileInfo>();
             int recognizedCount = 0;
             int skippedCount = 0;
+            int total = candidates.Count;
 
-            foreach (var path in Directory.EnumerateFiles(inputDirectory))
+            progress?.Report(new WorkProgressSnapshot(total, 0));
+
+            for (int i = 0; i < candidates.Count; i++)
             {
-                if (!IsSupportedImage(path))
-                {
-                    continue;
-                }
+                cancellationToken.ThrowIfCancellationRequested();
 
+                string path = candidates[i];
                 var fileInfo = new FileInfo(path);
                 if (IsLikelyLivePhoto(path, fileInfo.Length))
                 {
@@ -57,6 +81,12 @@ namespace LivePhotoBox.Services
                 else
                 {
                     skippedCount++;
+                }
+
+                int completed = i + 1;
+                if (completed == 1 || completed % MetadataCheckInterval == 0 || completed == total)
+                {
+                    progress?.Report(new WorkProgressSnapshot(total, completed, recognizedCount, skippedCount));
                 }
             }
 
@@ -82,6 +112,12 @@ namespace LivePhotoBox.Services
                 || fileName.EndsWith(".MP.jpeg", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
+            }
+
+            // 普通静态照片通常较小；实况照片体积明显更大，避免对每张 JPG 做 256KB 探测
+            if (fileSize < 512 * 1024)
+            {
+                return false;
             }
 
             if (fileSize <= 0)

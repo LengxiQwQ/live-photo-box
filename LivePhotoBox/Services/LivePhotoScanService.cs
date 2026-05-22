@@ -1,7 +1,9 @@
+using LivePhotoBox.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace LivePhotoBox.Services
 {
@@ -23,24 +25,38 @@ namespace LivePhotoBox.Services
 
     public static class LivePhotoScanService
     {
-        public static LivePhotoScanResult Scan(string inputDirectory)
+        public static LivePhotoScanResult Scan(
+            string inputDirectory,
+            CancellationToken cancellationToken = default,
+            IProgress<WorkProgressSnapshot>? progress = null)
         {
             var imgDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var vidDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             try
             {
-                foreach (var path in Directory.EnumerateFiles(inputDirectory))
+                var allFiles = Directory.EnumerateFiles(inputDirectory).ToList();
+                int total = allFiles.Count;
+                progress?.Report(new WorkProgressSnapshot(total, 0));
+
+                for (int i = 0; i < allFiles.Count; i++)
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    string path = allFiles[i];
+
                     if (IsImageFile(path))
                     {
                         imgDict[Path.GetFileNameWithoutExtension(path)] = path;
-                        continue;
                     }
-
-                    if (IsVideoFile(path))
+                    else if (IsVideoFile(path))
                     {
                         vidDict[Path.GetFileNameWithoutExtension(path)] = path;
+                    }
+
+                    int completed = i + 1;
+                    if (completed == 1 || completed % 16 == 0 || completed == total)
+                    {
+                        progress?.Report(new WorkProgressSnapshot(total, completed, imgDict.Count));
                     }
                 }
             }

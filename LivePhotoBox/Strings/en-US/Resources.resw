@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -379,8 +379,41 @@ Do you want to restart now?</value>
   <data name="Status_InvalidInput" xml:space="preserve">
     <value>Invalid input directory. Please check the path.</value>
   </data>
+  <data name="StatusBar_Scanning_Split" xml:space="preserve">
+    <value>Scanning live photos: {0}/{1}</value>
+  </data>
+  <data name="StatusBar_Scanning_Combo" xml:space="preserve">
+    <value>Scanning files: {0}/{1}</value>
+  </data>
+  <data name="StatusBar_Scanning_Repair" xml:space="preserve">
+    <value>Scanning photos: {0}/{1}</value>
+  </data>
+  <data name="StatusBar_ScanProgressLabel" xml:space="preserve">
+    <value>Scan progress: {0}%</value>
+  </data>
+  <data name="StatusBar_ProcessProgressLabel" xml:space="preserve">
+    <value>Task progress: {0}%</value>
+  </data>
+  <data name="Status_ScanNoPairs" xml:space="preserve">
+    <value>Scan complete: no matching pairs (images: {0}, videos: {1})</value>
+  </data>
+  <data name="Status_Scanning" xml:space="preserve">
+    <value>Scanning for matching files...</value>
+  </data>
+  <data name="Status_ScanCancelling" xml:space="preserve">
+    <value>Cancelling scan...</value>
+  </data>
+  <data name="Status_ScanCancelled" xml:space="preserve">
+    <value>Scan cancelled</value>
+  </data>
   <data name="Status_ScanDone" xml:space="preserve">
     <value>Scan complete: matched {0} live photo pairs</value>
+  </data>
+  <data name="RepairPage_Status_ScanDone" xml:space="preserve">
+    <value>Scan complete: loaded {0} photos for analysis</value>
+  </data>
+  <data name="RepairPage_Status_ScanNoFiles" xml:space="preserve">
+    <value>Scan complete: no photos found to analyze</value>
   </data>
   <data name="Status_Cleared" xml:space="preserve">
     <value>List cleared | Ready environment: {0}</value>
@@ -636,6 +669,15 @@ Do you want to restart now?</value>
   </data>
   <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
     <value>Loading...</value>
+  </data>
+  <data name="SplitPage_Status_Scanning" xml:space="preserve">
+    <value>Scanning for live photos...</value>
+  </data>
+  <data name="SplitPage_Status_ScanCancelling" xml:space="preserve">
+    <value>Cancelling scan...</value>
+  </data>
+  <data name="SplitPage_Status_ScanCancelled" xml:space="preserve">
+    <value>Scan cancelled</value>
   </data>
   <data name="SplitPage_Status_ScanDone" xml:space="preserve">
     <value>Scan complete: recognized {0} splittable live photos</value>

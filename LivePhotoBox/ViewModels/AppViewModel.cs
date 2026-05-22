@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Collections;
 using LivePhotoBox.Models;
@@ -347,9 +347,13 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsSplitNotScanning))]
         [NotifyPropertyChangedFor(nameof(SplitScanBtnText))]
+        [NotifyCanExecuteChangedFor(nameof(ScanSplitDirectoryCommand))]
         private bool _isSplitScanning = false;
 
         public bool IsSplitNotScanning => !IsSplitScanning;
+
+        /// <summary>拆分页扫描/取消按钮：拆分进行中禁用；扫描中保持可点以触发取消。</summary>
+        public bool CanClickSplitScanButton => !IsSplitProcessing;
 
         public string ComboScanBtnText => IsScanning
             ? ResourceService.GetString("ComboPage_DynamicCancelText")
@@ -367,6 +371,7 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsSplitNotProcessing))]
         [NotifyPropertyChangedFor(nameof(SplitClearBtnText))]
+        [NotifyPropertyChangedFor(nameof(CanClickSplitScanButton))]
         private bool _isSplitProcessing = false;
 
         [ObservableProperty]
@@ -466,6 +471,7 @@ namespace LivePhotoBox.ViewModels
 
             _isInitialized = true;
             PropertyChanged += OnPropertyChangedSave;
+            SubscribeFooterStatusRefresh();
             _ = DetectGPUAndInitializeAsync();
         }
 
@@ -491,20 +497,26 @@ namespace LivePhotoBox.ViewModels
 
         private void SetComboStatus(string resourceKey, params object[] args)
         {
+            _comboStatusKey = resourceKey;
             ComboStatus = ResourceService.Format(resourceKey, args);
             _comboStatusForLog = ResourceService.FormatForLanguage(CrashLogLanguageTag, resourceKey, args);
+            RefreshFooterStatusBar();
         }
 
         private void SetSplitStatus(string resourceKey, params object[] args)
         {
+            _splitStatusKey = resourceKey;
             SplitStatus = ResourceService.Format(resourceKey, args);
             _splitStatusForLog = ResourceService.FormatForLanguage(CrashLogLanguageTag, resourceKey, args);
+            RefreshFooterStatusBar();
         }
 
         private void SetRepairStatus(string resourceKey, params object[] args)
         {
+            _repairStatusKey = resourceKey;
             RepairStatus = ResourceService.Format(resourceKey, args);
             _repairStatusForLog = ResourceService.FormatForLanguage(CrashLogLanguageTag, resourceKey, args);
+            RefreshFooterStatusBar();
         }
 
         private void LoadSettings()
@@ -542,6 +554,7 @@ namespace LivePhotoBox.ViewModels
             {
                 // 点击取消时触发 Cancel
                 _splitScanCancellationTokenSource?.Cancel();
+                SetSplitStatus("SplitPage_Status_ScanCancelling");
                 return;
             }
 
@@ -552,6 +565,7 @@ namespace LivePhotoBox.ViewModels
             }
 
             IsSplitScanning = true;
+            NotifyScanButtonBrushes();
             _splitScanCancellationTokenSource = new CancellationTokenSource();
             var token = _splitScanCancellationTokenSource.Token;
 
@@ -561,13 +575,19 @@ namespace LivePhotoBox.ViewModels
                 SplitOutputDirectory = Path.Combine(SplitInputDirectory, "Output_SplitPhotos");
             }
 
+            SetSplitStatus("SplitPage_Status_Scanning");
+            BeginSplitScanSession();
+            await Task.Yield();
+
             try
             {
                 SplitThumbnailService.ClearCache();
                 var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
+                var scanProgress = CreateSplitScanProgressReporter();
 
-                // 传入 cancellation token 允许后台抛出取消异常
-                var scanResult = await Task.Run(() => LivePhotoSplitScanService.Scan(SplitInputDirectory), token);
+                var scanResult = await Task.Run(
+                    () => LivePhotoSplitScanService.Scan(SplitInputDirectory, token, scanProgress),
+                    token);
 
                 // 如果已经触发取消，直接抛出异常阻断后续 UI 更新
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
@@ -592,6 +612,8 @@ namespace LivePhotoBox.ViewModels
 
                 IsSplitDirectoryPanelOpen = true;
 
+                CompleteFooterWorkSnapshot();
+
                 if (SplitQueuedCount > 0)
                 {
                     SetSplitStatus("SplitPage_Status_ScanDone", SplitQueuedCount);
@@ -603,7 +625,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                SetSplitStatus("Status_Aborted");
+                SetSplitStatus("SplitPage_Status_ScanCancelled");
             }
             catch (Exception ex)
             {
@@ -613,8 +635,10 @@ namespace LivePhotoBox.ViewModels
             finally
             {
                 IsSplitScanning = false;
+                NotifyScanButtonBrushes();
                 _splitScanCancellationTokenSource?.Dispose();
                 _splitScanCancellationTokenSource = null;
+                RefreshFooterStatusBar();
             }
         }
 
@@ -724,6 +748,7 @@ namespace LivePhotoBox.ViewModels
 
             if (SplitQueuedCount > 0 && SplitProgress >= 100)
             {
+                CompleteFooterWorkSnapshot();
                 SetSplitStatus("SplitPage_Status_Done", stopwatch.Elapsed.TotalSeconds);
             }
         }
@@ -1028,8 +1053,8 @@ namespace LivePhotoBox.ViewModels
 
             if (IsScanning)
             {
-                // 点击取消时触发 Cancel
                 _scanCancellationTokenSource?.Cancel();
+                SetComboStatus("Status_ScanCancelling");
                 return;
             }
 
@@ -1040,6 +1065,7 @@ namespace LivePhotoBox.ViewModels
             }
 
             IsScanning = true;
+            NotifyScanButtonBrushes();
             _scanCancellationTokenSource = new CancellationTokenSource();
             var token = _scanCancellationTokenSource.Token;
 
@@ -1049,13 +1075,19 @@ namespace LivePhotoBox.ViewModels
                 OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
             }
 
+            SetComboStatus("Status_Scanning");
+            BeginComboScanSession();
+            await Task.Yield();
+
             try
             {
                 ThumbnailService.ClearCache();
                 var pendingText = ResourceService.GetString("Task_Pending");
+                var scanProgress = CreateComboScanProgressReporter();
 
-                // 传入 cancellation token 允许后台抛出取消异常
-                var scanResult = await Task.Run(() => LivePhotoScanService.Scan(InputDirectory), token);
+                var scanResult = await Task.Run(
+                    () => LivePhotoScanService.Scan(InputDirectory, token, scanProgress),
+                    token);
 
                 // 如果已经触发取消，直接抛出异常阻断后续 UI 更新
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
@@ -1085,23 +1117,33 @@ namespace LivePhotoBox.ViewModels
                 ComboProgress = 0;
                 ProgressText = $"0/{TotalPairsCount}";
 
+                CompleteFooterWorkSnapshot();
+                if (TotalPairsCount > 0)
+                {
                     SetComboStatus("Status_ScanDone", TotalPairsCount);
                 }
-                catch (OperationCanceledException)
+                else
                 {
-                    SetComboStatus("Status_Aborted");
+                    SetComboStatus("Status_ScanNoPairs", StandaloneImagesCount, StandaloneVideosCount);
                 }
-                catch (Exception ex)
-                {
-                    CrashLogService.RecordBreadcrumb($"ScanDirectory error: {ex.Message}");
-                    SetComboStatus("Status_Error", ex.Message);
-                }
-                finally
-                {
-                    IsScanning = false;
-                    _scanCancellationTokenSource?.Dispose();
-                    _scanCancellationTokenSource = null;
-                }
+            }
+            catch (OperationCanceledException)
+            {
+                SetComboStatus("Status_ScanCancelled");
+            }
+            catch (Exception ex)
+            {
+                CrashLogService.RecordBreadcrumb($"ScanDirectory error: {ex.Message}");
+                SetComboStatus("Status_Error", ex.Message);
+            }
+            finally
+            {
+                IsScanning = false;
+                NotifyScanButtonBrushes();
+                _scanCancellationTokenSource?.Dispose();
+                _scanCancellationTokenSource = null;
+                RefreshFooterStatusBar();
+            }
         }
 
         [RelayCommand]
@@ -1198,6 +1240,7 @@ namespace LivePhotoBox.ViewModels
 
             if (ComboProgress >= 100)
             {
+                CompleteFooterWorkSnapshot();
                 SetComboStatus("Status_Done", stopwatch.Elapsed.TotalSeconds);
             }
         }
@@ -1357,6 +1400,7 @@ namespace LivePhotoBox.ViewModels
             if (IsRepairScanning)
             {
                 _repairScanCancellationTokenSource?.Cancel();
+                SetRepairStatus("Status_ScanCancelling");
                 return;
             }
 
@@ -1367,6 +1411,7 @@ namespace LivePhotoBox.ViewModels
             }
 
             IsRepairScanning = true;
+            NotifyScanButtonBrushes();
 
             // 逻辑前移：提前填写输出目录
             if (IsRepairOutputToDirectory && string.IsNullOrWhiteSpace(RepairOutputDirectory))
@@ -1384,6 +1429,10 @@ namespace LivePhotoBox.ViewModels
             RepairProgress = 0;
             RepairProgressText = "0/0";
 
+            SetRepairStatus("Status_Scanning");
+            BeginRepairScanSession();
+            await Task.Yield();
+
             try
             {
                 var files = await Task.Run(() =>
@@ -1394,20 +1443,23 @@ namespace LivePhotoBox.ViewModels
                              .ToList(), token);
 
                 RepairTotalPhotosCount = files.Count;
+                var scanProgress = CreateRepairScanProgressReporter();
+                scanProgress.Report(new WorkProgressSnapshot(files.Count, 0));
 
                 await Task.Run(async () =>
                 {
-                    int index = 1;
+                    int index = 0;
                     foreach (var file in files)
                     {
                         if (token.IsCancellationRequested)
                             token.ThrowIfCancellationRequested();
 
                         var analysis = await LivePhotoRepairService.AnalyzeFileAsync(file);
+                        index++;
 
                         var task = new LivePhotoRepairTask
                         {
-                            Index = index++,
+                            Index = index,
                             FileName = Path.GetFileName(file),
                             FilePath = file,
                             IssueDescription = analysis.IssueDescription,
@@ -1425,24 +1477,37 @@ namespace LivePhotoBox.ViewModels
                             if (analysis.NeedsRepair) RepairThumbErrorCount++;
                             else RepairThumbCorrectCount++;
                         });
+
+                        scanProgress.Report(new WorkProgressSnapshot(files.Count, index));
                     }
                 }, token);
 
-                SetRepairStatus("Status_ScanDone", RepairTotalPhotosCount);
+                CompleteFooterWorkSnapshot();
+                if (RepairTotalPhotosCount > 0)
+                {
+                    SetRepairStatus("RepairPage_Status_ScanDone", RepairTotalPhotosCount);
+                }
+                else
+                {
+                    SetRepairStatus("RepairPage_Status_ScanNoFiles");
+                }
             }
             catch (OperationCanceledException)
             {
-                SetRepairStatus("Status_Aborted");
+                SetRepairStatus("Status_ScanCancelled");
             }
             catch (Exception ex)
             {
                 CrashLogService.RecordBreadcrumb($"ScanRepairDirectory error: {ex.Message}");
+                SetRepairStatus("Status_Error", ex.Message);
             }
             finally
             {
                 IsRepairScanning = false;
+                NotifyScanButtonBrushes();
                 _repairScanCancellationTokenSource?.Dispose();
                 _repairScanCancellationTokenSource = null;
+                RefreshFooterStatusBar();
             }
         }
 
@@ -1592,6 +1657,7 @@ namespace LivePhotoBox.ViewModels
 
                 if (RepairProgress >= 100)
                 {
+                    CompleteFooterWorkSnapshot();
                     SetRepairStatus("Status_Done", stopwatch.Elapsed.TotalSeconds);
                 }
             }

@@ -99,7 +99,7 @@
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <TextBlock x:Uid="RepairPage_OutputModeLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <ToggleSwitch x:Uid="RepairPage_OutputModeSwitch" IsOn="{x:Bind ViewModel.IsRepairOutputToDirectory, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsRepairNotScanning, Mode=OneWay}"/>
-                            <Button Command="{x:Bind ViewModel.ScanRepairDirectoryCommand}" Content="{x:Bind ViewModel.RepairScanBtnText, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.IsRepairNotProcessing, Mode=OneWay}" Height="32" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                            <Button Command="{x:Bind ViewModel.ScanRepairDirectoryCommand}" Content="{x:Bind ViewModel.RepairScanBtnText, Mode=OneWay}" Style="{StaticResource DefaultButtonStyle}" Background="{x:Bind ViewModel.RepairScanButtonBackground, Mode=OneWay}" Foreground="{x:Bind ViewModel.RepairScanButtonForeground, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.IsRepairNotProcessing, Mode=OneWay}" VerticalAlignment="Center" Margin="12,0,0,0"/>
                         </StackPanel>
                     </Grid>
                 </Border>

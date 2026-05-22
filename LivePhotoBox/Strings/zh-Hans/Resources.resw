@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -378,8 +378,41 @@
   <data name="Status_InvalidInput" xml:space="preserve">
     <value>输入目录无效，请检查路径</value>
   </data>
+  <data name="StatusBar_Scanning_Split" xml:space="preserve">
+    <value>正在扫描实况照片：{0}/{1}</value>
+  </data>
+  <data name="StatusBar_Scanning_Combo" xml:space="preserve">
+    <value>正在扫描匹配文件：{0}/{1}</value>
+  </data>
+  <data name="StatusBar_Scanning_Repair" xml:space="preserve">
+    <value>正在扫描待修复照片：{0}/{1}</value>
+  </data>
+  <data name="StatusBar_ScanProgressLabel" xml:space="preserve">
+    <value>扫描进度：{0}%</value>
+  </data>
+  <data name="StatusBar_ProcessProgressLabel" xml:space="preserve">
+    <value>处理进度：{0}%</value>
+  </data>
+  <data name="Status_ScanNoPairs" xml:space="preserve">
+    <value>扫描完成：未找到可匹配的图视频对（散落图片 {0} 张，散落视频 {1} 个）</value>
+  </data>
+  <data name="Status_Scanning" xml:space="preserve">
+    <value>正在扫描匹配文件...</value>
+  </data>
+  <data name="Status_ScanCancelling" xml:space="preserve">
+    <value>正在取消扫描...</value>
+  </data>
+  <data name="Status_ScanCancelled" xml:space="preserve">
+    <value>扫描已取消</value>
+  </data>
   <data name="Status_ScanDone" xml:space="preserve">
     <value>扫描完成：已成功匹配 {0} 组实况文件</value>
+  </data>
+  <data name="RepairPage_Status_ScanDone" xml:space="preserve">
+    <value>扫描完成：已载入 {0} 张待检测照片</value>
+  </data>
+  <data name="RepairPage_Status_ScanNoFiles" xml:space="preserve">
+    <value>扫描完成：未找到可检测的照片文件</value>
   </data>
   <data name="Status_Cleared" xml:space="preserve">
     <value>已清空列表 | 就绪环境: {0}</value>
@@ -635,6 +668,15 @@
   </data>
   <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
     <value>加载中...</value>
+  </data>
+  <data name="SplitPage_Status_Scanning" xml:space="preserve">
+    <value>正在扫描实况照片...</value>
+  </data>
+  <data name="SplitPage_Status_ScanCancelling" xml:space="preserve">
+    <value>正在取消扫描...</value>
+  </data>
+  <data name="SplitPage_Status_ScanCancelled" xml:space="preserve">
+    <value>扫描已取消</value>
   </data>
   <data name="SplitPage_Status_ScanDone" xml:space="preserve">
     <value>扫描完成：已识别 {0} 个可拆分实况照片</value>
