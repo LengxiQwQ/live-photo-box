@@ -565,11 +565,10 @@ namespace LivePhotoBox.ViewModels
             }
 
             IsSplitScanning = true;
-            NotifyScanButtonBrushes();
             _splitScanCancellationTokenSource = new CancellationTokenSource();
             var token = _splitScanCancellationTokenSource.Token;
 
-            // 逻辑前移：一旦开始扫描，就提前填写输出目录
+            IsSplitDirectoryPanelOpen = true;
             if (string.IsNullOrWhiteSpace(SplitOutputDirectory))
             {
                 SplitOutputDirectory = Path.Combine(SplitInputDirectory, "Output_SplitPhotos");
@@ -578,6 +577,7 @@ namespace LivePhotoBox.ViewModels
             SetSplitStatus("SplitPage_Status_Scanning");
             BeginSplitScanSession();
             await Task.Yield();
+            NotifyFooterProperties();
 
             try
             {
@@ -610,8 +610,6 @@ namespace LivePhotoBox.ViewModels
                 SplitProgress = 0;
                 SplitProgressText = $"0/{SplitQueuedCount}";
 
-                IsSplitDirectoryPanelOpen = true;
-
                 CompleteFooterWorkSnapshot();
 
                 if (SplitQueuedCount > 0)
@@ -635,7 +633,6 @@ namespace LivePhotoBox.ViewModels
             finally
             {
                 IsSplitScanning = false;
-                NotifyScanButtonBrushes();
                 _splitScanCancellationTokenSource?.Dispose();
                 _splitScanCancellationTokenSource = null;
                 RefreshFooterStatusBar();
@@ -1065,7 +1062,6 @@ namespace LivePhotoBox.ViewModels
             }
 
             IsScanning = true;
-            NotifyScanButtonBrushes();
             _scanCancellationTokenSource = new CancellationTokenSource();
             var token = _scanCancellationTokenSource.Token;
 
@@ -1139,7 +1135,6 @@ namespace LivePhotoBox.ViewModels
             finally
             {
                 IsScanning = false;
-                NotifyScanButtonBrushes();
                 _scanCancellationTokenSource?.Dispose();
                 _scanCancellationTokenSource = null;
                 RefreshFooterStatusBar();
@@ -1411,7 +1406,6 @@ namespace LivePhotoBox.ViewModels
             }
 
             IsRepairScanning = true;
-            NotifyScanButtonBrushes();
 
             // 逻辑前移：提前填写输出目录
             if (IsRepairOutputToDirectory && string.IsNullOrWhiteSpace(RepairOutputDirectory))
@@ -1504,7 +1498,6 @@ namespace LivePhotoBox.ViewModels
             finally
             {
                 IsRepairScanning = false;
-                NotifyScanButtonBrushes();
                 _repairScanCancellationTokenSource?.Dispose();
                 _repairScanCancellationTokenSource = null;
                 RefreshFooterStatusBar();

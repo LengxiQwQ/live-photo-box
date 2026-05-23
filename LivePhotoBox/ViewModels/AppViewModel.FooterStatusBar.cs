@@ -1,7 +1,6 @@
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Media;
 using System;
 
 namespace LivePhotoBox.ViewModels
@@ -29,16 +28,8 @@ namespace LivePhotoBox.ViewModels
         private int _repairScanTotal;
         private int _repairScanProcessed;
 
-        private static readonly SolidColorBrush CancelScanBackground = new(
-            Windows.UI.Color.FromArgb(255, 0xC4, 0x2B, 0x1C));
-        private static readonly SolidColorBrush CancelScanForeground = new(Windows.UI.Color.FromArgb(255, 255, 255, 255));
-        /// <summary>仅取消扫描时使用红底；平时为 null，走系统 DefaultButtonStyle。</summary>
-        public Brush? ComboScanButtonBackground => IsScanning ? CancelScanBackground : null;
-        public Brush? ComboScanButtonForeground => IsScanning ? CancelScanForeground : null;
-        public Brush? SplitScanButtonBackground => IsSplitScanning ? CancelScanBackground : null;
-        public Brush? SplitScanButtonForeground => IsSplitScanning ? CancelScanForeground : null;
-        public Brush? RepairScanButtonBackground => IsRepairScanning ? CancelScanBackground : null;
-        public Brush? RepairScanButtonForeground => IsRepairScanning ? CancelScanForeground : null;
+        private WorkProgressSnapshot _pendingSplitScanSnapshot;
+        private long _lastSplitScanUiUpdateMs;
 
         public string FooterStatusText
         {
@@ -91,9 +82,12 @@ namespace LivePhotoBox.ViewModels
         }
 
         public bool FooterIsIndeterminate =>
-            (IsScanning && _comboScanTotal <= 0)
-            || (IsSplitScanning && _splitScanTotal <= 0)
+            (CurrentStatusPageTag == "Combo" && IsScanning)
+            || (CurrentStatusPageTag == "Split" && IsSplitScanning)
             || (IsRepairScanning && _repairScanTotal <= 0);
+
+        /// <summary>与不确定进度互斥，避免 WinUI ProgressBar 同时绑定 Value 导致崩溃。</summary>
+        public double FooterProgressBarValue => FooterIsIndeterminate ? 0 : FooterProgress;
 
         public string FooterPercentText
         {
@@ -127,16 +121,6 @@ namespace LivePhotoBox.ViewModels
         public Visibility FooterPercentVisibility =>
             string.IsNullOrEmpty(FooterPercentText) ? Visibility.Collapsed : Visibility.Visible;
 
-        private void NotifyScanButtonBrushes()
-        {
-            OnPropertyChanged(nameof(ComboScanButtonBackground));
-            OnPropertyChanged(nameof(ComboScanButtonForeground));
-            OnPropertyChanged(nameof(SplitScanButtonBackground));
-            OnPropertyChanged(nameof(SplitScanButtonForeground));
-            OnPropertyChanged(nameof(RepairScanButtonBackground));
-            OnPropertyChanged(nameof(RepairScanButtonForeground));
-        }
-
         private void SubscribeFooterStatusRefresh()
         {
             PropertyChanged += (_, e) =>
@@ -169,10 +153,6 @@ namespace LivePhotoBox.ViewModels
                         break;
                 }
 
-                if (e.PropertyName is nameof(IsScanning) or nameof(IsSplitScanning) or nameof(IsRepairScanning))
-                {
-                    NotifyScanButtonBrushes();
-                }
             };
         }
 
@@ -180,6 +160,7 @@ namespace LivePhotoBox.ViewModels
         {
             OnPropertyChanged(nameof(FooterStatusText));
             OnPropertyChanged(nameof(FooterProgress));
+            OnPropertyChanged(nameof(FooterProgressBarValue));
             OnPropertyChanged(nameof(FooterIsIndeterminate));
             OnPropertyChanged(nameof(FooterPercentText));
             OnPropertyChanged(nameof(FooterPercentVisibility));
@@ -223,9 +204,17 @@ namespace LivePhotoBox.ViewModels
         {
             _splitScanTotal = snapshot.Total;
             _splitScanProcessed = snapshot.Completed;
-            SplitRecognizedCount = snapshot.RecognizedCount;
-            SplitSkippedCount = snapshot.SkippedCount;
-            RefreshFooterStatusBar();
+            // 扫描过程中不刷新页面统计区，避免大量进度回调卡死 UI；结束后由 ViewModel 写入最终结果
+            if (!IsSplitScanning)
+            {
+                SplitRecognizedCount = snapshot.RecognizedCount;
+                SplitSkippedCount = snapshot.SkippedCount;
+                RefreshFooterStatusBar();
+            }
+            else
+            {
+                NotifyFooterProperties();
+            }
         }
 
         private void ApplyComboScanProgress(WorkProgressSnapshot snapshot)
@@ -246,6 +235,7 @@ namespace LivePhotoBox.ViewModels
         {
             _splitScanProcessed = 0;
             _splitScanTotal = 0;
+            _lastSplitScanUiUpdateMs = 0;
             RefreshFooterStatusBar();
         }
 
@@ -302,9 +292,27 @@ namespace LivePhotoBox.ViewModels
             NotifyFooterProperties();
         }
 
-        private IProgress<WorkProgressSnapshot> CreateSplitScanProgressReporter() =>
-            new Progress<WorkProgressSnapshot>(snapshot =>
-                App.MainWindow?.DispatcherQueue.TryEnqueue(() => ApplySplitScanProgress(snapshot)));
+        private IProgress<WorkProgressSnapshot> CreateSplitScanProgressReporter()
+        {
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            return new Progress<WorkProgressSnapshot>(snapshot =>
+            {
+                _pendingSplitScanSnapshot = snapshot;
+                if (dispatcher == null)
+                {
+                    return;
+                }
+
+                var now = Environment.TickCount64;
+                if (_lastSplitScanUiUpdateMs != 0 && now - _lastSplitScanUiUpdateMs < 100)
+                {
+                    return;
+                }
+
+                _lastSplitScanUiUpdateMs = now;
+                dispatcher.TryEnqueue(() => ApplySplitScanProgress(_pendingSplitScanSnapshot));
+            });
+        }
 
         private IProgress<WorkProgressSnapshot> CreateComboScanProgressReporter() =>
             new Progress<WorkProgressSnapshot>(snapshot =>

@@ -59,10 +59,10 @@
             <!-- 顶部分隔细线与扫描进度条重叠：1px 轨道 + 强调色填充 -->
             <ProgressBar
                 VerticalAlignment="Top"
-                Height="0"
+                Height="2"
                 Maximum="100"
                 Minimum="0"
-                Value="{x:Bind ViewModel.FooterProgress, Mode=OneWay}"
+                Value="{x:Bind ViewModel.FooterProgressBarValue, Mode=OneWay}"
                 IsIndeterminate="{x:Bind ViewModel.FooterIsIndeterminate, Mode=OneWay}"
                 HorizontalAlignment="Stretch"
                 CornerRadius="0"

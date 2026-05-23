@@ -6,6 +6,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoBox.Models"
     xmlns:converters="using:LivePhotoBox.Converters"
+    xmlns:controls="using:LivePhotoBox.Controls"
     mc:Ignorable="d"
     Background="Transparent"
     NavigationCacheMode="Required">
@@ -99,7 +100,11 @@
                                     <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
                                     <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
                                 </ComboBox>
-                                <Button Command="{x:Bind ViewModel.ScanSplitDirectoryCommand}" Content="{x:Bind ViewModel.SplitScanBtnText, Mode=OneWay}" Style="{StaticResource DefaultButtonStyle}" Background="{x:Bind ViewModel.SplitScanButtonBackground, Mode=OneWay}" Foreground="{x:Bind ViewModel.SplitScanButtonForeground, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.CanClickSplitScanButton, Mode=OneWay}" VerticalAlignment="Center"/>
+                                <controls:ScanDirectoryButton
+                                    Command="{x:Bind ViewModel.ScanSplitDirectoryCommand}"
+                                    Label="{x:Bind ViewModel.SplitScanBtnText, Mode=OneWay}"
+                                    IsCancelAppearance="{x:Bind ViewModel.IsSplitScanning, Mode=OneWay}"
+                                    IsButtonEnabled="{x:Bind ViewModel.CanClickSplitScanButton, Mode=OneWay}" />
                             </StackPanel>
                         </Grid>
                     </StackPanel>

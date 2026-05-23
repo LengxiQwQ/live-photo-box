@@ -39,6 +39,8 @@ namespace LivePhotoBox.Services
             CancellationToken cancellationToken = default,
             IProgress<WorkProgressSnapshot>? progress = null)
         {
+            progress?.Report(new WorkProgressSnapshot(0, 0));
+
             var candidates = new List<string>();
             int enumerated = 0;
             foreach (var path in Directory.EnumerateFiles(inputDirectory))
@@ -50,16 +52,27 @@ namespace LivePhotoBox.Services
                     candidates.Add(path);
                 }
 
-                if (enumerated % 64 == 0)
+                if (enumerated == 1 || enumerated % 64 == 0)
                 {
                     progress?.Report(new WorkProgressSnapshot(0, enumerated));
                 }
             }
 
+            int total = candidates.Count;
+            if (total == 0)
+            {
+                progress?.Report(new WorkProgressSnapshot(0, enumerated));
+                return new LivePhotoSplitScanResult
+                {
+                    Files = [],
+                    RecognizedCount = 0,
+                    SkippedCount = 0
+                };
+            }
+
             var files = new List<LivePhotoSplitFileInfo>();
             int recognizedCount = 0;
             int skippedCount = 0;
-            int total = candidates.Count;
 
             progress?.Report(new WorkProgressSnapshot(total, 0));
 

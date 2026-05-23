@@ -108,6 +108,9 @@
 		<Page Update="Controls\PageStatusBar.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
+		<Page Update="Controls\ScanDirectoryButton.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</Page>
 	</ItemGroup>
 
 	<ItemGroup>
