@@ -30,6 +30,53 @@ namespace LivePhotoBox.ViewModels
 
         private WorkProgressSnapshot _pendingSplitScanSnapshot;
         private long _lastSplitScanUiUpdateMs;
+        private WorkProgressSnapshot _pendingComboScanSnapshot;
+        private long _lastComboScanUiUpdateMs;
+        private WorkProgressSnapshot _pendingRepairScanSnapshot;
+        private long _lastRepairScanUiUpdateMs;
+
+        private static Style? _defaultButtonStyle;
+        private static Style? _scanCancelButtonStyle;
+
+        public Style ComboScanButtonStyle => ResolveScanButtonStyle(IsScanning);
+
+        public Style SplitScanButtonStyle => ResolveScanButtonStyle(IsSplitScanning);
+
+        public Style RepairScanButtonStyle => ResolveScanButtonStyle(IsRepairScanning);
+
+        private static Style ResolveScanButtonStyle(bool isCancelAppearance)
+        {
+            EnsureScanButtonStyles();
+            if (isCancelAppearance && _scanCancelButtonStyle != null)
+            {
+                return _scanCancelButtonStyle;
+            }
+
+            return _defaultButtonStyle ?? throw new InvalidOperationException("DefaultButtonStyle is not available.");
+        }
+
+        private static void EnsureScanButtonStyles()
+        {
+            if (_defaultButtonStyle != null && _scanCancelButtonStyle != null)
+            {
+                return;
+            }
+
+            var resources = Application.Current.Resources;
+            if (_defaultButtonStyle == null
+                && resources.TryGetValue("DefaultButtonStyle", out var defaultStyle)
+                && defaultStyle is Style defaultButtonStyle)
+            {
+                _defaultButtonStyle = defaultButtonStyle;
+            }
+
+            if (_scanCancelButtonStyle == null
+                && resources.TryGetValue("ScanCancelButtonStyle", out var cancelStyle)
+                && cancelStyle is Style cancelButtonStyle)
+            {
+                _scanCancelButtonStyle = cancelButtonStyle;
+            }
+        }
 
         public string FooterStatusText
         {
@@ -66,6 +113,8 @@ namespace LivePhotoBox.ViewModels
                     "Combo" when IsScanning && _comboScanTotal > 0 =>
                         Math.Clamp(_comboScanProcessed * 100.0 / _comboScanTotal, 0, 100),
                     "Combo" when IsProcessing => ComboProgress,
+                    "Combo" when _comboScanTotal > 0 =>
+                        Math.Clamp(_comboScanProcessed * 100.0 / _comboScanTotal, 0, 100),
                     "Split" when IsSplitScanning && _splitScanTotal > 0 =>
                         Math.Clamp(_splitScanProcessed * 100.0 / _splitScanTotal, 0, 100),
                     "Split" when IsSplitProcessing => SplitProgress,
@@ -84,7 +133,7 @@ namespace LivePhotoBox.ViewModels
         public bool FooterIsIndeterminate =>
             (CurrentStatusPageTag == "Combo" && IsScanning)
             || (CurrentStatusPageTag == "Split" && IsSplitScanning)
-            || (IsRepairScanning && _repairScanTotal <= 0);
+            || (CurrentStatusPageTag == "Repair" && IsRepairScanning);
 
         /// <summary>与不确定进度互斥，避免 WinUI ProgressBar 同时绑定 Value 导致崩溃。</summary>
         public double FooterProgressBarValue => FooterIsIndeterminate ? 0 : FooterProgress;
@@ -221,14 +270,28 @@ namespace LivePhotoBox.ViewModels
         {
             _comboScanTotal = snapshot.Total;
             _comboScanProcessed = snapshot.Completed;
-            RefreshFooterStatusBar();
+            if (!IsScanning)
+            {
+                RefreshFooterStatusBar();
+            }
+            else
+            {
+                NotifyFooterProperties();
+            }
         }
 
         private void ApplyRepairScanProgress(WorkProgressSnapshot snapshot)
         {
             _repairScanTotal = snapshot.Total;
             _repairScanProcessed = snapshot.Completed;
-            RefreshFooterStatusBar();
+            if (!IsRepairScanning)
+            {
+                RefreshFooterStatusBar();
+            }
+            else
+            {
+                NotifyFooterProperties();
+            }
         }
 
         private void BeginSplitScanSession()
@@ -250,6 +313,7 @@ namespace LivePhotoBox.ViewModels
         {
             _comboScanProcessed = 0;
             _comboScanTotal = 0;
+            _lastComboScanUiUpdateMs = 0;
             RefreshFooterStatusBar();
         }
 
@@ -264,6 +328,7 @@ namespace LivePhotoBox.ViewModels
         {
             _repairScanProcessed = 0;
             _repairScanTotal = 0;
+            _lastRepairScanUiUpdateMs = 0;
             RefreshFooterStatusBar();
         }
 
@@ -292,34 +357,74 @@ namespace LivePhotoBox.ViewModels
             NotifyFooterProperties();
         }
 
+        private static bool IsScanProgressComplete(WorkProgressSnapshot snapshot) =>
+            snapshot.Total > 0 && snapshot.Completed >= snapshot.Total;
+
+        private void FlushPendingComboScanProgress() => ApplyComboScanProgress(_pendingComboScanSnapshot);
+
+        private void FlushPendingSplitScanProgress() => ApplySplitScanProgress(_pendingSplitScanSnapshot);
+
+        private void FlushPendingRepairScanProgress() => ApplyRepairScanProgress(_pendingRepairScanSnapshot);
+
+        private void EnqueueThrottledScanProgress(
+            WorkProgressSnapshot snapshot,
+            ref WorkProgressSnapshot pendingSnapshot,
+            ref long lastUiUpdateMs,
+            Microsoft.UI.Dispatching.DispatcherQueue? dispatcher,
+            Action<WorkProgressSnapshot> apply)
+        {
+            pendingSnapshot = snapshot;
+            if (dispatcher == null)
+            {
+                return;
+            }
+
+            bool forceApply = IsScanProgressComplete(snapshot);
+            var now = Environment.TickCount64;
+            if (!forceApply && lastUiUpdateMs != 0 && now - lastUiUpdateMs < 100)
+            {
+                return;
+            }
+
+            lastUiUpdateMs = now;
+            var captured = snapshot;
+            dispatcher.TryEnqueue(() => apply(captured));
+        }
+
         private IProgress<WorkProgressSnapshot> CreateSplitScanProgressReporter()
         {
             var dispatcher = App.MainWindow?.DispatcherQueue;
             return new Progress<WorkProgressSnapshot>(snapshot =>
-            {
-                _pendingSplitScanSnapshot = snapshot;
-                if (dispatcher == null)
-                {
-                    return;
-                }
-
-                var now = Environment.TickCount64;
-                if (_lastSplitScanUiUpdateMs != 0 && now - _lastSplitScanUiUpdateMs < 100)
-                {
-                    return;
-                }
-
-                _lastSplitScanUiUpdateMs = now;
-                dispatcher.TryEnqueue(() => ApplySplitScanProgress(_pendingSplitScanSnapshot));
-            });
+                EnqueueThrottledScanProgress(
+                    snapshot,
+                    ref _pendingSplitScanSnapshot,
+                    ref _lastSplitScanUiUpdateMs,
+                    dispatcher,
+                    ApplySplitScanProgress));
         }
 
-        private IProgress<WorkProgressSnapshot> CreateComboScanProgressReporter() =>
-            new Progress<WorkProgressSnapshot>(snapshot =>
-                App.MainWindow?.DispatcherQueue.TryEnqueue(() => ApplyComboScanProgress(snapshot)));
+        private IProgress<WorkProgressSnapshot> CreateComboScanProgressReporter()
+        {
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            return new Progress<WorkProgressSnapshot>(snapshot =>
+                EnqueueThrottledScanProgress(
+                    snapshot,
+                    ref _pendingComboScanSnapshot,
+                    ref _lastComboScanUiUpdateMs,
+                    dispatcher,
+                    ApplyComboScanProgress));
+        }
 
-        private IProgress<WorkProgressSnapshot> CreateRepairScanProgressReporter() =>
-            new Progress<WorkProgressSnapshot>(snapshot =>
-                App.MainWindow?.DispatcherQueue.TryEnqueue(() => ApplyRepairScanProgress(snapshot)));
+        private IProgress<WorkProgressSnapshot> CreateRepairScanProgressReporter()
+        {
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            return new Progress<WorkProgressSnapshot>(snapshot =>
+                EnqueueThrottledScanProgress(
+                    snapshot,
+                    ref _pendingRepairScanSnapshot,
+                    ref _lastRepairScanUiUpdateMs,
+                    dispatcher,
+                    ApplyRepairScanProgress));
+        }
     }
 }

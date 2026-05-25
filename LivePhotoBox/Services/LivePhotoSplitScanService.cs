@@ -43,19 +43,52 @@ namespace LivePhotoBox.Services
 
             var candidates = new List<string>();
             int enumerated = 0;
-            foreach (var path in Directory.EnumerateFiles(inputDirectory))
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                enumerated++;
-                if (IsSupportedImage(path))
+                foreach (var path in Directory.EnumerateFiles(inputDirectory))
                 {
-                    candidates.Add(path);
-                }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    enumerated++;
+                    if (IsSupportedImage(path))
+                    {
+                        candidates.Add(path);
+                    }
 
-                if (enumerated == 1 || enumerated % 64 == 0)
-                {
-                    progress?.Report(new WorkProgressSnapshot(0, enumerated));
+                    if (enumerated == 1 || enumerated % 64 == 0)
+                    {
+                        progress?.Report(new WorkProgressSnapshot(0, enumerated));
+                    }
                 }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // No permission to read directory, return empty result
+                return new LivePhotoSplitScanResult
+                {
+                    Files = [],
+                    RecognizedCount = 0,
+                    SkippedCount = 0
+                };
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // Directory not found, return empty result
+                return new LivePhotoSplitScanResult
+                {
+                    Files = [],
+                    RecognizedCount = 0,
+                    SkippedCount = 0
+                };
+            }
+            catch (IOException)
+            {
+                // IO error occurred, return empty result
+                return new LivePhotoSplitScanResult
+                {
+                    Files = [],
+                    RecognizedCount = 0,
+                    SkippedCount = 0
+                };
             }
 
             int total = candidates.Count;
@@ -101,6 +134,11 @@ namespace LivePhotoBox.Services
                 {
                     progress?.Report(new WorkProgressSnapshot(total, completed, recognizedCount, skippedCount));
                 }
+            }
+
+            if (total > 0)
+            {
+                progress?.Report(new WorkProgressSnapshot(total, total, recognizedCount, skippedCount));
             }
 
             return new LivePhotoSplitScanResult

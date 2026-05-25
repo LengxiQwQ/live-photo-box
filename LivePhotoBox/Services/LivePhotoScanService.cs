@@ -33,6 +33,8 @@ namespace LivePhotoBox.Services
             var imgDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var vidDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
+            progress?.Report(new WorkProgressSnapshot(0, 0));
+
             try
             {
                 var allFiles = Directory.EnumerateFiles(inputDirectory).ToList();
@@ -59,10 +61,32 @@ namespace LivePhotoBox.Services
                         progress?.Report(new WorkProgressSnapshot(total, completed, imgDict.Count));
                     }
                 }
+
+                progress?.Report(new WorkProgressSnapshot(total, total, imgDict.Count));
             }
             catch (UnauthorizedAccessException)
             {
                 // No permission to access directory, return empty result
+                return new LivePhotoScanResult
+                {
+                    Pairs = new List<LivePhotoFilePairInfo>(),
+                    StandaloneImagesCount = 0,
+                    StandaloneVideosCount = 0
+                };
+            }
+            catch (DirectoryNotFoundException)
+            {
+                // Directory not found, return empty result
+                return new LivePhotoScanResult
+                {
+                    Pairs = new List<LivePhotoFilePairInfo>(),
+                    StandaloneImagesCount = 0,
+                    StandaloneVideosCount = 0
+                };
+            }
+            catch (IOException)
+            {
+                // IO error occurred, return empty result
                 return new LivePhotoScanResult
                 {
                     Pairs = new List<LivePhotoFilePairInfo>(),

@@ -67,8 +67,8 @@
                                 <ContentPresenter
                                     x:Name="ContentPresenter"
                                     Margin="{TemplateBinding Padding}"
-                                    HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                    VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                    HorizontalContentAlignment="Center"
+                                    VerticalContentAlignment="Center"
                                     AutomationProperties.AccessibilityView="Raw"
                                     Content="{TemplateBinding Content}"
                                     ContentTemplate="{TemplateBinding ContentTemplate}"

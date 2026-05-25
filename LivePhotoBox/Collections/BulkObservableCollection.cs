@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Linq;
 
 namespace LivePhotoBox.Collections
 {
@@ -35,7 +36,9 @@ namespace LivePhotoBox.Collections
             try
             {
                 Items.Clear();
-                foreach (var item in items)
+                // Convert IEnumerable to List to ensure it's fully consumed
+                var itemsList = items is List<T> list ? list : items.ToList();
+                foreach (var item in itemsList)
                 {
                     Items.Add(item);
                 }

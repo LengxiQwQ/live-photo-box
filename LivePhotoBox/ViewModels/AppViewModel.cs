@@ -340,6 +340,7 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsNotScanning))]
         [NotifyPropertyChangedFor(nameof(ComboScanBtnText))]
+        [NotifyPropertyChangedFor(nameof(ComboScanButtonStyle))]
         private bool _isScanning = false;
 
         public bool IsNotScanning => !IsScanning;
@@ -347,6 +348,7 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsSplitNotScanning))]
         [NotifyPropertyChangedFor(nameof(SplitScanBtnText))]
+        [NotifyPropertyChangedFor(nameof(SplitScanButtonStyle))]
         [NotifyCanExecuteChangedFor(nameof(ScanSplitDirectoryCommand))]
         private bool _isSplitScanning = false;
 
@@ -380,6 +382,7 @@ namespace LivePhotoBox.ViewModels
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(RepairScanBtnText))]
+        [NotifyPropertyChangedFor(nameof(RepairScanButtonStyle))]
         [NotifyPropertyChangedFor(nameof(IsRepairNotScanning))]
         private bool _isRepairScanning = false;
         public bool IsRepairNotScanning => !IsRepairScanning;
@@ -579,7 +582,7 @@ namespace LivePhotoBox.ViewModels
             await Task.Yield();
             NotifyFooterProperties();
 
-            try
+             try
             {
                 SplitThumbnailService.ClearCache();
                 var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
@@ -592,6 +595,7 @@ namespace LivePhotoBox.ViewModels
                 // 如果已经触发取消，直接抛出异常阻断后续 UI 更新
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
 
+                // Convert Select result to List immediately to avoid deferred execution issues
                 var tasks = scanResult.Files.Select((file, index) => new LivePhotoSplitTask
                 {
                     Index = index + 1,
@@ -601,7 +605,7 @@ namespace LivePhotoBox.ViewModels
                     ProgressText = "0%",
                     Status = ProcessStatus.Pending,
                     Details = pendingText
-                });
+                }).ToList();
 
                 SplitTasks.ReplaceRange(tasks);
                 SplitQueuedCount = scanResult.Files.Count;
@@ -610,6 +614,7 @@ namespace LivePhotoBox.ViewModels
                 SplitProgress = 0;
                 SplitProgressText = $"0/{SplitQueuedCount}";
 
+                FlushPendingSplitScanProgress();
                 CompleteFooterWorkSnapshot();
 
                 if (SplitQueuedCount > 0)
@@ -1065,7 +1070,7 @@ namespace LivePhotoBox.ViewModels
             _scanCancellationTokenSource = new CancellationTokenSource();
             var token = _scanCancellationTokenSource.Token;
 
-            // 逻辑前移：一旦开始扫描，就提前填写输出目录
+            IsDirectoryPanelOpen = true;
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
                 OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
@@ -1074,6 +1079,7 @@ namespace LivePhotoBox.ViewModels
             SetComboStatus("Status_Scanning");
             BeginComboScanSession();
             await Task.Yield();
+            NotifyFooterProperties();
 
             try
             {
@@ -1086,8 +1092,10 @@ namespace LivePhotoBox.ViewModels
                     token);
 
                 // 如果已经触发取消，直接抛出异常阻断后续 UI 更新
+                // 如果已经触发取消，直接抛出异常阻断后续 UI 更新
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
 
+                // Convert Select result to List immediately to avoid deferred execution issues
                 var tasks = scanResult.Pairs.Select((pair, index) => new LivePhotoMergeTask
                 {
                     Index = index + 1,
@@ -1101,10 +1109,9 @@ namespace LivePhotoBox.ViewModels
                     VideoPath = pair.VideoPath,
                     Status = ProcessStatus.Pending,
                     Details = pendingText
-                });
+                }).ToList();
 
                 ComboTasks.ReplaceRange(tasks);
-                IsDirectoryPanelOpen = true;
 
                 TotalPairsCount = scanResult.Pairs.Count;
                 StandaloneImagesCount = scanResult.StandaloneImagesCount;
@@ -1113,6 +1120,7 @@ namespace LivePhotoBox.ViewModels
                 ComboProgress = 0;
                 ProgressText = $"0/{TotalPairsCount}";
 
+                FlushPendingComboScanProgress();
                 CompleteFooterWorkSnapshot();
                 if (TotalPairsCount > 0)
                 {
@@ -1155,6 +1163,7 @@ namespace LivePhotoBox.ViewModels
                 StandaloneVideosCount = 0;
                 ComboProgress = 0;
                 ProgressText = "0/0";
+                ResetComboScanProgressCounters();
                 SetComboStatus("Status_Cleared", _hwEncoderName);
 
                 IsDirectoryPanelOpen = true;
@@ -1426,15 +1435,33 @@ namespace LivePhotoBox.ViewModels
             SetRepairStatus("Status_Scanning");
             BeginRepairScanSession();
             await Task.Yield();
+            NotifyFooterProperties();
 
             try
             {
                 var files = await Task.Run(() =>
-                    Directory.GetFiles(RepairInputDirectory, "*.*", SearchOption.TopDirectoryOnly)
-                             .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                                         f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
-                                         f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase))
-                             .ToList(), token);
+                {
+                    try
+                    {
+                        return Directory.GetFiles(RepairInputDirectory, "*.*", SearchOption.TopDirectoryOnly)
+                                 .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                                             f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
+                                             f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase))
+                                 .ToList();
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                        return new List<string>();
+                    }
+                    catch (DirectoryNotFoundException)
+                    {
+                        return new List<string>();
+                    }
+                    catch (IOException)
+                    {
+                        return new List<string>();
+                    }
+                }, token);
 
                 RepairTotalPhotosCount = files.Count;
                 var scanProgress = CreateRepairScanProgressReporter();
@@ -1474,8 +1501,11 @@ namespace LivePhotoBox.ViewModels
 
                         scanProgress.Report(new WorkProgressSnapshot(files.Count, index));
                     }
+
+                    scanProgress.Report(new WorkProgressSnapshot(files.Count, files.Count));
                 }, token);
 
+                FlushPendingRepairScanProgress();
                 CompleteFooterWorkSnapshot();
                 if (RepairTotalPhotosCount > 0)
                 {
