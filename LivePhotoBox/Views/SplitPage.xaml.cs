@@ -17,14 +17,13 @@ namespace LivePhotoBox.Views
         private int _lastRealizedItemIndex = -1;
         private int _preloadGeneration;
 
-        public AppViewModel ViewModel => AppViewModel.Instance;
+        public SplitViewModel ViewModel => AppViewModel.Instance.Split;
 
         public SplitPage()
         {
             InitializeComponent();
         }
 
-        // --- 新增：文本框获取焦点时自动清空 ---
         private void DirectoryBox_GotFocus(object sender, RoutedEventArgs e)
         {
             if (sender is TextBox textBox)
@@ -38,8 +37,7 @@ namespace LivePhotoBox.Views
             var folder = await FilePickerService.PickFolderAsync();
             if (folder != null)
             {
-                // 设置路径后由 OnSplitInputDirectoryChanged 自动触发扫描，避免重复扫描导致误取消
-                ViewModel.SplitInputDirectory = folder.Path;
+                ViewModel.InputDirectory = folder.Path;
             }
         }
 
@@ -48,7 +46,7 @@ namespace LivePhotoBox.Views
             var folder = await FilePickerService.PickFolderAsync();
             if (folder != null)
             {
-                ViewModel.SplitOutputDirectory = folder.Path;
+                ViewModel.OutputDirectory = folder.Path;
             }
         }
 
@@ -86,7 +84,7 @@ namespace LivePhotoBox.Views
 
         private void SplitTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
-            if (args.InRecycleQueue || args.Item is not LivePhotoSplitTask task)
+            if (args.InRecycleQueue || args.Item is not SplitTask task)
             {
                 return;
             }
@@ -103,14 +101,14 @@ namespace LivePhotoBox.Views
 
         private async Task PreloadNeighborThumbnailsAsync(int centerIndex)
         {
-            if (ViewModel.SplitTasks.Count == 0)
+            if (ViewModel.Tasks.Count == 0)
             {
                 return;
             }
 
             int generation = ++_preloadGeneration;
             await Task.Delay(80);
-            if (generation != _preloadGeneration || ViewModel.SplitTasks.Count == 0)
+            if (generation != _preloadGeneration || ViewModel.Tasks.Count == 0)
             {
                 return;
             }
@@ -123,18 +121,18 @@ namespace LivePhotoBox.Views
             if (isScrollingBackward)
             {
                 startIndex = Math.Max(0, centerIndex - ForwardPreloadRadius);
-                endIndex = Math.Min(ViewModel.SplitTasks.Count - 1, centerIndex + BackwardPreloadRadius);
+                endIndex = Math.Min(ViewModel.Tasks.Count - 1, centerIndex + BackwardPreloadRadius);
             }
             else
             {
                 startIndex = Math.Max(0, centerIndex - BackwardPreloadRadius);
-                endIndex = Math.Min(ViewModel.SplitTasks.Count - 1, centerIndex + ForwardPreloadRadius);
+                endIndex = Math.Min(ViewModel.Tasks.Count - 1, centerIndex + ForwardPreloadRadius);
             }
 
             _lastRealizedItemIndex = centerIndex;
 
             SplitThumbnailService.Preload(
-                ViewModel.SplitTasks
+                ViewModel.Tasks
                     .Skip(startIndex)
                     .Take(endIndex - startIndex + 1)
                     .Where(task => task.Index != centerIndex + 1)

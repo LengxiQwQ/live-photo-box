@@ -1,4 +1,5 @@
 using LivePhotoBox.Services;
+using LivePhotoBox.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
@@ -13,9 +14,11 @@ namespace LivePhotoBox.Views
         private static readonly Uri RepositoryUri = new("https://github.com/LengxiQwQ/live-photo-box");
         private static readonly Uri LicenseUri = new("https://github.com/LengxiQwQ/live-photo-box/blob/master/LICENSE");
 
+        public AboutViewModel ViewModel => AppViewModel.Instance.About;
+
         public AboutPage()
         {
-            this.InitializeComponent();
+            InitializeComponent();
             VersionTextBlock.Text = ResourceService.Format("AboutPage_Version_Format", GetAppVersion());
         }
 

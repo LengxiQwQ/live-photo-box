@@ -248,7 +248,7 @@ Do you want to restart now?</value>
     <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
   </data>
   <data name="SplitPage_Status_Ready" xml:space="preserve">
-    <value>Ready | Waiting to import live photos to split</value>
+    <value>Ready, import live photos to split</value>
   </data>
   <data name="SplitPage_ConfigHeader.Text" xml:space="preserve">
     <value>Live Photo Split Settings</value>
@@ -290,7 +290,7 @@ Do you want to restart now?</value>
     <value>Scan Live Photos</value>
   </data>
   <data name="SplitPage_DynamicCancelText" xml:space="preserve">
-    <value>Cancel</value>
+    <value>Cancel Scan</value>
   </data>
   <data name="SplitPage_QueueProgress.Text" xml:space="preserve">
     <value>Queue Progress: </value>
@@ -305,7 +305,7 @@ Do you want to restart now?</value>
     <value>Invalid input directory. Please check the path.</value>
   </data>
   <data name="SplitPage_Status_Cleared" xml:space="preserve">
-    <value>Split queue cleared</value>
+    <value>List cleared, ready for new tasks</value>
   </data>
   <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
     <value>Split execution logic will be connected next. The UI is now ready.</value>
@@ -350,7 +350,7 @@ Do you want to restart now?</value>
     <value>Scan Files</value>
   </data>
   <data name="ComboPage_DynamicCancelText" xml:space="preserve">
-    <value>Cancel</value>
+    <value>Cancel Scan</value>
   </data>
   <data name="ComboPage_QueueProgress.Text" xml:space="preserve">
     <value>Queue Progress: </value>
@@ -374,31 +374,31 @@ Do you want to restart now?</value>
     <value>Open with default app</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
-    <value>Initializing components</value>
+    <value>Starting up...</value>
   </data>
   <data name="Status_InvalidInput" xml:space="preserve">
     <value>Invalid input directory. Please check the path.</value>
   </data>
   <data name="StatusBar_Scanning_Split" xml:space="preserve">
-    <value>Scanning live photos: {0}/{1}</value>
+    <value>Scanning live photos {0}/{1}</value>
   </data>
   <data name="StatusBar_Scanning_Combo" xml:space="preserve">
-    <value>Scanning files: {0}/{1}</value>
+    <value>Scanning files {0}/{1}</value>
   </data>
   <data name="StatusBar_Scanning_Repair" xml:space="preserve">
-    <value>Scanning photos: {0}/{1}</value>
+    <value>Scanning photos {0}/{1}</value>
   </data>
   <data name="StatusBar_ScanProgressLabel" xml:space="preserve">
-    <value>Scan progress: {0}%</value>
+    <value>Scanning: {0}%</value>
   </data>
   <data name="StatusBar_ProcessProgressLabel" xml:space="preserve">
-    <value>Task progress: {0}%</value>
+    <value>Processing: {0}%</value>
   </data>
   <data name="Status_ScanNoPairs" xml:space="preserve">
-    <value>Scan complete: no matching pairs (images: {0}, videos: {1})</value>
+    <value>Scan done: no matching live photos (images: {0}, videos: {1})</value>
   </data>
   <data name="Status_Scanning" xml:space="preserve">
-    <value>Scanning for matching files...</value>
+    <value>Scanning...</value>
   </data>
   <data name="Status_ScanCancelling" xml:space="preserve">
     <value>Cancelling scan...</value>
@@ -407,37 +407,40 @@ Do you want to restart now?</value>
     <value>Scan cancelled</value>
   </data>
   <data name="Status_ScanDone" xml:space="preserve">
-    <value>Scan complete: matched {0} live photo pairs</value>
+    <value>Scan done: matched {0} live photo pairs</value>
   </data>
   <data name="RepairPage_Status_ScanDone" xml:space="preserve">
-    <value>Scan complete: loaded {0} photos for analysis</value>
+    <value>Scan done: loaded {0} photos to repair</value>
   </data>
   <data name="RepairPage_Status_ScanNoFiles" xml:space="preserve">
-    <value>Scan complete: no photos found to analyze</value>
+    <value>Scan done: no photos found to repair</value>
+  </data>
+  <data name="RepairPage_Status_Cleared" xml:space="preserve">
+    <value>List cleared, ready for new tasks</value>
   </data>
   <data name="Status_Cleared" xml:space="preserve">
-    <value>List cleared | Ready environment: {0}</value>
+    <value>List cleared, ready for new tasks</value>
   </data>
   <data name="Status_Resumed" xml:space="preserve">
-    <value>Queue resumed...</value>
+    <value>Task resumed, processing...</value>
   </data>
   <data name="Status_Paused" xml:space="preserve">
-    <value>Pause requested. Waiting for the current task to finish...</value>
+    <value>Task paused, stopping after current item...</value>
   </data>
   <data name="Status_WarnOutput" xml:space="preserve">
-    <value>Warning: please set the output directory first</value>
+    <value>Please set the save directory first</value>
   </data>
   <data name="Status_Running" xml:space="preserve">
-    <value>Running native merge at full speed (pure I/O mode)...</value>
+    <value>Processing...</value>
   </data>
   <data name="Status_Aborted" xml:space="preserve">
-    <value>Task aborted manually</value>
+    <value>Task manually stopped</value>
   </data>
   <data name="Status_Error" xml:space="preserve">
     <value>Error: {0}</value>
   </data>
   <data name="Status_Done" xml:space="preserve">
-    <value>All merge tasks completed! Total time: {0:F1} s</value>
+    <value>Merge completed! Time: {0:F1} s</value>
   </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>Start Merge</value>
@@ -1120,5 +1123,11 @@ Log file: {0}</value>
   </data>
   <data name="Error_RepairFailedCheckLog" xml:space="preserve">
     <value>Repair failed, please check logs</value>
+  </data>
+  <data name="Error_XmpMetadataTooLarge" xml:space="preserve">
+    <value>XMP metadata too large ({0} bytes). Maximum allowed size for JPEG APP1 segment is 65535 bytes.</value>
+  </data>
+  <data name="Error_InvalidJpegFile" xml:space="preserve">
+    <value>Invalid JPEG file: unable to read JPEG SOI marker (0xFF 0xD8).</value>
   </data>
 </root>

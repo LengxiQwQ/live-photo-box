@@ -1,3 +1,4 @@
+using LivePhotoBox.Models;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -8,12 +9,6 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
 {
-    public sealed class LivePhotoSplitResult
-    {
-        public required string ImageOutputPath { get; init; }
-        public required string VideoOutputPath { get; init; }
-    }
-
     public static class LivePhotoSplitService
     {
         private const int MetadataProbeBytes = 1024 * 1024; // 探测前 1MB 的元数据

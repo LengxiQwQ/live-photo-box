@@ -39,6 +39,7 @@ namespace LivePhotoBox.Services
             CancellationToken cancellationToken = default,
             IProgress<WorkProgressSnapshot>? progress = null)
         {
+            AppLogService.Scan($"Split scan started. Directory: {inputDirectory}");
             progress?.Report(new WorkProgressSnapshot(0, 0));
 
             var candidates = new List<string>();
@@ -60,48 +61,36 @@ namespace LivePhotoBox.Services
                     }
                 }
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                // No permission to read directory, return empty result
-                return new LivePhotoSplitScanResult
-                {
-                    Files = [],
-                    RecognizedCount = 0,
-                    SkippedCount = 0
-                };
+                AppLogService.Scan($"Access denied to directory: {inputDirectory}", LogLevel.Error, ex);
+                return new LivePhotoSplitScanResult { Files = [], RecognizedCount = 0, SkippedCount = 0 };
             }
-            catch (DirectoryNotFoundException)
+            catch (DirectoryNotFoundException ex)
             {
-                // Directory not found, return empty result
-                return new LivePhotoSplitScanResult
-                {
-                    Files = [],
-                    RecognizedCount = 0,
-                    SkippedCount = 0
-                };
+                AppLogService.Scan($"Directory not found: {inputDirectory}", LogLevel.Error, ex);
+                return new LivePhotoSplitScanResult { Files = [], RecognizedCount = 0, SkippedCount = 0 };
             }
-            catch (IOException)
+            catch (IOException ex)
             {
-                // IO error occurred, return empty result
-                return new LivePhotoSplitScanResult
-                {
-                    Files = [],
-                    RecognizedCount = 0,
-                    SkippedCount = 0
-                };
+                AppLogService.Scan($"IO error scanning directory: {inputDirectory}", LogLevel.Error, ex);
+                return new LivePhotoSplitScanResult { Files = [], RecognizedCount = 0, SkippedCount = 0 };
+            }
+            catch (OperationCanceledException)
+            {
+                AppLogService.Scan("Split scan cancelled");
+                throw;
             }
 
             int total = candidates.Count;
             if (total == 0)
             {
+                AppLogService.Scan($"No image files found in directory: {inputDirectory}");
                 progress?.Report(new WorkProgressSnapshot(0, enumerated));
-                return new LivePhotoSplitScanResult
-                {
-                    Files = [],
-                    RecognizedCount = 0,
-                    SkippedCount = 0
-                };
+                return new LivePhotoSplitScanResult { Files = [], RecognizedCount = 0, SkippedCount = 0 };
             }
+
+            AppLogService.Scan($"Found {total} image files, starting LivePhoto detection");
 
             var files = new List<LivePhotoSplitFileInfo>();
             int recognizedCount = 0;
@@ -117,11 +106,7 @@ namespace LivePhotoBox.Services
                 var fileInfo = new FileInfo(path);
                 if (IsLikelyLivePhoto(path, fileInfo.Length))
                 {
-                    files.Add(new LivePhotoSplitFileInfo
-                    {
-                        SourcePath = path,
-                        FileSizeBytes = fileInfo.Length
-                    });
+                    files.Add(new LivePhotoSplitFileInfo { SourcePath = path, FileSizeBytes = fileInfo.Length });
                     recognizedCount++;
                 }
                 else
@@ -140,6 +125,8 @@ namespace LivePhotoBox.Services
             {
                 progress?.Report(new WorkProgressSnapshot(total, total, recognizedCount, skippedCount));
             }
+
+            AppLogService.Scan($"Split scan completed. Found {recognizedCount} LivePhotos, skipped {skippedCount} regular images");
 
             return new LivePhotoSplitScanResult
             {
@@ -165,16 +152,8 @@ namespace LivePhotoBox.Services
                 return true;
             }
 
-            // 普通静态照片通常较小；实况照片体积明显更大，避免对每张 JPG 做 256KB 探测
-            if (fileSize < 512 * 1024)
-            {
-                return false;
-            }
-
-            if (fileSize <= 0)
-            {
-                return false;
-            }
+            if (fileSize < 512 * 1024) return false;
+            if (fileSize <= 0) return false;
 
             int bufferSize = (int)Math.Min(fileSize, MetadataProbeBytes);
             byte[] buffer = new byte[bufferSize];
@@ -183,35 +162,17 @@ namespace LivePhotoBox.Services
             {
                 using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096, FileOptions.SequentialScan);
                 int bytesRead = stream.Read(buffer, 0, buffer.Length);
-                if (bytesRead <= 0)
-                {
-                    return false;
-                }
+                if (bytesRead <= 0) return false;
 
                 var data = buffer.AsSpan(0, bytesRead);
                 foreach (var marker in MetadataMarkers)
                 {
-                    if (data.IndexOf(marker) >= 0)
-                    {
-                        return true;
-                    }
+                    if (data.IndexOf(marker) >= 0) return true;
                 }
             }
-            catch (IOException)
-            {
-                // File is locked or inaccessible, skip it
-                return false;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // No permission to read file, skip it
-                return false;
-            }
-            catch
-            {
-                // Other exceptions, safely skip this file
-                return false;
-            }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
+            catch { return false; }
 
             return false;
         }

@@ -1,3 +1,4 @@
+using LivePhotoBox.Models;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.ApplicationModel.Resources;
@@ -83,7 +84,7 @@ namespace LivePhotoBox.Services
                     var result = await dialog.ShowAsync();
                     if (result == ContentDialogResult.Secondary)
                     {
-                        CrashLogService.RecordBreadcrumb("Application restart requested after language change.");
+                        AppLogService.Info("Application restart requested after language change.", LogSource.Settings);
                         CrashLogService.MarkCleanShutdown();
                         Microsoft.Windows.AppLifecycle.AppInstance.Restart("");
                     }

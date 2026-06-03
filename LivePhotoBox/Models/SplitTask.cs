@@ -7,8 +7,10 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Models
 {
-    public partial class LivePhotoSplitTask : ObservableObject
+    public partial class SplitTask : ObservableObject
     {
+        #region Observable Properties
+
         [ObservableProperty] private int _index;
         [ObservableProperty] private string _sourceFileName = string.Empty;
         [ObservableProperty] private string _sourcePath = string.Empty;
@@ -17,64 +19,34 @@ namespace LivePhotoBox.Models
         [ObservableProperty] private ProcessStatus _status = ProcessStatus.Pending;
         [ObservableProperty] private string _details = string.Empty;
 
+        #endregion
+
+        #region Thumbnail
+
         private bool _isLoadingThumbnail;
         private ImageSource? _thumbnail;
-
-        public string DisplaySourceFileName => TruncateFileName(SourceFileName);
-
-        // 【修复核心】：优先展示 Details (比如具体的报错信息)，如果为空则按状态显示多语言文本
-        public string DisplayStatus
-        {
-            get
-            {
-                if (!string.IsNullOrWhiteSpace(Details))
-                {
-                    return Details;
-                }
-
-                return Status switch
-                {
-                    ProcessStatus.Pending => ResourceService.GetString("SplitPage_Task_Pending"),
-                    ProcessStatus.Processing => ResourceService.GetString("SplitPage_Task_Processing"),
-                    ProcessStatus.Success => ResourceService.GetString("SplitPage_Task_Success"),
-                    ProcessStatus.Failed => ResourceService.GetString("Task_Failed"),
-                    _ => Status.ToString()
-                };
-            }
-        }
-
-        public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
         public ImageSource? Thumbnail
         {
             get
             {
-                if (_thumbnail != null)
-                {
-                    return _thumbnail;
-                }
-
-                if (string.IsNullOrWhiteSpace(SourcePath))
-                {
-                    return null;
-                }
-
+                if (_thumbnail != null) return _thumbnail;
+                if (string.IsNullOrWhiteSpace(SourcePath)) return null;
                 if (SplitThumbnailService.GetCached(SourcePath) is { } cachedThumbnail)
                 {
                     _thumbnail = cachedThumbnail;
                     return _thumbnail;
                 }
-
                 return _thumbnail;
             }
             set
             {
                 if (SetProperty(ref _thumbnail, value))
-                {
                     OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
-                }
             }
         }
+
+        public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
         partial void OnSourcePathChanged(string value)
         {
@@ -88,7 +60,6 @@ namespace LivePhotoBox.Models
             OnPropertyChanged(nameof(DisplayStatus));
         }
 
-        // 新增：如果强行更新了 Details，也联动刷新 DisplayStatus 文本
         partial void OnDetailsChanged(string value)
         {
             OnPropertyChanged(nameof(DisplayStatus));
@@ -96,10 +67,7 @@ namespace LivePhotoBox.Models
 
         public async Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
-            if (_thumbnail != null || _isLoadingThumbnail || string.IsNullOrWhiteSpace(SourcePath))
-            {
-                return;
-            }
+            if (_thumbnail != null || _isLoadingThumbnail || string.IsNullOrWhiteSpace(SourcePath)) return;
 
             if (SplitThumbnailService.GetCached(SourcePath) is { } cachedThumbnail)
             {
@@ -119,19 +87,43 @@ namespace LivePhotoBox.Models
             }
         }
 
+        #endregion
+
+        #region Computed Properties
+
+        public string DisplaySourceFileName => TruncateFileName(SourceFileName);
+
+        public string DisplayStatus
+        {
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(Details))
+                    return Details;
+
+                return Status switch
+                {
+                    ProcessStatus.Pending => ResourceService.GetString("SplitPage_Task_Pending"),
+                    ProcessStatus.Processing => ResourceService.GetString("SplitPage_Task_Processing"),
+                    ProcessStatus.Success => ResourceService.GetString("SplitPage_Task_Success"),
+                    ProcessStatus.Failed => ResourceService.GetString("Task_Failed"),
+                    _ => Status.ToString()
+                };
+            }
+        }
+
+        #endregion
+
+        #region Helpers
+
         private string TruncateFileName(string fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return fileName;
-
             string ext = Path.GetExtension(fileName);
             string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-
             if (nameWithoutExt.Length <= 30) return fileName;
-
-            string leftStr = nameWithoutExt.Substring(0, 22);
-            string rightStr = nameWithoutExt.Substring(nameWithoutExt.Length - 8);
-
-            return $"{leftStr}...{rightStr}{ext}";
+            return $"{nameWithoutExt.Substring(0, 22)}...{nameWithoutExt.Substring(nameWithoutExt.Length - 8)}{ext}";
         }
+
+        #endregion
     }
 }

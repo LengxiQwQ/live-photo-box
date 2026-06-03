@@ -1,5 +1,5 @@
-﻿using LivePhotoBox.Services;
-using Microsoft.UI.Xaml.Controls;
+﻿using LivePhotoBox.Models;
+using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System.Threading.Tasks;
@@ -17,7 +17,7 @@ namespace LivePhotoBox
             ApplyLanguageSetting();
             CrashLogService.Initialize(this);
             InitializeComponent();
-            CrashLogService.RecordBreadcrumb("Application initialized.");
+            AppLogService.Info("Application initialized.", LogSource.App);
         }
 
         private void ApplyLanguageSetting()
@@ -28,10 +28,10 @@ namespace LivePhotoBox
 
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            CrashLogService.RecordBreadcrumb("Main window launch started.");
+            AppLogService.Info("Main window launch started.", LogSource.UI);
             MainWindow = new MainWindow();
             MainWindow.Activate();
-            CrashLogService.RecordBreadcrumb("Main window activated.");
+            AppLogService.Info("Main window activated.", LogSource.UI);
             _ = ShowPendingCrashDialogAsync();
         }
 

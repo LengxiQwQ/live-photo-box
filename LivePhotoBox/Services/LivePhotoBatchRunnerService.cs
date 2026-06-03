@@ -17,38 +17,62 @@ namespace LivePhotoBox.Services
     public static class LivePhotoBatchRunnerService
     {
         public static async Task RunAsync(
-            IReadOnlyCollection<LivePhotoMergeTask> tasks,
+            IReadOnlyCollection<MergeTask> tasks,
             LivePhotoBatchRunOptions options,
             ManualResetEventSlim pauseEvent,
             CancellationToken cancellationToken,
-            Action<LivePhotoMergeTask>? onTaskStarted,
-            Action<LivePhotoMergeTask, bool, string, int>? onTaskCompleted)
+            Action<MergeTask>? onTaskStarted,
+            Action<MergeTask, bool, string, int>? onTaskCompleted)
         {
+            AppLogService.Combo($"Batch processing started. TaskCount={tasks.Count}, OutputDir={options.OutputDirectory}, Mode={options.SelectedModeIndex}");
             Directory.CreateDirectory(options.OutputDirectory);
 
             int completedCount = 0;
+            int successCount = 0;
+            int failCount = 0;
             var parallelOptions = new ParallelOptions
             {
                 MaxDegreeOfParallelism = options.MaxDegreeOfParallelism,
                 CancellationToken = cancellationToken
             };
 
-            await Parallel.ForEachAsync(tasks, parallelOptions, async (task, token) =>
+            try
             {
-                if (task.Status == ProcessStatus.Success)
+                await Parallel.ForEachAsync(tasks, parallelOptions, async (task, token) =>
                 {
-                    return;
-                }
+                    if (task.Status == ProcessStatus.Success)
+                    {
+                        return;
+                    }
 
-                pauseEvent.Wait(token);
-                token.ThrowIfCancellationRequested();
+                    pauseEvent.Wait(token);
+                    token.ThrowIfCancellationRequested();
 
-                onTaskStarted?.Invoke(task);
+                    onTaskStarted?.Invoke(task);
 
-                var result = await ProcessSinglePairAsync(task.ImagePath, task.VideoPath, task.BaseName, options, token);
-                int currentCompleted = Interlocked.Increment(ref completedCount);
-                onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
-            });
+                    var result = await ProcessSinglePairAsync(task.ImagePath, task.VideoPath, task.BaseName, options, token);
+                    int currentCompleted = Interlocked.Increment(ref completedCount);
+                    
+                    if (result.IsSuccess)
+                        Interlocked.Increment(ref successCount);
+                    else
+                        Interlocked.Increment(ref failCount);
+                    
+                    onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
+                });
+                
+                AppLogService.Combo($"Batch processing completed. Total={completedCount}, Success={successCount}, Failed={failCount}");
+            }
+            catch (OperationCanceledException)
+            {
+                AppLogService.Combo($"Batch processing cancelled. Completed={completedCount}, Success={successCount}, Failed={failCount}", LogLevel.Info);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                AppLogService.Combo($"Batch processing error: {ex.Message}", LogLevel.Error, ex);
+                throw;
+            }
         }
 
         private static async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
@@ -69,8 +93,13 @@ namespace LivePhotoBox.Services
 
                 return (true, ResourceService.GetString("Task_Success"));
             }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
+                AppLogService.Combo($"Failed to process pair {baseName}: {ex.Message}", LogLevel.Warning, ex);
                 return (false, ResourceService.Format("Task_Error", ex.Message));
             }
         }

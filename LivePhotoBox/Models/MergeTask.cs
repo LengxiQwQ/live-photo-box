@@ -8,16 +8,10 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Models
 {
-    public enum ProcessStatus
+    public partial class MergeTask : ObservableObject
     {
-        Pending,
-        Processing,
-        Success,
-        Failed
-    }
+        #region Observable Properties
 
-    public partial class LivePhotoMergeTask : ObservableObject
-    {
         [ObservableProperty] private int _index;
         [ObservableProperty] private string _imageFileName = string.Empty;
         [ObservableProperty] private string _videoFileName = string.Empty;
@@ -26,49 +20,43 @@ namespace LivePhotoBox.Models
         [ObservableProperty] private string _imagePath = string.Empty;
         [ObservableProperty] private string _videoPath = string.Empty;
         [ObservableProperty] private ProcessStatus _status = ProcessStatus.Pending;
-        [ObservableProperty] private string _details = "等待处理";
+        [ObservableProperty] private string _details = string.Empty;
+
+        #endregion
+
+        #region Data Properties
 
         public long TotalSizeBytes { get; set; }
         public string BaseName { get; set; } = string.Empty;
-        public string DisplayImageName => TruncateFileName(ImageFileName);
-        public string DisplayVideoName => TruncateFileName(VideoFileName);
-        public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
-        // ==========================================
-        // 完全使用老版本 LivePhotoTask.cs 的极速加载逻辑
-        // ==========================================
+        #endregion
+
+        #region Thumbnail
+
         private bool _isLoadingThumbnail = false;
         private ImageSource? _thumbnail;
+
         public ImageSource? Thumbnail
         {
             get
             {
-                if (_thumbnail != null)
-                {
-                    return _thumbnail;
-                }
-
-                if (string.IsNullOrWhiteSpace(ImagePath))
-                {
-                    return null;
-                }
-
+                if (_thumbnail != null) return _thumbnail;
+                if (string.IsNullOrWhiteSpace(ImagePath)) return null;
                 if (ThumbnailService.GetCached(ImagePath) is { } cachedThumbnail)
                 {
                     _thumbnail = cachedThumbnail;
                     return _thumbnail;
                 }
-
                 return _thumbnail;
             }
             set
             {
                 if (SetProperty(ref _thumbnail, value))
-                {
                     OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
-                }
             }
         }
+
+        public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
         partial void OnImagePathChanged(string value)
         {
@@ -79,10 +67,7 @@ namespace LivePhotoBox.Models
 
         public async Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
-            if (_thumbnail != null || _isLoadingThumbnail || string.IsNullOrWhiteSpace(ImagePath))
-            {
-                return;
-            }
+            if (_thumbnail != null || _isLoadingThumbnail || string.IsNullOrWhiteSpace(ImagePath)) return;
 
             if (ThumbnailService.GetCached(ImagePath) is { } cachedThumbnail)
             {
@@ -102,19 +87,26 @@ namespace LivePhotoBox.Models
             }
         }
 
+        #endregion
+
+        #region Computed Properties
+
+        public string DisplayImageName => TruncateFileName(ImageFileName);
+        public string DisplayVideoName => TruncateFileName(VideoFileName);
+
+        #endregion
+
+        #region Helpers
+
         private string TruncateFileName(string fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return fileName;
-
             string ext = Path.GetExtension(fileName);
             string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-
             if (nameWithoutExt.Length <= 30) return fileName;
-
-            string leftStr = nameWithoutExt.Substring(0, 22);
-            string rightStr = nameWithoutExt.Substring(nameWithoutExt.Length - 8);
-
-            return $"{leftStr}...{rightStr}{ext}";
+            return $"{nameWithoutExt.Substring(0, 22)}...{nameWithoutExt.Substring(nameWithoutExt.Length - 8)}{ext}";
         }
+
+        #endregion
     }
 }

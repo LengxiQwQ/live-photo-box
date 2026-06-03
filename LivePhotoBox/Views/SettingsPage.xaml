@@ -76,31 +76,31 @@
                         <StackPanel Spacing="16">
                             <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                 <TextBlock x:Uid="SettingsPage_CrashLastTime_Label" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <HyperlinkButton Command="{x:Bind ViewModel.OpenLatestCrashLogActionCommand}" Padding="0" VerticalAlignment="Center">
-                                    <TextBlock Text="{x:Bind ViewModel.LastCrashFileNameText, Mode=OneWay}" TextWrapping="Wrap" FontSize="15" FontWeight="SemiBold"/>
+                                <HyperlinkButton Command="{x:Bind AboutViewModel.OpenLatestCrashLogActionCommand, Mode=OneWay}" Padding="0" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind AboutViewModel.LastCrashFileNameText, Mode=OneWay}" TextWrapping="Wrap" FontSize="15" FontWeight="SemiBold"/>
                                 </HyperlinkButton>
                             </StackPanel>
 
                             <StackPanel Orientation="Horizontal" Spacing="12">
-                                <Button Command="{x:Bind ViewModel.OpenCrashLogFolderActionCommand}">
+                                <Button Command="{x:Bind AboutViewModel.OpenCrashLogFolderActionCommand, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <FontIcon Glyph="&#xE838;" FontSize="14"/>
                                         <TextBlock x:Uid="SettingsPage_CrashOpenFolder_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                                <Button Command="{x:Bind ViewModel.ExportLatestCrashLogActionCommand}">
+                                <Button Command="{x:Bind AboutViewModel.ExportLatestCrashLogActionCommand, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <FontIcon Glyph="&#xE74E;" FontSize="14"/>
                                         <TextBlock x:Uid="SettingsPage_CrashExportLatest_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                                <Button Command="{x:Bind ViewModel.ClearCrashLogsActionCommand}">
+                                <Button Command="{x:Bind AboutViewModel.ClearCrashLogsActionCommand, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <FontIcon Glyph="&#xE74D;" FontSize="14"/>
                                         <TextBlock x:Uid="SettingsPage_CrashClear_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                                <Button Command="{x:Bind ViewModel.OpenIssueFeedbackActionCommand}">
+                                <Button Command="{x:Bind AboutViewModel.OpenIssueFeedbackActionCommand, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <FontIcon Glyph="&#xE8A7;" FontSize="14"/>
                                         <TextBlock x:Uid="SettingsPage_CrashIssue_Button_Text" FontSize="13" VerticalAlignment="Center"/>

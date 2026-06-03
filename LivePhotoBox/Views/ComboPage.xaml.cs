@@ -1,9 +1,9 @@
-using LivePhotoBox.Services;
 using LivePhotoBox.Models;
+using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -17,15 +17,14 @@ namespace LivePhotoBox.Views
         private int _lastRealizedItemIndex = -1;
         private int _preloadGeneration;
 
-        public AppViewModel ViewModel => AppViewModel.Instance;
+        public ComboViewModel ViewModel => AppViewModel.Instance.Combo;
 
         public ComboPage()
         {
-            this.InitializeComponent();
+            InitializeComponent();
         }
 
-        // --- 新增：文本框获取焦点时自动清空 ---
-        private void DirectoryBox_GotFocus(object sender, RoutedEventArgs e)
+        private void DirectoryBox_GotFocus(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             if (sender is TextBox textBox)
             {
@@ -33,17 +32,16 @@ namespace LivePhotoBox.Views
             }
         }
 
-        private async void BrowseInput_Click(object sender, RoutedEventArgs e)
+        private async void BrowseInput_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             var folder = await FilePickerService.PickFolderAsync();
             if (folder != null)
             {
-                // 设置路径后由 OnInputDirectoryChanged 自动触发扫描，避免重复扫描导致误取消
                 ViewModel.InputDirectory = folder.Path;
             }
         }
 
-        private async void BrowseOutput_Click(object sender, RoutedEventArgs e)
+        private async void BrowseOutput_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             var folder = await FilePickerService.PickFolderAsync();
             if (folder != null)
@@ -52,7 +50,7 @@ namespace LivePhotoBox.Views
             }
         }
 
-        private async void FileGroupButton_Click(object sender, RoutedEventArgs e)
+        private async void FileGroupButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path))
             {
@@ -68,7 +66,7 @@ namespace LivePhotoBox.Views
             }
         }
 
-        private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
+        private void ThumbnailButton_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path))
             {
@@ -86,7 +84,7 @@ namespace LivePhotoBox.Views
 
         private void ComboTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
-            if (args.InRecycleQueue || args.Item is not LivePhotoMergeTask task)
+            if (args.InRecycleQueue || args.Item is not MergeTask task)
             {
                 return;
             }
@@ -101,16 +99,16 @@ namespace LivePhotoBox.Views
             _ = PreloadNeighborThumbnailsAsync(args.ItemIndex);
         }
 
-        private async Task PreloadNeighborThumbnailsAsync(int centerIndex)
+        private async System.Threading.Tasks.Task PreloadNeighborThumbnailsAsync(int centerIndex)
         {
-            if (ViewModel.ComboTasks.Count == 0)
+            if (ViewModel.Tasks.Count == 0)
             {
                 return;
             }
 
             int generation = ++_preloadGeneration;
-            await Task.Delay(80);
-            if (generation != _preloadGeneration || ViewModel.ComboTasks.Count == 0)
+            await System.Threading.Tasks.Task.Delay(80);
+            if (generation != _preloadGeneration || ViewModel.Tasks.Count == 0)
             {
                 return;
             }
@@ -123,18 +121,18 @@ namespace LivePhotoBox.Views
             if (isScrollingBackward)
             {
                 startIndex = Math.Max(0, centerIndex - ForwardPreloadRadius);
-                endIndex = Math.Min(ViewModel.ComboTasks.Count - 1, centerIndex + BackwardPreloadRadius);
+                endIndex = Math.Min(ViewModel.Tasks.Count - 1, centerIndex + BackwardPreloadRadius);
             }
             else
             {
                 startIndex = Math.Max(0, centerIndex - BackwardPreloadRadius);
-                endIndex = Math.Min(ViewModel.ComboTasks.Count - 1, centerIndex + ForwardPreloadRadius);
+                endIndex = Math.Min(ViewModel.Tasks.Count - 1, centerIndex + ForwardPreloadRadius);
             }
 
             _lastRealizedItemIndex = centerIndex;
 
             ThumbnailService.Preload(
-                ViewModel.ComboTasks
+                ViewModel.Tasks
                     .Skip(startIndex)
                     .Take(endIndex - startIndex + 1)
                     .Where(task => task.Index != centerIndex + 1)

@@ -11,6 +11,8 @@
 
     <Page.Resources>
         <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
+        <converters:ProgressBarForegroundConverter x:Key="ProgressBarForegroundConverter"/>
+        <converters:ProgressBarIndeterminateConverter x:Key="ProgressBarIndeterminateConverter"/>
 
         <Style x:Key="HelpIconButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
@@ -56,7 +58,7 @@
     </Page.Resources>
 
     <Grid>
-        <Grid RowSpacing="12" Padding="24,24,24,40">
+        <Grid Padding="24,24,24,40">
 
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -143,8 +145,8 @@
                                 </ComboBox>
                                 <Button
                                     Command="{x:Bind ViewModel.ScanDirectoryCommand}"
-                                    Content="{x:Bind ViewModel.ComboScanBtnText, Mode=OneWay}"
-                                    Style="{x:Bind ViewModel.ComboScanButtonStyle, Mode=OneWay}"
+                                    Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
+                                    Style="{x:Bind ViewModel.ScanButtonStyle, Mode=OneWay}"
                                     IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
                                     VerticalAlignment="Center" />
                             </StackPanel>
@@ -166,7 +168,7 @@
                             <Run x:Uid="ComboPage_QueueProgress"/>
                             <Run Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"/>
                         </TextBlock>
-                        <ProgressBar Value="{x:Bind ViewModel.ComboProgress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{ThemeResource CyberCyanBrush}" MaxWidth="400" HorizontalAlignment="Left"/>
+                        <ProgressBar Value="{x:Bind ViewModel.ComboProgress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarForegroundConverter}, Mode=OneWay}" IsIndeterminate="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarIndeterminateConverter}, Mode=OneWay}" MaxWidth="400" HorizontalAlignment="Left"/>
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
@@ -184,7 +186,7 @@
             </Border>
 
             <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
-                <ListView x:Name="ComboTaskListView" ItemsSource="{x:Bind ViewModel.ComboTasks}" SelectionMode="None" ShowsScrollingPlaceholders="False" ContainerContentChanging="ComboTaskListView_ContainerContentChanging">
+                <ListView x:Name="ComboTaskListView" ItemsSource="{x:Bind ViewModel.Tasks}" SelectionMode="None" ShowsScrollingPlaceholders="False" ContainerContentChanging="ComboTaskListView_ContainerContentChanging">
                     <ListView.ItemsPanel>
                         <ItemsPanelTemplate>
                             <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="1" />
@@ -218,7 +220,7 @@
                     </ListView.ItemContainerStyle>
 
                     <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:LivePhotoMergeTask">
+                        <DataTemplate x:DataType="models:MergeTask">
                             <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6,10,6">
                                 <Grid ColumnSpacing="0">
                                     <Grid.ColumnDefinitions>

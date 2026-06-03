@@ -3,6 +3,8 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using LivePhotoBox.Models;
+using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
 {
@@ -54,13 +56,15 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
             int segmentLength = 2 + xmpHeader.Length + xmpXmlBytes.Length;
             if (segmentLength > ushort.MaxValue)
             {
-                throw new InvalidOperationException("XMP 元数据过大，无法写入 JPEG APP1 段");
+                AppLogService.Combo($"XMP metadata too large: {segmentLength} bytes", LogLevel.Error);
+                throw new InvalidOperationException(ResourceService.Format("Error_XmpMetadataTooLarge", segmentLength));
             }
 
             using var imgFs = new FileStream(sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, true);
             if (imgFs.Length < 2 || imgFs.ReadByte() != 0xFF || imgFs.ReadByte() != 0xD8)
             {
-                throw new InvalidDataException("源图像不是有效的 JPEG 文件");
+                AppLogService.Combo($"Invalid JPEG file: {sourceImg}", LogLevel.Error);
+                throw new InvalidDataException(ResourceService.GetString("Error_InvalidJpegFile"));
             }
 
             using var targetFs = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);

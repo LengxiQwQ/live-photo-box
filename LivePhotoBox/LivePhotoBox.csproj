@@ -5,6 +5,7 @@
 		<TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
 		<LangVersion>13.0</LangVersion>
 		<Nullable>enable</Nullable>
+		<NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
 
 		<RootNamespace>LivePhotoBox</RootNamespace>
 		<AssemblyName>LivePhotoBox</AssemblyName>
@@ -14,7 +15,6 @@
 
 		<Platforms>x86;x64;ARM64</Platforms>
 		<RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
-		<PublishProfile>win-$(Platform).pubxml</PublishProfile>
 		<UseWinUI>true</UseWinUI>
 		<EnableMsixTooling>true</EnableMsixTooling>
 		<WindowsSdkPackageVersion>10.0.22621.56</WindowsSdkPackageVersion>

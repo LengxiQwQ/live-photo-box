@@ -11,12 +11,12 @@ using System.ComponentModel;
 using System.IO;
 using Windows.Graphics;
 using Windows.UI;
+using LivePhotoBox.Models;
 
 namespace LivePhotoBox
 {
     public sealed partial class MainWindow : Window
     {
-        // 这里是你设置的基准宽度和高度（对应 100% 缩放下的逻辑大小）
         private const int DefaultWindowWidth = 1120;
         private const int DefaultWindowHeight = 694;
 
@@ -28,11 +28,12 @@ namespace LivePhotoBox
         public MainWindow()
         {
             InitializeComponent();
-            CrashLogService.RecordBreadcrumb("MainWindow constructed.");
+            AppLogService.Info("MainWindow constructed.", LogSource.UI);
             Closed += (_, _) =>
             {
-                CrashLogService.RecordBreadcrumb("MainWindow closed.");
+                AppLogService.Info("MainWindow closed.", LogSource.UI);
                 CrashLogService.MarkCleanShutdown();
+                ViewModel.Cleanup();
             };
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
@@ -43,16 +44,12 @@ namespace LivePhotoBox
 
             if (appWindow != null)
             {
-                // 加载任务栏和窗口图标
                 string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
                 if (File.Exists(iconPath))
                 {
                     appWindow.SetIcon(iconPath);
                 }
 
-                // =================================================================
-                // 窗口大小 DPI 自适应与屏幕自适应居中逻辑
-                // =================================================================
                 try
                 {
                     uint dpi = GetDpiForWindow(hWnd);
@@ -93,6 +90,7 @@ namespace LivePhotoBox
             };
 
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+            ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
             ViewModel.RequestNavigateToPage += OnRequestNavigateToPage;
 
             UpdateTheme();
@@ -103,29 +101,40 @@ namespace LivePhotoBox
 
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(AppViewModel.BackdropIndex)) UpdateBackdrop();
-            if (e.PropertyName == nameof(AppViewModel.ElementTheme)) UpdateTheme();
-            if (e.PropertyName == nameof(AppViewModel.IsStatusBarVisible)) UpdateStatusBarVisibility();
+            if (e.PropertyName == nameof(AppViewModel.IsStatusBarVisible))
+            {
+                UpdateStatusBarVisibility();
+            }
+        }
+
+        private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            switch (e.PropertyName)
+            {
+                case nameof(SettingsViewModel.BackdropIndex):
+                    UpdateBackdrop();
+                    break;
+                case nameof(SettingsViewModel.ElementTheme):
+                    UpdateTheme();
+                    break;
+            }
         }
 
         private void OnRequestNavigateToPage(object? sender, string pageTag)
         {
             if (pageTag.StartsWith("Home"))
             {
-                // 同步左侧导航栏选中项为主页
                 NavView.SelectedItem = NavView.MenuItems[0];
 
-                // 解析出具体的 feature 模块名 (Combo / Split / Repair)
                 string? feature = null;
                 if (pageTag.Contains("_"))
                 {
                     feature = pageTag.Split('_')[1];
                 }
 
-                // 调用带参数的导航方法，将 feature 传入主页
-                CrashLogService.RecordBreadcrumb($"NavigateToPage: HomePage, Parameter={feature}");
+                AppLogService.Info($"NavigateToPage: HomePage, Parameter={feature}", LogSource.UI);
                 ViewModel.SetCurrentStatusPage(null);
-                MainFrame.Navigate(typeof(Views.HomePage), feature); // 👈 核心：这里把参数带过去
+                MainFrame.Navigate(typeof(Views.HomePage), feature);
             }
         }
 
@@ -136,7 +145,7 @@ namespace LivePhotoBox
 
         private void UpdateBackdrop()
         {
-            SystemBackdrop = ViewModel.BackdropIndex switch
+            SystemBackdrop = ViewModel.Settings.BackdropIndex switch
             {
                 0 => new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.Base },
                 1 => new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt },
@@ -146,7 +155,7 @@ namespace LivePhotoBox
 
             if (Content is Grid rootGrid)
             {
-                if (ViewModel.BackdropIndex == 3)
+                if (ViewModel.Settings.BackdropIndex == 3)
                 {
                     rootGrid.Background = GetCurrentTheme() == ElementTheme.Dark
                         ? new SolidColorBrush(Microsoft.UI.Colors.Black)
@@ -163,12 +172,12 @@ namespace LivePhotoBox
         {
             if (Content is FrameworkElement rootElement)
             {
-                rootElement.RequestedTheme = (ElementTheme)ViewModel.ElementTheme;
+                rootElement.RequestedTheme = (ElementTheme)ViewModel.Settings.ElementTheme;
             }
 
             UpdateTitleBarButtonColors();
 
-            if (ViewModel.BackdropIndex == 3)
+            if (ViewModel.Settings.BackdropIndex == 3)
             {
                 UpdateBackdrop();
             }
@@ -243,14 +252,11 @@ namespace LivePhotoBox
 
         private void NavigateToPage(Type pageType, string? statusPageTag)
         {
-            CrashLogService.RecordBreadcrumb($"NavigateToPage: {pageType.Name}, StatusTag={statusPageTag ?? "(null)"}");
+            AppLogService.Info($"NavigateToPage: {pageType.Name}, StatusTag={statusPageTag ?? "(null)"}", LogSource.UI);
             ViewModel.SetCurrentStatusPage(statusPageTag);
             MainFrame.Navigate(pageType);
         }
 
-        /// <summary>
-        /// 外部引流公开方法：通过传入页面配置的 Tag 标签安全触发 NavigationView 切换
-        /// </summary>
         public void SwitchToPageByTag(string tag)
         {
             if (NavView == null) return;

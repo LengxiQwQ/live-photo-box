@@ -2,12 +2,15 @@ using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using LivePhotoBox.Models;
 
 namespace LivePhotoBox.Views
 {
     public sealed partial class SettingsPage : Page
     {
-        public AppViewModel ViewModel => AppViewModel.Instance;
+        public SettingsViewModel ViewModel => AppViewModel.Instance.Settings;
+
+        public AboutViewModel AboutViewModel => AppViewModel.Instance.About;
 
         public Visibility TestToolsVisibility => _isTestToolsVisible ? Visibility.Visible : Visibility.Collapsed;
 
@@ -19,7 +22,7 @@ namespace LivePhotoBox.Views
 
         public SettingsPage()
         {
-            this.InitializeComponent();
+            InitializeComponent();
         }
 
         private void ToggleTestToolsButton_Click(object sender, RoutedEventArgs e)
@@ -30,7 +33,7 @@ namespace LivePhotoBox.Views
 
         private void GenerateTestCrashLogButton_Click(object sender, RoutedEventArgs e)
         {
-            ViewModel.GenerateTestCrashLogActionCommand.Execute(null);
+            AboutViewModel.GenerateTestCrashLogActionCommand.Execute(null);
         }
 
         private async void PreviewCrashDialogButton_Click(object sender, RoutedEventArgs e)
@@ -38,7 +41,7 @@ namespace LivePhotoBox.Views
             string? logPath = CrashLogService.GetLatestCrashLogPath();
             if (string.IsNullOrWhiteSpace(logPath))
             {
-                ViewModel.GenerateTestCrashLogActionCommand.Execute(null);
+                AboutViewModel.GenerateTestCrashLogActionCommand.Execute(null);
                 logPath = CrashLogService.GetLatestCrashLogPath();
             }
 
@@ -47,7 +50,7 @@ namespace LivePhotoBox.Views
                 return;
             }
 
-            CrashLogService.RecordBreadcrumb($"PreviewCrashDialog requested. File='{System.IO.Path.GetFileName(logPath)}'");
+            AppLogService.Info($"PreviewCrashDialog requested. File='{System.IO.Path.GetFileName(logPath)}'", LogSource.UI);
             await CrashLogService.ShowCrashDialogAsync(XamlRoot, logPath);
         }
     }

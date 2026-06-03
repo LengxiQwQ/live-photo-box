@@ -9,14 +9,13 @@ namespace LivePhotoBox.Views
 {
     public sealed partial class RepairPage : Page
     {
-        public AppViewModel ViewModel => AppViewModel.Instance;
+        public RepairViewModel ViewModel => AppViewModel.Instance.Repair;
 
         public RepairPage()
         {
-            this.InitializeComponent();
+            InitializeComponent();
         }
 
-        // --- 新增：文本框获取焦点时自动清空 ---
         private void DirectoryBox_GotFocus(object sender, RoutedEventArgs e)
         {
             if (sender is TextBox textBox)
@@ -30,14 +29,13 @@ namespace LivePhotoBox.Views
             var folder = await FilePickerService.PickFolderAsync();
             if (folder != null)
             {
-                ViewModel.RepairInputDirectory = folder.Path;
+                ViewModel.InputDirectory = folder.Path;
 
-                // 【核心修复】延迟 100 毫秒，防止底层 UI 状态消息丢失
                 await Task.Delay(100);
 
-                if (ViewModel.ScanRepairDirectoryCommand.CanExecute(null))
+                if (ViewModel.ScanDirectoryCommand.CanExecute(null))
                 {
-                    ViewModel.ScanRepairDirectoryCommand.Execute(null);
+                    ViewModel.ScanDirectoryCommand.Execute(null);
                 }
             }
         }
@@ -47,12 +45,10 @@ namespace LivePhotoBox.Views
             var folder = await FilePickerService.PickFolderAsync();
             if (folder != null)
             {
-                ViewModel.RepairOutputDirectory = folder.Path;
+                ViewModel.OutputDirectory = folder.Path;
             }
         }
 
-        // 🎯 补上了这个缺失的点击打开文件方法
-        // 点击打开文件
         private async void FileButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path))
@@ -66,11 +62,9 @@ namespace LivePhotoBox.Views
             }
             catch
             {
-                // 忽略打开失败的异常
             }
         }
 
-        // 点击打开文件夹所在位置
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path))
@@ -84,7 +78,6 @@ namespace LivePhotoBox.Views
             }
             catch
             {
-                // 忽略打开失败的异常
             }
         }
     }

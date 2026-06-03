@@ -2,27 +2,33 @@
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
+using System;
 using System.IO;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox.Models
 {
-    public partial class LivePhotoRepairTask : ObservableObject
+    public partial class RepairTask : ObservableObject
     {
+        #region Observable Properties
+
         [ObservableProperty] private int _index;
         [ObservableProperty] private string _fileName = string.Empty;
         [ObservableProperty] private string _filePath = string.Empty;
         [ObservableProperty] private ProcessStatus _status = ProcessStatus.Pending;
-
         [ObservableProperty] private string _issueDescription = string.Empty;
         [ObservableProperty] private bool _needsRepair = false;
-        [ObservableProperty] private string _details = ResourceService.GetString("RepairPage_TaskPending");
+        [ObservableProperty] private string _details = string.Empty;
+
+        #endregion
+
+        #region Data Properties
 
         public RepairAnalysisResult? AnalysisResult { get; set; }
 
-        public string DisplayFileName => TruncateFileName(FileName);
+        #endregion
 
-        public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
+        #region Thumbnail
 
         private bool _isLoadingThumbnail = false;
         private ImageSource? _thumbnail;
@@ -45,6 +51,8 @@ namespace LivePhotoBox.Models
                 OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
             }
         }
+
+        public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
         partial void OnFilePathChanged(string value)
         {
@@ -92,19 +100,21 @@ namespace LivePhotoBox.Models
             }
         }
 
-        // ==========================================
-        // UI 显示优化拦截器：仅将 "跳过/无需修复" 的颜色强制转为绿色，不改变文字
-        // ==========================================
+        #endregion
+
+        #region Computed Properties
+
+        public string DisplayFileName => TruncateFileName(FileName);
+
         public ProcessStatus DisplayStatus
         {
             get
             {
                 var skipped = ResourceService.GetString("RepairPage_Task_Skipped");
                 var noRepair = ResourceService.GetString("RepairPage_Task_NoRepair");
-                // Keep checking for the English word "Perfect" as a fallback
                 if (!string.IsNullOrEmpty(Details) && (Details.Contains(skipped) || Details.Contains(noRepair) || Details.Contains("Perfect")))
                 {
-                    return ProcessStatus.Success; // 强制返回 Success 以触发绿色显示
+                    return ProcessStatus.Success;
                 }
                 return Status;
             }
@@ -120,6 +130,10 @@ namespace LivePhotoBox.Models
             OnPropertyChanged(nameof(DisplayStatus));
         }
 
+        #endregion
+
+        #region Helpers
+
         private string TruncateFileName(string fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return fileName;
@@ -128,5 +142,7 @@ namespace LivePhotoBox.Models
             if (nameWithoutExt.Length <= 30) return fileName;
             return $"{nameWithoutExt.Substring(0, 21)}...{nameWithoutExt.Substring(nameWithoutExt.Length - 8)}{ext}";
         }
+
+        #endregion
     }
 }

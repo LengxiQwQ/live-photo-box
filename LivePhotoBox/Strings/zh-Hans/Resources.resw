@@ -247,7 +247,7 @@
     <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
   </data>
   <data name="SplitPage_Status_Ready" xml:space="preserve">
-    <value>就绪 | 等待导入待拆分的实况照片</value>
+    <value>就绪，请导入要拆分的实况照片</value>
   </data>
   <data name="SplitPage_ConfigHeader.Text" xml:space="preserve">
     <value>实况照片拆分配置</value>
@@ -304,7 +304,7 @@
     <value>输入目录无效，请检查路径</value>
   </data>
   <data name="SplitPage_Status_Cleared" xml:space="preserve">
-    <value>已清空拆分队列</value>
+    <value>列表已清空，可以开始新任务了</value>
   </data>
   <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
     <value>拆分执行逻辑将在下一步接入，当前已完成界面准备</value>
@@ -349,7 +349,7 @@
     <value>扫描文件</value>
   </data>
   <data name="ComboPage_DynamicCancelText" xml:space="preserve">
-    <value>取消</value>
+    <value>取消扫描</value>
   </data>
   <data name="ComboPage_QueueProgress.Text" xml:space="preserve">
     <value>当前队列进度：</value>
@@ -373,31 +373,31 @@
     <value>在默认应用打开</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
-    <value>正在初始化组件</value>
+    <value>正在启动...</value>
   </data>
   <data name="Status_InvalidInput" xml:space="preserve">
     <value>输入目录无效，请检查路径</value>
   </data>
   <data name="StatusBar_Scanning_Split" xml:space="preserve">
-    <value>正在扫描实况照片：{0}/{1}</value>
+    <value>正在扫描实况照片 {0}/{1}</value>
   </data>
   <data name="StatusBar_Scanning_Combo" xml:space="preserve">
-    <value>正在扫描匹配文件：{0}/{1}</value>
+    <value>正在扫描文件 {0}/{1}</value>
   </data>
   <data name="StatusBar_Scanning_Repair" xml:space="preserve">
-    <value>正在扫描待修复照片：{0}/{1}</value>
+    <value>正在扫描照片 {0}/{1}</value>
   </data>
   <data name="StatusBar_ScanProgressLabel" xml:space="preserve">
-    <value>扫描进度：{0}%</value>
+    <value>扫描中：{0}%</value>
   </data>
   <data name="StatusBar_ProcessProgressLabel" xml:space="preserve">
-    <value>处理进度：{0}%</value>
+    <value>处理中：{0}%</value>
   </data>
   <data name="Status_ScanNoPairs" xml:space="preserve">
-    <value>扫描完成：未找到可匹配的图视频对（散落图片 {0} 张，散落视频 {1} 个）</value>
+    <value>扫描完成：未找到匹配的实况照片（零散图片 {0} 张，零散视频 {1} 个）</value>
   </data>
   <data name="Status_Scanning" xml:space="preserve">
-    <value>正在扫描匹配文件...</value>
+    <value>正在扫描中...</value>
   </data>
   <data name="Status_ScanCancelling" xml:space="preserve">
     <value>正在取消扫描...</value>
@@ -406,37 +406,40 @@
     <value>扫描已取消</value>
   </data>
   <data name="Status_ScanDone" xml:space="preserve">
-    <value>扫描完成：已成功匹配 {0} 组实况文件</value>
+    <value>扫描完成：已匹配 {0} 组实况照片</value>
   </data>
   <data name="RepairPage_Status_ScanDone" xml:space="preserve">
-    <value>扫描完成：已载入 {0} 张待检测照片</value>
+    <value>扫描完成：已加载 {0} 张待修复照片</value>
   </data>
   <data name="RepairPage_Status_ScanNoFiles" xml:space="preserve">
-    <value>扫描完成：未找到可检测的照片文件</value>
+    <value>扫描完成：未找到可修复的照片</value>
+  </data>
+  <data name="RepairPage_Status_Cleared" xml:space="preserve">
+    <value>列表已清空，可以开始新任务了</value>
   </data>
   <data name="Status_Cleared" xml:space="preserve">
-    <value>已清空列表 | 就绪环境: {0}</value>
+    <value>列表已清空，可以开始新的任务了</value>
   </data>
   <data name="Status_Resumed" xml:space="preserve">
-    <value>已恢复合并队列运行...</value>
+    <value>任务已恢复，继续处理中...</value>
   </data>
   <data name="Status_Paused" xml:space="preserve">
-    <value>已请求暂停，正在等待当前任务完结...</value>
+    <value>任务已暂停，等待当前任务完成后停止...</value>
   </data>
   <data name="Status_WarnOutput" xml:space="preserve">
-    <value>警告：请先设置输出保存目录</value>
+    <value>请先设置保存目录</value>
   </data>
   <data name="Status_Running" xml:space="preserve">
-    <value>正在全速进行原生合并 (纯I/O模式)...</value>
+    <value>正在合成处理中...</value>
   </data>
   <data name="Status_Aborted" xml:space="preserve">
-    <value>任务已手动中止</value>
+    <value>任务已手动停止</value>
   </data>
   <data name="Status_Error" xml:space="preserve">
-    <value>错误: {0}</value>
+    <value>出错了：{0}</value>
   </data>
   <data name="Status_Done" xml:space="preserve">
-    <value>全部合成任务完成！总共耗时 {0:F1} 秒</value>
+    <value>合成完成！耗时 {0:F1} 秒</value>
   </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>开始合成</value>
@@ -1119,5 +1122,11 @@
   </data>
   <data name="Error_RepairFailedCheckLog" xml:space="preserve">
     <value>修复失败，请查看日志</value>
+  </data>
+  <data name="Error_XmpMetadataTooLarge" xml:space="preserve">
+    <value>XMP 元数据过大 ({0} 字节)，JPEG APP1 段最大支持 65535 字节。</value>
+  </data>
+  <data name="Error_InvalidJpegFile" xml:space="preserve">
+    <value>无效的 JPEG 文件：无法读取 JPEG SOI 标记 (0xFF 0xD8)。</value>
   </data>
 </root>

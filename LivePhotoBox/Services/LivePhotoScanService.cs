@@ -30,6 +30,7 @@ namespace LivePhotoBox.Services
             CancellationToken cancellationToken = default,
             IProgress<WorkProgressSnapshot>? progress = null)
         {
+            AppLogService.Scan($"Scan started. Directory: {inputDirectory}");
             var imgDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var vidDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -39,6 +40,7 @@ namespace LivePhotoBox.Services
             {
                 var allFiles = Directory.EnumerateFiles(inputDirectory).ToList();
                 int total = allFiles.Count;
+                AppLogService.Scan($"Found {total} files to scan");
                 progress?.Report(new WorkProgressSnapshot(total, 0));
 
                 for (int i = 0; i < allFiles.Count; i++)
@@ -64,9 +66,9 @@ namespace LivePhotoBox.Services
 
                 progress?.Report(new WorkProgressSnapshot(total, total, imgDict.Count));
             }
-            catch (UnauthorizedAccessException)
+            catch (UnauthorizedAccessException ex)
             {
-                // No permission to access directory, return empty result
+                AppLogService.Scan($"Access denied to directory: {inputDirectory}", LogLevel.Error, ex);
                 return new LivePhotoScanResult
                 {
                     Pairs = new List<LivePhotoFilePairInfo>(),
@@ -74,9 +76,9 @@ namespace LivePhotoBox.Services
                     StandaloneVideosCount = 0
                 };
             }
-            catch (DirectoryNotFoundException)
+            catch (DirectoryNotFoundException ex)
             {
-                // Directory not found, return empty result
+                AppLogService.Scan($"Directory not found: {inputDirectory}", LogLevel.Error, ex);
                 return new LivePhotoScanResult
                 {
                     Pairs = new List<LivePhotoFilePairInfo>(),
@@ -84,15 +86,20 @@ namespace LivePhotoBox.Services
                     StandaloneVideosCount = 0
                 };
             }
-            catch (IOException)
+            catch (IOException ex)
             {
-                // IO error occurred, return empty result
+                AppLogService.Scan($"IO error scanning directory: {inputDirectory}", LogLevel.Error, ex);
                 return new LivePhotoScanResult
                 {
                     Pairs = new List<LivePhotoFilePairInfo>(),
                     StandaloneImagesCount = 0,
                     StandaloneVideosCount = 0
                 };
+            }
+            catch (OperationCanceledException)
+            {
+                AppLogService.Scan("Scan cancelled");
+                throw;
             }
 
             var pairs = new List<LivePhotoFilePairInfo>(Math.Min(imgDict.Count, vidDict.Count));
@@ -108,14 +115,13 @@ namespace LivePhotoBox.Services
                             BaseName = kvp.Key,
                             ImagePath = kvp.Value,
                             VideoPath = vidPath,
-                            // 仅对匹配上的文件获取大小，开销极小
                             ImageSizeBytes = new FileInfo(kvp.Value).Length,
                             VideoSizeBytes = new FileInfo(vidPath).Length
                         });
                     }
-                    catch (IOException)
+                    catch (IOException ex)
                     {
-                        // File might be deleted or inaccessible, skip this pair
+                        AppLogService.Scan($"Failed to get file info for pair {kvp.Key}", LogLevel.Warning, ex);
                         continue;
                     }
                 }
@@ -123,6 +129,8 @@ namespace LivePhotoBox.Services
 
             int standaloneImagesCount = imgDict.Count - pairs.Count;
             int standaloneVideosCount = vidDict.Count - pairs.Count;
+
+            AppLogService.Scan($"Scan completed. Found {pairs.Count} pairs, {standaloneImagesCount} standalone images, {standaloneVideosCount} standalone videos");
 
             return new LivePhotoScanResult
             {
