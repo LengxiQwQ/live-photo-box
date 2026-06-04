@@ -400,10 +400,10 @@
     <value>正在扫描中...</value>
   </data>
   <data name="Status_ScanCancelling" xml:space="preserve">
-    <value>正在取消扫描...</value>
+    <value>正在停止扫描...</value>
   </data>
   <data name="Status_ScanCancelled" xml:space="preserve">
-    <value>扫描已取消</value>
+    <value>扫描已停止</value>
   </data>
   <data name="Status_ScanDone" xml:space="preserve">
     <value>扫描完成：已匹配 {0} 组实况照片</value>
@@ -416,6 +416,15 @@
   </data>
   <data name="RepairPage_Status_Cleared" xml:space="preserve">
     <value>列表已清空，可以开始新任务了</value>
+  </data>
+  <data name="RepairPage_Status_Stopping" xml:space="preserve">
+    <value>正在停止修复...</value>
+  </data>
+  <data name="RepairPage_Status_Aborted" xml:space="preserve">
+    <value>修复已停止</value>
+  </data>
+  <data name="RepairPage_Status_ScanCancelled" xml:space="preserve">
+    <value>扫描已停止</value>
   </data>
   <data name="Status_Cleared" xml:space="preserve">
     <value>列表已清空，可以开始新的任务了</value>
@@ -433,7 +442,7 @@
     <value>正在合成处理中...</value>
   </data>
   <data name="Status_Aborted" xml:space="preserve">
-    <value>任务已手动停止</value>
+    <value>任务已停止</value>
   </data>
   <data name="Status_Error" xml:space="preserve">
     <value>出错了：{0}</value>
@@ -461,6 +470,48 @@
   </data>
   <data name="Btn_Resume" xml:space="preserve">
     <value>继续</value>
+  </data>
+  <data name="Btn_Stop" xml:space="preserve">
+    <value>停止</value>
+  </data>
+  <data name="Btn_RepairStopped" xml:space="preserve">
+    <value>已停止</value>
+  </data>
+  <data name="Btn_RepairDone" xml:space="preserve">
+    <value>修复完成</value>
+  </data>
+  <data name="Msg_RepairAlreadyStopped" xml:space="preserve">
+    <value>修复已停止，请清空列表后重新开始</value>
+  </data>
+  <data name="Msg_RepairAlreadyDone" xml:space="preserve">
+    <value>修复已完成，请清空列表后重新开始</value>
+  </data>
+  <data name="Msg_ProcessingNotAllowed" xml:space="preserve">
+    <value>扫描未完成，无法开始修复</value>
+  </data>
+  <data name="Msg_ComboAlreadyStopped" xml:space="preserve">
+    <value>合成已停止，请清空列表后重新开始</value>
+  </data>
+  <data name="Msg_ComboAlreadyDone" xml:space="preserve">
+    <value>合成已完成，请清空列表后重新开始</value>
+  </data>
+  <data name="Msg_SplitAlreadyStopped" xml:space="preserve">
+    <value>分离已停止，请清空列表后重新开始</value>
+  </data>
+  <data name="Msg_SplitAlreadyDone" xml:space="preserve">
+    <value>分离已完成，请清空列表后重新开始</value>
+  </data>
+  <data name="Btn_ComboStopped" xml:space="preserve">
+    <value>已停止</value>
+  </data>
+  <data name="Btn_ComboDone" xml:space="preserve">
+    <value>合成完成</value>
+  </data>
+  <data name="Btn_SplitStopped" xml:space="preserve">
+    <value>已停止</value>
+  </data>
+  <data name="Btn_SplitDone" xml:space="preserve">
+    <value>分离完成</value>
   </data>
   <data name="Task_Pending" xml:space="preserve">
     <value>等待处理</value>
@@ -676,10 +727,10 @@
     <value>正在扫描实况照片...</value>
   </data>
   <data name="SplitPage_Status_ScanCancelling" xml:space="preserve">
-    <value>正在取消扫描...</value>
+    <value>正在停止扫描...</value>
   </data>
   <data name="SplitPage_Status_ScanCancelled" xml:space="preserve">
-    <value>扫描已取消</value>
+    <value>扫描已停止</value>
   </data>
   <data name="SplitPage_Status_ScanDone" xml:space="preserve">
     <value>扫描完成：已识别 {0} 个可拆分实况照片</value>

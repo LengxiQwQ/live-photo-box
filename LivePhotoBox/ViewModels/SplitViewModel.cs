@@ -1,5 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using LivePhotoBox.Collections;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
@@ -77,7 +79,6 @@ namespace LivePhotoBox.ViewModels
         public SplitViewModel()
         {
             SetStatus("SplitPage_Status_Ready");
-            ActionBtnText = ResourceService.GetString("Btn_StartSplit");
             SelectedFormatIndex = AppSettingsService.GetValue(nameof(SelectedFormatIndex), 0);
         }
 
@@ -112,21 +113,33 @@ namespace LivePhotoBox.ViewModels
 
         protected override void OnInitializeRunState()
         {
-            ActionBtnText = ResourceService.GetString("Btn_StopRun");
+            _splitStoppedByUser = false;
+            _splitDone = false;
             int completedCount = Tasks.Count(task => task.Status == ProcessStatus.Success);
             Progress = QueuedCount == 0 ? 0 : (completedCount * 100.0) / QueuedCount;
             ProgressText = $"{completedCount}/{QueuedCount}";
             SetStatus("SplitPage_Status_Running");
+            OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         protected override void OnFinalizeRunState()
         {
-            ActionBtnText = ResourceService.GetString("Btn_StartSplit");
-            if (QueuedCount > 0 && Progress >= 100)
+            if (_cancelledByUser)
             {
-                CompleteScanSnapshot();
-                SetStatus("SplitPage_Status_Done", _stopwatch.Elapsed.TotalSeconds);
+                _splitStoppedByUser = true;
             }
+            else
+            {
+                _splitDone = true;
+                if (QueuedCount > 0 && Progress >= 100)
+                {
+                    CompleteScanSnapshot();
+                    SetStatus("SplitPage_Status_Done", _stopwatch.Elapsed.TotalSeconds);
+                }
+            }
+            OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         protected override void OnClearState()
@@ -138,8 +151,12 @@ namespace LivePhotoBox.ViewModels
             SkippedCount = 0;
             Progress = 0;
             ProgressText = "0/0";
+            _splitStoppedByUser = false;
+            _splitDone = false;
             SetStatus("SplitPage_Status_Cleared");
             IsDirectoryPanelOpen = true;
+            OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         protected override void OnScanningEnded()
@@ -154,6 +171,21 @@ namespace LivePhotoBox.ViewModels
         #region Fields
 
         private Stopwatch _stopwatch = new();
+        private bool _splitStoppedByUser;
+        private bool _splitDone;
+
+        public new string ActionBtnText
+        {
+            get
+            {
+                if (IsProcessing) return ResourceService.GetString("Btn_Stopping");
+                if (_splitStoppedByUser) return ResourceService.GetString("Btn_SplitStopped");
+                if (_splitDone) return ResourceService.GetString("Btn_SplitDone");
+                return ResourceService.GetString("Btn_StartSplit");
+            }
+        }
+
+        public override bool IsProcessingAllowed => !IsScanning && !IsPaused && !_splitStoppedByUser && !_splitDone;
 
         #endregion
 
@@ -237,8 +269,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                if (_scanCancelledByUser)
-                    ProgressBarState = Models.ProgressBarState.Cancelled;
+                // 状态文字先更新，颜色由 OnIsScanningChanged 在 finally 块中设置
                 SetStatus("SplitPage_Status_ScanCancelled");
             }
             catch (Exception ex)
@@ -280,9 +311,28 @@ namespace LivePhotoBox.ViewModels
 
             if (IsProcessing)
             {
+                SetStatus("SplitPage_Status_Aborted");
                 CancelProcessing();
                 IsDirectoryPanelOpen = true;
-                ActionBtnText = ResourceService.GetString("Btn_Stopping");
+                OnPropertyChanged(nameof(ActionBtnText));
+                return;
+            }
+
+            if (IsScanning)
+            {
+                await ShowSplitNotAllowedDialogAsync();
+                return;
+            }
+
+            if (_splitStoppedByUser)
+            {
+                await ShowSplitAlreadyStoppedDialogAsync();
+                return;
+            }
+
+            if (_splitDone)
+            {
+                await ShowSplitAlreadyDoneDialogAsync();
                 return;
             }
 
@@ -301,6 +351,54 @@ namespace LivePhotoBox.ViewModels
             await RunTasksAsync();
         }
 
+        private async Task ShowSplitAlreadyStoppedDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_SplitAlreadyStopped"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+        }
+
+        private async Task ShowSplitAlreadyDoneDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_SplitAlreadyDone"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+        }
+
+        private async Task ShowSplitNotAllowedDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ProcessingNotAllowed"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+        }
+
         private async Task RunTasksAsync()
         {
             InitializeRunState();
@@ -311,6 +409,7 @@ namespace LivePhotoBox.ViewModels
 
             try
             {
+                var token = GetProcessingToken();
                 await Task.Run(async () =>
                 {
                     int completedCount = Tasks.Count(task => task.Status == ProcessStatus.Success);
@@ -321,8 +420,9 @@ namespace LivePhotoBox.ViewModels
                         if (task.Status == ProcessStatus.Success)
                             continue;
 
-                        PauseEvent.Wait(GetProcessingToken());
-                        GetProcessingToken().ThrowIfCancellationRequested();
+                        PauseEvent.Wait(token);
+                        if (token.IsCancellationRequested)
+                            token.ThrowIfCancellationRequested();
 
                         App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task));
 
@@ -331,7 +431,7 @@ namespace LivePhotoBox.ViewModels
 
                         try
                         {
-                            await LivePhotoSplitService.SplitAsync(task.SourcePath, outputDir, formatIndex, GetProcessingToken());
+                            await LivePhotoSplitService.SplitAsync(task.SourcePath, outputDir, formatIndex, token);
                             isSuccess = true;
                             detailMessage = ResourceService.GetString("SplitPage_Task_Success");
                         }
@@ -381,6 +481,7 @@ namespace LivePhotoBox.ViewModels
             task.Details = detailMessage;
             Progress = QueuedCount == 0 ? 0 : (completedCount * 100.0) / QueuedCount;
             ProgressText = $"{completedCount}/{QueuedCount}";
+            CheckAndApplyPendingState();
         }
 
         #endregion

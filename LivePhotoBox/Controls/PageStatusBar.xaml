@@ -4,12 +4,16 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:converters="using:LivePhotoBox.Converters"
     mc:Ignorable="d"
     Height="32">
 
+    <UserControl.Resources>
+        <converters:ProgressBarForegroundConverter x:Key="ProgressBarForegroundConverter" />
+    </UserControl.Resources>
+
     <Border Background="{ThemeResource PageStatusBarBackgroundBrush}">
         <Grid>
-            <!-- 文字区占满 32px，不被顶部进度条挤占高度 -->
             <Grid Margin="16,0,12,0" VerticalAlignment="Center" ColumnSpacing="10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />
@@ -56,7 +60,6 @@
                 </StackPanel>
             </Grid>
 
-            <!-- 顶部分隔细线与扫描进度条重叠：1px 轨道 + 强调色填充 -->
             <ProgressBar
                 VerticalAlignment="Top"
                 Height="1"
@@ -67,7 +70,7 @@
                 HorizontalAlignment="Stretch"
                 CornerRadius="0"
                 Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                Foreground="{ThemeResource SystemAccentColor}"
+                Foreground="{x:Bind ViewModel.FooterProgressBarState, Mode=OneWay, Converter={StaticResource ProgressBarForegroundConverter}}"
                 BorderThickness="0"
                 Padding="0" />
         </Grid>

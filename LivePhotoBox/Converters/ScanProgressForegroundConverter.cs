@@ -1,5 +1,7 @@
 using System;
 using LivePhotoBox.Models;
+using Microsoft.UI;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
 
@@ -13,14 +15,26 @@ namespace LivePhotoBox.Converters
             {
                 return state switch
                 {
-                    ProgressBarState.Scanning   => new SolidColorBrush(Microsoft.UI.Colors.Black),
-                    ProgressBarState.Processing => (SolidColorBrush)Microsoft.UI.Xaml.Application.Current.Resources["CyberCyanBrush"],
-                    ProgressBarState.Paused     => new SolidColorBrush(Microsoft.UI.Colors.Goldenrod),
-                    ProgressBarState.Cancelled  => new SolidColorBrush(Microsoft.UI.Colors.Crimson),
-                    _                          => (SolidColorBrush)Microsoft.UI.Xaml.Application.Current.Resources["CyberCyanBrush"]
+                    // 扫描阶段及默认状态（偏灰色/黑色）
+                    ProgressBarState.Scanning => new SolidColorBrush(Colors.DarkGray),
+                    ProgressBarState.Idle => new SolidColorBrush(Colors.DarkGray),
+
+                    // 处理阶段（绿色）
+                    ProgressBarState.Processing => new SolidColorBrush(ColorHelper.FromArgb(255, 16, 185, 129)),
+
+                    // 暂停阶段（黄色）
+                    ProgressBarState.Paused => new SolidColorBrush(ColorHelper.FromArgb(255, 245, 158, 11)),
+
+                    // 取消/停止阶段（红色）
+                    ProgressBarState.Cancelled => new SolidColorBrush(ColorHelper.FromArgb(255, 239, 68, 68)),
+
+                    // 完成阶段（绿色）
+                    ProgressBarState.Success => new SolidColorBrush(ColorHelper.FromArgb(255, 16, 185, 129)),
+
+                    _ => new SolidColorBrush(ColorHelper.FromArgb(255, 16, 185, 129))
                 };
             }
-            return (SolidColorBrush)Microsoft.UI.Xaml.Application.Current.Resources["CyberCyanBrush"];
+            return new SolidColorBrush(Colors.DarkGray);
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, string language)

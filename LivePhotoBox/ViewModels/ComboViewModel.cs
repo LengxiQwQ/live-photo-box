@@ -4,6 +4,7 @@ using LivePhotoBox.Collections;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -15,14 +16,10 @@ namespace LivePhotoBox.ViewModels
 {
     public partial class ComboViewModel : WorkViewModelBase
     {
-        #region Fields
-
         private string _hwEncoderName = "Software CPU";
         private Stopwatch _stopwatch = new();
-
-        #endregion
-
-        #region Properties
+        private bool _comboStoppedByUser;
+        private bool _comboDone;
 
         public override string PageStatusTag => "Combo";
 
@@ -79,29 +76,29 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        #endregion
-
-        #region Commands
-
         private IAsyncRelayCommand? _openComboInputFolderCommand;
         private IAsyncRelayCommand? _openComboOutputFolderCommand;
 
         public IAsyncRelayCommand OpenComboInputFolderCommand => _openComboInputFolderCommand ??= new AsyncRelayCommand(OpenComboInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
         public IAsyncRelayCommand OpenComboOutputFolderCommand => _openComboOutputFolderCommand ??= new AsyncRelayCommand(OpenComboOutputFolderAsync, () => !string.IsNullOrWhiteSpace(OutputDirectory));
 
-        #endregion
-
-        #region Constructor
-
         public ComboViewModel()
         {
             SetStatus("Status_Init");
-            ActionBtnText = ResourceService.GetString("Btn_StartCombo");
         }
 
-        #endregion
+        public new string ActionBtnText
+        {
+            get
+            {
+                if (IsProcessing) return ResourceService.GetString("Btn_Stopping");
+                if (_comboStoppedByUser) return ResourceService.GetString("Btn_ComboStopped");
+                if (_comboDone) return ResourceService.GetString("Btn_ComboDone");
+                return ResourceService.GetString("Btn_StartCombo");
+            }
+        }
 
-        #region WorkViewModelBase Overrides
+        public override bool IsProcessingAllowed => !IsScanning && !IsPaused && !_comboStoppedByUser && !_comboDone;
 
         protected override void OnScanStateChanged(bool isScanning)
         {
@@ -130,20 +127,33 @@ namespace LivePhotoBox.ViewModels
 
         protected override void OnInitializeRunState()
         {
-            ActionBtnText = ResourceService.GetString("Btn_StopRun");
+            _comboStoppedByUser = false;
+            _comboDone = false;
             ComboProgress = 0;
+            Progress = 0;
             ProgressText = $"0/{TotalPairsCount}";
             SetStatus("Status_Running");
+            OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         protected override void OnFinalizeRunState()
         {
-            ActionBtnText = ResourceService.GetString("Btn_StartCombo");
-            if (ComboProgress >= 100)
+            if (_cancelledByUser)
             {
-                CompleteScanSnapshot();
-                SetStatus("Status_Done", _stopwatch.Elapsed.TotalSeconds);
+                _comboStoppedByUser = true;
             }
+            else
+            {
+                _comboDone = true;
+                if (ComboProgress >= 100)
+                {
+                    CompleteScanSnapshot();
+                    SetStatus("Status_Done", _stopwatch.Elapsed.TotalSeconds);
+                }
+            }
+            OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         protected override void OnClearState()
@@ -154,14 +164,15 @@ namespace LivePhotoBox.ViewModels
             StandaloneImagesCount = 0;
             StandaloneVideosCount = 0;
             ComboProgress = 0;
+            Progress = 0;
             ProgressText = "0/0";
+            _comboStoppedByUser = false;
+            _comboDone = false;
             SetStatus("Status_Cleared", _hwEncoderName);
             IsDirectoryPanelOpen = true;
+            OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
-
-        #endregion
-
-        #region Scan
 
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ScanDirectoryAsync()
@@ -245,8 +256,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                if (_scanCancelledByUser)
-                    ProgressBarState = Models.ProgressBarState.Cancelled;
+                // 状态文字先更新，颜色由 OnIsScanningChanged 在 finally 块中设置
                 SetStatus("Status_ScanCancelled");
             }
             catch (Exception ex)
@@ -261,10 +271,6 @@ namespace LivePhotoBox.ViewModels
                 NotifyStatusChanged();
             }
         }
-
-        #endregion
-
-        #region Process
 
         [RelayCommand]
         private void ToggleSecondaryAction()
@@ -288,9 +294,28 @@ namespace LivePhotoBox.ViewModels
 
             if (IsProcessing)
             {
+                SetStatus("Status_Aborted");
                 CancelProcessing();
                 IsDirectoryPanelOpen = true;
-                ActionBtnText = ResourceService.GetString("Btn_Stopping");
+                OnPropertyChanged(nameof(ActionBtnText));
+                return;
+            }
+
+            if (IsScanning)
+            {
+                await ShowComboNotAllowedDialogAsync();
+                return;
+            }
+
+            if (_comboStoppedByUser)
+            {
+                await ShowComboAlreadyStoppedDialogAsync();
+                return;
+            }
+
+            if (_comboDone)
+            {
+                await ShowComboAlreadyDoneDialogAsync();
                 return;
             }
 
@@ -310,10 +335,60 @@ namespace LivePhotoBox.ViewModels
             await RunTasksAsync();
         }
 
+        private async Task ShowComboAlreadyStoppedDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ComboAlreadyStopped"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+        }
+
+        private async Task ShowComboAlreadyDoneDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ComboAlreadyDone"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+        }
+
+        private async Task ShowComboNotAllowedDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ProcessingNotAllowed"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+        }
+
         private async Task RunTasksAsync()
         {
             InitializeRunState();
             _stopwatch = Stopwatch.StartNew();
+
+            var token = GetProcessingToken();
 
             try
             {
@@ -327,7 +402,7 @@ namespace LivePhotoBox.ViewModels
                     Tasks,
                     options,
                     PauseEvent,
-                    GetProcessingToken(),
+                    token,
                     task => App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task)),
                     (task, isSuccess, detailMessage, completedCount) => App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage, completedCount)));
             }
@@ -357,12 +432,10 @@ namespace LivePhotoBox.ViewModels
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.Details = detailMessage;
             ComboProgress = TotalPairsCount == 0 ? 0 : (completedCount * 100.0) / TotalPairsCount;
+            Progress = ComboProgress;
             ProgressText = $"{completedCount}/{TotalPairsCount}";
+            CheckAndApplyPendingState();
         }
-
-        #endregion
-
-        #region Folder Operations
 
         private async Task OpenComboInputFolderAsync()
         {
@@ -391,16 +464,10 @@ namespace LivePhotoBox.ViewModels
             catch (Exception ex) { AppLogService.Combo($"OpenComboOutput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
-        #endregion
-
-        #region Helpers
-
         private static string FormatFileSize(long bytes)
         {
             if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
             return $"{bytes / (1024.0 * 1024.0):F2} MB";
         }
-
-        #endregion
     }
 }

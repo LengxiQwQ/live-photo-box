@@ -14,8 +14,6 @@ namespace LivePhotoBox.ViewModels
     {
         public static AppViewModel Instance { get; } = new AppViewModel();
 
-        #region Page ViewModels
-
         public ComboViewModel Combo { get; }
         public SplitViewModel Split { get; }
         public RepairViewModel Repair { get; }
@@ -24,18 +22,9 @@ namespace LivePhotoBox.ViewModels
         public AboutViewModel About { get; }
         public KeyPhotoViewModel KeyPhoto { get; }
 
-        #endregion
-
-        #region Events
-
         public event EventHandler<string>? RequestNavigateToPage;
 
-        #endregion
-
-        #region Properties
-
         private string? _currentStatusPageTag;
-
         public string? CurrentStatusPageTag
         {
             get => _currentStatusPageTag;
@@ -58,16 +47,26 @@ namespace LivePhotoBox.ViewModels
 
         public bool IsStatusBarVisible => CurrentStatusPageTag is "Combo" or "Split" or "Repair";
 
-        #endregion
-
-        #region Footer Status Bar
-
         private int _splitScanTotal;
         private int _splitScanProcessed;
         private int _comboScanTotal;
         private int _comboScanProcessed;
         private int _repairScanTotal;
         private int _repairScanProcessed;
+
+        public ProgressBarState FooterProgressBarState
+        {
+            get
+            {
+                return CurrentStatusPageTag switch
+                {
+                    "Combo" => Combo.ProgressBarState,
+                    "Split" => Split.ProgressBarState,
+                    "Repair" => Repair.ProgressBarState,
+                    _ => ProgressBarState.Idle
+                };
+            }
+        }
 
         public string FooterStatusText
         {
@@ -90,31 +89,31 @@ namespace LivePhotoBox.ViewModels
         {
             get
             {
-                return CurrentStatusPageTag switch
-                {
-                    "Combo" when Combo.IsScanning && _comboScanTotal > 0 =>
-                        Math.Clamp(_comboScanProcessed * 100.0 / _comboScanTotal, 0, 100),
-                    "Combo" when Combo.IsProcessing => Combo.ComboProgress,
-                    "Combo" when _comboScanTotal > 0 =>
-                        Math.Clamp(_comboScanProcessed * 100.0 / _comboScanTotal, 0, 100),
-                    "Split" when Split.IsScanning && _splitScanTotal > 0 =>
-                        Math.Clamp(_splitScanProcessed * 100.0 / _splitScanTotal, 0, 100),
-                    "Split" when Split.IsProcessing => Split.Progress,
-                    "Split" when _splitScanTotal > 0 =>
-                        Math.Clamp(_splitScanProcessed * 100.0 / _splitScanTotal, 0, 100),
-                    "Repair" when Repair.IsScanning && _repairScanTotal > 0 =>
-                        Math.Clamp(_repairScanProcessed * 100.0 / _repairScanTotal, 0, 100),
-                    "Repair" when Repair.IsProcessing => Repair.Progress,
-                    "Repair" when _repairScanTotal > 0 =>
-                        Math.Clamp(_repairScanProcessed * 100.0 / _repairScanTotal, 0, 100),
-                    _ => 0
-                };
+                var tag = CurrentStatusPageTag;
+                if (tag == "Combo") return GetProgress(Combo, _comboScanProcessed, _comboScanTotal);
+                if (tag == "Split") return GetProgress(Split, _splitScanProcessed, _splitScanTotal);
+                if (tag == "Repair") return GetProgress(Repair, _repairScanProcessed, _repairScanTotal);
+                return 0;
             }
         }
 
+        private double GetProgress(WorkViewModelBase vm, int scanProcessed, int scanTotal)
+        {
+            if (vm.IsScanning) return Math.Clamp(scanProcessed * 100.0 / Math.Max(1, scanTotal), 0, 100);
+            if (vm.ProgressBarState is ProgressBarState.Processing or ProgressBarState.Paused or ProgressBarState.Success)
+                return vm.Progress;
+            if (vm.ProgressBarState == ProgressBarState.Cancelled)
+                return vm.Progress > 0 ? vm.Progress : Math.Clamp(scanProcessed * 100.0 / Math.Max(1, scanTotal), 0, 100);
+
+            return Math.Clamp(scanProcessed * 100.0 / Math.Max(1, scanTotal), 0, 100);
+        }
+
+        // 只有在还不知道扫描总数时才使用不确定进度条（显示"?"）
+        // 一旦知道总数（Total > 0），就显示精确进度
         public bool FooterIsIndeterminate =>
-            (CurrentStatusPageTag == "Combo" && Combo.IsScanning)
-            || (CurrentStatusPageTag == "Split" && Split.IsScanning);
+            (CurrentStatusPageTag == "Combo" && Combo.IsScanning && _comboScanTotal == 0)
+            || (CurrentStatusPageTag == "Split" && Split.IsScanning && _splitScanTotal == 0)
+            || (CurrentStatusPageTag == "Repair" && Repair.IsScanning && _repairScanTotal == 0);
 
         public double FooterProgressBarValue => FooterIsIndeterminate ? 0 : FooterProgress;
 
@@ -225,11 +224,8 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(FooterIsIndeterminate));
             OnPropertyChanged(nameof(FooterPercentText));
             OnPropertyChanged(nameof(FooterPercentVisibility));
+            OnPropertyChanged(nameof(FooterProgressBarState));
         }
-
-        #endregion
-
-        #region Constructor
 
         private AppViewModel()
         {
@@ -246,10 +242,6 @@ namespace LivePhotoBox.ViewModels
             InitializeAsync();
         }
 
-        #endregion
-
-        #region Initialization
-
         private async void InitializeAsync()
         {
             try
@@ -264,10 +256,6 @@ namespace LivePhotoBox.ViewModels
             await Task.CompletedTask;
         }
 
-        #endregion
-
-        #region Navigation
-
         public void SetCurrentStatusPage(string? pageTag)
         {
             CurrentStatusPageTag = pageTag;
@@ -279,15 +267,16 @@ namespace LivePhotoBox.ViewModels
             RequestNavigateToPage?.Invoke(this, $"Home_{feature}");
         }
 
-        #endregion
-
-        #region Status Subscription
-
         private void SubscribeToChildStatusChanges()
         {
             Combo.StatusChanged += OnChildStatusChanged;
             Split.StatusChanged += OnChildStatusChanged;
             Repair.StatusChanged += OnChildStatusChanged;
+
+            // [核心修复] 监听子 ViewModel 的事件，这解决了处理时进度条隐藏不刷新的问题
+            Combo.PropertyChanged += OnChildPropertyChangedHandler;
+            Split.PropertyChanged += OnChildPropertyChangedHandler;
+            Repair.PropertyChanged += OnChildPropertyChangedHandler;
 
             PropertyChanged += OnPropertyChangedHandler;
         }
@@ -297,35 +286,37 @@ namespace LivePhotoBox.ViewModels
             NotifyFooterProperties();
         }
 
-        private void OnPropertyChangedHandler(object? sender, PropertyChangedEventArgs e)
+        // 处理子页面发来的进度变更通知
+        private void OnChildPropertyChangedHandler(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName is null) return;
 
             switch (e.PropertyName)
             {
-                case nameof(CurrentStatusPageTag):
                 case "IsScanning":
                 case "IsProcessing":
                 case "ComboProgress":
                 case "Progress":
                 case "Status":
+                case "ProgressBarState":
                     NotifyFooterProperties();
                     break;
             }
         }
 
-        #endregion
-
-        #region Home Navigation Subscription
+        // 处理自身的变更
+        private void OnPropertyChangedHandler(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(CurrentStatusPageTag))
+            {
+                NotifyFooterProperties();
+            }
+        }
 
         private void SubscribeHomeNavigation()
         {
             Home.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
         }
-
-        #endregion
-
-        #region Cleanup
 
         public void Cleanup()
         {
@@ -333,7 +324,5 @@ namespace LivePhotoBox.ViewModels
             Split.Cleanup();
             Repair.Cleanup();
         }
-
-        #endregion
     }
 }

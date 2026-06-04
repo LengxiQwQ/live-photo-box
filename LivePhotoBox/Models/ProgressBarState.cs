@@ -6,6 +6,7 @@ namespace LivePhotoBox.Models
         Scanning,
         Processing,
         Paused,
-        Cancelled
+        Cancelled,
+        Success
     }
 }

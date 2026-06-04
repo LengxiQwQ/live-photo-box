@@ -138,7 +138,7 @@
                         </Button>
 
                         <Button Margin="0,0,12,0" Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}" Width="100" Height="36"/>
-                        <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.StartProcessingCommand}" Style="{StaticResource AccentButtonStyle}" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}" Width="120" Height="36"/>
+                        <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.StartProcessingCommand}" Style="{StaticResource AccentButtonStyle}" IsEnabled="{x:Bind ViewModel.IsProcessingAllowed, Mode=OneWay}" Width="120" Height="36"/>
                     </StackPanel>
                 </Grid>
             </Border>

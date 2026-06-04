@@ -11,19 +11,9 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.ViewModels
 {
-    /// <summary>
-    /// 工作页面 ViewModel 基类（Combo/Split/Repair 页面共用）
-    /// 提供状态管理、进度报告、对话框等公共功能
-    /// </summary>
     public abstract partial class WorkViewModelBase : ViewModelBase
     {
-        #region 常量
-
         private const string CrashLogLanguageTag = "en-US";
-
-        #endregion
-
-        #region 公共属性（子类可访问）
 
         [ObservableProperty]
         private bool _isProcessing = false;
@@ -37,6 +27,12 @@ namespace LivePhotoBox.ViewModels
 
         [ObservableProperty]
         private double _progress = 0;
+
+        // 暂停/恢复请求标志：用于在任务完成后才更新 UI 状态
+        private bool _pauseRequested = false;
+        private bool _resumeRequested = false;
+        // 取消请求标志：用于延迟更新取消状态（红色），等状态文字更新后再变化
+        protected bool _cancelledByUser = false;
 
         [ObservableProperty]
         private string _progressText = "0/0";
@@ -61,43 +57,28 @@ namespace LivePhotoBox.ViewModels
         public bool IsNotProcessing => !IsProcessing;
         public bool IsNotScanning => !IsScanning;
 
+        public virtual bool IsProcessingAllowed => true;
+
         private long _lastScanClickTimestamp = 0;
         private const long ScanClickDebounceMs = 200;
 
         protected bool TryGuardScanClick()
         {
             var now = Environment.TickCount64;
-            if (now - _lastScanClickTimestamp < ScanClickDebounceMs)
-                return false;
+            if (now - _lastScanClickTimestamp < ScanClickDebounceMs) return false;
             _lastScanClickTimestamp = now;
             return true;
         }
 
-        #endregion
-
-        #region 命令
-
         [RelayCommand]
-        protected void GoToTutorial(string feature)
-        {
-            RequestNavigateToPage?.Invoke(this, $"Home_{feature}");
-        }
-
-        #endregion
-
-        #region 事件
+        protected void GoToTutorial(string feature) => RequestNavigateToPage?.Invoke(this, $"Home_{feature}");
 
         public event EventHandler<string>? RequestNavigateToPage;
         public event EventHandler? StatusChanged;
 
-        #endregion
-
-        #region 状态管理
-
         private string _status = string.Empty;
         private string _statusKey = string.Empty;
         private string _statusForLog = string.Empty;
-
         public new string Status => _status;
 
         protected void SetStatus(string resourceKey, params object[] args)
@@ -122,10 +103,6 @@ namespace LivePhotoBox.ViewModels
 
         protected string StatusForLog => _statusForLog;
 
-        #endregion
-
-        #region 扫描进度
-
         private int _scanTotal;
         private int _scanProcessed;
         private WorkProgressSnapshot _pendingScanSnapshot;
@@ -135,6 +112,7 @@ namespace LivePhotoBox.ViewModels
 
         protected void BeginScanSession()
         {
+            // ProgressBarState 由 OnIsScanningChanged 设置，此处只重置取消标志
             _scanCancelledByUser = false;
             _scanProcessed = 0;
             _scanTotal = 0;
@@ -162,10 +140,7 @@ namespace LivePhotoBox.ViewModels
         protected IProgress<WorkProgressSnapshot> CreateScanProgressReporter()
         {
             var dispatcher = App.MainWindow?.DispatcherQueue;
-            return new Progress<WorkProgressSnapshot>(snapshot =>
-            {
-                EnqueueThrottledScanProgress(snapshot, dispatcher);
-            });
+            return new Progress<WorkProgressSnapshot>(snapshot => EnqueueThrottledScanProgress(snapshot, dispatcher));
         }
 
         private void EnqueueThrottledScanProgress(WorkProgressSnapshot snapshot, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher)
@@ -175,23 +150,17 @@ namespace LivePhotoBox.ViewModels
 
             bool forceApply = snapshot.Total > 0 && snapshot.Completed >= snapshot.Total;
             var now = Environment.TickCount64;
-            if (!forceApply && _lastScanUiUpdateMs != 0 && now - _lastScanUiUpdateMs < 100)
-                return;
+            if (!forceApply && _lastScanUiUpdateMs != 0 && now - _lastScanUiUpdateMs < 100) return;
 
             _lastScanUiUpdateMs = now;
             var captured = snapshot;
             dispatcher.TryEnqueue(() => ApplyScanProgress(captured));
         }
 
-        // 子类实现的抽象方法
         protected abstract void OnBeginScanSession();
         protected abstract void OnApplyScanProgress(WorkProgressSnapshot snapshot);
         protected abstract void OnCompleteScanSnapshot();
         public abstract override string PageStatusTag { get; }
-
-        #endregion
-
-        #region 处理状态
 
         private CancellationTokenSource? _cancellationTokenSource;
         protected readonly ManualResetEventSlim PauseEvent = new(true);
@@ -200,20 +169,37 @@ namespace LivePhotoBox.ViewModels
         {
             IsProcessing = true;
             IsPaused = false;
-            ProgressBarState = Models.ProgressBarState.Processing;
             PauseEvent.Set();
             OnInitializeRunState();
+            // SetStatus 已在 OnInitializeRunState 中调用，现在设置颜色
+            ProgressBarState = Models.ProgressBarState.Processing;
         }
 
         protected void FinalizeRunState()
         {
             IsProcessing = false;
             IsPaused = false;
-            ProgressBarState = Models.ProgressBarState.Idle;
+
+            // 清除所有待处理的状态请求，防止任务结束后错误地重新应用状态
+            _pauseRequested = false;
+            _resumeRequested = false;
+
+            // 如果是被取消的，应用取消状态（红色）；如果不是，根据进度判断是完成（绿色）还是闲置（灰色）
+            if (_cancelledByUser)
+            {
+                ProgressBarState = Models.ProgressBarState.Cancelled;
+                _cancelledByUser = false;
+            }
+            else
+            {
+                ProgressBarState = Progress >= 100 ? Models.ProgressBarState.Success : Models.ProgressBarState.Idle;
+            }
+
             PauseEvent.Set();
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
             OnFinalizeRunState();
+            NotifyStatusChanged();
         }
 
         protected CancellationToken GetProcessingToken()
@@ -225,6 +211,7 @@ namespace LivePhotoBox.ViewModels
 
         protected void CancelProcessing()
         {
+            _cancelledByUser = true;
             _cancellationTokenSource?.Cancel();
             PauseEvent.Set();
         }
@@ -232,6 +219,7 @@ namespace LivePhotoBox.ViewModels
         protected void CancelScanning()
         {
             _scanCancelledByUser = true;
+            _cancelledByUser = true;
             _scanCancellationTokenSource?.Cancel();
         }
 
@@ -253,18 +241,9 @@ namespace LivePhotoBox.ViewModels
             PauseEvent.Dispose();
         }
 
-        protected virtual void OnScanningEnded()
-        {
-            // 子类可覆盖
-        }
-
-        // 子类实现的抽象方法
+        protected virtual void OnScanningEnded() { }
         protected abstract void OnInitializeRunState();
         protected abstract void OnFinalizeRunState();
-
-        #endregion
-
-        #region 对话框
 
         protected async Task ShowEmptyQueueDialogAsync(string targetFeature)
         {
@@ -273,20 +252,13 @@ namespace LivePhotoBox.ViewModels
                 var dialog = new ContentDialog
                 {
                     Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock
-                    {
-                        Text = ResourceService.GetString("Msg_EmptyQueue"),
-                        FontSize = 16,
-                        TextWrapping = TextWrapping.Wrap
-                    },
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_EmptyQueue"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
                     PrimaryButtonText = ResourceService.GetString("Msg_GoToTutorial"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Primary,
                     XamlRoot = App.MainWindow.Content.XamlRoot
                 };
-
-                var result = await dialog.ShowAsync();
-                if (result == ContentDialogResult.Primary)
+                if (await dialog.ShowAsync() == ContentDialogResult.Primary)
                 {
                     RequestNavigateToPage?.Invoke(this, $"Home_{targetFeature}");
                 }
@@ -300,12 +272,7 @@ namespace LivePhotoBox.ViewModels
                 var dialog = new ContentDialog
                 {
                     Title = ResourceService.GetString($"{targetFeature}Page_Msg_NoInputDirectoryTitle"),
-                    Content = new TextBlock
-                    {
-                        Text = ResourceService.GetString($"{targetFeature}Page_Msg_NoInputDirectory"),
-                        FontSize = 16,
-                        TextWrapping = TextWrapping.Wrap
-                    },
+                    Content = new TextBlock { Text = ResourceService.GetString($"{targetFeature}Page_Msg_NoInputDirectory"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Close,
                     XamlRoot = App.MainWindow.Content.XamlRoot
@@ -321,12 +288,7 @@ namespace LivePhotoBox.ViewModels
                 var dialog = new ContentDialog
                 {
                     Title = ResourceService.GetString("Msg_InvalidInputDirectoryTitle"),
-                    Content = new TextBlock
-                    {
-                        Text = ResourceService.GetString("Msg_InvalidInputDirectory"),
-                        FontSize = 16,
-                        TextWrapping = TextWrapping.Wrap
-                    },
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_InvalidInputDirectory"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Close,
                     XamlRoot = App.MainWindow.Content.XamlRoot
@@ -334,10 +296,6 @@ namespace LivePhotoBox.ViewModels
                 await dialog.ShowAsync();
             }
         }
-
-        #endregion
-
-        #region 按钮样式
 
         private static Style? _defaultButtonStyle;
         private static Style? _scanCancelButtonStyle;
@@ -347,54 +305,66 @@ namespace LivePhotoBox.ViewModels
         private static Style ResolveScanButtonStyle(bool isCancelAppearance)
         {
             EnsureScanButtonStyles();
-            if (isCancelAppearance && _scanCancelButtonStyle != null)
-                return _scanCancelButtonStyle;
-            if (_defaultButtonStyle != null)
-                return _defaultButtonStyle;
+            if (isCancelAppearance && _scanCancelButtonStyle != null) return _scanCancelButtonStyle;
+            if (_defaultButtonStyle != null) return _defaultButtonStyle;
             return new Style(typeof(Button));
         }
 
         private static void EnsureScanButtonStyles()
         {
             if (_defaultButtonStyle != null && _scanCancelButtonStyle != null) return;
-
             if (Application.Current?.Resources == null) return;
-
             var resources = Application.Current.Resources;
-            if (_defaultButtonStyle == null
-                && resources.TryGetValue("DefaultButtonStyle", out var defaultStyle)
-                && defaultStyle is Style defaultButtonStyle)
-            {
-                _defaultButtonStyle = defaultButtonStyle;
-            }
-
-            if (_scanCancelButtonStyle == null
-                && resources.TryGetValue("ScanCancelButtonStyle", out var cancelStyle)
-                && cancelStyle is Style cancelButtonStyle)
-            {
-                _scanCancelButtonStyle = cancelButtonStyle;
-            }
+            if (_defaultButtonStyle == null && resources.TryGetValue("DefaultButtonStyle", out var defaultStyle) && defaultStyle is Style dbs)
+                _defaultButtonStyle = dbs;
+            if (_scanCancelButtonStyle == null && resources.TryGetValue("ScanCancelButtonStyle", out var cancelStyle) && cancelStyle is Style cbs)
+                _scanCancelButtonStyle = cbs;
         }
-
-        #endregion
-
-        #region 公共操作
 
         protected void TogglePause()
         {
             if (IsPaused)
             {
-                IsPaused = false;
-                ProgressBarState = Models.ProgressBarState.Processing;
-                SetStatus("Status_Resumed");
+                // 恢复：只设置标志，不直接更新 UI，任务会检测到并恢复
+                _pauseRequested = false;
+                _resumeRequested = true;
                 PauseEvent.Set();
             }
             else
             {
+                // 暂停：只设置标志，不直接更新 UI，等任务完成后才应用
+                _pauseRequested = true;
+                _resumeRequested = false;
+                PauseEvent.Reset();
+            }
+        }
+
+        // 在任务完成或每次循环迭代完成后调用，检查并应用待处理的暂停/恢复状态
+        protected void CheckAndApplyPendingState()
+        {
+            if (_pauseRequested && !IsPaused)
+            {
                 IsPaused = true;
                 ProgressBarState = Models.ProgressBarState.Paused;
                 SetStatus("Status_Paused");
-                PauseEvent.Reset();
+                _pauseRequested = false;
+            }
+            else if (_resumeRequested && IsPaused)
+            {
+                IsPaused = false;
+                ProgressBarState = Models.ProgressBarState.Processing;
+                SetStatus("Status_Resumed");
+                _resumeRequested = false;
+            }
+        }
+
+        // 在任务真正结束时调用，检查并应用待处理的取消状态（红色）
+        protected void ApplyCancellationState()
+        {
+            if (_cancelledByUser)
+            {
+                ProgressBarState = Models.ProgressBarState.Cancelled;
+                _cancelledByUser = false;
             }
         }
 
@@ -414,18 +384,11 @@ namespace LivePhotoBox.ViewModels
             NotifyStatusChanged();
         }
 
-        // 子类实现的抽象方法
         protected abstract void OnClearState();
-
-        #endregion
-
-        #region 公共清理
 
         public void Cleanup()
         {
             CleanupTokens();
         }
-
-        #endregion
     }
 }

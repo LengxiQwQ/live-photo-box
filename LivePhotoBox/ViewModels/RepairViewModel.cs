@@ -4,6 +4,7 @@ using LivePhotoBox.Collections;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -16,8 +17,6 @@ namespace LivePhotoBox.ViewModels
 {
     public partial class RepairViewModel : WorkViewModelBase
     {
-        #region Properties
-
         public override string PageStatusTag => "Repair";
 
         [ObservableProperty]
@@ -75,29 +74,16 @@ namespace LivePhotoBox.ViewModels
 
         public BulkObservableCollection<RepairTask> Tasks { get; } = [];
 
-        #endregion
-
-        #region Commands
-
         private IAsyncRelayCommand? _openRepairInputFolderCommand;
         private IRelayCommand? _openRepairOutputFolderCommand;
 
         public IAsyncRelayCommand OpenRepairInputFolderCommand => _openRepairInputFolderCommand ??= new AsyncRelayCommand(OpenRepairInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
         public IRelayCommand OpenRepairOutputFolderCommand => _openRepairOutputFolderCommand ??= new RelayCommand(OpenRepairOutputFolder, () => !string.IsNullOrWhiteSpace(OutputDirectory));
 
-        #endregion
-
-        #region Constructor
-
         public RepairViewModel()
         {
             SetStatus("RepairPage_Status_Ready");
-            ActionBtnText = ResourceService.GetString("Btn_StartRepair");
         }
-
-        #endregion
-
-        #region WorkViewModelBase Overrides
 
         protected override void OnScanStateChanged(bool isScanning)
         {
@@ -121,18 +107,31 @@ namespace LivePhotoBox.ViewModels
 
         protected override void OnInitializeRunState()
         {
-            ActionBtnText = ResourceService.GetString("Btn_StopRun");
+            _repairStoppedByUser = false;
+            _repairDone = false;
+            Progress = 0;
             SetStatus("Status_Running");
+            OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         protected override void OnFinalizeRunState()
         {
-            ActionBtnText = ResourceService.GetString("Btn_StartRepair");
-            if (Progress >= 100)
+            if (_cancelledByUser)
             {
-                CompleteScanSnapshot();
-                SetStatus("Status_Done", _stopwatch.Elapsed.TotalSeconds);
+                _repairStoppedByUser = true;
             }
+            else
+            {
+                _repairDone = true;
+                if (Progress >= 100)
+                {
+                    CompleteScanSnapshot();
+                    SetStatus("Status_Done", _stopwatch.Elapsed.TotalSeconds);
+                }
+            }
+            OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         protected override void OnClearState()
@@ -143,37 +142,123 @@ namespace LivePhotoBox.ViewModels
             ThumbErrorCount = 0;
             Progress = 0;
             ProgressText = "0/0";
+            _repairStoppedByUser = false;
+            _repairDone = false;
             SetStatus("RepairPage_Status_Cleared");
             IsDirectoryPanelOpen = true;
+            OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         protected override void OnScanningEnded()
         {
             base.OnScanningEnded();
+            if (_scanCancelledByUser)
+                _repairStoppedByUser = true;
             _scanCancellationTokenSource?.Dispose();
             _scanCancellationTokenSource = null;
+            OnPropertyChanged(nameof(IsProcessingAllowed));
+            OnPropertyChanged(nameof(ActionBtnText));
         }
 
-        #endregion
-
-        #region Fields
-
         private Stopwatch _stopwatch = new();
+        private bool _repairStoppedByUser;
+        private bool _repairDone;
 
-        #endregion
+        public new string ActionBtnText
+        {
+            get
+            {
+                if (IsProcessing) return ResourceService.GetString("Btn_Stopping");
+                if (_repairStoppedByUser) return ResourceService.GetString("Btn_RepairStopped");
+                if (_repairDone) return ResourceService.GetString("Btn_RepairDone");
+                return ResourceService.GetString("Btn_StartRepair");
+            }
+        }
 
-        #region Scan
+        public override bool IsProcessingAllowed
+        {
+            get
+            {
+                // 正在扫描或正在处理时，按钮可用于取消/停止
+                if (IsScanning || IsProcessing) return true;
+
+                // 已停止或已完成，禁止再次操作
+                if (_repairStoppedByUser) return false;
+                if (_repairDone) return false;
+
+                // 未扫描且无任务时，禁止开始
+                if (Tasks.Count == 0) return false;
+
+                return true;
+            }
+        }
+
+        private async Task ShowRepairAlreadyStoppedDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_RepairAlreadyStopped"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+        }
+
+        private async Task ShowRepairAlreadyDoneDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_RepairAlreadyDone"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+        }
+
+        private async Task ShowProcessingNotAllowedDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ProcessingNotAllowed"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot
+                };
+                await dialog.ShowAsync();
+            }
+        }
 
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ScanDirectoryAsync()
         {
             if (!TryGuardScanClick()) return;
-            if (IsProcessing) return;
 
+            // 如果已经在扫描，点击取消
             if (IsScanning)
             {
                 CancelScanning();
                 SetStatus("Status_ScanCancelling");
+                return;
+            }
+
+            // 如果已停止，禁止重新扫描
+            if (_repairStoppedByUser)
+            {
+                await ShowRepairAlreadyStoppedDialogAsync();
                 return;
             }
 
@@ -205,6 +290,7 @@ namespace LivePhotoBox.ViewModels
             NotifyStatusChanged();
 
             _scanCancelledByUser = false;
+            _repairStoppedByUser = false;
             try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
 
             try
@@ -276,9 +362,8 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                if (_scanCancelledByUser)
-                    ProgressBarState = Models.ProgressBarState.Cancelled;
-                SetStatus("Status_ScanCancelled");
+                // 状态文字先更新，颜色由 OnIsScanningChanged 在 finally 块中设置
+                SetStatus("RepairPage_Status_ScanCancelled");
             }
             catch (Exception ex)
             {
@@ -292,10 +377,6 @@ namespace LivePhotoBox.ViewModels
                 NotifyStatusChanged();
             }
         }
-
-        #endregion
-
-        #region Process
 
         [RelayCommand]
         private void ToggleSecondaryAction()
@@ -313,10 +394,35 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ToggleProcessAsync()
         {
+            // 正在运行时，点击停止
             if (IsProcessing)
             {
+                SetStatus("RepairPage_Status_Stopping");
                 CancelProcessing();
-                ActionBtnText = ResourceService.GetString("Btn_Stopping");
+                OnPropertyChanged(nameof(ActionBtnText));
+                return;
+            }
+
+            // 正在扫描时，点击停止扫描
+            if (IsScanning)
+            {
+                SetStatus("RepairPage_Status_Stopping");
+                CancelScanning();
+                OnPropertyChanged(nameof(ActionBtnText));
+                return;
+            }
+
+            // 已停止，禁止重新开始
+            if (_repairStoppedByUser)
+            {
+                await ShowRepairAlreadyStoppedDialogAsync();
+                return;
+            }
+
+            // 已完成，禁止重新开始
+            if (_repairDone)
+            {
+                await ShowRepairAlreadyDoneDialogAsync();
                 return;
             }
 
@@ -344,6 +450,7 @@ namespace LivePhotoBox.ViewModels
             _stopwatch = Stopwatch.StartNew();
 
             int completedOrSkipped = 0;
+            var token = GetProcessingToken();
 
             try
             {
@@ -351,8 +458,9 @@ namespace LivePhotoBox.ViewModels
                 {
                     foreach (var task in Tasks)
                     {
-                        PauseEvent.Wait(GetProcessingToken());
-                        GetProcessingToken().ThrowIfCancellationRequested();
+                        PauseEvent.Wait(token);
+                        if (token.IsCancellationRequested)
+                            token.ThrowIfCancellationRequested();
 
                         if (!task.NeedsRepair || task.Status == ProcessStatus.Success)
                         {
@@ -372,7 +480,7 @@ namespace LivePhotoBox.ViewModels
 
                         try
                         {
-                            var result = await LivePhotoRepairService.RepairAsync(task.FilePath, targetPath, task.AnalysisResult!, GetProcessingToken());
+                            var result = await LivePhotoRepairService.RepairAsync(task.FilePath, targetPath, task.AnalysisResult!, token);
                             App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                             {
                                 task.Status = result.Success ? ProcessStatus.Success : ProcessStatus.Failed;
@@ -394,13 +502,14 @@ namespace LivePhotoBox.ViewModels
                         {
                             Progress = TotalPhotosCount == 0 ? 0 : (completedOrSkipped * 100.0) / TotalPhotosCount;
                             ProgressText = $"{completedOrSkipped}/{TotalPhotosCount}";
+                            CheckAndApplyPendingState();
                         });
                     }
                 });
             }
             catch (OperationCanceledException)
             {
-                SetStatus("Status_Aborted");
+                SetStatus("RepairPage_Status_Aborted");
             }
             catch (Exception ex)
             {
@@ -412,10 +521,6 @@ namespace LivePhotoBox.ViewModels
                 FinalizeRunState();
             }
         }
-
-        #endregion
-
-        #region Folder Operations
 
         [RelayCommand]
         private async Task PickInputDirectoryAsync()
@@ -463,7 +568,5 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex) { AppLogService.Repair($"OpenRepairOutput error: {ex.Message}", LogLevel.Error, ex); }
         }
-
-        #endregion
     }
 }

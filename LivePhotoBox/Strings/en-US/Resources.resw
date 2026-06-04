@@ -401,10 +401,10 @@ Do you want to restart now?</value>
     <value>Scanning...</value>
   </data>
   <data name="Status_ScanCancelling" xml:space="preserve">
-    <value>Cancelling scan...</value>
+    <value>Stopping scan...</value>
   </data>
   <data name="Status_ScanCancelled" xml:space="preserve">
-    <value>Scan cancelled</value>
+    <value>Scan stopped</value>
   </data>
   <data name="Status_ScanDone" xml:space="preserve">
     <value>Scan done: matched {0} live photo pairs</value>
@@ -417,6 +417,15 @@ Do you want to restart now?</value>
   </data>
   <data name="RepairPage_Status_Cleared" xml:space="preserve">
     <value>List cleared, ready for new tasks</value>
+  </data>
+  <data name="RepairPage_Status_Stopping" xml:space="preserve">
+    <value>Stopping repair...</value>
+  </data>
+  <data name="RepairPage_Status_Aborted" xml:space="preserve">
+    <value>Repair stopped</value>
+  </data>
+  <data name="RepairPage_Status_ScanCancelled" xml:space="preserve">
+    <value>Scan stopped</value>
   </data>
   <data name="Status_Cleared" xml:space="preserve">
     <value>List cleared, ready for new tasks</value>
@@ -434,7 +443,7 @@ Do you want to restart now?</value>
     <value>Processing...</value>
   </data>
   <data name="Status_Aborted" xml:space="preserve">
-    <value>Task manually stopped</value>
+    <value>Task stopped</value>
   </data>
   <data name="Status_Error" xml:space="preserve">
     <value>Error: {0}</value>
@@ -462,6 +471,48 @@ Do you want to restart now?</value>
   </data>
   <data name="Btn_Resume" xml:space="preserve">
     <value>Resume</value>
+  </data>
+  <data name="Btn_Stop" xml:space="preserve">
+    <value>Stop</value>
+  </data>
+  <data name="Btn_RepairStopped" xml:space="preserve">
+    <value>Stopped</value>
+  </data>
+  <data name="Btn_RepairDone" xml:space="preserve">
+    <value>Done</value>
+  </data>
+  <data name="Msg_RepairAlreadyStopped" xml:space="preserve">
+    <value>Repair has been stopped. Please clear the list and rescan to restart.</value>
+  </data>
+  <data name="Msg_RepairAlreadyDone" xml:space="preserve">
+    <value>Repair is already done. Please clear the list and rescan to restart.</value>
+  </data>
+  <data name="Msg_ProcessingNotAllowed" xml:space="preserve">
+    <value>Scan not complete, cannot start repair</value>
+  </data>
+  <data name="Msg_ComboAlreadyStopped" xml:space="preserve">
+    <value>Merge has been stopped. Please clear the list and rescan to restart.</value>
+  </data>
+  <data name="Msg_ComboAlreadyDone" xml:space="preserve">
+    <value>Merge is already done. Please clear the list and rescan to restart.</value>
+  </data>
+  <data name="Msg_SplitAlreadyStopped" xml:space="preserve">
+    <value>Split has been stopped. Please clear the list and rescan to restart.</value>
+  </data>
+  <data name="Msg_SplitAlreadyDone" xml:space="preserve">
+    <value>Split is already done. Please clear the list and rescan to restart.</value>
+  </data>
+  <data name="Btn_ComboStopped" xml:space="preserve">
+    <value>Stopped</value>
+  </data>
+  <data name="Btn_ComboDone" xml:space="preserve">
+    <value>Done</value>
+  </data>
+  <data name="Btn_SplitStopped" xml:space="preserve">
+    <value>Stopped</value>
+  </data>
+  <data name="Btn_SplitDone" xml:space="preserve">
+    <value>Done</value>
   </data>
   <data name="Task_Pending" xml:space="preserve">
     <value>Pending</value>
@@ -677,10 +728,10 @@ Do you want to restart now?</value>
     <value>Scanning for live photos...</value>
   </data>
   <data name="SplitPage_Status_ScanCancelling" xml:space="preserve">
-    <value>Cancelling scan...</value>
+    <value>Stopping scan...</value>
   </data>
   <data name="SplitPage_Status_ScanCancelled" xml:space="preserve">
-    <value>Scan cancelled</value>
+    <value>Scan stopped</value>
   </data>
   <data name="SplitPage_Status_ScanDone" xml:space="preserve">
     <value>Scan complete: recognized {0} splittable live photos</value>
