@@ -16,10 +16,18 @@ namespace LivePhotoBox.ViewModels
         private const string CrashLogLanguageTag = "en-US";
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(IsProcessingAllowed))]
+        [NotifyPropertyChangedFor(nameof(ActionBtnText))]
+        [NotifyPropertyChangedFor(nameof(IsNotProcessing))]
+        [NotifyPropertyChangedFor(nameof(CanEditInputConfiguration))]
+        [NotifyPropertyChangedFor(nameof(CanEditOutputConfiguration))]
         private bool _isProcessing = false;
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(ScanButtonStyle))]
+        [NotifyPropertyChangedFor(nameof(IsProcessingAllowed))]
+        [NotifyPropertyChangedFor(nameof(IsNotScanning))]
+        [NotifyPropertyChangedFor(nameof(CanEditInputConfiguration))]
         private bool _isScanning = false;
 
         [ObservableProperty]
@@ -28,10 +36,8 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private double _progress = 0;
 
-        // 暂停/恢复请求标志：用于在任务完成后才更新 UI 状态
         private bool _pauseRequested = false;
         private bool _resumeRequested = false;
-        // 取消请求标志：用于延迟更新取消状态（红色），等状态文字更新后再变化
         protected bool _cancelledByUser = false;
 
         [ObservableProperty]
@@ -56,6 +62,9 @@ namespace LivePhotoBox.ViewModels
 
         public bool IsNotProcessing => !IsProcessing;
         public bool IsNotScanning => !IsScanning;
+
+        public bool CanEditInputConfiguration => !IsProcessing && !IsScanning;
+        public bool CanEditOutputConfiguration => !IsProcessing;
 
         public virtual bool IsProcessingAllowed => true;
 
@@ -94,6 +103,9 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(Status));
             OnPropertyChanged(nameof(SecondaryBtnText));
             OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(IsProcessingAllowed));
+            OnPropertyChanged(nameof(CanEditInputConfiguration));
+            OnPropertyChanged(nameof(CanEditOutputConfiguration));
             StatusChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -112,7 +124,8 @@ namespace LivePhotoBox.ViewModels
 
         protected void BeginScanSession()
         {
-            // ProgressBarState 由 OnIsScanningChanged 设置，此处只重置取消标志
+            // 【核心修复】：每次扫描前，强制将底层状态机回归到 Idle（闲置），防止因为之前点击过停止/完成而引发文字错乱
+            ProgressBarState = Models.ProgressBarState.Idle;
             _scanCancelledByUser = false;
             _scanProcessed = 0;
             _scanTotal = 0;
@@ -171,7 +184,6 @@ namespace LivePhotoBox.ViewModels
             IsPaused = false;
             PauseEvent.Set();
             OnInitializeRunState();
-            // SetStatus 已在 OnInitializeRunState 中调用，现在设置颜色
             ProgressBarState = Models.ProgressBarState.Processing;
         }
 
@@ -180,11 +192,9 @@ namespace LivePhotoBox.ViewModels
             IsProcessing = false;
             IsPaused = false;
 
-            // 清除所有待处理的状态请求，防止任务结束后错误地重新应用状态
             _pauseRequested = false;
             _resumeRequested = false;
 
-            // 如果是被取消的，应用取消状态（红色）；如果不是，根据进度判断是完成（绿色）还是闲置（灰色）
             if (_cancelledByUser)
             {
                 ProgressBarState = Models.ProgressBarState.Cancelled;
@@ -221,6 +231,7 @@ namespace LivePhotoBox.ViewModels
             _scanCancelledByUser = true;
             _cancelledByUser = true;
             _scanCancellationTokenSource?.Cancel();
+            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         protected CancellationToken GetScanningToken()
@@ -325,21 +336,18 @@ namespace LivePhotoBox.ViewModels
         {
             if (IsPaused)
             {
-                // 恢复：只设置标志，不直接更新 UI，任务会检测到并恢复
                 _pauseRequested = false;
                 _resumeRequested = true;
                 PauseEvent.Set();
             }
             else
             {
-                // 暂停：只设置标志，不直接更新 UI，等任务完成后才应用
                 _pauseRequested = true;
                 _resumeRequested = false;
                 PauseEvent.Reset();
             }
         }
 
-        // 在任务完成或每次循环迭代完成后调用，检查并应用待处理的暂停/恢复状态
         protected void CheckAndApplyPendingState()
         {
             if (_pauseRequested && !IsPaused)
@@ -358,7 +366,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 在任务真正结束时调用，检查并应用待处理的取消状态（红色）
         protected void ApplyCancellationState()
         {
             if (_cancelledByUser)

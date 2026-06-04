@@ -144,6 +144,7 @@ namespace LivePhotoBox.ViewModels
             ProgressText = "0/0";
             _repairStoppedByUser = false;
             _repairDone = false;
+            _scanCancelledByUser = false;
             SetStatus("RepairPage_Status_Cleared");
             IsDirectoryPanelOpen = true;
             OnPropertyChanged(nameof(ActionBtnText));
@@ -153,8 +154,6 @@ namespace LivePhotoBox.ViewModels
         protected override void OnScanningEnded()
         {
             base.OnScanningEnded();
-            if (_scanCancelledByUser)
-                _repairStoppedByUser = true;
             _scanCancellationTokenSource?.Dispose();
             _scanCancellationTokenSource = null;
             OnPropertyChanged(nameof(IsProcessingAllowed));
@@ -169,9 +168,13 @@ namespace LivePhotoBox.ViewModels
         {
             get
             {
-                if (IsProcessing) return ResourceService.GetString("Btn_Stopping");
-                if (_repairStoppedByUser) return ResourceService.GetString("Btn_RepairStopped");
-                if (_repairDone) return ResourceService.GetString("Btn_RepairDone");
+                // 已替换为文件内绝对存在、且纯净无后缀的资源键值
+                if (IsProcessing)
+                {
+                    if (_cancelledByUser) return ResourceService.GetString("Btn_Stopping");
+                    return ResourceService.GetString("Btn_Stop");
+                }
+
                 return ResourceService.GetString("Btn_StartRepair");
             }
         }
@@ -180,33 +183,8 @@ namespace LivePhotoBox.ViewModels
         {
             get
             {
-                // 正在扫描或正在处理时，按钮可用于取消/停止
-                if (IsScanning || IsProcessing) return true;
-
-                // 已停止或已完成，禁止再次操作
-                if (_repairStoppedByUser) return false;
-                if (_repairDone) return false;
-
-                // 未扫描且无任务时，禁止开始
-                if (Tasks.Count == 0) return false;
-
+                if (IsScanning) return false;
                 return true;
-            }
-        }
-
-        private async Task ShowRepairAlreadyStoppedDialogAsync()
-        {
-            if (App.MainWindow?.Content?.XamlRoot != null)
-            {
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_RepairAlreadyStopped"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
-                };
-                await dialog.ShowAsync();
             }
         }
 
@@ -226,39 +204,15 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        private async Task ShowProcessingNotAllowedDialogAsync()
-        {
-            if (App.MainWindow?.Content?.XamlRoot != null)
-            {
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ProcessingNotAllowed"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
-                };
-                await dialog.ShowAsync();
-            }
-        }
-
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ScanDirectoryAsync()
         {
             if (!TryGuardScanClick()) return;
 
-            // 如果已经在扫描，点击取消
             if (IsScanning)
             {
                 CancelScanning();
                 SetStatus("Status_ScanCancelling");
-                return;
-            }
-
-            // 如果已停止，禁止重新扫描
-            if (_repairStoppedByUser)
-            {
-                await ShowRepairAlreadyStoppedDialogAsync();
                 return;
             }
 
@@ -291,6 +245,8 @@ namespace LivePhotoBox.ViewModels
 
             _scanCancelledByUser = false;
             _repairStoppedByUser = false;
+            _repairDone = false;
+
             try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
 
             try
@@ -344,6 +300,9 @@ namespace LivePhotoBox.ViewModels
                             Tasks.Add(task);
                             if (analysis.NeedsRepair) ThumbErrorCount++;
                             else ThumbCorrectCount++;
+
+                            Progress = files.Count == 0 ? 0 : (index * 100.0) / files.Count;
+                            ProgressText = $"{index}/{files.Count}";
                         });
 
                         scanProgress.Report(new WorkProgressSnapshot(files.Count, index));
@@ -362,8 +321,20 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                // 状态文字先更新，颜色由 OnIsScanningChanged 在 finally 块中设置
                 SetStatus("RepairPage_Status_ScanCancelled");
+
+                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                {
+                    Tasks.ReplaceRange([]);
+                    TotalPhotosCount = 0;
+                    ThumbCorrectCount = 0;
+                    ThumbErrorCount = 0;
+                    Progress = 0;
+                    ProgressText = "0/0";
+                    OnPropertyChanged(nameof(IsProcessingAllowed));
+                });
+
+                AppViewModel.Instance.ResetFooterScanCounters();
             }
             catch (Exception ex)
             {
@@ -375,6 +346,8 @@ namespace LivePhotoBox.ViewModels
                 IsScanning = false;
                 OnScanningEnded();
                 NotifyStatusChanged();
+                _cancelledByUser = false;
+                ProgressBarState = Models.ProgressBarState.Idle;
             }
         }
 
@@ -394,7 +367,6 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ToggleProcessAsync()
         {
-            // 正在运行时，点击停止
             if (IsProcessing)
             {
                 SetStatus("RepairPage_Status_Stopping");
@@ -403,24 +375,7 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            // 正在扫描时，点击停止扫描
-            if (IsScanning)
-            {
-                SetStatus("RepairPage_Status_Stopping");
-                CancelScanning();
-                OnPropertyChanged(nameof(ActionBtnText));
-                return;
-            }
-
-            // 已停止，禁止重新开始
-            if (_repairStoppedByUser)
-            {
-                await ShowRepairAlreadyStoppedDialogAsync();
-                return;
-            }
-
-            // 已完成，禁止重新开始
-            if (_repairDone)
+            if (_repairStoppedByUser || _repairDone)
             {
                 await ShowRepairAlreadyDoneDialogAsync();
                 return;

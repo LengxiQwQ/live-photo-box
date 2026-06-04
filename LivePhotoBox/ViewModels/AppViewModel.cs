@@ -108,8 +108,6 @@ namespace LivePhotoBox.ViewModels
             return Math.Clamp(scanProcessed * 100.0 / Math.Max(1, scanTotal), 0, 100);
         }
 
-        // 只有在还不知道扫描总数时才使用不确定进度条（显示"?"）
-        // 一旦知道总数（Total > 0），就显示精确进度
         public bool FooterIsIndeterminate =>
             (CurrentStatusPageTag == "Combo" && Combo.IsScanning && _comboScanTotal == 0)
             || (CurrentStatusPageTag == "Split" && Split.IsScanning && _splitScanTotal == 0)
@@ -126,23 +124,37 @@ namespace LivePhotoBox.ViewModels
                     return ResourceService.Format("StatusBar_ScanProgressLabel", "?");
                 }
 
-                if (FooterProgress <= 0 && !Combo.IsScanning && !Split.IsScanning && !Repair.IsScanning
-                    && !Combo.IsProcessing && !Split.IsProcessing && !Repair.IsProcessing)
+                int percent = (int)Math.Round(FooterProgress);
+
+                var vm = CurrentStatusPageTag switch
                 {
-                    return string.Empty;
+                    "Combo" => (WorkViewModelBase)Combo,
+                    "Split" => Split,
+                    "Repair" => Repair,
+                    _ => null
+                };
+
+                if (vm != null)
+                {
+                    // 【终极防护】：只有明确处于“处理/修复”有关的状态（且不能是在扫描目录阶段），才显示“处理中”百分比
+                    if (!vm.IsScanning && (vm.IsProcessing || vm.ProgressBarState != ProgressBarState.Idle))
+                    {
+                        return ResourceService.Format("StatusBar_ProcessProgressLabel", percent);
+                    }
+
+                    // 其他任何时候（只要有扫描数据残留、或者是被取消了扫描），统统坚如磐石地显示“扫描中”进度
+                    bool hasData = false;
+                    if (CurrentStatusPageTag == "Combo") hasData = _comboScanTotal > 0;
+                    if (CurrentStatusPageTag == "Split") hasData = _splitScanTotal > 0;
+                    if (CurrentStatusPageTag == "Repair") hasData = _repairScanTotal > 0;
+
+                    if (vm.IsScanning || hasData || percent > 0)
+                    {
+                        return ResourceService.Format("StatusBar_ScanProgressLabel", percent);
+                    }
                 }
 
-                int percent = (int)Math.Round(FooterProgress);
-                bool isScanPhase = Combo.IsScanning || Split.IsScanning || Repair.IsScanning
-                    || (_splitScanTotal > 0 && !Split.IsProcessing)
-                    || (_comboScanTotal > 0 && !Combo.IsProcessing)
-                    || (_repairScanTotal > 0 && !Repair.IsProcessing);
-
-                string key = isScanPhase && !Combo.IsProcessing && !Split.IsProcessing && !Repair.IsProcessing
-                    ? "StatusBar_ScanProgressLabel"
-                    : "StatusBar_ProcessProgressLabel";
-
-                return ResourceService.Format(key, percent);
+                return string.Empty;
             }
         }
 
@@ -273,7 +285,6 @@ namespace LivePhotoBox.ViewModels
             Split.StatusChanged += OnChildStatusChanged;
             Repair.StatusChanged += OnChildStatusChanged;
 
-            // [核心修复] 监听子 ViewModel 的事件，这解决了处理时进度条隐藏不刷新的问题
             Combo.PropertyChanged += OnChildPropertyChangedHandler;
             Split.PropertyChanged += OnChildPropertyChangedHandler;
             Repair.PropertyChanged += OnChildPropertyChangedHandler;
@@ -286,7 +297,6 @@ namespace LivePhotoBox.ViewModels
             NotifyFooterProperties();
         }
 
-        // 处理子页面发来的进度变更通知
         private void OnChildPropertyChangedHandler(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName is null) return;
@@ -304,7 +314,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 处理自身的变更
         private void OnPropertyChangedHandler(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(CurrentStatusPageTag))

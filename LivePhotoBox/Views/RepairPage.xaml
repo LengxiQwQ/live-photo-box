@@ -62,13 +62,13 @@
                                 </Grid.RowDefinitions>
 
                                 <TextBlock x:Uid="RepairPage_InputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                                <TextBox x:Uid="RepairPage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"/>
-                                <Button x:Uid="RepairPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Command="{x:Bind ViewModel.PickInputDirectoryCommand}" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"/>
+                                <TextBox x:Uid="RepairPage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
+                                <Button x:Uid="RepairPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Command="{x:Bind ViewModel.PickInputDirectoryCommand}" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
                                 <Button x:Uid="RepairPage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
 
                                 <TextBlock x:Uid="RepairPage_OutputLabel" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}"/>
-                                <TextBox x:Uid="RepairPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"/>
-                                <Button x:Uid="RepairPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Command="{x:Bind ViewModel.PickOutputDirectoryCommand}" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"/>
+                                <TextBox x:Uid="RepairPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
+                                <Button x:Uid="RepairPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Command="{x:Bind ViewModel.PickOutputDirectoryCommand}" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
                                 <Button x:Uid="RepairPage_OpenOutputBtn" Grid.Row="1" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairOutputFolderCommand}" Margin="8,12,0,0" HorizontalAlignment="Stretch" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}"/>
                             </Grid>
                         </StackPanel>
@@ -100,7 +100,7 @@
 
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <TextBlock x:Uid="RepairPage_OutputModeLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <ToggleSwitch x:Uid="RepairPage_OutputModeSwitch" IsOn="{x:Bind ViewModel.IsOutputToDirectory, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"/>
+                            <ToggleSwitch x:Uid="RepairPage_OutputModeSwitch" IsOn="{x:Bind ViewModel.IsOutputToDirectory, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
                             <Button
                                 Margin="12,0,0,0"
                                 Command="{x:Bind ViewModel.ScanDirectoryCommand}"
