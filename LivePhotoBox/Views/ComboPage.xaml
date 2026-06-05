@@ -103,13 +103,13 @@
                             </Grid.RowDefinitions>
 
                             <TextBlock x:Uid="ComboPage_InputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                            <TextBox x:Uid="ComboPage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"/>
-                            <Button x:Uid="ComboPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Click="BrowseInput_Click" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"/>
+                            <TextBox x:Uid="ComboPage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
+                            <Button x:Uid="ComboPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Click="BrowseInput_Click" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
                             <Button x:Uid="ComboPage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenComboInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
 
                             <TextBlock x:Uid="ComboPage_OutputLabel" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                            <TextBox x:Uid="ComboPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"/>
-                            <Button x:Uid="ComboPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Click="BrowseOutput_Click" IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"/>
+                            <TextBox x:Uid="ComboPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
+                            <Button x:Uid="ComboPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Click="BrowseOutput_Click" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
                             <Button x:Uid="ComboPage_OpenOutputBtn" Grid.Row="1" Grid.Column="3" Command="{x:Bind ViewModel.OpenComboOutputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
                         </Grid>
 

@@ -91,14 +91,16 @@ namespace LivePhotoBox.ViewModels
         {
             get
             {
-                if (IsProcessing) return ResourceService.GetString("Btn_Stopping");
-                if (_comboStoppedByUser) return ResourceService.GetString("Btn_ComboStopped");
-                if (_comboDone) return ResourceService.GetString("Btn_ComboDone");
+                if (IsProcessing)
+                {
+                    if (_cancelledByUser) return ResourceService.GetString("Btn_Stopping");
+                    return ResourceService.GetString("Btn_Stop");
+                }
                 return ResourceService.GetString("Btn_StartCombo");
             }
         }
 
-        public override bool IsProcessingAllowed => !IsScanning && !IsPaused && !_comboStoppedByUser && !_comboDone;
+        public override bool IsProcessingAllowed => !IsScanning;
 
         protected override void OnScanStateChanged(bool isScanning)
         {
@@ -197,7 +199,7 @@ namespace LivePhotoBox.ViewModels
 
             IsScanning = true;
             var token = GetScanningToken();
-            IsDirectoryPanelOpen = true;
+            IsDirectoryPanelOpen = false;
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
@@ -209,13 +211,16 @@ namespace LivePhotoBox.ViewModels
             await Task.Yield();
             NotifyStatusChanged();
 
+            _scanCancelledByUser = false;
+            _comboStoppedByUser = false;
+            _comboDone = false;
+
             try
             {
                 ThumbnailService.ClearCache();
                 var pendingText = ResourceService.GetString("Task_Pending");
                 var scanProgress = CreateScanProgressReporter();
 
-                _scanCancelledByUser = false;
                 try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
 
                 var scanResult = await Task.Run(
@@ -224,27 +229,37 @@ namespace LivePhotoBox.ViewModels
 
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
 
-                var tasks = scanResult.Pairs.Select((pair, index) => new MergeTask
+                int index = 0;
+                var tempTasks = scanResult.Pairs.Select(pair =>
                 {
-                    Index = index + 1,
-                    ImageFileName = Path.GetFileName(pair.ImagePath),
-                    VideoFileName = Path.GetFileName(pair.VideoPath),
-                    ImageSize = FormatFileSize(pair.ImageSizeBytes),
-                    VideoSize = FormatFileSize(pair.VideoSizeBytes),
-                    TotalSizeBytes = pair.ImageSizeBytes + pair.VideoSizeBytes,
-                    BaseName = pair.BaseName,
-                    ImagePath = pair.ImagePath,
-                    VideoPath = pair.VideoPath,
-                    Status = ProcessStatus.Pending,
-                    Details = pendingText
+                    index++;
+                    return new MergeTask
+                    {
+                        Index = index,
+                        ImageFileName = Path.GetFileName(pair.ImagePath),
+                        VideoFileName = Path.GetFileName(pair.VideoPath),
+                        ImageSize = FormatFileSize(pair.ImageSizeBytes),
+                        VideoSize = FormatFileSize(pair.VideoSizeBytes),
+                        TotalSizeBytes = pair.ImageSizeBytes + pair.VideoSizeBytes,
+                        BaseName = pair.BaseName,
+                        ImagePath = pair.ImagePath,
+                        VideoPath = pair.VideoPath,
+                        Status = ProcessStatus.Pending,
+                        Details = pendingText
+                    };
                 }).ToList();
 
-                Tasks.ReplaceRange(tasks);
+                Tasks.ReplaceRange(tempTasks);
                 TotalPairsCount = scanResult.Pairs.Count;
                 StandaloneImagesCount = scanResult.StandaloneImagesCount;
                 StandaloneVideosCount = scanResult.StandaloneVideosCount;
-                ComboProgress = 0;
-                ProgressText = $"0/{TotalPairsCount}";
+
+                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                {
+                    ComboProgress = 0;
+                    Progress = 0;
+                    ProgressText = $"0/{TotalPairsCount}";
+                });
 
                 FlushPendingScanProgress();
                 CompleteScanSnapshot();
@@ -256,8 +271,22 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                // 状态文字先更新，颜色由 OnIsScanningChanged 在 finally 块中设置
                 SetStatus("Status_ScanCancelled");
+
+                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                {
+                    Tasks.ReplaceRange([]);
+                    ThumbnailService.ClearCache();
+                    TotalPairsCount = 0;
+                    StandaloneImagesCount = 0;
+                    StandaloneVideosCount = 0;
+                    ComboProgress = 0;
+                    Progress = 0;
+                    ProgressText = "0/0";
+                    OnPropertyChanged(nameof(IsProcessingAllowed));
+                });
+
+                AppViewModel.Instance.ResetFooterScanCounters();
             }
             catch (Exception ex)
             {
@@ -301,19 +330,7 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            if (IsScanning)
-            {
-                await ShowComboNotAllowedDialogAsync();
-                return;
-            }
-
-            if (_comboStoppedByUser)
-            {
-                await ShowComboAlreadyStoppedDialogAsync();
-                return;
-            }
-
-            if (_comboDone)
+            if (_comboStoppedByUser || _comboDone)
             {
                 await ShowComboAlreadyDoneDialogAsync();
                 return;

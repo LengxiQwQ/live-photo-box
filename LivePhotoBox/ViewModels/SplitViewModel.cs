@@ -178,14 +178,16 @@ namespace LivePhotoBox.ViewModels
         {
             get
             {
-                if (IsProcessing) return ResourceService.GetString("Btn_Stopping");
-                if (_splitStoppedByUser) return ResourceService.GetString("Btn_SplitStopped");
-                if (_splitDone) return ResourceService.GetString("Btn_SplitDone");
+                if (IsProcessing)
+                {
+                    if (_cancelledByUser) return ResourceService.GetString("Btn_Stopping");
+                    return ResourceService.GetString("Btn_Stop");
+                }
                 return ResourceService.GetString("Btn_StartSplit");
             }
         }
 
-        public override bool IsProcessingAllowed => !IsScanning && !IsPaused && !_splitStoppedByUser && !_splitDone;
+        public override bool IsProcessingAllowed => !IsScanning;
 
         #endregion
 
@@ -214,7 +216,7 @@ namespace LivePhotoBox.ViewModels
 
             IsScanning = true;
             var token = GetScanningToken();
-            IsDirectoryPanelOpen = true;
+            IsDirectoryPanelOpen = false;
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
@@ -226,13 +228,16 @@ namespace LivePhotoBox.ViewModels
             await Task.Yield();
             NotifyStatusChanged();
 
+            _scanCancelledByUser = false;
+            _splitStoppedByUser = false;
+            _splitDone = false;
+
             try
             {
                 SplitThumbnailService.ClearCache();
                 var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
                 var scanProgress = CreateScanProgressReporter();
 
-                _scanCancelledByUser = false;
                 try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
 
                 var scanResult = await Task.Run(
@@ -241,23 +246,32 @@ namespace LivePhotoBox.ViewModels
 
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
 
-                var tasks = scanResult.Files.Select((file, index) => new SplitTask
+                int index = 0;
+                var tempTasks = scanResult.Files.Select(file =>
                 {
-                    Index = index + 1,
-                    SourceFileName = Path.GetFileName(file.SourcePath),
-                    SourcePath = file.SourcePath,
-                    FileSize = FormatFileSize(file.FileSizeBytes),
-                    ProgressText = "0%",
-                    Status = ProcessStatus.Pending,
-                    Details = pendingText
+                    index++;
+                    return new SplitTask
+                    {
+                        Index = index,
+                        SourceFileName = Path.GetFileName(file.SourcePath),
+                        SourcePath = file.SourcePath,
+                        FileSize = FormatFileSize(file.FileSizeBytes),
+                        ProgressText = "0%",
+                        Status = ProcessStatus.Pending,
+                        Details = pendingText
+                    };
                 }).ToList();
 
-                Tasks.ReplaceRange(tasks);
+                Tasks.ReplaceRange(tempTasks);
                 QueuedCount = scanResult.Files.Count;
                 RecognizedCount = scanResult.RecognizedCount;
                 SkippedCount = scanResult.SkippedCount;
-                Progress = 0;
-                ProgressText = $"0/{QueuedCount}";
+
+                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                {
+                    Progress = 0;
+                    ProgressText = $"0/{QueuedCount}";
+                });
 
                 FlushPendingScanProgress();
                 CompleteScanSnapshot();
@@ -269,8 +283,21 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                // 状态文字先更新，颜色由 OnIsScanningChanged 在 finally 块中设置
                 SetStatus("SplitPage_Status_ScanCancelled");
+
+                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                {
+                    Tasks.ReplaceRange([]);
+                    SplitThumbnailService.ClearCache();
+                    QueuedCount = 0;
+                    RecognizedCount = 0;
+                    SkippedCount = 0;
+                    Progress = 0;
+                    ProgressText = "0/0";
+                    OnPropertyChanged(nameof(IsProcessingAllowed));
+                });
+
+                AppViewModel.Instance.ResetFooterScanCounters();
             }
             catch (Exception ex)
             {
@@ -318,19 +345,7 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            if (IsScanning)
-            {
-                await ShowSplitNotAllowedDialogAsync();
-                return;
-            }
-
-            if (_splitStoppedByUser)
-            {
-                await ShowSplitAlreadyStoppedDialogAsync();
-                return;
-            }
-
-            if (_splitDone)
+            if (_splitStoppedByUser || _splitDone)
             {
                 await ShowSplitAlreadyDoneDialogAsync();
                 return;

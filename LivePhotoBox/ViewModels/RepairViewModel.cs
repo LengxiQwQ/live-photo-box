@@ -230,6 +230,7 @@ namespace LivePhotoBox.ViewModels
             }
 
             var token = GetScanningToken();
+            IsDirectoryPanelOpen = false;
 
             Tasks.ReplaceRange([]);
             TotalPhotosCount = 0;
