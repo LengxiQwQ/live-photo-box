@@ -24,7 +24,7 @@ namespace LivePhotoBox.Services
             return _thumbnailCache.TryGetValue(imagePath, out var cached) ? cached : null;
         }
 
-        public static Task<ImageSource?> LoadAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
+        public static Task<ImageSource?> LoadAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null, CancellationToken token = default)
         {
             if (string.IsNullOrWhiteSpace(imagePath)) return Task.FromResult<ImageSource?>(null);
 
@@ -37,7 +37,7 @@ namespace LivePhotoBox.Services
             }
 
             int version = Volatile.Read(ref _cacheVersion);
-            return _inflightLoads.GetOrAdd(imagePath, path => LoadCoreAsync(path, dispatcher, version));
+            return _inflightLoads.GetOrAdd(imagePath, path => LoadCoreAsync(path, dispatcher, version, token));
         }
 
         public static void Preload(IEnumerable<string> imagePaths, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
@@ -54,29 +54,33 @@ namespace LivePhotoBox.Services
             }
         }
 
-        private static async Task<ImageSource?> LoadCoreAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
+        private static async Task<ImageSource?> LoadCoreAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version, CancellationToken token)
         {
+            StorageItemThumbnail thumbnail = null;
             try
             {
-                await _loadLimiter.WaitAsync().ConfigureAwait(false);
+                await _loadLimiter.WaitAsync(token).ConfigureAwait(false);
                 try
                 {
-                    if (_thumbnailCache.TryGetValue(imagePath, out var cached))
-                    {
-                        return cached;
-                    }
+                    if (token.IsCancellationRequested) return null;
+                    if (_thumbnailCache.TryGetValue(imagePath, out var cached)) return cached;
 
                     StorageFile file = await StorageFile.GetFileFromPathAsync(imagePath);
-                    using var thumbnail = await file.GetThumbnailAsync(ThumbnailMode.ListView, 80, ThumbnailOptions.UseCurrentScale);
-                    if (thumbnail == null)
-                    {
-                        return null;
-                    }
+                    thumbnail = await file.GetThumbnailAsync(ThumbnailMode.ListView, 80, ThumbnailOptions.UseCurrentScale);
+                }
+                finally
+                {
+                    _loadLimiter.Release();
+                }
 
-                    var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    if (!dispatcher.TryEnqueue(async () =>
+                if (thumbnail == null) return null;
+
+                var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                if (!dispatcher.TryEnqueue(async () =>
+                {
+                    try
                     {
-                        try
+                        using (thumbnail)
                         {
                             var bitmap = new BitmapImage();
                             await bitmap.SetSourceAsync(thumbnail);
@@ -91,24 +95,27 @@ namespace LivePhotoBox.Services
                                 tcs.TrySetResult(null);
                             }
                         }
-                        catch
-                        {
-                            tcs.TrySetResult(null);
-                        }
-                    }))
+                    }
+                    catch
                     {
                         tcs.TrySetResult(null);
                     }
-
-                    return await tcs.Task.ConfigureAwait(false);
-                }
-                finally
+                }))
                 {
-                    _loadLimiter.Release();
+                    thumbnail.Dispose();
+                    tcs.TrySetResult(null);
                 }
+
+                return await tcs.Task.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                thumbnail?.Dispose();
+                return null;
             }
             catch
             {
+                thumbnail?.Dispose();
                 return null;
             }
             finally

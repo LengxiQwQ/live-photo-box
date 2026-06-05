@@ -2,7 +2,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
+using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox.Models
@@ -23,8 +25,11 @@ namespace LivePhotoBox.Models
 
         #region Thumbnail
 
-        private bool _isLoadingThumbnail;
+        private volatile int _thumbnailLoadState;
         private ImageSource? _thumbnail;
+
+        private int _thumbnailGeneration = 0;
+        private CancellationTokenSource? _thumbnailCts;
 
         public ImageSource? Thumbnail
         {
@@ -50,9 +55,21 @@ namespace LivePhotoBox.Models
 
         partial void OnSourcePathChanged(string value)
         {
-            _isLoadingThumbnail = false;
+            CancelThumbnailLoad();
             Thumbnail = SplitThumbnailService.GetCached(value);
             OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
+        }
+
+        public void CancelThumbnailLoad()
+        {
+            Interlocked.Increment(ref _thumbnailGeneration);
+            if (_thumbnailCts != null)
+            {
+                try { _thumbnailCts.Cancel(); } catch { }
+                _thumbnailCts = null;
+            }
+
+            Interlocked.Exchange(ref _thumbnailLoadState, 0);
         }
 
         partial void OnStatusChanged(ProcessStatus value)
@@ -65,25 +82,55 @@ namespace LivePhotoBox.Models
             OnPropertyChanged(nameof(DisplayStatus));
         }
 
-        public async Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
+        public Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null, bool forceLoad = false)
         {
-            if (_thumbnail != null || _isLoadingThumbnail || string.IsNullOrWhiteSpace(SourcePath)) return;
+            if (_thumbnail != null || string.IsNullOrWhiteSpace(SourcePath))
+            {
+                return Task.CompletedTask;
+            }
 
             if (SplitThumbnailService.GetCached(SourcePath) is { } cachedThumbnail)
             {
                 Thumbnail = cachedThumbnail;
-                return;
+                return Task.CompletedTask;
             }
 
-            _isLoadingThumbnail = true;
+            if (Interlocked.CompareExchange(ref _thumbnailLoadState, 1, 0) != 0)
+            {
+                return Task.CompletedTask;
+            }
+
+            return EnsureThumbnailCoreAsync(dispatcher, forceLoad);
+        }
+
+        private async Task EnsureThumbnailCoreAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher, bool forceLoad)
+        {
+            int currentGen = Interlocked.Increment(ref _thumbnailGeneration);
+
+            var cts = new CancellationTokenSource();
+            _thumbnailCts = cts;
+            var token = cts.Token;
+
             try
             {
+                if (currentGen != _thumbnailGeneration || token.IsCancellationRequested) return;
+
                 dispatcher ??= App.MainWindow?.DispatcherQueue ?? Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-                Thumbnail = await SplitThumbnailService.LoadAsync(SourcePath, dispatcher);
+                var loadedThumbnail = await SplitThumbnailService.LoadAsync(SourcePath, dispatcher, forceLoad ? CancellationToken.None : token);
+
+                if (currentGen == _thumbnailGeneration && !token.IsCancellationRequested && loadedThumbnail != null)
+                {
+                    Thumbnail = loadedThumbnail;
+                }
             }
+            catch (OperationCanceledException) { }
+            catch { }
             finally
             {
-                _isLoadingThumbnail = false;
+                if (currentGen == _thumbnailGeneration)
+                {
+                    Interlocked.Exchange(ref _thumbnailLoadState, 0);
+                }
             }
         }
 

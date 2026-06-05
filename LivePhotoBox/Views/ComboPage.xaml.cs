@@ -4,6 +4,7 @@ using LivePhotoBox.ViewModels;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -16,6 +17,7 @@ namespace LivePhotoBox.Views
         private const int BackwardPreloadRadius = 4;
         private const int ForwardPreloadRadius = 14;
         private static readonly TimeSpan AutoFollowDebounce = TimeSpan.FromMilliseconds(120);
+        private static readonly TimeSpan FinalBottomNudgeDelay = TimeSpan.FromMilliseconds(80);
 
         private int _lastRealizedItemIndex = -1;
         private int _preloadGeneration;
@@ -24,21 +26,47 @@ namespace LivePhotoBox.Views
         private int _pendingAutoScrollIndex = -1;
         private int _lastAutoScrollIndex = -1;
         private bool _isUnloaded;
+        private bool _eventsHooked;
+        private ScrollViewer? _taskListScrollViewer;
 
         public ComboViewModel ViewModel => AppViewModel.Instance.Combo;
 
         public ComboPage()
         {
             InitializeComponent();
-            ViewModel.TaskStartedForScroll += ViewModel_TaskStartedForScroll;
+            Loaded += ComboPage_Loaded;
             Unloaded += ComboPage_Unloaded;
+        }
+
+        private void ComboPage_Loaded(object sender, RoutedEventArgs e)
+        {
+            _isUnloaded = false;
+            _taskListScrollViewer ??= FindDescendant<ScrollViewer>(ComboTaskListView);
+
+            if (_eventsHooked)
+            {
+                return;
+            }
+
+            ViewModel.TaskStartedForScroll += ViewModel_TaskStartedForScroll;
+            ViewModel.ProcessingCompletedForScroll += ViewModel_ProcessingCompletedForScroll;
+            _eventsHooked = true;
         }
 
         private void ComboPage_Unloaded(object sender, RoutedEventArgs e)
         {
             _isUnloaded = true;
+            _hasPendingAutoScroll = false;
+            _pendingAutoScrollIndex = -1;
+
+            if (!_eventsHooked)
+            {
+                return;
+            }
+
             ViewModel.TaskStartedForScroll -= ViewModel_TaskStartedForScroll;
-            Unloaded -= ComboPage_Unloaded;
+            ViewModel.ProcessingCompletedForScroll -= ViewModel_ProcessingCompletedForScroll;
+            _eventsHooked = false;
         }
 
         private void ViewModel_TaskStartedForScroll(object? sender, MergeTask task)
@@ -46,6 +74,17 @@ namespace LivePhotoBox.Views
             int processingIndex = task.Index - 1;
             _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue, forceLoad: true);
             ScheduleAutoScroll(processingIndex);
+        }
+
+        private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
+        {
+            var dispatcher = DispatcherQueue;
+            if (dispatcher == null || _isUnloaded)
+            {
+                return;
+            }
+
+            _ = SafeNudgeTaskListToBottomAsync(dispatcher);
         }
 
         private void ScheduleAutoScroll(int itemIndex)
@@ -93,7 +132,13 @@ namespace LivePhotoBox.Views
                         continue;
                     }
 
-                    await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false);
+                    try
+                    {
+                        await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                    }
                 }
             }
             finally
@@ -105,6 +150,49 @@ namespace LivePhotoBox.Views
                     _ = RunAutoScrollAsync();
                 }
             }
+        }
+
+        private async Task SafeNudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
+        {
+            try
+            {
+                await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false);
+            }
+            catch
+            {
+            }
+        }
+
+        private async Task NudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
+        {
+            await Task.Delay(FinalBottomNudgeDelay).ConfigureAwait(false);
+
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            if (!dispatcher.TryEnqueue(() =>
+            {
+                try
+                {
+                    if (_isUnloaded)
+                    {
+                        tcs.TrySetResult();
+                        return;
+                    }
+
+                    _taskListScrollViewer ??= FindDescendant<ScrollViewer>(ComboTaskListView);
+                    _taskListScrollViewer?.ChangeView(null, _taskListScrollViewer.ScrollableHeight, null, true);
+                    tcs.TrySetResult();
+                }
+                catch
+                {
+                    tcs.TrySetResult();
+                }
+            }))
+            {
+                tcs.TrySetResult();
+            }
+
+            await tcs.Task.ConfigureAwait(false);
         }
 
         private Task EnqueueScrollIntoViewAsync(DispatcherQueue dispatcher, int targetIndex)
@@ -126,9 +214,9 @@ namespace LivePhotoBox.Views
                     _lastAutoScrollIndex = targetIndex;
                     tcs.TrySetResult();
                 }
-                catch (Exception ex)
+                catch
                 {
-                    tcs.TrySetException(ex);
+                    tcs.TrySetResult();
                 }
             }))
             {
@@ -136,6 +224,27 @@ namespace LivePhotoBox.Views
             }
 
             return tcs.Task;
+        }
+
+        private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+        {
+            int childCount = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < childCount; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(root, i);
+                if (child is T match)
+                {
+                    return match;
+                }
+
+                T? nested = FindDescendant<T>(child);
+                if (nested is not null)
+                {
+                    return nested;
+                }
+            }
+
+            return null;
         }
 
         private void DirectoryBox_GotFocus(object sender, RoutedEventArgs e)

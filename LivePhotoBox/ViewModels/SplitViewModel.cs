@@ -80,6 +80,10 @@ namespace LivePhotoBox.ViewModels
         {
             SetStatus("SplitPage_Status_Ready");
             SelectedFormatIndex = AppSettingsService.GetValue(nameof(SelectedFormatIndex), 0);
+
+            // 初始化 UI 节流 Timer，约 16fps (60ms) 更新一次进度条
+            _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+            _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
         }
 
         #endregion
@@ -115,16 +119,21 @@ namespace LivePhotoBox.ViewModels
         {
             _splitStoppedByUser = false;
             _splitDone = false;
-            int completedCount = Tasks.Count(task => task.Status == ProcessStatus.Success);
-            Progress = QueuedCount == 0 ? 0 : (completedCount * 100.0) / QueuedCount;
-            ProgressText = $"{completedCount}/{QueuedCount}";
+            _completedTasksCount = 0;
+            Progress = 0;
+            ProgressText = $"0/{QueuedCount}";
             SetStatus("SplitPage_Status_Running");
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
+
+            // 开始更新进度条
+            _uiUpdateTimer.Start();
         }
 
         protected override void OnFinalizeRunState()
         {
+            _uiUpdateTimer.Stop();
+
             if (_cancelledByUser)
             {
                 _splitStoppedByUser = true;
@@ -132,8 +141,17 @@ namespace LivePhotoBox.ViewModels
             else
             {
                 _splitDone = true;
-                if (QueuedCount > 0 && Progress >= 100)
+
+                // 强制最后一次 100% 同步
+                if (QueuedCount > 0)
                 {
+                    Progress = (_completedTasksCount * 100.0) / QueuedCount;
+                    ProgressText = $"{_completedTasksCount}/{QueuedCount}";
+                }
+
+                if (Progress >= 100)
+                {
+                    ProgressBarState = Models.ProgressBarState.Success;
                     CompleteScanSnapshot();
                     SetStatus("SplitPage_Status_Done", _stopwatch.Elapsed.TotalSeconds);
                 }
@@ -149,6 +167,7 @@ namespace LivePhotoBox.ViewModels
             QueuedCount = 0;
             RecognizedCount = 0;
             SkippedCount = 0;
+            _completedTasksCount = 0;
             Progress = 0;
             ProgressText = "0/0";
             _splitStoppedByUser = false;
@@ -174,6 +193,10 @@ namespace LivePhotoBox.ViewModels
         private bool _splitStoppedByUser;
         private bool _splitDone;
 
+        // 【新增 UI 节流 Timer 与原子进度计数器】
+        private readonly DispatcherTimer _uiUpdateTimer;
+        private volatile int _completedTasksCount;
+
         public new string ActionBtnText
         {
             get
@@ -190,6 +213,20 @@ namespace LivePhotoBox.ViewModels
         public override bool IsProcessingAllowed => !IsScanning;
 
         #endregion
+
+        // 【新增】：用于 Split 页保守跟随滚动（每完成一批再滚动）
+        public event EventHandler<SplitTask>? TaskCompletedForScroll;
+        public event EventHandler? ProcessingCompletedForScroll;
+
+        // 定时拉取进度并更新 UI (解决卡死)
+        private void UiUpdateTimer_Tick(object? sender, object e)
+        {
+            if (QueuedCount == 0) return;
+            int currentCompleted = _completedTasksCount;
+            Progress = (currentCompleted * 100.0) / QueuedCount;
+            ProgressText = $"{currentCompleted}/{QueuedCount}";
+            CheckAndApplyPendingState();
+        }
 
         #region Scan
 
@@ -427,7 +464,6 @@ namespace LivePhotoBox.ViewModels
                 var token = GetProcessingToken();
                 await Task.Run(async () =>
                 {
-                    int completedCount = Tasks.Count(task => task.Status == ProcessStatus.Success);
                     var tasksToProcess = Tasks.ToList();
 
                     foreach (var task in tasksToProcess)
@@ -453,7 +489,7 @@ namespace LivePhotoBox.ViewModels
                         catch (OperationCanceledException)
                         {
                             App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                                UpdateTaskCompleted(task, false, ResourceService.GetString("Status_Aborted") ?? "???", completedCount));
+                                UpdateTaskCompleted(task, false, ResourceService.GetString("Status_Aborted") ?? "???", _completedTasksCount));
                             throw;
                         }
                         catch (Exception ex)
@@ -462,8 +498,9 @@ namespace LivePhotoBox.ViewModels
                             detailMessage = ResourceService.Format("Task_Error", ex.Message);
                         }
 
-                        completedCount++;
-                        App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage, completedCount));
+                        // 先原子化更新数量供 Timer 使用
+                        _completedTasksCount++;
+                        App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage, _completedTasksCount));
                     }
                 });
             }
@@ -487,16 +524,26 @@ namespace LivePhotoBox.ViewModels
             task.Status = ProcessStatus.Processing;
             task.ProgressText = "0%";
             task.Details = ResourceService.GetString("SplitPage_Task_Processing");
+
+            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue, forceLoad: true);
         }
 
         private void UpdateTaskCompleted(SplitTask task, bool isSuccess, string detailMessage, int completedCount)
         {
+            // UI 线程中只更新单条 Item 属性即可，全局进度和文本交给 Timer
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.ProgressText = isSuccess ? "100%" : "0%";
             task.Details = detailMessage;
-            Progress = QueuedCount == 0 ? 0 : (completedCount * 100.0) / QueuedCount;
-            ProgressText = $"{completedCount}/{QueuedCount}";
-            CheckAndApplyPendingState();
+
+            if (completedCount > 0 && completedCount < Tasks.Count && completedCount % 6 == 0)
+            {
+                TaskCompletedForScroll?.Invoke(this, task);
+            }
+
+            if (completedCount >= Tasks.Count && Tasks.Count > 0)
+            {
+                ProcessingCompletedForScroll?.Invoke(this, EventArgs.Empty);
+            }
         }
 
         #endregion

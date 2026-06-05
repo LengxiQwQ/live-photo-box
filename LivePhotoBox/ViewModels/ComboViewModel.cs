@@ -184,6 +184,7 @@ namespace LivePhotoBox.ViewModels
 
                 if (ComboProgress >= 100)
                 {
+                    ProgressBarState = Models.ProgressBarState.Success;
                     CompleteScanSnapshot();
                     SetStatus("Status_Done", _stopwatch.Elapsed.TotalSeconds);
                 }
@@ -480,6 +481,7 @@ namespace LivePhotoBox.ViewModels
 
         // 【新增】：通知 UI 平滑追踪滚动的事件
         public event EventHandler<MergeTask>? TaskStartedForScroll;
+        public event EventHandler? ProcessingCompletedForScroll;
 
         private void UpdateTaskStarted(MergeTask task)
         {
@@ -495,6 +497,11 @@ namespace LivePhotoBox.ViewModels
             // UI 线程中只更新单条 Item 属性即可，全局进度和文本交给 Timer
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.Details = detailMessage;
+
+            if (_completedTasksCount >= Tasks.Count && Tasks.Count > 0)
+            {
+                ProcessingCompletedForScroll?.Invoke(this, EventArgs.Empty);
+            }
         }
 
         private async Task OpenComboInputFolderAsync()
