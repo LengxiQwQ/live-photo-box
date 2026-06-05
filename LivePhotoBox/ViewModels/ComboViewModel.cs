@@ -21,6 +21,10 @@ namespace LivePhotoBox.ViewModels
         private bool _comboStoppedByUser;
         private bool _comboDone;
 
+        // 【新增 UI 节流 Timer 与原子进度计数器】
+        private readonly DispatcherTimer _uiUpdateTimer;
+        private volatile int _completedTasksCount;
+
         public override string PageStatusTag => "Combo";
 
         [ObservableProperty]
@@ -85,6 +89,10 @@ namespace LivePhotoBox.ViewModels
         public ComboViewModel()
         {
             SetStatus("Status_Init");
+
+            // 初始化 UI 节流 Timer，约 16fps (60ms) 更新一次进度条
+            _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+            _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
         }
 
         public new string ActionBtnText
@@ -127,20 +135,37 @@ namespace LivePhotoBox.ViewModels
             base.OnScanningEnded();
         }
 
+        // 定时拉取进度并更新 UI (解决卡死)
+        private void UiUpdateTimer_Tick(object? sender, object e)
+        {
+            if (TotalPairsCount == 0) return;
+            int currentCompleted = _completedTasksCount;
+            ComboProgress = (currentCompleted * 100.0) / TotalPairsCount;
+            Progress = ComboProgress;
+            ProgressText = $"{currentCompleted}/{TotalPairsCount}";
+            CheckAndApplyPendingState();
+        }
+
         protected override void OnInitializeRunState()
         {
             _comboStoppedByUser = false;
             _comboDone = false;
+            _completedTasksCount = 0;
             ComboProgress = 0;
             Progress = 0;
             ProgressText = $"0/{TotalPairsCount}";
             SetStatus("Status_Running");
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
+
+            // 开始更新进度条
+            _uiUpdateTimer.Start();
         }
 
         protected override void OnFinalizeRunState()
         {
+            _uiUpdateTimer.Stop();
+
             if (_cancelledByUser)
             {
                 _comboStoppedByUser = true;
@@ -148,6 +173,15 @@ namespace LivePhotoBox.ViewModels
             else
             {
                 _comboDone = true;
+
+                // 强制最后一次 100% 同步
+                if (TotalPairsCount > 0)
+                {
+                    ComboProgress = (_completedTasksCount * 100.0) / TotalPairsCount;
+                    Progress = ComboProgress;
+                    ProgressText = $"{_completedTasksCount}/{TotalPairsCount}";
+                }
+
                 if (ComboProgress >= 100)
                 {
                     CompleteScanSnapshot();
@@ -165,6 +199,7 @@ namespace LivePhotoBox.ViewModels
             TotalPairsCount = 0;
             StandaloneImagesCount = 0;
             StandaloneVideosCount = 0;
+            _completedTasksCount = 0;
             ComboProgress = 0;
             Progress = 0;
             ProgressText = "0/0";
@@ -421,7 +456,12 @@ namespace LivePhotoBox.ViewModels
                     PauseEvent,
                     token,
                     task => App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task)),
-                    (task, isSuccess, detailMessage, completedCount) => App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage, completedCount)));
+                    (task, isSuccess, detailMessage, completedCount) =>
+                    {
+                        // 先原子化更新数量供 Timer 使用
+                        _completedTasksCount = completedCount;
+                        App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage));
+                    });
             }
             catch (OperationCanceledException)
             {
@@ -438,20 +478,23 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 【新增】：通知 UI 平滑追踪滚动的事件
+        public event EventHandler<MergeTask>? TaskStartedForScroll;
+
         private void UpdateTaskStarted(MergeTask task)
         {
             task.Status = ProcessStatus.Processing;
             task.Details = ResourceService.GetString("Task_Processing");
+
+            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue, forceLoad: true);
+            TaskStartedForScroll?.Invoke(this, task);
         }
 
-        private void UpdateTaskCompleted(MergeTask task, bool isSuccess, string detailMessage, int completedCount)
+        private void UpdateTaskCompleted(MergeTask task, bool isSuccess, string detailMessage)
         {
+            // UI 线程中只更新单条 Item 属性即可，全局进度和文本交给 Timer
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.Details = detailMessage;
-            ComboProgress = TotalPairsCount == 0 ? 0 : (completedCount * 100.0) / TotalPairsCount;
-            Progress = ComboProgress;
-            ProgressText = $"{completedCount}/{TotalPairsCount}";
-            CheckAndApplyPendingState();
         }
 
         private async Task OpenComboInputFolderAsync()

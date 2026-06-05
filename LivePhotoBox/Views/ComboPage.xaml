@@ -249,7 +249,6 @@
                                                 <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}"/>
                                             </StackPanel>
                                         </Button>
-
                                         <Button x:Uid="ComboPage_TipApp" Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
                                             <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
                                                 <FontIcon Glyph="&#xE714;" Foreground="#A855F7" FontSize="14" VerticalAlignment="Center"/>
