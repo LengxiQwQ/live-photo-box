@@ -488,7 +488,8 @@ namespace LivePhotoBox.ViewModels
             task.Status = ProcessStatus.Processing;
             task.Details = ResourceService.GetString("Task_Processing");
 
-            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue, forceLoad: true);
+            // 修复报错：直接去掉 forceLoad: true，使用我们精简后的新方法
+            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue);
             TaskStartedForScroll?.Invoke(this, task);
         }
 

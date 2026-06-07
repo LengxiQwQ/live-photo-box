@@ -42,16 +42,7 @@ namespace LivePhotoBox.Services
 
         public static void Preload(IEnumerable<string> imagePaths, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
-            dispatcher ??= Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-            if (dispatcher == null)
-            {
-                return;
-            }
-
-            foreach (var imagePath in imagePaths.Where(static path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase))
-            {
-                _ = LoadAsync(imagePath, dispatcher);
-            }
+            // 完美移除：这里由于原有机制不带取消令牌，快速滑动时会产生大量的无法取消的僵尸任务。
         }
 
         private static async Task<ImageSource?> LoadCoreAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version, CancellationToken token)
@@ -65,7 +56,10 @@ namespace LivePhotoBox.Services
                     if (token.IsCancellationRequested) return null;
                     if (_thumbnailCache.TryGetValue(imagePath, out var cached)) return cached;
 
+                    // ✨ 修复 1：去掉 .AsTask(token)，避免强行中断 WinRT 导致 COM 异常
                     StorageFile file = await StorageFile.GetFileFromPathAsync(imagePath);
+                    if (token.IsCancellationRequested) return null;
+
                     thumbnail = await file.GetThumbnailAsync(ThumbnailMode.ListView, 80, ThumbnailOptions.UseCurrentScale);
                 }
                 finally
@@ -73,34 +67,53 @@ namespace LivePhotoBox.Services
                     _loadLimiter.Release();
                 }
 
-                if (thumbnail == null) return null;
+                if (thumbnail == null || token.IsCancellationRequested)
+                {
+                    thumbnail?.Dispose();
+                    return null;
+                }
 
                 var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                if (!dispatcher.TryEnqueue(async () =>
-                {
-                    try
-                    {
-                        using (thumbnail)
-                        {
-                            var bitmap = new BitmapImage();
-                            await bitmap.SetSourceAsync(thumbnail);
 
-                            if (version == Volatile.Read(ref _cacheVersion))
+                bool enqueued = dispatcher.TryEnqueue(() =>
+                {
+                    async Task SafeRenderAsync()
+                    {
+                        try
+                        {
+                            using (thumbnail)
                             {
-                                _thumbnailCache[imagePath] = bitmap;
-                                tcs.TrySetResult(bitmap);
-                            }
-                            else
-                            {
-                                tcs.TrySetResult(null);
+                                if (token.IsCancellationRequested)
+                                {
+                                    tcs.TrySetResult(null);
+                                    return;
+                                }
+
+                                var bitmap = new BitmapImage();
+                                // ✨ 修复 2：绝不可取消 SetSourceAsync！让 C++ 渲染引擎安全读完流，绝不会再报 0xc000027b
+                                await bitmap.SetSourceAsync(thumbnail);
+
+                                if (version == Volatile.Read(ref _cacheVersion) && !token.IsCancellationRequested)
+                                {
+                                    _thumbnailCache[imagePath] = bitmap;
+                                    tcs.TrySetResult(bitmap);
+                                }
+                                else
+                                {
+                                    tcs.TrySetResult(null);
+                                }
                             }
                         }
+                        catch
+                        {
+                            tcs.TrySetResult(null);
+                        }
                     }
-                    catch
-                    {
-                        tcs.TrySetResult(null);
-                    }
-                }))
+
+                    _ = SafeRenderAsync();
+                });
+
+                if (!enqueued)
                 {
                     thumbnail.Dispose();
                     tcs.TrySetResult(null);

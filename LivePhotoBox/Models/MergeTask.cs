@@ -1,10 +1,8 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
-using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using System;
 using System.IO;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox.Models
@@ -24,25 +22,52 @@ namespace LivePhotoBox.Models
         public long TotalSizeBytes { get; set; }
         public string BaseName { get; set; } = string.Empty;
 
-        private volatile int _thumbnailLoadState;
-        private ImageSource? _thumbnail;
+        public string DisplayImageName => TruncateFileName(ImageFileName);
+        public string DisplayVideoName => TruncateFileName(VideoFileName);
 
-        private int _thumbnailGeneration = 0;
-        private CancellationTokenSource? _thumbnailCts;
+        public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
+
+        // ==========================================
+        // ✨ 完全复刻：老版本的高性能极简懒加载
+        // ==========================================
+        private bool _isLoadingThumbnail = false;
+        private ImageSource? _thumbnail;
 
         public ImageSource? Thumbnail
         {
             get
             {
-                if (_thumbnail != null) return _thumbnail;
-                if (string.IsNullOrWhiteSpace(ImagePath)) return null;
-
-                if (ThumbnailService.GetCached(ImagePath) is { } cachedThumbnail)
+                // 当 UI 试图显示这个图片，且还没加载过时，触发此逻辑
+                if (_thumbnail == null && !_isLoadingThumbnail && !string.IsNullOrEmpty(ImagePath))
                 {
-                    _thumbnail = cachedThumbnail;
-                    return _thumbnail;
-                }
+                    _isLoadingThumbnail = true;
+                    var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
 
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(ImagePath);
+                            // 极速读取模式
+                            var thumb = await file.GetThumbnailAsync(Windows.Storage.FileProperties.ThumbnailMode.ListView, 80, Windows.Storage.FileProperties.ThumbnailOptions.UseCurrentScale);
+
+                            if (thumb != null && dispatcher != null)
+                            {
+                                dispatcher.TryEnqueue(async () =>
+                                {
+                                    try
+                                    {
+                                        var bitmap = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                                        await bitmap.SetSourceAsync(thumb);
+                                        Thumbnail = bitmap;
+                                    }
+                                    catch { }
+                                });
+                            }
+                        }
+                        catch { }
+                    });
+                }
                 return _thumbnail;
             }
             set
@@ -54,81 +79,23 @@ namespace LivePhotoBox.Models
             }
         }
 
-        public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
-
         partial void OnImagePathChanged(string value)
         {
-            CancelThumbnailLoad();
-            Thumbnail = ThumbnailService.GetCached(value);
-            OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
+            _isLoadingThumbnail = false;
+            Thumbnail = null;
+        }
+
+        // 兼容 ViewModel 的调用，但里面什么都不需要做了，全靠 Getter 触发！
+        public Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
+        {
+            var trigger = Thumbnail; // 触发一下 getter
+            return Task.CompletedTask;
         }
 
         public void CancelThumbnailLoad()
         {
-            Interlocked.Increment(ref _thumbnailGeneration);
-            if (_thumbnailCts != null)
-            {
-                try { _thumbnailCts.Cancel(); } catch { }
-                _thumbnailCts = null;
-            }
-
-            Interlocked.Exchange(ref _thumbnailLoadState, 0);
+            // 老版本没有取消，不取消才是最稳的！
         }
-
-        public Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null, bool forceLoad = false)
-        {
-            if (_thumbnail != null || string.IsNullOrWhiteSpace(ImagePath))
-            {
-                return Task.CompletedTask;
-            }
-
-            if (ThumbnailService.GetCached(ImagePath) is { } cachedThumbnail)
-            {
-                Thumbnail = cachedThumbnail;
-                return Task.CompletedTask;
-            }
-
-            if (Interlocked.CompareExchange(ref _thumbnailLoadState, 1, 0) != 0)
-            {
-                return Task.CompletedTask;
-            }
-
-            return EnsureThumbnailCoreAsync(dispatcher, forceLoad);
-        }
-
-        private async Task EnsureThumbnailCoreAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher, bool forceLoad)
-        {
-            int currentGen = Interlocked.Increment(ref _thumbnailGeneration);
-
-            var cts = new CancellationTokenSource();
-            _thumbnailCts = cts;
-            var token = cts.Token;
-
-            try
-            {
-                if (currentGen != _thumbnailGeneration || token.IsCancellationRequested) return;
-
-                dispatcher ??= App.MainWindow?.DispatcherQueue ?? Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-                var loadedThumbnail = await ThumbnailService.LoadAsync(ImagePath, dispatcher, forceLoad ? CancellationToken.None : token);
-
-                if (currentGen == _thumbnailGeneration && !token.IsCancellationRequested && loadedThumbnail != null)
-                {
-                    Thumbnail = loadedThumbnail;
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch { }
-            finally
-            {
-                if (currentGen == _thumbnailGeneration)
-                {
-                    Interlocked.Exchange(ref _thumbnailLoadState, 0);
-                }
-            }
-        }
-
-        public string DisplayImageName => TruncateFileName(ImageFileName);
-        public string DisplayVideoName => TruncateFileName(VideoFileName);
 
         private string TruncateFileName(string fileName)
         {

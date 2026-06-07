@@ -363,3 +363,7 @@ MigrationBackup/
 FodyWeavers.xsd
 
 
+/LivePhotoStudio/Tools/exiftool.exe
+/LivePhotoStudio/Tools/ffmpeg.exe
+/LivePhotoStudio/Tools/ffprobe.exe
+/LivePhotoStudio/Tools/jpegtran.exe

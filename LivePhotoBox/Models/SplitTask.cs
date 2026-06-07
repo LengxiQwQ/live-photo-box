@@ -113,17 +113,25 @@ namespace LivePhotoBox.Models
 
             try
             {
+                // ✨ 核心优化：滑动防抖 (Debounce)
+                if (!forceLoad)
+                {
+                    await Task.Delay(150, token).ConfigureAwait(false);
+                }
+
                 if (currentGen != _thumbnailGeneration || token.IsCancellationRequested) return;
 
                 dispatcher ??= App.MainWindow?.DispatcherQueue ?? Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-                var loadedThumbnail = await SplitThumbnailService.LoadAsync(SourcePath, dispatcher, forceLoad ? CancellationToken.None : token);
+
+                // 去掉了强行忽略令牌的 forceLoad ? CancellationToken.None : token
+                var loadedThumbnail = await SplitThumbnailService.LoadAsync(SourcePath, dispatcher, token);
 
                 if (currentGen == _thumbnailGeneration && !token.IsCancellationRequested && loadedThumbnail != null)
                 {
                     Thumbnail = loadedThumbnail;
                 }
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException) { /* 忽略正常的取消异常 */ }
             catch { }
             finally
             {
