@@ -18,6 +18,7 @@
 
     <Grid>
         <Grid Padding="24,24,24,40">
+
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -123,8 +124,8 @@
 
                     <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
                         <TextBlock FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}">
-                        <Run x:Uid="SplitPage_QueueProgress"/>
-                        <Run Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"/>
+                            <Run x:Uid="SplitPage_QueueProgress"/>
+                            <Run Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"/>
                         </TextBlock>
                         <ProgressBar Value="{x:Bind ViewModel.Progress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarForegroundConverter}, Mode=OneWay}" IsIndeterminate="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarIndeterminateConverter}, Mode=OneWay}" MaxWidth="400" HorizontalAlignment="Left"/>
                     </StackPanel>
@@ -179,7 +180,7 @@
 
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="models:SplitTask">
-                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6,10,6">
+                            <Border Height="66" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6,10,6">
                                 <Grid ColumnSpacing="0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="56"/>
@@ -201,11 +202,12 @@
                                     </Button>
 
                                     <Button x:Uid="SplitPage_TipApp" Grid.Column="2" Click="FileButton_Click" Tag="{x:Bind SourcePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" VerticalAlignment="Center" CornerRadius="4">
-                                        <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplaySourceFileName}"/>
+                                        <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplaySourceFileName}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
                                     </Button>
 
                                     <TextBlock Grid.Column="3" Text="{x:Bind FileSize}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                    <TextBlock Grid.Column="4" Text="{x:Bind DisplayStatus, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="3"/>
+
+                                    <TextBlock Grid.Column="4" Text="{x:Bind DisplayStatus, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
                                 </Grid>
                             </Border>
                         </DataTemplate>

@@ -1,8 +1,10 @@
 using LivePhotoBox.Services;
 using LivePhotoBox.Models;
 using LivePhotoBox.ViewModels;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Linq;
 using System.Threading.Tasks;
@@ -11,13 +13,22 @@ namespace LivePhotoBox.Views
 {
     public sealed partial class SplitPage : Page
     {
-        private const int BackwardPreloadRadius = 4;
-        private const int ForwardPreloadRadius = 14;
+        private const int BackwardPreloadRadius = 2;
+        private const int ForwardPreloadRadius = 5;
+
+        private static readonly TimeSpan AutoFollowDebounce = TimeSpan.FromMilliseconds(250);
+        private static readonly TimeSpan FinalBottomNudgeDelay = TimeSpan.FromMilliseconds(80);
 
         private int _lastRealizedItemIndex = -1;
         private int _preloadGeneration;
         private bool _isUnloaded;
         private bool _eventsHooked;
+
+        private bool _isAutoScrollScheduled;
+        private bool _hasPendingAutoScroll;
+        private int _pendingAutoScrollIndex = -1;
+        private int _lastAutoScrollIndex = -1;
+        private ScrollViewer? _taskListScrollViewer;
 
         public SplitViewModel ViewModel => AppViewModel.Instance.Split;
 
@@ -31,13 +42,14 @@ namespace LivePhotoBox.Views
         private void SplitPage_Loaded(object sender, RoutedEventArgs e)
         {
             _isUnloaded = false;
+            _taskListScrollViewer ??= FindDescendant<ScrollViewer>(SplitTaskListView);
 
             if (_eventsHooked)
             {
                 return;
             }
 
-            ViewModel.TaskCompletedForScroll += ViewModel_TaskCompletedForScroll;
+            ViewModel.TaskStartedForScroll += ViewModel_TaskStartedForScroll;
             ViewModel.ProcessingCompletedForScroll += ViewModel_ProcessingCompletedForScroll;
             _eventsHooked = true;
         }
@@ -45,50 +57,197 @@ namespace LivePhotoBox.Views
         private void SplitPage_Unloaded(object sender, RoutedEventArgs e)
         {
             _isUnloaded = true;
+            _hasPendingAutoScroll = false;
+            _pendingAutoScrollIndex = -1;
 
             if (!_eventsHooked)
             {
                 return;
             }
 
-            ViewModel.TaskCompletedForScroll -= ViewModel_TaskCompletedForScroll;
+            ViewModel.TaskStartedForScroll -= ViewModel_TaskStartedForScroll;
             ViewModel.ProcessingCompletedForScroll -= ViewModel_ProcessingCompletedForScroll;
             _eventsHooked = false;
         }
 
-        private void ViewModel_TaskCompletedForScroll(object? sender, SplitTask task)
+        private void ViewModel_TaskStartedForScroll(object? sender, SplitTask task)
         {
-            if (_isUnloaded || !ViewModel.IsProcessing)
+            int processingIndex = task.Index - 1;
+            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue, forceLoad: true);
+            ScheduleAutoScroll(processingIndex);
+        }
+
+        private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
+        {
+            var dispatcher = DispatcherQueue;
+            if (dispatcher == null || _isUnloaded)
             {
                 return;
             }
 
+            _ = SafeNudgeTaskListToBottomAsync(dispatcher);
+        }
+
+        private void ScheduleAutoScroll(int itemIndex)
+        {
+            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count || !ViewModel.IsProcessing)
+            {
+                return;
+            }
+
+            _pendingAutoScrollIndex = itemIndex;
+            _hasPendingAutoScroll = true;
+
+            if (_isAutoScrollScheduled)
+            {
+                return;
+            }
+
+            _isAutoScrollScheduled = true;
+            _ = RunAutoScrollAsync();
+        }
+
+        private async Task RunAutoScrollAsync()
+        {
             try
             {
-                SplitTaskListView.ScrollIntoView(task, ScrollIntoViewAlignment.Leading);
+                while (_hasPendingAutoScroll && !_isUnloaded)
+                {
+                    _hasPendingAutoScroll = false;
+                    await Task.Delay(AutoFollowDebounce).ConfigureAwait(false);
+
+                    int targetIndex = _pendingAutoScrollIndex;
+                    if (_isUnloaded || !ViewModel.IsProcessing || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count)
+                    {
+                        continue;
+                    }
+
+                    if (targetIndex == _lastAutoScrollIndex)
+                    {
+                        continue;
+                    }
+
+                    var dispatcher = DispatcherQueue;
+                    if (dispatcher == null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false);
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+            finally
+            {
+                _isAutoScrollScheduled = false;
+                if (_hasPendingAutoScroll && !_isUnloaded)
+                {
+                    _isAutoScrollScheduled = true;
+                    _ = RunAutoScrollAsync();
+                }
+            }
+        }
+
+        private async Task SafeNudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
+        {
+            try
+            {
+                await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false);
             }
             catch
             {
             }
         }
 
-        private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
+        private async Task NudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
         {
-            if (_isUnloaded)
+            await Task.Delay(FinalBottomNudgeDelay).ConfigureAwait(false);
+
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            if (!dispatcher.TryEnqueue(() =>
             {
-                return;
+                try
+                {
+                    if (_isUnloaded)
+                    {
+                        tcs.TrySetResult();
+                        return;
+                    }
+
+                    _taskListScrollViewer ??= FindDescendant<ScrollViewer>(SplitTaskListView);
+                    _taskListScrollViewer?.ChangeView(null, _taskListScrollViewer.ScrollableHeight, null, true);
+                    tcs.TrySetResult();
+                }
+                catch
+                {
+                    tcs.TrySetResult();
+                }
+            }))
+            {
+                tcs.TrySetResult();
             }
 
-            try
+            await tcs.Task.ConfigureAwait(false);
+        }
+
+        private Task EnqueueScrollIntoViewAsync(DispatcherQueue dispatcher, int targetIndex)
+        {
+            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            if (!dispatcher.TryEnqueue(() =>
             {
-                if (ViewModel.Tasks.Count > 0)
+                try
                 {
-                    SplitTaskListView.ScrollIntoView(ViewModel.Tasks[^1], ScrollIntoViewAlignment.Leading);
+                    if (_isUnloaded || !ViewModel.IsProcessing || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count)
+                    {
+                        tcs.TrySetResult();
+                        return;
+                    }
+
+                    var targetTask = ViewModel.Tasks[targetIndex];
+
+                    SplitTaskListView.ScrollIntoView(targetTask, ScrollIntoViewAlignment.Default);
+
+                    _lastAutoScrollIndex = targetIndex;
+                    tcs.TrySetResult();
+                }
+                catch
+                {
+                    tcs.TrySetResult();
+                }
+            }))
+            {
+                tcs.TrySetResult();
+            }
+
+            return tcs.Task;
+        }
+
+        private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
+        {
+            int childCount = VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < childCount; i++)
+            {
+                DependencyObject child = VisualTreeHelper.GetChild(root, i);
+                if (child is T match)
+                {
+                    return match;
+                }
+
+                T? nested = FindDescendant<T>(child);
+                if (nested is not null)
+                {
+                    return nested;
                 }
             }
-            catch
-            {
-            }
+
+            return null;
         }
 
         private void DirectoryBox_GotFocus(object sender, RoutedEventArgs e)

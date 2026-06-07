@@ -81,7 +81,6 @@ namespace LivePhotoBox.ViewModels
             SetStatus("SplitPage_Status_Ready");
             SelectedFormatIndex = AppSettingsService.GetValue(nameof(SelectedFormatIndex), 0);
 
-            // 初始化 UI 节流 Timer，约 16fps (60ms) 更新一次进度条
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
         }
@@ -126,7 +125,6 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
 
-            // 开始更新进度条
             _uiUpdateTimer.Start();
         }
 
@@ -142,7 +140,6 @@ namespace LivePhotoBox.ViewModels
             {
                 _splitDone = true;
 
-                // 强制最后一次 100% 同步
                 if (QueuedCount > 0)
                 {
                     Progress = (_completedTasksCount * 100.0) / QueuedCount;
@@ -193,7 +190,6 @@ namespace LivePhotoBox.ViewModels
         private bool _splitStoppedByUser;
         private bool _splitDone;
 
-        // 【新增 UI 节流 Timer 与原子进度计数器】
         private readonly DispatcherTimer _uiUpdateTimer;
         private volatile int _completedTasksCount;
 
@@ -214,11 +210,9 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
-        // 【新增】：用于 Split 页保守跟随滚动（每完成一批再滚动）
-        public event EventHandler<SplitTask>? TaskCompletedForScroll;
+        public event EventHandler<SplitTask>? TaskStartedForScroll;
         public event EventHandler? ProcessingCompletedForScroll;
 
-        // 定时拉取进度并更新 UI (解决卡死)
         private void UiUpdateTimer_Tick(object? sender, object e)
         {
             if (QueuedCount == 0) return;
@@ -466,8 +460,13 @@ namespace LivePhotoBox.ViewModels
                 {
                     var tasksToProcess = Tasks.ToList();
 
+                    // 【核心修复】：准备一个计时器用于限速
+                    var loopDelaySw = new Stopwatch();
+
                     foreach (var task in tasksToProcess)
                     {
+                        loopDelaySw.Restart();
+
                         if (task.Status == ProcessStatus.Success)
                             continue;
 
@@ -498,9 +497,18 @@ namespace LivePhotoBox.ViewModels
                             detailMessage = ResourceService.Format("Task_Error", ex.Message);
                         }
 
-                        // 先原子化更新数量供 Timer 使用
                         _completedTasksCount++;
                         App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage, _completedTasksCount));
+
+                        // 【核心修复】：为极速的 Split 任务强制加上最低延迟，给 UI 喘息时间防止洪水崩溃
+                        loopDelaySw.Stop();
+                        long elapsed = loopDelaySw.ElapsedMilliseconds;
+                        int minTaskMs = 150; // 强制每个任务至少耗时 150 毫秒（即每秒最多跑 6~7 个）
+                        if (elapsed < minTaskMs)
+                        {
+                            try { await Task.Delay((int)(minTaskMs - elapsed), token); }
+                            catch (TaskCanceledException) { throw new OperationCanceledException(); }
+                        }
                     }
                 });
             }
@@ -526,19 +534,15 @@ namespace LivePhotoBox.ViewModels
             task.Details = ResourceService.GetString("SplitPage_Task_Processing");
 
             _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue, forceLoad: true);
+
+            TaskStartedForScroll?.Invoke(this, task);
         }
 
         private void UpdateTaskCompleted(SplitTask task, bool isSuccess, string detailMessage, int completedCount)
         {
-            // UI 线程中只更新单条 Item 属性即可，全局进度和文本交给 Timer
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.ProgressText = isSuccess ? "100%" : "0%";
             task.Details = detailMessage;
-
-            if (completedCount > 0 && completedCount < Tasks.Count && completedCount % 6 == 0)
-            {
-                TaskCompletedForScroll?.Invoke(this, task);
-            }
 
             if (completedCount >= Tasks.Count && Tasks.Count > 0)
             {
