@@ -139,7 +139,7 @@
 
                             <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <TextBlock x:Uid="ComboPage_ProtocolLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                <ComboBox Width="260" SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}">
+                                <ComboBox Width="260" SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}">
                                     <ComboBoxItem x:Uid="SettingsPage_Protocol_V1"/>
                                     <ComboBoxItem x:Uid="SettingsPage_Protocol_V2"/>
                                 </ComboBox>
@@ -205,8 +205,8 @@
 
                             <TextBlock x:Uid="ComboPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                             <TextBlock x:Uid="ComboPage_ColFile" Grid.Column="1" Grid.ColumnSpan="2" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="ComboPage_ColSize" Grid.Column="3" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="ComboPage_ColStatus" Grid.Column="4" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="ComboPage_ColSize" Grid.Column="3" Margin="14,0,0,0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="ComboPage_ColStatus" Grid.Column="4" Margin="32,0,0,0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                         </Grid>
                     </ListView.Header>
 
@@ -246,23 +246,23 @@
                                         <Button x:Uid="ComboPage_TipApp" Click="FileGroupButton_Click" Tag="{x:Bind ImagePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
                                             <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
                                                 <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
-                                                <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}"/>
+                                                <TextBlock FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}"/>
                                             </StackPanel>
                                         </Button>
                                         <Button x:Uid="ComboPage_TipApp" Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
                                             <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
                                                 <FontIcon Glyph="&#xE714;" Foreground="#A855F7" FontSize="14" VerticalAlignment="Center"/>
-                                                <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayVideoName}"/>
+                                                <TextBlock FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center" Text="{x:Bind DisplayVideoName}"/>
                                             </StackPanel>
                                         </Button>
                                     </StackPanel>
 
-                                    <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="4">
+                                    <StackPanel Grid.Column="3" Margin="14,0,0,0" VerticalAlignment="Center" Spacing="4">
                                         <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind ImageSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,2,0,0"/>
                                         <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind VideoSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                     </StackPanel>
 
-                                    <TextBlock Grid.Column="4" Text="{x:Bind Details, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="3" />
+                                    <TextBlock Grid.Column="4" Margin="32,0,0,0" Text="{x:Bind Details, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="3" />
                                 </Grid>
                             </Border>
                         </DataTemplate>

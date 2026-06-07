@@ -2,6 +2,7 @@ using LivePhotoBox.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -11,9 +12,8 @@ namespace LivePhotoBox.Services
     {
         public required string OutputDirectory { get; init; }
         public required int SelectedModeIndex { get; init; }
-
-        // 【最核心的稳定锁】：限制并发最多5个，给自动追踪和图片加载留出带宽！
         public int MaxDegreeOfParallelism { get; init; } = Math.Min(Environment.ProcessorCount, 5);
+        public TimeSpan TaskStartInterval { get; init; } = TimeSpan.FromMilliseconds(250);
     }
 
     public static class LivePhotoBatchRunnerService
@@ -29,25 +29,37 @@ namespace LivePhotoBox.Services
             Directory.CreateDirectory(options.OutputDirectory);
 
             int completedCount = 0;
-            var parallelOptions = new ParallelOptions
+            DateTimeOffset nextAllowedBatchStartTime = DateTimeOffset.MinValue;
+            int batchSize = Math.Max(1, options.MaxDegreeOfParallelism);
+
+            foreach (var batch in tasks.Where(task => task.Status != ProcessStatus.Success).Chunk(batchSize))
             {
-                MaxDegreeOfParallelism = options.MaxDegreeOfParallelism,
-                CancellationToken = cancellationToken
-            };
+                pauseEvent.Wait(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
 
-            await Parallel.ForEachAsync(tasks, parallelOptions, async (task, token) =>
-            {
-                if (task.Status == ProcessStatus.Success) return;
+                var now = DateTimeOffset.UtcNow;
+                var delay = nextAllowedBatchStartTime - now;
+                if (delay > TimeSpan.Zero)
+                {
+                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                }
 
-                pauseEvent.Wait(token);
-                token.ThrowIfCancellationRequested();
+                nextAllowedBatchStartTime = DateTimeOffset.UtcNow + options.TaskStartInterval;
 
-                onTaskStarted?.Invoke(task);
+                var runningTasks = batch.Select(async task =>
+                {
+                    pauseEvent.Wait(cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
 
-                var result = await ProcessSinglePairAsync(task.ImagePath, task.VideoPath, task.BaseName, options, token);
-                int currentCompleted = Interlocked.Increment(ref completedCount);
-                onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
-            });
+                    onTaskStarted?.Invoke(task);
+
+                    var result = await ProcessSinglePairAsync(task.ImagePath, task.VideoPath, task.BaseName, options, cancellationToken).ConfigureAwait(false);
+                    int currentCompleted = Interlocked.Increment(ref completedCount);
+                    onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
+                });
+
+                await Task.WhenAll(runningTasks).ConfigureAwait(false);
+            }
         }
 
         private static async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
@@ -70,7 +82,7 @@ namespace LivePhotoBox.Services
             }
             catch (OperationCanceledException)
             {
-                throw; // 允许线程池正常取消
+                throw;
             }
             catch (Exception ex)
             {

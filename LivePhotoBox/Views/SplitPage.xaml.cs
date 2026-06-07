@@ -1,33 +1,26 @@
-using LivePhotoBox.Services;
 using LivePhotoBox.Models;
+using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System;
-using System.Linq;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox.Views
 {
     public sealed partial class SplitPage : Page
     {
-        private const int BackwardPreloadRadius = 2;
-        private const int ForwardPreloadRadius = 5;
-
-        private static readonly TimeSpan AutoFollowDebounce = TimeSpan.FromMilliseconds(250);
+        private static readonly TimeSpan AutoFollowDebounce = TimeSpan.FromMilliseconds(120);
         private static readonly TimeSpan FinalBottomNudgeDelay = TimeSpan.FromMilliseconds(80);
-
-        private int _lastRealizedItemIndex = -1;
-        private int _preloadGeneration;
-        private bool _isUnloaded;
-        private bool _eventsHooked;
 
         private bool _isAutoScrollScheduled;
         private bool _hasPendingAutoScroll;
         private int _pendingAutoScrollIndex = -1;
         private int _lastAutoScrollIndex = -1;
+        private bool _isUnloaded;
+        private bool _eventsHooked;
         private ScrollViewer? _taskListScrollViewer;
 
         public SplitViewModel ViewModel => AppViewModel.Instance.Split;
@@ -44,10 +37,7 @@ namespace LivePhotoBox.Views
             _isUnloaded = false;
             _taskListScrollViewer ??= FindDescendant<ScrollViewer>(SplitTaskListView);
 
-            if (_eventsHooked)
-            {
-                return;
-            }
+            if (_eventsHooked) return;
 
             ViewModel.TaskStartedForScroll += ViewModel_TaskStartedForScroll;
             ViewModel.ProcessingCompletedForScroll += ViewModel_ProcessingCompletedForScroll;
@@ -60,10 +50,7 @@ namespace LivePhotoBox.Views
             _hasPendingAutoScroll = false;
             _pendingAutoScrollIndex = -1;
 
-            if (!_eventsHooked)
-            {
-                return;
-            }
+            if (!_eventsHooked) return;
 
             ViewModel.TaskStartedForScroll -= ViewModel_TaskStartedForScroll;
             ViewModel.ProcessingCompletedForScroll -= ViewModel_ProcessingCompletedForScroll;
@@ -72,39 +59,45 @@ namespace LivePhotoBox.Views
 
         private void ViewModel_TaskStartedForScroll(object? sender, SplitTask task)
         {
-            int processingIndex = task.Index - 1;
-            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue, forceLoad: true);
-            ScheduleAutoScroll(processingIndex);
+            int taskIndex = task.Index - 1;
+            int autoScrollStep = GetAutoScrollStep();
+            if (taskIndex < autoScrollStep)
+            {
+                return;
+            }
+
+            bool shouldAdvanceWindow = (taskIndex - autoScrollStep) % autoScrollStep == 0;
+            bool isLastTask = task.Index >= ViewModel.Tasks.Count;
+            if (!shouldAdvanceWindow && !isLastTask)
+            {
+                return;
+            }
+
+            int targetIndex = Math.Min(taskIndex, ViewModel.Tasks.Count - 1);
+            ScheduleAutoScroll(targetIndex);
         }
 
         private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
         {
             var dispatcher = DispatcherQueue;
-            if (dispatcher == null || _isUnloaded)
+            if (dispatcher != null && !_isUnloaded)
             {
-                return;
+                _ = SafeNudgeTaskListToBottomAsync(dispatcher);
             }
-
-            _ = SafeNudgeTaskListToBottomAsync(dispatcher);
         }
 
         private void ScheduleAutoScroll(int itemIndex)
         {
-            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count || !ViewModel.IsProcessing)
-            {
-                return;
-            }
+            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count || !ViewModel.IsProcessing) return;
 
             _pendingAutoScrollIndex = itemIndex;
             _hasPendingAutoScroll = true;
 
-            if (_isAutoScrollScheduled)
+            if (!_isAutoScrollScheduled)
             {
-                return;
+                _isAutoScrollScheduled = true;
+                _ = RunAutoScrollAsync();
             }
-
-            _isAutoScrollScheduled = true;
-            _ = RunAutoScrollAsync();
         }
 
         private async Task RunAutoScrollAsync()
@@ -117,28 +110,15 @@ namespace LivePhotoBox.Views
                     await Task.Delay(AutoFollowDebounce).ConfigureAwait(false);
 
                     int targetIndex = _pendingAutoScrollIndex;
-                    if (_isUnloaded || !ViewModel.IsProcessing || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count)
-                    {
-                        continue;
-                    }
-
-                    if (targetIndex == _lastAutoScrollIndex)
+                    if (_isUnloaded || !ViewModel.IsProcessing || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count || targetIndex == _lastAutoScrollIndex)
                     {
                         continue;
                     }
 
                     var dispatcher = DispatcherQueue;
-                    if (dispatcher == null)
+                    if (dispatcher != null)
                     {
-                        continue;
-                    }
-
-                    try
-                    {
-                        await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false);
-                    }
-                    catch
-                    {
+                        try { await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false); } catch { }
                     }
                 }
             }
@@ -155,44 +135,30 @@ namespace LivePhotoBox.Views
 
         private async Task SafeNudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
         {
-            try
-            {
-                await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false);
-            }
-            catch
-            {
-            }
+            try { await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false); } catch { }
         }
 
         private async Task NudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
         {
             await Task.Delay(FinalBottomNudgeDelay).ConfigureAwait(false);
-
             var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
             if (!dispatcher.TryEnqueue(() =>
             {
                 try
                 {
-                    if (_isUnloaded)
+                    if (!_isUnloaded)
                     {
-                        tcs.TrySetResult();
-                        return;
+                        _taskListScrollViewer ??= FindDescendant<ScrollViewer>(SplitTaskListView);
+                        _taskListScrollViewer?.ChangeView(null, _taskListScrollViewer.ScrollableHeight, null, true);
                     }
-
-                    _taskListScrollViewer ??= FindDescendant<ScrollViewer>(SplitTaskListView);
-                    _taskListScrollViewer?.ChangeView(null, _taskListScrollViewer.ScrollableHeight, null, true);
                     tcs.TrySetResult();
                 }
-                catch
-                {
-                    tcs.TrySetResult();
-                }
+                catch { tcs.TrySetResult(); }
             }))
             {
                 tcs.TrySetResult();
             }
-
             await tcs.Task.ConfigureAwait(false);
         }
 
@@ -204,29 +170,37 @@ namespace LivePhotoBox.Views
             {
                 try
                 {
-                    if (_isUnloaded || !ViewModel.IsProcessing || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count)
+                    if (!_isUnloaded && ViewModel.IsProcessing && targetIndex >= 0 && targetIndex < ViewModel.Tasks.Count)
                     {
-                        tcs.TrySetResult();
-                        return;
+                        var targetTask = ViewModel.Tasks[targetIndex];
+                        SplitTaskListView.ScrollIntoView(targetTask, ScrollIntoViewAlignment.Leading);
+                        _lastAutoScrollIndex = targetIndex;
                     }
-
-                    var targetTask = ViewModel.Tasks[targetIndex];
-
-                    SplitTaskListView.ScrollIntoView(targetTask, ScrollIntoViewAlignment.Default);
-
-                    _lastAutoScrollIndex = targetIndex;
                     tcs.TrySetResult();
                 }
-                catch
-                {
-                    tcs.TrySetResult();
-                }
+                catch { tcs.TrySetResult(); }
             }))
             {
                 tcs.TrySetResult();
             }
-
             return tcs.Task;
+        }
+
+        private int GetAutoScrollStep()
+        {
+            double viewportHeight = SplitTaskListView.ActualHeight;
+            if (viewportHeight <= 0)
+            {
+                return 5;
+            }
+
+            if (SplitTaskListView.ContainerFromIndex(0) is not ListViewItem firstItem || firstItem.ActualHeight <= 0)
+            {
+                return 5;
+            }
+
+            int visibleCount = Math.Max(1, (int)Math.Floor(viewportHeight / firstItem.ActualHeight));
+            return Math.Max(1, visibleCount - 1);
         }
 
         private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
@@ -235,143 +209,44 @@ namespace LivePhotoBox.Views
             for (int i = 0; i < childCount; i++)
             {
                 DependencyObject child = VisualTreeHelper.GetChild(root, i);
-                if (child is T match)
-                {
-                    return match;
-                }
-
+                if (child is T match) return match;
                 T? nested = FindDescendant<T>(child);
-                if (nested is not null)
-                {
-                    return nested;
-                }
+                if (nested is not null) return nested;
             }
-
             return null;
         }
 
         private void DirectoryBox_GotFocus(object sender, RoutedEventArgs e)
         {
-            if (sender is TextBox textBox)
-            {
-                textBox.Text = string.Empty;
-            }
+            if (sender is TextBox textBox) textBox.Text = string.Empty;
         }
 
         private async void BrowseInput_Click(object sender, RoutedEventArgs e)
         {
             var folder = await FilePickerService.PickFolderAsync();
-            if (folder != null)
-            {
-                ViewModel.InputDirectory = folder.Path;
-            }
+            if (folder != null) ViewModel.InputDirectory = folder.Path;
         }
 
         private async void BrowseOutput_Click(object sender, RoutedEventArgs e)
         {
             var folder = await FilePickerService.PickFolderAsync();
-            if (folder != null)
-            {
-                ViewModel.OutputDirectory = folder.Path;
-            }
+            if (folder != null) ViewModel.OutputDirectory = folder.Path;
         }
 
         private async void FileButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path))
-            {
-                return;
-            }
-
-            try
-            {
-                await FilePickerService.OpenFileAsync(path);
-            }
-            catch
-            {
-            }
+            if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
+            try { await FilePickerService.OpenFileAsync(path); } catch { }
         }
 
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path))
-            {
-                return;
-            }
-
-            try
-            {
-                FilePickerService.RevealInExplorer(path);
-            }
-            catch
-            {
-            }
+            if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
+            try { FilePickerService.RevealInExplorer(path); } catch { }
         }
 
         private void SplitTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
-            if (args.Item is not SplitTask task) return;
-
-            if (args.InRecycleQueue)
-            {
-                task.CancelThumbnailLoad();
-                return;
-            }
-
-            if (args.Phase == 0)
-            {
-                args.RegisterUpdateCallback(SplitTaskListView_ContainerContentChanging);
-                args.Handled = true;
-                return;
-            }
-
-            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue, forceLoad: ViewModel.IsProcessing);
-
-            if (!ViewModel.IsProcessing)
-            {
-                _ = PreloadNeighborThumbnailsSafeAsync(args.ItemIndex);
-            }
-        }
-
-        private async Task PreloadNeighborThumbnailsSafeAsync(int centerIndex)
-        {
-            try
-            {
-                if (ViewModel.Tasks.Count == 0 || ViewModel.IsProcessing) return;
-
-                int generation = ++_preloadGeneration;
-                await Task.Delay(40).ConfigureAwait(false);
-                if (generation != _preloadGeneration || ViewModel.Tasks.Count == 0 || _isUnloaded || ViewModel.IsProcessing) return;
-
-                bool isScrollingBackward = _lastRealizedItemIndex >= 0 && centerIndex < _lastRealizedItemIndex;
-                int startIndex;
-                int endIndex;
-
-                if (isScrollingBackward)
-                {
-                    startIndex = Math.Max(0, centerIndex - ForwardPreloadRadius);
-                    endIndex = Math.Min(ViewModel.Tasks.Count - 1, centerIndex + BackwardPreloadRadius);
-                }
-                else
-                {
-                    startIndex = Math.Max(0, centerIndex - BackwardPreloadRadius);
-                    endIndex = Math.Min(ViewModel.Tasks.Count - 1, centerIndex + ForwardPreloadRadius);
-                }
-
-                _lastRealizedItemIndex = centerIndex;
-
-                SplitThumbnailService.Preload(
-                    ViewModel.Tasks
-                        .Skip(startIndex)
-                        .Take(endIndex - startIndex + 1)
-                        .Where(task => task.Index != centerIndex + 1)
-                        .Where(task => task.Thumbnail is null)
-                        .Select(task => task.SourcePath),
-                    App.MainWindow?.DispatcherQueue);
-            }
-            catch
-            {
-            }
         }
     }
 }

@@ -6,6 +6,7 @@ using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -16,12 +17,14 @@ namespace LivePhotoBox.ViewModels
 {
     public partial class ComboViewModel : WorkViewModelBase
     {
+        private static readonly TimeSpan MinimumProcessingDisplayDuration = TimeSpan.FromMilliseconds(100);
+
         private string _hwEncoderName = "Software CPU";
         private Stopwatch _stopwatch = new();
         private bool _comboStoppedByUser;
         private bool _comboDone;
+        private readonly Dictionary<MergeTask, DateTimeOffset> _taskProcessingStartTimes = new();
 
-        // 【新增 UI 节流 Timer 与原子进度计数器】
         private readonly DispatcherTimer _uiUpdateTimer;
         private volatile int _completedTasksCount;
 
@@ -89,8 +92,6 @@ namespace LivePhotoBox.ViewModels
         public ComboViewModel()
         {
             SetStatus("Status_Init");
-
-            // 初始化 UI 节流 Timer，约 16fps (60ms) 更新一次进度条
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
         }
@@ -109,6 +110,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         public override bool IsProcessingAllowed => !IsScanning;
+        public bool CanEditSelectedMode => !IsScanning && !IsProcessing;
 
         protected override void OnScanStateChanged(bool isScanning)
         {
@@ -135,7 +137,6 @@ namespace LivePhotoBox.ViewModels
             base.OnScanningEnded();
         }
 
-        // 定时拉取进度并更新 UI (解决卡死)
         private void UiUpdateTimer_Tick(object? sender, object e)
         {
             if (TotalPairsCount == 0) return;
@@ -154,17 +155,18 @@ namespace LivePhotoBox.ViewModels
             ComboProgress = 0;
             Progress = 0;
             ProgressText = $"0/{TotalPairsCount}";
+            _taskProcessingStartTimes.Clear();
             SetStatus("Status_Running");
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
-
-            // 开始更新进度条
+            OnPropertyChanged(nameof(CanEditSelectedMode));
             _uiUpdateTimer.Start();
         }
 
         protected override void OnFinalizeRunState()
         {
             _uiUpdateTimer.Stop();
+            _taskProcessingStartTimes.Clear();
 
             if (_cancelledByUser)
             {
@@ -174,7 +176,6 @@ namespace LivePhotoBox.ViewModels
             {
                 _comboDone = true;
 
-                // 强制最后一次 100% 同步
                 if (TotalPairsCount > 0)
                 {
                     ComboProgress = (_completedTasksCount * 100.0) / TotalPairsCount;
@@ -191,6 +192,7 @@ namespace LivePhotoBox.ViewModels
             }
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
+            OnPropertyChanged(nameof(CanEditSelectedMode));
         }
 
         protected override void OnClearState()
@@ -206,10 +208,12 @@ namespace LivePhotoBox.ViewModels
             ProgressText = "0/0";
             _comboStoppedByUser = false;
             _comboDone = false;
+            _taskProcessingStartTimes.Clear();
             SetStatus("Status_Cleared", _hwEncoderName);
             IsDirectoryPanelOpen = true;
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
+            OnPropertyChanged(nameof(CanEditSelectedMode));
         }
 
         [RelayCommand(AllowConcurrentExecutions = true)]
@@ -320,6 +324,7 @@ namespace LivePhotoBox.ViewModels
                     Progress = 0;
                     ProgressText = "0/0";
                     OnPropertyChanged(nameof(IsProcessingAllowed));
+                    OnPropertyChanged(nameof(CanEditSelectedMode));
                 });
 
                 AppViewModel.Instance.ResetFooterScanCounters();
@@ -334,6 +339,7 @@ namespace LivePhotoBox.ViewModels
                 IsScanning = false;
                 OnScanningEnded();
                 NotifyStatusChanged();
+                OnPropertyChanged(nameof(CanEditSelectedMode));
             }
         }
 
@@ -410,13 +416,19 @@ namespace LivePhotoBox.ViewModels
             {
                 var dialog = new ContentDialog
                 {
-                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ComboAlreadyDone"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    Title = ResourceService.GetString("Msg_ComboCompletedTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ComboCompletedDescription"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
+                    DefaultButton = ContentDialogButton.Primary,
                     XamlRoot = App.MainWindow.Content.XamlRoot
                 };
-                await dialog.ShowAsync();
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    await OpenComboOutputFolderAsync();
+                }
             }
         }
 
@@ -457,10 +469,10 @@ namespace LivePhotoBox.ViewModels
                     PauseEvent,
                     token,
                     task => App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task)),
-                    (task, isSuccess, detailMessage, completedCount) =>
+                    async (task, isSuccess, detailMessage, completedCount) =>
                     {
-                        // 先原子化更新数量供 Timer 使用
                         _completedTasksCount = completedCount;
+                        await EnsureMinimumProcessingDisplayAsync(task).ConfigureAwait(false);
                         App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage));
                     });
             }
@@ -479,7 +491,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 【新增】：通知 UI 平滑追踪滚动的事件
         public event EventHandler<MergeTask>? TaskStartedForScroll;
         public event EventHandler? ProcessingCompletedForScroll;
 
@@ -487,21 +498,34 @@ namespace LivePhotoBox.ViewModels
         {
             task.Status = ProcessStatus.Processing;
             task.Details = ResourceService.GetString("Task_Processing");
-
-            // 修复报错：直接去掉 forceLoad: true，使用我们精简后的新方法
+            _taskProcessingStartTimes[task] = DateTimeOffset.UtcNow;
             _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue);
             TaskStartedForScroll?.Invoke(this, task);
         }
 
         private void UpdateTaskCompleted(MergeTask task, bool isSuccess, string detailMessage)
         {
-            // UI 线程中只更新单条 Item 属性即可，全局进度和文本交给 Timer
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.Details = detailMessage;
+            _taskProcessingStartTimes.Remove(task);
 
             if (_completedTasksCount >= Tasks.Count && Tasks.Count > 0)
             {
                 ProcessingCompletedForScroll?.Invoke(this, EventArgs.Empty);
+            }
+        }
+
+        private async Task EnsureMinimumProcessingDisplayAsync(MergeTask task)
+        {
+            if (!_taskProcessingStartTimes.TryGetValue(task, out var startedAt))
+            {
+                return;
+            }
+
+            var remaining = MinimumProcessingDisplayDuration - (DateTimeOffset.UtcNow - startedAt);
+            if (remaining > TimeSpan.Zero)
+            {
+                await Task.Delay(remaining).ConfigureAwait(false);
             }
         }
 
@@ -531,6 +555,8 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex) { AppLogService.Combo($"OpenComboOutput error: {ex.Message}", LogLevel.Error, ex); }
         }
+
+        public new void Cleanup() => CleanupTokens();
 
         private static string FormatFileSize(long bytes)
         {

@@ -59,6 +59,7 @@ namespace LivePhotoBox.ViewModels
             : ResourceService.GetString("SplitPage_DynamicScanText");
 
         public bool CanClickScanButton => !IsProcessing;
+        public bool CanEditSelectedFormat => !IsScanning && !IsProcessing;
 
         public BulkObservableCollection<SplitTask> Tasks { get; } = [];
 
@@ -124,6 +125,8 @@ namespace LivePhotoBox.ViewModels
             SetStatus("SplitPage_Status_Running");
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
+            OnPropertyChanged(nameof(CanClickScanButton));
+            OnPropertyChanged(nameof(CanEditSelectedFormat));
 
             _uiUpdateTimer.Start();
         }
@@ -155,12 +158,14 @@ namespace LivePhotoBox.ViewModels
             }
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
+            OnPropertyChanged(nameof(CanClickScanButton));
+            OnPropertyChanged(nameof(CanEditSelectedFormat));
         }
 
         protected override void OnClearState()
         {
             Tasks.ReplaceRange([]);
-            SplitThumbnailService.ClearCache();
+            ThumbnailService.ClearCache();
             QueuedCount = 0;
             RecognizedCount = 0;
             SkippedCount = 0;
@@ -173,6 +178,8 @@ namespace LivePhotoBox.ViewModels
             IsDirectoryPanelOpen = true;
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
+            OnPropertyChanged(nameof(CanClickScanButton));
+            OnPropertyChanged(nameof(CanEditSelectedFormat));
         }
 
         protected override void OnScanningEnded()
@@ -265,7 +272,7 @@ namespace LivePhotoBox.ViewModels
 
             try
             {
-                SplitThumbnailService.ClearCache();
+                ThumbnailService.ClearCache();
                 var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
                 var scanProgress = CreateScanProgressReporter();
 
@@ -319,13 +326,15 @@ namespace LivePhotoBox.ViewModels
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {
                     Tasks.ReplaceRange([]);
-                    SplitThumbnailService.ClearCache();
+                    ThumbnailService.ClearCache();
                     QueuedCount = 0;
                     RecognizedCount = 0;
                     SkippedCount = 0;
                     Progress = 0;
                     ProgressText = "0/0";
                     OnPropertyChanged(nameof(IsProcessingAllowed));
+                    OnPropertyChanged(nameof(CanClickScanButton));
+                    OnPropertyChanged(nameof(CanEditSelectedFormat));
                 });
 
                 AppViewModel.Instance.ResetFooterScanCounters();
@@ -340,6 +349,8 @@ namespace LivePhotoBox.ViewModels
                 IsScanning = false;
                 OnScanningEnded();
                 NotifyStatusChanged();
+                OnPropertyChanged(nameof(CanClickScanButton));
+                OnPropertyChanged(nameof(CanEditSelectedFormat));
             }
         }
 
@@ -419,13 +430,19 @@ namespace LivePhotoBox.ViewModels
             {
                 var dialog = new ContentDialog
                 {
-                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_SplitAlreadyDone"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    Title = ResourceService.GetString("Msg_SplitCompletedTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_SplitCompletedDescription"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
+                    DefaultButton = ContentDialogButton.Primary,
                     XamlRoot = App.MainWindow.Content.XamlRoot
                 };
-                await dialog.ShowAsync();
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    OpenSplitOutputFolder();
+                }
             }
         }
 
@@ -533,7 +550,7 @@ namespace LivePhotoBox.ViewModels
             task.ProgressText = "0%";
             task.Details = ResourceService.GetString("SplitPage_Task_Processing");
 
-            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue, forceLoad: true);
+            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue);
 
             TaskStartedForScroll?.Invoke(this, task);
         }

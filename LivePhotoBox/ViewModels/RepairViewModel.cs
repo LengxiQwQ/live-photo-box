@@ -25,6 +25,7 @@ namespace LivePhotoBox.ViewModels
         partial void OnInputDirectoryChanged(string value)
         {
             _openRepairInputFolderCommand?.NotifyCanExecuteChanged();
+            _openRepairOutputFolderCommand?.NotifyCanExecuteChanged();
             OutputDirectory = string.Empty;
 
             if (!string.IsNullOrWhiteSpace(value) && Directory.Exists(value))
@@ -47,6 +48,8 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnIsOutputToDirectoryChanged(bool value)
         {
+            _openRepairOutputFolderCommand?.NotifyCanExecuteChanged();
+
             if (value && string.IsNullOrWhiteSpace(OutputDirectory) && !string.IsNullOrWhiteSpace(InputDirectory) && Directory.Exists(InputDirectory))
             {
                 OutputDirectory = Path.Combine(InputDirectory, "Output_RepairedPhotos");
@@ -78,7 +81,7 @@ namespace LivePhotoBox.ViewModels
         private IRelayCommand? _openRepairOutputFolderCommand;
 
         public IAsyncRelayCommand OpenRepairInputFolderCommand => _openRepairInputFolderCommand ??= new AsyncRelayCommand(OpenRepairInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
-        public IRelayCommand OpenRepairOutputFolderCommand => _openRepairOutputFolderCommand ??= new RelayCommand(OpenRepairOutputFolder, () => !string.IsNullOrWhiteSpace(OutputDirectory));
+        public IRelayCommand OpenRepairOutputFolderCommand => _openRepairOutputFolderCommand ??= new RelayCommand(OpenRepairOutputFolder, CanOpenRepairOutputFolder);
 
         public RepairViewModel()
         {
@@ -194,13 +197,19 @@ namespace LivePhotoBox.ViewModels
             {
                 var dialog = new ContentDialog
                 {
-                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_RepairAlreadyDone"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    Title = ResourceService.GetString("Msg_RepairCompletedTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_RepairCompletedDescription"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
+                    DefaultButton = ContentDialogButton.Primary,
                     XamlRoot = App.MainWindow.Content.XamlRoot
                 };
-                await dialog.ShowAsync();
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    OpenRepairOutputFolder();
+                }
             }
         }
 
@@ -513,14 +522,26 @@ namespace LivePhotoBox.ViewModels
             catch (Exception ex) { AppLogService.Repair($"OpenRepairInput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
+        private bool CanOpenRepairOutputFolder()
+        {
+            var folderPath = GetRepairResultFolderPath();
+            return !string.IsNullOrWhiteSpace(folderPath);
+        }
+
+        private string GetRepairResultFolderPath()
+        {
+            return IsOutputToDirectory ? OutputDirectory : InputDirectory;
+        }
+
         private void OpenRepairOutputFolder()
         {
             try
             {
-                if (string.IsNullOrWhiteSpace(OutputDirectory)) return;
-                if (!Directory.Exists(OutputDirectory))
-                    Directory.CreateDirectory(OutputDirectory);
-                FilePickerService.OpenFolderInExplorer(OutputDirectory);
+                var folderPath = GetRepairResultFolderPath();
+                if (string.IsNullOrWhiteSpace(folderPath)) return;
+                if (!Directory.Exists(folderPath))
+                    Directory.CreateDirectory(folderPath);
+                FilePickerService.OpenFolderInExplorer(folderPath);
             }
             catch (Exception ex) { AppLogService.Repair($"OpenRepairOutput error: {ex.Message}", LogLevel.Error, ex); }
         }

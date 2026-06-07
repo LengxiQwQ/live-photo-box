@@ -12,16 +12,12 @@ namespace LivePhotoBox.Views
 {
     public sealed partial class ComboPage : Page
     {
-        private static readonly TimeSpan AutoFollowDebounce = TimeSpan.FromMilliseconds(120);
         private static readonly TimeSpan FinalBottomNudgeDelay = TimeSpan.FromMilliseconds(80);
 
-        private bool _isAutoScrollScheduled;
-        private bool _hasPendingAutoScroll;
-        private int _pendingAutoScrollIndex = -1;
-        private int _lastAutoScrollIndex = -1;
         private bool _isUnloaded;
         private bool _eventsHooked;
         private ScrollViewer? _taskListScrollViewer;
+        private int _lastAutoScrollIndex = -1;
 
         public ComboViewModel ViewModel => AppViewModel.Instance.Combo;
 
@@ -47,8 +43,7 @@ namespace LivePhotoBox.Views
         private void ComboPage_Unloaded(object sender, RoutedEventArgs e)
         {
             _isUnloaded = true;
-            _hasPendingAutoScroll = false;
-            _pendingAutoScrollIndex = -1;
+            _lastAutoScrollIndex = -1;
 
             if (!_eventsHooked) return;
 
@@ -59,7 +54,11 @@ namespace LivePhotoBox.Views
 
         private void ViewModel_TaskStartedForScroll(object? sender, MergeTask task)
         {
-            ScheduleAutoScroll(task.Index - 1);
+            int taskIndex = task.Index - 1;
+            int batchSize = 5;
+            int batchStartIndex = (taskIndex / batchSize) * batchSize;
+            int batchLastIndex = Math.Min(batchStartIndex + batchSize - 1, ViewModel.Tasks.Count - 1);
+            ScrollToTask(batchLastIndex);
         }
 
         private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
@@ -71,50 +70,14 @@ namespace LivePhotoBox.Views
             }
         }
 
-        private void ScheduleAutoScroll(int itemIndex)
+        private void ScrollToTask(int itemIndex)
         {
-            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count || !ViewModel.IsProcessing) return;
+            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count || !ViewModel.IsProcessing || itemIndex == _lastAutoScrollIndex) return;
 
-            _pendingAutoScrollIndex = itemIndex;
-            _hasPendingAutoScroll = true;
-
-            if (!_isAutoScrollScheduled)
+            var dispatcher = DispatcherQueue;
+            if (dispatcher != null)
             {
-                _isAutoScrollScheduled = true;
-                _ = RunAutoScrollAsync();
-            }
-        }
-
-        private async Task RunAutoScrollAsync()
-        {
-            try
-            {
-                while (_hasPendingAutoScroll && !_isUnloaded)
-                {
-                    _hasPendingAutoScroll = false;
-                    await Task.Delay(AutoFollowDebounce).ConfigureAwait(false);
-
-                    int targetIndex = _pendingAutoScrollIndex;
-                    if (_isUnloaded || !ViewModel.IsProcessing || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count || targetIndex == _lastAutoScrollIndex)
-                    {
-                        continue;
-                    }
-
-                    var dispatcher = DispatcherQueue;
-                    if (dispatcher != null)
-                    {
-                        try { await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false); } catch { }
-                    }
-                }
-            }
-            finally
-            {
-                _isAutoScrollScheduled = false;
-                if (_hasPendingAutoScroll && !_isUnloaded)
-                {
-                    _isAutoScrollScheduled = true;
-                    _ = RunAutoScrollAsync();
-                }
+                _ = EnqueueScrollIntoViewAsync(dispatcher, itemIndex);
             }
         }
 
