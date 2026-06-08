@@ -307,7 +307,10 @@ namespace LivePhotoBox.ViewModels
                 if (TotalPairsCount > 0)
                     SetStatus("Status_ScanDone", TotalPairsCount);
                 else
+                {
+                    IsDirectoryPanelOpen = true;
                     SetStatus("Status_ScanNoPairs", StandaloneImagesCount, StandaloneVideosCount);
+                }
             }
             catch (OperationCanceledException)
             {
@@ -488,6 +491,11 @@ namespace LivePhotoBox.ViewModels
             {
                 _stopwatch.Stop();
                 FinalizeRunState();
+
+                if (!_cancelledByUser && Tasks.Count > 0)
+                {
+                    await ShowComboAlreadyDoneDialogAsync();
+                }
             }
         }
 

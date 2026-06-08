@@ -248,7 +248,7 @@ Do you want to restart now?</value>
     <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
   </data>
   <data name="SplitPage_Status_Ready" xml:space="preserve">
-    <value>Ready, import live photos to split</value>
+    <value>Ready. Import the live photos you want to split (single-file format).</value>
   </data>
   <data name="SplitPage_ConfigHeader.Text" xml:space="preserve">
     <value>Live Photo Split Settings</value>
@@ -305,7 +305,7 @@ Do you want to restart now?</value>
     <value>Invalid input directory. Please check the path.</value>
   </data>
   <data name="SplitPage_Status_Cleared" xml:space="preserve">
-    <value>List cleared, ready for new tasks</value>
+    <value>List cleared</value>
   </data>
   <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
     <value>Split execution logic will be connected next. The UI is now ready.</value>
@@ -374,7 +374,7 @@ Do you want to restart now?</value>
     <value>Open with default app</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
-    <value>Starting up...</value>
+    <value>Ready. Select a folder containing photos and videos.</value>
   </data>
   <data name="Status_InvalidInput" xml:space="preserve">
     <value>Invalid input directory. Please check the path.</value>
@@ -395,7 +395,7 @@ Do you want to restart now?</value>
     <value>Processing: {0}%</value>
   </data>
   <data name="Status_ScanNoPairs" xml:space="preserve">
-    <value>Scan done: no matching live photos (images: {0}, videos: {1})</value>
+    <value>Scan complete: no matching live photos found (images: {0}, videos: {1})</value>
   </data>
   <data name="Status_Scanning" xml:space="preserve">
     <value>Scanning...</value>
@@ -407,16 +407,16 @@ Do you want to restart now?</value>
     <value>Scan stopped</value>
   </data>
   <data name="Status_ScanDone" xml:space="preserve">
-    <value>Scan done: matched {0} live photo pairs</value>
+    <value>Scan complete: loaded {0} pairs</value>
   </data>
   <data name="RepairPage_Status_ScanDone" xml:space="preserve">
-    <value>Scan done: loaded {0} photos to repair</value>
+    <value>Scan complete: loaded {0} photos to repair</value>
   </data>
   <data name="RepairPage_Status_ScanNoFiles" xml:space="preserve">
-    <value>Scan done: no photos found to repair</value>
+    <value>Scan complete: no photos found to repair</value>
   </data>
   <data name="RepairPage_Status_Cleared" xml:space="preserve">
-    <value>List cleared, ready for new tasks</value>
+    <value>List cleared</value>
   </data>
   <data name="RepairPage_Status_Stopping" xml:space="preserve">
     <value>Stopping repair...</value>
@@ -428,28 +428,28 @@ Do you want to restart now?</value>
     <value>Scan stopped</value>
   </data>
   <data name="Status_Cleared" xml:space="preserve">
-    <value>List cleared, ready for new tasks</value>
+    <value>List cleared</value>
   </data>
   <data name="Status_Resumed" xml:space="preserve">
-    <value>Task resumed, processing...</value>
+    <value>Task resumed. Continuing processing...</value>
   </data>
   <data name="Status_Paused" xml:space="preserve">
-    <value>Task paused, stopping after current item...</value>
+    <value>Task paused</value>
   </data>
   <data name="Status_WarnOutput" xml:space="preserve">
     <value>Please set the save directory first</value>
   </data>
   <data name="Status_Running" xml:space="preserve">
-    <value>Processing...</value>
+    <value>Merging in progress...</value>
   </data>
   <data name="Status_Aborted" xml:space="preserve">
-    <value>Task stopped</value>
+    <value>Stopped</value>
   </data>
   <data name="Status_Error" xml:space="preserve">
     <value>Error: {0}</value>
   </data>
   <data name="Status_Done" xml:space="preserve">
-    <value>Merge completed! Time: {0:F1} s</value>
+    <value>Completed in {0:F1} seconds</value>
   </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>Start Merge</value>
@@ -563,7 +563,7 @@ Do you want to restart now?</value>
     <value>Queue Empty</value>
   </data>
   <data name="Msg_EmptyQueue" xml:space="preserve">
-    <value>No files available to process. Please set an input directory first and click the [Scan] button.</value>
+    <value>No files available to process. Please set an input directory first.</value>
   </data>
   <data name="Msg_GoToTutorial" xml:space="preserve">
     <value>View Tutorial</value>
@@ -605,7 +605,7 @@ Do you want to restart now?</value>
     <value>Video Default Format</value>
   </data>
   <data name="SplitPage_Status_EmptyQueue" xml:space="preserve">
-    <value>No splittable live photos are queued. Scan a folder first.</value>
+    <value>There are currently no splittable live photos. Please scan the folder first.</value>
   </data>
   <data name="SplitPage_Status_WarnOutput" xml:space="preserve">
     <value>Please choose a valid output folder</value>
@@ -614,10 +614,10 @@ Do you want to restart now?</value>
     <value>Splitting live photos...</value>
   </data>
   <data name="SplitPage_Status_Done" xml:space="preserve">
-    <value>Split completed in {0:F1} seconds</value>
+    <value>Completed in {0:F1} seconds</value>
   </data>
   <data name="SplitPage_Status_Aborted" xml:space="preserve">
-    <value>Split canceled</value>
+    <value>Stopped</value>
   </data>
   <data name="Status_Ready" xml:space="preserve">
     <value>Ready</value>
@@ -740,7 +740,7 @@ Do you want to restart now?</value>
     <value>© 2026 LengxiQwQ · Licensed under GPL-3.0</value>
   </data>
   <data name="RepairPage_Status_Ready" xml:space="preserve">
-    <value>Ready | Waiting for files to repair</value>
+    <value>Ready. Select the folder you want to repair.</value>
   </data>
   <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
     <value>Loading...</value>

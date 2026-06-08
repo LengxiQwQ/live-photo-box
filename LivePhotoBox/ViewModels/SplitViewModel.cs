@@ -317,7 +317,10 @@ namespace LivePhotoBox.ViewModels
                 if (QueuedCount > 0)
                     SetStatus("SplitPage_Status_ScanDone", QueuedCount);
                 else
+                {
+                    IsDirectoryPanelOpen = true;
                     SetStatus("SplitPage_Status_NoLivePhotos");
+                }
             }
             catch (OperationCanceledException)
             {
@@ -541,6 +544,11 @@ namespace LivePhotoBox.ViewModels
             {
                 _stopwatch.Stop();
                 FinalizeRunState();
+
+                if (!_cancelledByUser && Tasks.Count > 0)
+                {
+                    await ShowSplitAlreadyDoneDialogAsync();
+                }
             }
         }
 

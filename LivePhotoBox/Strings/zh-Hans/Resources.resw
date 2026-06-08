@@ -247,7 +247,7 @@
     <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
   </data>
   <data name="SplitPage_Status_Ready" xml:space="preserve">
-    <value>就绪，请导入要拆分的实况照片</value>
+    <value>就绪，请导入要拆分的实况照片（单文件形式）</value>
   </data>
   <data name="SplitPage_ConfigHeader.Text" xml:space="preserve">
     <value>实况照片拆分配置</value>
@@ -304,7 +304,7 @@
     <value>输入目录无效，请检查路径</value>
   </data>
   <data name="SplitPage_Status_Cleared" xml:space="preserve">
-    <value>列表已清空，可以开始新任务了</value>
+    <value>列表已清空</value>
   </data>
   <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
     <value>拆分执行逻辑将在下一步接入，当前已完成界面准备</value>
@@ -373,7 +373,7 @@
     <value>在默认应用打开</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
-    <value>正在启动...</value>
+    <value>就绪，请导入包含（照片和视频）的文件夹</value>
   </data>
   <data name="Status_InvalidInput" xml:space="preserve">
     <value>输入目录无效，请检查路径</value>
@@ -415,7 +415,7 @@
     <value>扫描完成：未找到可修复的照片</value>
   </data>
   <data name="RepairPage_Status_Cleared" xml:space="preserve">
-    <value>列表已清空，可以开始新任务了</value>
+    <value>列表已清空</value>
   </data>
   <data name="RepairPage_Status_Stopping" xml:space="preserve">
     <value>正在停止修复...</value>
@@ -427,13 +427,13 @@
     <value>扫描已停止</value>
   </data>
   <data name="Status_Cleared" xml:space="preserve">
-    <value>列表已清空，可以开始新的任务了</value>
+    <value>列表已清空</value>
   </data>
   <data name="Status_Resumed" xml:space="preserve">
     <value>任务已恢复，继续处理中...</value>
   </data>
   <data name="Status_Paused" xml:space="preserve">
-    <value>任务已暂停，等待当前任务完成后停止...</value>
+    <value>任务已暂停</value>
   </data>
   <data name="Status_WarnOutput" xml:space="preserve">
     <value>请先设置保存目录</value>
@@ -448,7 +448,7 @@
     <value>出错了：{0}</value>
   </data>
   <data name="Status_Done" xml:space="preserve">
-    <value>合成完成！耗时 {0:F1} 秒</value>
+    <value>处理完成，用时 {0:F1} 秒</value>
   </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>开始合成</value>
@@ -562,7 +562,7 @@
     <value>队列为空</value>
   </data>
   <data name="Msg_EmptyQueue" xml:space="preserve">
-    <value>当前没有可处理的文件。请先设置输入目录，并点击【扫描】按钮。</value>
+    <value>当前没有可处理的文件。请先设置输入目录。</value>
   </data>
   <data name="Msg_GoToTutorial" xml:space="preserve">
     <value>查看操作教程</value>
@@ -613,10 +613,10 @@
     <value>正在拆分实况照片...</value>
   </data>
   <data name="SplitPage_Status_Done" xml:space="preserve">
-    <value>拆分完成，用时 {0:F1} 秒</value>
+    <value>处理完成，用时 {0:F1} 秒</value>
   </data>
   <data name="SplitPage_Status_Aborted" xml:space="preserve">
-    <value>拆分已取消</value>
+    <value>任务已停止</value>
   </data>
   <data name="Status_Ready" xml:space="preserve">
     <value>就绪</value>
@@ -739,13 +739,13 @@
     <value>© 2026 LengxiQwQ · 基于 GPL-3.0 开源协议发布</value>
   </data>
   <data name="RepairPage_Status_Ready" xml:space="preserve">
-    <value>等待修复</value>
+    <value>就绪，请选择要修复的文件夹</value>
   </data>
   <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
     <value>加载中...</value>
   </data>
   <data name="SplitPage_Status_Scanning" xml:space="preserve">
-    <value>正在扫描实况照片...</value>
+    <value>扫描中...</value>
   </data>
   <data name="SplitPage_Status_ScanCancelling" xml:space="preserve">
     <value>正在停止扫描...</value>
@@ -754,10 +754,10 @@
     <value>扫描已停止</value>
   </data>
   <data name="SplitPage_Status_ScanDone" xml:space="preserve">
-    <value>扫描完成：已识别 {0} 个可拆分实况照片</value>
+    <value>扫描完成：已加载 {0} 项</value>
   </data>
   <data name="SplitPage_Status_NoLivePhotos" xml:space="preserve">
-    <value>扫描完成：未找到可拆分的实况照片</value>
+    <value>扫描完成：未找到实况照片！请确保文件夹含有实况照片（单文件格式）</value>
   </data>
   <data name="SplitPage_Task_Pending" xml:space="preserve">
     <value>等待拆分</value>
@@ -1110,12 +1110,6 @@
   </data>
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>帮助 &amp; 教程</value>
-  </data>
-  <data name="Msg_GotIt" xml:space="preserve">
-    <value>我知道了</value>
-  </data>
-  <data name="Msg_GoToTutorial" xml:space="preserve">
-    <value>查看操作教程</value>
   </data>
   <data name="ComboPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
     <value>尚未选择输入文件夹</value>

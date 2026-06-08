@@ -335,7 +335,10 @@ namespace LivePhotoBox.ViewModels
                 if (TotalPhotosCount > 0)
                     SetStatus("RepairPage_Status_ScanDone", TotalPhotosCount);
                 else
+                {
+                    IsDirectoryPanelOpen = true;
                     SetStatus("RepairPage_Status_ScanNoFiles");
+                }
             }
             catch (OperationCanceledException)
             {
@@ -492,6 +495,11 @@ namespace LivePhotoBox.ViewModels
             {
                 _stopwatch.Stop();
                 FinalizeRunState();
+
+                if (!_cancelledByUser && Tasks.Count > 0)
+                {
+                    await ShowRepairAlreadyDoneDialogAsync();
+                }
             }
         }
 
