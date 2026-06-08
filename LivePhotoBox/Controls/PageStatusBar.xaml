@@ -25,7 +25,7 @@
                     Text="{x:Bind ViewModel.FooterStatusText, Mode=OneWay}"
                     FontSize="11"
                     FontWeight="SemiBold"
-                    LineHeight="16"
+                    LineHeight="0"
                     TextTrimming="CharacterEllipsis"
                     TextWrapping="NoWrap"
                     VerticalAlignment="Center"
@@ -41,7 +41,7 @@
                     <TextBlock
                         Text="{x:Bind ViewModel.FooterPercentText, Mode=OneWay}"
                         FontSize="11"
-                        LineHeight="16"
+                        LineHeight="0"
                         FontWeight="SemiBold"
                         VerticalAlignment="Center"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -54,7 +54,7 @@
                         Padding="4,2"
                         Foreground="{ThemeResource TextFillColorPrimaryBrush}">
                         <HyperlinkButton.Content>
-                            <TextBlock x:Uid="MainWindow_Footer" FontSize="11" LineHeight="16" />
+                            <TextBlock x:Uid="MainWindow_Footer" FontSize="11" LineHeight="0" />
                         </HyperlinkButton.Content>
                     </HyperlinkButton>
                 </StackPanel>

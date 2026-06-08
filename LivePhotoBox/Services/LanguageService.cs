@@ -9,6 +9,16 @@ namespace LivePhotoBox.Services
 {
     public static class LanguageService
     {
+        public static bool HasEffectiveLanguageChanged(int previousIndex, int currentIndex)
+        {
+            return HasEffectiveLanguageChanged(GetEffectiveLanguage(previousIndex), GetEffectiveLanguage(currentIndex));
+        }
+
+        public static bool HasEffectiveLanguageChanged(string previousLanguageTag, string currentLanguageTag)
+        {
+            return !string.Equals(previousLanguageTag, currentLanguageTag, StringComparison.OrdinalIgnoreCase);
+        }
+
         public static string GetEffectiveLanguage(int index)
         {
             if (index == 1) return "zh-Hans";

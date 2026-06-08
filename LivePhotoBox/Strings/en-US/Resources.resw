@@ -869,11 +869,17 @@ Log file: {0}</value>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>Input Dir:</value>
   </data>
+  <data name="RepairPage_InputOutputLabel.Text" xml:space="preserve">
+    <value>Input/Output Folder:</value>
+  </data>
   <data name="RepairPage_InputBox.PlaceholderText" xml:space="preserve">
-    <value>Select directory containing Live Photos</value>
+    <value>Select directory to repair</value>
   </data>
   <data name="RepairPage_BrowseBtn1.Content" xml:space="preserve">
     <value>Browse...</value>
+  </data>
+  <data name="RepairPage_OpenInputBtn.Content" xml:space="preserve">
+    <value>Open Input Folder</value>
   </data>
   <data name="RepairPage_OutputLabel.Text" xml:space="preserve">
     <value>Output Dir:</value>
@@ -1142,8 +1148,8 @@ Log file: {0}</value>
   <data name="SplitPage_OpenOutputBtn.Content" xml:space="preserve">
     <value>Open Output Folder</value>
   </data>
-  <data name="RepairPage_OpenInputBtn.Content" xml:space="preserve">
-    <value>Open Input Folder</value>
+  <data name="RepairPage_OpenInputOutputBtn.Content" xml:space="preserve">
+    <value>Open Folder</value>
   </data>
   <data name="RepairPage_OpenOutputBtn.Content" xml:space="preserve">
     <value>Open Output Folder</value>

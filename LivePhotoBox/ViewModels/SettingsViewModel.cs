@@ -6,6 +6,8 @@ namespace LivePhotoBox.ViewModels
 {
     public partial class SettingsViewModel : ViewModelBase
     {
+        private bool _isInitializing;
+
         public override string? PageStatusTag => null;
 
         [ObservableProperty]
@@ -13,7 +15,24 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnLanguageIndexChanged(int value)
         {
+            string previousLanguage = LanguageService.GetCurrentLanguageTag();
+            string targetLanguage = LanguageService.GetEffectiveLanguage(value);
+
             AppSettingsService.SetValue(nameof(LanguageIndex), value);
+
+            if (_isInitializing)
+            {
+                return;
+            }
+
+            LanguageService.ApplyLanguageOverride(targetLanguage);
+
+            if (!LanguageService.HasEffectiveLanguageChanged(previousLanguage, targetLanguage))
+            {
+                return;
+            }
+
+            _ = LanguageService.ShowRestartPromptAsync(targetLanguage);
         }
 
         [ObservableProperty]
@@ -39,9 +58,17 @@ namespace LivePhotoBox.ViewModels
 
         private void LoadSettings()
         {
-            LanguageIndex = AppSettingsService.GetValue(nameof(LanguageIndex), 0);
-            ElementTheme = AppSettingsService.GetValue(nameof(ElementTheme), 0);
-            BackdropIndex = AppSettingsService.GetValue(nameof(BackdropIndex), 0);
+            _isInitializing = true;
+            try
+            {
+                LanguageIndex = AppSettingsService.GetValue(nameof(LanguageIndex), 0);
+                ElementTheme = AppSettingsService.GetValue(nameof(ElementTheme), 0);
+                BackdropIndex = AppSettingsService.GetValue(nameof(BackdropIndex), 0);
+            }
+            finally
+            {
+                _isInitializing = false;
+            }
         }
 
         [RelayCommand]

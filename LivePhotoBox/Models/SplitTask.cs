@@ -20,6 +20,8 @@ namespace LivePhotoBox.Models
         [ObservableProperty] private ProcessStatus _status = ProcessStatus.Pending;
         [ObservableProperty] private string _details = string.Empty;
 
+        public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
+
         #endregion
 
         #region Thumbnail
@@ -60,11 +62,13 @@ namespace LivePhotoBox.Models
         partial void OnStatusChanged(ProcessStatus value)
         {
             OnPropertyChanged(nameof(DisplayStatus));
+            OnPropertyChanged(nameof(HasErrorDetails));
         }
 
         partial void OnDetailsChanged(string value)
         {
             OnPropertyChanged(nameof(DisplayStatus));
+            OnPropertyChanged(nameof(HasErrorDetails));
         }
 
         #endregion

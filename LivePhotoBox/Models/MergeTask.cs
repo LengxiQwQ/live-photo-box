@@ -20,6 +20,8 @@ namespace LivePhotoBox.Models
         [ObservableProperty] private ProcessStatus _status = ProcessStatus.Pending;
         [ObservableProperty] private string _details = string.Empty;
 
+        public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
+
         public long TotalSizeBytes { get; set; }
         public string BaseName { get; set; } = string.Empty;
 
@@ -49,6 +51,16 @@ namespace LivePhotoBox.Models
             Thumbnail = null;
         }
 
+        partial void OnStatusChanged(ProcessStatus value)
+        {
+            OnPropertyChanged(nameof(HasErrorDetails));
+        }
+
+        partial void OnDetailsChanged(string value)
+        {
+            OnPropertyChanged(nameof(HasErrorDetails));
+        }
+
         public Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
             var trigger = Thumbnail;
@@ -69,3 +81,5 @@ namespace LivePhotoBox.Models
         }
     }
 }
+
+

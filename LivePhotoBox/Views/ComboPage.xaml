@@ -72,88 +72,90 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <Expander Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3"
-                      IsExpanded="{x:Bind ViewModel.IsDirectoryPanelOpen, Mode=TwoWay}"
-                      HorizontalAlignment="Stretch" 
-                      HorizontalContentAlignment="Stretch"
-                      Background="{ThemeResource CardBackgroundBrush}" 
-                      CornerRadius="8"
-                      BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                      BorderThickness="1">
+            <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" Spacing="12">
 
-                <Expander.Header>
-                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Height="32">
-                        <FontIcon Glyph="&#xE8B1;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
-                        <TextBlock x:Uid="ComboPage_ConfigHeader" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Expander.Header>
+                <Expander IsExpanded="{x:Bind ViewModel.IsDirectoryPanelOpen, Mode=TwoWay}"
+                          HorizontalAlignment="Stretch" 
+                          HorizontalContentAlignment="Stretch"
+                          Background="{ThemeResource CardBackgroundBrush}" 
+                          CornerRadius="8"
+                          BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                          BorderThickness="1">
 
-                <Expander.Content>
-                    <StackPanel Spacing="12" Padding="0,4,0,0">
-                        <Grid ColumnSpacing="8" RowSpacing="12">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
+                    <Expander.Header>
+                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Height="32">
+                            <FontIcon Glyph="&#xE8B1;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
+                            <TextBlock x:Uid="ComboPage_ConfigHeader" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Expander.Header>
 
-                            <TextBlock x:Uid="ComboPage_InputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                            <TextBox x:Uid="ComboPage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
-                            <Button x:Uid="ComboPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Click="BrowseInput_Click" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
-                            <Button x:Uid="ComboPage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenComboInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
+                    <Expander.Content>
+                        <StackPanel Padding="0,4,0,0">
+                            <Grid ColumnSpacing="8" RowSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
 
-                            <TextBlock x:Uid="ComboPage_OutputLabel" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                            <TextBox x:Uid="ComboPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
-                            <Button x:Uid="ComboPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Click="BrowseOutput_Click" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
-                            <Button x:Uid="ComboPage_OpenOutputBtn" Grid.Row="1" Grid.Column="3" Command="{x:Bind ViewModel.OpenComboOutputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
-                        </Grid>
+                                <TextBlock x:Uid="ComboPage_InputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
+                                <TextBox x:Uid="ComboPage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
+                                <Button x:Uid="ComboPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Click="BrowseInput_Click" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
+                                <Button x:Uid="ComboPage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenComboInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
 
-                        <MenuFlyoutSeparator Margin="0,4"/>
+                                <TextBlock x:Uid="ComboPage_OutputLabel" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
+                                <TextBox x:Uid="ComboPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
+                                <Button x:Uid="ComboPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Click="BrowseOutput_Click" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
+                                <Button x:Uid="ComboPage_OpenOutputBtn" Grid.Row="1" Grid.Column="3" Command="{x:Bind ViewModel.OpenComboOutputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
+                            </Grid>
+                        </StackPanel>
+                    </Expander.Content>
+                </Expander>
 
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                <Border Background="{ThemeResource CardBackgroundBrush}" CornerRadius="8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="16,10,16,10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
 
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock x:Uid="ComboPage_StatPaired" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock x:Uid="ComboPage_StatImg" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{x:Bind ViewModel.StandaloneImagesCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                                </StackPanel>
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <TextBlock x:Uid="ComboPage_StatVid" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                    <TextBlock Text="{x:Bind ViewModel.StandaloneVideosCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                                </StackPanel>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock x:Uid="ComboPage_StatPaired" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
                             </StackPanel>
-
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <TextBlock x:Uid="ComboPage_ProtocolLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                <ComboBox Width="260" SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}">
-                                    <ComboBoxItem x:Uid="SettingsPage_Protocol_V1"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Protocol_V2"/>
-                                </ComboBox>
-                                <Button
-                                    Command="{x:Bind ViewModel.ScanDirectoryCommand}"
-                                    Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
-                                    Style="{x:Bind ViewModel.ScanButtonStyle, Mode=OneWay}"
-                                    IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
-                                    VerticalAlignment="Center" />
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock x:Uid="ComboPage_StatImg" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind ViewModel.StandaloneImagesCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
                             </StackPanel>
-                        </Grid>
-                    </StackPanel>
-                </Expander.Content>
-            </Expander>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock x:Uid="ComboPage_StatVid" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind ViewModel.StandaloneVideosCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock x:Uid="ComboPage_ProtocolLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <ComboBox Width="260" SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}">
+                                <ComboBoxItem x:Uid="SettingsPage_Protocol_V1"/>
+                                <ComboBoxItem x:Uid="SettingsPage_Protocol_V2"/>
+                            </ComboBox>
+                            <Button
+                                Command="{x:Bind ViewModel.ScanDirectoryCommand}"
+                                Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
+                                Style="{x:Bind ViewModel.ScanButtonStyle, Mode=OneWay}"
+                                IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
+                                VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </StackPanel>
 
             <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Padding="16,12,16,12">
                 <Grid>
@@ -262,7 +264,13 @@
                                         <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind VideoSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                     </StackPanel>
 
-                                    <TextBlock Grid.Column="4" Margin="32,0,0,0" Text="{x:Bind Details, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="3" />
+                                    <TextBlock Grid.Column="4" Margin="32,0,0,0" Text="{x:Bind Details, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="3">
+                                        <ToolTipService.ToolTip>
+                                            <ToolTip Placement="Mouse" Visibility="{x:Bind HasErrorDetails, Mode=OneWay}">
+                                                <TextBlock Text="{x:Bind Details, Mode=OneWay}" MaxWidth="520" TextWrapping="Wrap"/>
+                                            </ToolTip>
+                                        </ToolTipService.ToolTip>
+                                    </TextBlock>
                                 </Grid>
                             </Border>
                         </DataTemplate>

@@ -325,6 +325,9 @@ namespace LivePhotoBox.ViewModels
         private void SubscribeHomeNavigation()
         {
             Home.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
+            Combo.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
+            Split.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
+            Repair.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
         }
 
         public void Cleanup()

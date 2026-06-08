@@ -61,10 +61,12 @@
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
 
-                                <TextBlock x:Uid="RepairPage_InputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
+                                <TextBlock x:Uid="RepairPage_InputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75" Visibility="{x:Bind ViewModel.InputLabelVisibility, Mode=OneWay}"/>
+                                <TextBlock x:Uid="RepairPage_InputOutputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="110" Visibility="{x:Bind ViewModel.InputOutputLabelVisibility, Mode=OneWay}"/>
                                 <TextBox x:Uid="RepairPage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
                                 <Button x:Uid="RepairPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Command="{x:Bind ViewModel.PickInputDirectoryCommand}" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
-                                <Button x:Uid="RepairPage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
+                                <Button x:Uid="RepairPage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch" Visibility="{x:Bind ViewModel.InputLabelVisibility, Mode=OneWay}"/>
+                                <Button x:Uid="RepairPage_OpenInputOutputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch" Visibility="{x:Bind ViewModel.InputOutputLabelVisibility, Mode=OneWay}"/>
 
                                 <TextBlock x:Uid="RepairPage_OutputLabel" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}"/>
                                 <TextBox x:Uid="RepairPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>

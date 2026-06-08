@@ -166,7 +166,7 @@ namespace LivePhotoBox.Views
             {
                 string targetName = feature switch
                 {
-                    "Combo" => "MergeTutorialBorder",
+                    "Combo" => "CoreFeaturesTitle",
                     "Split" => "SplitTutorialBorder",
                     "Repair" => "RepairTutorialBorder",
                     _ => "CoreFeaturesTitle"

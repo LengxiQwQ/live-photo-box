@@ -868,11 +868,17 @@
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>输入目录：</value>
   </data>
+  <data name="RepairPage_InputOutputLabel.Text" xml:space="preserve">
+    <value>输入输出目录：</value>
+  </data>
   <data name="RepairPage_InputBox.PlaceholderText" xml:space="preserve">
-    <value>请选择需要修复的实况照片目录</value>
+    <value>请选择需要修复的目录</value>
   </data>
   <data name="RepairPage_BrowseBtn1.Content" xml:space="preserve">
     <value>浏览...</value>
+  </data>
+  <data name="RepairPage_OpenInputBtn.Content" xml:space="preserve">
+    <value>打开输入目录</value>
   </data>
   <data name="RepairPage_OutputLabel.Text" xml:space="preserve">
     <value>输出目录：</value>
@@ -1141,8 +1147,8 @@
   <data name="SplitPage_OpenOutputBtn.Content" xml:space="preserve">
     <value>打开输出目录</value>
   </data>
-  <data name="RepairPage_OpenInputBtn.Content" xml:space="preserve">
-    <value>打开输入目录</value>
+  <data name="RepairPage_OpenInputOutputBtn.Content" xml:space="preserve">
+    <value>打开目录</value>
   </data>
   <data name="RepairPage_OpenOutputBtn.Content" xml:space="preserve">
     <value>打开输出目录</value>

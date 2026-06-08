@@ -44,6 +44,8 @@ namespace LivePhotoBox.ViewModels
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(OutputGridVisibility))]
+        [NotifyPropertyChangedFor(nameof(InputLabelVisibility))]
+        [NotifyPropertyChangedFor(nameof(InputOutputLabelVisibility))]
         private bool _isOutputToDirectory = false;
 
         partial void OnIsOutputToDirectoryChanged(bool value)
@@ -58,6 +60,12 @@ namespace LivePhotoBox.ViewModels
 
         public Visibility OutputGridVisibility =>
             IsOutputToDirectory ? Visibility.Visible : Visibility.Collapsed;
+
+        public Visibility InputLabelVisibility =>
+            IsOutputToDirectory ? Visibility.Visible : Visibility.Collapsed;
+
+        public Visibility InputOutputLabelVisibility =>
+            IsOutputToDirectory ? Visibility.Collapsed : Visibility.Visible;
 
         [ObservableProperty]
         private int _totalPhotosCount = 0;
