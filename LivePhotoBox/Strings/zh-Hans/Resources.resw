@@ -1201,4 +1201,7 @@
   <data name="Error_InvalidJpegFile" xml:space="preserve">
     <value>无效的 JPEG 文件：无法读取 JPEG SOI 标记 (0xFF 0xD8)。</value>
   </data>
+  <data name="Error_HeicConversionFailed" xml:space="preserve">
+    <value>HEIC 文件 "{0}" 转换失败：{1}</value>
+  </data>
 </root>

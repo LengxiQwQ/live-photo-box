@@ -1208,4 +1208,7 @@ Log file: {0}</value>
   <data name="Error_InvalidJpegFile" xml:space="preserve">
     <value>Invalid JPEG file: unable to read JPEG SOI marker (0xFF 0xD8).</value>
   </data>
+  <data name="Error_HeicConversionFailed" xml:space="preserve">
+    <value>HEIC file "{0}" conversion failed: {1}</value>
+  </data>
 </root>

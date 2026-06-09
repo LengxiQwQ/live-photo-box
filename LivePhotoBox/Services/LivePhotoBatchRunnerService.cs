@@ -69,14 +69,21 @@ namespace LivePhotoBox.Services
             LivePhotoBatchRunOptions options,
             CancellationToken token)
         {
+            string workingImagePath = imagePath;
             try
             {
                 token.ThrowIfCancellationRequested();
 
+                if (HeicConverterService.IsHeicFile(imagePath))
+                {
+                    AppLogService.Combo($"Detected HEIC file, converting: {Path.GetFileName(imagePath)}");
+                    workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, options.OutputDirectory, token);
+                }
+
                 string outputName = LivePhotoCompositionService.CreateOutputFileName(baseName, options.SelectedModeIndex);
                 string finalOutputPath = Path.Combine(options.OutputDirectory, outputName);
 
-                await LivePhotoCompositionService.WriteLivePhotoAsync(imagePath, videoPath, finalOutputPath, options.SelectedModeIndex, token);
+                await LivePhotoCompositionService.WriteLivePhotoAsync(workingImagePath, videoPath, finalOutputPath, options.SelectedModeIndex, token);
 
                 return (true, ResourceService.GetString("Task_Success"));
             }
@@ -87,6 +94,17 @@ namespace LivePhotoBox.Services
             catch (Exception ex)
             {
                 return (false, ResourceService.Format("Task_Error", ex.Message));
+            }
+            finally
+            {
+                if (workingImagePath != imagePath && File.Exists(workingImagePath))
+                {
+                    try
+                    {
+                        File.Delete(workingImagePath);
+                    }
+                    catch { }
+                }
             }
         }
     }

@@ -143,7 +143,9 @@ namespace LivePhotoBox.Services
         private static bool IsImageFile(string path)
         {
             return path.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase)
-                || path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase);
+                || path.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".heic", StringComparison.OrdinalIgnoreCase)
+                || path.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool IsVideoFile(string path)
