@@ -1,8 +1,12 @@
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using System;
+using System.Collections.Generic;
 
 namespace LivePhotoBox.Views
 {
@@ -10,8 +14,15 @@ namespace LivePhotoBox.Views
     {
         public HomeViewModel ViewModel => AppViewModel.Instance.Home;
 
+        private bool _isHoverActive;
+        private double _previewWidth;
+        private double _previewHeight;
+        private readonly PointerEventHandler _scrollViewerMovedHandler;
+        private readonly Dictionary<string, (double Width, double Height)> _imageSizes = new();
+
         public HomePage()
         {
+            _scrollViewerMovedHandler = ScrollViewer_PointerMoved;
             InitializeComponent();
             this.Loaded += HomePage_Loaded;
         }
@@ -35,6 +46,157 @@ namespace LivePhotoBox.Views
             }
         }
 
+        private void TutorialImage_Opened(object sender, RoutedEventArgs e)
+        {
+            if (sender is Image image)
+            {
+                string placeholderName = image.Name + "Placeholder";
+                if (this.FindName(placeholderName) is Border placeholder)
+                {
+                    placeholder.Visibility = Visibility.Collapsed;
+                }
+
+                if (image.Source is Microsoft.UI.Xaml.Media.Imaging.BitmapImage bitmap)
+                {
+                    _imageSizes[image.Name] = (bitmap.PixelWidth, bitmap.PixelHeight);
+                }
+            }
+        }
+
+        private void TutorialImage_Failed(object sender, Microsoft.UI.Xaml.ExceptionRoutedEventArgs e)
+        {
+            if (sender is Image image)
+            {
+                string imageName = image.Name + "Placeholder";
+                if (this.FindName(imageName) is Border placeholder)
+                {
+                    placeholder.Visibility = Visibility.Visible;
+                }
+            }
+        }
+
+        private void TutorialImageBorder_PointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            try
+            {
+                if (_isHoverActive) return;
+                if (sender is not Border border) return;
+
+                Image? sourceImage = border.Child as Image;
+                if (sourceImage == null || sourceImage.Source == null) return;
+
+                double imgW, imgH;
+                if (_imageSizes.TryGetValue(sourceImage.Name, out var size))
+                {
+                    imgW = size.Width;
+                    imgH = size.Height;
+                }
+                else
+                {
+                    imgW = sourceImage.ActualWidth;
+                    imgH = sourceImage.ActualHeight;
+                }
+                if (imgW <= 0 || imgH <= 0) return;
+
+                var posInPage = e.GetCurrentPoint(this).Position;
+                double winW = this.XamlRoot.Size.Width;
+                double winH = this.XamlRoot.Size.Height;
+                double maxW = winW * 0.55;
+                double maxH = winH * 0.55;
+                double scale = Math.Min(Math.Min(maxW / imgW, maxH / imgH), 1.0);
+
+                HoverImage.Source = sourceImage.Source;
+                HoverImage.Width = imgW * scale;
+                HoverImage.Height = imgH * scale;
+                HoverImageBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x10, 0, 0, 0));
+                HoverImageBorder.Width = imgW * scale;
+                HoverImageBorder.Height = imgH * scale;
+                _previewWidth = imgW * scale;
+                _previewHeight = imgH * scale;
+
+                HoverOverlay.Width = winW;
+                HoverOverlay.Height = winH;
+                Canvas.SetLeft(HoverImageBorder, 20);
+                Canvas.SetTop(HoverImageBorder, 20);
+
+                _isHoverActive = true;
+                HoverOverlay.Visibility = Visibility.Visible;
+                RootScrollViewer.AddHandler(PointerMovedEvent, _scrollViewerMovedHandler, true);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Hover Enter Error] {ex}");
+            }
+        }
+
+        private void TutorialImageBorder_PointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            try
+            {
+                if (!_isHoverActive) return;
+                _isHoverActive = false;
+                HoverOverlay.Visibility = Visibility.Collapsed;
+                HoverImage.Source = null;
+                RootScrollViewer.RemoveHandler(PointerMovedEvent, _scrollViewerMovedHandler);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Hover Exit Error] {ex}");
+            }
+        }
+
+        private void ScrollViewer_PointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            try
+            {
+                if (!_isHoverActive || HoverImage.Source == null) return;
+
+                var posInPage = e.GetCurrentPoint(this).Position;
+                double winW = this.XamlRoot.Size.Width;
+                double winH = this.XamlRoot.Size.Height;
+                double halfH = winH / 2;
+                double margin = 20;
+                double left, top;
+
+                if (posInPage.X - _previewWidth - margin < 0)
+                {
+                    left = margin;
+                    if (posInPage.Y <= halfH)
+                    {
+                        top = posInPage.Y + margin;
+                    }
+                    else
+                    {
+                        top = posInPage.Y - _previewHeight - margin;
+                    }
+                }
+                else
+                {
+                    left = posInPage.X - _previewWidth - margin;
+                    if (posInPage.Y <= halfH)
+                    {
+                        top = posInPage.Y + margin;
+                    }
+                    else
+                    {
+                        top = posInPage.Y - _previewHeight - margin;
+                    }
+                }
+
+                if (left < margin) left = margin;
+                if (left + _previewWidth > winW - margin) left = winW - _previewWidth - margin;
+                if (top < margin) top = margin;
+                if (top + _previewHeight > winH - margin) top = winH - _previewHeight - margin;
+
+                Canvas.SetLeft(HoverImageBorder, left);
+                Canvas.SetTop(HoverImageBorder, top);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Hover Move Error] {ex}");
+            }
+        }
+
         private void SetupAndNavigateDemo(string subFolder, string pageTag, Type pageType)
         {
             try
@@ -55,7 +217,6 @@ namespace LivePhotoBox.Views
                     System.IO.Directory.CreateDirectory(desktopOutputPath);
                 }
 
-                // 根据目标页面设置对应的 ViewModel
                 switch (pageTag)
                 {
                     case "Combo":

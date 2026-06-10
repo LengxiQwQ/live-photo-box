@@ -1211,4 +1211,53 @@ Log file: {0}</value>
   <data name="Error_HeicConversionFailed" xml:space="preserve">
     <value>HEIC file "{0}" conversion failed: {1}</value>
   </data>
+  <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
+    <value>Convert iPhone Live Photos into single files viewable on Windows</value>
+  </data>
+  <data name="HomePage_Tutorial_ImagePlaceholder.Text" xml:space="preserve">
+    <value>Tutorial image coming soon</value>
+  </data>
+  <data name="HomePage_Tutorial_Step1_Title.Text" xml:space="preserve">
+    <value>Prepare Photo Folder</value>
+  </data>
+  <data name="HomePage_Tutorial_Step1_Desc.Text" xml:space="preserve">
+    <value>Place your Live Photos (photo + video) in the same folder. File names must match; only the extension differs.
+
+Supported image formats: JPG, JPEG, HEIC, HEIF
+Supported video formats: MOV, MP4
+
+✅ IMG_001.JPG + IMG_001.MOV
+❌ IMG_001.JPG + VID_001.MOV</value>
+  </data>
+  <data name="HomePage_Tutorial_Step2_Title.Text" xml:space="preserve">
+    <value>Select Folder</value>
+  </data>
+  <data name="HomePage_Tutorial_Step2_Desc.Text" xml:space="preserve">
+    <value>On the "Live Photo Merge" page, click the "Browse" button and select the folder you just prepared. The output directory is set automatically by default; change it only if you need a custom location.</value>
+  </data>
+  <data name="HomePage_Tutorial_Step3_Title.Text" xml:space="preserve">
+    <value>Scan &amp; Confirm</value>
+  </data>
+  <data name="HomePage_Tutorial_Step3_Desc.Text" xml:space="preserve">
+    <value>The app will automatically identify paired files in the folder. Check the statistics to confirm:
+      • Paired: number of photo groups ready to merge
+      • Lone Img: photos without matching videos
+      • Lone Vid: videos without matching photos
+
+Once confirmed, click "Start Merge".</value>
+  </data>
+  <data name="HomePage_Tutorial_Step4_Title.Text" xml:space="preserve">
+    <value>Wait for Completion</value>
+  </data>
+  <data name="HomePage_Tutorial_Step4_Desc.Text" xml:space="preserve">
+    <value>The merging process runs automatically — no extra action needed. Once done, the output folder contains your merged Live Photos!
+
+Open them in the Windows Photos app to view and play ~</value>
+  </data>
+  <data name="HomePage_Tutorial_Ready_Title.Text" xml:space="preserve">
+    <value>Want to give it a try?</value>
+  </data>
+  <data name="HomePage_Tutorial_Ready_Subtitle.Text" xml:space="preserve">
+    <value>Click the button on the right to try the built-in sample and see the full merge flow in action</value>
+  </data>
 </root>

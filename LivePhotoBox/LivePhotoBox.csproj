@@ -71,13 +71,9 @@
 	</ItemGroup>
 
  <ItemGroup>
-        <Content Include="Assets\AppIcon.ico" />
-		<Content Include="Assets\AppIcon.png" />
-		<Content Include="Assets\LockScreenLogo.scale-200.png" />
-		<Content Include="Assets\Square150x150Logo.scale-200.png" />
-		<Content Include="Assets\Square44x44Logo.scale-200.png" />
-		<Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
-		<Content Include="Assets\StoreLogo.png" />
+        <Content Include="Assets\**\*.*">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
 		<!-- Include exiftool executable and any files under exiftool_files if present. Using wildcard avoids MSBuild errors when files are absent. -->
      <Content Include="Tools\exiftool.exe">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -102,6 +98,7 @@
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
 		<PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7705" />
 		<PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
+		<PackageReference Include="Microsoft.Xaml.Behaviors.WinUI.Managed" Version="3.0.0" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -137,22 +134,6 @@
 	<ItemGroup>
 	  <Folder Include="Controls\" />
 	</ItemGroup>
-
-	<ItemGroup>
-	  <Content Update="Assets\Samples\Merge\2023_04_20_00_54_IMG_5865.JPG">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </Content>
-	  <Content Update="Assets\Samples\Merge\2023_04_20_00_54_IMG_5865.MOV">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </Content>
-	  <Content Update="Assets\Sample\Merge\2023_04_20_00_54_IMG_5865.JPG">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </Content>
-	  <Content Update="Assets\Sample\Merge\2023_04_20_00_54_IMG_5865.MOV">
-	    <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-	  </Content>
-	</ItemGroup>
-
 	<PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
 		<HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
 	</PropertyGroup>

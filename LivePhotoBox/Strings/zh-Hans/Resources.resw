@@ -541,7 +541,7 @@
     <value>正在合并...</value>
   </data>
   <data name="Task_Success" xml:space="preserve">
-    <value>原生合成成功</value>
+    <value>合成成功</value>
   </data>
   <data name="Task_Recycled" xml:space="preserve">
     <value> (已移至回收站)</value>
@@ -1085,13 +1085,13 @@
     <value> </value>
   </data>
   <data name="HomePage_TryMergeDemo.Content" xml:space="preserve">
-    <value>载入样例并体验</value>
+    <value>载入预设并体验</value>
   </data>
   <data name="HomePage_TrySplitDemo.Content" xml:space="preserve">
-    <value>载入样例并体验</value>
+    <value>载入预设并体验</value>
   </data>
   <data name="HomePage_TryRepairDemo.Content" xml:space="preserve">
-    <value>载入样例并体验</value>
+    <value>载入预设并体验</value>
   </data>
   <data name="HomePage_DemoOutputFolder" xml:space="preserve">
     <value>LivePhotoBox_样例输出</value>
@@ -1203,5 +1203,54 @@
   </data>
   <data name="Error_HeicConversionFailed" xml:space="preserve">
     <value>HEIC 文件 "{0}" 转换失败：{1}</value>
+  </data>
+  <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
+    <value>将 iPhone 实况照片转换为 Windows 可查看的单文件格式</value>
+  </data>
+  <data name="HomePage_Tutorial_ImagePlaceholder.Text" xml:space="preserve">
+    <value>教程图片待添加</value>
+  </data>
+  <data name="HomePage_Tutorial_Step1_Title.Text" xml:space="preserve">
+    <value>准备照片文件夹</value>
+  </data>
+  <data name="HomePage_Tutorial_Step1_Desc.Text" xml:space="preserve">
+    <value>将你的实况照片（照片+视频）放在同一个文件夹中，文件名必须相同，仅扩展名不同。
+
+支持图片格式：JPG、JPEG、HEIC、HEIF
+支持视频格式：MOV、MP4
+
+✅ IMG_001.JPG + IMG_001.MOV
+❌ IMG_001.JPG + VID_001.MOV</value>
+  </data>
+  <data name="HomePage_Tutorial_Step2_Title.Text" xml:space="preserve">
+    <value>选择文件夹</value>
+  </data>
+  <data name="HomePage_Tutorial_Step2_Desc.Text" xml:space="preserve">
+    <value>在「实况照片合成」页面，点击「浏览」按钮，选择你刚才准备好的文件夹。输出目录会自动设置，如需自定义可手动修改。</value>
+  </data>
+  <data name="HomePage_Tutorial_Step3_Title.Text" xml:space="preserve">
+    <value>扫描并确认</value>
+  </data>
+  <data name="HomePage_Tutorial_Step3_Desc.Text" xml:space="preserve">
+    <value>程序会自动识别文件夹中的配对文件。查看统计信息确认无误：
+• 配对成功：可合成的实况照片组数
+• 单独图片：没有对应视频的图片
+• 单独视频：没有对应图片的视频
+
+确认后，点击「开始合成」即可。</value>
+  </data>
+  <data name="HomePage_Tutorial_Step4_Title.Text" xml:space="preserve">
+    <value>等待完成</value>
+  </data>
+  <data name="HomePage_Tutorial_Step4_Desc.Text" xml:space="preserve">
+    <value>合成过程会自动处理，无需额外操作。完成后，输出文件夹中即为合并好的实况照片！
+
+用 Windows 照片应用即可直接查看播放 ~</value>
+  </data>
+  <data name="HomePage_Tutorial_Ready_Title.Text" xml:space="preserve">
+    <value>试一下？</value>
+  </data>
+  <data name="HomePage_Tutorial_Ready_Subtitle.Text" xml:space="preserve">
+    <value>点击右侧按钮，即可体验内置预设，直观了解完整合成流程</value>
   </data>
 </root>

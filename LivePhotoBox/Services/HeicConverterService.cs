@@ -57,7 +57,6 @@ namespace LivePhotoBox.Services
                     using var fileStream = new FileStream(tempJpegPath, FileMode.Create, FileAccess.Write);
                     using var randomAccessStream = fileStream.AsRandomAccessStream();
                     var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, randomAccessStream);
-                    encoder.Quality = 100;
                     encoder.SetSoftwareBitmap(softwareBitmap);
                     await encoder.FlushAsync();
                 }
@@ -118,7 +117,6 @@ namespace LivePhotoBox.Services
                     using var fileStream = new FileStream(jpegPath, FileMode.Create, FileAccess.Write);
                     using var randomAccessStream = fileStream.AsRandomAccessStream();
                     var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, randomAccessStream);
-                    encoder.Quality = 100;
                     encoder.SetSoftwareBitmap(softwareBitmap);
                     await encoder.FlushAsync();
                 }
