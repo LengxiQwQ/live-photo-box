@@ -69,11 +69,12 @@ namespace LivePhotoBox.Services
             double scale = Math.Min(Math.Min(maxW / imgW, maxH / imgH), 1.0);
 
             _previewImage.Source = sourceImage.Source;
-            _previewImage.Width = imgW * scale;
-            _previewImage.Height = imgH * scale;
-            _previewBorder.Width = imgW * scale;
-            _previewBorder.Height = imgH * scale;
-            _previewBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x10, 0, 0, 0));
+            double renderW = imgW * scale;
+            double renderH = imgH * scale;
+            _previewImage.Width = renderW;
+            _previewImage.Height = renderH;
+            _previewBorder.Width = renderW;
+            _previewBorder.Height = renderH;
 
             _overlay.Width = winW;
             _overlay.Height = winH;

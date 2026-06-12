@@ -1253,4 +1253,32 @@
   <data name="HomePage_Tutorial_Ready_Subtitle.Text" xml:space="preserve">
     <value>点击右侧按钮，即可体验内置预设，直观了解完整合成流程</value>
   </data>
+  <data name="HomePage_SplitSubtitle.Text" xml:space="preserve">
+    <value>将单文件实况照片拆分为原始照片和视频</value>
+  </data>
+  <data name="HomePage_SplitTutorial_Step1_Title.Text" xml:space="preserve">
+    <value>准备实况照片</value>
+  </data>
+  <data name="HomePage_SplitTutorial_Step1_Desc.Text" xml:space="preserve">
+    <value>需要导入单文件格式的实况照片 JPG 格式，一个文件同时包含静态照片和动态视频，可以是：
+• 本软件转换生成的实况照片
+• 安卓手机直接拍摄的实况照片
+
+将以上任意文件放入同一文件夹即可。</value>
+  </data>
+  <data name="HomePage_SplitTutorial_Step2_Title.Text" xml:space="preserve">
+    <value>选择文件夹并拆分</value>
+  </data>
+  <data name="HomePage_SplitTutorial_Step2_Desc.Text" xml:space="preserve">
+    <value>点击「浏览」按钮选择文件夹，程序会自动扫描并识别实况照片。查看统计确认无误后，点击「开始拆分」即可。</value>
+  </data>
+  <data name="HomePage_SplitTutorial_Step3_Title.Text" xml:space="preserve">
+    <value>查看导出结果</value>
+  </data>
+  <data name="HomePage_SplitTutorial_Step3_Desc.Text" xml:space="preserve">
+    <value>拆分完成后，输出目录中会看到同文件名的照片和视频文件，直接打开即可查看。</value>
+  </data>
+  <data name="HomePage_SplitTutorial_Ready_Subtitle.Text" xml:space="preserve">
+    <value>点击右侧按钮，即可体验内置预设，直观了解完整拆分流程</value>
+  </data>
 </root>

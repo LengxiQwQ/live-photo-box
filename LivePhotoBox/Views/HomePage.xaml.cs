@@ -17,6 +17,8 @@ namespace LivePhotoBox.Views
         private bool _isHoverActive;
         private double _previewWidth;
         private double _previewHeight;
+        private double _origImgW;
+        private double _origImgH;
         private readonly PointerEventHandler _scrollViewerMovedHandler;
         private readonly Dictionary<string, (double Width, double Height)> _imageSizes = new();
 
@@ -44,6 +46,16 @@ namespace LivePhotoBox.Views
             {
                 heroTitleShadow.Text = heroTitleText.Text;
             }
+
+            // 隐藏教程底部的"试一下"提示和按钮
+            if (this.FindName("MergeTutorialReadyDivider") is UIElement mergeDivider)
+                mergeDivider.Visibility = Visibility.Collapsed;
+            if (this.FindName("MergeTutorialReadySection") is UIElement mergeSection)
+                mergeSection.Visibility = Visibility.Collapsed;
+            if (this.FindName("SplitTutorialReadyDivider") is UIElement splitDivider)
+                splitDivider.Visibility = Visibility.Collapsed;
+            if (this.FindName("SplitTutorialReadySection") is UIElement splitSection)
+                splitSection.Visibility = Visibility.Collapsed;
         }
 
         private void TutorialImage_Opened(object sender, RoutedEventArgs e)
@@ -108,11 +120,10 @@ namespace LivePhotoBox.Views
                 HoverImage.Source = sourceImage.Source;
                 HoverImage.Width = imgW * scale;
                 HoverImage.Height = imgH * scale;
-                HoverImageBorder.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x10, 0, 0, 0));
-                HoverImageBorder.Width = imgW * scale;
-                HoverImageBorder.Height = imgH * scale;
                 _previewWidth = imgW * scale;
                 _previewHeight = imgH * scale;
+                _origImgW = imgW;
+                _origImgH = imgH;
 
                 HoverOverlay.Width = winW;
                 HoverOverlay.Height = winH;
@@ -154,6 +165,15 @@ namespace LivePhotoBox.Views
                 var posInPage = e.GetCurrentPoint(this).Position;
                 double winW = this.XamlRoot.Size.Width;
                 double winH = this.XamlRoot.Size.Height;
+
+                double maxW = winW * 0.55;
+                double maxH = winH * 0.55;
+                double scale = Math.Min(Math.Min(maxW / _origImgW, maxH / _origImgH), 1.0);
+                _previewWidth = _origImgW * scale;
+                _previewHeight = _origImgH * scale;
+                HoverImage.Width = _previewWidth;
+                HoverImage.Height = _previewHeight;
+
                 double halfH = winH / 2;
                 double margin = 20;
                 double left, top;

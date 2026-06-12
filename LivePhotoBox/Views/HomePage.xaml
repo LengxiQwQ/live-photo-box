@@ -284,8 +284,9 @@
                         </Grid>
 
                         <!-- 教程结尾按钮 -->
-                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,-8,0,8"/>
-                        <Grid>
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,-8,0,8"
+                                x:Name="MergeTutorialReadyDivider" />
+                        <Grid x:Name="MergeTutorialReadySection">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
@@ -306,44 +307,212 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 实况照片拆分 -->
+                <!-- 实况照片拆分教程 - 左图右字布局 -->
                 <Border x:Name="SplitTutorialBorder" CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
-                    Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <FontIcon Glyph="&#xE8C6;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
-                        <StackPanel Grid.Column="1" Spacing="12">
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Uid="HomePage_SplitTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" VerticalAlignment="Center"/>
-                                <Button x:Uid="HomePage_TrySplitDemo" Style="{ThemeResource AccentButtonStyle}" Click="TrySplitDemo_Click" Grid.Column="1" VerticalAlignment="Center"/>
-                            </Grid>
+                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <StackPanel Spacing="24">
+                        <!-- 教程标题 + 按钮 -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE8C6;" FontSize="24" Foreground="{ThemeResource SystemAccentColor}"/>
+                                <StackPanel>
+                                    <TextBlock x:Uid="HomePage_SplitTitle" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                                    <TextBlock x:Uid="HomePage_SplitSubtitle" FontSize="13" Foreground="{ThemeResource TextFillColorTertiaryBrush}" FontFamily="Microsoft YaHei UI" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <Button x:Uid="HomePage_TrySplitDemo" x:Name="TrySplitDemoButton" Style="{ThemeResource AccentButtonStyle}" 
+                                    Click="TrySplitDemo_Click" Grid.Column="2" VerticalAlignment="Center"/>
+                        </Grid>
 
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Uid="HomePage_FeatureIntroLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
-                                <TextBlock x:Uid="HomePage_SplitDesc" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
-                            </Grid>
+                        <!-- 步骤一：准备实况照片 - 左字右图 -->
+                        <Grid ColumnSpacing="20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="5*"/>
+                                <ColumnDefinition Width="6*"/>
+                            </Grid.ColumnDefinitions>
 
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
-                                <TextBlock x:Uid="HomePage_SplitUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                            <!-- 文字 - 序号和文字同行 -->
+                            <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" Padding="16">
+                                <StackPanel Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <Border Width="32" Height="32" CornerRadius="16"
+                                                Background="{ThemeResource SystemAccentColor}"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="1" FontSize="16" FontWeight="Bold"
+                                                       Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock x:Uid="HomePage_SplitTutorial_Step1_Title"
+                                                   FontSize="16" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock x:Uid="HomePage_SplitTutorial_Step1_Desc"
+                                               TextWrapping="Wrap" LineHeight="22" FontFamily="Microsoft YaHei UI"
+                                               FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 图片 - 固定宽高，图片自适应缩放 -->
+                            <Grid Grid.Column="1" MinHeight="200">
+                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Padding="8"
+                                        PointerEntered="TutorialImageBorder_PointerEntered"
+                                        PointerExited="TutorialImageBorder_PointerExited">
+                                    <Image x:Name="TutorialImage5" Source="ms-appx:///Assets/Tutorials/split-01.png"
+                                           Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
+                                </Border>
+                                <Border x:Name="TutorialImage5Placeholder" CornerRadius="12"
+                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Visibility="Collapsed">
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
+                                        <FontIcon Glyph="&#xEB9F;" FontSize="36" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                        <TextBlock x:Uid="HomePage_Tutorial_ImagePlaceholder" Margin="0,8,0,0"
+                                                   HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                   FontFamily="Microsoft YaHei UI" FontSize="12"/>
+                                    </StackPanel>
+                                </Border>
                             </Grid>
-                        </StackPanel>
-                    </Grid>
+                        </Grid>
+
+                        <!-- 分隔线 -->
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                        <!-- 步骤二：选择文件夹并拆分 - 左字右图 -->
+                        <Grid ColumnSpacing="20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="5*"/>
+                                <ColumnDefinition Width="6*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 文字 - 序号和文字同行 -->
+                            <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" Padding="16">
+                                <StackPanel Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <Border Width="32" Height="32" CornerRadius="16"
+                                                Background="{ThemeResource SystemAccentColor}"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="2" FontSize="16" FontWeight="Bold"
+                                                       Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock x:Uid="HomePage_SplitTutorial_Step2_Title"
+                                                   FontSize="16" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock x:Uid="HomePage_SplitTutorial_Step2_Desc"
+                                               TextWrapping="Wrap" LineHeight="22" FontFamily="Microsoft YaHei UI"
+                                               FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 图片 - 固定宽高，图片自适应缩放 -->
+                            <Grid Grid.Column="1" MinHeight="200">
+                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Padding="8"
+                                        PointerEntered="TutorialImageBorder_PointerEntered"
+                                        PointerExited="TutorialImageBorder_PointerExited">
+                                    <Image x:Name="TutorialImage6" Source="ms-appx:///Assets/Tutorials/split-02.png"
+                                           Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
+                                </Border>
+                                <Border x:Name="TutorialImage6Placeholder" CornerRadius="12"
+                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Visibility="Collapsed">
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
+                                        <FontIcon Glyph="&#xEB9F;" FontSize="36" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                        <TextBlock x:Uid="HomePage_Tutorial_ImagePlaceholder" Margin="0,8,0,0"
+                                                   HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                   FontFamily="Microsoft YaHei UI" FontSize="12"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Grid>
+
+                        <!-- 分隔线 -->
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                        <!-- 步骤三：查看导出结果 - 左字右图 -->
+                        <Grid ColumnSpacing="20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="5*"/>
+                                <ColumnDefinition Width="6*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- 文字 - 序号和文字同行 -->
+                            <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" Padding="16">
+                                <StackPanel Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <Border Width="32" Height="32" CornerRadius="16"
+                                                Background="{ThemeResource SystemAccentColor}"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="3" FontSize="16" FontWeight="Bold"
+                                                       Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock x:Uid="HomePage_SplitTutorial_Step3_Title"
+                                                   FontSize="16" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock x:Uid="HomePage_SplitTutorial_Step3_Desc"
+                                               TextWrapping="Wrap" LineHeight="22" FontFamily="Microsoft YaHei UI"
+                                               FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- 图片 - 固定宽高，图片自适应缩放 -->
+                            <Grid Grid.Column="1" MinHeight="200">
+                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Padding="8"
+                                        PointerEntered="TutorialImageBorder_PointerEntered"
+                                        PointerExited="TutorialImageBorder_PointerExited">
+                                    <Image x:Name="TutorialImage7" Source="ms-appx:///Assets/Tutorials/split-03.png"
+                                           Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
+                                </Border>
+                                <Border x:Name="TutorialImage7Placeholder" CornerRadius="12"
+                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Visibility="Collapsed">
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
+                                        <FontIcon Glyph="&#xEB9F;" FontSize="36" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                        <TextBlock x:Uid="HomePage_Tutorial_ImagePlaceholder" Margin="0,8,0,0"
+                                                   HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                   FontFamily="Microsoft YaHei UI" FontSize="12"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Grid>
+
+                        <!-- 教程结尾按钮 -->
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,-8,0,8"
+                                x:Name="SplitTutorialReadyDivider" />
+                        <Grid x:Name="SplitTutorialReadySection">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Spacing="4">
+                                <TextBlock x:Uid="HomePage_Tutorial_Ready_Title"
+                                           FontSize="15" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                <TextBlock x:Uid="HomePage_SplitTutorial_Ready_Subtitle"
+                                           FontSize="13" FontFamily="Microsoft YaHei UI"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <Button x:Uid="HomePage_TrySplitDemo" x:Name="TutorialLoadSplitSampleButton"
+                                    Style="{ThemeResource AccentButtonStyle}"
+                                    Click="TrySplitDemo_Click"
+                                    Grid.Column="1" VerticalAlignment="Center"/>
+                        </Grid>
+                    </StackPanel>
                 </Border>
 
                 <!-- 缩略图修复 -->
@@ -460,9 +629,9 @@
         </Button>
         <Canvas x:Name="HoverOverlay" IsHitTestVisible="False" Visibility="Collapsed"
                 HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
-            <Border x:Name="HoverImageBorder" Background="#10000000" CornerRadius="6"
-                    BorderBrush="#40000000" BorderThickness="1">
-                <Image x:Name="HoverImage" Stretch="Uniform" IsHitTestVisible="False" MaxWidth="900" MaxHeight="700" Opacity="1"/>
+            <Border x:Name="HoverImageBorder" Background="Transparent" CornerRadius="8" BorderThickness="1"
+                    BorderBrush="#40000000">
+                <Image x:Name="HoverImage" Stretch="Uniform" IsHitTestVisible="False"/>
             </Border>
         </Canvas>
     </Grid>

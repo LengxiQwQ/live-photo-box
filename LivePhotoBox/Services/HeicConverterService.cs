@@ -1,8 +1,10 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.Foundation;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
@@ -56,7 +58,9 @@ namespace LivePhotoBox.Services
 
                     using var fileStream = new FileStream(tempJpegPath, FileMode.Create, FileAccess.Write);
                     using var randomAccessStream = fileStream.AsRandomAccessStream();
-                    var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, randomAccessStream);
+                    var propertySet = new BitmapPropertySet();
+                    propertySet.Add("ImageQuality", new BitmapTypedValue(1.0f, PropertyType.Single));
+                    var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, randomAccessStream, propertySet);
                     encoder.SetSoftwareBitmap(softwareBitmap);
                     await encoder.FlushAsync();
                 }
@@ -72,6 +76,15 @@ namespace LivePhotoBox.Services
                         File.Delete(jpegPath);
                     }
                     File.Move(tempJpegPath, jpegPath);
+                }
+
+                try
+                {
+                    await CopyTagsAsync(heicPath, jpegPath, token);
+                }
+                catch (Exception ex)
+                {
+                    AppLogService.Combo($"Copy metadata from HEIC failed: {ex.Message}", LogLevel.Warning, ex);
                 }
 
                 AppLogService.Combo($"HEIC conversion successful: {jpegPath}");
@@ -116,13 +129,24 @@ namespace LivePhotoBox.Services
 
                     using var fileStream = new FileStream(jpegPath, FileMode.Create, FileAccess.Write);
                     using var randomAccessStream = fileStream.AsRandomAccessStream();
-                    var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, randomAccessStream);
+                    var propertySet = new BitmapPropertySet();
+                    propertySet.Add("ImageQuality", new BitmapTypedValue(1.0f, PropertyType.Single));
+                    var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, randomAccessStream, propertySet);
                     encoder.SetSoftwareBitmap(softwareBitmap);
                     await encoder.FlushAsync();
                 }
                 finally
                 {
                     softwareBitmap?.Dispose();
+                }
+
+                try
+                {
+                    await CopyTagsAsync(heicPath, jpegPath, token);
+                }
+                catch (Exception ex)
+                {
+                    AppLogService.Combo($"Copy metadata from HEIC failed: {ex.Message}", LogLevel.Warning, ex);
                 }
 
                 AppLogService.Combo($"HEIC conversion successful: {jpegPath}");
@@ -134,6 +158,106 @@ namespace LivePhotoBox.Services
                 throw new InvalidOperationException(
                     ResourceService.Format("Error_HeicConversionFailed", Path.GetFileName(heicPath), ex.Message), ex);
             }
+        }
+
+        private static async Task CopyTagsAsync(string sourcePath, string targetPath, CancellationToken token)
+        {
+            string? toolPath = FindExifTool();
+            if (string.IsNullOrEmpty(toolPath))
+            {
+                return;
+            }
+
+            string arguments = $"-TagsFromFile \"{sourcePath}\" -all:all \"{targetPath}\" -overwrite_original -quiet";
+
+            using var process = new Process();
+            process.StartInfo.FileName = toolPath;
+            process.StartInfo.Arguments = arguments;
+            process.StartInfo.UseShellExecute = false;
+            process.StartInfo.CreateNoWindow = true;
+            process.StartInfo.RedirectStandardError = true;
+            process.StartInfo.RedirectStandardOutput = true;
+
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            process.EnableRaisingEvents = true;
+            process.Exited += (_, _) => tcs.TrySetResult(true);
+
+            try
+            {
+                process.Start();
+            }
+            catch
+            {
+                return;
+            }
+
+            using var registration = token.Register(() =>
+            {
+                try
+                {
+                    if (!process.HasExited)
+                    {
+                        process.Kill();
+                    }
+                }
+                catch
+                {
+                }
+                tcs.TrySetCanceled();
+            });
+
+            await tcs.Task.ConfigureAwait(false);
+
+            if (process.ExitCode != 0)
+            {
+                string error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                throw new InvalidOperationException($"exiftool exited with code {process.ExitCode}: {error}");
+            }
+        }
+
+        private static string? FindExifTool()
+        {
+            string[] candidates =
+            {
+                Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe"),
+                Path.Combine(AppContext.BaseDirectory, "exiftool.exe"),
+                "exiftool"
+            };
+
+            foreach (var candidate in candidates)
+            {
+                try
+                {
+                    if (File.Exists(candidate))
+                    {
+                        return candidate;
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            string? pathEnv = Environment.GetEnvironmentVariable("PATH");
+            if (!string.IsNullOrEmpty(pathEnv))
+            {
+                foreach (var part in pathEnv.Split(Path.PathSeparator))
+                {
+                    try
+                    {
+                        string candidate = Path.Combine(part.Trim(), "exiftool.exe");
+                        if (File.Exists(candidate))
+                        {
+                            return candidate;
+                        }
+                    }
+                    catch
+                    {
+                    }
+                }
+            }
+
+            return null;
         }
     }
 }
