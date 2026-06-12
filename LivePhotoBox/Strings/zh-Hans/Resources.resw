@@ -280,7 +280,7 @@
     <value>已跳过 :</value>
   </data>
   <data name="SplitPage_FormatLabel.Text" xml:space="preserve">
-    <value>导出格式：</value>
+    <value>视频导出格式：</value>
   </data>
   <data name="SplitPage_ScanBtn.Content" xml:space="preserve">
     <value>扫描实况照片</value>
@@ -1280,5 +1280,32 @@
   </data>
   <data name="HomePage_SplitTutorial_Ready_Subtitle.Text" xml:space="preserve">
     <value>点击右侧按钮，即可体验内置预设，直观了解完整拆分流程</value>
+  </data>
+  <data name="SettingsPage_Split_Hardware.Text" xml:space="preserve">
+    <value>硬件加速</value>
+  </data>
+  <data name="SettingsPage_Split_ThreadCount.Text" xml:space="preserve">
+    <value>任务并行数</value>
+  </data>
+  <data name="SettingsPage_Split_Hardware_Threads.Text" xml:space="preserve">
+    <value>线程</value>
+  </data>
+  <data name="SettingsPage_Split_Hardware_Desc.Text" xml:space="preserve">
+    <value>选择 GPU 或 CPU 进行编码加速</value>
+  </data>
+  <data name="SettingsPage_Split_ThreadCount_Desc.Text" xml:space="preserve">
+    <value>同时处理的任务数</value>
+  </data>
+  <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
+    <value>恢复默认设置</value>
+  </data>
+  <data name="SettingsPage_Restore_Confirm_Message" xml:space="preserve">
+    <value>确定要将所有设置恢复为默认值吗？</value>
+  </data>
+  <data name="Msg_Confirm" xml:space="preserve">
+    <value>确定</value>
+  </data>
+  <data name="Msg_Cancel" xml:space="preserve">
+    <value>取消</value>
   </data>
 </root>

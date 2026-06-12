@@ -9,6 +9,7 @@ namespace LivePhotoBox.Services
 {
     /// <summary>
     /// 视频转码服务 - 使用 FFmpeg 进行视频格式转换
+    /// 支持硬件加速 (NVENC/QSV/AMF) 和多线程处理
     /// </summary>
     public static class VideoTranscodeService
     {
@@ -31,6 +32,22 @@ namespace LivePhotoBox.Services
             public string? ErrorMessage { get; set; }
             public TimeSpan Duration { get; set; }
             public bool WasRemux { get; set; }
+        }
+
+        /// <summary>
+        /// 获取当前选择的硬件编码器
+        /// </summary>
+        private static string? GetCurrentEncoder()
+        {
+            return AppSettingsService.GetValue<string?>("SplitHardwareEncoder", null);
+        }
+
+        /// <summary>
+        /// 获取当前线程数设置
+        /// </summary>
+        private static int GetThreadCount()
+        {
+            return AppSettingsService.GetValue<int>("SplitThreadCount", Environment.ProcessorCount);
         }
 
         /// <summary>
@@ -333,12 +350,16 @@ namespace LivePhotoBox.Services
         /// </summary>
         private static string BuildFFmpegArguments(string inputPath, string outputPath, VideoFormat targetFormat)
         {
+            string? encoder = GetCurrentEncoder();
+            int threadCount = GetThreadCount();
+
             // FFmpeg 参数说明:
             // -y: 覆盖输出文件
             // -i: 输入文件
             // -map 0:v: 保留第一个视频流
             // -map 0:a: 保留所有音频流
             // -map_metadata 0: 复制输入文件的所有全局元数据（如拍摄日期、GPS等）
+            // -threads: 编码线程数
             // -c:v: 视频编码器
             // -c:a: 音频编码器
             // -movflags: MP4 容器选项
@@ -349,12 +370,31 @@ namespace LivePhotoBox.Services
             // - 像素格式会自动从输入继承，保持 HDR 色彩空间 (如 yuv420p10le)
             // - 如果源视频包含 HEVC Main10 或其他 HDR 格式，会被正确处理
 
+            string videoEncoder;
+            string videoParams;
+
+            if (!string.IsNullOrEmpty(encoder))
+            {
+                // 使用硬件编码器
+                videoEncoder = encoder;
+                videoParams = GetHardwareEncoderParams(encoder);
+            }
+            else
+            {
+                // 使用软件编码器
+                videoEncoder = targetFormat == VideoFormat.MP4 ? "libx264" : "libx265";
+                videoParams = targetFormat == VideoFormat.MP4
+                    ? "-preset veryslow -crf 18"
+                    : "-preset medium -crf 28";
+            }
+
             return targetFormat switch
             {
                 VideoFormat.MP4 => $"-y -i \"{inputPath}\" " +
                     $"-map 0:v -map 0:a " +
                     $"-map_metadata 0 " +
-                    $"-c:v libx264 -preset veryslow -crf 18 " +
+                    $"-threads {threadCount} " +
+                    $"-c:v {videoEncoder} {videoParams} " +
                     $"-c:a aac -b:a 256k " +
                     $"-movflags +faststart " +
                     $"\"{outputPath}\"",
@@ -362,12 +402,37 @@ namespace LivePhotoBox.Services
                 VideoFormat.MOV => $"-y -i \"{inputPath}\" " +
                     $"-map 0:v -map 0:a " +
                     $"-map_metadata 0 " +
-                    $"-c:v libx265 -preset medium -crf 28 " +
+                    $"-threads {threadCount} " +
+                    $"-c:v {videoEncoder} {videoParams} " +
                     $"-c:a aac -b:a 256k " +
                     $"-movflags +faststart " +
                     $"\"{outputPath}\"",
 
                 _ => $"-y -i \"{inputPath}\" -c copy \"{outputPath}\""
+            };
+        }
+
+        /// <summary>
+        /// 获取硬件编码器的额外参数
+        /// </summary>
+        private static string GetHardwareEncoderParams(string encoder)
+        {
+            return encoder.ToLowerInvariant() switch
+            {
+                // NVIDIA NVENC - 高质量设置
+                "h264_nvenc" => "-preset p7 -cq 18 -rc:v vbr",
+                // NVIDIA NVENC HEVC
+                "hevc_nvenc" => "-preset p7 -cq 28 -rc:v vbr",
+                // Intel QSV
+                "h264_qsv" => "-preset high -global_quality 28",
+                // Intel QSV HEVC
+                "hevc_qsv" => "-preset high -global_quality 30",
+                // AMD AMF
+                "h264_amf" => "-preset quality -quality 100",
+                // AMD AMF HEVC
+                "hevc_amf" => "-preset quality -quality 100",
+                // 默认
+                _ => "-crf 18"
             };
         }
 

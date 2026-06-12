@@ -6,9 +6,12 @@ using LivePhotoBox.Collections;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 
@@ -478,59 +481,97 @@ namespace LivePhotoBox.ViewModels
                 var token = GetProcessingToken();
                 await Task.Run(async () =>
                 {
-                    var tasksToProcess = Tasks.ToList();
+                    var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
+                    int maxParallel = AppSettingsService.GetValue("SplitThreadCount", Environment.ProcessorCount);
 
-                    // 【核心修复】：准备一个计时器用于限速
-                    var loopDelaySw = new Stopwatch();
+                    // 使用 SemaphoreSlim 限制并发数
+                    using var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
+                    var pendingTasks = new List<Task>();
+                    int localCompletedCount = 0;
+                    var lockObj = new object();
 
-                    foreach (var task in tasksToProcess)
+                    async Task ProcessTask(SplitTask task)
                     {
-                        loopDelaySw.Restart();
-
-                        if (task.Status == ProcessStatus.Success)
-                            continue;
-
-                        PauseEvent.Wait(token);
-                        if (token.IsCancellationRequested)
-                            token.ThrowIfCancellationRequested();
-
-                        App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task));
-
-                        bool isSuccess;
-                        string detailMessage;
+                        await semaphore.WaitAsync(token);
 
                         try
                         {
-                            await LivePhotoSplitService.SplitAsync(task.SourcePath, outputDir, formatIndex, token);
-                            isSuccess = true;
-                            detailMessage = ResourceService.GetString("SplitPage_Task_Success");
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                                UpdateTaskCompleted(task, false, ResourceService.GetString("Status_Aborted") ?? "???", _completedTasksCount));
-                            throw;
-                        }
-                        catch (Exception ex)
-                        {
-                            isSuccess = false;
-                            detailMessage = ResourceService.Format("Task_Error", ex.Message);
-                        }
+                            PauseEvent.Wait(token);
+                            if (token.IsCancellationRequested)
+                            {
+                                throw new OperationCanceledException();
+                            }
 
-                        _completedTasksCount++;
-                        App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage, _completedTasksCount));
+                            App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task));
 
-                        // 【核心修复】：为极速的 Split 任务强制加上最低延迟，给 UI 喘息时间防止洪水崩溃
-                        loopDelaySw.Stop();
-                        long elapsed = loopDelaySw.ElapsedMilliseconds;
-                        int minTaskMs = 150; // 强制每个任务至少耗时 150 毫秒（即每秒最多跑 6~7 个）
-                        if (elapsed < minTaskMs)
+                            bool isSuccess;
+                            string detailMessage;
+
+                            try
+                            {
+                                await LivePhotoSplitService.SplitAsync(task.SourcePath, outputDir, formatIndex, token);
+                                isSuccess = true;
+                                detailMessage = ResourceService.GetString("SplitPage_Task_Success");
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                                    UpdateTaskCompleted(task, false, ResourceService.GetString("Status_Aborted") ?? "???", _completedTasksCount));
+                                throw;
+                            }
+                            catch (Exception ex)
+                            {
+                                isSuccess = false;
+                                detailMessage = ResourceService.Format("Task_Error", ex.Message);
+                            }
+
+                            lock (lockObj)
+                            {
+                                localCompletedCount++;
+                                _completedTasksCount = localCompletedCount;
+                            }
+
+                            App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage, _completedTasksCount));
+                        }
+                        finally
                         {
-                            try { await Task.Delay((int)(minTaskMs - elapsed), token); }
-                            catch (TaskCanceledException) { throw new OperationCanceledException(); }
+                            semaphore.Release();
                         }
                     }
-                });
+
+                    foreach (var task in tasksToProcess)
+                    {
+                        if (token.IsCancellationRequested)
+                        {
+                            break;
+                        }
+
+                        pendingTasks.Add(ProcessTask(task));
+
+                        // 当达到最大并发数时，等待任意一个完成
+                        if (pendingTasks.Count >= maxParallel)
+                        {
+                            var completedTask = await Task.WhenAny(pendingTasks);
+                            pendingTasks.Remove(completedTask);
+
+                            try
+                            {
+                                await completedTask;
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                // 取消处理
+                                break;
+                            }
+                        }
+                    }
+
+                    // 等待所有剩余任务完成
+                    if (!token.IsCancellationRequested)
+                    {
+                        await Task.WhenAll(pendingTasks);
+                    }
+                }, token);
             }
             catch (OperationCanceledException)
             {

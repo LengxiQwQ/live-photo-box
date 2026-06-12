@@ -3,6 +3,7 @@ using LivePhotoBox.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using LivePhotoBox.Models;
+using System;
 
 namespace LivePhotoBox.Views
 {
@@ -31,7 +32,7 @@ namespace LivePhotoBox.Views
             Bindings.Update();
         }
 
-        private void GenerateTestCrashLogButton_Click(object sender, RoutedEventArgs e)
+        private async void GenerateTestCrashLogButton_Click(object sender, RoutedEventArgs e)
         {
             AboutViewModel.GenerateTestCrashLogActionCommand.Execute(null);
         }
@@ -52,6 +53,32 @@ namespace LivePhotoBox.Views
 
             AppLogService.Info($"PreviewCrashDialog requested. File='{System.IO.Path.GetFileName(logPath)}'", LogSource.UI);
             await CrashLogService.ShowCrashDialogAsync(XamlRoot, logPath);
+        }
+
+        private async void RestoreDefaultSettings_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow?.Content?.XamlRoot == null) return;
+
+            var dialog = new ContentDialog
+            {
+                Title = ResourceService.GetString("SettingsPage_Restore_Confirm_Title"),
+                Content = new TextBlock
+                {
+                    Text = ResourceService.GetString("SettingsPage_Restore_Confirm_Message"),
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap
+                },
+                PrimaryButtonText = ResourceService.GetString("Msg_Cancel"),
+                SecondaryButtonText = ResourceService.GetString("Msg_Confirm"),
+                DefaultButton = ContentDialogButton.Secondary,
+                XamlRoot = App.MainWindow.Content.XamlRoot
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result == ContentDialogResult.Secondary)
+            {
+                ViewModel.RestoreDefaultSettingsCommand.Execute(null);
+            }
         }
     }
 }

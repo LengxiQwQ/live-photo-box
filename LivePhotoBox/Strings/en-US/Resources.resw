@@ -281,7 +281,7 @@ Do you want to restart now?</value>
     <value>Skipped :</value>
   </data>
   <data name="SplitPage_FormatLabel.Text" xml:space="preserve">
-    <value>Export Format:</value>
+    <value>Export Video Format</value>
   </data>
   <data name="SplitPage_ScanBtn.Content" xml:space="preserve">
     <value>Scan Live Photos</value>
@@ -1112,12 +1112,6 @@ Log file: {0}</value>
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>Help &amp; Tutorials</value>
   </data>
-  <data name="Msg_GotIt" xml:space="preserve">
-    <value>Got it</value>
-  </data>
-  <data name="Msg_GoToTutorial" xml:space="preserve">
-    <value>View Tutorial</value>
-  </data>
   <data name="ComboPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
     <value>Input Folder Not Selected</value>
   </data>
@@ -1287,5 +1281,32 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="HomePage_SplitTutorial_Ready_Subtitle.Text" xml:space="preserve">
     <value>Click the button on the right to try the built-in sample and see the full split flow in action</value>
+  </data>
+  <data name="SettingsPage_Split_Hardware.Text" xml:space="preserve">
+    <value>Hardware Acceleration</value>
+  </data>
+  <data name="SettingsPage_Split_ThreadCount.Text" xml:space="preserve">
+    <value>Multi-task parallel number</value>
+  </data>
+  <data name="SettingsPage_Split_Hardware_Threads.Text" xml:space="preserve">
+    <value>threads</value>
+  </data>
+  <data name="SettingsPage_Split_Hardware_Desc.Text" xml:space="preserve">
+    <value>Select GPU or CPU for encoding</value>
+  </data>
+  <data name="SettingsPage_Split_ThreadCount_Desc.Text" xml:space="preserve">
+    <value>Number of concurrent tasks</value>
+  </data>
+  <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
+    <value>Restore Default Settings</value>
+  </data>
+  <data name="SettingsPage_Restore_Confirm_Message" xml:space="preserve">
+    <value>Are you sure you want to restore all settings to their default values?</value>
+  </data>
+  <data name="Msg_Confirm" xml:space="preserve">
+    <value>Confirm</value>
+  </data>
+  <data name="Msg_Cancel" xml:space="preserve">
+    <value>Cancel</value>
   </data>
 </root>
