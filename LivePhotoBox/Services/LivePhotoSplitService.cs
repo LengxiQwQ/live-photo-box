@@ -48,8 +48,8 @@ namespace LivePhotoBox.Services
                 throw new InvalidDataException("Unable to determine the appended motion video length or file is corrupted.");
             }
 
-            string videoExtension = await ResolveVideoExtensionAsync(sourceStream, imageLength, metadataText, selectedSplitFormatIndex, token);
-            (string imageOutputPath, string videoOutputPath) = BuildOutputPaths(sourcePath, outputDirectory, videoExtension);
+            string targetExtension = await ResolveVideoExtensionAsync(sourceStream, imageLength, metadataText, selectedSplitFormatIndex, token);
+            (string imageOutputPath, string videoOutputPath) = BuildOutputPaths(sourcePath, outputDirectory, targetExtension);
 
             // 1. 提取图片部分
             sourceStream.Position = 0;
@@ -58,11 +58,102 @@ namespace LivePhotoBox.Services
                 await CopyExactLengthAsync(sourceStream, imageOutputStream, imageLength, token);
             }
 
-            // 2. 提取视频部分
+            // 2. 提取视频部分（临时文件）
+            string tempVideoPath = videoOutputPath + ".tmp";
             sourceStream.Position = imageLength;
-            await using (var videoOutputStream = new FileStream(videoOutputPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
+            await using (var videoOutputStream = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
                 await CopyExactLengthAsync(sourceStream, videoOutputStream, videoLength, token);
+            }
+
+            // 3. 检查是否需要处理
+            bool needsProcessing = selectedSplitFormatIndex switch
+            {
+                1 => true,  // 用户明确选择 MP4
+                2 => true,  // 用户明确选择 MOV
+                _ => false  // 默认格式，直接使用原视频
+            };
+
+            if (needsProcessing)
+            {
+                // 检测源视频格式
+                string sourceVideoExtension = await DetectDefaultVideoExtensionAsync(sourceStream, imageLength, metadataText, token);
+                bool formatMatches = (selectedSplitFormatIndex == 1 && sourceVideoExtension == ".mp4") ||
+                                    (selectedSplitFormatIndex == 2 && sourceVideoExtension == ".mov");
+
+                System.Diagnostics.Debug.WriteLine($"[DEBUG Split] needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}");
+                AppLogService.Split($"needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}", LogLevel.Warning);
+
+                if (formatMatches)
+                {
+                    // 格式完全匹配，使用 FFmpeg remux（快速无损转换容器，完整保留 HDR 元数据）
+                    AppLogService.Split($"Remuxing video (container only): {sourceVideoExtension} -> {targetExtension}");
+                    System.Diagnostics.Debug.WriteLine($"[DEBUG Split] === REMUX PATH (no re-encoding) ===");
+                    var remuxResult = await VideoTranscodeService.RemuxAsync(tempVideoPath, videoOutputPath, token);
+
+                    if (remuxResult.Success)
+                    {
+                        // remux 成功，删除临时文件
+                        if (File.Exists(tempVideoPath))
+                        {
+                            File.Delete(tempVideoPath);
+                        }
+                    }
+                    else
+                    {
+                        // remux 失败，保留原始提取的视频
+                        AppLogService.Split($"Remux failed, keeping raw video: {remuxResult.ErrorMessage}", LogLevel.Warning);
+                        if (File.Exists(tempVideoPath))
+                        {
+                            if (File.Exists(videoOutputPath))
+                            {
+                                File.Delete(videoOutputPath);
+                            }
+                            File.Move(tempVideoPath, videoOutputPath);
+                        }
+                    }
+                }
+                else
+                {
+                    // 格式不匹配，需要转码
+                    AppLogService.Split($"Transcoding video: {sourceVideoExtension} -> {targetExtension}");
+                    System.Diagnostics.Debug.WriteLine($"[DEBUG Split] === TRANSCODE PATH (re-encoding with {(selectedSplitFormatIndex == 1 ? "libx264" : "libx265")}) ===");
+
+                    var transcodeResult = selectedSplitFormatIndex == 1
+                        ? await VideoTranscodeService.TranscodeToMp4Async(tempVideoPath, videoOutputPath, token)
+                        : await VideoTranscodeService.TranscodeToMovAsync(tempVideoPath, videoOutputPath, token);
+
+                    if (!transcodeResult.Success)
+                    {
+                        // 转码失败，保留原始提取的视频
+                        AppLogService.Split($"Transcode failed, keeping original video: {transcodeResult.ErrorMessage}", LogLevel.Warning);
+                        if (File.Exists(tempVideoPath))
+                        {
+                            if (File.Exists(videoOutputPath))
+                            {
+                                File.Delete(videoOutputPath);
+                            }
+                            File.Move(tempVideoPath, videoOutputPath);
+                        }
+                    }
+                    else
+                    {
+                        // 转码成功，删除临时文件
+                        if (File.Exists(tempVideoPath))
+                        {
+                            File.Delete(tempVideoPath);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                // 不需要转码，直接移动临时文件到目标位置
+                if (File.Exists(videoOutputPath))
+                {
+                    File.Delete(videoOutputPath);
+                }
+                File.Move(tempVideoPath, videoOutputPath);
             }
 
             return new LivePhotoSplitResult

@@ -596,10 +596,10 @@ Do you want to restart now?</value>
     <value>(Old) Google Motion Photo (V2)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
-    <value>MP4 (H.264/HEVC) (Under Dev)</value>
+    <value>MP4 (H.264/AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
-    <value>MOV (QuickTime) (Under Dev)</value>
+    <value>MOV (H.264/AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
     <value>Video Default Format</value>

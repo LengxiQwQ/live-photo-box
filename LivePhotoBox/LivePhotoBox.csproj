@@ -70,7 +70,7 @@
 		<None Remove="Assets\Fonts\**\*.*" />
 	</ItemGroup>
 
- <ItemGroup>
+	<ItemGroup>
         <Content Include="Assets\**\*.*">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
@@ -82,6 +82,13 @@
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
      <Content Include="Tools\jpegtran.exe">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+     <!-- FFmpeg for video transcoding -->
+     <Content Include="Tools\ffmpeg.exe" Condition="Exists('Tools\ffmpeg.exe')">
+		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+     <Content Include="Tools\ffprobe.exe" Condition="Exists('Tools\ffprobe.exe')">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
 	</ItemGroup>
