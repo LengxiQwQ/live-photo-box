@@ -502,11 +502,17 @@ Do you want to restart now?</value>
   <data name="Msg_RepairCompletedDescription" xml:space="preserve">
     <value>You can open the output folder to review the repaired results, or clear the list and start again.</value>
   </data>
+  <data name="Msg_RepairCompletedSummary" xml:space="preserve">
+    <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}.{3}</value>
+  </data>
   <data name="Msg_ComboCompletedTitle" xml:space="preserve">
     <value>Task Completed</value>
   </data>
   <data name="Msg_ComboCompletedDescription" xml:space="preserve">
     <value>You can open the output folder to review the generated results, or clear the list and start again.</value>
+  </data>
+  <data name="Msg_ComboCompletedSummary" xml:space="preserve">
+    <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}.{3}</value>
   </data>
   <data name="Msg_OpenOutputFolder" xml:space="preserve">
     <value>Open Output Folder</value>
@@ -522,6 +528,9 @@ Do you want to restart now?</value>
   </data>
   <data name="Msg_SplitCompletedDescription" xml:space="preserve">
     <value>You can open the output folder to review the generated results, or clear the list and start again.</value>
+  </data>
+  <data name="Msg_SplitCompletedSummary" xml:space="preserve">
+    <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}.{3}</value>
   </data>
   <data name="Btn_ComboStopped" xml:space="preserve">
     <value>Stopped</value>

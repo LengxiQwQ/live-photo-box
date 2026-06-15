@@ -25,9 +25,9 @@ namespace LivePhotoBox.Services
 
     public static class LivePhotoSplitScanService
     {
-        private const int MetadataProbeBytes = 256 * 1024;
+        // 统一与 SplitService 相同的 1MB 探测深度，避免遗漏包含较大 EXIF 的实况照片
+        private const int MetadataProbeBytes = 1024 * 1024;
         private const int MetadataCheckInterval = 4;
-        private const int TrailerProbeBytes = 4 * 1024 * 1024;
 
         // 最小的合法 JPEG 体积（包含 SOI/EOI 及必要元数据），低于此值不可能是实况照片
         private const long MinImageBytes = 4 * 1024;
@@ -164,19 +164,12 @@ namespace LivePhotoBox.Services
 
         private static bool IsLikelyLivePhoto(string path, long fileSize)
         {
-            // 严格识别实况照片（不依赖文件名，只看文件内容）：
-            // 1. 文件头部必须包含 GCamera: MicroVideo/MotionPhoto 元数据标记
-            // 2. 必须能解析出有效的视频偏移量（MicroVideoOffset 或 MotionPhotoLength）
-            // 3. 偏移量必须满足：MinVideoBytes < offset < fileSize
-            //    且 (fileSize - offset) >= MinImageBytes（剩余部分必须是合法 JPEG）
-            // 满足全部条件才视为可拆分的实况照片，避免误判普通 JPEG 后拆分报错
-
+            // 基础过滤：文件大小必须大于图片和视频的最基本合法体积
             if (fileSize <= MinImageBytes + MinVideoBytes) return false;
 
             int probeSize = (int)Math.Min(fileSize, MetadataProbeBytes);
             byte[] headBuffer = ArrayPool<byte>.Shared.Rent(probeSize);
             int headRead = 0;
-            string? metadataText = null;
 
             try
             {
@@ -185,7 +178,7 @@ namespace LivePhotoBox.Services
                 headRead = stream.Read(headBuffer, 0, probeSize);
                 if (headRead <= 0) return false;
 
-                // 1. 检查文件头部是否含实况照片元数据标记
+                // 1. 快速粗筛：通过字节流直接查找是否存在特征字符串（极速，避免对所有文件执行正则）
                 var headData = new ReadOnlySpan<byte>(headBuffer, 0, headRead);
                 bool hasMarker = false;
                 foreach (var marker in MetadataMarkers)
@@ -197,52 +190,27 @@ namespace LivePhotoBox.Services
                     }
                 }
 
-                // 部分实况照片的 XMP / MicroVideo 标记不在文件最前面，扫一下头部文本中的偏移量
-                // 如果头部找不到标记，但能解析出偏移量，也视为有效（少数实况照片实现）
-                metadataText = Encoding.UTF8.GetString(headBuffer, 0, headRead);
+                // 如果头部连基本特征字眼都没有，绝不可能是实况照片，直接光速失败（彻底剔除原先读尾部 4MB 的耗时操作）
+                if (!hasMarker) return false;
+
+                // 2. 精准提取视频偏移量
+                string metadataText = Encoding.UTF8.GetString(headBuffer, 0, headRead);
                 long? headOffset = TryParseVideoOffset(metadataText);
-                if (!hasMarker && headOffset == null)
-                {
-                    // 2. 头部没有标记也没有偏移量，再尝试扫文件末尾是否包含视频流 trailer
-                    int tailSize = (int)Math.Min(fileSize, TrailerProbeBytes);
-                    byte[] tailBuffer = ArrayPool<byte>.Shared.Rent(tailSize);
-                    int tailRead = 0;
-                    try
-                    {
-                        stream.Seek(-tailSize, SeekOrigin.End);
-                        tailRead = stream.Read(tailBuffer, 0, tailSize);
-                    }
-                    finally
-                    {
-                        ArrayPool<byte>.Shared.Return(tailBuffer);
-                    }
 
-                    if (tailRead <= 0) return false;
-                    var tailData = new ReadOnlySpan<byte>(tailBuffer, 0, tailRead);
-                    if (tailData.IndexOf("ftyp"u8) < 0 && tailData.IndexOf("moov"u8) < 0)
-                    {
-                        return false;
-                    }
-                    // 文件末尾有视频流但头部找不到任何实况照片标记，仍视为可疑：
-                    // 需要再做一次完整偏移量解析（XMP 可能写在文件前 1MB 之外，但 256KB 内）
-                    // 这里因为元数据标记确实不在头部，认为是普通图片末尾恰好被某些工具追加视频
-                    return false;
-                }
-
-                // 3. 解析视频偏移量
                 long videoLength = headOffset ?? 0;
                 if (videoLength <= 0)
                 {
                     return false;
                 }
 
-                // 4. 校验偏移量合法性
+                // 3. 校验偏移量合法性（谷歌标准：videoLength 即为文件尾部的视频字节数）
                 if (videoLength < MinVideoBytes) return false;
                 if (videoLength >= fileSize) return false;
 
                 long imageLength = fileSize - videoLength;
                 if (imageLength < MinImageBytes) return false;
 
+                // 完全通过，是一张标准的安卓实况照片
                 return true;
             }
             catch (IOException) { return false; }

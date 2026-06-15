@@ -203,10 +203,20 @@ namespace LivePhotoBox.ViewModels
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
             {
+                int total = Tasks.Count;
+                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
+                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                var summary = ResourceService.Format("Msg_RepairCompletedSummary", total, succeeded, failed, Environment.NewLine);
+
                 var dialog = new ContentDialog
                 {
                     Title = ResourceService.GetString("Msg_RepairCompletedTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_RepairCompletedDescription"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    Content = new TextBlock
+                    {
+                        Text = summary,
+                        FontSize = 16,
+                        TextWrapping = TextWrapping.Wrap
+                    },
                     PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Primary,

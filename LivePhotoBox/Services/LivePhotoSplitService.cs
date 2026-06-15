@@ -358,16 +358,18 @@ namespace LivePhotoBox.Services
         /// </summary>
         private static async Task CopyJpegStrippingLivePhotoMetadataAsync(Stream sourceStream, Stream destinationStream, long imageLength, CancellationToken token)
         {
-            // 先写入 SOI
+            // 1. 确保起始是 SOI (0xFF 0xD8)
             byte[] soi = new byte[2];
             if (await ReadExactAsync(sourceStream, soi, 2, token) != 2 || soi[0] != 0xFF || soi[1] != 0xD8)
             {
                 throw new InvalidDataException("Split image region is not a valid JPEG (missing SOI).");
             }
-            await destinationStream.WriteAsync(soi, token);
+            await destinationStream.WriteAsync(soi.AsMemory(0, 2), token);
             long consumedInImage = 2;
 
-            byte[] header = new byte[4];
+            byte[] header = new byte[4];     // [0][1] 存 Marker，[2][3] 存 Length
+            byte[] temp2 = new byte[2];      // 专门用于读取的2字节小缓冲区，避免指针错位
+            byte[] singleByte = new byte[1]; // 用于跳过多余填充字节的单字节缓冲区
             byte[] segmentBuffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
 
             try
@@ -376,95 +378,116 @@ namespace LivePhotoBox.Services
                 {
                     token.ThrowIfCancellationRequested();
 
-                    // 读取 marker 字节 (0xFF ??)
-                    if (await ReadExactAsync(sourceStream, header, 2, token) != 2)
+                    // 1. 读取 Marker (0xFF ??) 到 temp2
+                    if (await ReadExactAsync(sourceStream, temp2, 2, token) != 2)
                     {
-                        throw new EndOfStreamException("Unexpected EOF while reading JPEG segments.");
+                        break; // EOF
                     }
                     consumedInImage += 2;
 
-                    byte marker = header[1];
-                    // 关键：必须立刻把 marker 字节写出去，因为后面读 segment length 时
-                    // 会覆盖 header[0..1]（见下方第二次 ReadExactAsync 调用）。
-                    // 如果等到嗅探分支再统一写，就会漏掉 marker 字节。
-                    await destinationStream.WriteAsync(header.AsMemory(0, 2), token);
+                    // 兼容性保护：JPEG 规范允许段之间有多个连续的 0xFF 作为填充字节
+                    while (temp2[0] == 0xFF && temp2[1] == 0xFF)
+                    {
+                        await destinationStream.WriteAsync(temp2.AsMemory(0, 1), token); // 将多余的 0xFF 原样写入
+                        temp2[0] = temp2[1];
+                        if (await ReadExactAsync(sourceStream, singleByte, 1, token) != 1) break;
+                        temp2[1] = singleByte[0];
+                        consumedInImage += 1;
+                    }
 
-                    // 遇到 SOS (0xDA)：剩余部分全部是压缩图像数据，按原样写入
+                    // 记录真实 Marker
+                    header[0] = temp2[0];
+                    header[1] = temp2[1];
+                    byte marker = header[1];
+
+                    // 遇到 SOS (0xDA)：写入标记后，剩余全部为压缩图像核心像素数据，直接原样拷贝并跳出
                     if (marker == 0xDA)
                     {
+                        await destinationStream.WriteAsync(header.AsMemory(0, 2), token);
                         long remainingInImage = imageLength - consumedInImage;
-                        await CopyExactLengthAsync(sourceStream, destinationStream, remainingInImage, token);
-                        consumedInImage += remainingInImage;
+                        if (remainingInImage > 0)
+                        {
+                            await CopyExactLengthAsync(sourceStream, destinationStream, remainingInImage, token);
+                            consumedInImage += remainingInImage;
+                        }
                         break;
                     }
 
-                    // 遇到独立标记（无长度字段，如 RSTn 0xD0-0xD7、SOI 0xD8、EOI 0xD9、0x00 填充）
+                    // 遇到无长度字段的独立标记（如 RSTn 0xD0-0xD7、SOI 0xD8、EOI 0xD9、0x00 填充）
                     if (marker == 0xD8 || marker == 0xD9 || (marker >= 0xD0 && marker <= 0xD7) || marker == 0x01 || marker == 0x00)
                     {
+                        await destinationStream.WriteAsync(header.AsMemory(0, 2), token);
+                        if (marker == 0xD9) break; // 遇到 EOI 正常结束
                         continue;
                     }
 
-                    // 普通段：读取 2 字节长度（包含自身 2 字节）
-                    if (await ReadExactAsync(sourceStream, header, 2, token) != 2)
+                    // 2. 读取当前段的长度字段 (2 字节)
+                    if (await ReadExactAsync(sourceStream, temp2, 2, token) != 2)
                     {
                         throw new EndOfStreamException("Unexpected EOF while reading segment length.");
                     }
-                    int segmentLength = (header[0] << 8) | header[1];
+                    consumedInImage += 2;
+                    header[2] = temp2[0];
+                    header[3] = temp2[1];
+
+                    int segmentLength = (header[2] << 8) | header[3];
                     if (segmentLength < 2)
                     {
                         throw new InvalidDataException($"Invalid JPEG segment length: {segmentLength}");
                     }
                     int segmentPayloadLength = segmentLength - 2;
-                    consumedInImage += 2;
-                    // 长度字段也立刻写出去（同样原因：可能被后续读取覆盖）
-                    await destinationStream.WriteAsync(header.AsMemory(0, 2), token);
 
-                    // 仅对可能包含实况照片元数据的 APP 段做内容嗅探
-                    bool isLivePhotoSegment = false;
-                    int sniffLength = 0;
+                    // 3. 仅对 APP 段 (0xE0 - 0xEF) 进行实况照片 XMP 嗅探
                     if (marker >= 0xE0 && marker <= 0xEF)
                     {
-                        sniffLength = Math.Min(segmentPayloadLength, 8192);
+                        int sniffLength = Math.Min(segmentPayloadLength, segmentBuffer.Length);
                         if (sniffLength > 0)
                         {
                             if (await ReadExactAsync(sourceStream, segmentBuffer, sniffLength, token) != sniffLength)
                             {
-                                throw new EndOfStreamException("Unexpected EOF while sniffing segment payload.");
+                                throw new EndOfStreamException("Unexpected EOF while sniffing APP payload.");
                             }
-                            if (ContainsLivePhotoMarker(segmentBuffer, sniffLength))
-                            {
-                                isLivePhotoSegment = true;
-                            }
-                            segmentPayloadLength -= sniffLength;
                             consumedInImage += sniffLength;
                         }
 
+                        bool isLivePhotoSegment = sniffLength > 0 && ContainsLivePhotoMarker(segmentBuffer, sniffLength);
+                        int remainingPayload = segmentPayloadLength - sniffLength;
+
                         if (isLivePhotoSegment)
                         {
-                            // 命中实况照片元数据：跳过整个段（marker/length 已写，剩余 payload 不写）
-                            if (segmentPayloadLength > 0)
+                            // 💡【核心剔除逻辑】：如果命中实况照片元数据
+                            // 跳过剩余流内容，并且 **绝不写入** 这 4 字节的 Header 和已经嗅探的内容！
+                            if (remainingPayload > 0)
                             {
-                                await SkipExactAsync(sourceStream, segmentPayloadLength, token);
-                                consumedInImage += segmentPayloadLength;
+                                await SkipExactAsync(sourceStream, remainingPayload, token);
+                                consumedInImage += remainingPayload;
                             }
                             AppLogService.Split($"[Split] Stripped LivePhoto APP{marker - 0xE0} segment (len={segmentLength})", LogLevel.Warning);
                         }
                         else
                         {
-                            // 嗅探过的 8KB 必须原样写出（之前漏写会导致 JPEG 破损）
-                            await destinationStream.WriteAsync(segmentBuffer.AsMemory(0, sniffLength), token);
-                            if (segmentPayloadLength > 0)
+                            // 正常元数据 (如 EXIF，ICC 色彩配置等)：原样保留
+                            await destinationStream.WriteAsync(header.AsMemory(0, 4), token);
+                            if (sniffLength > 0)
                             {
-                                await CopyExactLengthAsync(sourceStream, destinationStream, segmentPayloadLength, token);
-                                consumedInImage += segmentPayloadLength;
+                                await destinationStream.WriteAsync(segmentBuffer.AsMemory(0, sniffLength), token);
+                            }
+                            if (remainingPayload > 0)
+                            {
+                                await CopyExactLengthAsync(sourceStream, destinationStream, remainingPayload, token);
+                                consumedInImage += remainingPayload;
                             }
                         }
                     }
                     else
                     {
-                        // 非 APP 段（如 DQT/DHT/SOF/COM 等）：原样写入
-                        await CopyExactLengthAsync(sourceStream, destinationStream, segmentPayloadLength, token);
-                        consumedInImage += segmentPayloadLength;
+                        // 非 APP 图像必要段 (如 DQT, DHT, SOF)：原封不动完整写入
+                        await destinationStream.WriteAsync(header.AsMemory(0, 4), token);
+                        if (segmentPayloadLength > 0)
+                        {
+                            await CopyExactLengthAsync(sourceStream, destinationStream, segmentPayloadLength, token);
+                            consumedInImage += segmentPayloadLength;
+                        }
                     }
                 }
             }
@@ -473,17 +496,14 @@ namespace LivePhotoBox.Services
                 ArrayPool<byte>.Shared.Return(segmentBuffer);
             }
 
-            if (consumedInImage != imageLength)
+            // 兜底：如果还有剩余字节未读取完（如文件尾部的其他附加数据），原样写出保证不出错
+            if (consumedInImage < imageLength)
             {
-                // 兜底：如果上述按段解析没有精确消耗到 imageLength（例如段边界正好在 videoLength 处），
-                // 还需要把剩余字节按原样写入
                 long remainder = imageLength - consumedInImage;
-                if (remainder > 0)
-                {
-                    await CopyExactLengthAsync(sourceStream, destinationStream, remainder, token);
-                }
+                await CopyExactLengthAsync(sourceStream, destinationStream, remainder, token);
             }
         }
+        
 
         private static bool ContainsLivePhotoMarker(byte[] buffer, int length)
         {
