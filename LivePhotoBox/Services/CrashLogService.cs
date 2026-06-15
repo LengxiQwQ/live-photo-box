@@ -158,6 +158,10 @@ namespace LivePhotoBox.Services
             AppLogService.Critical($"Unhandled UI Exception: {e.Exception?.Message}", e.Exception, LogSource.System);
             string? logPath = CrashLogWriter.WriteCrashLog("Microsoft.UI.Xaml.Application.UnhandledException", e.Exception,
                 [("Handled", e.Handled.ToString(System.Globalization.CultureInfo.InvariantCulture))]);
+            if (!string.IsNullOrEmpty(logPath))
+            {
+                AppLogService.Info($"Crash log written to: {Path.GetFileName(logPath)}", LogSource.System);
+            }
             MarkPendingCrash(logPath);
         }
 
@@ -167,6 +171,10 @@ namespace LivePhotoBox.Services
             AppLogService.Critical($"AppDomain Unhandled Exception: {exception?.Message}", exception, LogSource.System);
             string? logPath = CrashLogWriter.WriteCrashLog("AppDomain.CurrentDomain.UnhandledException", exception,
                 [("IsTerminating", e.IsTerminating.ToString(System.Globalization.CultureInfo.InvariantCulture))]);
+            if (!string.IsNullOrEmpty(logPath))
+            {
+                AppLogService.Info($"Crash log written to: {Path.GetFileName(logPath)}", LogSource.System);
+            }
             MarkPendingCrash(logPath);
         }
 
@@ -175,7 +183,10 @@ namespace LivePhotoBox.Services
             AppLogService.Error($"Unobserved Task Exception: {e.Exception?.Message}", e.Exception, LogSource.System);
             string? logPath = CrashLogWriter.WriteCrashLog("TaskScheduler.UnobservedTaskException", e.Exception,
                 [("ObservedBeforeSet", e.Observed.ToString(System.Globalization.CultureInfo.InvariantCulture))]);
-            MarkPendingCrash(logPath);
+            if (!string.IsNullOrEmpty(logPath))
+            {
+                AppLogService.Info($"Crash log written to: {Path.GetFileName(logPath)}", LogSource.System);
+            }
             e.SetObserved();
         }
 

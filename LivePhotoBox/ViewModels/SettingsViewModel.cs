@@ -4,6 +4,7 @@ using LivePhotoBox.Services;
 using System;
 using System.Collections.ObjectModel;
 using System.Linq;
+using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.ViewModels
 {
@@ -64,12 +65,27 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnSelectedHardwareChanged(HardwareService.HardwareInfo? value)
         {
+            AppLogService.Split($"[DEBUG] OnSelectedHardwareChanged: _isInitializing={_isInitializing}, value={value?.Name ?? "(null)"}, encoder={value?.FfmpegEncoder ?? "(null)"}", LogLevel.Info);
             if (_isInitializing || value == null) return;
             int index = AvailableHardware.IndexOf(value);
             if (index >= 0)
             {
                 AppSettingsService.SetValue("SplitHardwareIndex", index);
                 AppSettingsService.SetValue("SplitHardwareEncoder", value.FfmpegEncoder);
+                // 新增：按 codec 独立保存（H.264 / HEVC）
+                if (!string.IsNullOrEmpty(value.FfmpegEncoder))
+                {
+                    string lower = value.FfmpegEncoder.ToLowerInvariant();
+                    if (lower.StartsWith("h264_"))
+                    {
+                        AppSettingsService.SetValue("SplitEncoder_h264", value.FfmpegEncoder);
+                    }
+                    else if (lower.StartsWith("hevc_"))
+                    {
+                        AppSettingsService.SetValue("SplitEncoder_hevc", value.FfmpegEncoder);
+                    }
+                }
+                AppLogService.Split($"[DEBUG] Saved encoder to settings: '{value.FfmpegEncoder}'", LogLevel.Info);
             }
         }
 
@@ -153,6 +169,23 @@ namespace LivePhotoBox.ViewModels
                 _isInitializing = true;
                 SelectedHardware = hardwareToSelect;
                 _isInitializing = false;
+
+                // 初始化完成后，确保编码器被保存
+                AppSettingsService.SetValue("SplitHardwareIndex", AvailableHardware.IndexOf(hardwareToSelect));
+                AppSettingsService.SetValue("SplitHardwareEncoder", hardwareToSelect.FfmpegEncoder ?? string.Empty);
+                // 新增：按 codec 独立保存
+                if (!string.IsNullOrEmpty(hardwareToSelect.FfmpegEncoder))
+                {
+                    string lower = hardwareToSelect.FfmpegEncoder.ToLowerInvariant();
+                    if (lower.StartsWith("h264_"))
+                    {
+                        AppSettingsService.SetValue("SplitEncoder_h264", hardwareToSelect.FfmpegEncoder);
+                    }
+                    else if (lower.StartsWith("hevc_"))
+                    {
+                        AppSettingsService.SetValue("SplitEncoder_hevc", hardwareToSelect.FfmpegEncoder);
+                    }
+                }
             }
         }
 
@@ -165,8 +198,12 @@ namespace LivePhotoBox.ViewModels
 
             // 恢复拆分设置为默认值
             ThreadCount = 5;
+
+            // 清除保存的硬件选择，下次启动时重新检测最佳硬件
             AppSettingsService.SetValue("SplitHardwareIndex", -1);
             AppSettingsService.SetValue("SplitHardwareEncoder", string.Empty);
+            AppSettingsService.SetValue("SplitEncoder_h264", string.Empty);
+            AppSettingsService.SetValue("SplitEncoder_hevc", string.Empty);
 
             // 重置拆分页面的视频格式选择（默认视频格式）
             AppViewModel.Instance.Split.SelectedFormatIndex = 0;
@@ -174,7 +211,7 @@ namespace LivePhotoBox.ViewModels
             // 重置合成页面的协议版本（默认V2版本）
             AppViewModel.Instance.Combo.SelectedModeIndex = 1;
 
-            // 直接从已加载的硬件列表中选择最佳硬件
+            // 重新选择最佳硬件
             _isInitializing = true;
             var gpu = AvailableHardware.FirstOrDefault(h => h.Type == HardwareService.HardwareType.Gpu && h.IsHardwareEncodingSupported);
             if (gpu != null)
@@ -190,6 +227,9 @@ namespace LivePhotoBox.ViewModels
                 }
             }
             _isInitializing = false;
+
+            // 刷新设置以应用更改
+            AppLogService.Split("Settings restored to defaults. Hardware selection re-evaluated.", LogLevel.Info);
         }
     }
 }

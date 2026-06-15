@@ -149,6 +149,14 @@ namespace LivePhotoBox.ViewModels
 
         private string? GetLatestCrashArtifactPath()
         {
+            // 优先返回 app.log（最新的日志文件）
+            string? latestAppLog = CrashLogWriter.GetLatestAppLogPath();
+            if (!string.IsNullOrWhiteSpace(latestAppLog) && File.Exists(latestAppLog))
+            {
+                return latestAppLog;
+            }
+
+            // 然后才是 crash/dump 文件
             return new[] { _latestCrashLogPath, _latestCrashDumpPath, _latestRecoveredCrashLogPath }
                 .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
                 .OrderByDescending(path => File.GetLastWriteTimeUtc(path!))

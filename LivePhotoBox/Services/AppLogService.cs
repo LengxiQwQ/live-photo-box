@@ -3,6 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
@@ -14,20 +15,21 @@ namespace LivePhotoBox.Services
 {
     /// <summary>
     /// 应用日志服务 - 统一记录所有日志
+    /// 每次启动生成新的日志文件，最多保留 10 个文件
     /// </summary>
     public static class AppLogService
     {
         #region Constants & Fields
 
-        private const int MaxLogEntries = 10000;
-        private const int MaxRecentMessages = 100;
-        private const string LogFileName = "app.log";
+        private const int MaxLogFiles = 10;
+        private static readonly string LogFilePrefix = "app";
+        private static readonly string LogFileExtension = ".log";
 
         private static readonly ConcurrentQueue<AppLogEntry> _logEntries = new();
         private static readonly ConcurrentDictionary<string, int> _sourceCounts = new();
         private static readonly object _fileLock = new();
         private static long _totalLogCount;
-        private static string? _logFilePath;
+        private static string? _currentLogFilePath;
         private static string? _logDirectory;
         private static readonly ManualResetEventSlim _flushEvent = new(false);
         private static readonly CancellationTokenSource _cts = new();
@@ -43,7 +45,13 @@ namespace LivePhotoBox.Services
         {
             _logDirectory = GetLogDirectory();
             Directory.CreateDirectory(_logDirectory!);
-            _logFilePath = Path.Combine(_logDirectory, LogFileName);
+
+            // 清理旧日志文件
+            CleanupOldLogFiles();
+
+            // 生成新的日志文件路径
+            _currentLogFilePath = Path.Combine(_logDirectory, GenerateLogFileName());
+            File.WriteAllText(_currentLogFilePath, $"=== LivePhotoBox Session Started: {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\n", Encoding.UTF8);
 
             Log(LogSource.App, LogLevel.Info, "AppLogService initialized.");
 
@@ -66,6 +74,16 @@ namespace LivePhotoBox.Services
             _cts.Cancel();
             _flushEvent.Set();
             WriteAllPendingToFile();
+
+            // 写入会话结束标记
+            if (!string.IsNullOrEmpty(_currentLogFilePath) && File.Exists(_currentLogFilePath))
+            {
+                try
+                {
+                    File.AppendAllText(_currentLogFilePath, $"\n=== LivePhotoBox Session Ended: {DateTime.Now:yyyy-MM-dd HH:mm:ss} ===\n", Encoding.UTF8);
+                }
+                catch { }
+            }
         }
 
         #endregion
@@ -234,9 +252,48 @@ namespace LivePhotoBox.Services
         /// </summary>
         public static string GetLogDirectoryPath() => _logDirectory ?? GetLogDirectory();
 
+        /// <summary>
+        /// 获取当前日志文件路径
+        /// </summary>
+        public static string? GetCurrentLogFilePath() => _currentLogFilePath;
+
         #endregion
 
         #region Private Helpers
+
+        private static string GenerateLogFileName()
+        {
+            return $"{LogFilePrefix}-{DateTime.Now:yyyyMMdd-HHmmss}{LogFileExtension}";
+        }
+
+        private static void CleanupOldLogFiles()
+        {
+            if (string.IsNullOrEmpty(_logDirectory) || !Directory.Exists(_logDirectory))
+                return;
+
+            try
+            {
+                // 获取所有符合格式的日志文件
+                var logFiles = Directory.GetFiles(_logDirectory, $"{LogFilePrefix}-*{LogFileExtension}")
+                    .Select(f => new FileInfo(f))
+                    .OrderByDescending(f => f.CreationTime)
+                    .ToList();
+
+                // 删除超过限制的旧文件
+                if (logFiles.Count >= MaxLogFiles)
+                {
+                    foreach (var file in logFiles.Skip(MaxLogFiles))
+                    {
+                        try
+                        {
+                            file.Delete();
+                        }
+                        catch { }
+                    }
+                }
+            }
+            catch { }
+        }
 
         private static void EnqueueLog(AppLogEntry entry)
         {
@@ -248,7 +305,7 @@ namespace LivePhotoBox.Services
                 1,
                 (_, count) => count + 1);
 
-            while (_logEntries.Count > MaxLogEntries && _logEntries.TryDequeue(out _)) { }
+            while (_logEntries.Count > 1000 && _logEntries.TryDequeue(out _)) { }
 
             if (entry.Level >= LogLevel.Warning)
             {
@@ -260,7 +317,7 @@ namespace LivePhotoBox.Services
         {
             while (!_cts.Token.IsCancellationRequested)
             {
-                _flushEvent.Wait(TimeSpan.FromSeconds(30));
+                _flushEvent.Wait(TimeSpan.FromSeconds(5));
                 if (_cts.Token.IsCancellationRequested) break;
 
                 WriteAllPendingToFile();
@@ -270,7 +327,7 @@ namespace LivePhotoBox.Services
 
         private static void WriteAllPendingToFile()
         {
-            if (string.IsNullOrEmpty(_logFilePath)) return;
+            if (string.IsNullOrEmpty(_currentLogFilePath)) return;
 
             var entries = new List<AppLogEntry>();
             while (_logEntries.TryDequeue(out var entry))
@@ -300,28 +357,7 @@ namespace LivePhotoBox.Services
                         }
                     }
 
-                    File.AppendAllText(_logFilePath, sb.ToString(), Encoding.UTF8);
-
-                    RotateLogIfNeeded();
-                }
-            }
-            catch { }
-        }
-
-        private static void RotateLogIfNeeded()
-        {
-            if (string.IsNullOrEmpty(_logFilePath) || !File.Exists(_logFilePath))
-                return;
-
-            try
-            {
-                var fileInfo = new FileInfo(_logFilePath);
-                if (fileInfo.Length > 10 * 1024 * 1024) // 10MB
-                {
-                    var archivePath = Path.Combine(
-                        Path.GetDirectoryName(_logFilePath)!,
-                        $"app-{DateTime.Now:yyyyMMdd-HHmmss}.log");
-                    File.Move(_logFilePath, archivePath);
+                    File.AppendAllText(_currentLogFilePath, sb.ToString(), Encoding.UTF8);
                 }
             }
             catch { }

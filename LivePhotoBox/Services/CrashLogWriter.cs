@@ -15,7 +15,8 @@ using LogSource = LivePhotoBox.Models.LogSource;
 namespace LivePhotoBox.Services
 {
     /// <summary>
-    /// 负责崩溃日志文件的写入操作
+    /// 负责日志写入操作 - 统一写入 app.log
+    /// 崩溃和普通日志都写入同一个文件
     /// </summary>
     internal static class CrashLogWriter
     {
@@ -26,20 +27,50 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                string logPath = CreateCrashLogPath();
+                // 获取当前日志文件路径
+                string? currentLogPath = AppLogService.GetCurrentLogFilePath();
 
-                using FileStream stream = new(logPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
-                using StreamWriter writer = new(stream, new UTF8Encoding(false));
+                var sb = new StringBuilder();
+                sb.AppendLine();
+                sb.AppendLine("═══════════════════════════════════════════════════════════════");
+                sb.AppendLine("                    LivePhotoBox 崩溃报告");
+                sb.AppendLine("═══════════════════════════════════════════════════════════════");
+                sb.AppendLine($"时间: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff}");
+                sb.AppendLine($"来源: {source}");
+                sb.AppendLine($"应用版本: {Assembly.GetExecutingAssembly().GetName().Version}");
 
-                WriteHeader(writer, source, extraFields);
-                WriteEnvironment(writer);
-                WriteAppState(writer);
-                WriteRecentLogs(writer);
-                WriteException(writer, exception);
+                if (extraFields != null)
+                {
+                    foreach (var (key, value) in extraFields)
+                        sb.AppendLine($"{key}: {value}");
+                }
 
-                writer.Flush();
-                stream.Flush(true);
-                return logPath;
+                sb.AppendLine();
+                sb.AppendLine("───────────────────────────────────────────────────────────────");
+                sb.AppendLine("                        异常信息");
+                sb.AppendLine("───────────────────────────────────────────────────────────────");
+                sb.AppendLine(exception?.ToString() ?? "(null)");
+                sb.AppendLine();
+
+                string crashInfo = sb.ToString();
+
+                // 写入 app.log
+                if (!string.IsNullOrEmpty(currentLogPath))
+                {
+                    try
+                    {
+                        File.AppendAllText(currentLogPath, crashInfo, Encoding.UTF8);
+                    }
+                    catch
+                    {
+                        // 如果写入 app.log 失败，尝试写入到备用文件
+                    }
+                }
+
+                // 同时返回一个兼容性的 crash 文件路径（如果需要）
+                string crashLogPath = CreateCrashLogPath();
+                File.WriteAllText(crashLogPath, crashInfo, Encoding.UTF8);
+                return crashLogPath;
             }
             catch (Exception ex)
             {
@@ -56,24 +87,25 @@ namespace LivePhotoBox.Services
                     sessionState.LastUpdatedAt == default ? null : sessionState.LastUpdatedAt,
                     "-recovered");
 
-                using FileStream stream = new(logPath, FileMode.CreateNew, FileAccess.Write, FileShare.Read);
-                using StreamWriter writer = new(stream, new UTF8Encoding(false));
+                var sb = new StringBuilder();
+                sb.AppendLine("═══════════════════════════════════════════════════════════════");
+                sb.AppendLine("                    LivePhotoBox 崩溃报告 (恢复)");
+                sb.AppendLine("═══════════════════════════════════════════════════════════════");
+                sb.AppendLine($"时间: {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff}");
+                sb.AppendLine($"来源: Recovered.PreviousUncleanShutdown");
+                sb.AppendLine($"应用版本: {Assembly.GetExecutingAssembly().GetName().Version}");
+                sb.AppendLine($"恢复的会话ID: {sessionState.SessionId}");
+                sb.AppendLine($"会话开始时间: {sessionState.StartedAt:yyyy-MM-dd HH:mm:ss}");
+                sb.AppendLine($"最后更新时间: {sessionState.LastUpdatedAt:yyyy-MM-dd HH:mm:ss}");
+                sb.AppendLine($"恢复原因: 上一个应用会话未正常关闭");
+                sb.AppendLine();
+                sb.AppendLine("───────────────────────────────────────────────────────────────");
+                sb.AppendLine("                        异常信息");
+                sb.AppendLine("───────────────────────────────────────────────────────────────");
+                sb.AppendLine("No managed exception was captured. Crash log recovered from session state.");
+                sb.AppendLine();
 
-                WriteHeader(writer, "Recovered.PreviousUncleanShutdown",
-                [
-                    ("RecoveredFromSessionId", sessionState.SessionId),
-                    ("SessionStartedAt", sessionState.StartedAt == default ? "(unknown)" : sessionState.StartedAt.ToString("O")),
-                    ("LastUpdatedAt", sessionState.LastUpdatedAt == default ? "(unknown)" : sessionState.LastUpdatedAt.ToString("O")),
-                    ("RecoveryReason", "Previous app session ended without a clean shutdown marker.")
-                ]);
-
-                WriteEnvironment(writer);
-                WriteRecoveredAppState(writer, sessionState);
-                WriteRecentLogs(writer);
-                WriteException(writer, new InvalidOperationException("No managed exception was captured. Crash log recovered from session state."));
-
-                writer.Flush();
-                stream.Flush(true);
+                File.WriteAllText(logPath, sb.ToString(), Encoding.UTF8);
                 return logPath;
             }
             catch (Exception ex)
@@ -111,6 +143,19 @@ namespace LivePhotoBox.Services
 
         public static string? GetLatestCrashDumpPath() => GetCrashDumpPaths().FirstOrDefault();
 
+        /// <summary>
+        /// 获取最新的日志文件（app.log）
+        /// </summary>
+        public static string? GetLatestAppLogPath()
+        {
+            string logDir = GetLogDirectory();
+            if (!Directory.Exists(logDir)) return null;
+
+            return Directory.GetFiles(logDir, "app-*.log")
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
+        }
+
         public static int DeleteAllCrashLogs()
         {
             int deleted = 0;
@@ -134,7 +179,7 @@ namespace LivePhotoBox.Services
         public static string? GenerateTestCrashLog()
         {
             return WriteCrashLog("Manual.TestCrashLog",
-                new InvalidOperationException("This is a manually generated test crash log."),
+                new InvalidOperationException("这是一条手动生成的测试崩溃日志。"),
                 [("IsTestLog", bool.TrueString)]);
         }
 
@@ -178,160 +223,6 @@ namespace LivePhotoBox.Services
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "LivePhotoBox", "Logs", "Dumps");
             }
-        }
-
-        private static void WriteHeader(StreamWriter writer, string source, IEnumerable<(string Key, string Value)>? extraFields)
-        {
-            AssemblyName assemblyName = Assembly.GetExecutingAssembly().GetName();
-            writer.WriteLine("═══════════════════════════════════════════════════════════════");
-            writer.WriteLine("                    LivePhotoBox Crash Report");
-            writer.WriteLine("═══════════════════════════════════════════════════════════════");
-            writer.WriteLine($"Timestamp:    {DateTimeOffset.Now:O}");
-            writer.WriteLine($"Source:       {source}");
-            writer.WriteLine($"AppVersion:  {assemblyName.Version}");
-            writer.WriteLine($"LogCount:    {AppLogService.TotalLogCount}");
-
-            if (extraFields != null)
-            {
-                foreach (var (key, value) in extraFields)
-                    writer.WriteLine($"{key}:  {value}");
-            }
-            writer.WriteLine();
-        }
-
-        private static void WriteEnvironment(StreamWriter writer)
-        {
-            writer.WriteLine("───────────────────────────────────────────────────────────────");
-            writer.WriteLine("                        Environment");
-            writer.WriteLine("───────────────────────────────────────────────────────────────");
-            writer.WriteLine($"ProcessId:           {Environment.ProcessId}");
-            writer.WriteLine($"MachineName:         {Environment.MachineName}");
-            writer.WriteLine($"OSVersion:           {Environment.OSVersion}");
-            writer.WriteLine($"OSDescription:      {RuntimeInformation.OSDescription}");
-            writer.WriteLine($"Framework:           {RuntimeInformation.FrameworkDescription}");
-            writer.WriteLine($"Architecture:       {RuntimeInformation.OSArchitecture}/{RuntimeInformation.ProcessArchitecture}");
-            writer.WriteLine($"ProcessorCount:     {Environment.ProcessorCount}");
-            writer.WriteLine($"SystemUptime:       {FormatDuration(TimeSpan.FromMilliseconds(Environment.TickCount64))}");
-            writer.WriteLine($"CurrentCulture:     {CultureInfo.CurrentCulture.Name}");
-            writer.WriteLine($"TimeZone:           {TimeZoneInfo.Local.DisplayName}");
-            writer.WriteLine();
-        }
-
-        private static void WriteAppState(StreamWriter writer)
-        {
-            writer.WriteLine("───────────────────────────────────────────────────────────────");
-            writer.WriteLine("                      Current App State");
-            writer.WriteLine("───────────────────────────────────────────────────────────────");
-
-            try
-            {
-                writer.WriteLine($"MainWindowCreated:   {App.MainWindow != null}");
-
-                if (App.MainWindow is MainWindow window)
-                {
-                    var vm = window.ViewModel;
-                    writer.WriteLine($"CurrentPageTag:      {vm.CurrentStatusPageTag ?? "(null)"}");
-                    writer.WriteLine($"CurrentStatus:      {vm.CurrentPageStatus}");
-                    writer.WriteLine();
-                    writer.WriteLine("[Combo]");
-                    writer.WriteLine($"  Status:           {vm.Combo.Status}");
-                    writer.WriteLine($"  IsProcessing:     {vm.Combo.IsProcessing}");
-                    writer.WriteLine($"  Tasks:            {vm.Combo.Tasks.Count}");
-                    writer.WriteLine($"  Progress:         {vm.Combo.ComboProgress:F1}%");
-                    writer.WriteLine($"  InputDir:         {TruncatePath(vm.Combo.InputDirectory)}");
-                    writer.WriteLine($"  OutputDir:        {TruncatePath(vm.Combo.OutputDirectory)}");
-                    writer.WriteLine();
-                    writer.WriteLine("[Split]");
-                    writer.WriteLine($"  Status:           {vm.Split.Status}");
-                    writer.WriteLine($"  Tasks:            {vm.Split.Tasks.Count}");
-                    writer.WriteLine($"  Progress:         {vm.Split.Progress:F1}%");
-                    writer.WriteLine();
-                    writer.WriteLine("[Repair]");
-                    writer.WriteLine($"  Status:           {vm.Repair.Status}");
-                    writer.WriteLine();
-                }
-            }
-            catch (Exception ex)
-            {
-                writer.WriteLine($"StateCaptureError: {ex.Message}");
-            }
-
-            writer.WriteLine();
-        }
-
-        private static void WriteRecoveredAppState(StreamWriter writer, AppStateSnapshot state)
-        {
-            writer.WriteLine("───────────────────────────────────────────────────────────────");
-            writer.WriteLine("                    Recovered App State");
-            writer.WriteLine("───────────────────────────────────────────────────────────────");
-            writer.WriteLine($"SessionId:          {state.SessionId}");
-            writer.WriteLine($"StartedAt:          {state.StartedAt:O}");
-            writer.WriteLine($"LastUpdatedAt:      {state.LastUpdatedAt:O}");
-            writer.WriteLine($"CurrentPageTag:     {state.CurrentPageTag}");
-            writer.WriteLine();
-            writer.WriteLine("[Combo]");
-            writer.WriteLine($"  Status:           {state.ComboStatus}");
-            writer.WriteLine($"  Tasks:            {state.ComboTaskCount}");
-            writer.WriteLine($"  Progress:         {state.ComboProgress:F1}%");
-            writer.WriteLine($"  InputDir:         {TruncatePath(state.ComboInputDir)}");
-            writer.WriteLine($"  OutputDir:        {TruncatePath(state.ComboOutputDir)}");
-            writer.WriteLine();
-            writer.WriteLine("[Split]");
-            writer.WriteLine($"  Status:           {state.SplitStatus}");
-            writer.WriteLine($"  Tasks:            {state.SplitTaskCount}");
-            writer.WriteLine($"  Progress:         {state.SplitProgress:F1}%");
-            writer.WriteLine();
-            writer.WriteLine("[Repair]");
-            writer.WriteLine($"  Status:           {state.RepairStatus}");
-            writer.WriteLine($"  Tasks:            {state.RepairTaskCount}");
-            writer.WriteLine($"  Progress:         {state.RepairProgress:F1}%");
-            writer.WriteLine();
-        }
-
-        private static void WriteRecentLogs(StreamWriter writer)
-        {
-            writer.WriteLine("───────────────────────────────────────────────────────────────");
-            writer.WriteLine("                    Recent Application Logs");
-            writer.WriteLine("───────────────────────────────────────────────────────────────");
-
-            var recentLogs = AppLogService.GetRecentLogs(50);
-            if (recentLogs.Count == 0)
-            {
-                writer.WriteLine("(no logs available)");
-            }
-            else
-            {
-                foreach (var entry in recentLogs)
-                {
-                    string levelStr = entry.Level.ToString().ToUpper().PadRight(8);
-                    writer.WriteLine($"[{entry.Timestamp:HH:mm:ss.fff}] [{levelStr}] [{entry.Source,-8}] {entry.Message}");
-                    if (!string.IsNullOrEmpty(entry.Details))
-                        writer.WriteLine($"  Details: {entry.Details}");
-                    if (!string.IsNullOrEmpty(entry.ExceptionType))
-                        writer.WriteLine($"  Exception: {entry.ExceptionType}");
-                }
-            }
-
-            writer.WriteLine();
-        }
-
-        private static void WriteException(StreamWriter writer, Exception? exception)
-        {
-            writer.WriteLine("───────────────────────────────────────────────────────────────");
-            writer.WriteLine("                         Exception");
-            writer.WriteLine("───────────────────────────────────────────────────────────────");
-            writer.WriteLine(exception?.ToString() ?? "(null)");
-            writer.WriteLine();
-        }
-
-        private static string FormatDuration(TimeSpan duration) =>
-            $"{(int)duration.TotalDays}d {duration:hh\\:mm\\:ss}";
-
-        private static string TruncatePath(string? path)
-        {
-            if (string.IsNullOrWhiteSpace(path)) return "(empty)";
-            if (path.Length <= 60) return path;
-            return "..." + path.Substring(path.Length - 57);
         }
 
         #endregion

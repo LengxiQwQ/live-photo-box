@@ -34,6 +34,9 @@ namespace LivePhotoBox.Services
         }
 
         private static string? _cachedFFmpegPath;
+        private static HashSet<string>? _cachedAvailableEncoders;
+        private static DateTime _encoderCacheTime = DateTime.MinValue;
+        private static readonly TimeSpan EncoderCacheDuration = TimeSpan.FromMinutes(5);
 
         /// <summary>
         /// 获取所有可用的硬件加速器
@@ -50,9 +53,17 @@ namespace LivePhotoBox.Services
             }
 
             // 检测 GPU（按性能排序：NVIDIA > AMD > Intel > 其他）
+            // 先通过 WMI 获取 GPU 列表，再用 FFmpeg 验证编码器是否真正可用
             var gpus = DetectGpus();
             gpus = gpus.OrderByDescending(g => GetGpuPerformanceScore(g.Name)).ToList();
             hardware.AddRange(gpus);
+
+            // 记录检测结果
+            AppLogService.Split($"Hardware detection complete: {hardware.Count} device(s) found");
+            foreach (var h in hardware)
+            {
+                AppLogService.Split($"  - {h.Name}: {h.Type}, Encoder={h.FfmpegEncoder ?? "N/A"}, HWEncoding={h.IsHardwareEncodingSupported}");
+            }
 
             return hardware;
         }
@@ -104,11 +115,12 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 使用 WMI 检测 GPU
+        /// 使用 WMI 检测 GPU，并用 FFmpeg 验证编码器是否真正可用
         /// </summary>
         private static List<HardwareInfo> DetectGpus()
         {
             var gpus = new List<HardwareInfo>();
+            var allDetectedGpus = new List<string>(); // 调试用
 
             // 需要过滤的关键词（模拟器、虚拟化软件等）
             string[] excludeKeywords = {
@@ -118,6 +130,11 @@ namespace LivePhotoBox.Services
                 "microsoft basic", "llvmpipe", "swiftshader", "software"
             };
 
+            // 先通过 FFmpeg 获取所有可用的硬件编码器
+            var availableEncoders = DetectAvailableEncodersViaFFmpeg();
+
+            AppLogService.Split($"[DEBUG] WMI: Searching for GPUs, FFmpeg encoders available: {availableEncoders.Count}", LogLevel.Info);
+
             try
             {
                 using var searcher = new ManagementObjectSearcher("SELECT Name, Description FROM Win32_VideoController");
@@ -126,25 +143,32 @@ namespace LivePhotoBox.Services
                     string? name = obj["Name"]?.ToString();
                     string? description = obj["Description"]?.ToString();
 
+                    allDetectedGpus.Add(name ?? "null");
+
                     if (!string.IsNullOrEmpty(name))
                     {
                         // 检查是否应该过滤
                         string lowerName = name.ToLowerInvariant();
                         bool shouldExclude = false;
+                        string? excludeReason = null;
 
                         foreach (var keyword in excludeKeywords)
                         {
                             if (lowerName.Contains(keyword))
                             {
                                 shouldExclude = true;
+                                excludeReason = keyword;
                                 break;
                             }
                         }
 
                         if (shouldExclude)
                         {
+                            AppLogService.Split($"[DEBUG] WMI: GPU '{name}' excluded by keyword '{excludeReason}'", LogLevel.Info);
                             continue;
                         }
+
+                        AppLogService.Split($"[DEBUG] WMI: GPU candidate: '{name}', description: '{description}'", LogLevel.Info);
 
                         var gpuInfo = new HardwareInfo
                         {
@@ -153,13 +177,26 @@ namespace LivePhotoBox.Services
                             Type = HardwareType.Gpu
                         };
 
-                        // 判断 GPU 类型并设置对应的 FFmpeg 编码器
+                        // 根据 GPU 名称猜测可能的编码器
                         (gpuInfo.IsHardwareEncodingSupported, gpuInfo.FfmpegEncoder) = DetermineFfmpegEncoder(name);
+                        AppLogService.Split($"[DEBUG] WMI: Guessed encoder '{gpuInfo.FfmpegEncoder}' for '{name}', supported={gpuInfo.IsHardwareEncodingSupported}", LogLevel.Info);
 
-                        // 只有真正支持硬件编码的 GPU 才添加
-                        if (gpuInfo.IsHardwareEncodingSupported)
+                        // 如果猜测支持硬件编码，验证 FFmpeg 是否真的可用
+                        if (gpuInfo.IsHardwareEncodingSupported && !string.IsNullOrEmpty(gpuInfo.FfmpegEncoder))
                         {
-                            gpus.Add(gpuInfo);
+                            // 检查这个编码器是否在 FFmpeg 中真正可用
+                            if (availableEncoders.Contains(gpuInfo.FfmpegEncoder.ToLowerInvariant()))
+                            {
+                                gpus.Add(gpuInfo);
+                                AppLogService.Split($"[DEBUG] WMI: GPU '{name}' ADDED with encoder '{gpuInfo.FfmpegEncoder}'", LogLevel.Info);
+                            }
+                            else
+                            {
+                                // 编码器不可用，标记为不支持
+                                gpuInfo.IsHardwareEncodingSupported = false;
+                                gpuInfo.FfmpegEncoder = null;
+                                AppLogService.Split($"[DEBUG] WMI: GPU '{name}' REJECTED - encoder '{gpuInfo.FfmpegEncoder}' not in FFmpeg list", LogLevel.Info);
+                            }
                         }
                     }
                 }
@@ -169,7 +206,153 @@ namespace LivePhotoBox.Services
                 AppLogService.Split($"DetectGpus WMI error: {ex.Message}", LogLevel.Warning);
             }
 
+            AppLogService.Split($"[DEBUG] WMI: All detected GPUs: {string.Join(", ", allDetectedGpus)}", LogLevel.Info);
+            AppLogService.Split($"[DEBUG] WMI: Qualified GPUs: {gpus.Count}", LogLevel.Info);
+
             return gpus;
+        }
+
+        /// <summary>
+        /// 通过 FFmpeg 获取所有可用的硬件编码器名称（小写，带 5 分钟缓存）
+        /// </summary>
+        private static HashSet<string> DetectAvailableEncodersViaFFmpeg()
+        {
+            // 检查缓存是否有效
+            if (_cachedAvailableEncoders != null && DateTime.Now - _encoderCacheTime < EncoderCacheDuration)
+            {
+                return _cachedAvailableEncoders;
+            }
+
+            var availableEncoders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                try
+                {
+                    string? ffmpegPath = FindFFmpeg();
+                    if (string.IsNullOrEmpty(ffmpegPath))
+                    {
+                        AppLogService.Split("FFmpeg not found, cannot detect hardware encoders", LogLevel.Warning);
+                        _cachedAvailableEncoders = availableEncoders;
+                        _encoderCacheTime = DateTime.Now;
+                        return availableEncoders;
+                    }
+
+                    AppLogService.Split($"[DEBUG] Using FFmpeg at: {ffmpegPath}", LogLevel.Info);
+
+                var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = ffmpegPath,
+                        Arguments = "-hide_banner -encoders",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    }
+                };
+
+                process.Start();
+
+                // 同步读取输出
+                string stdout = process.StandardOutput.ReadToEnd();
+                string stderr = process.StandardError.ReadToEnd();
+                process.WaitForExit(5000);
+
+                // FFmpeg encoders 输出到 stdout
+                string output = !string.IsNullOrEmpty(stdout) ? stdout : stderr;
+
+                AppLogService.Split($"[DEBUG] FFmpeg raw output ({output.Length} chars)", LogLevel.Info);
+
+                // 逐行解析
+                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
+                int parseCount = 0;
+                int skippedEmpty = 0;
+                int skippedLegend = 0;
+                int skippedShort = 0;
+                int skippedNoV = 0;
+                int debugLineCount = 0;
+
+                foreach (var rawLine in lines)
+                {
+                    var line = rawLine.TrimStart(); // 只 trim 开头，保留尾部
+
+                    if (string.IsNullOrWhiteSpace(line))
+                    {
+                        skippedEmpty++;
+                        continue;
+                    }
+
+                    // 跳过图例行 (包含 "=")
+                    if (line.Contains("="))
+                    {
+                        skippedLegend++;
+                        continue;
+                    }
+
+                    // 跳过 "------" 分隔线
+                    if (line.StartsWith("------"))
+                        continue;
+
+                    // 必须是 Video 编码器 (V 开头)
+                    if (line.Length < 8 || line[0] != 'V')
+                    {
+                        skippedNoV++;
+                        continue;
+                    }
+
+                    // 跳过长度不够的
+                    if (line.Length < 7)
+                    {
+                        skippedShort++;
+                        continue;
+                    }
+
+                    // 位置 6 必须是空格，位置 0-5 是标记字符
+                    if (line.Length > 6 && line[6] == ' ')
+                    {
+                        // 编码器名紧跟在空格后面
+                        string afterFlag = line.Substring(7).Trim();
+                        string encoder = afterFlag.Split(' ')[0];
+
+                        // 验证编码器名有效
+                        if (!string.IsNullOrEmpty(encoder) &&
+                            encoder.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '-'))
+                        {
+                            availableEncoders.Add(encoder.ToLowerInvariant());
+                            parseCount++;
+
+                            // 记录前 5 个解析的编码器用于调试
+                            if (debugLineCount < 5)
+                            {
+                                AppLogService.Split($"[DEBUG] Parse: '{line.Substring(0, Math.Min(60, line.Length))}' -> encoder='{encoder}'", LogLevel.Info);
+                                debugLineCount++;
+                            }
+                        }
+                    }
+                }
+
+                AppLogService.Split($"[DEBUG] Parse stats: total={lines.Length}, empty={skippedEmpty}, legend={skippedLegend}, noV={skippedNoV}, short={skippedShort}, parsed={parseCount}", LogLevel.Info);
+                AppLogService.Split($"[DEBUG] FFmpeg found {availableEncoders.Count} unique encoders", LogLevel.Info);
+                if (availableEncoders.Count > 0)
+                {
+                    var sorted = availableEncoders.OrderBy(e => e).Take(20).ToList();
+                    AppLogService.Split($"[DEBUG] First 20: {string.Join(", ", sorted)}", LogLevel.Info);
+                }
+
+                // 更新缓存
+                _cachedAvailableEncoders = availableEncoders;
+                _encoderCacheTime = DateTime.Now;
+
+                AppLogService.Split($"FFmpeg available encoders: {string.Join(", ", availableEncoders)}", LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                AppLogService.Split($"DetectAvailableEncodersViaFFmpeg error: {ex.Message}", LogLevel.Warning);
+                _cachedAvailableEncoders = availableEncoders;
+                _encoderCacheTime = DateTime.Now;
+            }
+
+            return availableEncoders;
         }
 
         /// <summary>
@@ -412,6 +595,15 @@ namespace LivePhotoBox.Services
             }
 
             return IsEncoderAvailable(ffmpegPath, encoder);
+        }
+
+        /// <summary>
+        /// 清除编码器缓存，强制重新检测（下次获取硬件信息时会重新检测）
+        /// </summary>
+        public static void ClearEncoderCache()
+        {
+            _cachedAvailableEncoders = null;
+            _encoderCacheTime = DateTime.MinValue;
         }
     }
 }
