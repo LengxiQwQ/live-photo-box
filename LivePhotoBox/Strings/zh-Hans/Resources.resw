@@ -450,6 +450,9 @@
   <data name="Status_Done" xml:space="preserve">
     <value>处理完成，用时 {0:F1} 秒</value>
   </data>
+  <data name="Status_ComboCompletedSummary" xml:space="preserve">
+    <value>共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个</value>
+  </data>
   <data name="Status_SplitCompletedSummary" xml:space="preserve">
     <value>共 {0} 个任务，用时 {1:F1} 秒，成功 {2} 个，失败 {3} 个</value>
   </data>
@@ -613,10 +616,10 @@
     <value>MP4 (H.264/AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
-    <value>MOV (H.264/AAC)</value>
+    <value>MOV (H.265/AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
-    <value>视频默认格式</value>
+    <value>(推荐)视频默认格式</value>
   </data>
   <data name="SplitPage_Status_EmptyQueue" xml:space="preserve">
     <value>当前没有可拆分的实况照片，请先扫描目录</value>
@@ -1322,8 +1325,5 @@
   </data>
   <data name="Msg_Cancel" xml:space="preserve">
     <value>取消</value>
-  </data>
-  <data name="Status_ComboCompletedSummary" xml:space="preserve">
-    <value>共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个</value>
   </data>
 </root>

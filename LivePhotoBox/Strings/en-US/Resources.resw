@@ -617,10 +617,10 @@ Do you want to restart now?</value>
     <value>MP4 (H.264/AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
-    <value>MOV (H.264/AAC)</value>
+    <value>MOV (H.265/AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
-    <value>Video Default Format</value>
+    <value>(Pref) Video Default Format</value>
   </data>
   <data name="SplitPage_Status_EmptyQueue" xml:space="preserve">
     <value>There are currently no splittable live photos. Please scan the folder first.</value>
