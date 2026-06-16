@@ -450,6 +450,12 @@
   <data name="Status_Done" xml:space="preserve">
     <value>处理完成，用时 {0:F1} 秒</value>
   </data>
+  <data name="Status_SplitCompletedSummary" xml:space="preserve">
+    <value>共 {0} 个任务，用时 {1:F1} 秒，成功 {2} 个，失败 {3} 个</value>
+  </data>
+  <data name="Status_RepairCompletedSummary" xml:space="preserve">
+    <value>共 {0} 个任务，用时 {1:F1} 秒，成功 {2} 个，跳过 {3} 个，失败 {4} 个</value>
+  </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>开始合成</value>
   </data>
@@ -502,13 +508,13 @@
     <value>你可以前往输出文件夹，或清空列表后重新开始。</value>
   </data>
   <data name="Msg_RepairCompletedSummary" xml:space="preserve">
-    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个。{3}</value>
+    <value>共 {0} 个任务，成功 {1} 个，跳过 {2} 个，失败 {3} 个</value>
   </data>
   <data name="Msg_ComboCompletedTitle" xml:space="preserve">
     <value>任务已完成</value>
   </data>
   <data name="Msg_ComboCompletedDescription" xml:space="preserve">
-    <value>你可以点击打开输出文件夹，或清空列表后重新开始</value>
+    <value>你可以点击打开输出文件夹，或清空列表后重新开始。</value>
   </data>
   <data name="Msg_ComboCompletedSummary" xml:space="preserve">
     <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个</value>
@@ -529,7 +535,7 @@
     <value>你可以前往输出文件夹，或清空列表后重新开始。</value>
   </data>
   <data name="Msg_SplitCompletedSummary" xml:space="preserve">
-    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个。{3}</value>
+    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个</value>
   </data>
   <data name="Btn_ComboStopped" xml:space="preserve">
     <value>已停止</value>

@@ -446,24 +446,19 @@ namespace LivePhotoBox.ViewModels
                     TextWrapping = TextWrapping.Wrap
                 });
 
-                var summaryRun = new Run
+                stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.Format("Msg_ComboCompletedSummary", total, succeeded, failed)
-                };
-                var statsLine = new TextBlock
-                {
-                    FontSize = 14,
-                    TextWrapping = TextWrapping.Wrap,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
-                };
-                statsLine.Inlines.Add(summaryRun);
-                stack.Children.Add(statsLine);
+                    Text = ResourceService.Format("Msg_ComboCompletedSummary", total, succeeded, failed),
+                    FontSize = 16,
+                    TextWrapping = TextWrapping.Wrap
+                });
 
                 stack.Children.Add(new TextBlock
                 {
                     Text = ResourceService.GetString("Msg_ComboCompletedDescription"),
                     FontSize = 14,
                     TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 12, 0, 0),
                     Opacity = 0.85
                 });
 

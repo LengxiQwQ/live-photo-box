@@ -156,7 +156,14 @@ namespace LivePhotoBox.ViewModels
                 {
                     ProgressBarState = Models.ProgressBarState.Success;
                     CompleteScanSnapshot();
-                    SetStatus("SplitPage_Status_Done", _stopwatch.Elapsed.TotalSeconds);
+
+                    // ✨ 修复：与 Combo 保持一致，状态栏显示详细的数据统计
+                    int total = Tasks.Count;
+                    int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
+                    int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                    double elapsed = _stopwatch.Elapsed.TotalSeconds;
+
+                    SetStatus("Status_SplitCompletedSummary", total, elapsed, succeeded, failed);
                 }
             }
             OnPropertyChanged(nameof(ActionBtnText));
@@ -437,17 +444,27 @@ namespace LivePhotoBox.ViewModels
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
                 int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
-                var summary = ResourceService.Format("Msg_SplitCompletedSummary", total, succeeded, failed, Environment.NewLine);
+
+                var stack = new StackPanel { Spacing = 12 };
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.Format("Msg_SplitCompletedSummary", total, succeeded, failed),
+                    FontSize = 16,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.GetString("Msg_SplitCompletedDescription"),
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 12, 0, 0),
+                    Opacity = 0.85
+                });
 
                 var dialog = new ContentDialog
                 {
                     Title = ResourceService.GetString("Msg_SplitCompletedTitle"),
-                    Content = new TextBlock
-                    {
-                        Text = summary,
-                        FontSize = 16,
-                        TextWrapping = TextWrapping.Wrap
-                    },
+                    Content = stack,
                     PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Primary,
@@ -494,7 +511,6 @@ namespace LivePhotoBox.ViewModels
                     var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
                     int maxParallel = AppSettingsService.GetValue("SplitThreadCount", Environment.ProcessorCount);
 
-                    // 使用 SemaphoreSlim 限制并发数
                     using var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
                     var pendingTasks = new List<Task>();
                     int localCompletedCount = 0;
@@ -514,20 +530,20 @@ namespace LivePhotoBox.ViewModels
 
                             App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task));
 
-                            bool isSuccess;
-                            string detailMessage;
+                            bool isSuccess = false;
+                            string detailMessage = string.Empty;
+                            bool isCanceled = false;
 
                             try
                             {
                                 await LivePhotoSplitService.SplitAsync(task.SourcePath, outputDir, formatIndex, token);
                                 isSuccess = true;
-                                detailMessage = ResourceService.GetString("SplitPage_Task_Success");
+                                detailMessage = ResourceService.GetString("SplitPage_Task_Success") ?? "Success";
                             }
                             catch (OperationCanceledException)
                             {
-                                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                                    UpdateTaskCompleted(task, false, ResourceService.GetString("Status_Aborted") ?? "???", _completedTasksCount));
-                                throw;
+                                isCanceled = true;
+                                detailMessage = ResourceService.GetString("Status_Aborted") ?? "Aborted";
                             }
                             catch (Exception ex)
                             {
@@ -535,13 +551,39 @@ namespace LivePhotoBox.ViewModels
                                 detailMessage = ResourceService.Format("Task_Error", ex.Message);
                             }
 
+                            int currentCompleted;
                             lock (lockObj)
                             {
                                 localCompletedCount++;
-                                _completedTasksCount = localCompletedCount;
+                                currentCompleted = localCompletedCount;
+                                _completedTasksCount = currentCompleted;
                             }
 
-                            App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage, _completedTasksCount));
+                            // ✨ 核心修复：死等 UI 线程把状态更新完毕！
+                            var tcs = new TaskCompletionSource<bool>();
+                            if (App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                            {
+                                try
+                                {
+                                    UpdateTaskCompleted(task, isSuccess, detailMessage, currentCompleted);
+                                }
+                                finally
+                                {
+                                    tcs.TrySetResult(true);
+                                }
+                            }) == true)
+                            {
+                                await tcs.Task;
+                            }
+                            else
+                            {
+                                tcs.TrySetResult(true);
+                            }
+
+                            if (isCanceled)
+                            {
+                                throw new OperationCanceledException();
+                            }
                         }
                         finally
                         {
@@ -576,7 +618,7 @@ namespace LivePhotoBox.ViewModels
                         }
                     }
 
-                    // 等待所有剩余任务完成
+                    // 等待所有剩余任务完全结束（因为内部用了 TaskCompletionSource，执行到这里时所有的 UI 也100%更新完了）
                     if (!token.IsCancellationRequested)
                     {
                         await Task.WhenAll(pendingTasks);
