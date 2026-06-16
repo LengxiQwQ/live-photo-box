@@ -508,10 +508,10 @@
     <value>任务已完成</value>
   </data>
   <data name="Msg_ComboCompletedDescription" xml:space="preserve">
-    <value>你可以前往输出文件夹，或清空列表后重新开始。</value>
+    <value>你可以点击打开输出文件夹，或清空列表后重新开始</value>
   </data>
   <data name="Msg_ComboCompletedSummary" xml:space="preserve">
-    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个。{3}</value>
+    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个</value>
   </data>
   <data name="Msg_OpenOutputFolder" xml:space="preserve">
     <value>打开输出目录</value>
@@ -1316,5 +1316,8 @@
   </data>
   <data name="Msg_Cancel" xml:space="preserve">
     <value>取消</value>
+  </data>
+  <data name="Status_ComboCompletedSummary" xml:space="preserve">
+    <value>共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个</value>
   </data>
 </root>

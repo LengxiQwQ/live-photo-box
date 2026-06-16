@@ -98,6 +98,15 @@ namespace LivePhotoBox.ViewModels
             NotifyStatusChanged();
         }
 
+        // ✨ 新增方法：直接注入文本，打破只能用多语言键值的局限性
+        protected void SetDirectStatus(string text)
+        {
+            _statusKey = "CustomDirectText";
+            _status = text;
+            _statusForLog = text;
+            NotifyStatusChanged();
+        }
+
         protected void NotifyStatusChanged()
         {
             OnPropertyChanged(nameof(Status));
@@ -124,7 +133,6 @@ namespace LivePhotoBox.ViewModels
 
         protected void BeginScanSession()
         {
-            // 【核心修复】：每次扫描前，强制将底层状态机回归到 Idle（闲置），防止因为之前点击过停止/完成而引发文字错乱
             ProgressBarState = Models.ProgressBarState.Idle;
             _scanCancelledByUser = false;
             _scanProcessed = 0;

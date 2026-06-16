@@ -5,11 +5,14 @@ using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 
@@ -187,7 +190,15 @@ namespace LivePhotoBox.ViewModels
                 {
                     ProgressBarState = Models.ProgressBarState.Success;
                     CompleteScanSnapshot();
-                    SetStatus("Status_Done", _stopwatch.Elapsed.TotalSeconds);
+
+                    // ✨【状态栏统计显示修复】：使用专属多语言词条
+                    int total = Tasks.Count;
+                    int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
+                    int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                    double elapsed = _stopwatch.Elapsed.TotalSeconds;
+
+                    // 自动适配中英文的新词条
+                    SetStatus("Status_ComboCompletedSummary", total, elapsed, succeeded, failed);
                 }
             }
             OnPropertyChanged(nameof(ActionBtnText));
@@ -420,17 +431,45 @@ namespace LivePhotoBox.ViewModels
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
                 int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
-                var summary = ResourceService.Format("Msg_ComboCompletedSummary", total, succeeded, failed, Environment.NewLine);
+
+                var stack = new StackPanel
+                {
+                    Spacing = 12,
+                    HorizontalAlignment = HorizontalAlignment.Stretch
+                };
+
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.GetString("Msg_ComboCompletedTitle"),
+                    FontSize = 22,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
+                });
+
+                var summaryRun = new Run
+                {
+                    Text = ResourceService.Format("Msg_ComboCompletedSummary", total, succeeded, failed)
+                };
+                var statsLine = new TextBlock
+                {
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+                };
+                statsLine.Inlines.Add(summaryRun);
+                stack.Children.Add(statsLine);
+
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.GetString("Msg_ComboCompletedDescription"),
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Opacity = 0.85
+                });
 
                 var dialog = new ContentDialog
                 {
-                    Title = ResourceService.GetString("Msg_ComboCompletedTitle"),
-                    Content = new TextBlock
-                    {
-                        Text = summary,
-                        FontSize = 16,
-                        TextWrapping = TextWrapping.Wrap
-                    },
+                    Content = stack,
                     PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Primary,
@@ -467,6 +506,8 @@ namespace LivePhotoBox.ViewModels
             _stopwatch = Stopwatch.StartNew();
 
             var token = GetProcessingToken();
+            int startedCallbacks = 0;
+            int finishedUiCallbacks = 0;
 
             try
             {
@@ -484,9 +525,41 @@ namespace LivePhotoBox.ViewModels
                     task => App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task)),
                     async (task, isSuccess, detailMessage, completedCount) =>
                     {
+                        Interlocked.Increment(ref startedCallbacks);
                         _completedTasksCount = completedCount;
-                        await EnsureMinimumProcessingDisplayAsync(task).ConfigureAwait(false);
-                        App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskCompleted(task, isSuccess, detailMessage));
+
+                        try
+                        {
+                            await EnsureMinimumProcessingDisplayAsync(task).ConfigureAwait(false);
+
+                            var tcs = new TaskCompletionSource<bool>();
+                            if (App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                            {
+                                try
+                                {
+                                    UpdateTaskCompleted(task, isSuccess, detailMessage);
+                                }
+                                finally
+                                {
+                                    tcs.TrySetResult(true);
+                                }
+                            }) == true)
+                            {
+                                await tcs.Task;
+                            }
+                            else
+                            {
+                                tcs.TrySetResult(true);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            AppLogService.Combo($"Update callback error: {ex.Message}", LogLevel.Error, ex);
+                        }
+                        finally
+                        {
+                            Interlocked.Increment(ref finishedUiCallbacks);
+                        }
                     });
             }
             catch (OperationCanceledException)
@@ -499,6 +572,11 @@ namespace LivePhotoBox.ViewModels
             }
             finally
             {
+                while (Volatile.Read(ref finishedUiCallbacks) < Volatile.Read(ref startedCallbacks))
+                {
+                    await Task.Delay(20);
+                }
+
                 _stopwatch.Stop();
                 FinalizeRunState();
 
