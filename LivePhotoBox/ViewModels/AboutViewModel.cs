@@ -15,9 +15,8 @@ namespace LivePhotoBox.ViewModels
     {
         #region Fields
 
-        private string? _latestCrashLogPath;
-        private string? _latestCrashDumpPath;
-        private string? _latestRecoveredCrashLogPath;
+        private string? _latestLogPath;
+        private string? _latestDumpPath;
 
         #endregion
 
@@ -27,8 +26,8 @@ namespace LivePhotoBox.ViewModels
 
         public bool HasCrashArtifacts => GetLatestCrashArtifactPath() != null;
 
-        public string LastCrashFileNameText => GetLatestCrashArtifactPath() is string latestCrashArtifactPath
-            ? Path.GetFileName(latestCrashArtifactPath)
+        public string LastCrashFileNameText => GetLatestCrashArtifactPath() is string latestPath
+            ? Path.GetFileName(latestPath)
             : ResourceService.GetString("SettingsPage_CrashNoCrashValue");
 
         #endregion
@@ -39,14 +38,12 @@ namespace LivePhotoBox.ViewModels
         public IAsyncRelayCommand OpenLatestCrashLogActionCommand => _openLatestCrashLogActionCommand ??= new AsyncRelayCommand(OpenLatestCrashLogAsync, () => HasCrashArtifacts);
         public IAsyncRelayCommand ExportLatestCrashLogActionCommand => _exportLatestCrashLogActionCommand ??= new AsyncRelayCommand(ExportLatestCrashLogAsync, CanExportLatestCrashLog);
         public IRelayCommand ClearCrashLogsActionCommand => _clearCrashLogsActionCommand ??= new RelayCommand(ClearCrashLogs, CanClearCrashLogs);
-        public IRelayCommand GenerateTestCrashLogActionCommand => _generateTestCrashLogActionCommand ??= new RelayCommand(GenerateTestCrashLog);
         public IAsyncRelayCommand OpenIssueFeedbackActionCommand => _openIssueFeedbackActionCommand ??= new AsyncRelayCommand(OpenIssueFeedbackAsync);
 
         private IRelayCommand? _openCrashLogFolderActionCommand;
         private IAsyncRelayCommand? _openLatestCrashLogActionCommand;
         private IAsyncRelayCommand? _exportLatestCrashLogActionCommand;
         private IRelayCommand? _clearCrashLogsActionCommand;
-        private IRelayCommand? _generateTestCrashLogActionCommand;
         private IAsyncRelayCommand? _openIssueFeedbackActionCommand;
 
         #endregion
@@ -64,23 +61,17 @@ namespace LivePhotoBox.ViewModels
 
         public void RefreshCrashLogs()
         {
-            _latestCrashLogPath = CrashLogService.GetLatestCrashLogPath();
-            _latestCrashDumpPath = CrashLogService.GetLatestCrashDumpPath();
-            _latestRecoveredCrashLogPath = CrashLogService.GetLatestRecoveredCrashLogPath();
+            _latestLogPath = LogService.GetLatestLogPath();
+            _latestDumpPath = LogService.GetLatestDumpPath();
 
-            if (!string.IsNullOrWhiteSpace(_latestCrashLogPath) && !File.Exists(_latestCrashLogPath))
+            if (!string.IsNullOrWhiteSpace(_latestLogPath) && !File.Exists(_latestLogPath))
             {
-                _latestCrashLogPath = null;
+                _latestLogPath = null;
             }
 
-            if (!string.IsNullOrWhiteSpace(_latestCrashDumpPath) && !File.Exists(_latestCrashDumpPath))
+            if (!string.IsNullOrWhiteSpace(_latestDumpPath) && !File.Exists(_latestDumpPath))
             {
-                _latestCrashDumpPath = null;
-            }
-
-            if (!string.IsNullOrWhiteSpace(_latestRecoveredCrashLogPath) && !File.Exists(_latestRecoveredCrashLogPath))
-            {
-                _latestRecoveredCrashLogPath = null;
+                _latestDumpPath = null;
             }
 
             OpenLatestCrashLogActionCommand.NotifyCanExecuteChanged();
@@ -92,54 +83,47 @@ namespace LivePhotoBox.ViewModels
 
         private void OpenCrashLogFolder()
         {
-            string logDirectory = CrashLogService.EnsureLogDirectoryPath();
-            AppLogService.Info($"OpenCrashLogFolder requested. Path='{logDirectory}'", LogSource.App);
+            string logDirectory = LogService.LogDirectory;
+            LogService.Info($"OpenCrashLogFolder requested. Path='{logDirectory}'", LogSource.App);
             FilePickerService.OpenFolderInExplorer(logDirectory);
         }
 
         private async Task OpenLatestCrashLogAsync()
         {
-            string? latestCrashArtifactPath = GetLatestCrashArtifactPath();
-            if (string.IsNullOrWhiteSpace(latestCrashArtifactPath) || !File.Exists(latestCrashArtifactPath))
+            string? latestPath = GetLatestCrashArtifactPath();
+            if (string.IsNullOrWhiteSpace(latestPath) || !File.Exists(latestPath))
             {
                 RefreshCrashLogs();
                 return;
             }
 
-            AppLogService.Info($"OpenLatestCrashArtifact requested. File='{Path.GetFileName(latestCrashArtifactPath)}'", LogSource.App);
-            await FilePickerService.OpenFileAsync(latestCrashArtifactPath);
+            LogService.Info($"OpenLatestCrashArtifact requested. File='{Path.GetFileName(latestPath)}'", LogSource.App);
+            await FilePickerService.OpenFileAsync(latestPath);
         }
 
         private async Task ExportLatestCrashLogAsync()
         {
-            string? latestCrashArtifactPath = GetLatestCrashArtifactPath();
-            if (string.IsNullOrWhiteSpace(latestCrashArtifactPath) || !File.Exists(latestCrashArtifactPath))
+            string? latestPath = GetLatestCrashArtifactPath();
+            if (string.IsNullOrWhiteSpace(latestPath) || !File.Exists(latestPath))
             {
                 RefreshCrashLogs();
                 return;
             }
 
-            AppLogService.Info($"ExportLatestCrashArtifact requested. File='{Path.GetFileName(latestCrashArtifactPath)}'", LogSource.App);
-            await FilePickerService.ExportFileCopyAsync(latestCrashArtifactPath, Path.GetFileName(latestCrashArtifactPath));
+            LogService.Info($"ExportLatestCrashArtifact requested. File='{Path.GetFileName(latestPath)}'", LogSource.App);
+            await FilePickerService.ExportFileCopyAsync(latestPath, Path.GetFileName(latestPath));
         }
 
         private void ClearCrashLogs()
         {
-            AppLogService.Info("ClearCrashLogs requested.", LogSource.App);
-            CrashLogService.DeleteAllCrashArtifacts();
-            RefreshCrashLogs();
-        }
-
-        private void GenerateTestCrashLog()
-        {
-            AppLogService.Info("GenerateTestCrashLog requested.", LogSource.App);
-            CrashLogService.GenerateTestCrashLog();
+            LogService.Info("ClearCrashLogs requested.", LogSource.App);
+            LogService.DeleteAllLogFiles();
             RefreshCrashLogs();
         }
 
         private async Task OpenIssueFeedbackAsync()
         {
-            AppLogService.Info("OpenIssueFeedback requested.", LogSource.App);
+            LogService.Info("OpenIssueFeedback requested.", LogSource.App);
             await FeedbackService.OpenIssuePageAsync();
         }
 
@@ -147,17 +131,20 @@ namespace LivePhotoBox.ViewModels
 
         private bool CanClearCrashLogs() => HasCrashArtifacts;
 
+        /// <summary>
+        /// Returns the most recent log or dump file path, prioritizing the current log.
+        /// </summary>
         private string? GetLatestCrashArtifactPath()
         {
-            // 优先返回 app.log（最新的日志文件）
-            string? latestAppLog = CrashLogWriter.GetLatestAppLogPath();
-            if (!string.IsNullOrWhiteSpace(latestAppLog) && File.Exists(latestAppLog))
+            // Priority 1: current session log (or most recent if between sessions)
+            string? latestLog = LogService.GetLatestLogPath();
+            if (!string.IsNullOrWhiteSpace(latestLog) && File.Exists(latestLog))
             {
-                return latestAppLog;
+                return latestLog;
             }
 
-            // 然后才是 crash/dump 文件
-            return new[] { _latestCrashLogPath, _latestCrashDumpPath, _latestRecoveredCrashLogPath }
+            // Priority 2: dump file (very rare — only for native crashes)
+            return new[] { _latestDumpPath }
                 .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
                 .OrderByDescending(path => File.GetLastWriteTimeUtc(path!))
                 .FirstOrDefault();

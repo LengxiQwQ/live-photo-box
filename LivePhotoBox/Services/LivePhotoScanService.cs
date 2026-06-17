@@ -30,7 +30,7 @@ namespace LivePhotoBox.Services
             CancellationToken cancellationToken = default,
             IProgress<WorkProgressSnapshot>? progress = null)
         {
-            AppLogService.Scan($"Scan started. Directory: {inputDirectory}");
+            LogService.Scan($"Scan started. Directory: {inputDirectory}");
             var imgDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var vidDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -40,7 +40,7 @@ namespace LivePhotoBox.Services
             {
                 var allFiles = Directory.EnumerateFiles(inputDirectory).ToList();
                 int total = allFiles.Count;
-                AppLogService.Scan($"Found {total} files to scan");
+                LogService.Scan($"Found {total} files to scan");
                 progress?.Report(new WorkProgressSnapshot(total, 0));
 
                 for (int i = 0; i < allFiles.Count; i++)
@@ -68,7 +68,7 @@ namespace LivePhotoBox.Services
             }
             catch (UnauthorizedAccessException ex)
             {
-                AppLogService.Scan($"Access denied to directory: {inputDirectory}", LogLevel.Error, ex);
+                LogService.Scan($"Access denied to directory: {inputDirectory}", LogLevel.Error, ex);
                 return new LivePhotoScanResult
                 {
                     Pairs = new List<LivePhotoFilePairInfo>(),
@@ -78,7 +78,7 @@ namespace LivePhotoBox.Services
             }
             catch (DirectoryNotFoundException ex)
             {
-                AppLogService.Scan($"Directory not found: {inputDirectory}", LogLevel.Error, ex);
+                LogService.Scan($"Directory not found: {inputDirectory}", LogLevel.Error, ex);
                 return new LivePhotoScanResult
                 {
                     Pairs = new List<LivePhotoFilePairInfo>(),
@@ -88,7 +88,7 @@ namespace LivePhotoBox.Services
             }
             catch (IOException ex)
             {
-                AppLogService.Scan($"IO error scanning directory: {inputDirectory}", LogLevel.Error, ex);
+                LogService.Scan($"IO error scanning directory: {inputDirectory}", LogLevel.Error, ex);
                 return new LivePhotoScanResult
                 {
                     Pairs = new List<LivePhotoFilePairInfo>(),
@@ -98,7 +98,7 @@ namespace LivePhotoBox.Services
             }
             catch (OperationCanceledException)
             {
-                AppLogService.Scan("Scan cancelled");
+                LogService.Scan("Scan cancelled");
                 throw;
             }
 
@@ -121,7 +121,7 @@ namespace LivePhotoBox.Services
                     }
                     catch (IOException ex)
                     {
-                        AppLogService.Scan($"Failed to get file info for pair {kvp.Key}", LogLevel.Warning, ex);
+                        LogService.Scan($"Failed to get file info for pair {kvp.Key}", LogLevel.Warning, ex);
                         continue;
                     }
                 }
@@ -130,7 +130,7 @@ namespace LivePhotoBox.Services
             int standaloneImagesCount = imgDict.Count - pairs.Count;
             int standaloneVideosCount = vidDict.Count - pairs.Count;
 
-            AppLogService.Scan($"Scan completed. Found {pairs.Count} pairs, {standaloneImagesCount} standalone images, {standaloneVideosCount} standalone videos");
+            LogService.Scan($"Scan completed. Found {pairs.Count} pairs, {standaloneImagesCount} standalone images, {standaloneVideosCount} standalone videos");
 
             return new LivePhotoScanResult
             {

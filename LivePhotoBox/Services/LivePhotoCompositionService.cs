@@ -62,14 +62,14 @@ GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPr
             int segmentLength = 2 + xmpHeader.Length + xmpXmlBytes.Length;
             if (segmentLength > ushort.MaxValue)
             {
-                AppLogService.Combo($"XMP metadata too large: {segmentLength} bytes", LogLevel.Error);
+                LogService.Combo($"XMP metadata too large: {segmentLength} bytes", LogLevel.Error);
                 throw new InvalidOperationException(ResourceService.Format("Error_XmpMetadataTooLarge", segmentLength));
             }
 
             using var imgFs = new FileStream(sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, true);
             if (imgFs.Length < 2 || imgFs.ReadByte() != 0xFF || imgFs.ReadByte() != 0xD8)
             {
-                AppLogService.Combo($"Invalid JPEG file: {sourceImg}", LogLevel.Error);
+                LogService.Combo($"Invalid JPEG file: {sourceImg}", LogLevel.Error);
                 throw new InvalidDataException(ResourceService.GetString("Error_InvalidJpegFile"));
             }
 

@@ -94,7 +94,7 @@ namespace LivePhotoBox.Services
             long videoLength = GetAppendedVideoLength(metadataText);
             long imageLength = sourceStream.Length - videoLength;
 
-            AppLogService.Split($"[Split] File={Path.GetFileName(sourcePath)}, TotalSize={sourceStream.Length}, VideoLength={videoLength}, ImageLength={imageLength}", LogLevel.Warning);
+            LogService.Split($"[Split] File={Path.GetFileName(sourcePath)}, TotalSize={sourceStream.Length}, VideoLength={videoLength}, ImageLength={imageLength}", LogLevel.Warning);
 
             if (videoLength <= 0 || imageLength <= 0)
             {
@@ -135,12 +135,12 @@ namespace LivePhotoBox.Services
                                     (selectedSplitFormatIndex == 2 && sourceVideoExtension == ".mov");
 
                 System.Diagnostics.Debug.WriteLine($"[DEBUG Split] needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}");
-                AppLogService.Split($"needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}", LogLevel.Warning);
+                LogService.Split($"needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}", LogLevel.Warning);
 
                 if (formatMatches)
                 {
                     // 格式完全匹配，使用 FFmpeg remux（快速无损转换容器，完整保留 HDR 元数据）
-                    AppLogService.Split($"Remuxing video (container only): {sourceVideoExtension} -> {targetExtension}");
+                    LogService.Split($"Remuxing video (container only): {sourceVideoExtension} -> {targetExtension}");
                     System.Diagnostics.Debug.WriteLine($"[DEBUG Split] === REMUX PATH (no re-encoding) ===");
                     var remuxResult = await VideoTranscodeService.RemuxAsync(tempVideoPath, videoOutputPath, token);
 
@@ -155,7 +155,7 @@ namespace LivePhotoBox.Services
                     else
                     {
                         // remux 失败，抛出异常让上层处理
-                        AppLogService.Split($"Remux failed: {remuxResult.ErrorMessage}", LogLevel.Error);
+                        LogService.Split($"Remux failed: {remuxResult.ErrorMessage}", LogLevel.Error);
                         if (File.Exists(tempVideoPath))
                         {
                             File.Delete(tempVideoPath);
@@ -170,7 +170,7 @@ namespace LivePhotoBox.Services
                 else
                 {
                     // 格式不匹配，需要转码
-                    AppLogService.Split($"Transcoding video: {sourceVideoExtension} -> {targetExtension}");
+                    LogService.Split($"Transcoding video: {sourceVideoExtension} -> {targetExtension}");
                     System.Diagnostics.Debug.WriteLine($"[DEBUG Split] === TRANSCODE PATH (re-encoding with {(selectedSplitFormatIndex == 1 ? "libx264" : "libx265")}) ===");
 
                     var transcodeResult = selectedSplitFormatIndex == 1
@@ -180,7 +180,7 @@ namespace LivePhotoBox.Services
                     if (!transcodeResult.Success)
                     {
                         // 转码失败，抛出异常让上层处理
-                        AppLogService.Split($"Transcode failed: {transcodeResult.ErrorMessage}", LogLevel.Error);
+                        LogService.Split($"Transcode failed: {transcodeResult.ErrorMessage}", LogLevel.Error);
                         if (File.Exists(tempVideoPath))
                         {
                             File.Delete(tempVideoPath);
@@ -236,7 +236,7 @@ namespace LivePhotoBox.Services
             if (TryGetLong(MotionPhotoLengthRegex.Match(metadataText), out long motionPhotoLength))
                 return motionPhotoLength;
 
-            AppLogService.Split($"[Split] GetAppendedVideoLength: MicroVideoOffset match={MicroVideoOffsetRegex.Match(metadataText).Success}, MotionPhotoLength match={MotionPhotoLengthRegex.Match(metadataText).Success}", LogLevel.Warning);
+            LogService.Split($"[Split] GetAppendedVideoLength: MicroVideoOffset match={MicroVideoOffsetRegex.Match(metadataText).Success}, MotionPhotoLength match={MotionPhotoLengthRegex.Match(metadataText).Success}", LogLevel.Warning);
 
             throw new InvalidDataException("No motion video length metadata was found in the file.");
         }
@@ -462,7 +462,7 @@ namespace LivePhotoBox.Services
                                 await SkipExactAsync(sourceStream, remainingPayload, token);
                                 consumedInImage += remainingPayload;
                             }
-                            AppLogService.Split($"[Split] Stripped LivePhoto APP{marker - 0xE0} segment (len={segmentLength})", LogLevel.Warning);
+                            LogService.Split($"[Split] Stripped LivePhoto APP{marker - 0xE0} segment (len={segmentLength})", LogLevel.Warning);
                         }
                         else
                         {

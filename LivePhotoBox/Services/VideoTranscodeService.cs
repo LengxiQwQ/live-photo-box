@@ -44,14 +44,14 @@ namespace LivePhotoBox.Services
             string newKey = $"SplitEncoder_{codec}";
             string? encoder = AppSettingsService.GetValue<string?>(newKey, null);
 
-            AppLogService.Split($"[DEBUG] GetEncoderForCodec({codec}): key='{newKey}', value='{encoder ?? "(null)"}'", LogLevel.Info);
+            LogService.Split($"[DEBUG] GetEncoderForCodec({codec}): key='{newKey}', value='{encoder ?? "(null)"}'", LogLevel.Info);
 
             // 如果新 key 有值，验证可用性
             if (!string.IsNullOrEmpty(encoder))
             {
                 if (!IsEncoderAvailable(encoder))
                 {
-                    AppLogService.Split($"Saved encoder '{encoder}' for {codec} is not available in current FFmpeg, will re-detect", LogLevel.Warning);
+                    LogService.Split($"Saved encoder '{encoder}' for {codec} is not available in current FFmpeg, will re-detect", LogLevel.Warning);
                     return null;
                 }
                 return encoder;
@@ -65,7 +65,7 @@ namespace LivePhotoBox.Services
                 {
                     // 迁移：h264_xxx -> hevc_xxx
                     string migratedHevc = "hevc" + legacyH264.Substring(4);
-                    AppLogService.Split($"Migrating legacy encoder '{legacyH264}' -> '{migratedHevc}' for HEVC", LogLevel.Info);
+                    LogService.Split($"Migrating legacy encoder '{legacyH264}' -> '{migratedHevc}' for HEVC", LogLevel.Info);
                     if (IsEncoderAvailable(migratedHevc))
                     {
                         AppSettingsService.SetValue(newKey, migratedHevc);
@@ -73,7 +73,7 @@ namespace LivePhotoBox.Services
                     }
                     else
                     {
-                        AppLogService.Split($"Migrated encoder '{migratedHevc}' not available, will auto-detect", LogLevel.Warning);
+                        LogService.Split($"Migrated encoder '{migratedHevc}' not available, will auto-detect", LogLevel.Warning);
                         return null;
                     }
                 }
@@ -160,7 +160,7 @@ namespace LivePhotoBox.Services
             {
                 result.Success = false;
                 result.ErrorMessage = $"Input file not found: {inputPath}";
-                AppLogService.Split($"Remux failed: {result.ErrorMessage}", LogLevel.Error);
+                LogService.Split($"Remux failed: {result.ErrorMessage}", LogLevel.Error);
                 return result;
             }
 
@@ -169,11 +169,11 @@ namespace LivePhotoBox.Services
             {
                 result.Success = false;
                 result.ErrorMessage = "FFmpeg not found.";
-                AppLogService.Split("Remux failed: FFmpeg not found", LogLevel.Error);
+                LogService.Split("Remux failed: FFmpeg not found", LogLevel.Error);
                 return result;
             }
 
-            AppLogService.Split($"Starting remux (container only, no re-encoding): {Path.GetFileName(inputPath)}");
+            LogService.Split($"Starting remux (container only, no re-encoding): {Path.GetFileName(inputPath)}");
 
             try
             {
@@ -221,7 +221,7 @@ namespace LivePhotoBox.Services
                 {
                     result.Success = false;
                     result.ErrorMessage = $"Failed to start FFmpeg: {ex.Message}";
-                    AppLogService.Split($"Remux failed: {result.ErrorMessage}", LogLevel.Error, ex);
+                    LogService.Split($"Remux failed: {result.ErrorMessage}", LogLevel.Error, ex);
                     return result;
                 }
 
@@ -257,7 +257,7 @@ namespace LivePhotoBox.Services
                 {
                     result.Success = true;
                     result.OutputPath = outputPath;
-                    AppLogService.Split($"Remux completed: {Path.GetFileName(outputPath)} ({result.Duration.TotalSeconds:F1}s)", LogLevel.Info);
+                    LogService.Split($"Remux completed: {Path.GetFileName(outputPath)} ({result.Duration.TotalSeconds:F1}s)", LogLevel.Info);
                 }
                 else
                 {
@@ -266,7 +266,7 @@ namespace LivePhotoBox.Services
 
                     result.Success = false;
                     result.ErrorMessage = $"FFmpeg exited with code {process.ExitCode}. Output: {errorOutput}";
-                    AppLogService.Split($"Remux failed: {result.ErrorMessage}", LogLevel.Error);
+                    LogService.Split($"Remux failed: {result.ErrorMessage}", LogLevel.Error);
                 }
             }
             catch (Exception ex)
@@ -275,7 +275,7 @@ namespace LivePhotoBox.Services
                 result.Duration = stopwatch.Elapsed;
                 result.Success = false;
                 result.ErrorMessage = ex.Message;
-                AppLogService.Split($"Remux error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Split($"Remux error: {ex.Message}", LogLevel.Error, ex);
             }
 
             return result;
@@ -319,7 +319,7 @@ namespace LivePhotoBox.Services
             {
                 result.Success = false;
                 result.ErrorMessage = $"Input file not found: {inputPath}";
-                AppLogService.Split($"Transcode failed: {result.ErrorMessage}", LogLevel.Error);
+                LogService.Split($"Transcode failed: {result.ErrorMessage}", LogLevel.Error);
                 return result;
             }
 
@@ -328,11 +328,11 @@ namespace LivePhotoBox.Services
             {
                 result.Success = false;
                 result.ErrorMessage = "FFmpeg not found. Please ensure ffmpeg.exe is available.";
-                AppLogService.Split("Transcode failed: FFmpeg not found", LogLevel.Error);
+                LogService.Split("Transcode failed: FFmpeg not found", LogLevel.Error);
                 return result;
             }
 
-            AppLogService.Split($"Starting transcode: {Path.GetFileName(inputPath)} -> {targetFormat}");
+            LogService.Split($"Starting transcode: {Path.GetFileName(inputPath)} -> {targetFormat}");
 
             // 安全创建目录：防止空字符串导致 ArgumentException 崩溃
             string? outDir = Path.GetDirectoryName(outputPath);
@@ -357,7 +357,7 @@ namespace LivePhotoBox.Services
                 {
                     string arguments = BuildFFmpegArguments(inputPath, outputPath, targetFormat, !useHardwareEncoder);
 
-                    AppLogService.Split($"[FFmpeg args]: ffmpeg {arguments}", LogLevel.Info);
+                    LogService.Split($"[FFmpeg args]: ffmpeg {arguments}", LogLevel.Info);
 
                     using var process = new Process();
                     process.StartInfo.FileName = ffmpegPath;
@@ -379,7 +379,7 @@ namespace LivePhotoBox.Services
                     {
                         result.Success = false;
                         result.ErrorMessage = $"Failed to start FFmpeg: {ex.Message}";
-                        AppLogService.Split($"Transcode failed: {result.ErrorMessage}", LogLevel.Error, ex);
+                        LogService.Split($"Transcode failed: {result.ErrorMessage}", LogLevel.Error, ex);
                         return result;
                     }
 
@@ -406,16 +406,16 @@ namespace LivePhotoBox.Services
                             if (!process.HasExited) { process.Kill(); }
                             result.Success = false;
                             result.ErrorMessage = $"Transcode timeout (>5 minutes). FFmpeg output: {cancelError}";
-                            AppLogService.Split($"Transcode timeout: {result.ErrorMessage}", LogLevel.Error);
+                            LogService.Split($"Transcode timeout: {result.ErrorMessage}", LogLevel.Error);
                             return result;
                         }
                         if (!string.IsNullOrWhiteSpace(cancelError))
                         {
-                            AppLogService.Split($"[FFmpeg stderr on cancel]: {cancelError}", LogLevel.Warning);
+                            LogService.Split($"[FFmpeg stderr on cancel]: {cancelError}", LogLevel.Warning);
                         }
                         result.Success = false;
                         result.ErrorMessage = "Transcode cancelled by user";
-                        AppLogService.Split("Transcode cancelled", LogLevel.Warning);
+                        LogService.Split("Transcode cancelled", LogLevel.Warning);
                         return result;
                     }
 
@@ -427,7 +427,7 @@ namespace LivePhotoBox.Services
                         result.Success = true;
                         result.OutputPath = outputPath;
                         string mode = useHardwareEncoder ? "GPU" : "CPU";
-                        AppLogService.Split($"Transcode completed ({mode}): {Path.GetFileName(outputPath)} ({result.Duration.TotalSeconds:F1}s)", LogLevel.Info);
+                        LogService.Split($"Transcode completed ({mode}): {Path.GetFileName(outputPath)} ({result.Duration.TotalSeconds:F1}s)", LogLevel.Info);
                         transcodeCompleted = true;
                     }
                     else
@@ -437,7 +437,7 @@ namespace LivePhotoBox.Services
 
                         if (useHardwareEncoder && ShouldFallbackToSoftware(errorOutput))
                         {
-                            AppLogService.Split($"Hardware encoder failed, falling back to software encoding...", LogLevel.Warning);
+                            LogService.Split($"Hardware encoder failed, falling back to software encoding...", LogLevel.Warning);
                             useHardwareEncoder = false;
                             if (File.Exists(outputPath)) File.Delete(outputPath);
                             stopwatch.Restart();
@@ -446,7 +446,7 @@ namespace LivePhotoBox.Services
 
                         result.Success = false;
                         result.ErrorMessage = $"FFmpeg exited with code {process.ExitCode}. Output: {errorOutput}";
-                        AppLogService.Split($"Transcode failed: {result.ErrorMessage}", LogLevel.Error);
+                        LogService.Split($"Transcode failed: {result.ErrorMessage}", LogLevel.Error);
                         transcodeCompleted = true;
                     }
                 }
@@ -456,7 +456,7 @@ namespace LivePhotoBox.Services
                     result.Duration = stopwatch.Elapsed;
                     result.Success = false;
                     result.ErrorMessage = ex.Message;
-                    AppLogService.Split($"Transcode error: {ex.Message}", LogLevel.Error, ex);
+                    LogService.Split($"Transcode error: {ex.Message}", LogLevel.Error, ex);
                     transcodeCompleted = true;
                 }
             }
@@ -484,7 +484,7 @@ namespace LivePhotoBox.Services
             {
                 if (lowerError.Contains(trigger))
                 {
-                    AppLogService.Split($"Detected hardware encoder issue: '{trigger}', will fallback to software encoder", LogLevel.Warning);
+                    LogService.Split($"Detected hardware encoder issue: '{trigger}', will fallback to software encoder", LogLevel.Warning);
                     return true;
                 }
             }
@@ -499,8 +499,10 @@ namespace LivePhotoBox.Services
             if (forceSoftware)
             {
                 string enc = codec == "h264" ? "libx264" : "libx265";
-                string prms = codec == "h264" ? "-preset medium -crf 18" : "-preset medium -crf 20";
-                AppLogService.Split($"Using software encoder (forced): {enc} for {targetFormat}");
+                // CRF 19 (H.264) / CRF 21 (HEVC)：输入≈输出码率的精准平衡点。
+                // CRF 18 膨胀 ~60%，CRF 20 偏压缩 ~20%，CRF 19 恰好持平。
+                string prms = codec == "h264" ? "-preset medium -crf 19" : "-preset medium -crf 21";
+                LogService.Split($"Using software encoder (forced): {enc} for {targetFormat}");
                 return (enc, prms);
             }
 
@@ -512,25 +514,25 @@ namespace LivePhotoBox.Services
                 if (!string.IsNullOrEmpty(detected))
                 {
                     savedEncoder = detected;
-                    AppLogService.Split($"No saved encoder for {codec}, detected from FFmpeg: {detected}", LogLevel.Info);
+                    LogService.Split($"No saved encoder for {codec}, detected from FFmpeg: {detected}", LogLevel.Info);
                 }
             }
 
             if (!string.IsNullOrEmpty(savedEncoder) && IsEncoderAvailable(savedEncoder))
             {
                 string encoderParams = GetHardwareEncoderParams(savedEncoder, targetFormat);
-                AppLogService.Split($"Using hardware encoder: {savedEncoder} for {targetFormat}");
+                LogService.Split($"Using hardware encoder: {savedEncoder} for {targetFormat}");
                 return (savedEncoder, encoderParams);
             }
             else if (!string.IsNullOrEmpty(savedEncoder))
             {
-                AppLogService.Split($"Saved encoder '{savedEncoder}' not available for {targetFormat}, falling back to CPU", LogLevel.Warning);
+                LogService.Split($"Saved encoder '{savedEncoder}' not available for {targetFormat}, falling back to CPU", LogLevel.Warning);
             }
 
             string encName = codec == "h264" ? "libx264" : "libx265";
-            string encParams = codec == "h264" ? "-preset medium -crf 18" : "-preset medium -crf 20";
+            string encParams = codec == "h264" ? "-preset medium -crf 19" : "-preset medium -crf 21";
 
-            AppLogService.Split($"Using software encoder: {encName} for {targetFormat}");
+            LogService.Split($"Using software encoder: {encName} for {targetFormat}");
             return (encName, encParams);
         }
 
@@ -568,44 +570,65 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                AppLogService.Split($"DetectHardwareEncoderForCodec error: {ex.Message}", LogLevel.Warning);
+                LogService.Split($"DetectHardwareEncoderForCodec error: {ex.Message}", LogLevel.Warning);
             }
             return null;
+        }
+
+        private static string BuildVideoFilter(VideoFormat targetFormat, string encoder)
+        {
+            // 这里只用 setsar=1 锁定正方形像素比，不做任何 scale。
+            // 分辨率保护由 decoder 侧的 -apply_cropping 0 处理（见 BuildFFmpegArguments），
+            // 该参数关闭 HEVC conformance window 裁切，确保解码器输出原始完整帧。
+            // 之前在此处放置 scale=trunc(iw/2)*2 无法阻止 decoder 层面的裁切，
+            // 因为 scale 滤镜拿到的帧已经是裁切后的。
+            return "-vf \"setsar=1\"";
         }
 
         private static string BuildFFmpegArguments(string inputPath, string outputPath, VideoFormat targetFormat, bool forceSoftwareEncoder = false)
         {
             var (videoEncoder, videoParams) = GetEncoderForFormat(targetFormat, forceSoftwareEncoder);
             int threadCount = GetThreadCount(videoEncoder);
-            AppLogService.Split($"FFmpeg args: encoder={videoEncoder}, params={videoParams}, threads={threadCount}", LogLevel.Info);
+            LogService.Split($"FFmpeg args: encoder={videoEncoder}, params={videoParams}, threads={threadCount}", LogLevel.Info);
 
             string pixelFormat = GetPixelFormatParams(videoEncoder, targetFormat);
+            string videoFilter = BuildVideoFilter(targetFormat, videoEncoder);
 
-            // -map 0:V:0 -> 大写 V 表示精确提取真实的主视频轨，自动忽略内嵌图片和缩略图
-            // -map 0:a:0? -> 提取单一主音频，若不存在则跳过，防止多音轨叠加或无音轨闪退
+            // -apply_cropping 0 -> 关闭 HEVC conformance window 自动裁切。
+            //   手机（尤其 iPhone/三星）拍摄的 Live Photo 视频常以 HEVC 编码，
+            //   编码分辨率会 pad 到 CTU 对齐（如 1920→1920, 1440→1472），
+            //   再通过 metadata 让解码器裁回"显示尺寸"。FFmpeg 默认执行此裁切，
+            //   导致 1920×1440 → 1744×1308 这类非预期的分辨率变化。
+            //   设为 0 后解码器输出完整帧，-vf setsar=1 + -pix_fmt 再规范化输出。
+            //
+            // -map 0:v:0 -> 小写 v，标准视频流选择（temp 文件只有一条视频轨，无需大写 V）
+            // -map 0:a:0? -> 提取单一主音频，若不存在则跳过
+            // -c:a copy -> 直接复制原始音频流，完全保留原始音质
             return targetFormat switch
             {
-                VideoFormat.MP4 => $"-y -i \"{inputPath}\" " +
-                    $"-map 0:V:0 -map 0:a:0? " +
+                VideoFormat.MP4 => $"-apply_cropping 0 -y -i \"{inputPath}\" " +
+                    $"-map 0:v:0 -map 0:a:0? " +
                     $"-map_metadata 0 " +
                     $"-threads {threadCount} " +
+                    $"{videoFilter} " +
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} " +
-                    $"-c:a aac -b:a 320k " +
+                    $"-c:a copy " +
                     $"-movflags +faststart " +
                     $"\"{outputPath}\"",
 
-                VideoFormat.MOV => $"-y -i \"{inputPath}\" " +
-                    $"-map 0:V:0 -map 0:a:0? " +
+                VideoFormat.MOV => $"-apply_cropping 0 -y -i \"{inputPath}\" " +
+                    $"-map 0:v:0 -map 0:a:0? " +
                     $"-map_metadata 0 " +
                     $"-threads {threadCount} " +
+                    $"{videoFilter} " +
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} -tag:v hvc1 " +
-                    $"-c:a aac -b:a 320k " +
+                    $"-c:a copy " +
                     $"-movflags +faststart " +
                     $"\"{outputPath}\"",
 
-                _ => $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? \"{outputPath}\""
+                _ => $"-apply_cropping 0 -y -i \"{inputPath}\" -c copy -map 0:v:0 -map 0:a:0? \"{outputPath}\""
             };
         }
 
@@ -620,25 +643,27 @@ namespace LivePhotoBox.Services
         {
             string lowerEncoder = encoder.ToLowerInvariant();
 
+            // CRF 19 (H.264) / CRF 21 (HEVC)：输入≈输出码率的精准平衡点。
+            // CRF 20 仍会让原本 1 万 kbps 的源被压到 8000+，CRF 19 刚好持平。
             if (lowerEncoder.StartsWith("h264"))
             {
                 return lowerEncoder switch
                 {
-                    "h264_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 18 -b:v 0 -maxrate:v 50M -bufsize:v 100M -profile:v high",
-                    "h264_qsv" => "-global_quality 18 -look_ahead 1",
-                    "h264_amf" => "-preset quality -rc cqp -qp 18",
-                    "h264_vaapi" => "-quality 100 -rc_mode 1",
-                    _ => "-preset medium -crf 18"
+                    "h264_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 19 -b:v 0 -maxrate:v 30M -bufsize:v 60M -profile:v high",
+                    "h264_qsv" => "-global_quality 19 -look_ahead 1",
+                    "h264_amf" => "-preset quality -rc cqp -qp 19",
+                    "h264_vaapi" => "-quality 85 -rc_mode 1",
+                    _ => "-preset medium -crf 19"
                 };
             }
 
             return lowerEncoder switch
             {
-                "hevc_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 20 -b:v 0 -maxrate:v 40M -bufsize:v 80M -tune hq",
-                "hevc_qsv" => "-global_quality 20 -look_ahead 1",
-                "hevc_amf" => "-preset quality -rc cqp -qp 20",
-                "hevc_vaapi" => "-quality 100 -rc_mode 1",
-                _ => "-preset medium -crf 20"
+                "hevc_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 21 -b:v 0 -maxrate:v 25M -bufsize:v 50M -tune hq",
+                "hevc_qsv" => "-global_quality 21 -look_ahead 1",
+                "hevc_amf" => "-preset quality -rc cqp -qp 21",
+                "hevc_vaapi" => "-quality 85 -rc_mode 1",
+                _ => "-preset medium -crf 21"
             };
         }
 

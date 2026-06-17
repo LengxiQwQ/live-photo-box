@@ -230,7 +230,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ScanDirectoryAsync()
         {
-            AppLogService.Combo($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
+            LogService.Combo($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
 
             if (!TryGuardScanClick()) return;
             if (IsProcessing) return;
@@ -345,7 +345,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex)
             {
-                AppLogService.Combo($"ScanDirectory error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Combo($"ScanDirectory error: {ex.Message}", LogLevel.Error, ex);
                 SetStatus("Status_Error", ex.Message);
             }
             finally
@@ -360,7 +360,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
-            AppLogService.Combo($"ToggleSecondaryAction requested. IsProcessing={IsProcessing}, IsPaused={IsPaused}");
+            LogService.Combo($"ToggleSecondaryAction requested. IsProcessing={IsProcessing}, IsPaused={IsPaused}");
 
             if (!IsProcessing)
             {
@@ -375,7 +375,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleProcessAsync()
         {
-            AppLogService.Combo($"ToggleProcessAsync requested. IsProcessing={IsProcessing}, QueueCount={Tasks.Count}");
+            LogService.Combo($"ToggleProcessAsync requested. IsProcessing={IsProcessing}, QueueCount={Tasks.Count}");
 
             if (IsProcessing)
             {
@@ -418,7 +418,8 @@ namespace LivePhotoBox.ViewModels
                     Content = new TextBlock { Text = ResourceService.GetString("Msg_ComboAlreadyStopped"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
                 };
                 await dialog.ShowAsync();
             }
@@ -468,7 +469,8 @@ namespace LivePhotoBox.ViewModels
                     PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
                 };
 
                 var result = await dialog.ShowAsync();
@@ -489,7 +491,8 @@ namespace LivePhotoBox.ViewModels
                     Content = new TextBlock { Text = ResourceService.GetString("Msg_ProcessingNotAllowed"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
                 };
                 await dialog.ShowAsync();
             }
@@ -549,7 +552,7 @@ namespace LivePhotoBox.ViewModels
                         }
                         catch (Exception ex)
                         {
-                            AppLogService.Combo($"Update callback error: {ex.Message}", LogLevel.Error, ex);
+                            LogService.Combo($"Update callback error: {ex.Message}", LogLevel.Error, ex);
                         }
                         finally
                         {
@@ -563,7 +566,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex)
             {
-                AppLogService.Combo($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Combo($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
             }
             finally
             {
@@ -632,7 +635,7 @@ namespace LivePhotoBox.ViewModels
                 }
                 FilePickerService.OpenFolderInExplorer(InputDirectory);
             }
-            catch (Exception ex) { AppLogService.Combo($"OpenComboInput error: {ex.Message}", LogLevel.Error, ex); }
+            catch (Exception ex) { LogService.Combo($"OpenComboInput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
         private async Task OpenComboOutputFolderAsync()
@@ -644,7 +647,7 @@ namespace LivePhotoBox.ViewModels
                     Directory.CreateDirectory(OutputDirectory);
                 FilePickerService.OpenFolderInExplorer(OutputDirectory);
             }
-            catch (Exception ex) { AppLogService.Combo($"OpenComboOutput error: {ex.Message}", LogLevel.Error, ex); }
+            catch (Exception ex) { LogService.Combo($"OpenComboOutput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
         public new void Cleanup() => CleanupTokens();

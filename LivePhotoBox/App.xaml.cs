@@ -12,12 +12,40 @@ namespace LivePhotoBox
 
         public static BitmapImage? CachedBannerImage { get; set; }
 
+        /// <summary>
+        /// Gets the current effective <see cref="ElementTheme"/> for the application.
+        /// When the user has selected "Default", detects the system theme.
+        /// Returns <see cref="ElementTheme.Light"/> if the main window is not yet available.
+        /// </summary>
+        public static ElementTheme CurrentTheme
+        {
+            get
+            {
+                if (MainWindow?.Content is FrameworkElement rootElement && rootElement.RequestedTheme != ElementTheme.Default)
+                {
+                    return rootElement.RequestedTheme;
+                }
+
+                try
+                {
+                    var settings = new Windows.UI.ViewManagement.UISettings();
+                    var backgroundColor = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
+                    return backgroundColor.R < 128 ? ElementTheme.Dark : ElementTheme.Light;
+                }
+                catch
+                {
+                    return ElementTheme.Light;
+                }
+            }
+        }
+
         public App()
         {
             ApplyLanguageSetting();
-            CrashLogService.Initialize(this);
+            LogService.Initialize();
+            CrashHandler.Initialize(this);
             InitializeComponent();
-            AppLogService.Info("Application initialized.", LogSource.App);
+            LogService.Info("Application initialized.", LogSource.App);
         }
 
         private void ApplyLanguageSetting()
@@ -28,10 +56,10 @@ namespace LivePhotoBox
 
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
-            AppLogService.Info("Main window launch started.", LogSource.UI);
+            LogService.Info("Main window launch started.", LogSource.UI);
             MainWindow = new MainWindow();
             MainWindow.Activate();
-            AppLogService.Info("Main window activated.", LogSource.UI);
+            LogService.Info("Main window activated.", LogSource.UI);
             _ = ShowPendingCrashDialogAsync();
         }
 
@@ -49,7 +77,7 @@ namespace LivePhotoBox
 
             if (MainWindow?.Content?.XamlRoot is XamlRoot xamlRoot)
             {
-                await CrashLogService.ShowPendingCrashDialogAsync(xamlRoot);
+                await CrashHandler.ShowPendingCrashDialogAsync(xamlRoot);
             }
         }
     }

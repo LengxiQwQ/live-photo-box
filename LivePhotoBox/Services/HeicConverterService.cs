@@ -27,7 +27,7 @@ namespace LivePhotoBox.Services
                 return heicPath;
             }
 
-            AppLogService.Combo($"Converting HEIC to JPEG: {heicPath}");
+            LogService.Combo($"Converting HEIC to JPEG: {heicPath}");
 
             try
             {
@@ -38,7 +38,7 @@ namespace LivePhotoBox.Services
 
                 if (File.Exists(jpegPath))
                 {
-                    AppLogService.Combo($"JPEG already exists, using existing file: {jpegPath}");
+                    LogService.Combo($"JPEG already exists, using existing file: {jpegPath}");
                     return jpegPath;
                 }
 
@@ -84,15 +84,15 @@ namespace LivePhotoBox.Services
                 }
                 catch (Exception ex)
                 {
-                    AppLogService.Combo($"Copy metadata from HEIC failed: {ex.Message}", LogLevel.Warning, ex);
+                    LogService.Combo($"Copy metadata from HEIC failed: {ex.Message}", LogLevel.Warning, ex);
                 }
 
-                AppLogService.Combo($"HEIC conversion successful: {jpegPath}");
+                LogService.Combo($"HEIC conversion successful: {jpegPath}");
                 return jpegPath;
             }
             catch (Exception ex)
             {
-                AppLogService.Combo($"HEIC conversion failed: {ex.Message}", LogLevel.Error, ex);
+                LogService.Combo($"HEIC conversion failed: {ex.Message}", LogLevel.Error, ex);
                 throw new InvalidOperationException(
                     ResourceService.Format("Error_HeicConversionFailed", Path.GetFileName(heicPath), ex.Message), ex);
             }
@@ -105,7 +105,7 @@ namespace LivePhotoBox.Services
                 return heicPath;
             }
 
-            AppLogService.Combo($"Converting HEIC to JPEG: {heicPath}");
+            LogService.Combo($"Converting HEIC to JPEG: {heicPath}");
 
             try
             {
@@ -114,7 +114,7 @@ namespace LivePhotoBox.Services
 
                 if (File.Exists(jpegPath))
                 {
-                    AppLogService.Combo($"JPEG already exists in output, using existing file: {jpegPath}");
+                    LogService.Combo($"JPEG already exists in output, using existing file: {jpegPath}");
                     return jpegPath;
                 }
 
@@ -146,15 +146,15 @@ namespace LivePhotoBox.Services
                 }
                 catch (Exception ex)
                 {
-                    AppLogService.Combo($"Copy metadata from HEIC failed: {ex.Message}", LogLevel.Warning, ex);
+                    LogService.Combo($"Copy metadata from HEIC failed: {ex.Message}", LogLevel.Warning, ex);
                 }
 
-                AppLogService.Combo($"HEIC conversion successful: {jpegPath}");
+                LogService.Combo($"HEIC conversion successful: {jpegPath}");
                 return jpegPath;
             }
             catch (Exception ex)
             {
-                AppLogService.Combo($"HEIC conversion failed: {ex.Message}", LogLevel.Error, ex);
+                LogService.Combo($"HEIC conversion failed: {ex.Message}", LogLevel.Error, ex);
                 throw new InvalidOperationException(
                     ResourceService.Format("Error_HeicConversionFailed", Path.GetFileName(heicPath), ex.Message), ex);
             }

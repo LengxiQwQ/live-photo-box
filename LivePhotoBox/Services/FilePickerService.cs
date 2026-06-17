@@ -22,12 +22,12 @@ namespace LivePhotoBox.Services
                 WinRT.Interop.InitializeWithWindow.Initialize(folderPicker, hwnd);
 
                 var result = await folderPicker.PickSingleFolderAsync();
-                AppLogService.FileOp($"Folder picked: {result?.Path ?? "(cancelled)"}");
+                LogService.FileOp($"Folder picked: {result?.Path ?? "(cancelled)"}");
                 return result;
             }
             catch (Exception ex)
             {
-                AppLogService.FileOp($"Failed to pick folder", LogLevel.Error, ex);
+                LogService.FileOp($"Failed to pick folder", LogLevel.Error, ex);
                 return null;
             }
         }
@@ -36,13 +36,13 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                AppLogService.FileOp($"Opening file: {path}");
+                LogService.FileOp($"Opening file: {path}");
                 var file = await StorageFile.GetFileFromPathAsync(path);
                 await Windows.System.Launcher.LaunchFileAsync(file);
             }
             catch (Exception ex)
             {
-                AppLogService.FileOp($"Failed to open file: {path}", LogLevel.Error, ex);
+                LogService.FileOp($"Failed to open file: {path}", LogLevel.Error, ex);
             }
         }
 
@@ -52,16 +52,16 @@ namespace LivePhotoBox.Services
             {
                 if (uri == null)
                 {
-                    AppLogService.FileOp("OpenUri called with null URI", LogLevel.Warning);
+                    LogService.FileOp("OpenUri called with null URI", LogLevel.Warning);
                     return false;
                 }
 
-                AppLogService.FileOp($"Opening URI: {uri}");
+                LogService.FileOp($"Opening URI: {uri}");
                 return await Windows.System.Launcher.LaunchUriAsync(uri);
             }
             catch (Exception ex)
             {
-                AppLogService.FileOp($"Failed to open URI: {uri}", LogLevel.Error, ex);
+                LogService.FileOp($"Failed to open URI: {uri}", LogLevel.Error, ex);
                 return false;
             }
         }
@@ -70,11 +70,11 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                AppLogService.FileOp($"Export file requested: {sourcePath} -> {suggestedFileName}");
+                LogService.FileOp($"Export file requested: {sourcePath} -> {suggestedFileName}");
 
                 if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
                 {
-                    AppLogService.FileOp($"Source file not found: {sourcePath}", LogLevel.Warning);
+                    LogService.FileOp($"Source file not found: {sourcePath}", LogLevel.Warning);
                     return false;
                 }
 
@@ -101,18 +101,18 @@ namespace LivePhotoBox.Services
                 StorageFile? targetFile = await savePicker.PickSaveFileAsync();
                 if (targetFile == null)
                 {
-                    AppLogService.FileOp("Export cancelled by user");
+                    LogService.FileOp("Export cancelled by user");
                     return false;
                 }
 
                 StorageFile sourceFile = await StorageFile.GetFileFromPathAsync(sourcePath);
                 await sourceFile.CopyAndReplaceAsync(targetFile);
-                AppLogService.FileOp($"File exported successfully: {targetFile.Path}");
+                LogService.FileOp($"File exported successfully: {targetFile.Path}");
                 return true;
             }
             catch (Exception ex)
             {
-                AppLogService.FileOp($"Failed to export file: {sourcePath}", LogLevel.Error, ex);
+                LogService.FileOp($"Failed to export file: {sourcePath}", LogLevel.Error, ex);
                 return false;
             }
         }
@@ -123,11 +123,11 @@ namespace LivePhotoBox.Services
             {
                 if (string.IsNullOrWhiteSpace(folderPath))
                 {
-                    AppLogService.FileOp("OpenFolderInExplorer called with empty path", LogLevel.Warning);
+                    LogService.FileOp("OpenFolderInExplorer called with empty path", LogLevel.Warning);
                     return;
                 }
 
-                AppLogService.FileOp($"Opening folder in explorer: {folderPath}");
+                LogService.FileOp($"Opening folder in explorer: {folderPath}");
                 Directory.CreateDirectory(folderPath);
 
                 var processStartInfo = new ProcessStartInfo("explorer.exe")
@@ -140,7 +140,7 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                AppLogService.FileOp($"Failed to open folder: {folderPath}", LogLevel.Error, ex);
+                LogService.FileOp($"Failed to open folder: {folderPath}", LogLevel.Error, ex);
             }
         }
 
@@ -148,7 +148,7 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                AppLogService.FileOp($"Revealing in explorer: {path}");
+                LogService.FileOp($"Revealing in explorer: {path}");
                 var processStartInfo = new ProcessStartInfo("explorer.exe")
                 {
                     Arguments = $"/select,\"{path}\"",
@@ -159,7 +159,7 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                AppLogService.FileOp($"Failed to reveal in explorer: {path}", LogLevel.Error, ex);
+                LogService.FileOp($"Failed to reveal in explorer: {path}", LogLevel.Error, ex);
             }
         }
     }

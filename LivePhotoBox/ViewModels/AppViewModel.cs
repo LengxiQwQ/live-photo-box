@@ -259,11 +259,11 @@ namespace LivePhotoBox.ViewModels
             try
             {
                 LanguageService.ApplyLanguageOverride(LanguageService.GetEffectiveLanguage(Settings.LanguageIndex));
-                AppLogService.Info("AppViewModel initialized.");
+                LogService.Info("AppViewModel initialized.");
             }
             catch (Exception ex)
             {
-                AppLogService.Error("AppViewModel initialization failed", ex, LogSource.App);
+                LogService.Error("AppViewModel initialization failed", ex, LogSource.App);
             }
             await Task.CompletedTask;
         }

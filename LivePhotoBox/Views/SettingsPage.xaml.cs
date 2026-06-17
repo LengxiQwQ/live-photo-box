@@ -32,27 +32,13 @@ namespace LivePhotoBox.Views
             Bindings.Update();
         }
 
-        private async void GenerateTestCrashLogButton_Click(object sender, RoutedEventArgs e)
-        {
-            AboutViewModel.GenerateTestCrashLogActionCommand.Execute(null);
-        }
-
         private async void PreviewCrashDialogButton_Click(object sender, RoutedEventArgs e)
         {
-            string? logPath = CrashLogService.GetLatestCrashLogPath();
-            if (string.IsNullOrWhiteSpace(logPath))
-            {
-                AboutViewModel.GenerateTestCrashLogActionCommand.Execute(null);
-                logPath = CrashLogService.GetLatestCrashLogPath();
-            }
+            string? logPath = LogService.GetLatestLogPath();
+            if (string.IsNullOrWhiteSpace(logPath) || XamlRoot == null) return;
 
-            if (string.IsNullOrWhiteSpace(logPath) || XamlRoot == null)
-            {
-                return;
-            }
-
-            AppLogService.Info($"PreviewCrashDialog requested. File='{System.IO.Path.GetFileName(logPath)}'", LogSource.UI);
-            await CrashLogService.ShowCrashDialogAsync(XamlRoot, logPath);
+            LogService.Info($"PreviewCrashDialog requested. File='{System.IO.Path.GetFileName(logPath)}'", LogSource.UI);
+            await CrashHandler.ShowCrashDialogAsync(XamlRoot, logPath);
         }
 
         private async void RestoreDefaultSettings_Click(object sender, RoutedEventArgs e)
@@ -71,7 +57,8 @@ namespace LivePhotoBox.Views
                 PrimaryButtonText = ResourceService.GetString("Msg_Cancel"),
                 SecondaryButtonText = ResourceService.GetString("Msg_Confirm"),
                 DefaultButton = ContentDialogButton.Secondary,
-                XamlRoot = App.MainWindow.Content.XamlRoot
+                XamlRoot = App.MainWindow.Content.XamlRoot,
+                RequestedTheme = App.CurrentTheme
             };
 
             var result = await dialog.ShowAsync();

@@ -282,7 +282,8 @@ namespace LivePhotoBox.ViewModels
                     PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
                 };
 
                 var result = await dialog.ShowAsync();
@@ -431,7 +432,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex)
             {
-                AppLogService.Repair($"ScanDirectory error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Repair($"ScanDirectory error: {ex.Message}", LogLevel.Error, ex);
                 SetStatus("Status_Error", ex.Message);
             }
             finally
@@ -590,7 +591,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex)
             {
-                AppLogService.Repair($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Repair($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
             }
             finally
             {
@@ -672,7 +673,7 @@ namespace LivePhotoBox.ViewModels
                 }
                 FilePickerService.OpenFolderInExplorer(InputDirectory);
             }
-            catch (Exception ex) { AppLogService.Repair($"OpenRepairInput error: {ex.Message}", LogLevel.Error, ex); }
+            catch (Exception ex) { LogService.Repair($"OpenRepairInput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
         private bool CanOpenRepairOutputFolder()
@@ -696,7 +697,7 @@ namespace LivePhotoBox.ViewModels
                     Directory.CreateDirectory(folderPath);
                 FilePickerService.OpenFolderInExplorer(folderPath);
             }
-            catch (Exception ex) { AppLogService.Repair($"OpenRepairOutput error: {ex.Message}", LogLevel.Error, ex); }
+            catch (Exception ex) { LogService.Repair($"OpenRepairOutput error: {ex.Message}", LogLevel.Error, ex); }
         }
     }
 }

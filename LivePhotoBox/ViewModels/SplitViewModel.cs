@@ -244,7 +244,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ScanDirectoryAsync()
         {
-            AppLogService.Split($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
+            LogService.Split($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
 
             if (!TryGuardScanClick()) return;
             if (IsProcessing) return;
@@ -354,7 +354,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex)
             {
-                AppLogService.Split($"ScanDirectory error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Split($"ScanDirectory error: {ex.Message}", LogLevel.Error, ex);
                 SetStatus("Status_Error", ex.Message);
             }
             finally
@@ -374,7 +374,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
-            AppLogService.Split($"ToggleSecondaryAction requested. IsProcessing={IsProcessing}, IsPaused={IsPaused}");
+            LogService.Split($"ToggleSecondaryAction requested. IsProcessing={IsProcessing}, IsPaused={IsPaused}");
 
             if (!IsProcessing)
             {
@@ -389,7 +389,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task StartProcessingAsync()
         {
-            AppLogService.Split("StartProcessing requested.");
+            LogService.Split("StartProcessing requested.");
 
             if (IsProcessing)
             {
@@ -431,7 +431,8 @@ namespace LivePhotoBox.ViewModels
                     Content = new TextBlock { Text = ResourceService.GetString("Msg_SplitAlreadyStopped"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
                 };
                 await dialog.ShowAsync();
             }
@@ -468,7 +469,8 @@ namespace LivePhotoBox.ViewModels
                     PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
                 };
 
                 var result = await dialog.ShowAsync();
@@ -489,7 +491,8 @@ namespace LivePhotoBox.ViewModels
                     Content = new TextBlock { Text = ResourceService.GetString("Msg_ProcessingNotAllowed"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
                 };
                 await dialog.ShowAsync();
             }
@@ -631,7 +634,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex)
             {
-                AppLogService.Split($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Split($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
             }
             finally
             {
@@ -684,7 +687,7 @@ namespace LivePhotoBox.ViewModels
                 }
                 FilePickerService.OpenFolderInExplorer(InputDirectory);
             }
-            catch (Exception ex) { AppLogService.Split($"OpenSplitInput error: {ex.Message}", LogLevel.Error, ex); }
+            catch (Exception ex) { LogService.Split($"OpenSplitInput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
         private void OpenSplitOutputFolder()
@@ -696,7 +699,7 @@ namespace LivePhotoBox.ViewModels
                     Directory.CreateDirectory(OutputDirectory);
                 FilePickerService.OpenFolderInExplorer(OutputDirectory);
             }
-            catch (Exception ex) { AppLogService.Split($"OpenSplitOutput error: {ex.Message}", LogLevel.Error, ex); }
+            catch (Exception ex) { LogService.Split($"OpenSplitOutput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
         #endregion

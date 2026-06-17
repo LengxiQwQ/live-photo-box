@@ -28,11 +28,11 @@ namespace LivePhotoBox
         public MainWindow()
         {
             InitializeComponent();
-            AppLogService.Info("MainWindow constructed.", LogSource.UI);
+            LogService.Info("MainWindow constructed.", LogSource.UI);
             Closed += (_, _) =>
             {
-                AppLogService.Info("MainWindow closed.", LogSource.UI);
-                CrashLogService.MarkCleanShutdown();
+                LogService.Info("MainWindow closed.", LogSource.UI);
+                LogService.MarkCleanShutdown();
                 ViewModel.Cleanup();
             };
             ExtendsContentIntoTitleBar = true;
@@ -132,7 +132,7 @@ namespace LivePhotoBox
                     feature = pageTag.Split('_')[1];
                 }
 
-                AppLogService.Info($"NavigateToPage: HomePage, Parameter={feature}", LogSource.UI);
+                LogService.Info($"NavigateToPage: HomePage, Parameter={feature}", LogSource.UI);
                 ViewModel.SetCurrentStatusPage(null);
                 MainFrame.Navigate(typeof(Views.HomePage), feature);
             }
@@ -252,7 +252,7 @@ namespace LivePhotoBox
 
         private void NavigateToPage(Type pageType, string? statusPageTag)
         {
-            AppLogService.Info($"NavigateToPage: {pageType.Name}, StatusTag={statusPageTag ?? "(null)"}", LogSource.UI);
+            LogService.Info($"NavigateToPage: {pageType.Name}, StatusTag={statusPageTag ?? "(null)"}", LogSource.UI);
             ViewModel.SetCurrentStatusPage(statusPageTag);
             MainFrame.Navigate(pageType);
         }

@@ -59,7 +59,7 @@ namespace LivePhotoBox.Services
             CancellationToken cancellationToken = default,
             IProgress<WorkProgressSnapshot>? progress = null)
         {
-            AppLogService.Scan($"Split scan started. Directory: {inputDirectory}");
+            LogService.Scan($"Split scan started. Directory: {inputDirectory}");
             progress?.Report(new WorkProgressSnapshot(0, 0));
 
             var candidates = new List<string>();
@@ -83,34 +83,34 @@ namespace LivePhotoBox.Services
             }
             catch (UnauthorizedAccessException ex)
             {
-                AppLogService.Scan($"Access denied to directory: {inputDirectory}", LogLevel.Error, ex);
+                LogService.Scan($"Access denied to directory: {inputDirectory}", LogLevel.Error, ex);
                 return new LivePhotoSplitScanResult { Files = [], RecognizedCount = 0, SkippedCount = 0 };
             }
             catch (DirectoryNotFoundException ex)
             {
-                AppLogService.Scan($"Directory not found: {inputDirectory}", LogLevel.Error, ex);
+                LogService.Scan($"Directory not found: {inputDirectory}", LogLevel.Error, ex);
                 return new LivePhotoSplitScanResult { Files = [], RecognizedCount = 0, SkippedCount = 0 };
             }
             catch (IOException ex)
             {
-                AppLogService.Scan($"IO error scanning directory: {inputDirectory}", LogLevel.Error, ex);
+                LogService.Scan($"IO error scanning directory: {inputDirectory}", LogLevel.Error, ex);
                 return new LivePhotoSplitScanResult { Files = [], RecognizedCount = 0, SkippedCount = 0 };
             }
             catch (OperationCanceledException)
             {
-                AppLogService.Scan("Split scan cancelled");
+                LogService.Scan("Split scan cancelled");
                 throw;
             }
 
             int total = candidates.Count;
             if (total == 0)
             {
-                AppLogService.Scan($"No image files found in directory: {inputDirectory}");
+                LogService.Scan($"No image files found in directory: {inputDirectory}");
                 progress?.Report(new WorkProgressSnapshot(0, enumerated));
                 return new LivePhotoSplitScanResult { Files = [], RecognizedCount = 0, SkippedCount = 0 };
             }
 
-            AppLogService.Scan($"Found {total} image files, starting LivePhoto detection");
+            LogService.Scan($"Found {total} image files, starting LivePhoto detection");
 
             var files = new List<LivePhotoSplitFileInfo>();
             int recognizedCount = 0;
@@ -146,7 +146,7 @@ namespace LivePhotoBox.Services
                 progress?.Report(new WorkProgressSnapshot(total, total, recognizedCount, skippedCount));
             }
 
-            AppLogService.Scan($"Split scan completed. Found {recognizedCount} LivePhotos, skipped {skippedCount} regular images");
+            LogService.Scan($"Split scan completed. Found {recognizedCount} LivePhotos, skipped {skippedCount} regular images");
 
             return new LivePhotoSplitScanResult
             {

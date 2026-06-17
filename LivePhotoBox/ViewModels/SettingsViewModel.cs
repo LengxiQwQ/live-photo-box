@@ -70,7 +70,7 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnSelectedHardwareChanged(HardwareService.HardwareInfo? value)
         {
-            AppLogService.Split($"[DEBUG] OnSelectedHardwareChanged: _isInitializing={_isInitializing}, value={value?.Name ?? "(null)"}, encoder={value?.FfmpegEncoder ?? "(null)"}", LogLevel.Info);
+            LogService.Split($"[DEBUG] OnSelectedHardwareChanged: _isInitializing={_isInitializing}, value={value?.Name ?? "(null)"}, encoder={value?.FfmpegEncoder ?? "(null)"}", LogLevel.Info);
             if (_isInitializing || value == null) return;
             int index = AvailableHardware.IndexOf(value);
             if (index >= 0)
@@ -90,7 +90,7 @@ namespace LivePhotoBox.ViewModels
                         AppSettingsService.SetValue("SplitEncoder_hevc", value.FfmpegEncoder);
                     }
                 }
-                AppLogService.Split($"[DEBUG] Saved encoder to settings: '{value.FfmpegEncoder}'", LogLevel.Info);
+                LogService.Split($"[DEBUG] Saved encoder to settings: '{value.FfmpegEncoder}'", LogLevel.Info);
             }
         }
 
@@ -147,7 +147,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex)
             {
-                AppLogService.Split($"Failed to load hardware async: {ex.Message}", LogLevel.Error);
+                LogService.Split($"Failed to load hardware async: {ex.Message}", LogLevel.Error);
                 IsHardwareLoading = false;
             }
         }
@@ -235,7 +235,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex)
             {
-                AppLogService.Split($"Failed to refresh hardware: {ex.Message}", LogLevel.Error);
+                LogService.Split($"Failed to refresh hardware: {ex.Message}", LogLevel.Error);
                 IsHardwareLoading = false;
             }
         }
@@ -298,7 +298,7 @@ namespace LivePhotoBox.ViewModels
             _isInitializing = false;
 
             // 刷新设置以应用更改
-            AppLogService.Split("Settings restored to defaults. Hardware selection re-evaluated.", LogLevel.Info);
+            LogService.Split("Settings restored to defaults. Hardware selection re-evaluated.", LogLevel.Info);
         }
     }
 }

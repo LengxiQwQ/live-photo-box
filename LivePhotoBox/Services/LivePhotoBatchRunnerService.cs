@@ -76,7 +76,7 @@ namespace LivePhotoBox.Services
 
                 if (HeicConverterService.IsHeicFile(imagePath))
                 {
-                    AppLogService.Combo($"Detected HEIC file, converting: {Path.GetFileName(imagePath)}");
+                    LogService.Combo($"Detected HEIC file, converting: {Path.GetFileName(imagePath)}");
                     workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, options.OutputDirectory, token);
                 }
 

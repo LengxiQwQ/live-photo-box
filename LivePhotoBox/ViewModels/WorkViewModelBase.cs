@@ -275,7 +275,8 @@ namespace LivePhotoBox.ViewModels
                     PrimaryButtonText = ResourceService.GetString("Msg_GoToTutorial"),
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
                 };
                 if (await dialog.ShowAsync() == ContentDialogResult.Primary)
                 {
@@ -294,7 +295,8 @@ namespace LivePhotoBox.ViewModels
                     Content = new TextBlock { Text = ResourceService.GetString($"{targetFeature}Page_Msg_NoInputDirectory"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
                 };
                 await dialog.ShowAsync();
             }
@@ -310,7 +312,8 @@ namespace LivePhotoBox.ViewModels
                     Content = new TextBlock { Text = ResourceService.GetString("Msg_InvalidInputDirectory"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
                     CloseButtonText = ResourceService.GetString("Msg_GotIt"),
                     DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
                 };
                 await dialog.ShowAsync();
             }

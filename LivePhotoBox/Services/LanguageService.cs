@@ -88,14 +88,15 @@ namespace LivePhotoBox.Services
                         PrimaryButtonText = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_CloseButton", resourceContext).ValueAsString,
                         SecondaryButtonText = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_PrimaryButton", resourceContext).ValueAsString,
                         DefaultButton = ContentDialogButton.Secondary,
-                        XamlRoot = App.MainWindow.Content.XamlRoot
+                        XamlRoot = App.MainWindow.Content.XamlRoot,
+                        RequestedTheme = App.CurrentTheme
                     };
 
                     var result = await dialog.ShowAsync();
                     if (result == ContentDialogResult.Secondary)
                     {
-                        AppLogService.Info("Application restart requested after language change.", LogSource.Settings);
-                        CrashLogService.MarkCleanShutdown();
+                        LogService.Info("Application restart requested after language change.", LogSource.Settings);
+                        LogService.MarkCleanShutdown();
                         Microsoft.Windows.AppLifecycle.AppInstance.Restart("");
                     }
                 }
