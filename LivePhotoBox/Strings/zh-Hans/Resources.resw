@@ -808,7 +808,7 @@
     <value>处理失败</value>
   </data>
   <data name="SettingsPage_Crash_Header.Text" xml:space="preserve">
-    <value>崩溃日志</value>
+    <value>应用日志</value>
   </data>
   <data name="CrashDialog_Title" xml:space="preserve">
     <value>检测到上次异常退出</value>
@@ -840,19 +840,19 @@
     <value>导出最新记录</value>
   </data>
   <data name="SettingsPage_CrashExportLatest_Button_Text.Text" xml:space="preserve">
-    <value>导出最新记录</value>
+    <value>导出上一次日志</value>
   </data>
   <data name="SettingsPage_CrashClear_Button.Content" xml:space="preserve">
     <value>清理全部记录</value>
   </data>
   <data name="SettingsPage_CrashClear_Button_Text.Text" xml:space="preserve">
-    <value>清理全部记录</value>
+    <value>清除全部日志</value>
   </data>
   <data name="CrashDialog_OpenFolderButton" xml:space="preserve">
     <value>打开日志文件夹</value>
   </data>
   <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
-    <value>最近一次异常记录：</value>
+    <value>上一次日志文件：</value>
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button.Content" xml:space="preserve">
     <value>生成测试日志</value>
@@ -870,10 +870,13 @@
     <value>调试工具</value>
   </data>
   <data name="SettingsPage_TestShow_Button_Text" xml:space="preserve">
-    <value>显示调试工具</value>
+    <value>显示日志与调试工具</value>
   </data>
   <data name="SettingsPage_TestHide_Button_Text" xml:space="preserve">
-    <value>隐藏调试工具</value>
+    <value>隐藏日志与调试工具</value>
+  </data>
+  <data name="SettingsPage_CrashNotice_Text" xml:space="preserve">
+    <value>检测到上次应用非正常退出，你可以导出日志文件，通过 GitHub 反馈。</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>暂无</value>

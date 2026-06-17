@@ -1,12 +1,14 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Services;
+using Microsoft.UI.Xaml;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using LogLevel = LivePhotoBox.Models.LogLevel;
+using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.ViewModels
 {
@@ -34,6 +36,8 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
+            LogService.Info($"Language changed from {previousLanguage} to {targetLanguage}", LogSource.Settings);
+
             LanguageService.ApplyLanguageOverride(targetLanguage);
 
             if (!LanguageService.HasEffectiveLanguageChanged(previousLanguage, targetLanguage))
@@ -50,6 +54,7 @@ namespace LivePhotoBox.ViewModels
         partial void OnElementThemeChanged(int value)
         {
             AppSettingsService.SetValue(nameof(ElementTheme), value);
+            LogService.Info($"Theme changed to: {(ElementTheme)value}", LogSource.Settings);
         }
 
         [ObservableProperty]
@@ -58,6 +63,7 @@ namespace LivePhotoBox.ViewModels
         partial void OnBackdropIndexChanged(int value)
         {
             AppSettingsService.SetValue(nameof(BackdropIndex), value);
+            LogService.Info($"Backdrop changed to index: {value}", LogSource.Settings);
         }
 
         #region Split Settings
@@ -101,6 +107,7 @@ namespace LivePhotoBox.ViewModels
         {
             if (_isInitializing) return;
             AppSettingsService.SetValue("SplitThreadCount", value);
+            LogService.Info($"Split thread count changed to: {value}", LogSource.Settings);
         }
 
         [ObservableProperty]

@@ -17,6 +17,11 @@ namespace LivePhotoBox.Views
 
         public Visibility TestToolsVisibility => _isTestToolsVisible ? Visibility.Visible : Visibility.Collapsed;
 
+        public Visibility CrashNoticeVisibility => _isTestToolsVisible && LogService.LastSessionCrashed
+            ? Visibility.Visible : Visibility.Collapsed;
+
+        public string CrashNoticeText => ResourceService.GetString("SettingsPage_CrashNotice_Text");
+
         public string TestToolsToggleButtonText => ResourceService.GetString(_isTestToolsVisible
             ? "SettingsPage_TestHide_Button_Text"
             : "SettingsPage_TestShow_Button_Text");
@@ -26,6 +31,16 @@ namespace LivePhotoBox.Views
         public SettingsPage()
         {
             InitializeComponent();
+            Loaded += (_, _) =>
+            {
+                // 如果上一次非正常退出，自动展开日志与调试工具区
+                if (LogService.LastSessionCrashed && !_isTestToolsVisible)
+                {
+                    _isTestToolsVisible = true;
+                    AboutViewModel.RefreshCrashLogs();
+                    Bindings.Update();
+                }
+            };
         }
 
         /// <summary>
@@ -49,6 +64,7 @@ namespace LivePhotoBox.Views
         private void ToggleTestToolsButton_Click(object sender, RoutedEventArgs e)
         {
             _isTestToolsVisible = !_isTestToolsVisible;
+            AboutViewModel.RefreshCrashLogs();
             Bindings.Update();
         }
 
@@ -95,8 +111,10 @@ namespace LivePhotoBox.Views
 
         private async void PreviewCrashDialogButton_Click(object sender, RoutedEventArgs e)
         {
-            string? logPath = LogService.GetLatestLogPath();
-            if (string.IsNullOrWhiteSpace(logPath) || XamlRoot == null) return;
+            if (XamlRoot == null) return;
+            string? logPath = LogService.PreviousLogPath;
+            if (!string.IsNullOrWhiteSpace(logPath) && !System.IO.File.Exists(logPath))
+                logPath = null;
 
             LogService.Info($"PreviewCrashDialog requested. File='{System.IO.Path.GetFileName(logPath)}'", LogSource.UI);
             await CrashHandler.ShowCrashDialogAsync(XamlRoot, logPath);

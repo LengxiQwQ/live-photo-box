@@ -137,7 +137,7 @@ namespace LivePhotoBox.Views
             }
             catch (Exception ex)
             {
-                LogService.Error($"[Hover] Enter error: {ex.Message}", ex, LogSource.UI);
+                LogService.Warn($"Hover Enter error: {ex.Message}", source: LogSource.UI);
             }
         }
 
@@ -153,7 +153,7 @@ namespace LivePhotoBox.Views
             }
             catch (Exception ex)
             {
-                LogService.Error($"[Hover] Exit error: {ex.Message}", ex, LogSource.UI);
+                LogService.Warn($"Hover Exit error: {ex.Message}", source: LogSource.UI);
             }
         }
 
@@ -214,7 +214,7 @@ namespace LivePhotoBox.Views
             }
             catch (Exception ex)
             {
-                LogService.Error($"[Hover] Move error: {ex.Message}", ex, LogSource.UI);
+                LogService.Warn($"Hover Move error: {ex.Message}", source: LogSource.UI);
             }
         }
 
@@ -277,8 +277,9 @@ namespace LivePhotoBox.Views
                     this.Frame?.Navigate(pageType);
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogService.Warn($"Navigation failed: {ex.Message}", source: LogSource.UI);
             }
         }
 
@@ -306,16 +307,19 @@ namespace LivePhotoBox.Views
 
         private void TryMergeDemo_Click(object sender, RoutedEventArgs e)
         {
+            LogService.Info("Demo: loading Merge sample & navigating to Combo page.", LogSource.UI);
             SetupAndNavigateDemo("Merge", "Combo", typeof(ComboPage));
         }
 
         private void TrySplitDemo_Click(object sender, RoutedEventArgs e)
         {
+            LogService.Info("Demo: loading Split sample & navigating to Split page.", LogSource.UI);
             SetupAndNavigateDemo("Split", "Split", typeof(SplitPage));
         }
 
         private void TryRepairDemo_Click(object sender, RoutedEventArgs e)
         {
+            LogService.Info("Demo: loading Repair sample & navigating to Repair page.", LogSource.UI);
             SetupAndNavigateDemo("Repair", "Repair", typeof(RepairPage));
         }
 

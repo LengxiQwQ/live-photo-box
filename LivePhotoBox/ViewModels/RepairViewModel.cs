@@ -69,9 +69,18 @@ namespace LivePhotoBox.ViewModels
                 IsDirectoryPanelOpen = true;
             }
 
-            if (value && string.IsNullOrWhiteSpace(OutputDirectory) && !string.IsNullOrWhiteSpace(InputDirectory) && Directory.Exists(InputDirectory))
+            if (value)
             {
-                OutputDirectory = Path.Combine(InputDirectory, "Output_RepairedPhotos");
+                LogService.Repair($"Output to separate directory enabled");
+                if (string.IsNullOrWhiteSpace(OutputDirectory) && !string.IsNullOrWhiteSpace(InputDirectory) && Directory.Exists(InputDirectory))
+                {
+                    OutputDirectory = Path.Combine(InputDirectory, "Output_RepairedPhotos");
+                    LogService.Repair($"Output directory auto-set to: {OutputDirectory}");
+                }
+            }
+            else
+            {
+                LogService.Repair("Output to separate directory disabled (repairs in-place)");
             }
         }
 
@@ -194,6 +203,7 @@ namespace LivePhotoBox.ViewModels
                     double elapsed = _stopwatch.Elapsed.TotalSeconds;
 
                     SetStatus("Status_RepairCompletedSummary", total, elapsed, succeeded, skipped, failed);
+                    LogService.Repair($"Repair completed: {succeeded} repaired, {skipped} skipped, {failed} failed in {elapsed:F1}s");
                 }
             }
             OnPropertyChanged(nameof(ActionBtnText));
@@ -297,6 +307,8 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ScanDirectoryAsync()
         {
+            LogService.Repair($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
+
             if (!TryGuardScanClick()) return;
 
             if (IsScanning)
@@ -406,7 +418,10 @@ namespace LivePhotoBox.ViewModels
                 CompleteScanSnapshot();
 
                 if (TotalPhotosCount > 0)
+                {
                     SetStatus("RepairPage_Status_ScanDone", TotalPhotosCount);
+                    LogService.Repair($"Scan completed: {TotalPhotosCount} files, {ThumbErrorCount} need repair, {ThumbCorrectCount} healthy");
+                }
                 else
                 {
                     IsDirectoryPanelOpen = true;
@@ -448,6 +463,8 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
+            LogService.Repair($"ToggleSecondaryAction requested. IsProcessing={IsProcessing}, IsPaused={IsPaused}");
+
             if (!IsProcessing)
             {
                 ClearState();
@@ -461,6 +478,8 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ToggleProcessAsync()
         {
+            LogService.Repair($"ToggleProcessAsync requested. IsProcessing={IsProcessing}, QueueCount={Tasks.Count}");
+
             if (IsProcessing)
             {
                 SetStatus("RepairPage_Status_Stopping");
@@ -544,6 +563,7 @@ namespace LivePhotoBox.ViewModels
                         {
                             isSuccess = false;
                             detailMessage = ex.Message;
+                            LogService.Repair($"Repair failed for {task.FilePath}: {ex.Message}", LogLevel.Error, ex);
                         }
 
                         // 原子递增完成数量，Timer会根据这个数量自动更新进度条
@@ -587,6 +607,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
+                LogService.Repair($"Repair cancelled by user after {_stopwatch.Elapsed.TotalSeconds:F1}s, completed {_completedTasksCount}/{TotalPhotosCount}");
                 SetStatus("RepairPage_Status_Aborted");
             }
             catch (Exception ex)

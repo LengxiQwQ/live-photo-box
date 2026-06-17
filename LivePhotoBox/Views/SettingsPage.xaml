@@ -154,52 +154,6 @@
                     </Border>
                 </StackPanel>
 
-                <StackPanel Spacing="16">
-                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                        <FontIcon Glyph="&#xE7BA;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                        <TextBlock x:Uid="SettingsPage_Crash_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
-                    </StackPanel>
-
-                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
-                            Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                        <StackPanel Spacing="16">
-                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                                <TextBlock x:Uid="SettingsPage_CrashLastTime_Label" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <HyperlinkButton Command="{x:Bind AboutViewModel.OpenLatestCrashLogActionCommand, Mode=OneWay}" Padding="0" VerticalAlignment="Center">
-                                    <TextBlock Text="{x:Bind AboutViewModel.LastCrashFileNameText, Mode=OneWay}" TextWrapping="Wrap" FontSize="15" FontWeight="SemiBold"/>
-                                </HyperlinkButton>
-                            </StackPanel>
-
-                            <toolkit:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
-                                <Button Command="{x:Bind AboutViewModel.OpenCrashLogFolderActionCommand, Mode=OneWay}">
-                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <FontIcon Glyph="&#xE838;" FontSize="14"/>
-                                        <TextBlock x:Uid="SettingsPage_CrashOpenFolder_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Command="{x:Bind AboutViewModel.ExportLatestCrashLogActionCommand, Mode=OneWay}">
-                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <FontIcon Glyph="&#xE74E;" FontSize="14"/>
-                                        <TextBlock x:Uid="SettingsPage_CrashExportLatest_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Command="{x:Bind AboutViewModel.ClearCrashLogsActionCommand, Mode=OneWay}">
-                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <FontIcon Glyph="&#xE74D;" FontSize="14"/>
-                                        <TextBlock x:Uid="SettingsPage_CrashClear_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                                <Button Command="{x:Bind AboutViewModel.OpenIssueFeedbackActionCommand, Mode=OneWay}">
-                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <FontIcon Glyph="&#xE8A7;" FontSize="14"/>
-                                        <TextBlock x:Uid="SettingsPage_CrashIssue_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
-                            </toolkit:WrapPanel>
-                        </StackPanel>
-                    </Border>
-                </StackPanel>
-
                 <StackPanel Margin="0,20,0,0" Spacing="24">
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
@@ -227,8 +181,63 @@
                         </Button>
                     </Grid>
 
+                    <TextBlock Text="{x:Bind CrashNoticeText, Mode=OneWay}"
+                               Visibility="{x:Bind CrashNoticeVisibility, Mode=OneWay}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               HorizontalAlignment="Center"
+                               Margin="0,10,0,0" />
+
                     <StackPanel Spacing="16"
                                 Visibility="{x:Bind TestToolsVisibility, Mode=OneWay}">
+                        <!-- 应用日志 -->
+                        <StackPanel Spacing="16">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE7BA;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                                <TextBlock x:Uid="SettingsPage_Crash_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                            </StackPanel>
+
+                            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                    Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                                <StackPanel Spacing="16">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock x:Uid="SettingsPage_CrashLastTime_Label" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                        <HyperlinkButton Command="{x:Bind AboutViewModel.OpenLatestCrashLogActionCommand, Mode=OneWay}" Padding="0" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind AboutViewModel.LastCrashFileNameText, Mode=OneWay}" TextWrapping="Wrap" FontSize="15" FontWeight="SemiBold"/>
+                                        </HyperlinkButton>
+                                    </StackPanel>
+
+                                    <toolkit:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
+                                        <Button Command="{x:Bind AboutViewModel.OpenCrashLogFolderActionCommand, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE838;" FontSize="14"/>
+                                                <TextBlock x:Uid="SettingsPage_CrashOpenFolder_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Command="{x:Bind AboutViewModel.ExportLatestCrashLogActionCommand, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE74E;" FontSize="14"/>
+                                                <TextBlock x:Uid="SettingsPage_CrashExportLatest_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Command="{x:Bind AboutViewModel.ClearCrashLogsActionCommand, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE74D;" FontSize="14"/>
+                                                <TextBlock x:Uid="SettingsPage_CrashClear_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Command="{x:Bind AboutViewModel.OpenIssueFeedbackActionCommand, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE8A7;" FontSize="14"/>
+                                                <TextBlock x:Uid="SettingsPage_CrashIssue_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </toolkit:WrapPanel>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
                         <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                             <FontIcon Glyph="&#xEBE8;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
                             <TextBlock x:Uid="SettingsPage_Test_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
@@ -258,6 +267,7 @@
                                Opacity="0.55"
                                FontSize="12"
                                FontFamily="Microsoft YaHei UI"
+                               Margin="0,10,0,0"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 </StackPanel>
             </StackPanel>

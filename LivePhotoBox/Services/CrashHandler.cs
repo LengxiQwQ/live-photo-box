@@ -153,10 +153,13 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// Shows the crash report dialog for a specific log file.
+        /// If logPath is null or file doesn't exist, shows "Not detected" in place of the file name.
         /// </summary>
-        public static async Task ShowCrashDialogAsync(XamlRoot xamlRoot, string logPath)
+        public static async Task ShowCrashDialogAsync(XamlRoot xamlRoot, string? logPath)
         {
-            if (xamlRoot == null || string.IsNullOrWhiteSpace(logPath) || !File.Exists(logPath)) return;
+            if (xamlRoot == null) return;
+
+            bool hasFile = !string.IsNullOrWhiteSpace(logPath) && File.Exists(logPath);
 
             Button CreateButton(string resourceKey) => new()
             {
@@ -174,12 +177,16 @@ namespace LivePhotoBox.Services
                 FilePickerService.OpenFolderInExplorer(LogService.LogDirectory);
             };
 
-            exportBtn.Click += async (_, _) =>
+            exportBtn.IsEnabled = hasFile;
+            if (hasFile)
             {
-                if (!File.Exists(logPath)) return;
-                LogService.Info($"Export crash log: {Path.GetFileName(logPath)}", LogSource.System);
-                await FilePickerService.ExportFileCopyAsync(logPath, Path.GetFileName(logPath));
-            };
+                string capturedPath = logPath!;
+                exportBtn.Click += async (_, _) =>
+                {
+                    LogService.Info($"Export crash log: {Path.GetFileName(capturedPath)}", LogSource.System);
+                    await FilePickerService.ExportFileCopyAsync(capturedPath, Path.GetFileName(capturedPath));
+                };
+            }
 
             reportBtn.Click += async (_, _) =>
             {
@@ -187,11 +194,8 @@ namespace LivePhotoBox.Services
                 await FeedbackService.OpenIssuePageAsync();
             };
 
-            var logFileName = Path.GetFileName(logPath);
-
             var openLogLink = new HyperlinkButton
             {
-                Content = logFileName,
                 Padding = new Thickness(0),
                 BorderThickness = new Thickness(0),
                 Background = null,
@@ -199,11 +203,23 @@ namespace LivePhotoBox.Services
                 FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 FontSize = 14
             };
-            openLogLink.Click += (_, _) =>
+
+            if (hasFile)
             {
-                LogService.Info($"Open crash log file: {logFileName}", LogSource.System);
-                _ = FilePickerService.OpenFileAsync(logPath);
-            };
+                string capturedPath = logPath!;
+                var logFileName = Path.GetFileName(capturedPath);
+                openLogLink.Content = logFileName;
+                openLogLink.Click += (_, _) =>
+                {
+                    LogService.Info($"Open crash log file: {logFileName}", LogSource.System);
+                    _ = FilePickerService.OpenFileAsync(capturedPath);
+                };
+            }
+            else
+            {
+                openLogLink.Content = ResourceService.GetString("SettingsPage_CrashNoCrashValue");
+                openLogLink.IsEnabled = false;
+            }
 
             var dialog = new ContentDialog
             {

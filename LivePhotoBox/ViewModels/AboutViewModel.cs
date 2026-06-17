@@ -132,18 +132,33 @@ namespace LivePhotoBox.ViewModels
         private bool CanClearCrashLogs() => HasCrashArtifacts;
 
         /// <summary>
-        /// Returns the most recent log or dump file path, prioritizing the current log.
+        /// Returns the previous session's log file (not the currently active one).
+        /// Falls back to the most recent non-current log, then to dump file.
         /// </summary>
         private string? GetLatestCrashArtifactPath()
         {
-            // Priority 1: current session log (or most recent if between sessions)
-            string? latestLog = LogService.GetLatestLogPath();
-            if (!string.IsNullOrWhiteSpace(latestLog) && File.Exists(latestLog))
+            // Priority 1: PreviousLogPath — set during LogService init to the previous session's file
+            string? previousLog = LogService.PreviousLogPath;
+            if (!string.IsNullOrWhiteSpace(previousLog) && File.Exists(previousLog))
             {
-                return latestLog;
+                return previousLog;
             }
 
-            // Priority 2: dump file (very rare — only for native crashes)
+            // Priority 2: any old log that isn't the current active one
+            string? currentLog = LogService.CurrentLogPath;
+            string logDir = LogService.LogDirectory;
+            if (!string.IsNullOrEmpty(logDir) && Directory.Exists(logDir))
+            {
+                var logs = Directory.GetFiles(logDir, "app-*.log")
+                    .Where(f => !string.Equals(f, currentLog, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(File.GetLastWriteTimeUtc)
+                    .ToList();
+
+                if (logs.Count > 0)
+                    return logs[0];
+            }
+
+            // Priority 3: dump file (very rare — only for native crashes)
             return new[] { _latestDumpPath }
                 .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
                 .OrderByDescending(path => File.GetLastWriteTimeUtc(path!))

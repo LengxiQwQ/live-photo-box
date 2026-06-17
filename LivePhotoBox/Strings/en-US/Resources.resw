@@ -809,7 +809,7 @@ Do you want to restart now?</value>
     <value>Failed</value>
   </data>
   <data name="SettingsPage_Crash_Header.Text" xml:space="preserve">
-    <value>Crash Logs</value>
+    <value>Application Logs</value>
   </data>
   <data name="CrashDialog_Title" xml:space="preserve">
     <value>Previous Crash Detected</value>
@@ -841,19 +841,19 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Export Latest Record</value>
   </data>
   <data name="SettingsPage_CrashExportLatest_Button_Text.Text" xml:space="preserve">
-    <value>Export Latest Record</value>
+    <value>Export Previous Log</value>
   </data>
   <data name="SettingsPage_CrashClear_Button.Content" xml:space="preserve">
     <value>Clear All Records</value>
   </data>
   <data name="SettingsPage_CrashClear_Button_Text.Text" xml:space="preserve">
-    <value>Clear All Records</value>
+    <value>Clear All Logs</value>
   </data>
   <data name="CrashDialog_OpenFolderButton" xml:space="preserve">
     <value>Open Log Folder</value>
   </data>
   <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
-    <value>Latest Crash Record:</value>
+    <value>Previous Log File:</value>
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button.Content" xml:space="preserve">
     <value>Generate Test Log</value>
@@ -871,10 +871,13 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Debug Tools</value>
   </data>
   <data name="SettingsPage_TestShow_Button_Text" xml:space="preserve">
-    <value>Show Debug Tools</value>
+    <value>Show Logs &amp; Debug Tools</value>
   </data>
   <data name="SettingsPage_TestHide_Button_Text" xml:space="preserve">
-    <value>Hide Debug Tools</value>
+    <value>Hide Logs &amp; Debug Tools</value>
+  </data>
+  <data name="SettingsPage_CrashNotice_Text" xml:space="preserve">
+    <value>The previous session did not shut down cleanly. You can export the log file and report the issue on GitHub.</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>Not detected</value>

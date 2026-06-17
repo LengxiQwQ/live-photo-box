@@ -164,6 +164,7 @@ namespace LivePhotoBox.ViewModels
                     double elapsed = _stopwatch.Elapsed.TotalSeconds;
 
                     SetStatus("Status_SplitCompletedSummary", total, elapsed, succeeded, failed);
+                    LogService.Split($"Split completed: {succeeded} succeeded, {failed} failed in {elapsed:F1}s");
                 }
             }
             OnPropertyChanged(nameof(ActionBtnText));
@@ -244,8 +245,6 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ScanDirectoryAsync()
         {
-            LogService.Split($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
-
             if (!TryGuardScanClick()) return;
             if (IsProcessing) return;
 
@@ -270,6 +269,8 @@ namespace LivePhotoBox.ViewModels
             {
                 OutputDirectory = Path.Combine(InputDirectory, "Output_SplitPhotos");
             }
+
+            LogService.Split($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
 
             SetStatus("SplitPage_Status_Scanning");
             BeginScanSession();
@@ -552,6 +553,7 @@ namespace LivePhotoBox.ViewModels
                             {
                                 isSuccess = false;
                                 detailMessage = ResourceService.Format("Task_Error", ex.Message);
+                                LogService.Split($"Split failed for {task.SourcePath}: {ex.Message}", LogLevel.Error, ex);
                             }
 
                             int currentCompleted;
@@ -630,6 +632,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
+                LogService.Split($"Split processing cancelled by user after {_stopwatch.Elapsed.TotalSeconds:F1}s, completed {_completedTasksCount}/{QueuedCount}");
                 SetStatus("SplitPage_Status_Aborted");
             }
             catch (Exception ex)
@@ -712,6 +715,7 @@ namespace LivePhotoBox.ViewModels
             set
             {
                 AppSettingsService.SetValue(nameof(SelectedFormatIndex), value);
+                LogService.Split($"Split output format changed to index: {value}");
                 OnPropertyChanged();
             }
         }

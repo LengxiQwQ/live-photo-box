@@ -82,6 +82,7 @@ namespace LivePhotoBox.ViewModels
             set
             {
                 AppSettingsService.SetValue(nameof(SelectedModeIndex), value);
+                LogService.Combo($"Live Photo format changed to index: {value}");
                 OnPropertyChanged();
             }
         }
@@ -199,6 +200,7 @@ namespace LivePhotoBox.ViewModels
 
                     // 自动适配中英文的新词条
                     SetStatus("Status_ComboCompletedSummary", total, elapsed, succeeded, failed);
+                    LogService.Combo($"Combo completed: {succeeded} succeeded, {failed} failed in {elapsed:F1}s");
                 }
             }
             OnPropertyChanged(nameof(ActionBtnText));
@@ -230,8 +232,6 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ScanDirectoryAsync()
         {
-            LogService.Combo($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
-
             if (!TryGuardScanClick()) return;
             if (IsProcessing) return;
 
@@ -256,6 +256,8 @@ namespace LivePhotoBox.ViewModels
             {
                 OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
             }
+
+            LogService.Combo($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
 
             SetStatus("Status_Scanning");
             BeginScanSession();
@@ -562,6 +564,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
+                LogService.Combo($"Processing cancelled by user after {_stopwatch.Elapsed.TotalSeconds:F1}s, completed {_completedTasksCount}/{TotalPairsCount}");
                 SetStatus("Status_Aborted");
             }
             catch (Exception ex)

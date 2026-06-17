@@ -92,6 +92,7 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
+                LogService.Combo($"Combo task failed for {baseName}: {ex.Message}", LogLevel.Error, ex);
                 return (false, ResourceService.Format("Task_Error", ex.Message));
             }
             finally

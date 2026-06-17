@@ -66,25 +66,6 @@ namespace LivePhotoBox
             MainWindow = new MainWindow();
             MainWindow.Activate();
             LogService.Info("Main window activated.", LogSource.UI);
-            _ = ShowPendingCrashDialogAsync();
-        }
-
-        private static async Task ShowPendingCrashDialogAsync()
-        {
-            for (int attempt = 0; attempt < 20; attempt++)
-            {
-                if (MainWindow?.Content?.XamlRoot != null)
-                {
-                    break;
-                }
-
-                await Task.Delay(100);
-            }
-
-            if (MainWindow?.Content?.XamlRoot is XamlRoot xamlRoot)
-            {
-                await CrashHandler.ShowPendingCrashDialogAsync(xamlRoot);
-            }
         }
     }
 }
