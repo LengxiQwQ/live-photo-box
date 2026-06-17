@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Management;
+using System.Threading.Tasks;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
@@ -37,6 +38,14 @@ namespace LivePhotoBox.Services
         private static HashSet<string>? _cachedAvailableEncoders;
         private static DateTime _encoderCacheTime = DateTime.MinValue;
         private static readonly TimeSpan EncoderCacheDuration = TimeSpan.FromMinutes(5);
+
+        /// <summary>
+        /// 异步获取所有可用的硬件加速器（不阻塞 UI 线程）
+        /// </summary>
+        public static Task<List<HardwareInfo>> GetAvailableHardwareAsync()
+        {
+            return Task.Run(() => GetAvailableHardware());
+        }
 
         /// <summary>
         /// 获取所有可用的硬件加速器
@@ -225,18 +234,18 @@ namespace LivePhotoBox.Services
 
             var availableEncoders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                try
+            try
+            {
+                string? ffmpegPath = FindFFmpeg();
+                if (string.IsNullOrEmpty(ffmpegPath))
                 {
-                    string? ffmpegPath = FindFFmpeg();
-                    if (string.IsNullOrEmpty(ffmpegPath))
-                    {
-                        AppLogService.Split("FFmpeg not found, cannot detect hardware encoders", LogLevel.Warning);
-                        _cachedAvailableEncoders = availableEncoders;
-                        _encoderCacheTime = DateTime.Now;
-                        return availableEncoders;
-                    }
+                    AppLogService.Split("FFmpeg not found, cannot detect hardware encoders", LogLevel.Warning);
+                    _cachedAvailableEncoders = availableEncoders;
+                    _encoderCacheTime = DateTime.Now;
+                    return availableEncoders;
+                }
 
-                    AppLogService.Split($"[DEBUG] Using FFmpeg at: {ffmpegPath}", LogLevel.Info);
+                AppLogService.Split($"[DEBUG] Using FFmpeg at: {ffmpegPath}", LogLevel.Info);
 
                 var process = new Process
                 {
@@ -551,12 +560,10 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 获取推荐的默认硬件设置
+        /// 从已有的硬件列表中获取推荐的默认硬件设置
         /// </summary>
-        public static HardwareInfo? GetRecommendedHardware()
+        public static HardwareInfo? GetRecommendedHardwareFromList(List<HardwareInfo> hardware)
         {
-            var hardware = GetAvailableHardware();
-
             // 优先选择支持硬件编码的 GPU
             var gpu = hardware.FirstOrDefault(h => h.Type == HardwareType.Gpu && h.IsHardwareEncodingSupported);
             if (gpu != null)
@@ -573,6 +580,15 @@ namespace LivePhotoBox.Services
 
             // 最后使用 CPU
             return hardware.FirstOrDefault(h => h.Type == HardwareType.Cpu);
+        }
+
+        /// <summary>
+        /// 获取推荐的默认硬件设置
+        /// </summary>
+        public static HardwareInfo? GetRecommendedHardware()
+        {
+            var hardware = GetAvailableHardware();
+            return GetRecommendedHardwareFromList(hardware);
         }
 
         /// <summary>

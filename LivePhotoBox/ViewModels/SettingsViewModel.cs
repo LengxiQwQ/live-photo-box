@@ -2,8 +2,10 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Services;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.ViewModels
@@ -13,6 +15,9 @@ namespace LivePhotoBox.ViewModels
         private bool _isInitializing;
 
         public override string? PageStatusTag => null;
+
+        [ObservableProperty]
+        private bool _isHardwareLoading; // 新增：用于在UI显示硬件加载状态（可选绑定转圈圈动画）
 
         [ObservableProperty]
         private int _languageIndex;
@@ -106,7 +111,8 @@ namespace LivePhotoBox.ViewModels
         public SettingsViewModel()
         {
             LoadSettings();
-            LoadHardwareInfo();
+            // 采用异步加载，不再阻塞构造函数，从而解放主线程
+            _ = LoadHardwareInfoAsync();
         }
 
         private void LoadSettings()
@@ -118,20 +124,47 @@ namespace LivePhotoBox.ViewModels
             MaxThreadCount = Math.Min(Environment.ProcessorCount, 16);
         }
 
-        private void LoadHardwareInfo()
+        private async Task LoadHardwareInfoAsync()
         {
-            var hardware = HardwareService.GetAvailableHardware();
+            IsHardwareLoading = true;
+            try
+            {
+                // 后台线程重型计算：读取 WMI 和启动 FFmpeg
+                var hardware = await HardwareService.GetAvailableHardwareAsync();
+
+                // 为了防止跨线程操作 UI 绑定的集合，确保跑在 UI 线程上
+                if (App.MainWindow?.DispatcherQueue != null)
+                {
+                    App.MainWindow.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        ApplyHardwareList(hardware);
+                    });
+                }
+                else
+                {
+                    ApplyHardwareList(hardware);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLogService.Split($"Failed to load hardware async: {ex.Message}", LogLevel.Error);
+                IsHardwareLoading = false;
+            }
+        }
+
+        private void ApplyHardwareList(List<HardwareService.HardwareInfo> hardware)
+        {
             AvailableHardware.Clear();
             foreach (var h in hardware)
             {
                 AvailableHardware.Add(h);
             }
 
-            // 直接设置选中项，让绑定系统处理更新
-            SetHardwareSelection();
+            SetHardwareSelection(hardware);
+            IsHardwareLoading = false;
         }
 
-        private void SetHardwareSelection()
+        private void SetHardwareSelection(List<HardwareService.HardwareInfo> hardware)
         {
             if (AvailableHardware.Count == 0) return;
 
@@ -145,8 +178,8 @@ namespace LivePhotoBox.ViewModels
             }
             else
             {
-                // 自动选择最佳硬件（优先 GPU）
-                var recommended = HardwareService.GetRecommendedHardware();
+                // 自动选择最佳硬件，传入已获取的列表避免再次触发WMI卡顿
+                var recommended = HardwareService.GetRecommendedHardwareFromList(hardware);
                 if (recommended != null)
                 {
                     hardwareToSelect = AvailableHardware.FirstOrDefault(h =>
@@ -186,6 +219,42 @@ namespace LivePhotoBox.ViewModels
                         AppSettingsService.SetValue("SplitEncoder_hevc", hardwareToSelect.FfmpegEncoder);
                     }
                 }
+            }
+        }
+
+        [RelayCommand]
+        private async Task RefreshHardwareAsync()
+        {
+            IsHardwareLoading = true;
+            try
+            {
+                // 清除 FFmpeg 编码器缓存，强制重新检测
+                HardwareService.ClearEncoderCache();
+                // 重新检测硬件
+                await LoadHardwareInfoAsync();
+            }
+            catch (Exception ex)
+            {
+                AppLogService.Split($"Failed to refresh hardware: {ex.Message}", LogLevel.Error);
+                IsHardwareLoading = false;
+            }
+        }
+
+        [RelayCommand]
+        private void IncreaseThreadCount()
+        {
+            if (ThreadCount < MaxThreadCount)
+            {
+                ThreadCount++;
+            }
+        }
+
+        [RelayCommand]
+        private void DecreaseThreadCount()
+        {
+            if (ThreadCount > 1)
+            {
+                ThreadCount--;
             }
         }
 
