@@ -94,7 +94,7 @@ namespace LivePhotoBox.Services
             long videoLength = GetAppendedVideoLength(metadataText);
             long imageLength = sourceStream.Length - videoLength;
 
-            LogService.Split($"[Split] File={Path.GetFileName(sourcePath)}, TotalSize={sourceStream.Length}, VideoLength={videoLength}, ImageLength={imageLength}", LogLevel.Warning);
+            LogService.Split($"File={Path.GetFileName(sourcePath)}, TotalSize={sourceStream.Length}, VideoLength={videoLength}, ImageLength={imageLength}", LogLevel.Debug);
 
             if (videoLength <= 0 || imageLength <= 0)
             {
@@ -134,14 +134,12 @@ namespace LivePhotoBox.Services
                 bool formatMatches = (selectedSplitFormatIndex == 1 && sourceVideoExtension == ".mp4") ||
                                     (selectedSplitFormatIndex == 2 && sourceVideoExtension == ".mov");
 
-                System.Diagnostics.Debug.WriteLine($"[DEBUG Split] needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}");
-                LogService.Split($"needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}", LogLevel.Warning);
+                LogService.Split($"needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}", LogLevel.Debug);
 
                 if (formatMatches)
                 {
                     // 格式完全匹配，使用 FFmpeg remux（快速无损转换容器，完整保留 HDR 元数据）
-                    LogService.Split($"Remuxing video (container only): {sourceVideoExtension} -> {targetExtension}");
-                    System.Diagnostics.Debug.WriteLine($"[DEBUG Split] === REMUX PATH (no re-encoding) ===");
+                    LogService.Split($"Remuxing video (container only): {sourceVideoExtension} -> {targetExtension}", LogLevel.Debug);
                     var remuxResult = await VideoTranscodeService.RemuxAsync(tempVideoPath, videoOutputPath, token);
 
                     if (remuxResult.Success)
@@ -170,8 +168,7 @@ namespace LivePhotoBox.Services
                 else
                 {
                     // 格式不匹配，需要转码
-                    LogService.Split($"Transcoding video: {sourceVideoExtension} -> {targetExtension}");
-                    System.Diagnostics.Debug.WriteLine($"[DEBUG Split] === TRANSCODE PATH (re-encoding with {(selectedSplitFormatIndex == 1 ? "libx264" : "libx265")}) ===");
+                    LogService.Split($"Transcoding video: {sourceVideoExtension} -> {targetExtension}", LogLevel.Debug);
 
                     var transcodeResult = selectedSplitFormatIndex == 1
                         ? await VideoTranscodeService.TranscodeToMp4Async(tempVideoPath, videoOutputPath, token)
@@ -236,7 +233,7 @@ namespace LivePhotoBox.Services
             if (TryGetLong(MotionPhotoLengthRegex.Match(metadataText), out long motionPhotoLength))
                 return motionPhotoLength;
 
-            LogService.Split($"[Split] GetAppendedVideoLength: MicroVideoOffset match={MicroVideoOffsetRegex.Match(metadataText).Success}, MotionPhotoLength match={MotionPhotoLengthRegex.Match(metadataText).Success}", LogLevel.Warning);
+            LogService.Split($"GetAppendedVideoLength: MicroVideoOffset match={MicroVideoOffsetRegex.Match(metadataText).Success}, MotionPhotoLength match={MotionPhotoLengthRegex.Match(metadataText).Success}", LogLevel.Debug);
 
             throw new InvalidDataException("No motion video length metadata was found in the file.");
         }
@@ -296,9 +293,7 @@ namespace LivePhotoBox.Services
             }
 
             // 3. 兜底方案
-#if DEBUG
-            Debug.WriteLine("[FormatDetector] WARNING: Failed to detect video format via Magic Number and XMP. Fallback to .mp4.");
-#endif
+            LogService.Split("Failed to detect video format via Magic Number and XMP, fallback to .mp4", LogLevel.Warning);
             return ".mp4";
         }
 
@@ -462,7 +457,7 @@ namespace LivePhotoBox.Services
                                 await SkipExactAsync(sourceStream, remainingPayload, token);
                                 consumedInImage += remainingPayload;
                             }
-                            LogService.Split($"[Split] Stripped LivePhoto APP{marker - 0xE0} segment (len={segmentLength})", LogLevel.Warning);
+                            LogService.Split($"Stripped LivePhoto APP{marker - 0xE0} segment (len={segmentLength})", LogLevel.Debug);
                         }
                         else
                         {

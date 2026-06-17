@@ -1,3 +1,4 @@
+using LivePhotoBox.Behaviors;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
@@ -26,6 +27,12 @@ namespace LivePhotoBox.Views
             InitializeComponent();
             Loaded += ComboPage_Loaded;
             Unloaded += ComboPage_Unloaded;
+        }
+
+        private void ProtocolComboBox_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is ComboBox comboBox)
+                ComboBoxHelper.AutoFitWidth(comboBox);
         }
 
         private void ComboPage_Loaded(object sender, RoutedEventArgs e)

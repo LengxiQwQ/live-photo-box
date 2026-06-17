@@ -76,11 +76,10 @@ namespace LivePhotoBox.Services
 
                 if (HeicConverterService.IsHeicFile(imagePath))
                 {
-                    LogService.Combo($"Detected HEIC file, converting: {Path.GetFileName(imagePath)}");
                     workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, options.OutputDirectory, token);
                 }
 
-                string outputName = LivePhotoCompositionService.CreateOutputFileName(baseName, options.SelectedModeIndex, workingImagePath);
+                string outputName = LivePhotoCompositionService.CreateOutputFileName(baseName, options.SelectedModeIndex);
                 string finalOutputPath = Path.Combine(options.OutputDirectory, outputName);
 
                 await LivePhotoCompositionService.WriteLivePhotoAsync(workingImagePath, videoPath, finalOutputPath, options.SelectedModeIndex, token);

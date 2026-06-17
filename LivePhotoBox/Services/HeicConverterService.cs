@@ -111,11 +111,16 @@ namespace LivePhotoBox.Services
             {
                 string baseName = Path.GetFileNameWithoutExtension(heicPath);
                 string jpegPath = Path.Combine(outputDirectory, baseName + ".jpg");
+                // Write to a distinct temp path so the caller's source (temp)
+                // and final output (jpegPath) stay different — the caller's naming
+                // no longer uses MVIMG/MP suffixes that used to separate them.
+                string tempJpegPath = Path.Combine(outputDirectory, baseName + "_heic.jpg");
 
                 if (File.Exists(jpegPath))
                 {
                     LogService.Combo($"JPEG already exists in output, using existing file: {jpegPath}");
-                    return jpegPath;
+                    File.Copy(jpegPath, tempJpegPath, overwrite: true);
+                    return tempJpegPath;
                 }
 
                 StorageFile sourceFile = await StorageFile.GetFileFromPathAsync(heicPath);
@@ -127,7 +132,7 @@ namespace LivePhotoBox.Services
                     var decoder = await BitmapDecoder.CreateAsync(inputStream);
                     softwareBitmap = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
 
-                    using var fileStream = new FileStream(jpegPath, FileMode.Create, FileAccess.Write);
+                    using var fileStream = new FileStream(tempJpegPath, FileMode.Create, FileAccess.Write);
                     using var randomAccessStream = fileStream.AsRandomAccessStream();
                     var propertySet = new BitmapPropertySet();
                     propertySet.Add("ImageQuality", new BitmapTypedValue(1.0f, PropertyType.Single));
@@ -142,7 +147,7 @@ namespace LivePhotoBox.Services
 
                 try
                 {
-                    await CopyTagsAsync(heicPath, jpegPath, token);
+                    await CopyTagsAsync(heicPath, tempJpegPath, token);
                 }
                 catch (Exception ex)
                 {
@@ -150,7 +155,7 @@ namespace LivePhotoBox.Services
                 }
 
                 LogService.Combo($"HEIC conversion successful: {jpegPath}");
-                return jpegPath;
+                return tempJpegPath;
             }
             catch (Exception ex)
             {
@@ -168,7 +173,10 @@ namespace LivePhotoBox.Services
                 return;
             }
 
-            string arguments = $"-TagsFromFile \"{sourcePath}\" -all:all \"{targetPath}\" -overwrite_original -quiet";
+            // Copy all tags EXCEPT Orientation: the HEIC decoder already outputs
+            // correctly-oriented pixels, so copying the raw-sensor orientation tag
+            // would cause a double rotation in any viewer that respects EXIF.
+            string arguments = $"-TagsFromFile \"{sourcePath}\" -all:all -Orientation= \"{targetPath}\" -overwrite_original -quiet";
 
             using var process = new Process();
             process.StartInfo.FileName = toolPath;

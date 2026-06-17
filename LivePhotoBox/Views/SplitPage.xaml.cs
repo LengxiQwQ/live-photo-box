@@ -1,3 +1,4 @@
+using LivePhotoBox.Behaviors;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
@@ -30,6 +31,12 @@ namespace LivePhotoBox.Views
             InitializeComponent();
             Loaded += SplitPage_Loaded;
             Unloaded += SplitPage_Unloaded;
+        }
+
+        private void FormatComboBox_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is ComboBox comboBox)
+                ComboBoxHelper.AutoFitWidth(comboBox);
         }
 
         private void SplitPage_Loaded(object sender, RoutedEventArgs e)

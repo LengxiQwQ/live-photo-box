@@ -44,8 +44,6 @@ namespace LivePhotoBox.Services
             string newKey = $"SplitEncoder_{codec}";
             string? encoder = AppSettingsService.GetValue<string?>(newKey, null);
 
-            LogService.Split($"[DEBUG] GetEncoderForCodec({codec}): key='{newKey}', value='{encoder ?? "(null)"}'", LogLevel.Info);
-
             // 如果新 key 有值，验证可用性
             if (!string.IsNullOrEmpty(encoder))
             {
@@ -357,7 +355,7 @@ namespace LivePhotoBox.Services
                 {
                     string arguments = BuildFFmpegArguments(inputPath, outputPath, targetFormat, !useHardwareEncoder);
 
-                    LogService.Split($"[FFmpeg args]: ffmpeg {arguments}", LogLevel.Info);
+                    LogService.Split($"ffmpeg {arguments}", LogLevel.Debug);
 
                     using var process = new Process();
                     process.StartInfo.FileName = ffmpegPath;
@@ -514,7 +512,7 @@ namespace LivePhotoBox.Services
                 if (!string.IsNullOrEmpty(detected))
                 {
                     savedEncoder = detected;
-                    LogService.Split($"No saved encoder for {codec}, detected from FFmpeg: {detected}", LogLevel.Info);
+                    LogService.Split($"No saved encoder for {codec}, detected from FFmpeg: {detected}", LogLevel.Debug);
                 }
             }
 
@@ -589,7 +587,6 @@ namespace LivePhotoBox.Services
         {
             var (videoEncoder, videoParams) = GetEncoderForFormat(targetFormat, forceSoftwareEncoder);
             int threadCount = GetThreadCount(videoEncoder);
-            LogService.Split($"FFmpeg args: encoder={videoEncoder}, params={videoParams}, threads={threadCount}", LogLevel.Info);
 
             string pixelFormat = GetPixelFormatParams(videoEncoder, targetFormat);
             string videoFilter = BuildVideoFilter(targetFormat, videoEncoder);
@@ -604,6 +601,10 @@ namespace LivePhotoBox.Services
             // -map 0:v:0 -> 小写 v，标准视频流选择（temp 文件只有一条视频轨，无需大写 V）
             // -map 0:a:0? -> 提取单一主音频，若不存在则跳过
             // -c:a copy -> 直接复制原始音频流，完全保留原始音质
+            //
+            //  不加 -noautorotate：让 FFmpeg 自动将旋转矩阵应用到像素上。
+            //  iPhone MOV 的旋转在 moov.trak.tkhd 中，-vf 触发 autorotate 滤镜
+            //  物理旋转像素，确保输出始终正立，不依赖播放器解析旋转标签。
             return targetFormat switch
             {
                 VideoFormat.MP4 => $"-apply_cropping 0 -y -i \"{inputPath}\" " +

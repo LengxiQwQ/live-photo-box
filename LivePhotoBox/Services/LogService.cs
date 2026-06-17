@@ -13,6 +13,9 @@ using System.Threading.Tasks;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 using LogSource = LivePhotoBox.Models.LogSource;
 
+// For Package.Current.Id.Version — matches AboutPage's version display
+using Windows.ApplicationModel;
+
 namespace LivePhotoBox.Services
 {
     /// <summary>
@@ -37,7 +40,6 @@ namespace LivePhotoBox.Services
         private const int CrashContextLineCount = 50;
         private const string LogFilePrefix = "app";
         private const string LogFileExtension = ".log";
-        private const string CrashSectionHeader = "══════ CRASH REPORT";
         private const string CleanShutdownMarker = "CLEAN SHUTDOWN";
 
         #endregion
@@ -126,13 +128,13 @@ namespace LivePhotoBox.Services
 
             // Create new session log file
             _currentLogPath = Path.Combine(_logDirectory, GenerateLogFileName());
-            var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
             File.WriteAllText(_currentLogPath,
-                $"=== LivePhotoBox Session Started [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [v{version}] ===\n",
+                $"=== LivePhotoBox Session Started [{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff}] [v{GetAppVersion()}] ===\n",
                 Encoding.UTF8);
 
-            // Seed the log
+            // Seed the log and flush immediately so startup is persisted
             Enqueue(LogSource.System, LogLevel.Info, "LogService initialized.");
+            FlushPendingEntries();
 
             // Start async flush loop
             Task.Run(BackgroundFlushLoop);
@@ -155,7 +157,7 @@ namespace LivePhotoBox.Services
                 lock (_fileLock)
                 {
                     File.AppendAllText(_currentLogPath,
-                        $"\n=== Session Ended ({CleanShutdownMarker}) [{DateTime.Now:yyyy-MM-dd HH:mm:ss}] ===\n",
+                        $"\n=== Session Ended ({CleanShutdownMarker}) [{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff}] ===\n",
                         Encoding.UTF8);
                 }
             }
@@ -290,12 +292,10 @@ namespace LivePhotoBox.Services
                 // 3. Build the crash section
                 var sb = new StringBuilder();
                 sb.AppendLine();
-                sb.AppendLine("═══════════════════════════════════════════════════════════════");
-                sb.AppendLine("                    LivePhotoBox 崩溃报告");
-                sb.AppendLine("═══════════════════════════════════════════════════════════════");
-                sb.AppendLine($"时间:     {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff}");
-                sb.AppendLine($"来源:     {source}");
-                sb.AppendLine($"版本:     {Assembly.GetExecutingAssembly().GetName().Version}");
+                sb.AppendLine("=== CRASH REPORT ===");
+                sb.AppendLine($"Timestamp:  {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff}");
+                sb.AppendLine($"Source:     {source}");
+                sb.AppendLine($"Version:    {GetAppVersion()}");
 
                 if (extraFields != null)
                 {
@@ -309,31 +309,27 @@ namespace LivePhotoBox.Services
                     var mem = new MemoryStatusEx { dwLength = (uint)Marshal.SizeOf<MemoryStatusEx>() };
                     if (GlobalMemoryStatusEx(ref mem))
                     {
-                        sb.AppendLine($"系统内存:  总量={mem.ullTotalPhys / (1024 * 1024)}MB, " +
-                            $"可用={mem.ullAvailPhys / (1024 * 1024)}MB, " +
-                            $"负载={mem.dwMemoryLoad}%");
+                        sb.AppendLine($"Memory:     Total={mem.ullTotalPhys / (1024 * 1024)}MB, " +
+                            $"Avail={mem.ullAvailPhys / (1024 * 1024)}MB, " +
+                            $"Load={mem.dwMemoryLoad}%");
                     }
                 }
                 catch { /* not critical */ }
 
                 sb.AppendLine();
-                sb.AppendLine("───────────────────────────────────────────────────────────────");
-                sb.AppendLine("                        异常信息");
-                sb.AppendLine("───────────────────────────────────────────────────────────────");
+                sb.AppendLine("--- Exception ---");
                 sb.AppendLine(exception?.ToString() ?? "(null)");
                 sb.AppendLine();
 
                 if (recentContext.Count > 0)
                 {
-                    sb.AppendLine("───────────────────────────────────────────────────────────────");
-                    sb.AppendLine($"              崩溃前最近日志 (最多 {CrashContextLineCount} 条)");
-                    sb.AppendLine("───────────────────────────────────────────────────────────────");
+                    sb.AppendLine($"--- Last {CrashContextLineCount} log entries before crash ---");
                     foreach (var entry in recentContext)
-                        sb.AppendLine(entry.FormattedMessage);
+                        sb.AppendLine($"  {entry.FormattedMessage}");
                     sb.AppendLine();
                 }
 
-                sb.AppendLine("═══════════════════════════════════════════════════════════════");
+                sb.AppendLine("=== END CRASH REPORT ===");
                 sb.AppendLine();
 
                 // 4. Write synchronously to disk
@@ -354,7 +350,7 @@ namespace LivePhotoBox.Services
         public static void GenerateTestCrashSection()
         {
             WriteCrashSection("Manual.TestCrashLog",
-                new InvalidOperationException("这是一条手动生成的测试崩溃日志。"),
+                new InvalidOperationException("Manually triggered test crash log."),
                 [("IsTestLog", bool.TrueString)]);
         }
 
@@ -510,6 +506,8 @@ namespace LivePhotoBox.Services
                         sb.AppendLine(entry.FormattedMessage);
                         if (!string.IsNullOrEmpty(entry.Details))
                             sb.AppendLine($"  Details: {entry.Details}");
+                        if (!string.IsNullOrEmpty(entry.FilePath))
+                            sb.AppendLine($"  at {entry.FilePath}");
                         if (!string.IsNullOrEmpty(entry.ExceptionType))
                             sb.AppendLine($"  Exception: {entry.ExceptionType}");
                         if (!string.IsNullOrEmpty(entry.StackTrace))
@@ -577,6 +575,19 @@ namespace LivePhotoBox.Services
         #endregion
 
         #region Private — Helpers
+
+        private static string GetAppVersion()
+        {
+            try
+            {
+                var v = Package.Current.Id.Version;
+                return $"{v.Major}.{v.Minor}.{v.Build}.{v.Revision}";
+            }
+            catch
+            {
+                return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0.0";
+            }
+        }
 
         private static string GenerateLogFileName()
         {

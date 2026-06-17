@@ -187,6 +187,24 @@ namespace LivePhotoBox.Services
                 await FeedbackService.OpenIssuePageAsync();
             };
 
+            var logFileName = Path.GetFileName(logPath);
+
+            var openLogLink = new HyperlinkButton
+            {
+                Content = logFileName,
+                Padding = new Thickness(0),
+                BorderThickness = new Thickness(0),
+                Background = null,
+                VerticalAlignment = VerticalAlignment.Center,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                FontSize = 14
+            };
+            openLogLink.Click += (_, _) =>
+            {
+                LogService.Info($"Open crash log file: {logFileName}", LogSource.System);
+                _ = FilePickerService.OpenFileAsync(logPath);
+            };
+
             var dialog = new ContentDialog
             {
                 Title = ResourceService.GetString("CrashDialog_Title"),
@@ -197,8 +215,23 @@ namespace LivePhotoBox.Services
                     {
                         new TextBlock
                         {
-                            Text = ResourceService.Format("CrashDialog_Content", Path.GetFileName(logPath)),
+                            Text = ResourceService.GetString("CrashDialog_Content"),
                             TextWrapping = TextWrapping.Wrap
+                        },
+                        new StackPanel
+                        {
+                            Orientation = Orientation.Horizontal,
+                            Spacing = 4,
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Children =
+                            {
+                                new TextBlock
+                                {
+                                    Text = ResourceService.GetString("CrashDialog_LogFileLabel"),
+                                    VerticalAlignment = VerticalAlignment.Center
+                                },
+                                openLogLink
+                            }
                         },
                         new StackPanel { Spacing = 12, Children = { openFolderBtn, exportBtn, reportBtn } }
                     }

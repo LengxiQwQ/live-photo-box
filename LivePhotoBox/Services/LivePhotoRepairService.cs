@@ -16,30 +16,19 @@ namespace LivePhotoBox.Services
         private static readonly string JpegTranPath = Path.Combine(AppContext.BaseDirectory, "Tools", "jpegtran.exe");
 
         /// <summary>
-        /// 统一的内部日志记录器，将所有第三方工具报错、异常输出到本地
+        /// 统一的内部日志记录器，将所有第三方工具报错、异常输出到主日志
         /// </summary>
         private static void WriteDebugLog(string level, string source, string message, string details = "")
         {
-            try
+            var logLevel = level switch
             {
-                string logDir = Path.Combine(AppContext.BaseDirectory, "Logs");
-                if (!Directory.Exists(logDir)) Directory.CreateDirectory(logDir);
+                "ERROR" => LogLevel.Error,
+                "WARN" => LogLevel.Warning,
+                _ => LogLevel.Info
+            };
 
-                string logPath = Path.Combine(logDir, $"RepairService_{DateTime.Now:yyyyMMdd}.log");
-                string logLine = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{level}] [{source}] {message}\n";
-
-                if (!string.IsNullOrWhiteSpace(details))
-                {
-                    logLine += $"--- 详细信息 (Details) ---\n{details.Trim()}\n--------------------------\n";
-                }
-
-                File.AppendAllText(logPath, logLine);
-                Debug.WriteLine(logLine);
-            }
-            catch
-            {
-                // 忽略日志系统本身的异常，保证主业务不崩溃
-            }
+            string msg = string.IsNullOrWhiteSpace(details) ? message : $"{message}\n{details.Trim()}";
+            LogService.Repair(msg, logLevel);
         }
 
         /// <summary>

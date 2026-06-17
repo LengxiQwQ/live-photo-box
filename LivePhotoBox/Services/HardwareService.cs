@@ -142,7 +142,7 @@ namespace LivePhotoBox.Services
             // 先通过 FFmpeg 获取所有可用的硬件编码器
             var availableEncoders = DetectAvailableEncodersViaFFmpeg();
 
-            LogService.Split($"[DEBUG] WMI: Searching for GPUs, FFmpeg encoders available: {availableEncoders.Count}", LogLevel.Info);
+            LogService.Split($"WMI: Searching for GPUs, FFmpeg encoders available: {availableEncoders.Count}", LogLevel.Debug);
 
             try
             {
@@ -173,11 +173,11 @@ namespace LivePhotoBox.Services
 
                         if (shouldExclude)
                         {
-                            LogService.Split($"[DEBUG] WMI: GPU '{name}' excluded by keyword '{excludeReason}'", LogLevel.Info);
+                            LogService.Split($"WMI: GPU '{name}' excluded by keyword '{excludeReason}'", LogLevel.Debug);
                             continue;
                         }
 
-                        LogService.Split($"[DEBUG] WMI: GPU candidate: '{name}', description: '{description}'", LogLevel.Info);
+                        LogService.Split($"WMI: GPU candidate: '{name}', description: '{description}'", LogLevel.Debug);
 
                         var gpuInfo = new HardwareInfo
                         {
@@ -188,7 +188,7 @@ namespace LivePhotoBox.Services
 
                         // 根据 GPU 名称猜测可能的编码器
                         (gpuInfo.IsHardwareEncodingSupported, gpuInfo.FfmpegEncoder) = DetermineFfmpegEncoder(name);
-                        LogService.Split($"[DEBUG] WMI: Guessed encoder '{gpuInfo.FfmpegEncoder}' for '{name}', supported={gpuInfo.IsHardwareEncodingSupported}", LogLevel.Info);
+                        LogService.Split($"WMI: Guessed encoder '{gpuInfo.FfmpegEncoder}' for '{name}', supported={gpuInfo.IsHardwareEncodingSupported}", LogLevel.Debug);
 
                         // 如果猜测支持硬件编码，验证 FFmpeg 是否真的可用
                         if (gpuInfo.IsHardwareEncodingSupported && !string.IsNullOrEmpty(gpuInfo.FfmpegEncoder))
@@ -197,14 +197,14 @@ namespace LivePhotoBox.Services
                             if (availableEncoders.Contains(gpuInfo.FfmpegEncoder.ToLowerInvariant()))
                             {
                                 gpus.Add(gpuInfo);
-                                LogService.Split($"[DEBUG] WMI: GPU '{name}' ADDED with encoder '{gpuInfo.FfmpegEncoder}'", LogLevel.Info);
+                                LogService.Split($"WMI: GPU '{name}' ADDED with encoder '{gpuInfo.FfmpegEncoder}'", LogLevel.Debug);
                             }
                             else
                             {
                                 // 编码器不可用，标记为不支持
                                 gpuInfo.IsHardwareEncodingSupported = false;
                                 gpuInfo.FfmpegEncoder = null;
-                                LogService.Split($"[DEBUG] WMI: GPU '{name}' REJECTED - encoder '{gpuInfo.FfmpegEncoder}' not in FFmpeg list", LogLevel.Info);
+                                LogService.Split($"WMI: GPU '{name}' REJECTED - encoder '{gpuInfo.FfmpegEncoder}' not in FFmpeg list", LogLevel.Debug);
                             }
                         }
                     }
@@ -215,8 +215,8 @@ namespace LivePhotoBox.Services
                 LogService.Split($"DetectGpus WMI error: {ex.Message}", LogLevel.Warning);
             }
 
-            LogService.Split($"[DEBUG] WMI: All detected GPUs: {string.Join(", ", allDetectedGpus)}", LogLevel.Info);
-            LogService.Split($"[DEBUG] WMI: Qualified GPUs: {gpus.Count}", LogLevel.Info);
+            LogService.Split($"WMI: All detected GPUs: {string.Join(", ", allDetectedGpus)}", LogLevel.Debug);
+            LogService.Split($"WMI: Qualified GPUs: {gpus.Count}", LogLevel.Debug);
 
             return gpus;
         }
@@ -245,7 +245,7 @@ namespace LivePhotoBox.Services
                     return availableEncoders;
                 }
 
-                LogService.Split($"[DEBUG] Using FFmpeg at: {ffmpegPath}", LogLevel.Info);
+                LogService.Split($"Using FFmpeg at: {ffmpegPath}", LogLevel.Debug);
 
                 var process = new Process
                 {
@@ -270,7 +270,7 @@ namespace LivePhotoBox.Services
                 // FFmpeg encoders 输出到 stdout
                 string output = !string.IsNullOrEmpty(stdout) ? stdout : stderr;
 
-                LogService.Split($"[DEBUG] FFmpeg raw output ({output.Length} chars)", LogLevel.Info);
+                LogService.Split($"FFmpeg raw output ({output.Length} chars)", LogLevel.Debug);
 
                 // 逐行解析
                 var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
@@ -333,19 +333,19 @@ namespace LivePhotoBox.Services
                             // 记录前 5 个解析的编码器用于调试
                             if (debugLineCount < 5)
                             {
-                                LogService.Split($"[DEBUG] Parse: '{line.Substring(0, Math.Min(60, line.Length))}' -> encoder='{encoder}'", LogLevel.Info);
+                                LogService.Split($"Parse: '{line.Substring(0, Math.Min(60, line.Length))}' -> encoder='{encoder}'", LogLevel.Debug);
                                 debugLineCount++;
                             }
                         }
                     }
                 }
 
-                LogService.Split($"[DEBUG] Parse stats: total={lines.Length}, empty={skippedEmpty}, legend={skippedLegend}, noV={skippedNoV}, short={skippedShort}, parsed={parseCount}", LogLevel.Info);
-                LogService.Split($"[DEBUG] FFmpeg found {availableEncoders.Count} unique encoders", LogLevel.Info);
+                LogService.Split($"Parse stats: total={lines.Length}, empty={skippedEmpty}, legend={skippedLegend}, noV={skippedNoV}, short={skippedShort}, parsed={parseCount}", LogLevel.Debug);
+                LogService.Split($"FFmpeg found {availableEncoders.Count} unique encoders", LogLevel.Debug);
                 if (availableEncoders.Count > 0)
                 {
                     var sorted = availableEncoders.OrderBy(e => e).Take(20).ToList();
-                    LogService.Split($"[DEBUG] First 20: {string.Join(", ", sorted)}", LogLevel.Info);
+                    LogService.Split($"First 20: {string.Join(", ", sorted)}", LogLevel.Debug);
                 }
 
                 // 更新缓存

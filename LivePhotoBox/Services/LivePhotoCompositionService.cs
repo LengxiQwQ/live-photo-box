@@ -10,15 +10,9 @@ namespace LivePhotoBox.Services
 {
     public static class LivePhotoCompositionService
     {
-        public static string CreateOutputFileName(string baseName, int selectedModeIndex, string imagePath)
+        public static string CreateOutputFileName(string baseName, int selectedModeIndex)
         {
-            // 直接使用原图原始文件名（保留用户原始命名），不再添加 MVIMG_ 前缀或 .MP.jpg 后缀
-            string imageExtension = Path.GetExtension(imagePath);
-            if (string.IsNullOrWhiteSpace(imageExtension))
-            {
-                imageExtension = ".jpg";
-            }
-            return $"{baseName}{imageExtension}";
+            return $"{baseName}.jpg";
         }
 
         public static async Task WriteLivePhotoAsync(string sourceImg, string sourceVid, string targetPath, int selectedModeIndex, CancellationToken token)

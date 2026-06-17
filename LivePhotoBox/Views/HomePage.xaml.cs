@@ -1,3 +1,4 @@
+using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI;
@@ -136,7 +137,7 @@ namespace LivePhotoBox.Views
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[Hover Enter Error] {ex}");
+                LogService.Error($"[Hover] Enter error: {ex.Message}", ex, LogSource.UI);
             }
         }
 
@@ -152,7 +153,7 @@ namespace LivePhotoBox.Views
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[Hover Exit Error] {ex}");
+                LogService.Error($"[Hover] Exit error: {ex.Message}", ex, LogSource.UI);
             }
         }
 
@@ -213,7 +214,7 @@ namespace LivePhotoBox.Views
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[Hover Move Error] {ex}");
+                LogService.Error($"[Hover] Move error: {ex.Message}", ex, LogSource.UI);
             }
         }
 

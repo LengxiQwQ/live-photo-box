@@ -817,9 +817,10 @@ Do you want to restart now?</value>
   <data name="CrashDialog_Content" xml:space="preserve">
     <value>The app encountered an unexpected error during its previous run, and a crash log was created.
 
-You can open the log folder or export the latest log now to help diagnose the issue.
-
-Log file: {0}</value>
+You can open the log folder or export the latest log now to help diagnose the issue.</value>
+  </data>
+  <data name="CrashDialog_LogFileLabel" xml:space="preserve">
+    <value>Log file: </value>
   </data>
   <data name="CrashDialog_ExportButton" xml:space="preserve">
     <value>Export Log</value>
@@ -862,6 +863,9 @@ Log file: {0}</value>
   </data>
   <data name="SettingsPage_CrashPreviewDialog_Button_Text.Text" xml:space="preserve">
     <value>Preview Crash Dialog</value>
+  </data>
+  <data name="SettingsPage_RestartApp_Button_Text.Text" xml:space="preserve">
+    <value>Restart App</value>
   </data>
   <data name="SettingsPage_Test_Header.Text" xml:space="preserve">
     <value>Debug Tools</value>
@@ -1282,6 +1286,12 @@ Log file: {0}</value>
   </data>
   <data name="SettingsPage_Restore_Confirm_Message" xml:space="preserve">
     <value>Are you sure you want to restore all settings to their default values?</value>
+  </data>
+  <data name="SettingsPage_Restart_Confirm_Title" xml:space="preserve">
+    <value>Restart App</value>
+  </data>
+  <data name="SettingsPage_Restart_Confirm_Message" xml:space="preserve">
+    <value>Are you sure you want to close the app and restart? Any unfinished tasks will be lost.</value>
   </data>
   <data name="Msg_Confirm" xml:space="preserve">
     <value>Confirm</value>

@@ -76,7 +76,7 @@ namespace LivePhotoBox
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"DPI Scaling initialization failed: {ex.Message}");
+                    LogService.Warn($"DPI Scaling initialization failed: {ex.Message}", source: LogSource.UI);
                     appWindow.Resize(new SizeInt32(DefaultWindowWidth, DefaultWindowHeight));
                 }
             }

@@ -70,7 +70,7 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnSelectedHardwareChanged(HardwareService.HardwareInfo? value)
         {
-            LogService.Split($"[DEBUG] OnSelectedHardwareChanged: _isInitializing={_isInitializing}, value={value?.Name ?? "(null)"}, encoder={value?.FfmpegEncoder ?? "(null)"}", LogLevel.Info);
+            LogService.Split($"OnSelectedHardwareChanged: _isInitializing={_isInitializing}, value={value?.Name ?? "(null)"}, encoder={value?.FfmpegEncoder ?? "(null)"}", LogLevel.Debug);
             if (_isInitializing || value == null) return;
             int index = AvailableHardware.IndexOf(value);
             if (index >= 0)
@@ -90,7 +90,7 @@ namespace LivePhotoBox.ViewModels
                         AppSettingsService.SetValue("SplitEncoder_hevc", value.FfmpegEncoder);
                     }
                 }
-                LogService.Split($"[DEBUG] Saved encoder to settings: '{value.FfmpegEncoder}'", LogLevel.Info);
+                LogService.Split($"Saved encoder to settings: '{value.FfmpegEncoder}'", LogLevel.Debug);
             }
         }
 

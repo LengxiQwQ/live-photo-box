@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
@@ -22,18 +23,16 @@
                         <TextBlock x:Uid="SettingsPage_Appearance_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
-                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                             Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                        <Grid x:Name="AppearanceOptionsGrid" ColumnSpacing="40">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
+                        <toolkit:WrapPanel x:Name="AppearanceOptionsPanel"
+                                   HorizontalSpacing="40"
+                                   VerticalSpacing="16">
 
-                            <StackPanel Grid.Column="0" Spacing="8">
-                                <ComboBox x:Uid="SettingsPage_Language" HorizontalAlignment="Stretch" 
-                                          SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}">
+                            <StackPanel Spacing="8">
+                                <ComboBox x:Uid="SettingsPage_Language"
+                                          SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}"
+                                          Loaded="AppearanceComboBox_Loaded">
                                     <ComboBoxItem x:Uid="SettingsPage_Language_System"/>
                                     <ComboBoxItem x:Uid="SettingsPage_Language_Chinese"/>
                                     <ComboBoxItem x:Uid="SettingsPage_Language_English"/>
@@ -41,9 +40,10 @@
                                 <TextBlock x:Uid="SettingsPage_Language_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Column="1" Spacing="8">
-                                <ComboBox x:Uid="SettingsPage_Backdrop_Header" HorizontalAlignment="Stretch" 
-                                          SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}">
+                            <StackPanel Spacing="8">
+                                <ComboBox x:Uid="SettingsPage_Backdrop_Header"
+                                          SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}"
+                                          Loaded="AppearanceComboBox_Loaded">
                                     <ComboBoxItem x:Uid="SettingsPage_Backdrop_Mica"/>
                                     <ComboBoxItem x:Uid="SettingsPage_Backdrop_MicaAlt"/>
                                     <ComboBoxItem x:Uid="SettingsPage_Backdrop_Acrylic"/>
@@ -52,16 +52,17 @@
                                 <TextBlock x:Uid="SettingsPage_Backdrop_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
 
-                            <StackPanel Grid.Column="2" Spacing="8">
-                                <ComboBox x:Uid="SettingsPage_Theme_Header" HorizontalAlignment="Stretch" 
-                                          SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}">
+                            <StackPanel Spacing="8">
+                                <ComboBox x:Uid="SettingsPage_Theme_Header"
+                                          SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}"
+                                          Loaded="AppearanceComboBox_Loaded">
                                     <ComboBoxItem x:Uid="SettingsPage_Theme_System"/>
                                     <ComboBoxItem x:Uid="SettingsPage_Theme_Light"/>
                                     <ComboBoxItem x:Uid="SettingsPage_Theme_Dark"/>
                                 </ComboBox>
                                 <TextBlock x:Uid="SettingsPage_Theme_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
-                        </Grid>
+                        </toolkit:WrapPanel>
                     </Border>
                 </StackPanel>
 
@@ -74,17 +75,20 @@
 
                     <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                             Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                        <StackPanel Orientation="Horizontal" Spacing="32" VerticalAlignment="Center">
+                        <toolkit:WrapPanel HorizontalSpacing="32"
+                                           VerticalSpacing="16"
+                                           VerticalAlignment="Center">
                             <!-- 硬件选择 -->
                             <StackPanel Spacing="4">
                                 <TextBlock x:Uid="SettingsPage_Split_Hardware"
                                            FontSize="13"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                 <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <ComboBox ItemsSource="{x:Bind ViewModel.AvailableHardware, Mode=OneWay}"
+                                    <ComboBox x:Name="HardwareComboBox"
+                                              ItemsSource="{x:Bind ViewModel.AvailableHardware, Mode=OneWay}"
                                               SelectedItem="{x:Bind ViewModel.SelectedHardware, Mode=TwoWay}"
                                               DisplayMemberPath="Name"
-                                              Width="296"/>
+                                              Loaded="HardwareComboBox_Loaded"/>
                                     <Button Width="32"
                                             Height="32"
                                             Padding="0"
@@ -146,7 +150,7 @@
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
-                        </StackPanel>
+                        </toolkit:WrapPanel>
                     </Border>
                 </StackPanel>
 
@@ -166,7 +170,7 @@
                                 </HyperlinkButton>
                             </StackPanel>
 
-                            <StackPanel Orientation="Horizontal" Spacing="12">
+                            <toolkit:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
                                 <Button Command="{x:Bind AboutViewModel.OpenCrashLogFolderActionCommand, Mode=OneWay}">
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <FontIcon Glyph="&#xE838;" FontSize="14"/>
@@ -191,7 +195,7 @@
                                         <TextBlock x:Uid="SettingsPage_CrashIssue_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                            </StackPanel>
+                            </toolkit:WrapPanel>
                         </StackPanel>
                     </Border>
                 </StackPanel>
@@ -232,14 +236,20 @@
 
                         <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                                 Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                            <StackPanel Orientation="Horizontal" Spacing="12">
+                            <toolkit:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
+                                <Button Click="RestartAppButton_Click">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                                        <TextBlock x:Uid="SettingsPage_RestartApp_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                                 <Button Click="PreviewCrashDialogButton_Click">
                                     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                         <FontIcon Glyph="&#xE8A1;" FontSize="14"/>
                                         <TextBlock x:Uid="SettingsPage_CrashPreviewDialog_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                            </StackPanel>
+                            </toolkit:WrapPanel>
                         </Border>
                     </StackPanel>
 
