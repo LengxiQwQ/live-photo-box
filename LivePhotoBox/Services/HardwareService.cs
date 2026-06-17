@@ -4,7 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Management;
 using System.Threading.Tasks;
-using LogLevel = LivePhotoBox.Models.LogLevel;
+using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.Services
 {
@@ -38,6 +38,7 @@ namespace LivePhotoBox.Services
         private static HashSet<string>? _cachedAvailableEncoders;
         private static DateTime _encoderCacheTime = DateTime.MinValue;
         private static readonly TimeSpan EncoderCacheDuration = TimeSpan.FromMinutes(5);
+        private static List<HardwareInfo>? _cachedHardwareList;
 
         /// <summary>
         /// 异步获取所有可用的硬件加速器（不阻塞 UI 线程）
@@ -52,6 +53,9 @@ namespace LivePhotoBox.Services
         /// </summary>
         public static List<HardwareInfo> GetAvailableHardware()
         {
+            if (_cachedHardwareList != null)
+                return _cachedHardwareList;
+
             var hardware = new List<HardwareInfo>();
 
             // 检测 CPU
@@ -67,13 +71,18 @@ namespace LivePhotoBox.Services
             gpus = gpus.OrderByDescending(g => GetGpuPerformanceScore(g.Name)).ToList();
             hardware.AddRange(gpus);
 
-            // 记录检测结果
-            LogService.Split($"Hardware detection complete: {hardware.Count} device(s) found");
-            foreach (var h in hardware)
+            // 单行紧凑汇总 — 包含 CPU 名称/核心数、GPU 名称/编码器
+            var cpuName = hardware.FirstOrDefault(h => h.Type == HardwareType.Cpu)?.Name ?? "Unknown";
+            var gpuParts = hardware.Where(h => h.Type == HardwareType.Gpu).Select(g =>
             {
-                LogService.Split($"  - {h.Name}: {h.Type}, Encoder={h.FfmpegEncoder ?? "N/A"}, HWEncoding={h.IsHardwareEncodingSupported}");
-            }
+                var enc = g.IsHardwareEncodingSupported && !string.IsNullOrEmpty(g.FfmpegEncoder)
+                    ? $" ({g.FfmpegEncoder})" : "";
+                return $"{g.Name}{enc}";
+            });
+            var gpuSection = gpuParts.Any() ? $"; GPU(s): {string.Join(", ", gpuParts)}" : "";
+            LogService.Info($"Hardware: {cpuName} ({Environment.ProcessorCount} cores){gpuSection}", LogSource.System);
 
+            _cachedHardwareList = hardware;
             return hardware;
         }
 
@@ -118,7 +127,7 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                LogService.Split($"DetectCpu error: {ex.Message}", LogLevel.Warning);
+                LogService.Warn($"DetectCpu error: {ex.Message}", source: LogSource.System);
                 return null;
             }
         }
@@ -142,7 +151,7 @@ namespace LivePhotoBox.Services
             // 先通过 FFmpeg 获取所有可用的硬件编码器
             var availableEncoders = DetectAvailableEncodersViaFFmpeg();
 
-            LogService.Split($"WMI: Searching for GPUs, FFmpeg encoders available: {availableEncoders.Count}", LogLevel.Debug);
+            LogService.Debug($"WMI: Searching for GPUs, FFmpeg encoders available: {availableEncoders.Count}", LogSource.System);
 
             try
             {
@@ -173,11 +182,11 @@ namespace LivePhotoBox.Services
 
                         if (shouldExclude)
                         {
-                            LogService.Split($"WMI: GPU '{name}' excluded by keyword '{excludeReason}'", LogLevel.Debug);
+                            LogService.Debug($"WMI: GPU '{name}' excluded by keyword '{excludeReason}'", LogSource.System);
                             continue;
                         }
 
-                        LogService.Split($"WMI: GPU candidate: '{name}', description: '{description}'", LogLevel.Debug);
+                        LogService.Debug($"WMI: GPU candidate: '{name}', description: '{description}'", LogSource.System);
 
                         var gpuInfo = new HardwareInfo
                         {
@@ -188,7 +197,7 @@ namespace LivePhotoBox.Services
 
                         // 根据 GPU 名称猜测可能的编码器
                         (gpuInfo.IsHardwareEncodingSupported, gpuInfo.FfmpegEncoder) = DetermineFfmpegEncoder(name);
-                        LogService.Split($"WMI: Guessed encoder '{gpuInfo.FfmpegEncoder}' for '{name}', supported={gpuInfo.IsHardwareEncodingSupported}", LogLevel.Debug);
+                        LogService.Debug($"WMI: Guessed encoder '{gpuInfo.FfmpegEncoder}' for '{name}', supported={gpuInfo.IsHardwareEncodingSupported}", LogSource.System);
 
                         // 如果猜测支持硬件编码，验证 FFmpeg 是否真的可用
                         if (gpuInfo.IsHardwareEncodingSupported && !string.IsNullOrEmpty(gpuInfo.FfmpegEncoder))
@@ -197,14 +206,14 @@ namespace LivePhotoBox.Services
                             if (availableEncoders.Contains(gpuInfo.FfmpegEncoder.ToLowerInvariant()))
                             {
                                 gpus.Add(gpuInfo);
-                                LogService.Split($"WMI: GPU '{name}' ADDED with encoder '{gpuInfo.FfmpegEncoder}'", LogLevel.Debug);
+                                LogService.Debug($"WMI: GPU '{name}' ADDED with encoder '{gpuInfo.FfmpegEncoder}'", LogSource.System);
                             }
                             else
                             {
                                 // 编码器不可用，标记为不支持
                                 gpuInfo.IsHardwareEncodingSupported = false;
                                 gpuInfo.FfmpegEncoder = null;
-                                LogService.Split($"WMI: GPU '{name}' REJECTED - encoder '{gpuInfo.FfmpegEncoder}' not in FFmpeg list", LogLevel.Debug);
+                                LogService.Debug($"WMI: GPU '{name}' REJECTED - encoder '{gpuInfo.FfmpegEncoder}' not in FFmpeg list", LogSource.System);
                             }
                         }
                     }
@@ -212,11 +221,11 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                LogService.Split($"DetectGpus WMI error: {ex.Message}", LogLevel.Warning);
+                LogService.Warn($"DetectGpus WMI error: {ex.Message}", source: LogSource.System);
             }
 
-            LogService.Split($"WMI: All detected GPUs: {string.Join(", ", allDetectedGpus)}", LogLevel.Debug);
-            LogService.Split($"WMI: Qualified GPUs: {gpus.Count}", LogLevel.Debug);
+            LogService.Debug($"WMI: All detected GPUs: {string.Join(", ", allDetectedGpus)}", LogSource.System);
+            LogService.Debug($"WMI: Qualified GPUs: {gpus.Count}", LogSource.System);
 
             return gpus;
         }
@@ -239,13 +248,13 @@ namespace LivePhotoBox.Services
                 string? ffmpegPath = FindFFmpeg();
                 if (string.IsNullOrEmpty(ffmpegPath))
                 {
-                    LogService.Split("FFmpeg not found, cannot detect hardware encoders", LogLevel.Warning);
+                    LogService.Warn("FFmpeg not found, cannot detect hardware encoders", source: LogSource.System);
                     _cachedAvailableEncoders = availableEncoders;
                     _encoderCacheTime = DateTime.Now;
                     return availableEncoders;
                 }
 
-                LogService.Split($"Using FFmpeg at: {ffmpegPath}", LogLevel.Debug);
+                LogService.Debug($"Using FFmpeg at: {ffmpegPath}", LogSource.System);
 
                 var process = new Process
                 {
@@ -270,7 +279,7 @@ namespace LivePhotoBox.Services
                 // FFmpeg encoders 输出到 stdout
                 string output = !string.IsNullOrEmpty(stdout) ? stdout : stderr;
 
-                LogService.Split($"FFmpeg raw output ({output.Length} chars)", LogLevel.Debug);
+                LogService.Debug($"FFmpeg raw output ({output.Length} chars)", LogSource.System);
 
                 // 逐行解析
                 var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
@@ -279,8 +288,6 @@ namespace LivePhotoBox.Services
                 int skippedLegend = 0;
                 int skippedShort = 0;
                 int skippedNoV = 0;
-                int debugLineCount = 0;
-
                 foreach (var rawLine in lines)
                 {
                     var line = rawLine.TrimStart(); // 只 trim 开头，保留尾部
@@ -330,33 +337,23 @@ namespace LivePhotoBox.Services
                             availableEncoders.Add(encoder.ToLowerInvariant());
                             parseCount++;
 
-                            // 记录前 5 个解析的编码器用于调试
-                            if (debugLineCount < 5)
-                            {
-                                LogService.Split($"Parse: '{line.Substring(0, Math.Min(60, line.Length))}' -> encoder='{encoder}'", LogLevel.Debug);
-                                debugLineCount++;
-                            }
+                            // 单个解析行不再输出（Parse stats 已覆盖）
                         }
                     }
                 }
 
-                LogService.Split($"Parse stats: total={lines.Length}, empty={skippedEmpty}, legend={skippedLegend}, noV={skippedNoV}, short={skippedShort}, parsed={parseCount}", LogLevel.Debug);
-                LogService.Split($"FFmpeg found {availableEncoders.Count} unique encoders", LogLevel.Debug);
-                if (availableEncoders.Count > 0)
-                {
-                    var sorted = availableEncoders.OrderBy(e => e).Take(20).ToList();
-                    LogService.Split($"First 20: {string.Join(", ", sorted)}", LogLevel.Debug);
-                }
+                LogService.Debug($"Parse stats: total={lines.Length}, empty={skippedEmpty}, legend={skippedLegend}, noV={skippedNoV}, short={skippedShort}, parsed={parseCount}", LogSource.System);
+                LogService.Debug($"FFmpeg found {availableEncoders.Count} unique encoders", LogSource.System);
 
                 // 更新缓存
                 _cachedAvailableEncoders = availableEncoders;
                 _encoderCacheTime = DateTime.Now;
 
-                LogService.Split($"FFmpeg available encoders: {string.Join(", ", availableEncoders)}", LogLevel.Info);
+                LogService.Debug($"FFmpeg available encoders: {string.Join(", ", availableEncoders)}", LogSource.System);
             }
             catch (Exception ex)
             {
-                LogService.Split($"DetectAvailableEncodersViaFFmpeg error: {ex.Message}", LogLevel.Warning);
+                LogService.Warn($"DetectAvailableEncodersViaFFmpeg error: {ex.Message}", source: LogSource.System);
                 _cachedAvailableEncoders = availableEncoders;
                 _encoderCacheTime = DateTime.Now;
             }
@@ -472,7 +469,7 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                LogService.Split($"DetectGpusViaFFmpeg error: {ex.Message}", LogLevel.Warning);
+                LogService.Warn($"DetectGpusViaFFmpeg error: {ex.Message}", source: LogSource.System);
             }
 
             return gpus;
@@ -611,6 +608,15 @@ namespace LivePhotoBox.Services
             }
 
             return IsEncoderAvailable(ffmpegPath, encoder);
+        }
+
+        /// <summary>
+        /// 清除硬件检测结果和编码器缓存，强制重新检测。
+        /// </summary>
+        public static void ClearHardwareCache()
+        {
+            _cachedHardwareList = null;
+            ClearEncoderCache();
         }
 
         /// <summary>

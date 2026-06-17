@@ -136,6 +136,10 @@ namespace LivePhotoBox.Services
             Enqueue(LogSource.System, LogLevel.Info, "LogService initialized.");
             FlushPendingEntries();
 
+            // Log system information (OS, runtime, process architecture, memory)
+            LogSystemInfo();
+            FlushPendingEntries();
+
             // Start async flush loop
             Task.Run(BackgroundFlushLoop);
         }
@@ -503,11 +507,15 @@ namespace LivePhotoBox.Services
                     var sb = new StringBuilder();
                     foreach (var entry in batch)
                     {
-                        sb.AppendLine(entry.FormattedMessage);
-                        if (!string.IsNullOrEmpty(entry.Details))
-                            sb.AppendLine($"  Details: {entry.Details}");
                         if (!string.IsNullOrEmpty(entry.FilePath))
-                            sb.AppendLine($"  at {entry.FilePath}");
+                        {
+                            sb.AppendLine($"{entry.FormattedMessage} [{ShortFilePath(entry.FilePath)}]");
+                        }
+                        else
+                        {
+                            sb.AppendLine(entry.FormattedMessage);
+                        }
+                        if (!string.IsNullOrEmpty(entry.Details))
                         if (!string.IsNullOrEmpty(entry.ExceptionType))
                             sb.AppendLine($"  Exception: {entry.ExceptionType}");
                         if (!string.IsNullOrEmpty(entry.StackTrace))
@@ -587,6 +595,43 @@ namespace LivePhotoBox.Services
             {
                 return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0.0";
             }
+        }
+
+        /// <summary>
+        /// Logs system information (OS, runtime, CPU, memory, app path, culture) at startup,
+        /// before any module-specific initialization runs. All data here is available
+        /// without WMI queries — the hardware detection that follows fills in GPU details.
+        /// </summary>
+        private static void LogSystemInfo()
+        {
+            try
+            {
+                Enqueue(LogSource.System, LogLevel.Info, $"OS: {RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})");
+                Enqueue(LogSource.System, LogLevel.Info, $"Runtime: {RuntimeInformation.FrameworkDescription}");
+                Enqueue(LogSource.System, LogLevel.Info, $"Process: {RuntimeInformation.ProcessArchitecture}");
+                Enqueue(LogSource.System, LogLevel.Info, $"CPU: {Environment.ProcessorCount} logical cores");
+                Enqueue(LogSource.System, LogLevel.Info, $"App Path: {AppContext.BaseDirectory}");
+                Enqueue(LogSource.System, LogLevel.Info, $"Language: {System.Globalization.CultureInfo.CurrentUICulture}");
+
+                var mem = new MemoryStatusEx { dwLength = (uint)Marshal.SizeOf<MemoryStatusEx>() };
+                if (GlobalMemoryStatusEx(ref mem))
+                {
+                    double totalGB = mem.ullTotalPhys / (1024.0 * 1024.0 * 1024.0);
+                    double availGB = mem.ullAvailPhys / (1024.0 * 1024.0 * 1024.0);
+                    Enqueue(LogSource.System, LogLevel.Info, $"Memory: {totalGB:F1} GB total, {availGB:F1} GB available ({mem.dwMemoryLoad}% in use)");
+                }
+            }
+            catch { }
+        }
+
+        private static string ShortFilePath(string filePath)
+        {
+            if (string.IsNullOrEmpty(filePath)) return filePath;
+            int lastColon = filePath.LastIndexOf(':');
+            if (lastColon <= 0) return filePath;
+            var pathPart = filePath.Substring(0, lastColon);
+            var linePart = filePath.Substring(lastColon + 1);
+            return $"{Path.GetFileName(pathPart)}:{linePart}";
         }
 
         private static string GenerateLogFileName()

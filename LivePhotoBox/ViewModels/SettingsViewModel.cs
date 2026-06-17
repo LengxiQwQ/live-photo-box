@@ -228,8 +228,8 @@ namespace LivePhotoBox.ViewModels
             IsHardwareLoading = true;
             try
             {
-                // 清除 FFmpeg 编码器缓存，强制重新检测
-                HardwareService.ClearEncoderCache();
+                // 清除硬件缓存，强制重新检测
+                HardwareService.ClearHardwareCache();
                 // 重新检测硬件
                 await LoadHardwareInfoAsync();
             }

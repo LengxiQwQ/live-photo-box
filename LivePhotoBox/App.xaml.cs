@@ -2,6 +2,7 @@
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
+using System;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox
@@ -43,6 +44,11 @@ namespace LivePhotoBox
         {
             ApplyLanguageSetting();
             LogService.Initialize();
+
+            // Detect hardware early so its summary appears in the log before App/UI messages
+            try { HardwareService.GetAvailableHardware(); }
+            catch (Exception ex) { LogService.Warn($"Hardware detection failed: {ex.Message}", source: LogSource.System); }
+
             CrashHandler.Initialize(this);
             InitializeComponent();
             LogService.Info("Application initialized.", LogSource.App);
