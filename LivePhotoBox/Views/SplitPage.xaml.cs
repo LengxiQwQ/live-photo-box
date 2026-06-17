@@ -60,21 +60,15 @@ namespace LivePhotoBox.Views
         private void ViewModel_TaskStartedForScroll(object? sender, SplitTask task)
         {
             int taskIndex = task.Index - 1;
-            int autoScrollStep = GetAutoScrollStep();
-            if (taskIndex < autoScrollStep)
+
+            // 【核心修复 1】：如果遇到了队列开头的任务（通常是开启了新的一轮），强制重置历史追踪记录
+            if (taskIndex == 0)
             {
-                return;
+                _pendingAutoScrollIndex = -1;
+                _lastAutoScrollIndex = -1;
             }
 
-            bool shouldAdvanceWindow = (taskIndex - autoScrollStep) % autoScrollStep == 0;
-            bool isLastTask = task.Index >= ViewModel.Tasks.Count;
-            if (!shouldAdvanceWindow && !isLastTask)
-            {
-                return;
-            }
-
-            int targetIndex = Math.Min(taskIndex, ViewModel.Tasks.Count - 1);
-            ScheduleAutoScroll(targetIndex);
+            ScheduleAutoScroll(taskIndex);
         }
 
         private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
@@ -90,7 +84,8 @@ namespace LivePhotoBox.Views
         {
             if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count || !ViewModel.IsProcessing) return;
 
-            _pendingAutoScrollIndex = itemIndex;
+            // 总是记录最远的目标索引（保证多线程瞬间并发时，向下追踪最末尾的任务）
+            _pendingAutoScrollIndex = Math.Max(_pendingAutoScrollIndex, itemIndex);
             _hasPendingAutoScroll = true;
 
             if (!_isAutoScrollScheduled)
@@ -173,7 +168,11 @@ namespace LivePhotoBox.Views
                     if (!_isUnloaded && ViewModel.IsProcessing && targetIndex >= 0 && targetIndex < ViewModel.Tasks.Count)
                     {
                         var targetTask = ViewModel.Tasks[targetIndex];
-                        SplitTaskListView.ScrollIntoView(targetTask, ScrollIntoViewAlignment.Leading);
+
+                        // 【核心修复 2】：剔除多余的判断，单纯依赖 Default。
+                        // Default 的特性是：如果任务在第一页（已可见），它不会触发任何滚动；
+                        // 一旦并发任务跑到了屏幕外面，它会自动向下滚动，使其恰好对齐到 ListView 底部。
+                        SplitTaskListView.ScrollIntoView(targetTask, ScrollIntoViewAlignment.Default);
                         _lastAutoScrollIndex = targetIndex;
                     }
                     tcs.TrySetResult();
@@ -184,23 +183,6 @@ namespace LivePhotoBox.Views
                 tcs.TrySetResult();
             }
             return tcs.Task;
-        }
-
-        private int GetAutoScrollStep()
-        {
-            double viewportHeight = SplitTaskListView.ActualHeight;
-            if (viewportHeight <= 0)
-            {
-                return 5;
-            }
-
-            if (SplitTaskListView.ContainerFromIndex(0) is not ListViewItem firstItem || firstItem.ActualHeight <= 0)
-            {
-                return 5;
-            }
-
-            int visibleCount = Math.Max(1, (int)Math.Floor(viewportHeight / firstItem.ActualHeight));
-            return Math.Max(1, visibleCount - 1);
         }
 
         private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject

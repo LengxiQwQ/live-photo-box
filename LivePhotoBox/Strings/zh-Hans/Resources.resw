@@ -451,13 +451,13 @@
     <value>处理完成，用时 {0:F1} 秒</value>
   </data>
   <data name="Status_ComboCompletedSummary" xml:space="preserve">
-    <value>共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个</value>
+    <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个</value>
   </data>
   <data name="Status_SplitCompletedSummary" xml:space="preserve">
-    <value>共 {0} 个任务，用时 {1:F1} 秒，成功 {2} 个，失败 {3} 个</value>
+    <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒，成功 {2} 个，失败 {3} 个</value>
   </data>
   <data name="Status_RepairCompletedSummary" xml:space="preserve">
-    <value>共 {0} 个任务，用时 {1:F1} 秒，成功 {2} 个，跳过 {3} 个，失败 {4} 个</value>
+    <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒，成功 {2} 个，跳过 {3} 个，失败 {4} 个</value>
   </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>开始合成</value>
