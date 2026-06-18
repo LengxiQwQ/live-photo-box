@@ -319,6 +319,23 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        protected async Task ShowQueueNotEmptyDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_QueueNotEmptyTitle"),
+                    Content = new TextBlock { Text = ResourceService.GetString("Msg_QueueNotEmpty"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Close,
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
+                };
+                await dialog.ShowAsync();
+            }
+        }
+
         private static Style? _defaultButtonStyle;
         private static Style? _scanCancelButtonStyle;
 

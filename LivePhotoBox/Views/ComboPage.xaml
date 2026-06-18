@@ -264,13 +264,7 @@
                                         <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind VideoSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                     </StackPanel>
 
-                                    <TextBlock Grid.Column="4" Margin="32,0,0,0" Text="{x:Bind Details, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="3">
-                                        <ToolTipService.ToolTip>
-                                            <ToolTip Placement="Mouse" Visibility="{x:Bind HasErrorDetails, Mode=OneWay}">
-                                                <TextBlock Text="{x:Bind Details, Mode=OneWay}" MaxWidth="520" TextWrapping="Wrap"/>
-                                            </ToolTip>
-                                        </ToolTipService.ToolTip>
-                                    </TextBlock>
+                                    <TextBlock Grid.Column="4" Margin="32,0,0,0" Text="{x:Bind Details, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="5" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped"/>
                                 </Grid>
                             </Border>
                         </DataTemplate>
@@ -279,5 +273,17 @@
             </Border>
 
         </Grid>
+
+        <TeachingTip x:Name="ErrorDetailTip"
+                     IsLightDismissEnabled="True"
+                     PreferredPlacement="Left"
+                     Closed="ErrorDetailTip_Closed">
+            <TeachingTip.Content>
+                <StackPanel Spacing="8">
+                    <TextBlock Text="报错信息已复制" FontWeight="Bold" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap"/>
+                </StackPanel>
+            </TeachingTip.Content>
+        </TeachingTip>
     </Grid>
 </Page>

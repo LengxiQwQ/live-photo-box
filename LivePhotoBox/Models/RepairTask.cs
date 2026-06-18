@@ -120,14 +120,18 @@ namespace LivePhotoBox.Models
             }
         }
 
+        public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
+
         partial void OnDetailsChanged(string value)
         {
             OnPropertyChanged(nameof(DisplayStatus));
+            OnPropertyChanged(nameof(HasErrorDetails));
         }
 
         partial void OnStatusChanged(ProcessStatus value)
         {
             OnPropertyChanged(nameof(DisplayStatus));
+            OnPropertyChanged(nameof(HasErrorDetails));
         }
 
         #endregion

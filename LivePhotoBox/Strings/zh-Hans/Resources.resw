@@ -1175,6 +1175,12 @@
   <data name="Msg_InvalidInputDirectoryTitle" xml:space="preserve">
     <value>输入目录无效</value>
   </data>
+  <data name="Msg_QueueNotEmptyTitle" xml:space="preserve">
+    <value>队列不为空</value>
+  </data>
+  <data name="Msg_QueueNotEmpty" xml:space="preserve">
+    <value>请先清空列表后再扫描</value>
+  </data>
   <data name="Msg_InvalidInputDirectory" xml:space="preserve">
     <value>指定的输入目录不存在，请检查路径是否正确后重试。</value>
   </data>

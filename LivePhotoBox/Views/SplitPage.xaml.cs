@@ -5,9 +5,11 @@ using LivePhotoBox.ViewModels;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System;
 using System.Threading.Tasks;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace LivePhotoBox.Views
 {
@@ -236,6 +238,36 @@ namespace LivePhotoBox.Views
 
         private void SplitTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
+        }
+
+        private void StatusTextBlock_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement element) return;
+            if (element.DataContext is not SplitTask task) return;
+            if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.DisplayStatus)) return;
+
+            // Toggle TeachingTip
+            if (ErrorDetailTip.IsOpen)
+            {
+                ErrorDetailTip.IsOpen = false;
+            }
+            else
+            {
+                ErrorDetailText.Text = task.DisplayStatus;
+                ErrorDetailTip.Target = element;
+                ErrorDetailTip.IsOpen = true;
+
+                // Copy to clipboard
+                var dataPackage = new DataPackage();
+                dataPackage.SetText(task.DisplayStatus);
+                Clipboard.SetContent(dataPackage);
+            }
+        }
+
+        private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args)
+        {
+            // 确保关闭后清理目标引用，避免悬空导致卡死
+            ErrorDetailTip.Target = null;
         }
     }
 }

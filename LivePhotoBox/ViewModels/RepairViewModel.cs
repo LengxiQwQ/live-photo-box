@@ -311,6 +311,12 @@ namespace LivePhotoBox.ViewModels
 
             if (!TryGuardScanClick()) return;
 
+            if (Tasks.Count > 0)
+            {
+                await ShowQueueNotEmptyDialogAsync();
+                return;
+            }
+
             if (IsScanning)
             {
                 CancelScanning();
