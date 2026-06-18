@@ -91,7 +91,7 @@ namespace LivePhotoBox.Views
 
         private async Task SafeNudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
         {
-            try { await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false); } catch { }
+            try { await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false); } catch (Exception ex) { LogService.Debug($"ComboPage auto-scroll nudge failed: {ex.Message}", LogSource.UI); }
         }
 
         private async Task NudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
@@ -110,7 +110,7 @@ namespace LivePhotoBox.Views
                     }
                     tcs.TrySetResult();
                 }
-                catch { tcs.TrySetResult(); }
+                catch (Exception ex) { LogService.Debug($"ComboPage scroll nudge dispatcher error: {ex.Message}", LogSource.UI); tcs.TrySetResult(); }
             }))
             {
                 tcs.TrySetResult();
@@ -134,7 +134,7 @@ namespace LivePhotoBox.Views
                     }
                     tcs.TrySetResult();
                 }
-                catch { tcs.TrySetResult(); }
+                catch (Exception ex) { LogService.Debug($"ComboPage scroll-into-view dispatcher error: {ex.Message}", LogSource.UI); tcs.TrySetResult(); }
             }))
             {
                 tcs.TrySetResult();
@@ -175,13 +175,13 @@ namespace LivePhotoBox.Views
         private async void FileGroupButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            try { await FilePickerService.OpenFileAsync(path); } catch { }
+            try { await FilePickerService.OpenFileAsync(path); } catch (Exception ex) { LogService.Debug($"ComboPage open file failed: {ex.Message}", LogSource.UI); }
         }
 
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            try { FilePickerService.RevealInExplorer(path); } catch { }
+            try { FilePickerService.RevealInExplorer(path); } catch (Exception ex) { LogService.Debug($"ComboPage reveal in explorer failed: {ex.Message}", LogSource.UI); }
         }
 
         // ==========================================

@@ -33,8 +33,9 @@ namespace LivePhotoBox
                     var backgroundColor = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
                     return backgroundColor.R < 128 ? ElementTheme.Dark : ElementTheme.Light;
                 }
-                catch
+                catch (Exception ex)
                 {
+                    LogService.Debug($"UISettings theme detection failed, defaulting to Light: {ex.Message}", LogSource.System);
                     return ElementTheme.Light;
                 }
             }

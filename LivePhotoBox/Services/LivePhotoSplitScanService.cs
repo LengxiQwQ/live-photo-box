@@ -215,7 +215,11 @@ namespace LivePhotoBox.Services
             }
             catch (IOException) { return false; }
             catch (UnauthorizedAccessException) { return false; }
-            catch { return false; }
+            catch (Exception ex)
+            {
+                LogService.Scan($"Unexpected error checking LivePhoto candidate: {Path.GetFileName(path)}", LogLevel.Debug, ex);
+                return false;
+            }
             finally
             {
                 ArrayPool<byte>.Shared.Return(headBuffer);

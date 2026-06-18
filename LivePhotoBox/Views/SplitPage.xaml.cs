@@ -121,7 +121,7 @@ namespace LivePhotoBox.Views
                     var dispatcher = DispatcherQueue;
                     if (dispatcher != null)
                     {
-                        try { await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false); } catch { }
+                        try { await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false); } catch (Exception ex) { LogService.Debug($"SplitPage auto-scroll failed: {ex.Message}", LogSource.UI); }
                     }
                 }
             }
@@ -138,7 +138,7 @@ namespace LivePhotoBox.Views
 
         private async Task SafeNudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
         {
-            try { await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false); } catch { }
+            try { await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false); } catch (Exception ex) { LogService.Debug($"SplitPage auto-scroll nudge failed: {ex.Message}", LogSource.UI); }
         }
 
         private async Task NudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
@@ -157,7 +157,7 @@ namespace LivePhotoBox.Views
                     }
                     tcs.TrySetResult();
                 }
-                catch { tcs.TrySetResult(); }
+                catch (Exception ex) { LogService.Debug($"SplitPage scroll nudge dispatcher error: {ex.Message}", LogSource.UI); tcs.TrySetResult(); }
             }))
             {
                 tcs.TrySetResult();
@@ -185,7 +185,7 @@ namespace LivePhotoBox.Views
                     }
                     tcs.TrySetResult();
                 }
-                catch { tcs.TrySetResult(); }
+                catch (Exception ex) { LogService.Debug($"SplitPage scroll-into-view dispatcher error: {ex.Message}", LogSource.UI); tcs.TrySetResult(); }
             }))
             {
                 tcs.TrySetResult();
@@ -226,13 +226,13 @@ namespace LivePhotoBox.Views
         private async void FileButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            try { await FilePickerService.OpenFileAsync(path); } catch { }
+            try { await FilePickerService.OpenFileAsync(path); } catch (Exception ex) { LogService.Debug($"SplitPage open file failed: {ex.Message}", LogSource.UI); }
         }
 
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            try { FilePickerService.RevealInExplorer(path); } catch { }
+            try { FilePickerService.RevealInExplorer(path); } catch (Exception ex) { LogService.Debug($"SplitPage reveal in explorer failed: {ex.Message}", LogSource.UI); }
         }
 
         private void SplitTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)

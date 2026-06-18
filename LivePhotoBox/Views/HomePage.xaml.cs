@@ -334,7 +334,7 @@ namespace LivePhotoBox.Views
                     sv.ChangeView(null, point.Y - 24, null, false);
                 }
             }
-            catch { }
+            catch (Exception ex) { LogService.Debug($"FloatingGuideButton scroll failed: {ex.Message}", LogSource.UI); }
         }
 
         protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
@@ -365,7 +365,7 @@ namespace LivePhotoBox.Views
                     sv.ChangeView(null, point.Y - 24, null, false);
                 }
             }
-            catch { }
+            catch (Exception ex) { LogService.Debug($"ScrollToFeature failed: {ex.Message}", LogSource.UI); }
         }
     }
 }

@@ -65,8 +65,9 @@ namespace LivePhotoBox.Views
             {
                 await FilePickerService.OpenFileAsync(path);
             }
-            catch
+            catch (Exception ex)
             {
+                LogService.Debug($"RepairPage open file failed: {ex.Message}", LogSource.UI);
             }
         }
 
@@ -81,8 +82,9 @@ namespace LivePhotoBox.Views
             {
                 FilePickerService.RevealInExplorer(path);
             }
-            catch
+            catch (Exception ex)
             {
+                LogService.Debug($"RepairPage reveal in explorer failed: {ex.Message}", LogSource.UI);
             }
         }
 

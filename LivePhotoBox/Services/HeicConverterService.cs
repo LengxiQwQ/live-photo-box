@@ -194,8 +194,9 @@ namespace LivePhotoBox.Services
             {
                 process.Start();
             }
-            catch
+            catch (Exception ex)
             {
+                LogService.Combo($"Failed to start exiftool for HEIC tag copy: {ex.Message}", LogLevel.Warning);
                 return;
             }
 

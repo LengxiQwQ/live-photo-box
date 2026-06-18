@@ -370,9 +370,21 @@ namespace LivePhotoBox.ViewModels
                                              f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase))
                                  .ToList();
                     }
-                    catch (UnauthorizedAccessException) { return new List<string>(); }
-                    catch (DirectoryNotFoundException) { return new List<string>(); }
-                    catch (IOException) { return new List<string>(); }
+                    catch (UnauthorizedAccessException ex)
+                    {
+                        LogService.Repair($"Access denied to repair scan directory: {InputDirectory}", LogLevel.Error, ex);
+                        return new List<string>();
+                    }
+                    catch (DirectoryNotFoundException ex)
+                    {
+                        LogService.Repair($"Repair scan directory not found: {InputDirectory}", LogLevel.Error, ex);
+                        return new List<string>();
+                    }
+                    catch (IOException ex)
+                    {
+                        LogService.Repair($"IO error scanning repair directory: {InputDirectory}", LogLevel.Error, ex);
+                        return new List<string>();
+                    }
                 }, token);
 
                 TotalPhotosCount = files.Count;

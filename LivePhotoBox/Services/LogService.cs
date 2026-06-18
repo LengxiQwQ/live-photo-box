@@ -204,9 +204,15 @@ namespace LivePhotoBox.Services
             [CallerFilePath] string? sourceFilePath = null,
             [CallerLineNumber] int lineNumber = 0)
         {
-            if (string.IsNullOrWhiteSpace(message)) return;
+            // If both message and exception are empty/nil, there's nothing to log
+            if (string.IsNullOrWhiteSpace(message) && exception == null) return;
 
-            Enqueue(source, level, message, details, exception, filePath ?? $"{sourceFilePath}:{lineNumber}", memberName);
+            // If message is empty but exception is provided, use exception message as fallback
+            string effectiveMessage = string.IsNullOrWhiteSpace(message)
+                ? exception?.Message ?? "(no message)"
+                : message;
+
+            Enqueue(source, level, effectiveMessage, details, exception, filePath ?? $"{sourceFilePath}:{lineNumber}", memberName);
 
             // Warning or above → signal flush so it hits disk sooner
             if (level >= LogLevel.Warning)
@@ -329,7 +335,7 @@ namespace LivePhotoBox.Services
                 {
                     sb.AppendLine($"--- Last {CrashContextLineCount} log entries before crash ---");
                     foreach (var entry in recentContext)
-                        sb.AppendLine($"  {entry.FormattedMessage}");
+                        sb.AppendLine($"  {entry.ToString()}");
                     sb.AppendLine();
                 }
 
@@ -516,6 +522,7 @@ namespace LivePhotoBox.Services
                             sb.AppendLine(entry.FormattedMessage);
                         }
                         if (!string.IsNullOrEmpty(entry.Details))
+                            sb.AppendLine($"  Details: {entry.Details}");
                         if (!string.IsNullOrEmpty(entry.ExceptionType))
                             sb.AppendLine($"  Exception: {entry.ExceptionType}");
                         if (!string.IsNullOrEmpty(entry.StackTrace))
