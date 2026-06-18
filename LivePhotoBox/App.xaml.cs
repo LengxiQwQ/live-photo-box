@@ -14,6 +14,51 @@ namespace LivePhotoBox
         public static BitmapImage? CachedBannerImage { get; set; }
 
         /// <summary>
+        /// Refreshes <see cref="CachedBannerImage"/> to the given preset.
+        /// The home page picks this up on next render.
+        /// </summary>
+        public static void RefreshBannerImage(BannerPreset preset)
+        {
+            try
+            {
+                CachedBannerImage = new BitmapImage(new Uri(preset.AssetPath));
+                LogService.Debug($"Banner image refreshed to: {preset.Name}", LogSource.Settings);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Failed to load banner preset '{preset.Key}': {ex.Message}", source: LogSource.Settings);
+            }
+        }
+
+        /// <summary>
+        /// Load banner image from persisted settings. If random mode is on,
+        /// picks a random preset each time. Called on app start before the
+        /// Settings VM is available, and when the home page needs a refresh.
+        /// </summary>
+        public static BitmapImage LoadBannerImageFromSettings()
+        {
+            bool random = AppSettingsService.GetValue("IsBannerRandomEnabled", false);
+            int index;
+            if (random)
+            {
+                index = Random.Shared.Next(3);
+            }
+            else
+            {
+                index = AppSettingsService.GetValue("BannerPresetIndex", 0);
+            }
+
+            string path = index switch
+            {
+                1 => "ms-appx:///Assets/Banners/banner_02.jpg",
+                2 => "ms-appx:///Assets/Banners/banner_03.jpg",
+                _ => "ms-appx:///Assets/Banners/banner_01.jpg",
+            };
+
+            return new BitmapImage(new Uri(path));
+        }
+
+        /// <summary>
         /// Gets the current effective <see cref="ElementTheme"/> for the application.
         /// When the user has selected "Default", detects the system theme.
         /// Returns <see cref="ElementTheme.Light"/> if the main window is not yet available.

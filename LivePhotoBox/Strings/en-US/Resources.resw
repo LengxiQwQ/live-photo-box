@@ -175,16 +175,19 @@ Do you want to restart now?</value>
   <data name="SettingsPage_Language_System.Content" xml:space="preserve">
     <value>System Default</value>
   </data>
-  <data name="SettingsPage_Backdrop_Header.Header" xml:space="preserve">
+  <data name="SettingsPage_Backdrop_Header.Text" xml:space="preserve">
     <value>Window Backdrop</value>
   </data>
   <data name="SettingsPage_Backdrop_Desc.Text" xml:space="preserve">
     <value>Choose Windows 11 immersive background</value>
   </data>
+  <data name="SettingsPage_Banner_Header.Text" xml:space="preserve">
+    <value>Home Background</value>
+  </data>
   <data name="SettingsPage_Backdrop_None.Content" xml:space="preserve">
     <value>None</value>
   </data>
-  <data name="SettingsPage_Theme_Header.Header" xml:space="preserve">
+  <data name="SettingsPage_Theme_Header.Text" xml:space="preserve">
     <value>Theme</value>
   </data>
   <data name="SettingsPage_Theme_System.Content" xml:space="preserve">
@@ -589,15 +592,10 @@ Do you want to restart now?</value>
   <data name="Msg_GotIt" xml:space="preserve">
     <value>Got it</value>
   </data>
-  <data name="SettingsPage_Language.Header" xml:space="preserve">
+  <data name="SettingsPage_Language.Text" xml:space="preserve">
     <value>Language</value>
   </data>
-  <data name="SettingsPage_Language_Chinese.Content" xml:space="preserve">
-    <value>Chinese (Simplified)</value>
-  </data>
-  <data name="SettingsPage_Language_English.Content" xml:space="preserve">
-    <value>English</value>
-  </data>
+  <!-- Language names hardcoded in XAML to stay native regardless of UI language -->
   <data name="SettingsPage_Backdrop_Mica.Content" xml:space="preserve">
     <value>Mica</value>
   </data>

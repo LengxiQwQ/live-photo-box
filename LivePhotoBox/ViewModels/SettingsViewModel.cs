@@ -1,7 +1,9 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -66,6 +68,55 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Backdrop changed to index: {value}", LogSource.Settings);
         }
 
+        #region Banner Settings
+
+        public List<BannerPreset> BannerPresets { get; } = new()
+        {
+            new BannerPreset { Name = "预设 1 — 默认风景", Key = "default", AssetPath = "ms-appx:///Assets/Banners/banner_01.jpg" },
+            new BannerPreset { Name = "预设 2 — 海岸风光", Key = "scenic",   AssetPath = "ms-appx:///Assets/Banners/banner_02.jpg" },
+            new BannerPreset { Name = "预设 3 — 动漫画风", Key = "anime",    AssetPath = "ms-appx:///Assets/Banners/banner_03.jpg" },
+        };
+
+        [ObservableProperty]
+        private int _bannerPresetIndex;
+
+        partial void OnBannerPresetIndexChanged(int value)
+        {
+            if (_isInitializing) return;
+
+            if (value < 0 || value >= BannerPresets.Count)
+            {
+                value = 0;
+                _bannerPresetIndex = 0;
+            }
+
+            AppSettingsService.SetValue(nameof(BannerPresetIndex), value);
+            App.RefreshBannerImage(BannerPresets[value]);
+            OnPropertyChanged(nameof(CurrentBannerPresetName));
+            LogService.Info($"Banner preset changed to: {BannerPresets[value].Name} (index {value})", LogSource.Settings);
+        }
+
+        [ObservableProperty]
+        private bool _isBannerRandomEnabled;
+
+        partial void OnIsBannerRandomEnabledChanged(bool value)
+        {
+            AppSettingsService.SetValue(nameof(IsBannerRandomEnabled), value);
+            LogService.Info($"Banner random mode: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
+        public string CurrentBannerPresetName
+        {
+            get
+            {
+                if (BannerPresetIndex >= 0 && BannerPresetIndex < BannerPresets.Count)
+                    return BannerPresets[BannerPresetIndex].Name;
+                return BannerPresets.Count > 0 ? BannerPresets[0].Name : "";
+            }
+        }
+
+        #endregion
+
         #region Split Settings
 
         [ObservableProperty]
@@ -127,6 +178,8 @@ namespace LivePhotoBox.ViewModels
             LanguageIndex = AppSettingsService.GetValue(nameof(LanguageIndex), 0);
             ElementTheme = AppSettingsService.GetValue(nameof(ElementTheme), 0);
             BackdropIndex = AppSettingsService.GetValue(nameof(BackdropIndex), 0);
+            BannerPresetIndex = AppSettingsService.GetValue(nameof(BannerPresetIndex), 0);
+            IsBannerRandomEnabled = AppSettingsService.GetValue(nameof(IsBannerRandomEnabled), false);
             ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 5);
             MaxThreadCount = Math.Min(Environment.ProcessorCount, 16);
         }
@@ -271,6 +324,10 @@ namespace LivePhotoBox.ViewModels
             LanguageIndex = 0;
             BackdropIndex = 0;
             ElementTheme = 0;
+
+            // 恢复 Banner 设置
+            IsBannerRandomEnabled = false;
+            BannerPresetIndex = 0;
 
             // 恢复拆分设置为默认值
             ThreadCount = 5;

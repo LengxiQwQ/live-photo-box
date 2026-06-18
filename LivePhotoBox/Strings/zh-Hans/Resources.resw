@@ -174,16 +174,19 @@
   <data name="SettingsPage_Language_System.Content" xml:space="preserve">
     <value>跟随系统 (System Default)</value>
   </data>
-  <data name="SettingsPage_Backdrop_Header.Header" xml:space="preserve">
+  <data name="SettingsPage_Backdrop_Header.Text" xml:space="preserve">
     <value>窗口材质</value>
   </data>
   <data name="SettingsPage_Backdrop_Desc.Text" xml:space="preserve">
     <value>选择 Windows 11 沉浸式背景</value>
   </data>
+  <data name="SettingsPage_Banner_Header.Text" xml:space="preserve">
+    <value>主页背景</value>
+  </data>
   <data name="SettingsPage_Backdrop_None.Content" xml:space="preserve">
     <value>无</value>
   </data>
-  <data name="SettingsPage_Theme_Header.Header" xml:space="preserve">
+  <data name="SettingsPage_Theme_Header.Text" xml:space="preserve">
     <value>应用主题</value>
   </data>
   <data name="SettingsPage_Theme_System.Content" xml:space="preserve">
@@ -588,15 +591,10 @@
   <data name="Msg_GotIt" xml:space="preserve">
     <value>我知道了</value>
   </data>
-  <data name="SettingsPage_Language.Header" xml:space="preserve">
+  <data name="SettingsPage_Language.Text" xml:space="preserve">
     <value>界面语言 (Language)</value>
   </data>
-  <data name="SettingsPage_Language_Chinese.Content" xml:space="preserve">
-    <value>中文 (简体)</value>
-  </data>
-  <data name="SettingsPage_Language_English.Content" xml:space="preserve">
-    <value>English</value>
-  </data>
+  <!-- Language names hardcoded in XAML to stay native regardless of UI language -->
   <data name="SettingsPage_Backdrop_Mica.Content" xml:space="preserve">
     <value>Mica</value>
   </data>

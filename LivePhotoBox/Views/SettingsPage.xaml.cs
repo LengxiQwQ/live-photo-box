@@ -120,6 +120,23 @@ namespace LivePhotoBox.Views
             await CrashHandler.ShowCrashDialogAsync(XamlRoot, logPath);
         }
 
+        /// <summary>
+        /// 阻止滚轮切换 FlipView，防止滚动设置页时误触。
+        /// </summary>
+        private void BannerFlipView_PointerWheelChanged(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
+        {
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// Resets the banner to the first (default) preset and turns off random mode.
+        /// </summary>
+        private void ResetBanner_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.IsBannerRandomEnabled = false;
+            ViewModel.BannerPresetIndex = 0;
+        }
+
         private async void RestoreDefaultSettings_Click(object sender, RoutedEventArgs e)
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;

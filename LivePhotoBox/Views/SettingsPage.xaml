@@ -25,44 +25,121 @@
 
                     <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                             Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                        <toolkit:WrapPanel x:Name="AppearanceOptionsPanel"
-                                   HorizontalSpacing="40"
-                                   VerticalSpacing="16">
+                        <StackPanel Spacing="20">
+                            <toolkit:WrapPanel x:Name="AppearanceOptionsPanel"
+                                       HorizontalSpacing="40"
+                                       VerticalSpacing="16">
 
-                            <StackPanel Spacing="8">
-                                <ComboBox x:Uid="SettingsPage_Language"
-                                          SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}"
-                                          Loaded="AppearanceComboBox_Loaded">
-                                    <ComboBoxItem x:Uid="SettingsPage_Language_System"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Language_Chinese"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Language_English"/>
-                                </ComboBox>
-                                <TextBlock x:Uid="SettingsPage_Language_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </StackPanel>
+                                <StackPanel Spacing="8">
+                                    <TextBlock x:Uid="SettingsPage_Language"
+                                               Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                               FontFamily="Microsoft YaHei UI"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}"
+                                              Loaded="AppearanceComboBox_Loaded">
+                                        <ComboBoxItem x:Uid="SettingsPage_Language_System"/>
+                                        <ComboBoxItem Content="English (en-US)"/>
+                                        <ComboBoxItem Content="中文(简体) (zh-Hans)"/>
+                                        <ComboBoxItem Content="中文(繁體) (zh-Hant)"/>
+                                        <ComboBoxItem Content="日本語 (ja) — 開発中"/>
+                                        <ComboBoxItem Content="한국어 (ko) — 개발 중"/>
+                                        <ComboBoxItem Content="Français (fr) — En développement"/>
+                                        <ComboBoxItem Content="Deutsch (de) — In Entwicklung"/>
+                                        <ComboBoxItem Content="Español (es) — En desarrollo"/>
+                                        <ComboBoxItem Content="Русский (ru) — В разработке"/>
+                                    </ComboBox>
+                                    <TextBlock x:Uid="SettingsPage_Language_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
 
-                            <StackPanel Spacing="8">
-                                <ComboBox x:Uid="SettingsPage_Backdrop_Header"
-                                          SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}"
-                                          Loaded="AppearanceComboBox_Loaded">
-                                    <ComboBoxItem x:Uid="SettingsPage_Backdrop_Mica"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Backdrop_MicaAlt"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Backdrop_Acrylic"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Backdrop_None"/>
-                                </ComboBox>
-                                <TextBlock x:Uid="SettingsPage_Backdrop_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </StackPanel>
+                                <StackPanel Spacing="8">
+                                    <TextBlock x:Uid="SettingsPage_Backdrop_Header"
+                                               Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                               FontFamily="Microsoft YaHei UI"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}"
+                                              Loaded="AppearanceComboBox_Loaded">
+                                        <ComboBoxItem x:Uid="SettingsPage_Backdrop_Mica"/>
+                                        <ComboBoxItem x:Uid="SettingsPage_Backdrop_MicaAlt"/>
+                                        <ComboBoxItem x:Uid="SettingsPage_Backdrop_Acrylic"/>
+                                        <ComboBoxItem x:Uid="SettingsPage_Backdrop_None"/>
+                                    </ComboBox>
+                                    <TextBlock x:Uid="SettingsPage_Backdrop_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
 
-                            <StackPanel Spacing="8">
-                                <ComboBox x:Uid="SettingsPage_Theme_Header"
-                                          SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}"
-                                          Loaded="AppearanceComboBox_Loaded">
-                                    <ComboBoxItem x:Uid="SettingsPage_Theme_System"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Theme_Light"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Theme_Dark"/>
-                                </ComboBox>
-                                <TextBlock x:Uid="SettingsPage_Theme_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </StackPanel>
-                        </toolkit:WrapPanel>
+                                <StackPanel Spacing="8">
+                                    <TextBlock x:Uid="SettingsPage_Theme_Header"
+                                               Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                               FontFamily="Microsoft YaHei UI"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}"
+                                              Loaded="AppearanceComboBox_Loaded">
+                                        <ComboBoxItem x:Uid="SettingsPage_Theme_System"/>
+                                        <ComboBoxItem x:Uid="SettingsPage_Theme_Light"/>
+                                        <ComboBoxItem x:Uid="SettingsPage_Theme_Dark"/>
+                                    </ComboBox>
+                                    <TextBlock x:Uid="SettingsPage_Theme_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </toolkit:WrapPanel>
+
+                            <!-- 分隔线 -->
+                            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                            <!-- 主页 Banner 背景 -->
+                            <TextBlock x:Uid="SettingsPage_Banner_Header" Style="{ThemeResource BodyStrongTextBlockStyle}" FontFamily="Microsoft YaHei UI"/>
+
+                            <toolkit:WrapPanel HorizontalSpacing="32" VerticalSpacing="12">
+
+                                <!-- FlipView 预览 + 名称 -->
+                                <StackPanel>
+                                    <Border CornerRadius="8">
+                                        <FlipView x:Name="BannerFlipView"
+                                                  MaxWidth="320" Height="135"
+                                                  Padding="0" Margin="0"
+                                                  PointerWheelChanged="BannerFlipView_PointerWheelChanged"
+                                                  SelectedIndex="{x:Bind ViewModel.BannerPresetIndex, Mode=TwoWay}">
+                                            <FlipView.ItemContainerStyle>
+                                                <Style TargetType="FlipViewItem">
+                                                    <Setter Property="Padding" Value="0"/>
+                                                    <Setter Property="Margin" Value="0"/>
+                                                </Style>
+                                            </FlipView.ItemContainerStyle>
+                                            <Image Source="ms-appx:///Assets/Banners/banner_01.jpg"
+                                                   Stretch="UniformToFill"
+                                                   VerticalAlignment="Stretch"
+                                                   HorizontalAlignment="Center" />
+                                            <Image Source="ms-appx:///Assets/Banners/banner_02.jpg"
+                                                   Stretch="UniformToFill"
+                                                   VerticalAlignment="Stretch"
+                                                   HorizontalAlignment="Center" />
+                                            <Image Source="ms-appx:///Assets/Banners/banner_03.jpg"
+                                                   Stretch="UniformToFill"
+                                                   VerticalAlignment="Stretch"
+                                                   HorizontalAlignment="Center" />
+                                        </FlipView>
+                                    </Border>
+                                    <TextBlock Text="{x:Bind ViewModel.CurrentBannerPresetName, Mode=OneWay}"
+                                               FontSize="12" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                               Margin="0,6,0,0"/>
+                                </StackPanel>
+
+                                <!-- 控件组：随机开关在上，恢复默认按钮在下 -->
+                                <StackPanel Spacing="18" VerticalAlignment="Center">
+                                    <ToggleSwitch x:Name="BannerRandomToggle"
+                                                  OnContent="随机切换"
+                                                  OffContent="随机切换"
+                                                  IsOn="{x:Bind ViewModel.IsBannerRandomEnabled, Mode=TwoWay}"
+                                                  FontSize="13"/>
+                                    <Button Style="{ThemeResource DefaultButtonStyle}"
+                                            Click="ResetBanner_Click"
+                                            HorizontalAlignment="Left"
+                                            Padding="16,6">
+                                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                                            <TextBlock Text="恢复默认" FontSize="13" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </toolkit:WrapPanel>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
 
@@ -81,8 +158,8 @@
                             <!-- 硬件选择 -->
                             <StackPanel Spacing="4">
                                 <TextBlock x:Uid="SettingsPage_Split_Hardware"
-                                           FontSize="13"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
                                 <StackPanel Orientation="Horizontal" Spacing="4">
                                     <ComboBox x:Name="HardwareComboBox"
                                               ItemsSource="{x:Bind ViewModel.AvailableHardware, Mode=OneWay}"
@@ -105,8 +182,8 @@
                             <!-- 线程数选择 -->
                             <StackPanel Spacing="4" VerticalAlignment="Bottom">
                                 <TextBlock x:Uid="SettingsPage_Split_ThreadCount"
-                                           FontSize="13"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
                                 <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                         BorderThickness="1"
                                         CornerRadius="4"

@@ -34,7 +34,7 @@ namespace LivePhotoBox.Views
         {
             if (App.CachedBannerImage == null)
             {
-                App.CachedBannerImage = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri("ms-appx:///Assets/BannerImage.jpg"));
+                App.CachedBannerImage = App.LoadBannerImageFromSettings();
             }
 
             if (this.FindName("BannerImage") is Image bannerImage)

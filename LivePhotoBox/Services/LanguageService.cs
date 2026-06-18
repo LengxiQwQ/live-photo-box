@@ -21,19 +21,40 @@ namespace LivePhotoBox.Services
 
         public static string GetEffectiveLanguage(int index)
         {
-            if (index == 1) return "zh-Hans";
-            if (index == 2) return "en-US";
-
-            var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
-            foreach (var lang in systemLangs)
+            // 0 = 跟随系统 (System Default)
+            if (index == 0)
             {
-                var lowerLang = lang.ToLowerInvariant();
-                if (lowerLang.StartsWith("zh")) return "zh-Hans";
-                if (lowerLang.StartsWith("en")) return "en-US"; // 加上这一句，先匹配到英文就返回英文
+                var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
+                foreach (var lang in systemLangs)
+                {
+                    var lowerLang = lang.ToLowerInvariant();
+                    if (lowerLang.StartsWith("zh-hant") || lowerLang.StartsWith("zh-tw") || lowerLang.StartsWith("zh-hk") || lowerLang.StartsWith("zh-mo"))
+                        return "zh-Hant";
+                    if (lowerLang.StartsWith("zh")) return "zh-Hans";
+                    if (lowerLang.StartsWith("en")) return "en-US";
+                    if (lowerLang.StartsWith("ja")) return "ja";
+                    if (lowerLang.StartsWith("ko")) return "ko";
+                    if (lowerLang.StartsWith("fr")) return "fr";
+                    if (lowerLang.StartsWith("de")) return "de";
+                    if (lowerLang.StartsWith("es")) return "es";
+                    if (lowerLang.StartsWith("ru")) return "ru";
+                }
+                return "en-US";
             }
 
-            // 如果用户的系统语言既不是中文也不是英文（比如日文），默认回退到英文
-            return "en-US";
+            return index switch
+            {
+                1 => "en-US",
+                2 => "zh-Hans",
+                3 => "zh-Hant",
+                4 => "ja",
+                5 => "ko",
+                6 => "fr",
+                7 => "de",
+                8 => "es",
+                9 => "ru",
+                _ => "en-US",
+            };
         }
 
         public static string GetCurrentLanguageTag()
