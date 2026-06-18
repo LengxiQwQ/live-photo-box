@@ -9,7 +9,6 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System;
 using System.Threading.Tasks;
-using Windows.ApplicationModel.DataTransfer;
 
 namespace LivePhotoBox.Views
 {
@@ -240,19 +239,8 @@ namespace LivePhotoBox.Views
         {
         }
 
-        private void PageRoot_Tapped(object sender, TappedRoutedEventArgs e)
-        {
-            // 点击页面空白处 → 关闭报错浮窗
-            if (ErrorDetailTip.IsOpen)
-            {
-                ErrorDetailTip.IsOpen = false;
-            }
-        }
-
         private void StatusTextBlock_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            e.Handled = true; // 阻止冒泡到 PageRoot_Tapped
-
             if (sender is not FrameworkElement element) return;
             if (element.DataContext is not SplitTask task) return;
             if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.DisplayStatus)) return;
@@ -264,63 +252,16 @@ namespace LivePhotoBox.Views
                 return;
             }
 
-            // 更新内容
+            // 更新内容，换 Target
             ErrorDetailText.Text = task.DisplayStatus;
-
-            // 换 Target（不关浮窗，直接切过去）
             ErrorDetailTip.Target = element;
             ErrorDetailTip.IsOpen = true;
-
-            // 阻止背景滚动
-            SetBackgroundScrollEnabled(false);
-        }
-
-        private void SetBackgroundScrollEnabled(bool enabled)
-        {
-            _taskListScrollViewer ??= FindDescendant<ScrollViewer>(SplitTaskListView);
-            if (_taskListScrollViewer != null)
-                _taskListScrollViewer.VerticalScrollMode = enabled ? ScrollMode.Auto : ScrollMode.Disabled;
-        }
-
-        private void ErrorDetailTip_Loaded(object sender, RoutedEventArgs e)
-        {
-            // 隐藏 TeachingTip 自带的关闭按钮
-            var closeBtn = FindVisualChildByName<Button>(ErrorDetailTip, "CloseButton");
-            if (closeBtn != null)
-                closeBtn.Visibility = Visibility.Collapsed;
-        }
-
-        private static T? FindVisualChildByName<T>(DependencyObject parent, string name) where T : FrameworkElement
-        {
-            int count = VisualTreeHelper.GetChildrenCount(parent);
-            for (int i = 0; i < count; i++)
-            {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                if (child is T element && element.Name == name)
-                    return element;
-                var found = FindVisualChildByName<T>(child, name);
-                if (found != null)
-                    return found;
-            }
-            return null;
-        }
-
-        private void TipCopy_Click(object sender, RoutedEventArgs e)
-        {
-            var dataPackage = new DataPackage();
-            dataPackage.SetText(ErrorDetailText.Text);
-            Clipboard.SetContent(dataPackage);
-        }
-
-        private void TipClose_Click(object sender, RoutedEventArgs e)
-        {
-            ErrorDetailTip.IsOpen = false;
         }
 
         private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args)
         {
+            // 确保关闭后清理目标引用，避免悬空导致卡死
             ErrorDetailTip.Target = null;
-            SetBackgroundScrollEnabled(true);
         }
     }
 }

@@ -16,7 +16,7 @@
         <converters:ProgressBarIndeterminateConverter x:Key="ProgressBarIndeterminateConverter"/>
     </Page.Resources>
 
-    <Grid Tapped="PageRoot_Tapped">
+    <Grid>
         <Grid Padding="24,24,24,40">
 
             <Grid.RowDefinitions>
@@ -222,45 +222,9 @@
         <TeachingTip x:Name="ErrorDetailTip"
                      IsLightDismissEnabled="False"
                      PreferredPlacement="Left"
-                     Loaded="ErrorDetailTip_Loaded"
                      Closed="ErrorDetailTip_Closed">
             <TeachingTip.Content>
-                <Grid ColumnSpacing="10">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" x:Name="ErrorDetailText" MaxWidth="460" TextWrapping="Wrap" IsTextSelectionEnabled="True" VerticalAlignment="Center"/>
-                    <Grid Grid.Column="1">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-                        <Button Grid.Row="0" x:Uid="Tip_CloseBtn" Click="TipClose_Click"
-                                HorizontalAlignment="Right"
-                                Background="Transparent" BorderBrush="Transparent"
-                                Width="32" Height="32" Padding="6" CornerRadius="4"
-                                Margin="0,-8,-8,0">
-                            <Button.Resources>
-                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="{ThemeResource SubtleFillColorTransparent}"/>
-                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="{ThemeResource SubtleFillColorSecondary}"/>
-                            </Button.Resources>
-                            <FontIcon Glyph="&#xE711;" FontSize="12"/>
-                        </Button>
-                        <Button Grid.Row="2" x:Uid="Tip_CopyBtn" Click="TipCopy_Click"
-                                HorizontalAlignment="Right"
-                                Background="Transparent" BorderBrush="Transparent"
-                                Width="32" Height="32" Padding="6" CornerRadius="4"
-                                Margin="0,-8,-8,-8">
-                            <Button.Resources>
-                                <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="{ThemeResource SubtleFillColorTransparent}"/>
-                                <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="{ThemeResource SubtleFillColorSecondary}"/>
-                            </Button.Resources>
-                            <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
-                        </Button>
-                    </Grid>
-                </Grid>
+                <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap" IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
             </TeachingTip.Content>
         </TeachingTip>
     </Grid>

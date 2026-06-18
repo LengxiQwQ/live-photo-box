@@ -1175,13 +1175,7 @@
   <data name="Msg_InvalidInputDirectoryTitle" xml:space="preserve">
     <value>输入目录无效</value>
   </data>
-  <data name="Tip_CloseBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>关闭</value>
-  </data>
-  <data name="Tip_CopyBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>复制</value>
-  </data>
-  <data name="Msg_QueueNotEmptyTitle" xml:space="preserve">
+<data name="Msg_QueueNotEmptyTitle" xml:space="preserve">
     <value>队列不为空</value>
   </data>
   <data name="Msg_QueueNotEmpty" xml:space="preserve">
