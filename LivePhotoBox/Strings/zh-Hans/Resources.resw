@@ -277,10 +277,10 @@
     <value>队列任务 :</value>
   </data>
   <data name="SplitPage_StatRecognized.Text" xml:space="preserve">
-    <value>识别文件 :</value>
+    <value>实况照片 :</value>
   </data>
   <data name="SplitPage_StatSkipped.Text" xml:space="preserve">
-    <value>已跳过 :</value>
+    <value>非实况照片 :</value>
   </data>
   <data name="SplitPage_FormatLabel.Text" xml:space="preserve">
     <value>视频导出格式：</value>
@@ -1149,6 +1149,12 @@
   <data name="AboutPage_JpegTranSuffix.Text" xml:space="preserve">
     <value>(IJG)：通过 DCT 系数空间无损变换算法，在不重新编码的情况下实现物理层面的零损耗旋转。</value>
   </data>
+  <data name="AboutPage_FFmpegSuffix.Text" xml:space="preserve">
+    <value> — 视频转码与流封装引擎</value>
+  </data>
+  <data name="AboutPage_ImageMagickSuffix.Text" xml:space="preserve">
+    <value> / Magick.NET (dlemstra) — 通过 libheif 解码 HEIC/HEIF 图像</value>
+  </data>
   <data name="AboutPage_PrivacyTitle.Text" xml:space="preserve">
     <value>隐私政策</value>
   </data>
@@ -1356,6 +1362,24 @@
   <data name="SettingsPage_Split_ThreadCount_Desc.Text" xml:space="preserve">
     <value>同时处理的任务数</value>
   </data>
+  <data name="SettingsPage_Combo_HeicDecoder.Text" xml:space="preserve">
+    <value>HEIC 解码器</value>
+  </data>
+  <data name="SettingsPage_Combo_HeicDecoder_MagickNET.Content" xml:space="preserve">
+    <value>Magick.NET（ImageMagick + libheif）</value>
+  </data>
+  <data name="SettingsPage_Combo_HeicDecoder_BitmapDecoder.Content" xml:space="preserve">
+    <value>Windows BitmapDecoder（系统内置）</value>
+  </data>
+  <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
+    <value>Magick.NET 为自包含方案；BitmapDecoder 依赖系统 HEIC 扩展&#x0a;（Win11 已内置，Win10 需通过 Microsoft Store 安装）</value>
+  </data>
+  <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
+    <value>HEIC 任务并行数</value>
+  </data>
+  <data name="SettingsPage_Combo_ThreadCount_Desc.Text" xml:space="preserve">
+    <value>纯 JPG 图片自动使用 20 路高并发</value>
+  </data>
   <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
     <value>恢复默认设置</value>
   </data>
@@ -1411,5 +1435,17 @@
   </data>
   <data name="HomePage_SplitTutorial_Step3_Desc.Text" xml:space="preserve">
     <value>拆分完成后，输出目录中会看到同文件名的照片和视频文件，直接打开即可查看。</value>
+  </data>
+  <data name="SettingsPage_BannerRandom_Toggle.OnContent" xml:space="preserve">
+    <value>随机切换</value>
+  </data>
+  <data name="SettingsPage_BannerRandom_Toggle.OffContent" xml:space="preserve">
+    <value>随机切换</value>
+  </data>
+  <data name="SettingsPage_ResetBanner_Button_Text.Text" xml:space="preserve">
+    <value>恢复默认背景</value>
+  </data>
+  <data name="SettingsPage_HardwareRefresh_Button.ToolTipService.ToolTip" xml:space="preserve">
+    <value>刷新硬件检测</value>
   </data>
 </root>

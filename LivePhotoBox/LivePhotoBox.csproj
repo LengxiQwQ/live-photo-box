@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
 		<TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
@@ -25,8 +25,6 @@
 	</PropertyGroup>
 	
 	<ItemGroup>
-     <Compile Remove="Old-SharedViewModel.cs" />
-	  <Compile Remove="**\Old-SharedViewModel.cs" />
 	  <Content Remove="Assets\Square44x44Logo.altform-lightunplated_targetsize-16.png" />
 	  <Content Remove="Assets\Square44x44Logo.altform-lightunplated_targetsize-24.png" />
 	  <Content Remove="Assets\Square44x44Logo.altform-lightunplated_targetsize-256.png" />
@@ -45,7 +43,6 @@
 	  <Content Remove="Assets\Square44x44Logo.targetsize-256.png" />
 	  <Content Remove="Assets\Square44x44Logo.targetsize-32.png" />
 	  <Content Remove="Assets\Square44x44Logo.targetsize-48.png" />
-	  <None Include="Old-SharedViewModel.cs" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -104,6 +101,7 @@
 	<ItemGroup>
 		<PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
 		<PackageReference Include="CommunityToolkit.WinUI.Controls.Primitives" Version="8.2.251219" />
+		<PackageReference Include="Magick.NET-Q16-x64" Version="14.14.0" />
 		<PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7705" />
 		<PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260317003" />
 		<PackageReference Include="Microsoft.Xaml.Behaviors.WinUI.Managed" Version="3.0.0" />
@@ -163,14 +161,11 @@
      <AppxPackageSigningEnabled Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">True</AppxPackageSigningEnabled>
 		<AppxPackageSigningEnabled Condition="!Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">False</AppxPackageSigningEnabled>
 		<AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
-		<AppxAutoIncrementPackageRevision>True</AppxAutoIncrementPackageRevision>
-		<!--<GenerateTestArtifacts>False</GenerateTestArtifacts>
-		<AppxBundle>Always</AppxBundle>-->
+		<AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
 		<AppxBundlePlatforms>x64</AppxBundlePlatforms>
 		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
         <PackageCertificateKeyFile Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">LivePhotoBox_TemporaryKey.pfx</PackageCertificateKeyFile>
 		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-studio</AppInstallerUri>
-		<GenerateTemporaryStoreCertificate>True</GenerateTemporaryStoreCertificate>
 		<GenerateTestArtifacts>False</GenerateTestArtifacts>
 	</PropertyGroup>
 </Project>

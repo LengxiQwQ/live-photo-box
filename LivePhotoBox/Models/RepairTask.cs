@@ -1,4 +1,5 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
+using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -104,15 +105,14 @@ namespace LivePhotoBox.Models
 
         #region Computed Properties
 
-        public string DisplayFileName => TruncateFileName(FileName);
+        public string DisplayFileName => FileNameFormatter.Truncate(FileName);
 
         public ProcessStatus DisplayStatus
         {
             get
             {
-                var skipped = ResourceService.GetString("RepairPage_Task_Skipped");
-                var noRepair = ResourceService.GetString("RepairPage_Task_NoRepair");
-                if (!string.IsNullOrEmpty(Details) && (Details.Contains(skipped) || Details.Contains(noRepair) || Details.Contains("Perfect")))
+                // 无需修复的文件直接视为成功（绿色）；避免依赖多语言字符串比较
+                if (!NeedsRepair || AnalysisResult?.IssueType == RepairIssueType.Perfect)
                 {
                     return ProcessStatus.Success;
                 }
@@ -132,19 +132,6 @@ namespace LivePhotoBox.Models
         {
             OnPropertyChanged(nameof(DisplayStatus));
             OnPropertyChanged(nameof(HasErrorDetails));
-        }
-
-        #endregion
-
-        #region Helpers
-
-        private string TruncateFileName(string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName)) return fileName;
-            string ext = Path.GetExtension(fileName);
-            string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-            if (nameWithoutExt.Length <= 30) return fileName;
-            return $"{nameWithoutExt.Substring(0, 21)}...{nameWithoutExt.Substring(nameWithoutExt.Length - 8)}{ext}";
         }
 
         #endregion

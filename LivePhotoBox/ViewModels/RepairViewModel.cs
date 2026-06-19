@@ -37,6 +37,7 @@ namespace LivePhotoBox.ViewModels
             {
                 if (ScanDirectoryCommand.CanExecute(null) && !IsScanning)
                 {
+                    if (Tasks.Count > 0) ClearState();
                     ScanDirectoryCommand.Execute(null);
                 }
             }
@@ -59,6 +60,7 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnIsOutputToDirectoryChanged(bool value)
         {
+            AppSettingsService.SetValue(nameof(IsOutputToDirectory), value);
             _openRepairOutputFolderCommand?.NotifyCanExecuteChanged();
 
             // 只有"从关闭切换到打开"时，且目录面板当前是收起的，才自动展开
@@ -122,6 +124,8 @@ namespace LivePhotoBox.ViewModels
         public RepairViewModel()
         {
             SetStatus("RepairPage_Status_Ready");
+            _isOutputToDirectory = AppSettingsService.GetValue(nameof(IsOutputToDirectory), false);
+            _previousIsOutputToDirectory = _isOutputToDirectory;
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
         }
@@ -231,6 +235,11 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
+        protected override void OnCleanup()
+        {
+            _uiUpdateTimer.Stop();
+        }
+
         protected override void OnScanningEnded()
         {
             base.OnScanningEnded();
@@ -247,7 +256,7 @@ namespace LivePhotoBox.ViewModels
         private readonly DispatcherTimer _uiUpdateTimer;
         private volatile int _completedTasksCount;
 
-        public new string ActionBtnText
+        public override string ActionBtnText
         {
             get
             {
@@ -362,12 +371,6 @@ namespace LivePhotoBox.ViewModels
             {
                 CancelScanning();
                 SetStatus("Status_ScanCancelling");
-                return;
-            }
-
-            if (Tasks.Count > 0)
-            {
-                await ShowQueueNotEmptyDialogAsync();
                 return;
             }
 
@@ -609,6 +612,7 @@ namespace LivePhotoBox.ViewModels
                             continue;
                         }
 
+                        Interlocked.Increment(ref _activeWorkerCount);
                         Interlocked.Increment(ref startedCallbacks);
                         App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task));
 
@@ -638,8 +642,9 @@ namespace LivePhotoBox.ViewModels
                             LogService.Repair($"Repair failed for {task.FilePath}: {ex.Message}", LogLevel.Error, ex);
                         }
 
-                        // 原子递增完成数量，Timer会根据这个数量自动更新进度条
-                        Interlocked.Increment(ref _completedTasksCount);
+                        // 取消的任务不计入完成数，避免停止时进度条误报前进
+                        if (!isCanceled)
+                            Interlocked.Increment(ref _completedTasksCount);
 
                         try
                         {
@@ -650,7 +655,10 @@ namespace LivePhotoBox.ViewModels
                             {
                                 try
                                 {
-                                    UpdateTaskCompleted(task, isSuccess, detailMessage);
+                                    if (isCanceled)
+                                        UpdateTaskCancelled(task, detailMessage);
+                                    else
+                                        UpdateTaskCompleted(task, isSuccess, detailMessage);
                                 }
                                 finally
                                 {
@@ -672,6 +680,7 @@ namespace LivePhotoBox.ViewModels
                         }
                         finally
                         {
+                            Interlocked.Decrement(ref _activeWorkerCount);
                             Interlocked.Increment(ref finishedUiCallbacks);
                         }
                     }
@@ -737,6 +746,13 @@ namespace LivePhotoBox.ViewModels
             {
                 ProcessingCompletedForScroll?.Invoke(this, EventArgs.Empty);
             }
+        }
+
+        private void UpdateTaskCancelled(RepairTask task, string detailMessage)
+        {
+            // 用户取消不标记为"失败"——保留 Processing 状态，只更新详情
+            task.Details = detailMessage;
+            _taskProcessingStartTimes.Remove(task);
         }
 
         private async Task EnsureMinimumProcessingDisplayAsync(RepairTask task)

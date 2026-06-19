@@ -43,16 +43,8 @@ namespace LivePhotoBox.Services
             Encoding.ASCII.GetBytes("MotionPhoto")
         ];
 
-        // 复用 LivePhotoSplitService 中的偏移量解析正则（与拆分时判定标准完全一致）
-        private static readonly Regex MicroVideoOffsetRegex = new(
-            "GCamera:MicroVideoOffset=\"(?<value>\\d+)\"",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
-            TimeSpan.FromSeconds(2));
-
-        private static readonly Regex MotionPhotoLengthRegex = new(
-            "Item:Semantic=\"MotionPhoto\"[^>]*Item:Length=\"(?<value>\\d+)\"|Item:Length=\"(?<value>\\d+)\"[^>]*Item:Semantic=\"MotionPhoto\"",
-            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline,
-            TimeSpan.FromSeconds(2));
+        private static readonly Regex MicroVideoOffsetRegex = LivePhotoConstants.MicroVideoOffsetRegex;
+        private static readonly Regex MotionPhotoLengthRegex = LivePhotoConstants.MotionPhotoLengthRegex;
 
         public static LivePhotoSplitScanResult Scan(
             string inputDirectory,

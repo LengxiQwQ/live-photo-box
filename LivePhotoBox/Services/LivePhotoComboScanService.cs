@@ -23,7 +23,7 @@ namespace LivePhotoBox.Services
         public required int StandaloneVideosCount { get; init; }
     }
 
-    public static class LivePhotoScanService
+    public static class LivePhotoComboScanService
     {
         public static LivePhotoScanResult Scan(
             string inputDirectory,

@@ -115,6 +115,18 @@
                             </Button>
                             <TextBlock x:Uid="AboutPage_JpegTranSuffix" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center"/>
                         </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <Button Click="FFmpeg_Click" Style="{StaticResource AboutLinkButtonStyle}" Padding="0,0,4,0">
+                                <TextBlock Text="FFmpeg" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                            </Button>
+                            <TextBlock x:Uid="AboutPage_FFmpegSuffix" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <Button Click="ImageMagick_Click" Style="{StaticResource AboutLinkButtonStyle}" Padding="0,0,4,0">
+                                <TextBlock Text="ImageMagick / Magick.NET" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                            </Button>
+                            <TextBlock x:Uid="AboutPage_ImageMagickSuffix" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center"/>
+                        </StackPanel>
                     </StackPanel>
 
                     <StackPanel>

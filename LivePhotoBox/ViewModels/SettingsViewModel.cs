@@ -77,6 +77,9 @@ namespace LivePhotoBox.ViewModels
             new BannerPreset { Name = "预设 3 — 动漫画风", Key = "anime",    AssetPath = "ms-appx:///Assets/Banners/banner_03.jpg" },
         };
 
+        /// <summary>预加载的 Banner BitmapImage，切换时只改引用不重新解码</summary>
+        private readonly List<BitmapImage> _preloadedBanners = new();
+
         [ObservableProperty]
         private int _bannerPresetIndex;
 
@@ -93,6 +96,9 @@ namespace LivePhotoBox.ViewModels
             AppSettingsService.SetValue(nameof(BannerPresetIndex), value);
             App.RefreshBannerImage(BannerPresets[value]);
             OnPropertyChanged(nameof(CurrentBannerPresetName));
+            OnPropertyChanged(nameof(Banner0Visible));
+            OnPropertyChanged(nameof(Banner1Visible));
+            OnPropertyChanged(nameof(Banner2Visible));
             LogService.Info($"Banner preset changed to: {BannerPresets[value].Name} (index {value})", LogSource.Settings);
         }
 
@@ -113,6 +119,67 @@ namespace LivePhotoBox.ViewModels
                     return BannerPresets[BannerPresetIndex].Name;
                 return BannerPresets.Count > 0 ? BannerPresets[0].Name : "";
             }
+        }
+
+        /// <summary>三张预加载 Banner 的图片源，供 Image 控件直接绑定（切换时不换 Source，只换 Visibility）</summary>
+        public BitmapImage? BannerImage0 => _preloadedBanners.Count > 0 ? _preloadedBanners[0] : null;
+        public BitmapImage? BannerImage1 => _preloadedBanners.Count > 1 ? _preloadedBanners[1] : null;
+        public BitmapImage? BannerImage2 => _preloadedBanners.Count > 2 ? _preloadedBanners[2] : null;
+
+        public Visibility Banner0Visible => BannerPresetIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility Banner1Visible => BannerPresetIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility Banner2Visible => BannerPresetIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
+
+        public void PrevBanner()
+        {
+            if (BannerPresets.Count == 0) return;
+            int newIndex = BannerPresetIndex - 1;
+            if (newIndex < 0) newIndex = BannerPresets.Count - 1;
+            BannerPresetIndex = newIndex;
+        }
+
+        public void NextBanner()
+        {
+            if (BannerPresets.Count == 0) return;
+            int newIndex = BannerPresetIndex + 1;
+            if (newIndex >= BannerPresets.Count) newIndex = 0;
+            BannerPresetIndex = newIndex;
+        }
+
+        #endregion
+
+        #region Combo Settings
+
+        [ObservableProperty]
+        private int _heicDecoderIndex;
+
+        partial void OnHeicDecoderIndexChanged(int value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(HeicDecoderIndex), value);
+            LogService.Info($"HEIC decoder changed to: {(value == 0 ? "Magick.NET" : "Windows BitmapDecoder")}", LogSource.Settings);
+        }
+
+        [ObservableProperty]
+        private int _comboThreadCount = 4;
+
+        partial void OnComboThreadCountChanged(int value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue("ComboThreadCount", value);
+            LogService.Info($"Combo thread count changed to: {value}", LogSource.Settings);
+        }
+
+        [RelayCommand]
+        private void IncreaseComboThreadCount()
+        {
+            if (ComboThreadCount < 8) ComboThreadCount++;
+        }
+
+        [RelayCommand]
+        private void DecreaseComboThreadCount()
+        {
+            if (ComboThreadCount > 1) ComboThreadCount--;
         }
 
         #endregion
@@ -169,8 +236,37 @@ namespace LivePhotoBox.ViewModels
         public SettingsViewModel()
         {
             LoadSettings();
-            // 采用异步加载，不再阻塞构造函数，从而解放主线程
+            // 硬件信息异步加载（Banner 预加载延迟到打开设置页面时再触发）
             _ = LoadHardwareInfoAsync();
+        }
+
+        /// <summary>
+        /// 进入设置页面时调用：预加载 Banner → 通知 UI。
+        /// 只执行一次（_preloadedBanners 非空则跳过）。
+        /// 使用 SetSourceAsync 强制立即解码，避免 UriSource 懒加载导致切换闪烁。
+        /// </summary>
+        public async Task EnsureBannersPreloadedAsync()
+        {
+            if (_preloadedBanners.Count > 0) return;  // 已加载，跳过
+            await PreloadBannersAsync();
+            OnPropertyChanged(nameof(BannerImage0));
+            OnPropertyChanged(nameof(BannerImage1));
+            OnPropertyChanged(nameof(BannerImage2));
+            OnPropertyChanged(nameof(Banner0Visible));
+        }
+
+        /// <summary>用 SetSourceAsync 强制解码所有 Banner，返回时图片已在内存中</summary>
+        private async Task PreloadBannersAsync()
+        {
+            foreach (var preset in BannerPresets)
+            {
+                var file = await Windows.Storage.StorageFile.GetFileFromApplicationUriAsync(
+                    new Uri(preset.AssetPath));
+                using var stream = await file.OpenReadAsync();
+                var bitmap = new BitmapImage { DecodePixelWidth = 640 };
+                await bitmap.SetSourceAsync(stream);
+                _preloadedBanners.Add(bitmap);
+            }
         }
 
         private void LoadSettings()
@@ -182,6 +278,8 @@ namespace LivePhotoBox.ViewModels
             IsBannerRandomEnabled = AppSettingsService.GetValue(nameof(IsBannerRandomEnabled), false);
             ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 5);
             MaxThreadCount = Math.Min(Environment.ProcessorCount, 16);
+            HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
+            ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 4);
         }
 
         private async Task LoadHardwareInfoAsync()
@@ -343,6 +441,15 @@ namespace LivePhotoBox.ViewModels
 
             // 重置合成页面的协议版本（默认V2版本）
             AppViewModel.Instance.Combo.SelectedModeIndex = 1;
+
+            // 重置修复页面的输出模式（默认关闭）
+            AppViewModel.Instance.Repair.IsOutputToDirectory = false;
+
+            // 重置 HEIC 解码器为默认（Magick.NET）
+            HeicDecoderIndex = 0;
+
+            // 重置合成任务并行数
+            ComboThreadCount = 4;
 
             // 重新选择最佳硬件
             _isInitializing = true;

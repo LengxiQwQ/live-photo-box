@@ -29,6 +29,8 @@ namespace LivePhotoBox.Views
 
         private async void ExifTool_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://exiftool.org/"));
         private async void JpegTran_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://www.ijg.org/"));
+        private async void FFmpeg_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://ffmpeg.org/"));
+        private async void ImageMagick_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://imagemagick.org/"));
 
         private static string GetAppVersion()
         {

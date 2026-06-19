@@ -278,10 +278,10 @@ Do you want to restart now?</value>
     <value>Queued :</value>
   </data>
   <data name="SplitPage_StatRecognized.Text" xml:space="preserve">
-    <value>Recognized :</value>
+    <value>Live Photos :</value>
   </data>
   <data name="SplitPage_StatSkipped.Text" xml:space="preserve">
-    <value>Skipped :</value>
+    <value>Non-Live Photos :</value>
   </data>
   <data name="SplitPage_FormatLabel.Text" xml:space="preserve">
     <value>Export Video Format</value>
@@ -1150,6 +1150,12 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="AboutPage_JpegTranSuffix.Text" xml:space="preserve">
     <value>(IJG): By using the lossless transformation algorithm of DCT coefficient space, zero-loss rotation at the physical level can be achieved without recoding.</value>
   </data>
+  <data name="AboutPage_FFmpegSuffix.Text" xml:space="preserve">
+    <value> — video transcoding and stream remuxing engine</value>
+  </data>
+  <data name="AboutPage_ImageMagickSuffix.Text" xml:space="preserve">
+    <value> / Magick.NET (dlemstra) — HEIC/HEIF image decoding via libheif</value>
+  </data>
   <data name="AboutPage_PrivacyTitle.Text" xml:space="preserve">
     <value>Privacy Policy</value>
   </data>
@@ -1357,6 +1363,24 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="SettingsPage_Split_ThreadCount_Desc.Text" xml:space="preserve">
     <value>Number of concurrent tasks</value>
   </data>
+  <data name="SettingsPage_Combo_HeicDecoder.Text" xml:space="preserve">
+    <value>HEIC Decoder</value>
+  </data>
+  <data name="SettingsPage_Combo_HeicDecoder_MagickNET.Content" xml:space="preserve">
+    <value>Magick.NET (ImageMagick + libheif)</value>
+  </data>
+  <data name="SettingsPage_Combo_HeicDecoder_BitmapDecoder.Content" xml:space="preserve">
+    <value>Windows BitmapDecoder (system built-in)</value>
+  </data>
+  <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
+    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC extension&#x0a;(built-in on Win11, available via Microsoft Store on Win10)</value>
+  </data>
+  <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
+    <value>HEIC Task Parallel Count</value>
+  </data>
+  <data name="SettingsPage_Combo_ThreadCount_Desc.Text" xml:space="preserve">
+    <value>Plain JPG images auto-use 20-way high concurrency</value>
+  </data>
   <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
     <value>Restore Default Settings</value>
   </data>
@@ -1412,5 +1436,17 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="HomePage_SplitTutorial_Step3_Desc.Text" xml:space="preserve">
     <value>Once splitting is complete, you will find photo and video files with matching file names in the output folder. Simply open them to review.</value>
+  </data>
+  <data name="SettingsPage_BannerRandom_Toggle.OnContent" xml:space="preserve">
+    <value>Random</value>
+  </data>
+  <data name="SettingsPage_BannerRandom_Toggle.OffContent" xml:space="preserve">
+    <value>Random</value>
+  </data>
+  <data name="SettingsPage_ResetBanner_Button_Text.Text" xml:space="preserve">
+    <value>Restore Default Background</value>
+  </data>
+  <data name="SettingsPage_HardwareRefresh_Button.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Refresh hardware detection</value>
   </data>
 </root>

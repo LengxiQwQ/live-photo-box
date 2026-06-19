@@ -5,7 +5,7 @@ using System;
 using System.Collections.Specialized;
 using System.Reflection;
 
-namespace LivePhotoBox.Behaviors
+namespace LivePhotoBox.Helpers
 {
     /// <summary>
     /// 自动将 ComboBox 的宽度设置为所有下拉选项中最宽文本的宽度 + 留白余量。

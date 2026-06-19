@@ -86,33 +86,43 @@
 
                             <toolkit:WrapPanel HorizontalSpacing="32" VerticalSpacing="12">
 
-                                <!-- FlipView 预览 + 名称 -->
+                                <!-- Banner 预览 + 名称（用 Image + 箭头替代 FlipView，避免滚轮切换图片） -->
                                 <StackPanel>
-                                    <Border CornerRadius="8">
-                                        <FlipView x:Name="BannerFlipView"
-                                                  MaxWidth="320" Height="135"
-                                                  Padding="0" Margin="0"
-                                                  PointerWheelChanged="BannerFlipView_PointerWheelChanged"
-                                                  SelectedIndex="{x:Bind ViewModel.BannerPresetIndex, Mode=TwoWay}">
-                                            <FlipView.ItemContainerStyle>
-                                                <Style TargetType="FlipViewItem">
-                                                    <Setter Property="Padding" Value="0"/>
-                                                    <Setter Property="Margin" Value="0"/>
-                                                </Style>
-                                            </FlipView.ItemContainerStyle>
-                                            <Image Source="ms-appx:///Assets/Banners/banner_01.jpg"
+                                    <Border CornerRadius="8" MaxWidth="320" Height="135">
+                                        <Grid>
+                                            <!-- 三张图始终在内存中，切换只改 Visibility，零闪烁 -->
+                                            <Image Source="{x:Bind ViewModel.BannerImage0, Mode=OneWay}"
+                                                   Visibility="{x:Bind ViewModel.Banner0Visible, Mode=OneWay}"
                                                    Stretch="UniformToFill"
                                                    VerticalAlignment="Stretch"
                                                    HorizontalAlignment="Center" />
-                                            <Image Source="ms-appx:///Assets/Banners/banner_02.jpg"
+                                            <Image Source="{x:Bind ViewModel.BannerImage1, Mode=OneWay}"
+                                                   Visibility="{x:Bind ViewModel.Banner1Visible, Mode=OneWay}"
                                                    Stretch="UniformToFill"
                                                    VerticalAlignment="Stretch"
                                                    HorizontalAlignment="Center" />
-                                            <Image Source="ms-appx:///Assets/Banners/banner_03.jpg"
+                                            <Image Source="{x:Bind ViewModel.BannerImage2, Mode=OneWay}"
+                                                   Visibility="{x:Bind ViewModel.Banner2Visible, Mode=OneWay}"
                                                    Stretch="UniformToFill"
                                                    VerticalAlignment="Stretch"
                                                    HorizontalAlignment="Center" />
-                                        </FlipView>
+                                            <!-- 左箭头 -->
+                                            <Button HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                    Click="PrevBanner_Click"
+                                                    Background="#33000000" BorderThickness="0"
+                                                    Width="32" Height="48" Padding="0"
+                                                    CornerRadius="0,4,4,0">
+                                                <FontIcon Glyph="&#xE76B;" FontSize="14" Foreground="White"/>
+                                            </Button>
+                                            <!-- 右箭头 -->
+                                            <Button HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                    Click="NextBanner_Click"
+                                                    Background="#33000000" BorderThickness="0"
+                                                    Width="32" Height="48" Padding="0"
+                                                    CornerRadius="4,0,0,4">
+                                                <FontIcon Glyph="&#xE76C;" FontSize="14" Foreground="White"/>
+                                            </Button>
+                                        </Grid>
                                     </Border>
                                     <TextBlock Text="{x:Bind ViewModel.CurrentBannerPresetName, Mode=OneWay}"
                                                FontSize="12" FontWeight="SemiBold"
@@ -124,8 +134,7 @@
                                 <!-- 控件组：随机开关在上，恢复默认按钮在下 -->
                                 <StackPanel Spacing="18" VerticalAlignment="Center">
                                     <ToggleSwitch x:Name="BannerRandomToggle"
-                                                  OnContent="随机切换"
-                                                  OffContent="随机切换"
+                                                  x:Uid="SettingsPage_BannerRandom_Toggle"
                                                   IsOn="{x:Bind ViewModel.IsBannerRandomEnabled, Mode=TwoWay}"
                                                   FontSize="13"/>
                                     <Button Style="{ThemeResource DefaultButtonStyle}"
@@ -134,12 +143,85 @@
                                             Padding="16,6">
                                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                             <FontIcon Glyph="&#xE72C;" FontSize="14"/>
-                                            <TextBlock Text="恢复默认" FontSize="13" VerticalAlignment="Center"/>
+                                            <TextBlock x:Uid="SettingsPage_ResetBanner_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
                                 </StackPanel>
                             </toolkit:WrapPanel>
                         </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- 实况照片合成设置 -->
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE8B1;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Combo_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
+
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                            Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <toolkit:WrapPanel HorizontalSpacing="32"
+                                           VerticalSpacing="16"
+                                           VerticalAlignment="Center">
+                            <!-- HEIC 解码器选择 -->
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Uid="SettingsPage_Combo_HeicDecoder"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <ComboBox SelectedIndex="{x:Bind ViewModel.HeicDecoderIndex, Mode=TwoWay}"
+                                          Loaded="AppearanceComboBox_Loaded">
+                                    <ComboBoxItem x:Uid="SettingsPage_Combo_HeicDecoder_MagickNET"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Combo_HeicDecoder_BitmapDecoder"/>
+                                </ComboBox>
+                                <TextBlock x:Uid="SettingsPage_Combo_HeicDecoder_Desc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+
+                            <!-- 任务并行数 -->
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Uid="SettingsPage_Combo_ThreadCount"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Width="100" Height="32"
+                                        HorizontalAlignment="Left">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="30"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="30"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <RepeatButton Grid.Column="0"
+                                                      Width="30" Height="32" Padding="0"
+                                                      Background="Transparent" BorderThickness="0"
+                                                      Command="{x:Bind ViewModel.DecreaseComboThreadCountCommand, Mode=OneWay}">
+                                            <FontIcon Glyph="&#xE96E;" FontSize="12"/>
+                                        </RepeatButton>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{x:Bind ViewModel.ComboThreadCount, Mode=OneWay}"
+                                                   TextAlignment="Center"
+                                                   FontSize="14"
+                                                   VerticalAlignment="Center"/>
+
+                                        <RepeatButton Grid.Column="2"
+                                                      Width="30" Height="32" Padding="0"
+                                                      Background="Transparent" BorderThickness="0"
+                                                      Command="{x:Bind ViewModel.IncreaseComboThreadCountCommand, Mode=OneWay}">
+                                            <FontIcon Glyph="&#xE96D;" FontSize="12"/>
+                                        </RepeatButton>
+                                    </Grid>
+                                </Border>
+                                <TextBlock x:Uid="SettingsPage_Combo_ThreadCount_Desc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                        </toolkit:WrapPanel>
                     </Border>
                 </StackPanel>
 
@@ -169,8 +251,8 @@
                                     <Button Width="32"
                                             Height="32"
                                             Padding="0"
-                                            Command="{x:Bind ViewModel.RefreshHardwareCommand, Mode=OneWay}"
-                                            ToolTipService.ToolTip="刷新硬件检测">
+                                            x:Uid="SettingsPage_HardwareRefresh_Button"
+                                            Command="{x:Bind ViewModel.RefreshHardwareCommand, Mode=OneWay}">
                                         <FontIcon Glyph="&#xE72C;" FontSize="14"/>
                                     </Button>
                                 </StackPanel>

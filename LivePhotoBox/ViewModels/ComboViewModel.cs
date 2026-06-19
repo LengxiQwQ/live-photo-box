@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Collections;
+using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
@@ -20,13 +21,9 @@ namespace LivePhotoBox.ViewModels
 {
     public partial class ComboViewModel : WorkViewModelBase
     {
-        private static readonly TimeSpan MinimumProcessingDisplayDuration = TimeSpan.FromMilliseconds(100);
-
-        private string _hwEncoderName = "Software CPU";
         private Stopwatch _stopwatch = new();
         private bool _comboStoppedByUser;
         private bool _comboDone;
-        private readonly Dictionary<MergeTask, DateTimeOffset> _taskProcessingStartTimes = new();
 
         private readonly DispatcherTimer _uiUpdateTimer;
         private volatile int _completedTasksCount;
@@ -47,6 +44,7 @@ namespace LivePhotoBox.ViewModels
             {
                 if (ScanDirectoryCommand.CanExecute(null) && !IsScanning)
                 {
+                    if (Tasks.Count > 0) ClearState();
                     ScanDirectoryCommand.Execute(null);
                 }
             }
@@ -76,7 +74,7 @@ namespace LivePhotoBox.ViewModels
             ? ResourceService.GetString("ComboPage_DynamicCancelText")
             : ResourceService.GetString("ComboPage_DynamicScanText");
 
-        public BulkObservableCollection<MergeTask> Tasks { get; } = [];
+        public BulkObservableCollection<ComboTask> Tasks { get; } = [];
 
         public int SelectedModeIndex
         {
@@ -102,7 +100,7 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
         }
 
-        public new string ActionBtnText
+        public override string ActionBtnText
         {
             get
             {
@@ -161,7 +159,6 @@ namespace LivePhotoBox.ViewModels
             ComboProgress = 0;
             Progress = 0;
             ProgressText = $"0/{TotalPairsCount}";
-            _taskProcessingStartTimes.Clear();
             SetStatus("Status_Running");
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
@@ -172,7 +169,6 @@ namespace LivePhotoBox.ViewModels
         protected override void OnFinalizeRunState()
         {
             _uiUpdateTimer.Stop();
-            _taskProcessingStartTimes.Clear();
 
             if (_cancelledByUser)
             {
@@ -200,7 +196,6 @@ namespace LivePhotoBox.ViewModels
                     int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
                     double elapsed = _stopwatch.Elapsed.TotalSeconds;
 
-                    // 自动适配中英文的新词条
                     SetStatus("Status_ComboCompletedSummary", total, elapsed, succeeded, failed);
                     LogService.Combo($"Combo completed: {succeeded} succeeded, {failed} failed in {elapsed:F1}s");
                 }
@@ -208,6 +203,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
             OnPropertyChanged(nameof(CanEditSelectedMode));
+            IsDirectoryPanelOpen = true;
         }
 
         protected override void OnClearState()
@@ -223,12 +219,16 @@ namespace LivePhotoBox.ViewModels
             ProgressText = "0/0";
             _comboStoppedByUser = false;
             _comboDone = false;
-            _taskProcessingStartTimes.Clear();
-            SetStatus("Status_Cleared", _hwEncoderName);
+            SetStatus("Status_Cleared");
             IsDirectoryPanelOpen = true;
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
             OnPropertyChanged(nameof(CanEditSelectedMode));
+        }
+
+        protected override void OnCleanup()
+        {
+            _uiUpdateTimer.Stop();
         }
 
         [RelayCommand(AllowConcurrentExecutions = true)]
@@ -236,12 +236,6 @@ namespace LivePhotoBox.ViewModels
         {
             if (!TryGuardScanClick()) return;
             if (IsProcessing) return;
-
-            if (Tasks.Count > 0)
-            {
-                await ShowQueueNotEmptyDialogAsync();
-                return;
-            }
 
             if (IsScanning)
             {
@@ -288,7 +282,7 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 var scanResult = await Task.Run(
-                    () => LivePhotoScanService.Scan(InputDirectory, token, scanProgress),
+                    () => LivePhotoComboScanService.Scan(InputDirectory, token, scanProgress),
                     token);
 
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
@@ -297,13 +291,13 @@ namespace LivePhotoBox.ViewModels
                 var tempTasks = scanResult.Pairs.Select(pair =>
                 {
                     index++;
-                    return new MergeTask
+                    return new ComboTask
                     {
                         Index = index,
                         ImageFileName = Path.GetFileName(pair.ImagePath),
                         VideoFileName = Path.GetFileName(pair.VideoPath),
-                        ImageSize = FormatFileSize(pair.ImageSizeBytes),
-                        VideoSize = FormatFileSize(pair.VideoSizeBytes),
+                        ImageSize = FileSizeFormatter.Format(pair.ImageSizeBytes),
+                        VideoSize = FileSizeFormatter.Format(pair.VideoSizeBytes),
                         TotalSizeBytes = pair.ImageSizeBytes + pair.VideoSizeBytes,
                         BaseName = pair.BaseName,
                         ImagePath = pair.ImagePath,
@@ -424,22 +418,6 @@ namespace LivePhotoBox.ViewModels
             await RunTasksAsync();
         }
 
-        private async Task ShowComboAlreadyStoppedDialogAsync()
-        {
-            if (App.MainWindow?.Content?.XamlRoot != null)
-            {
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ComboAlreadyStopped"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-                await dialog.ShowAsync();
-            }
-        }
 
         private async Task ShowComboAlreadyDoneDialogAsync()
         {
@@ -554,22 +532,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        private async Task ShowComboNotAllowedDialogAsync()
-        {
-            if (App.MainWindow?.Content?.XamlRoot != null)
-            {
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ProcessingNotAllowed"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-                await dialog.ShowAsync();
-            }
-        }
 
         private async Task RunTasksAsync()
         {
@@ -577,38 +539,106 @@ namespace LivePhotoBox.ViewModels
             _stopwatch = Stopwatch.StartNew();
 
             var token = GetProcessingToken();
-            int startedCallbacks = 0;
-            int finishedUiCallbacks = 0;
+            string outputDir = OutputDirectory;
+            int modeIndex = SelectedModeIndex;
+            Directory.CreateDirectory(outputDir);
 
             try
             {
-                var options = new LivePhotoBatchRunOptions
+                await Task.Run(async () =>
                 {
-                    OutputDirectory = OutputDirectory,
-                    SelectedModeIndex = SelectedModeIndex
-                };
+                    var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
 
-                await LivePhotoBatchRunnerService.RunAsync(
-                    Tasks,
-                    options,
-                    PauseEvent,
-                    token,
-                    task => App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task)),
-                    async (task, isSuccess, detailMessage, completedCount) =>
+                    // 智能并行数：含 HEIC 用保守值，纯 JPG 直接拉满
+                    bool hasHeic = tasksToProcess.Any(t => HeicConverterService.IsHeicFile(t.ImagePath));
+                    int maxParallel = hasHeic
+                        ? AppSettingsService.GetValue("ComboThreadCount", 4)
+                        : 20;
+                    LogService.Combo($"Parallel: {maxParallel} (hasHeic={hasHeic}, {tasksToProcess.Count} tasks)", LogLevel.Debug);
+
+                    var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
+                    var pendingTasks = new List<Task>();
+                    int localCompletedCount = 0;
+                    var lockObj = new object();
+
+                    async Task ProcessTask(ComboTask task)
                     {
-                        Interlocked.Increment(ref startedCallbacks);
-                        _completedTasksCount = completedCount;
+                        await semaphore.WaitAsync(token);
 
+                        bool activeCounted = false;
                         try
                         {
-                            await EnsureMinimumProcessingDisplayAsync(task).ConfigureAwait(false);
+                            PauseEvent.Wait(token);
+                            Interlocked.Increment(ref _activeWorkerCount);
+                            activeCounted = true;
+                            if (token.IsCancellationRequested)
+                            {
+                                throw new OperationCanceledException();
+                            }
 
+                            App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task));
+
+                            bool isSuccess = false;
+                            string detailMessage = string.Empty;
+                            bool isCanceled = false;
+
+                            string outputName = LivePhotoComboService.CreateOutputFileName(task.BaseName, modeIndex);
+                            string finalPath = Path.Combine(outputDir, outputName);
+                            string workingImagePath = task.ImagePath;
+
+                            try
+                            {
+                                if (HeicConverterService.IsHeicFile(workingImagePath))
+                                    workingImagePath = await HeicConverterService.ConvertToJpegAsync(
+                                        workingImagePath, outputDir, token);
+
+                                await LivePhotoComboService.WriteLivePhotoAsync(
+                                    workingImagePath, task.VideoPath, finalPath, modeIndex, token);
+
+                                isSuccess = true;
+                                detailMessage = ResourceService.GetString("Task_Success");
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                isCanceled = true;
+                                detailMessage = ResourceService.GetString("Status_Aborted") ?? "Aborted";
+                            }
+                            catch (Exception ex)
+                            {
+                                isSuccess = false;
+                                detailMessage = ResourceService.Format("Task_Error", ex.Message);
+                                LogService.Combo($"Combo task failed for {task.BaseName}: {ex.Message}", LogLevel.Error, ex);
+                            }
+                            finally
+                            {
+                                // 失败或取消时清理输出文件和临时转码文件
+                                if (!isSuccess)
+                                    try { if (File.Exists(finalPath)) File.Delete(finalPath); } catch { }
+                                if (workingImagePath != task.ImagePath && File.Exists(workingImagePath))
+                                    try { File.Delete(workingImagePath); } catch { }
+                            }
+
+                            int currentCompleted = 0;
+                            if (!isCanceled)
+                            {
+                                lock (lockObj)
+                                {
+                                    localCompletedCount++;
+                                    currentCompleted = localCompletedCount;
+                                    _completedTasksCount = currentCompleted;
+                                }
+                            }
+
+                            // ✨ 核心修复：死等 UI 线程把状态更新完毕！
                             var tcs = new TaskCompletionSource<bool>();
                             if (App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                             {
                                 try
                                 {
-                                    UpdateTaskCompleted(task, isSuccess, detailMessage);
+                                    if (isCanceled)
+                                        UpdateTaskCancelled(task, detailMessage);
+                                    else
+                                        UpdateTaskCompleted(task, isSuccess, detailMessage, currentCompleted);
                                 }
                                 finally
                                 {
@@ -622,16 +652,70 @@ namespace LivePhotoBox.ViewModels
                             {
                                 tcs.TrySetResult(true);
                             }
-                        }
-                        catch (Exception ex)
-                        {
-                            LogService.Combo($"Update callback error: {ex.Message}", LogLevel.Error, ex);
+
+                            if (isCanceled)
+                            {
+                                throw new OperationCanceledException();
+                            }
                         }
                         finally
                         {
-                            Interlocked.Increment(ref finishedUiCallbacks);
+                            if (activeCounted)
+                                Interlocked.Decrement(ref _activeWorkerCount);
+                            try { semaphore.Release(); }
+                            catch (ObjectDisposedException) { }
                         }
-                    });
+                    }
+
+                    try
+                    {
+                        foreach (var task in tasksToProcess)
+                        {
+                            if (token.IsCancellationRequested)
+                            {
+                                break;
+                            }
+
+                            pendingTasks.Add(ProcessTask(task));
+
+                            // 当达到最大并发数时，等待任意一个完成
+                            if (pendingTasks.Count >= maxParallel)
+                            {
+                                var completedTask = await Task.WhenAny(pendingTasks);
+                                pendingTasks.Remove(completedTask);
+
+                                try
+                                {
+                                    await completedTask;
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    // 取消处理 — break 出循环，后面统一 rethrow
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 等待所有剩余任务完全结束（因为内部用了 TaskCompletionSource，执行到这里时所有的 UI 也100%更新完了）
+                        if (!token.IsCancellationRequested)
+                        {
+                            await Task.WhenAll(pendingTasks);
+                        }
+
+                        // 如果因取消而退出循环，确保异常传播到外层 catch 更新状态
+                        if (token.IsCancellationRequested)
+                        {
+                            token.ThrowIfCancellationRequested();
+                        }
+                    }
+                    finally
+                    {
+                        // 先等所有任务退出再 dispose semaphore，避免 ProcessTask 的 finally
+                        // 还在调 semaphore.Release() 时 semaphore 已被销毁 → ObjectDisposedException
+                        try { await Task.WhenAll(pendingTasks); } catch { }
+                        semaphore.Dispose();
+                    }
+                }, token);
             }
             catch (OperationCanceledException)
             {
@@ -649,11 +733,6 @@ namespace LivePhotoBox.ViewModels
             }
             finally
             {
-                while (Volatile.Read(ref finishedUiCallbacks) < Volatile.Read(ref startedCallbacks))
-                {
-                    await Task.Delay(20);
-                }
-
                 _stopwatch.Stop();
                 bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
@@ -669,41 +748,30 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        public event EventHandler<MergeTask>? TaskStartedForScroll;
+        public event EventHandler<ComboTask>? TaskStartedForScroll;
         public event EventHandler? ProcessingCompletedForScroll;
 
-        private void UpdateTaskStarted(MergeTask task)
+        private void UpdateTaskStarted(ComboTask task)
         {
             task.Status = ProcessStatus.Processing;
             task.Details = ResourceService.GetString("Task_Processing");
-            _taskProcessingStartTimes[task] = DateTimeOffset.UtcNow;
-            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue);
             TaskStartedForScroll?.Invoke(this, task);
         }
 
-        private void UpdateTaskCompleted(MergeTask task, bool isSuccess, string detailMessage)
+        private void UpdateTaskCancelled(ComboTask task, string detailMessage)
+        {
+            // 用户取消不标记为"失败"——保留 Processing 状态，颜色中性，只更新详情
+            task.Details = detailMessage;
+        }
+
+        private void UpdateTaskCompleted(ComboTask task, bool isSuccess, string detailMessage, int completedCount)
         {
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.Details = detailMessage;
-            _taskProcessingStartTimes.Remove(task);
 
-            if (_completedTasksCount >= Tasks.Count && Tasks.Count > 0)
+            if (completedCount >= Tasks.Count && Tasks.Count > 0)
             {
                 ProcessingCompletedForScroll?.Invoke(this, EventArgs.Empty);
-            }
-        }
-
-        private async Task EnsureMinimumProcessingDisplayAsync(MergeTask task)
-        {
-            if (!_taskProcessingStartTimes.TryGetValue(task, out var startedAt))
-            {
-                return;
-            }
-
-            var remaining = MinimumProcessingDisplayDuration - (DateTimeOffset.UtcNow - startedAt);
-            if (remaining > TimeSpan.Zero)
-            {
-                await Task.Delay(remaining).ConfigureAwait(false);
             }
         }
 
@@ -732,14 +800,6 @@ namespace LivePhotoBox.ViewModels
                 FilePickerService.OpenFolderInExplorer(OutputDirectory);
             }
             catch (Exception ex) { LogService.Combo($"OpenComboOutput error: {ex.Message}", LogLevel.Error, ex); }
-        }
-
-        public new void Cleanup() => CleanupTokens();
-
-        private static string FormatFileSize(long bytes)
-        {
-            if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
-            return $"{bytes / (1024.0 * 1024.0):F2} MB";
         }
     }
 }

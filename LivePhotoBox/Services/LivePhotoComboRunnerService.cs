@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
 {
-    public sealed class LivePhotoBatchRunOptions
+    public sealed class LivePhotoComboRunOptions
     {
         public required string OutputDirectory { get; init; }
         public required int SelectedModeIndex { get; init; }
@@ -16,15 +16,15 @@ namespace LivePhotoBox.Services
         public TimeSpan TaskStartInterval { get; init; } = TimeSpan.FromMilliseconds(250);
     }
 
-    public static class LivePhotoBatchRunnerService
+    public static class LivePhotoComboRunnerService
     {
         public static async Task RunAsync(
-            IReadOnlyCollection<MergeTask> tasks,
-            LivePhotoBatchRunOptions options,
+            IReadOnlyCollection<ComboTask> tasks,
+            LivePhotoComboRunOptions options,
             ManualResetEventSlim pauseEvent,
             CancellationToken cancellationToken,
-            Action<MergeTask>? onTaskStarted,
-            Action<MergeTask, bool, string, int>? onTaskCompleted)
+            Action<ComboTask>? onTaskStarted,
+            Action<ComboTask, bool, string, int>? onTaskCompleted)
         {
             Directory.CreateDirectory(options.OutputDirectory);
 
@@ -34,7 +34,7 @@ namespace LivePhotoBox.Services
 
             foreach (var batch in tasks.Where(task => task.Status != ProcessStatus.Success).Chunk(batchSize))
             {
-                pauseEvent.Wait(cancellationToken);
+                await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var now = DateTimeOffset.UtcNow;
@@ -48,12 +48,14 @@ namespace LivePhotoBox.Services
 
                 var runningTasks = batch.Select(async task =>
                 {
-                    pauseEvent.Wait(cancellationToken);
+                    await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
 
                     onTaskStarted?.Invoke(task);
 
-                    var result = await ProcessSinglePairAsync(task.ImagePath, task.VideoPath, task.BaseName, options, cancellationToken).ConfigureAwait(false);
+                    var result = await ProcessSinglePairAsync(
+                        task.ImagePath, task.VideoPath, task.BaseName, options, pauseEvent, cancellationToken)
+                        .ConfigureAwait(false);
                     int currentCompleted = Interlocked.Increment(ref completedCount);
                     onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
                 });
@@ -62,11 +64,32 @@ namespace LivePhotoBox.Services
             }
         }
 
+        /// <summary>
+        /// Async pause-wait that does NOT block a thread-pool thread.
+        /// The paused worker is represented as an uncompleted Task rather than
+        /// a parked OS thread, so cancellation and Set() both propagate cleanly.
+        /// </summary>
+        private static async Task WaitPauseAsync(ManualResetEventSlim pauseEvent, CancellationToken token)
+        {
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var reg = token.Register(() => tcs.TrySetCanceled(token));
+            try
+            {
+                var waitTask = Task.Run(() => { pauseEvent.Wait(); tcs.TrySetResult(true); }, token);
+                await tcs.Task.ConfigureAwait(false);
+            }
+            finally
+            {
+                reg.Dispose();
+            }
+        }
+
         private static async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
             string imagePath,
             string videoPath,
             string baseName,
-            LivePhotoBatchRunOptions options,
+            LivePhotoComboRunOptions options,
+            ManualResetEventSlim pauseEvent,
             CancellationToken token)
         {
             string workingImagePath = imagePath;
@@ -77,12 +100,18 @@ namespace LivePhotoBox.Services
                 if (HeicConverterService.IsHeicFile(imagePath))
                 {
                     workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, options.OutputDirectory, token);
+                    // HEIC 转换耗时较长，完成后检查用户是否点了暂停
+                    await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
                 }
 
-                string outputName = LivePhotoCompositionService.CreateOutputFileName(baseName, options.SelectedModeIndex);
+                string outputName = LivePhotoComboService.CreateOutputFileName(baseName, options.SelectedModeIndex);
                 string finalOutputPath = Path.Combine(options.OutputDirectory, outputName);
 
-                await LivePhotoCompositionService.WriteLivePhotoAsync(workingImagePath, videoPath, finalOutputPath, options.SelectedModeIndex, token);
+                // 合成前再检查一次暂停，提供更即时的暂停响应
+                await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                await LivePhotoComboService.WriteLivePhotoAsync(workingImagePath, videoPath, finalOutputPath, options.SelectedModeIndex, token);
 
                 return (true, ResourceService.GetString("Task_Success"));
             }
@@ -99,10 +128,7 @@ namespace LivePhotoBox.Services
             {
                 if (workingImagePath != imagePath && File.Exists(workingImagePath))
                 {
-                    try
-                    {
-                        File.Delete(workingImagePath);
-                    }
+                    try { File.Delete(workingImagePath); }
                     catch { }
                 }
             }

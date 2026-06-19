@@ -5,7 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 
-namespace LivePhotoBox.Services
+namespace LivePhotoBox.Helpers
 {
     public sealed class ImageHoverService : IDisposable
     {
@@ -15,6 +15,7 @@ namespace LivePhotoBox.Services
         private readonly double _maxWindowRatio;
         private readonly double _margin;
         private readonly Dictionary<string, (double Width, double Height)> _imageSizes = new();
+        private readonly List<Border> _registeredBorders = new();
 
         private bool _isHoverActive;
 
@@ -31,6 +32,7 @@ namespace LivePhotoBox.Services
         public void Register(Border border)
         {
             if (border == null) return;
+            _registeredBorders.Add(border);
             border.PointerEntered += OnPointerEntered;
             border.PointerExited += OnPointerExited;
         }
@@ -38,6 +40,7 @@ namespace LivePhotoBox.Services
         public void Unregister(Border border)
         {
             if (border == null) return;
+            _registeredBorders.Remove(border);
             border.PointerEntered -= OnPointerEntered;
             border.PointerExited -= OnPointerExited;
         }
@@ -96,6 +99,14 @@ namespace LivePhotoBox.Services
 
         public void Dispose()
         {
+            foreach (var border in _registeredBorders)
+            {
+                border.PointerEntered -= OnPointerEntered;
+                border.PointerExited -= OnPointerExited;
+            }
+            _registeredBorders.Clear();
+            _imageSizes.Clear();
+            _previewImage.Source = null;
         }
     }
 }

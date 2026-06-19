@@ -1,4 +1,4 @@
-using LivePhotoBox.Behaviors;
+using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI.Xaml;
@@ -33,6 +33,9 @@ namespace LivePhotoBox.Views
             InitializeComponent();
             Loaded += (_, _) =>
             {
+                // 后台预加载 Banner，不阻塞页面打开（fire-and-forget）
+                _ = ViewModel.EnsureBannersPreloadedAsync();
+
                 // 如果上一次非正常退出，自动展开日志与调试工具区
                 if (LogService.LastSessionCrashed && !_isTestToolsVisible)
                 {
@@ -120,13 +123,8 @@ namespace LivePhotoBox.Views
             await CrashHandler.ShowCrashDialogAsync(XamlRoot, logPath);
         }
 
-        /// <summary>
-        /// 阻止滚轮切换 FlipView，防止滚动设置页时误触。
-        /// </summary>
-        private void BannerFlipView_PointerWheelChanged(object sender, Microsoft.UI.Xaml.Input.PointerRoutedEventArgs e)
-        {
-            e.Handled = true;
-        }
+        private void PrevBanner_Click(object sender, RoutedEventArgs e) => ViewModel.PrevBanner();
+        private void NextBanner_Click(object sender, RoutedEventArgs e) => ViewModel.NextBanner();
 
         /// <summary>
         /// Resets the banner to the first (default) preset and turns off random mode.

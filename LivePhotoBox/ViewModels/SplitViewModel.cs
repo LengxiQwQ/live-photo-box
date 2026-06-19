@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using LivePhotoBox.Collections;
+using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
@@ -37,6 +38,7 @@ namespace LivePhotoBox.ViewModels
             {
                 if (ScanDirectoryCommand.CanExecute(null) && !IsScanning)
                 {
+                    if (Tasks.Count > 0) ClearState();
                     ScanDirectoryCommand.Execute(null);
                 }
             }
@@ -195,6 +197,11 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(CanEditSelectedFormat));
         }
 
+        protected override void OnCleanup()
+        {
+            _uiUpdateTimer.Stop();
+        }
+
         protected override void OnScanningEnded()
         {
             base.OnScanningEnded();
@@ -213,7 +220,7 @@ namespace LivePhotoBox.ViewModels
         private readonly DispatcherTimer _uiUpdateTimer;
         private volatile int _completedTasksCount;
 
-        public new string ActionBtnText
+        public override string ActionBtnText
         {
             get
             {
@@ -255,12 +262,6 @@ namespace LivePhotoBox.ViewModels
             {
                 CancelScanning();
                 SetStatus("SplitPage_Status_ScanCancelling");
-                return;
-            }
-
-            if (Tasks.Count > 0)
-            {
-                await ShowQueueNotEmptyDialogAsync();
                 return;
             }
 
@@ -336,7 +337,7 @@ namespace LivePhotoBox.ViewModels
                         Index = idx,
                         SourceFileName = Path.GetFileName(file.SourcePath),
                         SourcePath = file.SourcePath,
-                        FileSize = FormatFileSize(file.FileSizeBytes),
+                        FileSize = FileSizeFormatter.Format(file.FileSizeBytes),
                         ProgressText = "0%",
                         Status = ProcessStatus.Pending,
                         Details = pendingText
@@ -474,22 +475,6 @@ namespace LivePhotoBox.ViewModels
             await RunTasksAsync();
         }
 
-        private async Task ShowSplitAlreadyStoppedDialogAsync()
-        {
-            if (App.MainWindow?.Content?.XamlRoot != null)
-            {
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_SplitAlreadyStopped"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-                await dialog.ShowAsync();
-            }
-        }
 
         private async Task ShowSplitCancelledDialogAsync()
         {
@@ -578,22 +563,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        private async Task ShowSplitNotAllowedDialogAsync()
-        {
-            if (App.MainWindow?.Content?.XamlRoot != null)
-            {
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_ProcessingNotAllowed"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-                await dialog.ShowAsync();
-            }
-        }
 
         private async Task RunTasksAsync()
         {
@@ -620,9 +589,12 @@ namespace LivePhotoBox.ViewModels
                     {
                         await semaphore.WaitAsync(token);
 
+                        bool activeCounted = false;
                         try
                         {
                             PauseEvent.Wait(token);
+                            Interlocked.Increment(ref _activeWorkerCount);
+                            activeCounted = true;
                             if (token.IsCancellationRequested)
                             {
                                 throw new OperationCanceledException();
@@ -652,12 +624,15 @@ namespace LivePhotoBox.ViewModels
                                 LogService.Split($"Split failed for {task.SourcePath}: {ex.Message}", LogLevel.Error, ex);
                             }
 
-                            int currentCompleted;
-                            lock (lockObj)
+                            int currentCompleted = 0;
+                            if (!isCanceled)
                             {
-                                localCompletedCount++;
-                                currentCompleted = localCompletedCount;
-                                _completedTasksCount = currentCompleted;
+                                lock (lockObj)
+                                {
+                                    localCompletedCount++;
+                                    currentCompleted = localCompletedCount;
+                                    _completedTasksCount = currentCompleted;
+                                }
                             }
 
                             // ✨ 核心修复：死等 UI 线程把状态更新完毕！
@@ -666,7 +641,10 @@ namespace LivePhotoBox.ViewModels
                             {
                                 try
                                 {
-                                    UpdateTaskCompleted(task, isSuccess, detailMessage, currentCompleted);
+                                    if (isCanceled)
+                                        UpdateTaskCancelled(task, detailMessage);
+                                    else
+                                        UpdateTaskCompleted(task, isSuccess, detailMessage, currentCompleted);
                                 }
                                 finally
                                 {
@@ -688,6 +666,8 @@ namespace LivePhotoBox.ViewModels
                         }
                         finally
                         {
+                            if (activeCounted)
+                                Interlocked.Decrement(ref _activeWorkerCount);
                             try { semaphore.Release(); }
                             catch (ObjectDisposedException) { }
                         }
@@ -780,8 +760,6 @@ namespace LivePhotoBox.ViewModels
             task.ProgressText = "0%";
             task.Details = ResourceService.GetString("SplitPage_Task_Processing");
 
-            _ = task.EnsureThumbnailAsync(App.MainWindow?.DispatcherQueue);
-
             TaskStartedForScroll?.Invoke(this, task);
         }
 
@@ -795,6 +773,13 @@ namespace LivePhotoBox.ViewModels
             {
                 ProcessingCompletedForScroll?.Invoke(this, EventArgs.Empty);
             }
+        }
+
+        private void UpdateTaskCancelled(SplitTask task, string detailMessage)
+        {
+            // 用户取消不标记为"失败"——保留 Processing 状态，颜色中性，只更新详情
+            task.ProgressText = "0%";
+            task.Details = detailMessage;
         }
 
         #endregion
@@ -841,16 +826,6 @@ namespace LivePhotoBox.ViewModels
                 LogService.Split($"Split output format changed to index: {value}");
                 OnPropertyChanged();
             }
-        }
-
-        #endregion
-
-        #region Helpers
-
-        private static string FormatFileSize(long bytes)
-        {
-            if (bytes < 1024 * 1024) return $"{bytes / 1024.0:F1} KB";
-            return $"{bytes / (1024.0 * 1024.0):F2} MB";
         }
 
         #endregion

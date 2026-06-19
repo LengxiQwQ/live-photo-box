@@ -10,7 +10,7 @@ using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.ViewModels
 {
-    public partial class AppViewModel : ObservableObject
+    public partial class AppViewModel : ViewModelBase
     {
         public static AppViewModel Instance { get; } = new AppViewModel();
 

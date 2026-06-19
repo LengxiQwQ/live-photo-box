@@ -5,15 +5,8 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoBox.Models"
-    xmlns:converters="using:LivePhotoBox.Converters"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
-
-    <Page.Resources>
-        <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
-        <converters:ProgressBarForegroundConverter x:Key="ProgressBarForegroundConverter"/>
-        <converters:ProgressBarIndeterminateConverter x:Key="ProgressBarIndeterminateConverter"/>
-    </Page.Resources>
 
     <Grid>
         <Grid Padding="24,24,24,40">

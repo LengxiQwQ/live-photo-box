@@ -87,13 +87,13 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                string? ffmpegPath = FindFFmpeg();
+                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
                 if (string.IsNullOrEmpty(ffmpegPath))
                 {
                     return false;
                 }
 
-                var process = new Process
+                using var process = new Process
                 {
                     StartInfo = new ProcessStartInfo
                     {
@@ -162,7 +162,7 @@ namespace LivePhotoBox.Services
                 return result;
             }
 
-            string? ffmpegPath = FindFFmpeg();
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath))
             {
                 result.Success = false;
@@ -191,13 +191,16 @@ namespace LivePhotoBox.Services
                 string movflags = extension == ".mp4" ? "+faststart" : "";
 
                 // Remux 参数说明:
-                // -c copy: 无损拷贝
+                // -c:v copy: 无损拷贝视频轨
                 // -map 0:V:0 -> 【神级参数】大写 V 表示提取第1个"真正的视频轨"，完美避开苹果的 128x96 缩略图轨和安卓的 MJPEG 封面轨
                 // -map 0:a:0? -> 提取第1个音频轨（问号表示如果没有音频也不报错，防止静音视频闪退）
+                // -c:a aac -b:a 192k: 音频重编码为 AAC。
+                //   原视频音轨可能是 PCM（iPhone 实况照片常见），MP4 容器不兼容 PCM，
+                //   直接 -c copy 会导致无声。AAC 192kbps 人耳无法感知损失。
                 // -map_metadata 0: 保留源文件时间、GPS等元数据
                 string arguments = string.IsNullOrEmpty(movflags)
-                    ? $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0 \"{outputPath}\""
-                    : $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0 -movflags {movflags} \"{outputPath}\"";
+                    ? $"-y -i \"{inputPath}\" -c:v copy -map 0:V:0 -map 0:a:0? -c:a aac -b:a 192k -map_metadata 0 \"{outputPath}\""
+                    : $"-y -i \"{inputPath}\" -c:v copy -map 0:V:0 -map 0:a:0? -c:a aac -b:a 192k -map_metadata 0 -movflags {movflags} \"{outputPath}\"";
 
                 using var process = new Process();
                 process.StartInfo.FileName = ffmpegPath;
@@ -321,7 +324,7 @@ namespace LivePhotoBox.Services
                 return result;
             }
 
-            string? ffmpegPath = FindFFmpeg();
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath))
             {
                 result.Success = false;
@@ -538,14 +541,14 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                string? ffmpegPath = FindFFmpeg();
+                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
                 if (string.IsNullOrEmpty(ffmpegPath)) return null;
 
                 string[] candidates = codec == "h264"
                     ? new[] { "h264_nvenc", "h264_amf", "h264_qsv", "h264_vaapi" }
                     : new[] { "hevc_nvenc", "hevc_amf", "hevc_qsv", "hevc_vaapi" };
 
-                var process = new Process
+                using var process = new Process
                 {
                     StartInfo = new ProcessStartInfo
                     {
@@ -600,7 +603,9 @@ namespace LivePhotoBox.Services
             //
             // -map 0:v:0 -> 小写 v，标准视频流选择（temp 文件只有一条视频轨，无需大写 V）
             // -map 0:a:0? -> 提取单一主音频，若不存在则跳过
-            // -c:a copy -> 直接复制原始音频流，完全保留原始音质
+            // -c:a aac -b:a 192k -> 音频重编码为 AAC，确保 MP4/MOV 兼容性。
+            //   iPhone 实况照片提取出的视频音轨可能是 PCM，MP4 容器不兼容，
+            //   直接 -c:a copy 会导致无声。AAC 192kbps 透明级音质。
             //
             //  不加 -noautorotate：让 FFmpeg 自动将旋转矩阵应用到像素上。
             //  iPhone MOV 的旋转在 moov.trak.tkhd 中，-vf 触发 autorotate 滤镜
@@ -614,7 +619,7 @@ namespace LivePhotoBox.Services
                     $"{videoFilter} " +
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} " +
-                    $"-c:a copy " +
+                    $"-c:a aac -b:a 192k " +
                     $"-movflags +faststart " +
                     $"\"{outputPath}\"",
 
@@ -625,11 +630,11 @@ namespace LivePhotoBox.Services
                     $"{videoFilter} " +
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} -tag:v hvc1 " +
-                    $"-c:a copy " +
+                    $"-c:a aac -b:a 192k " +
                     $"-movflags +faststart " +
                     $"\"{outputPath}\"",
 
-                _ => $"-apply_cropping 0 -y -i \"{inputPath}\" -c copy -map 0:v:0 -map 0:a:0? \"{outputPath}\""
+                _ => $"-apply_cropping 0 -y -i \"{inputPath}\" -c:v copy -map 0:v:0 -map 0:a:0? -c:a aac -b:a 192k \"{outputPath}\""
             };
         }
 
@@ -674,62 +679,11 @@ namespace LivePhotoBox.Services
             catch { return string.Empty; }
         }
 
-        /// <summary>
-        /// 查找 FFmpeg 可执行文件
-        /// </summary>
-        public static string? FindFFmpeg()
-        {
-            string[] candidates =
-            {
-                Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg.exe"),
-                Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg"),
-                Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"),
-                Path.Combine(AppContext.BaseDirectory, "ffmpeg"),
-                Path.Combine(AppContext.BaseDirectory, "..", "Tools", "ffmpeg.exe"),
-                "ffmpeg"
-            };
-
-            foreach (var candidate in candidates)
-            {
-                try
-                {
-                    if (File.Exists(candidate)) return candidate;
-
-                    // 修复：局部 Try-Catch 处理 PATH 变量带来的隐患
-                    if (candidate == "ffmpeg" || candidate == "ffprobe")
-                    {
-                        var pathEnv = Environment.GetEnvironmentVariable("PATH");
-                        if (!string.IsNullOrEmpty(pathEnv))
-                        {
-                            foreach (var part in pathEnv.Split(Path.PathSeparator))
-                            {
-                                try
-                                {
-                                    string cleanPart = part.Trim(' ', '"'); // 净化非法字符和引号
-                                    if (string.IsNullOrEmpty(cleanPart)) continue;
-
-                                    string fullPath = Path.Combine(cleanPart, candidate + ".exe");
-                                    if (File.Exists(fullPath)) return fullPath;
-                                }
-                                catch { /* 单个 PATH 解析失败不会中断整体寻找 */ }
-                            }
-                        }
-                    }
-                }
-                catch { }
-            }
-
-            return null;
-        }
-
-        public static bool IsFFmpegAvailable()
-        {
-            return !string.IsNullOrEmpty(FindFFmpeg());
-        }
+        // FindFFmpeg / IsFFmpegAvailable → migrated to ExternalToolLocator
 
         public static async Task<string?> GetFFmpegVersionAsync()
         {
-            string? ffmpegPath = FindFFmpeg();
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath)) return null;
 
             try

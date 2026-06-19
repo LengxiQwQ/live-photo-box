@@ -12,7 +12,7 @@ namespace LivePhotoBox.Services
 {
     public static class LivePhotoRepairService
     {
-        private static readonly string ExifToolPath = Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
+        private static string ExifToolPath => ExternalToolLocator.FindExifTool() ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
         private static readonly string JpegTranPath = Path.Combine(AppContext.BaseDirectory, "Tools", "jpegtran.exe");
 
         /// <summary>
@@ -220,7 +220,8 @@ namespace LivePhotoBox.Services
             catch (OperationCanceledException)
             {
                 WriteDebugLog("WARN", "Repair", ResourceService.Format("Log_RepairCancelled", Path.GetFileName(sourcePath)));
-                return (false, ResourceService.GetString("Status_Cancelled"));
+                try { if (File.Exists(tempJpg)) File.Delete(tempJpg); } catch { }
+                throw;
             }
             catch (Exception ex)
             {

@@ -5,15 +5,10 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoBox.Models"
-    xmlns:converters="using:LivePhotoBox.Converters"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
     <Page.Resources>
-        <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
-        <converters:ProgressBarForegroundConverter x:Key="ProgressBarForegroundConverter"/>
-        <converters:ProgressBarIndeterminateConverter x:Key="ProgressBarIndeterminateConverter"/>
-
         <Style x:Key="HelpIconButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
@@ -222,7 +217,7 @@
                     </ListView.ItemContainerStyle>
 
                     <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:MergeTask">
+                        <DataTemplate x:DataType="models:ComboTask">
                             <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6,10,6">
                                 <Grid ColumnSpacing="0">
                                     <Grid.ColumnDefinitions>

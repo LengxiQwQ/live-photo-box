@@ -8,7 +8,7 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
 {
-    public static class LivePhotoCompositionService
+    public static class LivePhotoComboService
     {
         public static string CreateOutputFileName(string baseName, int selectedModeIndex)
         {

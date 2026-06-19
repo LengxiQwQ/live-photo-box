@@ -39,16 +39,19 @@ namespace LivePhotoBox.ViewModels
         private bool _pauseRequested = false;
         private bool _resumeRequested = false;
         private bool _isPausing = false;
-        private int _pausePendingTickCount = 0;
-        private double _lastProgressAtPauseRequest = 0;
         protected bool _cancelledByUser = false;
         protected bool _isCleaningUp = false;
+        protected int _activeWorkerCount;
 
         [ObservableProperty]
         private string _progressText = "0/0";
 
-        [ObservableProperty]
         private string _actionBtnText = string.Empty;
+        public virtual string ActionBtnText
+        {
+            get => _actionBtnText;
+            protected set => SetProperty(ref _actionBtnText, value);
+        }
 
         private ProgressBarState _progressBarState = Models.ProgressBarState.Idle;
         public Models.ProgressBarState ProgressBarState
@@ -196,8 +199,6 @@ namespace LivePhotoBox.ViewModels
             IsProcessing = true;
             IsPaused = false;
             _isPausing = false;
-            _pausePendingTickCount = 0;
-            _lastProgressAtPauseRequest = 0;
             PauseEvent.Set();
             OnInitializeRunState();
             ProgressBarState = Models.ProgressBarState.Processing;
@@ -211,8 +212,6 @@ namespace LivePhotoBox.ViewModels
             _pauseRequested = false;
             _resumeRequested = false;
             _isPausing = false;
-            _pausePendingTickCount = 0;
-            _lastProgressAtPauseRequest = 0;
 
             // 在重置 _cancelledByUser 之前调用，让子类能检测到取消状态
             OnFinalizeRunState();
@@ -256,7 +255,6 @@ namespace LivePhotoBox.ViewModels
         {
             _cancelledByUser = true;
             _isPausing = false;
-            _pausePendingTickCount = 0;
             _cancellationTokenSource?.Cancel();
             PauseEvent.Set();
         }
@@ -398,11 +396,10 @@ namespace LivePhotoBox.ViewModels
         {
             if (IsPaused)
             {
-                // Resume — back to processing text directly
+                // Resume
                 _pauseRequested = false;
                 _resumeRequested = true;
                 _isPausing = false;
-                _pausePendingTickCount = 0;
                 PauseEvent.Set();
                 SetStatus(ProcessingStatusKey);
                 ProgressBarState = Models.ProgressBarState.Processing;
@@ -410,10 +407,9 @@ namespace LivePhotoBox.ViewModels
             }
             else if (_isPausing)
             {
-                // Cancel pausing — back to processing text directly
+                // Cancel pausing — back to processing
                 _pauseRequested = false;
                 _isPausing = false;
-                _pausePendingTickCount = 0;
                 PauseEvent.Set();
                 SetStatus(ProcessingStatusKey);
                 ProgressBarState = Models.ProgressBarState.Processing;
@@ -421,15 +417,13 @@ namespace LivePhotoBox.ViewModels
             }
             else
             {
-                // Request pause — enter Pausing state
+                // Request pause — workers still finishing, keep processing state
                 _pauseRequested = true;
                 _resumeRequested = false;
                 _isPausing = true;
-                _pausePendingTickCount = 0;
-                _lastProgressAtPauseRequest = Progress;
                 PauseEvent.Reset();
                 SetStatus("Status_Pausing");
-                ProgressBarState = Models.ProgressBarState.Pausing;
+                ProgressBarState = Models.ProgressBarState.Processing;
                 NotifyStatusChanged();
             }
         }
@@ -438,20 +432,11 @@ namespace LivePhotoBox.ViewModels
         {
             if (_pauseRequested && !IsPaused)
             {
-                // In Pausing state — detect when workers have actually paused
-                _pausePendingTickCount++;
-                if (Math.Abs(Progress - _lastProgressAtPauseRequest) >= 0.01)
+                // All workers must finish before transitioning to Paused
+                if (Volatile.Read(ref _activeWorkerCount) <= 0)
                 {
-                    // Tasks are still completing — progress still changing
-                    _lastProgressAtPauseRequest = Progress;
-                    _pausePendingTickCount = 0;
-                }
-                else if (_pausePendingTickCount >= 3)
-                {
-                    // No progress change for 3 ticks (~180ms) — workers have truly paused
                     IsPaused = true;
                     _isPausing = false;
-                    _pausePendingTickCount = 0;
                     ProgressBarState = Models.ProgressBarState.Paused;
                     SetStatus("Status_Paused");
                     _pauseRequested = false;
@@ -461,7 +446,6 @@ namespace LivePhotoBox.ViewModels
             {
                 IsPaused = false;
                 _isPausing = false;
-                _pausePendingTickCount = 0;
                 ProgressBarState = Models.ProgressBarState.Processing;
                 SetStatus(ProcessingStatusKey);
                 _resumeRequested = false;
@@ -483,8 +467,6 @@ namespace LivePhotoBox.ViewModels
             IsPaused = false;
             IsScanning = false;
             _isPausing = false;
-            _pausePendingTickCount = 0;
-            _lastProgressAtPauseRequest = 0;
             ProgressBarState = Models.ProgressBarState.Idle;
             Progress = 0;
             ProgressText = "0/0";
@@ -498,8 +480,11 @@ namespace LivePhotoBox.ViewModels
 
         protected abstract void OnClearState();
 
+        protected virtual void OnCleanup() { }
+
         public void Cleanup()
         {
+            OnCleanup();
             CleanupTokens();
         }
     }

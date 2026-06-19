@@ -1,4 +1,5 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
+using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -8,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Models
 {
-    public partial class MergeTask : ObservableObject
+    public partial class ComboTask : ObservableObject
     {
         [ObservableProperty] private int _index;
         [ObservableProperty] private string _imageFileName = string.Empty;
@@ -25,17 +26,17 @@ namespace LivePhotoBox.Models
         public long TotalSizeBytes { get; set; }
         public string BaseName { get; set; } = string.Empty;
 
-        public string DisplayImageName => TruncateFileName(ImageFileName);
-        public string DisplayVideoName => TruncateFileName(VideoFileName);
+        public string DisplayImageName => FileNameFormatter.Truncate(ImageFileName);
+        public string DisplayVideoName => FileNameFormatter.Truncate(VideoFileName);
 
-        public Visibility ThumbnailPlaceholderVisibility => ThumbnailBindingService.GetPlaceholderVisibility(_thumbnail);
+        public Visibility ThumbnailPlaceholderVisibility => ThumbnailService.GetPlaceholderVisibility(_thumbnail);
 
         private bool _isLoadingThumbnail;
         private ImageSource? _thumbnail;
 
         public ImageSource? Thumbnail
         {
-            get => ThumbnailBindingService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, ImagePath, value => Thumbnail = value);
+            get => ThumbnailService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, ImagePath, value => Thumbnail = value);
             set
             {
                 if (SetProperty(ref _thumbnail, value))
@@ -61,31 +62,5 @@ namespace LivePhotoBox.Models
             OnPropertyChanged(nameof(HasErrorDetails));
         }
 
-        public Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
-        {
-            var trigger = Thumbnail;
-            return Task.CompletedTask;
-        }
-
-        public void CancelThumbnailLoad()
-        {
-        }
-
-        private string TruncateFileName(string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName)) return fileName;
-            string ext = Path.GetExtension(fileName);
-            string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-            if (nameWithoutExt.Length <= 30) return fileName;
-            return $"{nameWithoutExt.Substring(0, 22)}...{nameWithoutExt.Substring(nameWithoutExt.Length - 8)}{ext}";
-        }
     }
 }
-
-
-
-
-
-
-
-

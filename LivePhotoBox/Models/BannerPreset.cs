@@ -1,24 +1,27 @@
-namespace LivePhotoBox.Models;
+using System;
 
-/// <summary>
-/// Represents a banner image preset for the home page.
-/// </summary>
-public class BannerPreset
+namespace LivePhotoBox.Models
 {
     /// <summary>
-    /// Display name shown below the FlipView.
+    /// Represents a banner image preset for the home page.
     /// </summary>
-    public string Name { get; init; } = "";
+    public class BannerPreset
+    {
+        /// <summary>
+        /// Display name shown below the FlipView.
+        /// </summary>
+        public string Name { get; init; } = string.Empty;
 
-    /// <summary>
-    /// Unique key used for settings persistence.
-    /// </summary>
-    public string Key { get; init; } = "";
+        /// <summary>
+        /// Unique key used for settings persistence.
+        /// </summary>
+        public string Key { get; init; } = string.Empty;
 
-    /// <summary>
-    /// ms-appx:/// asset path to the banner image.
-    /// </summary>
-    public string AssetPath { get; init; } = "";
+        /// <summary>
+        /// ms-appx:/// asset path to the banner image.
+        /// </summary>
+        public string AssetPath { get; init; } = string.Empty;
 
-    public override string ToString() => Name;
+        public override string ToString() => Name;
+    }
 }

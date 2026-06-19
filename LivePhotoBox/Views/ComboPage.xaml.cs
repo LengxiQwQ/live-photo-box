@@ -1,4 +1,4 @@
-using LivePhotoBox.Behaviors;
+using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
@@ -14,12 +14,16 @@ namespace LivePhotoBox.Views
 {
     public sealed partial class ComboPage : Page
     {
+        private static readonly TimeSpan AutoFollowDebounce = TimeSpan.FromMilliseconds(120);
         private static readonly TimeSpan FinalBottomNudgeDelay = TimeSpan.FromMilliseconds(80);
 
+        private bool _isAutoScrollScheduled;
+        private bool _hasPendingAutoScroll;
+        private int _pendingAutoScrollIndex = -1;
+        private int _lastAutoScrollIndex = -1;
         private bool _isUnloaded;
         private bool _eventsHooked;
         private ScrollViewer? _taskListScrollViewer;
-        private int _lastAutoScrollIndex = -1;
 
         public ComboViewModel ViewModel => AppViewModel.Instance.Combo;
 
@@ -45,28 +49,55 @@ namespace LivePhotoBox.Views
 
             ViewModel.TaskStartedForScroll += ViewModel_TaskStartedForScroll;
             ViewModel.ProcessingCompletedForScroll += ViewModel_ProcessingCompletedForScroll;
+            ViewModel.PropertyChanged += ViewModel_PropertyChanged;
             _eventsHooked = true;
         }
 
         private void ComboPage_Unloaded(object sender, RoutedEventArgs e)
         {
             _isUnloaded = true;
+            _hasPendingAutoScroll = false;
+            _pendingAutoScrollIndex = -1;
             _lastAutoScrollIndex = -1;
 
             if (!_eventsHooked) return;
 
             ViewModel.TaskStartedForScroll -= ViewModel_TaskStartedForScroll;
             ViewModel.ProcessingCompletedForScroll -= ViewModel_ProcessingCompletedForScroll;
+            ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
             _eventsHooked = false;
         }
 
-        private void ViewModel_TaskStartedForScroll(object? sender, MergeTask task)
+        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ViewModel.IsScanning) && !ViewModel.IsScanning && ViewModel.Tasks.Count > 0)
+            {
+                _ = FinalScanScrollAsync();
+            }
+        }
+
+        private async Task FinalScanScrollAsync()
+        {
+            await Task.Delay(30).ConfigureAwait(false);
+            DispatcherQueue?.TryEnqueue(() =>
+            {
+                if (_isUnloaded || ViewModel.Tasks.Count == 0) return;
+                ComboTaskListView.ScrollIntoView(ViewModel.Tasks[ViewModel.Tasks.Count - 1], ScrollIntoViewAlignment.Default);
+            });
+        }
+
+        private void ViewModel_TaskStartedForScroll(object? sender, ComboTask task)
         {
             int taskIndex = task.Index - 1;
-            int batchSize = 5;
-            int batchStartIndex = (taskIndex / batchSize) * batchSize;
-            int batchLastIndex = Math.Min(batchStartIndex + batchSize - 1, ViewModel.Tasks.Count - 1);
-            ScrollToTask(batchLastIndex);
+
+            // 新一轮开始时重置追踪
+            if (taskIndex == 0)
+            {
+                _pendingAutoScrollIndex = -1;
+                _lastAutoScrollIndex = -1;
+            }
+
+            ScheduleAutoScroll(taskIndex);
         }
 
         private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
@@ -78,20 +109,62 @@ namespace LivePhotoBox.Views
             }
         }
 
-        private void ScrollToTask(int itemIndex)
-        {
-            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count || !ViewModel.IsProcessing || itemIndex == _lastAutoScrollIndex) return;
+        // ── 防抖滚动系统（照搬 Split 页面） ──────────────
 
-            var dispatcher = DispatcherQueue;
-            if (dispatcher != null)
+        private void ScheduleAutoScroll(int itemIndex)
+        {
+            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count) return;
+            if (!ViewModel.IsProcessing && !ViewModel.IsScanning) return;
+
+            // 始终追踪最远的目标索引（多线程瞬间并发时也不遗漏）
+            _pendingAutoScrollIndex = Math.Max(_pendingAutoScrollIndex, itemIndex);
+            _hasPendingAutoScroll = true;
+
+            if (!_isAutoScrollScheduled)
             {
-                _ = EnqueueScrollIntoViewAsync(dispatcher, itemIndex);
+                _isAutoScrollScheduled = true;
+                _ = RunAutoScrollAsync();
+            }
+        }
+
+        private async Task RunAutoScrollAsync()
+        {
+            try
+            {
+                while (_hasPendingAutoScroll && !_isUnloaded)
+                {
+                    _hasPendingAutoScroll = false;
+                    await Task.Delay(AutoFollowDebounce).ConfigureAwait(false);
+
+                    int targetIndex = _pendingAutoScrollIndex;
+                    if (_isUnloaded || (!ViewModel.IsProcessing && !ViewModel.IsScanning) || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count || targetIndex == _lastAutoScrollIndex)
+                    {
+                        continue;
+                    }
+
+                    var dispatcher = DispatcherQueue;
+                    if (dispatcher != null)
+                    {
+                        try { await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false); }
+                        catch (Exception ex) { LogService.Debug($"ComboPage auto-scroll failed: {ex.Message}", LogSource.UI); }
+                    }
+                }
+            }
+            finally
+            {
+                _isAutoScrollScheduled = false;
+                if (_hasPendingAutoScroll && !_isUnloaded)
+                {
+                    _isAutoScrollScheduled = true;
+                    _ = RunAutoScrollAsync();
+                }
             }
         }
 
         private async Task SafeNudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
         {
-            try { await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false); } catch (Exception ex) { LogService.Debug($"ComboPage auto-scroll nudge failed: {ex.Message}", LogSource.UI); }
+            try { await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false); }
+            catch (Exception ex) { LogService.Debug($"ComboPage auto-scroll nudge failed: {ex.Message}", LogSource.UI); }
         }
 
         private async Task NudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
@@ -126,9 +199,11 @@ namespace LivePhotoBox.Views
             {
                 try
                 {
-                    if (!_isUnloaded && ViewModel.IsProcessing && targetIndex >= 0 && targetIndex < ViewModel.Tasks.Count)
+                    if (!_isUnloaded && (ViewModel.IsProcessing || ViewModel.IsScanning) && targetIndex >= 0 && targetIndex < ViewModel.Tasks.Count)
                     {
                         var targetTask = ViewModel.Tasks[targetIndex];
+
+                        // Default 对齐：已在屏幕上则不滚，出了屏幕才滚到可见位置
                         ComboTaskListView.ScrollIntoView(targetTask, ScrollIntoViewAlignment.Default);
                         _lastAutoScrollIndex = targetIndex;
                     }
@@ -141,6 +216,8 @@ namespace LivePhotoBox.Views
             }
             return tcs.Task;
         }
+
+        // ── 工具方法 ────────────────────────────────────
 
         private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
         {
@@ -175,38 +252,33 @@ namespace LivePhotoBox.Views
         private async void FileGroupButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            try { await FilePickerService.OpenFileAsync(path); } catch (Exception ex) { LogService.Debug($"ComboPage open file failed: {ex.Message}", LogSource.UI); }
+            try { await FilePickerService.OpenFileAsync(path); }
+            catch (Exception ex) { LogService.Debug($"ComboPage open file failed: {ex.Message}", LogSource.UI); }
         }
 
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            try { FilePickerService.RevealInExplorer(path); } catch (Exception ex) { LogService.Debug($"ComboPage reveal in explorer failed: {ex.Message}", LogSource.UI); }
+            try { FilePickerService.RevealInExplorer(path); }
+            catch (Exception ex) { LogService.Debug($"ComboPage reveal in explorer failed: {ex.Message}", LogSource.UI); }
         }
 
-        // ==========================================
-        // ✨ 老版本的精髓：UI 不干预，交给 XAML 自己绑定的 Getter
-        // ==========================================
         private void ComboTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
-            // 彻底掏空！不需要强行加载缩略图了。
-            // 当滚动到这个列表项时，XAML 的 {x:Bind Thumbnail} 会自动触发 MergeTask 里的 get_Thumbnail 逻辑！
         }
 
         private void StatusTextBlock_Tapped(object sender, TappedRoutedEventArgs e)
         {
             if (sender is not FrameworkElement element) return;
-            if (element.DataContext is not MergeTask task) return;
+            if (element.DataContext is not ComboTask task) return;
             if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details)) return;
 
-            // 点击同一个 → 关闭
             if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element)
             {
                 ErrorDetailTip.IsOpen = false;
                 return;
             }
 
-            // 更新内容，换 Target
             ErrorDetailText.Text = task.Details;
             ErrorDetailTip.Target = element;
             ErrorDetailTip.IsOpen = true;
@@ -214,7 +286,6 @@ namespace LivePhotoBox.Views
 
         private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args)
         {
-            // 确保关闭后清理目标引用，避免悬空导致卡死
             ErrorDetailTip.Target = null;
         }
     }
