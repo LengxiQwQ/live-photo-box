@@ -7,12 +7,13 @@ namespace LivePhotoBox.Services
     public static class ResourceService
     {
         private static readonly ResourceManager ResourceManager = new();
+        private static readonly ResourceLoader ResourceLoader = new();
 
         public static string GetString(string key)
         {
             try
             {
-                string value = new ResourceLoader().GetString(key);
+                string value = ResourceLoader.GetString(key);
                 return string.IsNullOrWhiteSpace(value) ? key : value;
             }
             catch (COMException)

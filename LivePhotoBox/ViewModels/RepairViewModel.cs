@@ -403,7 +403,10 @@ namespace LivePhotoBox.ViewModels
             _repairStoppedByUser = false;
             _repairDone = false;
 
-            try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
+            if (!token.IsCancellationRequested)
+            {
+                try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
+            }
 
             try
             {
@@ -701,7 +704,8 @@ namespace LivePhotoBox.ViewModels
                 bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
 
-                if (Tasks.Count > 0)
+                // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot
+                if (Tasks.Count > 0 && !_isCleaningUp)
                 {
                     if (wasCancelled)
                         await ShowRepairCancelledDialogAsync();

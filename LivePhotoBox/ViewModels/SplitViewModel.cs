@@ -296,7 +296,10 @@ namespace LivePhotoBox.ViewModels
                 var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
                 var scanProgress = CreateScanProgressReporter();
 
-                try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
+                if (!token.IsCancellationRequested)
+                {
+                    try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
+                }
 
                 // 流式缓冲：每 200ms 刷新到 UI
                 var itemBuffer = new List<SplitTask>();
@@ -608,7 +611,7 @@ namespace LivePhotoBox.ViewModels
                     var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
                     int maxParallel = AppSettingsService.GetValue("SplitThreadCount", Environment.ProcessorCount);
 
-                    using var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
+                    var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
                     var pendingTasks = new List<Task>();
                     int localCompletedCount = 0;
                     var lockObj = new object();
@@ -685,47 +688,58 @@ namespace LivePhotoBox.ViewModels
                         }
                         finally
                         {
-                            semaphore.Release();
+                            try { semaphore.Release(); }
+                            catch (ObjectDisposedException) { }
                         }
                     }
 
-                    foreach (var task in tasksToProcess)
+                    try
                     {
-                        if (token.IsCancellationRequested)
+                        foreach (var task in tasksToProcess)
                         {
-                            break;
-                        }
-
-                        pendingTasks.Add(ProcessTask(task));
-
-                        // 当达到最大并发数时，等待任意一个完成
-                        if (pendingTasks.Count >= maxParallel)
-                        {
-                            var completedTask = await Task.WhenAny(pendingTasks);
-                            pendingTasks.Remove(completedTask);
-
-                            try
+                            if (token.IsCancellationRequested)
                             {
-                                await completedTask;
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                // 取消处理 — break 出循环，后面统一 rethrow
                                 break;
                             }
+
+                            pendingTasks.Add(ProcessTask(task));
+
+                            // 当达到最大并发数时，等待任意一个完成
+                            if (pendingTasks.Count >= maxParallel)
+                            {
+                                var completedTask = await Task.WhenAny(pendingTasks);
+                                pendingTasks.Remove(completedTask);
+
+                                try
+                                {
+                                    await completedTask;
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    // 取消处理 — break 出循环，后面统一 rethrow
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 等待所有剩余任务完全结束（因为内部用了 TaskCompletionSource，执行到这里时所有的 UI 也100%更新完了）
+                        if (!token.IsCancellationRequested)
+                        {
+                            await Task.WhenAll(pendingTasks);
+                        }
+
+                        // 如果因取消而退出循环，确保异常传播到外层 catch 更新状态
+                        if (token.IsCancellationRequested)
+                        {
+                            token.ThrowIfCancellationRequested();
                         }
                     }
-
-                    // 等待所有剩余任务完全结束（因为内部用了 TaskCompletionSource，执行到这里时所有的 UI 也100%更新完了）
-                    if (!token.IsCancellationRequested)
+                    finally
                     {
-                        await Task.WhenAll(pendingTasks);
-                    }
-
-                    // 如果因取消而退出循环，确保异常传播到外层 catch 更新状态
-                    if (token.IsCancellationRequested)
-                    {
-                        token.ThrowIfCancellationRequested();
+                        // 先等所有任务退出再 dispose semaphore，避免 ProcessTask 的 finally
+                        // 还在调 semaphore.Release() 时 semaphore 已被销毁 → ObjectDisposedException
+                        try { await Task.WhenAll(pendingTasks); } catch { }
+                        semaphore.Dispose();
                     }
                 }, token);
             }
@@ -749,7 +763,8 @@ namespace LivePhotoBox.ViewModels
                 bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
 
-                if (Tasks.Count > 0)
+                // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot
+                if (Tasks.Count > 0 && !_isCleaningUp)
                 {
                     if (wasCancelled)
                         await ShowSplitCancelledDialogAsync();

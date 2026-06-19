@@ -99,7 +99,12 @@ namespace LivePhotoBox.Services
             catch (OperationCanceledException)
             {
                 LogService.Scan("Scan cancelled");
-                throw;
+                return new LivePhotoScanResult
+                {
+                    Pairs = [],
+                    StandaloneImagesCount = 0,
+                    StandaloneVideosCount = 0
+                };
             }
 
             var pairs = new List<LivePhotoFilePairInfo>(Math.Min(imgDict.Count, vidDict.Count));

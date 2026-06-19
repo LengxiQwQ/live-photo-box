@@ -84,7 +84,7 @@ namespace LivePhotoBox.Views
         private async Task FinalScanScrollAsync()
         {
             await Task.Delay(30).ConfigureAwait(false);
-            DispatcherQueue.TryEnqueue(() =>
+            DispatcherQueue?.TryEnqueue(() =>
             {
                 if (_isUnloaded || ViewModel.Tasks.Count == 0) return;
                 RepairTaskListView.ScrollIntoView(ViewModel.Tasks[ViewModel.Tasks.Count - 1], ScrollIntoViewAlignment.Default);
@@ -97,7 +97,7 @@ namespace LivePhotoBox.Views
             int lastIndex = ViewModel.Tasks.Count - 1;
             if (lastIndex < 0) return;
             // 延迟一帧，等 ListView 处理完新项目再滚
-            DispatcherQueue.TryEnqueue(() =>
+            DispatcherQueue?.TryEnqueue(() =>
             {
                 if (_isUnloaded) return;
                 if (lastIndex >= 0 && lastIndex < ViewModel.Tasks.Count)

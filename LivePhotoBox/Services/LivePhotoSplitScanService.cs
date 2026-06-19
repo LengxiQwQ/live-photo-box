@@ -100,7 +100,7 @@ namespace LivePhotoBox.Services
             catch (OperationCanceledException)
             {
                 LogService.Scan("Split scan cancelled");
-                throw;
+                return new LivePhotoSplitScanResult { Files = [], RecognizedCount = 0, SkippedCount = 0 };
             }
 
             int total = candidates.Count;

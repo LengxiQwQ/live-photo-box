@@ -42,6 +42,7 @@ namespace LivePhotoBox.ViewModels
         private int _pausePendingTickCount = 0;
         private double _lastProgressAtPauseRequest = 0;
         protected bool _cancelledByUser = false;
+        protected bool _isCleaningUp = false;
 
         [ObservableProperty]
         private string _progressText = "0/0";
@@ -216,20 +217,32 @@ namespace LivePhotoBox.ViewModels
             // 在重置 _cancelledByUser 之前调用，让子类能检测到取消状态
             OnFinalizeRunState();
 
-            if (_cancelledByUser)
+            // 关闭中：跳过 UI 状态更新，只做资源释放
+            if (!_isCleaningUp)
             {
-                ProgressBarState = Models.ProgressBarState.Cancelled;
-                _cancelledByUser = false;
+                if (_cancelledByUser)
+                {
+                    ProgressBarState = Models.ProgressBarState.Cancelled;
+                    _cancelledByUser = false;
+                }
+                else
+                {
+                    ProgressBarState = Progress >= 100 ? Models.ProgressBarState.Success : Models.ProgressBarState.Idle;
+                }
+
+                PauseEvent.Set();
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
+                NotifyStatusChanged();
             }
             else
             {
-                ProgressBarState = Progress >= 100 ? Models.ProgressBarState.Success : Models.ProgressBarState.Idle;
+                // 关闭流程：先 Set 再 Dispose，保证不会在 Dispose 后还被调用
+                PauseEvent.Set();
+                _cancellationTokenSource?.Dispose();
+                _cancellationTokenSource = null;
+                PauseEvent.Dispose();
             }
-
-            PauseEvent.Set();
-            _cancellationTokenSource?.Dispose();
-            _cancellationTokenSource = null;
-            NotifyStatusChanged();
         }
 
         protected CancellationToken GetProcessingToken()
@@ -265,13 +278,17 @@ namespace LivePhotoBox.ViewModels
 
         protected void CleanupTokens()
         {
+            _isCleaningUp = true;
             _scanCancellationTokenSource?.Cancel();
             _scanCancellationTokenSource?.Dispose();
             _scanCancellationTokenSource = null;
             _cancellationTokenSource?.Cancel();
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
-            PauseEvent.Dispose();
+            // 不在这里 Dispose PauseEvent — FinalizeRunState() 的 finally 块
+            // 还没有执行，它还需要调用 PauseEvent.Set()。由 FinalizeRunState
+            // 检测到 _isCleaningUp 后负责释放。
+            PauseEvent.Set();
         }
 
         protected virtual void OnScanningEnded() { }

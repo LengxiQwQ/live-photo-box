@@ -282,7 +282,10 @@ namespace LivePhotoBox.ViewModels
                 var pendingText = ResourceService.GetString("Task_Pending");
                 var scanProgress = CreateScanProgressReporter();
 
-                try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
+                if (!token.IsCancellationRequested)
+                {
+                    try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
+                }
 
                 var scanResult = await Task.Run(
                     () => LivePhotoScanService.Scan(InputDirectory, token, scanProgress),
@@ -655,7 +658,8 @@ namespace LivePhotoBox.ViewModels
                 bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
 
-                if (Tasks.Count > 0)
+                // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot
+                if (Tasks.Count > 0 && !_isCleaningUp)
                 {
                     if (wasCancelled)
                         await ShowComboCancelledDialogAsync();
