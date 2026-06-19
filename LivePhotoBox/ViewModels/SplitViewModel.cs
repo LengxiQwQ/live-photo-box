@@ -232,6 +232,7 @@ namespace LivePhotoBox.ViewModels
 
         public event EventHandler<SplitTask>? TaskStartedForScroll;
         public event EventHandler? ProcessingCompletedForScroll;
+        public event EventHandler? ScanItemsFlushed;
 
         private void UiUpdateTimer_Tick(object? sender, object e)
         {
@@ -250,16 +251,16 @@ namespace LivePhotoBox.ViewModels
             if (!TryGuardScanClick()) return;
             if (IsProcessing) return;
 
-            if (Tasks.Count > 0)
-            {
-                await ShowQueueNotEmptyDialogAsync();
-                return;
-            }
-
             if (IsScanning)
             {
                 CancelScanning();
                 SetStatus("SplitPage_Status_ScanCancelling");
+                return;
+            }
+
+            if (Tasks.Count > 0)
+            {
+                await ShowQueueNotEmptyDialogAsync();
                 return;
             }
 
@@ -297,19 +298,39 @@ namespace LivePhotoBox.ViewModels
 
                 try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
 
-                var scanResult = await Task.Run(
-                    () => LivePhotoSplitScanService.Scan(InputDirectory, token, scanProgress),
-                    token);
+                // 流式缓冲：每 200ms 刷新到 UI
+                var itemBuffer = new List<SplitTask>();
+                var bufferLock = new object();
+                long lastFlushMs = Environment.TickCount64;
+                const long flushIntervalMs = 200;
+                int streamIndex = 0;
 
-                if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
-
-                int index = 0;
-                var tempTasks = scanResult.Files.Select(file =>
+                void FlushBuffer()
                 {
-                    index++;
-                    return new SplitTask
+                    List<SplitTask> batch;
+                    lock (bufferLock)
                     {
-                        Index = index,
+                        if (itemBuffer.Count == 0) return;
+                        batch = new List<SplitTask>(itemBuffer);
+                        itemBuffer.Clear();
+                    }
+                    if (batch.Count > 0)
+                    {
+                        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                        {
+                            foreach (var t in batch) Tasks.Add(t);
+                            QueuedCount = Tasks.Count;
+                            ScanItemsFlushed?.Invoke(this, EventArgs.Empty);
+                        });
+                    }
+                }
+
+                var itemProgress = new Progress<LivePhotoSplitFileInfo>(file =>
+                {
+                    int idx = Interlocked.Increment(ref streamIndex);
+                    var task = new SplitTask
+                    {
+                        Index = idx,
                         SourceFileName = Path.GetFileName(file.SourcePath),
                         SourcePath = file.SourcePath,
                         FileSize = FormatFileSize(file.FileSizeBytes),
@@ -317,24 +338,41 @@ namespace LivePhotoBox.ViewModels
                         Status = ProcessStatus.Pending,
                         Details = pendingText
                     };
-                }).ToList();
 
-                Tasks.ReplaceRange(tempTasks);
-                QueuedCount = scanResult.Files.Count;
+                    lock (bufferLock) { itemBuffer.Add(task); }
+
+                    var now = Environment.TickCount64;
+                    if (now - lastFlushMs >= flushIntervalMs)
+                    {
+                        lastFlushMs = now;
+                        FlushBuffer();
+                    }
+                });
+
+                var scanResult = await Task.Run(
+                    () => LivePhotoSplitScanService.Scan(InputDirectory, token, scanProgress, itemProgress),
+                    token);
+
+                // 刷新残留项，然后用扫描结果的确切数量修正
+                FlushBuffer();
+                int finalCount = scanResult.Files.Count;
                 RecognizedCount = scanResult.RecognizedCount;
                 SkippedCount = scanResult.SkippedCount;
 
+                if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
+
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {
+                    QueuedCount = finalCount;
                     Progress = 0;
-                    ProgressText = $"0/{QueuedCount}";
+                    ProgressText = $"0/{finalCount}";
                 });
 
                 FlushPendingScanProgress();
                 CompleteScanSnapshot();
 
-                if (QueuedCount > 0)
-                    SetStatus("SplitPage_Status_ScanDone", QueuedCount);
+                if (finalCount > 0)
+                    SetStatus("SplitPage_Status_ScanDone", finalCount);
                 else
                 {
                     IsDirectoryPanelOpen = true;

@@ -394,20 +394,38 @@ Do you want to restart now?</value>
   <data name="StatusBar_ScanProgressLabel" xml:space="preserve">
     <value>Scanning: {0}%</value>
   </data>
+  <data name="StatusBar_ScanProgressLabel_Lbl" xml:space="preserve">
+    <value>Scanning: </value>
+  </data>
   <data name="StatusBar_ProcessProgressLabel" xml:space="preserve">
     <value>Processing: {0}%</value>
+  </data>
+  <data name="StatusBar_ProcessProgressLabel_Lbl" xml:space="preserve">
+    <value>Processing: </value>
   </data>
   <data name="StatusBar_PausedLabel" xml:space="preserve">
     <value>Paused: {0}%</value>
   </data>
+  <data name="StatusBar_PausedLabel_Lbl" xml:space="preserve">
+    <value>Paused: </value>
+  </data>
   <data name="StatusBar_StoppedLabel" xml:space="preserve">
     <value>Cancelled: {0}%</value>
+  </data>
+  <data name="StatusBar_StoppedLabel_Lbl" xml:space="preserve">
+    <value>Cancelled: </value>
   </data>
   <data name="StatusBar_CompletedLabel" xml:space="preserve">
     <value>Completed: {0}%</value>
   </data>
+  <data name="StatusBar_CompletedLabel_Lbl" xml:space="preserve">
+    <value>Completed: </value>
+  </data>
   <data name="StatusBar_ReadyLabel" xml:space="preserve">
-    <value>Ready: {0}%</value>
+    <value>Scan done: {0}%</value>
+  </data>
+  <data name="StatusBar_ReadyLabel_Lbl" xml:space="preserve">
+    <value>Scan done: </value>
   </data>
   <data name="Status_ScanNoPairs" xml:space="preserve">
     <value>Scan complete: no matching live photos found (images: {0}, videos: {1})</value>
@@ -1176,6 +1194,15 @@ You can open the log folder or export the latest log now to help diagnose the is
   </data>
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>Help &amp; Tutorials</value>
+  </data>
+  <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Go to Home for tutorials</value>
+  </data>
+  <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Go to Home for tutorials</value>
+  </data>
+  <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Go to Home for tutorials</value>
   </data>
   <data name="ComboPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
     <value>Input Folder Not Selected</value>

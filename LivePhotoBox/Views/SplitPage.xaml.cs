@@ -49,6 +49,8 @@ namespace LivePhotoBox.Views
 
             ViewModel.TaskStartedForScroll += ViewModel_TaskStartedForScroll;
             ViewModel.ProcessingCompletedForScroll += ViewModel_ProcessingCompletedForScroll;
+            ViewModel.ScanItemsFlushed += ViewModel_ScanItemsFlushed;
+            ViewModel.PropertyChanged += ViewModel_PropertyChanged;
             _eventsHooked = true;
         }
 
@@ -62,6 +64,8 @@ namespace LivePhotoBox.Views
 
             ViewModel.TaskStartedForScroll -= ViewModel_TaskStartedForScroll;
             ViewModel.ProcessingCompletedForScroll -= ViewModel_ProcessingCompletedForScroll;
+            ViewModel.ScanItemsFlushed -= ViewModel_ScanItemsFlushed;
+            ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
             _eventsHooked = false;
         }
 
@@ -79,6 +83,38 @@ namespace LivePhotoBox.Views
             ScheduleAutoScroll(taskIndex);
         }
 
+        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ViewModel.IsScanning) && !ViewModel.IsScanning && ViewModel.Tasks.Count > 0)
+            {
+                _ = FinalScanScrollAsync();
+            }
+        }
+
+        private async Task FinalScanScrollAsync()
+        {
+            await Task.Delay(30).ConfigureAwait(false);
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_isUnloaded || ViewModel.Tasks.Count == 0) return;
+                SplitTaskListView.ScrollIntoView(ViewModel.Tasks[ViewModel.Tasks.Count - 1], ScrollIntoViewAlignment.Default);
+            });
+        }
+
+        private void ViewModel_ScanItemsFlushed(object? sender, EventArgs e)
+        {
+            if (_isUnloaded || !ViewModel.IsScanning) return;
+            int lastIndex = ViewModel.Tasks.Count - 1;
+            if (lastIndex < 0) return;
+            // 延迟一帧，等 ListView 处理完新项目再滚
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (_isUnloaded) return;
+                if (lastIndex >= 0 && lastIndex < ViewModel.Tasks.Count)
+                    SplitTaskListView.ScrollIntoView(ViewModel.Tasks[lastIndex], ScrollIntoViewAlignment.Default);
+            });
+        }
+
         private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
         {
             var dispatcher = DispatcherQueue;
@@ -90,7 +126,8 @@ namespace LivePhotoBox.Views
 
         private void ScheduleAutoScroll(int itemIndex)
         {
-            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count || !ViewModel.IsProcessing) return;
+            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count) return;
+            if (!ViewModel.IsProcessing && !ViewModel.IsScanning) return;
 
             // 总是记录最远的目标索引（保证多线程瞬间并发时，向下追踪最末尾的任务）
             _pendingAutoScrollIndex = Math.Max(_pendingAutoScrollIndex, itemIndex);
@@ -113,7 +150,7 @@ namespace LivePhotoBox.Views
                     await Task.Delay(AutoFollowDebounce).ConfigureAwait(false);
 
                     int targetIndex = _pendingAutoScrollIndex;
-                    if (_isUnloaded || !ViewModel.IsProcessing || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count || targetIndex == _lastAutoScrollIndex)
+                    if (_isUnloaded || (!ViewModel.IsProcessing && !ViewModel.IsScanning) || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count || targetIndex == _lastAutoScrollIndex)
                     {
                         continue;
                     }
@@ -173,7 +210,7 @@ namespace LivePhotoBox.Views
             {
                 try
                 {
-                    if (!_isUnloaded && ViewModel.IsProcessing && targetIndex >= 0 && targetIndex < ViewModel.Tasks.Count)
+                    if (!_isUnloaded && (ViewModel.IsProcessing || ViewModel.IsScanning) && targetIndex >= 0 && targetIndex < ViewModel.Tasks.Count)
                     {
                         var targetTask = ViewModel.Tasks[targetIndex];
 

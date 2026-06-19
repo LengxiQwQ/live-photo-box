@@ -471,6 +471,7 @@ namespace LivePhotoBox.ViewModels
 
                             Progress = files.Count == 0 ? 0 : (index * 100.0) / files.Count;
                             ProgressText = $"{index}/{files.Count}";
+                            ScanItemsFlushed?.Invoke(this, EventArgs.Empty);
                         });
 
                         scanProgress.Report(new WorkProgressSnapshot(files.Count, index));
@@ -712,6 +713,7 @@ namespace LivePhotoBox.ViewModels
 
         public event EventHandler<RepairTask>? TaskStartedForScroll;
         public event EventHandler? ProcessingCompletedForScroll;
+        public event EventHandler? ScanItemsFlushed;
 
         private void UpdateTaskStarted(RepairTask task)
         {

@@ -393,20 +393,38 @@
   <data name="StatusBar_ScanProgressLabel" xml:space="preserve">
     <value>扫描中：{0}%</value>
   </data>
+  <data name="StatusBar_ScanProgressLabel_Lbl" xml:space="preserve">
+    <value>扫描中：</value>
+  </data>
   <data name="StatusBar_ProcessProgressLabel" xml:space="preserve">
     <value>处理中：{0}%</value>
+  </data>
+  <data name="StatusBar_ProcessProgressLabel_Lbl" xml:space="preserve">
+    <value>处理中：</value>
   </data>
   <data name="StatusBar_PausedLabel" xml:space="preserve">
     <value>已暂停：{0}%</value>
   </data>
+  <data name="StatusBar_PausedLabel_Lbl" xml:space="preserve">
+    <value>已暂停：</value>
+  </data>
   <data name="StatusBar_StoppedLabel" xml:space="preserve">
     <value>已取消：{0}%</value>
+  </data>
+  <data name="StatusBar_StoppedLabel_Lbl" xml:space="preserve">
+    <value>已取消：</value>
   </data>
   <data name="StatusBar_CompletedLabel" xml:space="preserve">
     <value>已完成：{0}%</value>
   </data>
+  <data name="StatusBar_CompletedLabel_Lbl" xml:space="preserve">
+    <value>已完成：</value>
+  </data>
   <data name="StatusBar_ReadyLabel" xml:space="preserve">
-    <value>已就绪：{0}%</value>
+    <value>扫描完成：{0}%</value>
+  </data>
+  <data name="StatusBar_ReadyLabel_Lbl" xml:space="preserve">
+    <value>扫描完成：</value>
   </data>
   <data name="Status_ScanNoPairs" xml:space="preserve">
     <value>扫描完成：未找到匹配的实况照片（零散图片 {0} 张，零散视频 {1} 个）</value>
@@ -1175,6 +1193,15 @@
   </data>
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>帮助 &amp; 教程</value>
+  </data>
+  <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>前往主页查看教程</value>
+  </data>
+  <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>前往主页查看教程</value>
+  </data>
+  <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>前往主页查看教程</value>
   </data>
   <data name="ComboPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
     <value>尚未选择输入文件夹</value>

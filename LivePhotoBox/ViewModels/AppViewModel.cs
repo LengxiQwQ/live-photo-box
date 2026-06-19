@@ -104,8 +104,8 @@ namespace LivePhotoBox.ViewModels
                 return vm.Progress;
             if (vm.ProgressBarState == ProgressBarState.Cancelled)
                 return vm.Progress > 0 ? vm.Progress : Math.Clamp(scanProcessed * 100.0 / Math.Max(1, scanTotal), 0, 100);
-            // Idle (ready / completed-clear) — use vm.Progress (0 before processing starts)
-            return vm.Progress;
+            // Idle — after scan show scan result (100%), otherwise vm.Progress
+            return scanTotal > 0 ? Math.Clamp(scanProcessed * 100.0 / Math.Max(1, scanTotal), 0, 100) : vm.Progress;
         }
 
         public bool FooterIsIndeterminate =>
@@ -124,8 +124,6 @@ namespace LivePhotoBox.ViewModels
                     return ResourceService.Format("StatusBar_ScanProgressLabel", "?");
                 }
 
-                int percent = (int)Math.Round(FooterProgress);
-
                 var vm = CurrentStatusPageTag switch
                 {
                     "Combo" => (WorkViewModelBase)Combo,
@@ -133,6 +131,11 @@ namespace LivePhotoBox.ViewModels
                     "Repair" => Repair,
                     _ => null
                 };
+
+                // 扫描中用截断避免 99.9% 四舍五入成 100%
+                int percent = (vm?.IsScanning == true)
+                    ? (int)FooterProgress
+                    : (int)Math.Round(FooterProgress);
 
                 if (vm != null)
                 {
@@ -192,8 +195,80 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        public string FooterPercentLabel
+        {
+            get
+            {
+                // Same state logic as FooterPercentText, but returns only the label prefix
+                if (FooterIsIndeterminate)
+                    return ResourceService.GetString("StatusBar_ScanProgressLabel_Lbl");
+
+                var vm = CurrentStatusPageTag switch
+                {
+                    "Combo" => (WorkViewModelBase)Combo,
+                    "Split" => Split,
+                    "Repair" => Repair,
+                    _ => null
+                };
+
+                if (vm != null)
+                {
+                    if (vm.IsScanning)
+                        return ResourceService.GetString("StatusBar_ScanProgressLabel_Lbl");
+
+                    switch (vm.ProgressBarState)
+                    {
+                        case ProgressBarState.Processing:
+                        case ProgressBarState.Pausing:
+                            return ResourceService.GetString("StatusBar_ProcessProgressLabel_Lbl");
+                        case ProgressBarState.Paused:
+                            return ResourceService.GetString("StatusBar_PausedLabel_Lbl");
+                        case ProgressBarState.Cancelled:
+                            return ResourceService.GetString("StatusBar_StoppedLabel_Lbl");
+                        case ProgressBarState.Idle:
+                            bool hasData = CurrentStatusPageTag switch
+                            {
+                                "Combo" => _comboScanTotal > 0,
+                                "Split" => _splitScanTotal > 0,
+                                "Repair" => _repairScanTotal > 0,
+                                _ => false
+                            };
+                            if (hasData) return ResourceService.GetString("StatusBar_ReadyLabel_Lbl");
+                            break;
+                        case ProgressBarState.Success:
+                            return ResourceService.GetString("StatusBar_CompletedLabel_Lbl");
+                        default: break;
+                    }
+                }
+
+                return string.Empty;
+            }
+        }
+
+        public string FooterPercentNumber
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(FooterPercentLabel)) return string.Empty;
+
+                var vm = CurrentStatusPageTag switch
+                {
+                    "Combo" => (WorkViewModelBase)Combo,
+                    "Split" => Split,
+                    "Repair" => Repair,
+                    _ => null
+                };
+
+                int percent = (vm?.IsScanning == true)
+                    ? (int)FooterProgress
+                    : (int)Math.Round(FooterProgress);
+
+                return $"{percent}%";
+            }
+        }
+
         public Visibility FooterPercentVisibility =>
-            string.IsNullOrEmpty(FooterPercentText) ? Visibility.Collapsed : Visibility.Visible;
+            string.IsNullOrEmpty(FooterPercentLabel) ? Visibility.Collapsed : Visibility.Visible;
 
         public void ApplyComboScanProgress(WorkProgressSnapshot snapshot)
         {
@@ -269,6 +344,8 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(FooterProgressBarValue));
             OnPropertyChanged(nameof(FooterIsIndeterminate));
             OnPropertyChanged(nameof(FooterPercentText));
+            OnPropertyChanged(nameof(FooterPercentLabel));
+            OnPropertyChanged(nameof(FooterPercentNumber));
             OnPropertyChanged(nameof(FooterPercentVisibility));
             OnPropertyChanged(nameof(FooterProgressBarState));
         }

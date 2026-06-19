@@ -38,16 +38,27 @@
                     Orientation="Horizontal"
                     Spacing="10"
                     VerticalAlignment="Center">
-                    <TextBlock
-                        Text="{x:Bind ViewModel.FooterPercentText, Mode=OneWay}"
-                        FontSize="11"
-                        LineHeight="0"
-                        FontWeight="SemiBold"
-                        VerticalAlignment="Center"
-                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                        TextAlignment="Right"
-                        MinWidth="96"
-                        Visibility="{x:Bind ViewModel.FooterPercentVisibility, Mode=OneWay}" />
+                    <StackPanel Orientation="Horizontal"
+                                Visibility="{x:Bind ViewModel.FooterPercentVisibility, Mode=OneWay}"
+                                VerticalAlignment="Center">
+                        <TextBlock
+                            Text="{x:Bind ViewModel.FooterPercentLabel, Mode=OneWay}"
+                            FontSize="11"
+                            LineHeight="0"
+                            FontWeight="SemiBold"
+                            VerticalAlignment="Center"
+                            TextAlignment="Right"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <TextBlock
+                            Text="{x:Bind ViewModel.FooterPercentNumber, Mode=OneWay}"
+                            FontSize="11"
+                            LineHeight="0"
+                            FontWeight="SemiBold"
+                            VerticalAlignment="Center"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            Width="28"
+                            TextAlignment="Left" />
+                    </StackPanel>
                     <HyperlinkButton
                         NavigateUri="https://github.com/LengxiQwQ"
                         VerticalAlignment="Center"
@@ -55,7 +66,7 @@
                         Padding="4,2"
                         Foreground="{ThemeResource TextFillColorPrimaryBrush}">
                         <HyperlinkButton.Content>
-                            <TextBlock x:Uid="MainWindow_Footer" FontSize="11" LineHeight="0" />
+                            <TextBlock x:Uid="MainWindow_Footer" FontSize="11" LineHeight="0" VerticalAlignment="Center" />
                         </HyperlinkButton.Content>
                     </HyperlinkButton>
                 </StackPanel>
