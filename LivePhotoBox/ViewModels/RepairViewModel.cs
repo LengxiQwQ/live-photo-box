@@ -22,6 +22,8 @@ namespace LivePhotoBox.ViewModels
 
         public override string PageStatusTag => "Repair";
 
+        protected override string ProcessingStatusKey => "Status_Running";
+
         [ObservableProperty]
         private string _inputDirectory = string.Empty;
 
@@ -260,6 +262,51 @@ namespace LivePhotoBox.ViewModels
 
         public override bool IsProcessingAllowed => !IsScanning;
 
+        private async Task ShowRepairCancelledDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                int total = Tasks.Count;
+                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success && (t.AnalysisResult == null || t.AnalysisResult.IssueType != RepairIssueType.Perfect));
+                int skipped = Tasks.Count(t => t.AnalysisResult != null && t.AnalysisResult.IssueType == RepairIssueType.Perfect);
+                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                int unprocessed = total - succeeded - skipped - failed;
+
+                var stack = new StackPanel { Spacing = 12 };
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.Format("Msg_RepairCancelledSummary", total, succeeded, skipped, failed, unprocessed),
+                    FontSize = 16,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.GetString("Msg_RepairCompletedDescription"),
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 12, 0, 0),
+                    Opacity = 0.85
+                });
+
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_TaskCancelledTitle"),
+                    Content = stack,
+                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
+                };
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    OpenRepairOutputFolder();
+                }
+            }
+        }
+
         private async Task ShowRepairAlreadyDoneDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -311,16 +358,16 @@ namespace LivePhotoBox.ViewModels
 
             if (!TryGuardScanClick()) return;
 
-            if (Tasks.Count > 0)
-            {
-                await ShowQueueNotEmptyDialogAsync();
-                return;
-            }
-
             if (IsScanning)
             {
                 CancelScanning();
                 SetStatus("Status_ScanCancelling");
+                return;
+            }
+
+            if (Tasks.Count > 0)
+            {
+                await ShowQueueNotEmptyDialogAsync();
                 return;
             }
 
@@ -508,7 +555,10 @@ namespace LivePhotoBox.ViewModels
 
             if (_repairStoppedByUser || _repairDone)
             {
-                await ShowRepairAlreadyDoneDialogAsync();
+                if (_repairStoppedByUser)
+                    await ShowRepairCancelledDialogAsync();
+                else
+                    await ShowRepairAlreadyDoneDialogAsync();
                 return;
             }
 
@@ -625,8 +675,14 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                LogService.Repair($"Repair cancelled by user after {_stopwatch.Elapsed.TotalSeconds:F1}s, completed {_completedTasksCount}/{TotalPhotosCount}");
-                SetStatus("RepairPage_Status_Aborted");
+                int total = Tasks.Count;
+                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success && (t.AnalysisResult == null || t.AnalysisResult.IssueType != RepairIssueType.Perfect));
+                int skipped = Tasks.Count(t => t.AnalysisResult != null && t.AnalysisResult.IssueType == RepairIssueType.Perfect);
+                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                int unprocessed = total - succeeded - skipped - failed;
+                double elapsed = _stopwatch.Elapsed.TotalSeconds;
+                LogService.Repair($"Repair cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalPhotosCount}");
+                SetStatus("Status_RepairStoppedSummary", total, elapsed, succeeded, skipped, failed, unprocessed);
             }
             catch (Exception ex)
             {
@@ -641,11 +697,15 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 _stopwatch.Stop();
+                bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
 
-                if (!_cancelledByUser && Tasks.Count > 0)
+                if (Tasks.Count > 0)
                 {
-                    await ShowRepairAlreadyDoneDialogAsync();
+                    if (wasCancelled)
+                        await ShowRepairCancelledDialogAsync();
+                    else
+                        await ShowRepairAlreadyDoneDialogAsync();
                 }
             }
         }

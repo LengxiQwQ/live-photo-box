@@ -5,6 +5,7 @@ namespace LivePhotoBox.Models
         Idle,
         Scanning,
         Processing,
+        Pausing,
         Paused,
         Cancelled,
         Success

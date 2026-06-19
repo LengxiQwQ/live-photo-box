@@ -23,6 +23,8 @@ namespace LivePhotoBox.ViewModels
 
         public override string PageStatusTag => "Split";
 
+        protected override string ProcessingStatusKey => "SplitPage_Status_Running";
+
         [ObservableProperty]
         private string _inputDirectory = string.Empty;
 
@@ -400,7 +402,7 @@ namespace LivePhotoBox.ViewModels
 
             if (IsProcessing)
             {
-                SetStatus("SplitPage_Status_Aborted");
+                SetStatus("Status_Stopping");
                 CancelProcessing();
                 IsDirectoryPanelOpen = true;
                 OnPropertyChanged(nameof(ActionBtnText));
@@ -409,7 +411,10 @@ namespace LivePhotoBox.ViewModels
 
             if (_splitStoppedByUser || _splitDone)
             {
-                await ShowSplitAlreadyDoneDialogAsync();
+                if (_splitStoppedByUser)
+                    await ShowSplitCancelledDialogAsync();
+                else
+                    await ShowSplitAlreadyDoneDialogAsync();
                 return;
             }
 
@@ -442,6 +447,50 @@ namespace LivePhotoBox.ViewModels
                     RequestedTheme = App.CurrentTheme
                 };
                 await dialog.ShowAsync();
+            }
+        }
+
+        private async Task ShowSplitCancelledDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                int total = Tasks.Count;
+                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
+                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                int unprocessed = total - succeeded - failed;
+
+                var stack = new StackPanel { Spacing = 12 };
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.Format("Msg_SplitCancelledSummary", total, succeeded, failed, unprocessed),
+                    FontSize = 16,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.GetString("Msg_SplitCompletedDescription"),
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 12, 0, 0),
+                    Opacity = 0.85
+                });
+
+                var dialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_TaskCancelledTitle"),
+                    Content = stack,
+                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
+                };
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    OpenSplitOutputFolder();
+                }
             }
         }
 
@@ -623,7 +672,7 @@ namespace LivePhotoBox.ViewModels
                             }
                             catch (OperationCanceledException)
                             {
-                                // 取消处理
+                                // 取消处理 — break 出循环，后面统一 rethrow
                                 break;
                             }
                         }
@@ -634,12 +683,23 @@ namespace LivePhotoBox.ViewModels
                     {
                         await Task.WhenAll(pendingTasks);
                     }
+
+                    // 如果因取消而退出循环，确保异常传播到外层 catch 更新状态
+                    if (token.IsCancellationRequested)
+                    {
+                        token.ThrowIfCancellationRequested();
+                    }
                 }, token);
             }
             catch (OperationCanceledException)
             {
-                LogService.Split($"Split processing cancelled by user after {_stopwatch.Elapsed.TotalSeconds:F1}s, completed {_completedTasksCount}/{QueuedCount}");
-                SetStatus("SplitPage_Status_Aborted");
+                int total = Tasks.Count;
+                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
+                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                int unprocessed = total - succeeded - failed;
+                double elapsed = _stopwatch.Elapsed.TotalSeconds;
+                LogService.Split($"Split processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{QueuedCount}");
+                SetStatus("Status_SplitStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
             }
             catch (Exception ex)
             {
@@ -648,11 +708,15 @@ namespace LivePhotoBox.ViewModels
             finally
             {
                 _stopwatch.Stop();
+                bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
 
-                if (!_cancelledByUser && Tasks.Count > 0)
+                if (Tasks.Count > 0)
                 {
-                    await ShowSplitAlreadyDoneDialogAsync();
+                    if (wasCancelled)
+                        await ShowSplitCancelledDialogAsync();
+                    else
+                        await ShowSplitAlreadyDoneDialogAsync();
                 }
             }
         }

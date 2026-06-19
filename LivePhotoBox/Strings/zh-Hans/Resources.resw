@@ -396,6 +396,18 @@
   <data name="StatusBar_ProcessProgressLabel" xml:space="preserve">
     <value>处理中：{0}%</value>
   </data>
+  <data name="StatusBar_PausedLabel" xml:space="preserve">
+    <value>已暂停：{0}%</value>
+  </data>
+  <data name="StatusBar_StoppedLabel" xml:space="preserve">
+    <value>已取消：{0}%</value>
+  </data>
+  <data name="StatusBar_CompletedLabel" xml:space="preserve">
+    <value>已完成：{0}%</value>
+  </data>
+  <data name="StatusBar_ReadyLabel" xml:space="preserve">
+    <value>已就绪：{0}%</value>
+  </data>
   <data name="Status_ScanNoPairs" xml:space="preserve">
     <value>扫描完成：未找到匹配的实况照片（零散图片 {0} 张，零散视频 {1} 个）</value>
   </data>
@@ -438,6 +450,9 @@
   <data name="Status_Paused" xml:space="preserve">
     <value>任务已暂停</value>
   </data>
+  <data name="Status_Pausing" xml:space="preserve">
+    <value>正在暂停...</value>
+  </data>
   <data name="Status_WarnOutput" xml:space="preserve">
     <value>请先设置保存目录</value>
   </data>
@@ -446,6 +461,9 @@
   </data>
   <data name="Status_Aborted" xml:space="preserve">
     <value>任务已停止</value>
+  </data>
+  <data name="Status_Stopping" xml:space="preserve">
+    <value>正在停止...</value>
   </data>
   <data name="Status_Error" xml:space="preserve">
     <value>出错了：{0}</value>
@@ -457,10 +475,19 @@
     <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个</value>
   </data>
   <data name="Status_SplitCompletedSummary" xml:space="preserve">
-    <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒，成功 {2} 个，失败 {3} 个</value>
+    <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个</value>
   </data>
   <data name="Status_RepairCompletedSummary" xml:space="preserve">
-    <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒，成功 {2} 个，跳过 {3} 个，失败 {4} 个</value>
+    <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，跳过 {3} 个，失败 {4} 个</value>
+  </data>
+  <data name="Status_ComboStoppedSummary" xml:space="preserve">
+    <value>任务已停止！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个，未处理 {4} 个</value>
+  </data>
+  <data name="Status_SplitStoppedSummary" xml:space="preserve">
+    <value>拆分已停止！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个，未处理 {4} 个</value>
+  </data>
+  <data name="Status_RepairStoppedSummary" xml:space="preserve">
+    <value>修复已停止！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，跳过 {3} 个，失败 {4} 个，未处理 {5} 个</value>
   </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>开始合成</value>
@@ -485,6 +512,9 @@
   </data>
   <data name="Btn_Stop" xml:space="preserve">
     <value>停止</value>
+  </data>
+  <data name="Btn_Pausing" xml:space="preserve">
+    <value>暂停中...</value>
   </data>
   <data name="Btn_RepairStopped" xml:space="preserve">
     <value>已停止</value>
@@ -524,6 +554,18 @@
   </data>
   <data name="Msg_ComboCompletedSummary" xml:space="preserve">
     <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个</value>
+  </data>
+  <data name="Msg_TaskCancelledTitle" xml:space="preserve">
+    <value>任务已取消</value>
+  </data>
+  <data name="Msg_ComboCancelledSummary" xml:space="preserve">
+    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个，未处理 {3} 个</value>
+  </data>
+  <data name="Msg_SplitCancelledSummary" xml:space="preserve">
+    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个，未处理 {3} 个</value>
+  </data>
+  <data name="Msg_RepairCancelledSummary" xml:space="preserve">
+    <value>共 {0} 个任务，成功 {1} 个，跳过 {2} 个，失败 {3} 个，未处理 {4} 个</value>
   </data>
   <data name="Msg_OpenOutputFolder" xml:space="preserve">
     <value>打开输出目录</value>

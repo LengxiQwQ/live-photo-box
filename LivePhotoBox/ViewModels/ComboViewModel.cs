@@ -33,6 +33,8 @@ namespace LivePhotoBox.ViewModels
 
         public override string PageStatusTag => "Combo";
 
+        protected override string ProcessingStatusKey => "Status_Running";
+
         [ObservableProperty]
         private string _inputDirectory = string.Empty;
 
@@ -387,7 +389,7 @@ namespace LivePhotoBox.ViewModels
 
             if (IsProcessing)
             {
-                SetStatus("Status_Aborted");
+                SetStatus("Status_Stopping");
                 CancelProcessing();
                 IsDirectoryPanelOpen = true;
                 OnPropertyChanged(nameof(ActionBtnText));
@@ -396,7 +398,10 @@ namespace LivePhotoBox.ViewModels
 
             if (_comboStoppedByUser || _comboDone)
             {
-                await ShowComboAlreadyDoneDialogAsync();
+                if (_comboStoppedByUser)
+                    await ShowComboCancelledDialogAsync();
+                else
+                    await ShowComboAlreadyDoneDialogAsync();
                 return;
             }
 
@@ -458,6 +463,63 @@ namespace LivePhotoBox.ViewModels
                 stack.Children.Add(new TextBlock
                 {
                     Text = ResourceService.Format("Msg_ComboCompletedSummary", total, succeeded, failed),
+                    FontSize = 16,
+                    TextWrapping = TextWrapping.Wrap
+                });
+
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.GetString("Msg_ComboCompletedDescription"),
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 12, 0, 0),
+                    Opacity = 0.85
+                });
+
+                var dialog = new ContentDialog
+                {
+                    Content = stack,
+                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
+                };
+
+                var result = await dialog.ShowAsync();
+                if (result == ContentDialogResult.Primary)
+                {
+                    await OpenComboOutputFolderAsync();
+                }
+            }
+        }
+
+        private async Task ShowComboCancelledDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                int total = Tasks.Count;
+                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
+                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                int unprocessed = total - succeeded - failed;
+
+                var stack = new StackPanel
+                {
+                    Spacing = 12,
+                    HorizontalAlignment = HorizontalAlignment.Stretch
+                };
+
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.GetString("Msg_TaskCancelledTitle"),
+                    FontSize = 22,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
+                });
+
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.Format("Msg_ComboCancelledSummary", total, succeeded, failed, unprocessed),
                     FontSize = 16,
                     TextWrapping = TextWrapping.Wrap
                 });
@@ -570,8 +632,13 @@ namespace LivePhotoBox.ViewModels
             }
             catch (OperationCanceledException)
             {
-                LogService.Combo($"Processing cancelled by user after {_stopwatch.Elapsed.TotalSeconds:F1}s, completed {_completedTasksCount}/{TotalPairsCount}");
-                SetStatus("Status_Aborted");
+                int total = Tasks.Count;
+                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
+                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                int unprocessed = total - succeeded - failed;
+                double elapsed = _stopwatch.Elapsed.TotalSeconds;
+                LogService.Combo($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalPairsCount}");
+                SetStatus("Status_ComboStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
             }
             catch (Exception ex)
             {
@@ -585,11 +652,15 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 _stopwatch.Stop();
+                bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
 
-                if (!_cancelledByUser && Tasks.Count > 0)
+                if (Tasks.Count > 0)
                 {
-                    await ShowComboAlreadyDoneDialogAsync();
+                    if (wasCancelled)
+                        await ShowComboCancelledDialogAsync();
+                    else
+                        await ShowComboAlreadyDoneDialogAsync();
                 }
             }
         }

@@ -22,7 +22,8 @@ namespace LivePhotoBox.Converters
                     // 处理阶段（绿色）
                     ProgressBarState.Processing => new SolidColorBrush(ColorHelper.FromArgb(255, 16, 185, 129)),
 
-                    // 暂停阶段（黄色）
+                    // 暂停中 / 已暂停（黄色）
+                    ProgressBarState.Pausing => new SolidColorBrush(ColorHelper.FromArgb(255, 245, 158, 11)),
                     ProgressBarState.Paused => new SolidColorBrush(ColorHelper.FromArgb(255, 245, 158, 11)),
 
                     // 取消/停止阶段（红色）

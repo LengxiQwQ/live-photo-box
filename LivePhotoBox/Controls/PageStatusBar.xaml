@@ -46,6 +46,7 @@
                         VerticalAlignment="Center"
                         Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                         TextAlignment="Right"
+                        MinWidth="96"
                         Visibility="{x:Bind ViewModel.FooterPercentVisibility, Mode=OneWay}" />
                     <HyperlinkButton
                         NavigateUri="https://github.com/LengxiQwQ"

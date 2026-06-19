@@ -100,12 +100,12 @@ namespace LivePhotoBox.ViewModels
         private double GetProgress(WorkViewModelBase vm, int scanProcessed, int scanTotal)
         {
             if (vm.IsScanning) return Math.Clamp(scanProcessed * 100.0 / Math.Max(1, scanTotal), 0, 100);
-            if (vm.ProgressBarState is ProgressBarState.Processing or ProgressBarState.Paused or ProgressBarState.Success)
+            if (vm.ProgressBarState is ProgressBarState.Processing or ProgressBarState.Pausing or ProgressBarState.Paused or ProgressBarState.Success)
                 return vm.Progress;
             if (vm.ProgressBarState == ProgressBarState.Cancelled)
                 return vm.Progress > 0 ? vm.Progress : Math.Clamp(scanProcessed * 100.0 / Math.Max(1, scanTotal), 0, 100);
-
-            return Math.Clamp(scanProcessed * 100.0 / Math.Max(1, scanTotal), 0, 100);
+            // Idle (ready / completed-clear) — use vm.Progress (0 before processing starts)
+            return vm.Progress;
         }
 
         public bool FooterIsIndeterminate =>
@@ -136,19 +136,53 @@ namespace LivePhotoBox.ViewModels
 
                 if (vm != null)
                 {
-                    // 【终极防护】：只有明确处于“处理/修复”有关的状态（且不能是在扫描目录阶段），才显示“处理中”百分比
-                    if (!vm.IsScanning && (vm.IsProcessing || vm.ProgressBarState != ProgressBarState.Idle))
+                    // Scanning - show scan progress
+                    if (vm.IsScanning)
                     {
-                        return ResourceService.Format("StatusBar_ProcessProgressLabel", percent);
+                        return ResourceService.Format("StatusBar_ScanProgressLabel", percent);
                     }
 
-                    // 其他任何时候（只要有扫描数据残留、或者是被取消了扫描），统统坚如磐石地显示“扫描中”进度
-                    bool hasData = false;
-                    if (CurrentStatusPageTag == "Combo") hasData = _comboScanTotal > 0;
-                    if (CurrentStatusPageTag == "Split") hasData = _splitScanTotal > 0;
-                    if (CurrentStatusPageTag == "Repair") hasData = _repairScanTotal > 0;
+                    // Non-scanning - show state-specific labels
+                    switch (vm.ProgressBarState)
+                    {
+                        case ProgressBarState.Processing:
+                        case ProgressBarState.Pausing:
+                            // Pausing keeps "Processing" label since main text already shows "Pausing..."
+                            return ResourceService.Format("StatusBar_ProcessProgressLabel", percent);
 
-                    if (vm.IsScanning || hasData || percent > 0)
+                        case ProgressBarState.Paused:
+                            return ResourceService.Format("StatusBar_PausedLabel", percent);
+
+                        case ProgressBarState.Cancelled:
+                            return ResourceService.Format("StatusBar_StoppedLabel", percent);
+
+                        case ProgressBarState.Idle:
+                            // After scan, before processing -> "Ready"
+                            bool hasData = CurrentStatusPageTag switch
+                            {
+                                "Combo" => _comboScanTotal > 0,
+                                "Split" => _splitScanTotal > 0,
+                                "Repair" => _repairScanTotal > 0,
+                                _ => false
+                            };
+                            if (hasData)
+                                return ResourceService.Format("StatusBar_ReadyLabel", percent);
+                            break;
+
+                        case ProgressBarState.Success:
+                            return ResourceService.Format("StatusBar_CompletedLabel", percent);
+
+                        default:
+                            break;
+                    }
+
+                    // Fallback: show scan progress if there's residual scan data
+                    bool fallbackHasData = false;
+                    if (CurrentStatusPageTag == "Combo") fallbackHasData = _comboScanTotal > 0;
+                    if (CurrentStatusPageTag == "Split") fallbackHasData = _splitScanTotal > 0;
+                    if (CurrentStatusPageTag == "Repair") fallbackHasData = _repairScanTotal > 0;
+
+                    if (fallbackHasData || percent > 0)
                     {
                         return ResourceService.Format("StatusBar_ScanProgressLabel", percent);
                     }

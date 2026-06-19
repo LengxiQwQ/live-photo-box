@@ -397,6 +397,18 @@ Do you want to restart now?</value>
   <data name="StatusBar_ProcessProgressLabel" xml:space="preserve">
     <value>Processing: {0}%</value>
   </data>
+  <data name="StatusBar_PausedLabel" xml:space="preserve">
+    <value>Paused: {0}%</value>
+  </data>
+  <data name="StatusBar_StoppedLabel" xml:space="preserve">
+    <value>Cancelled: {0}%</value>
+  </data>
+  <data name="StatusBar_CompletedLabel" xml:space="preserve">
+    <value>Completed: {0}%</value>
+  </data>
+  <data name="StatusBar_ReadyLabel" xml:space="preserve">
+    <value>Ready: {0}%</value>
+  </data>
   <data name="Status_ScanNoPairs" xml:space="preserve">
     <value>Scan complete: no matching live photos found (images: {0}, videos: {1})</value>
   </data>
@@ -439,6 +451,9 @@ Do you want to restart now?</value>
   <data name="Status_Paused" xml:space="preserve">
     <value>Task paused</value>
   </data>
+  <data name="Status_Pausing" xml:space="preserve">
+    <value>Pausing...</value>
+  </data>
   <data name="Status_WarnOutput" xml:space="preserve">
     <value>Please set the save directory first</value>
   </data>
@@ -448,6 +463,9 @@ Do you want to restart now?</value>
   <data name="Status_Aborted" xml:space="preserve">
     <value>Stopped</value>
   </data>
+  <data name="Status_Stopping" xml:space="preserve">
+    <value>Stopping...</value>
+  </data>
   <data name="Status_Error" xml:space="preserve">
     <value>Error: {0}</value>
   </data>
@@ -455,13 +473,22 @@ Do you want to restart now?</value>
     <value>Completed in {0:F1} seconds</value>
   </data>
   <data name="Status_ComboCompletedSummary" xml:space="preserve">
-    <value>Completed. Total {0} tasks, {1:F1}s elapsed, {2} succeeded, {3} failed</value>
+    <value>Completed. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} failed</value>
   </data>
   <data name="Status_SplitCompletedSummary" xml:space="preserve">
-    <value>Completed. Total {0} tasks, {1:F1}s elapsed, {2} succeeded, {3} failed</value>
+    <value>Completed. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} failed</value>
   </data>
   <data name="Status_RepairCompletedSummary" xml:space="preserve">
-    <value>Completed. Total {0} tasks, {1:F1}s elapsed, {2} succeeded, {3} skipped, {4} failed</value>
+    <value>Completed. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} skipped, {4} failed</value>
+  </data>
+  <data name="Status_ComboStoppedSummary" xml:space="preserve">
+    <value>Task stopped. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} failed, {4} unprocessed</value>
+  </data>
+  <data name="Status_SplitStoppedSummary" xml:space="preserve">
+    <value>Split stopped. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} failed, {4} unprocessed</value>
+  </data>
+  <data name="Status_RepairStoppedSummary" xml:space="preserve">
+    <value>Repair stopped. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} skipped, {4} failed, {5} unprocessed</value>
   </data>
   <data name="Btn_StartCombo" xml:space="preserve">
     <value>Start Merge</value>
@@ -486,6 +513,9 @@ Do you want to restart now?</value>
   </data>
   <data name="Btn_Stop" xml:space="preserve">
     <value>Stop</value>
+  </data>
+  <data name="Btn_Pausing" xml:space="preserve">
+    <value>Pausing...</value>
   </data>
   <data name="Btn_RepairStopped" xml:space="preserve">
     <value>Stopped</value>
@@ -525,6 +555,18 @@ Do you want to restart now?</value>
   </data>
   <data name="Msg_ComboCompletedSummary" xml:space="preserve">
     <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}.</value>
+  </data>
+  <data name="Msg_TaskCancelledTitle" xml:space="preserve">
+    <value>Task Cancelled</value>
+  </data>
+  <data name="Msg_ComboCancelledSummary" xml:space="preserve">
+    <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}, Unprocessed: {3}</value>
+  </data>
+  <data name="Msg_SplitCancelledSummary" xml:space="preserve">
+    <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}, Unprocessed: {3}</value>
+  </data>
+  <data name="Msg_RepairCancelledSummary" xml:space="preserve">
+    <value>Total: {0} tasks. Succeeded: {1}, Skipped: {2}, Failed: {3}, Unprocessed: {4}</value>
   </data>
   <data name="Msg_OpenOutputFolder" xml:space="preserve">
     <value>Open Output Folder</value>
