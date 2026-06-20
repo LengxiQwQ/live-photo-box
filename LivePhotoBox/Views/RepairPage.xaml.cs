@@ -83,7 +83,6 @@ namespace LivePhotoBox.Views
             }
             else if (e.PropertyName == nameof(ViewModel.IsPaused) && !ViewModel.IsPaused)
             {
-                // 暂停恢复：重置滚动追踪，确保后续任务正常触发滚动
                 _scroller.NotifyProcessingResumed();
             }
         }
@@ -131,9 +130,16 @@ namespace LivePhotoBox.Views
         {
             if (sender is not FrameworkElement element) return;
             if (element.DataContext is not RepairTask task) return;
-            if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details)) return;
+
+            // 根据 Tag 判断是 File1 还是 File2 的状态被点击
+            bool isFile2 = element.Tag is string tag && tag == "2";
+            ProcessStatus status = isFile2 ? task.File2Status : task.File1Status;
+            string details = isFile2 ? task.File2Details : task.File1Details;
+            bool hasError = isFile2 ? task.File2HasErrorDetails : task.File1HasErrorDetails;
+
+            if (status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(details)) return;
             if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element) { ErrorDetailTip.IsOpen = false; return; }
-            ErrorDetailText.Text = task.Details;
+            ErrorDetailText.Text = details;
             ErrorDetailTip.Target = element;
             ErrorDetailTip.IsOpen = true;
         }
@@ -142,9 +148,15 @@ namespace LivePhotoBox.Views
         {
             if (sender is not FrameworkElement element) return;
             if (element.DataContext is not RepairTask task) return;
-            if (!task.IsDiagnosisError) return;
+
+            // 根据 Tag 判断是 File1 还是 File2 的问题被点击
+            bool isFile2 = element.Tag is string tag && tag == "2";
+            bool isDiagnosisError = isFile2 ? task.File2IsDiagnosisError : task.File1IsDiagnosisError;
+            string issueDesc = isFile2 ? task.File2IssueDescription : task.File1IssueDescription;
+
+            if (!isDiagnosisError) return;
             if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element) { ErrorDetailTip.IsOpen = false; return; }
-            ErrorDetailText.Text = task.IssueDescription;
+            ErrorDetailText.Text = issueDesc;
             ErrorDetailTip.Target = element;
             ErrorDetailTip.IsOpen = true;
         }

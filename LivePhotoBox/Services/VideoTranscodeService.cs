@@ -34,7 +34,110 @@ namespace LivePhotoBox.Services
             public bool WasRemux { get; set; }
         }
 
-        // 编码器可用性 / 参数 / 线程数 → 全部委托给 EncoderHelper（项目唯一入口）。
+        /// <summary>
+        /// 获取当前选择的硬件编码器（按 codec 格式独立取值）
+        /// 旧版本只存一个 SplitHardwareEncoder（H.264），新版本按 codec 分别存 SplitEncoder_h264 / SplitEncoder_hevc。
+        /// 第一次使用新格式（HEVC）时，如果没有保存值，会自动从旧值迁移：h264_xxx -> hevc_xxx
+        /// </summary>
+        private static string? GetEncoderForCodec(string codec)
+        {
+            string newKey = $"SplitEncoder_{codec}";
+            string? encoder = AppSettingsService.GetValue<string?>(newKey, null);
+
+            // 如果新 key 有值，验证可用性
+            if (!string.IsNullOrEmpty(encoder))
+            {
+                if (!IsEncoderAvailable(encoder))
+                {
+                    LogService.Split($"Saved encoder '{encoder}' for {codec} is not available in current FFmpeg, will re-detect", LogLevel.Warning);
+                    return null;
+                }
+                return encoder;
+            }
+
+            // 新 key 没有值：尝试从旧 SplitHardwareEncoder 迁移
+            if (codec == "hevc")
+            {
+                string? legacyH264 = AppSettingsService.GetValue<string?>("SplitHardwareEncoder", null);
+                if (!string.IsNullOrEmpty(legacyH264) && legacyH264.StartsWith("h264_", StringComparison.OrdinalIgnoreCase))
+                {
+                    // 迁移：h264_xxx -> hevc_xxx
+                    string migratedHevc = "hevc" + legacyH264.Substring(4);
+                    LogService.Split($"Migrating legacy encoder '{legacyH264}' -> '{migratedHevc}' for HEVC", LogLevel.Info);
+                    if (IsEncoderAvailable(migratedHevc))
+                    {
+                        AppSettingsService.SetValue(newKey, migratedHevc);
+                        return migratedHevc;
+                    }
+                    else
+                    {
+                        LogService.Split($"Migrated encoder '{migratedHevc}' not available, will auto-detect", LogLevel.Warning);
+                        return null;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 检查 FFmpeg 编码器是否可用
+        /// </summary>
+        private static bool IsEncoderAvailable(string encoder)
+        {
+            try
+            {
+                string? ffmpegPath = FindFFmpeg();
+                if (string.IsNullOrEmpty(ffmpegPath))
+                {
+                    return false;
+                }
+
+                var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = ffmpegPath,
+                        Arguments = "-hide_banner -encoders",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    }
+                };
+
+                process.Start();
+                string output = process.StandardOutput.ReadToEnd();
+                process.WaitForExit(5000);
+
+                return output.Contains(encoder, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 获取当前线程数设置
+        /// </summary>
+        private static int GetThreadCount(string? encoder = null)
+        {
+            int userThreadCount = AppSettingsService.GetValue<int>("SplitThreadCount", Environment.ProcessorCount);
+
+            // 如果使用硬件编码器（NVENC/QSV/AMF/VAAPI），限制线程数为 1
+            // 硬件编码的瓶颈在 GPU 而非 CPU，过多线程反而增加线程切换开销
+            if (!string.IsNullOrEmpty(encoder))
+            {
+                string enc = encoder.ToLowerInvariant();
+                if (enc.Contains("nvenc") || enc.Contains("qsv") || enc.Contains("vaapi") || enc.Contains("amf"))
+                {
+                    return Math.Min(userThreadCount, 1);
+                }
+            }
+
+            return userThreadCount;
+        }
 
         /// <summary>
         /// 快速容器转换（Remux）- 无损转换视频容器格式，完整保留 HDR 和所有元数据
@@ -59,7 +162,7 @@ namespace LivePhotoBox.Services
                 return result;
             }
 
-            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+            string? ffmpegPath = FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath))
             {
                 result.Success = false;
@@ -88,16 +191,13 @@ namespace LivePhotoBox.Services
                 string movflags = extension == ".mp4" ? "+faststart" : "";
 
                 // Remux 参数说明:
-                // -c:v copy: 无损拷贝视频轨
+                // -c copy: 无损拷贝
                 // -map 0:V:0 -> 【神级参数】大写 V 表示提取第1个"真正的视频轨"，完美避开苹果的 128x96 缩略图轨和安卓的 MJPEG 封面轨
                 // -map 0:a:0? -> 提取第1个音频轨（问号表示如果没有音频也不报错，防止静音视频闪退）
-                // -c:a aac -b:a 192k: 音频重编码为 AAC。
-                //   原视频音轨可能是 PCM（iPhone 实况照片常见），MP4 容器不兼容 PCM，
-                //   直接 -c copy 会导致无声。AAC 192kbps 人耳无法感知损失。
                 // -map_metadata 0: 保留源文件时间、GPS等元数据
                 string arguments = string.IsNullOrEmpty(movflags)
-                    ? $"-y -i \"{inputPath}\" -c:v copy -map 0:V:0 -map 0:a:0? -c:a aac -b:a 192k -map_metadata 0 \"{outputPath}\""
-                    : $"-y -i \"{inputPath}\" -c:v copy -map 0:V:0 -map 0:a:0? -c:a aac -b:a 192k -map_metadata 0 -movflags {movflags} \"{outputPath}\"";
+                    ? $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0 \"{outputPath}\""
+                    : $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0 -movflags {movflags} \"{outputPath}\"";
 
                 using var process = new Process();
                 process.StartInfo.FileName = ffmpegPath;
@@ -221,7 +321,7 @@ namespace LivePhotoBox.Services
                 return result;
             }
 
-            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+            string? ffmpegPath = FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath))
             {
                 result.Success = false;
@@ -245,7 +345,7 @@ namespace LivePhotoBox.Services
             }
 
             string codec = targetFormat == VideoFormat.MP4 ? "h264" : "hevc";
-            bool useHardwareEncoder = !string.IsNullOrEmpty(EncoderHelper.GetSavedEncoder(codec));
+            bool useHardwareEncoder = !string.IsNullOrEmpty(GetEncoderForCodec(codec));
             bool transcodeCompleted = false;
             string? lastError = null;
 
@@ -396,16 +496,19 @@ namespace LivePhotoBox.Services
 
             if (forceSoftware)
             {
-                var sw = EncoderHelper.GetSoftwareEncoder(codec, codec == "h264" ? 19 : 21);
-                LogService.Split($"Using software encoder (forced): {sw.encoder} for {targetFormat}");
-                return sw;
+                string enc = codec == "h264" ? "libx264" : "libx265";
+                // CRF 19 (H.264) / CRF 21 (HEVC)：输入≈输出码率的精准平衡点。
+                // CRF 18 膨胀 ~60%，CRF 20 偏压缩 ~20%，CRF 19 恰好持平。
+                string prms = codec == "h264" ? "-preset medium -crf 19" : "-preset medium -crf 21";
+                LogService.Split($"Using software encoder (forced): {enc} for {targetFormat}");
+                return (enc, prms);
             }
 
-            string? savedEncoder = EncoderHelper.GetSavedEncoder(codec);
+            string? savedEncoder = GetEncoderForCodec(codec);
 
             if (string.IsNullOrEmpty(savedEncoder))
             {
-                string? detected = EncoderHelper.DetectHardwareEncoderForCodec(codec);
+                string? detected = DetectHardwareEncoderForCodec(codec);
                 if (!string.IsNullOrEmpty(detected))
                 {
                     savedEncoder = detected;
@@ -413,9 +516,9 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            if (!string.IsNullOrEmpty(savedEncoder) && EncoderHelper.IsEncoderAvailable(savedEncoder))
+            if (!string.IsNullOrEmpty(savedEncoder) && IsEncoderAvailable(savedEncoder))
             {
-                string encoderParams = EncoderHelper.GetHardwareEncoderParams(savedEncoder, (19, 21));
+                string encoderParams = GetHardwareEncoderParams(savedEncoder, targetFormat);
                 LogService.Split($"Using hardware encoder: {savedEncoder} for {targetFormat}");
                 return (savedEncoder, encoderParams);
             }
@@ -424,13 +527,51 @@ namespace LivePhotoBox.Services
                 LogService.Split($"Saved encoder '{savedEncoder}' not available for {targetFormat}, falling back to CPU", LogLevel.Warning);
             }
 
-            var swFallback = EncoderHelper.GetSoftwareEncoder(codec, codec == "h264" ? 19 : 21);
-            LogService.Split($"Using software encoder: {swFallback.encoder} for {targetFormat}");
-            return swFallback;
+            string encName = codec == "h264" ? "libx264" : "libx265";
+            string encParams = codec == "h264" ? "-preset medium -crf 19" : "-preset medium -crf 21";
+
+            LogService.Split($"Using software encoder: {encName} for {targetFormat}");
+            return (encName, encParams);
         }
 
-        // DetectHardwareEncoderForCodec → EncoderHelper.DetectHardwareEncoderForCodec
-        // GetHardwareEncoderParams → EncoderHelper.GetHardwareEncoderParams
+        private static string? DetectHardwareEncoderForCodec(string codec)
+        {
+            try
+            {
+                string? ffmpegPath = FindFFmpeg();
+                if (string.IsNullOrEmpty(ffmpegPath)) return null;
+
+                string[] candidates = codec == "h264"
+                    ? new[] { "h264_nvenc", "h264_amf", "h264_qsv", "h264_vaapi" }
+                    : new[] { "hevc_nvenc", "hevc_amf", "hevc_qsv", "hevc_vaapi" };
+
+                var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = ffmpegPath,
+                        Arguments = "-hide_banner -encoders",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    }
+                };
+                process.Start();
+                string output = process.StandardOutput.ReadToEnd();
+                process.WaitForExit(5000);
+
+                foreach (var candidate in candidates)
+                {
+                    if (output.Contains(candidate, StringComparison.OrdinalIgnoreCase)) return candidate;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Split($"DetectHardwareEncoderForCodec error: {ex.Message}", LogLevel.Warning);
+            }
+            return null;
+        }
 
         private static string BuildVideoFilter(VideoFormat targetFormat, string encoder)
         {
@@ -445,7 +586,7 @@ namespace LivePhotoBox.Services
         private static string BuildFFmpegArguments(string inputPath, string outputPath, VideoFormat targetFormat, bool forceSoftwareEncoder = false)
         {
             var (videoEncoder, videoParams) = GetEncoderForFormat(targetFormat, forceSoftwareEncoder);
-            int threadCount = EncoderHelper.GetThreadCount(videoEncoder, maxSoftwareThreads: null);
+            int threadCount = GetThreadCount(videoEncoder);
 
             string pixelFormat = GetPixelFormatParams(videoEncoder, targetFormat);
             string videoFilter = BuildVideoFilter(targetFormat, videoEncoder);
@@ -459,9 +600,7 @@ namespace LivePhotoBox.Services
             //
             // -map 0:v:0 -> 小写 v，标准视频流选择（temp 文件只有一条视频轨，无需大写 V）
             // -map 0:a:0? -> 提取单一主音频，若不存在则跳过
-            // -c:a aac -b:a 192k -> 音频重编码为 AAC，确保 MP4/MOV 兼容性。
-            //   iPhone 实况照片提取出的视频音轨可能是 PCM，MP4 容器不兼容，
-            //   直接 -c:a copy 会导致无声。AAC 192kbps 透明级音质。
+            // -c:a copy -> 直接复制原始音频流，完全保留原始音质
             //
             //  不加 -noautorotate：让 FFmpeg 自动将旋转矩阵应用到像素上。
             //  iPhone MOV 的旋转在 moov.trak.tkhd 中，-vf 触发 autorotate 滤镜
@@ -475,7 +614,7 @@ namespace LivePhotoBox.Services
                     $"{videoFilter} " +
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} " +
-                    $"-c:a aac -b:a 192k " +
+                    $"-c:a copy " +
                     $"-movflags +faststart " +
                     $"\"{outputPath}\"",
 
@@ -486,11 +625,11 @@ namespace LivePhotoBox.Services
                     $"{videoFilter} " +
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} -tag:v hvc1 " +
-                    $"-c:a aac -b:a 192k " +
+                    $"-c:a copy " +
                     $"-movflags +faststart " +
                     $"\"{outputPath}\"",
 
-                _ => $"-apply_cropping 0 -y -i \"{inputPath}\" -c:v copy -map 0:v:0 -map 0:a:0? -c:a aac -b:a 192k \"{outputPath}\""
+                _ => $"-apply_cropping 0 -y -i \"{inputPath}\" -c copy -map 0:v:0 -map 0:a:0? \"{outputPath}\""
             };
         }
 
@@ -501,7 +640,33 @@ namespace LivePhotoBox.Services
             return "";
         }
 
-        // GetHardwareEncoderParams → EncoderHelper.GetHardwareEncoderParams
+        private static string GetHardwareEncoderParams(string encoder, VideoFormat targetFormat)
+        {
+            string lowerEncoder = encoder.ToLowerInvariant();
+
+            // CRF 19 (H.264) / CRF 21 (HEVC)：输入≈输出码率的精准平衡点。
+            // CRF 20 仍会让原本 1 万 kbps 的源被压到 8000+，CRF 19 刚好持平。
+            if (lowerEncoder.StartsWith("h264"))
+            {
+                return lowerEncoder switch
+                {
+                    "h264_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 19 -b:v 0 -maxrate:v 30M -bufsize:v 60M -profile:v high",
+                    "h264_qsv" => "-global_quality 19 -look_ahead 1",
+                    "h264_amf" => "-preset quality -rc cqp -qp 19",
+                    "h264_vaapi" => "-quality 85 -rc_mode 1",
+                    _ => "-preset medium -crf 19"
+                };
+            }
+
+            return lowerEncoder switch
+            {
+                "hevc_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 21 -b:v 0 -maxrate:v 25M -bufsize:v 50M -tune hq",
+                "hevc_qsv" => "-global_quality 21 -look_ahead 1",
+                "hevc_amf" => "-preset quality -rc cqp -qp 21",
+                "hevc_vaapi" => "-quality 85 -rc_mode 1",
+                _ => "-preset medium -crf 21"
+            };
+        }
 
         private static async Task<string> ReadFFmpegOutputAsync(Process process)
         {
@@ -509,11 +674,62 @@ namespace LivePhotoBox.Services
             catch { return string.Empty; }
         }
 
-        // FindFFmpeg / IsFFmpegAvailable → migrated to ExternalToolLocator
+        /// <summary>
+        /// 查找 FFmpeg 可执行文件
+        /// </summary>
+        public static string? FindFFmpeg()
+        {
+            string[] candidates =
+            {
+                Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg.exe"),
+                Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg"),
+                Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"),
+                Path.Combine(AppContext.BaseDirectory, "ffmpeg"),
+                Path.Combine(AppContext.BaseDirectory, "..", "Tools", "ffmpeg.exe"),
+                "ffmpeg"
+            };
+
+            foreach (var candidate in candidates)
+            {
+                try
+                {
+                    if (File.Exists(candidate)) return candidate;
+
+                    // 修复：局部 Try-Catch 处理 PATH 变量带来的隐患
+                    if (candidate == "ffmpeg" || candidate == "ffprobe")
+                    {
+                        var pathEnv = Environment.GetEnvironmentVariable("PATH");
+                        if (!string.IsNullOrEmpty(pathEnv))
+                        {
+                            foreach (var part in pathEnv.Split(Path.PathSeparator))
+                            {
+                                try
+                                {
+                                    string cleanPart = part.Trim(' ', '"'); // 净化非法字符和引号
+                                    if (string.IsNullOrEmpty(cleanPart)) continue;
+
+                                    string fullPath = Path.Combine(cleanPart, candidate + ".exe");
+                                    if (File.Exists(fullPath)) return fullPath;
+                                }
+                                catch { /* 单个 PATH 解析失败不会中断整体寻找 */ }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        public static bool IsFFmpegAvailable()
+        {
+            return !string.IsNullOrEmpty(FindFFmpeg());
+        }
 
         public static async Task<string?> GetFFmpegVersionAsync()
         {
-            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+            string? ffmpegPath = FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath)) return null;
 
             try

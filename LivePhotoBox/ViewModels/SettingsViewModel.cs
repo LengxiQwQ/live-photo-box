@@ -250,6 +250,23 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"HEIC repair setting changed to: {(value ? "enabled" : "disabled")}", LogSource.Settings);
         }
 
+        /// <summary>修复输出模式 — 开启时修复到单独目录，关闭时原地替换</summary>
+        [ObservableProperty]
+        private bool _isRepairOutputToDirectory;
+
+        partial void OnIsRepairOutputToDirectoryChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue("IsOutputToDirectory", value);
+            // 同步到 RepairViewModel（防御性 null 检查，初始化顺序可能导致 Repair 尚未创建）
+            if (AppViewModel.Instance?.Repair != null)
+                AppViewModel.Instance.Repair.IsOutputToDirectory = value;
+            LogService.Info($"Repair output mode: {(value ? "separate directory" : "in-place")}", LogSource.Settings);
+        }
+
+        /// <summary>从其他页面跳转时自动滚动到的设置区域 ("Combo"/"Split"/"Repair")</summary>
+        public string? PendingScrollSection { get; set; }
+
         #endregion
 
         public SettingsViewModel()
@@ -300,6 +317,7 @@ namespace LivePhotoBox.ViewModels
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 4);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
+            IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
             SplitFormatIndex = AppSettingsService.GetValue("SelectedFormatIndex", 0);
         }
 
@@ -463,6 +481,7 @@ namespace LivePhotoBox.ViewModels
 
             // 重置 HEIC 修复设置（默认关闭）
             IsHeicRepairEnabled = false;
+            IsRepairOutputToDirectory = false;
 
             // 重新选择最佳硬件
             _isInitializing = true;

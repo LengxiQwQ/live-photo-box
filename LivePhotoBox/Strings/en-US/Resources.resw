@@ -946,7 +946,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Display and process Apple Live Photos directly on Windows.</value>
   </data>
   <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
-    <value>Thumbnail Repair Settings (Video restoration is under development)</value>
+    <value>Thumbnail Repair Settings</value>
   </data>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>Input Dir:</value>
@@ -1199,6 +1199,9 @@ You can open the log folder or export the latest log now to help diagnose the is
   </data>
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>Help &amp; Tutorials</value>
+  </data>
+  <data name="WorkPage_AdvancedSettings.Text" xml:space="preserve">
+    <value>Advanced Settings</value>
   </data>
   <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Go to Home for tutorials</value>
@@ -1502,5 +1505,26 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="SettingsPage_Transcode_ThreadCount_Desc.Text" xml:space="preserve">
     <value>Number of concurrent tasks</value>
+  </data>
+  <data name="RepairPage_StatPaired.Text" xml:space="preserve">
+    <value>Paired:</value>
+  </data>
+  <data name="RepairPage_StatStandaloneImg.Text" xml:space="preserve">
+    <value>Lone Img:</value>
+  </data>
+  <data name="RepairPage_StatStandaloneVid.Text" xml:space="preserve">
+    <value>Lone Vid:</value>
+  </data>
+  <data name="SettingsPage_Repair_OutputLabel.Text" xml:space="preserve">
+    <value>Output Directory</value>
+  </data>
+  <data name="SettingsPage_Repair_OutputSwitch.OnContent" xml:space="preserve">
+    <value>To New Folder</value>
+  </data>
+  <data name="SettingsPage_Repair_OutputSwitch.OffContent" xml:space="preserve">
+    <value>Replace Original</value>
+  </data>
+  <data name="SettingsPage_Repair_OutputDesc.Text" xml:space="preserve">
+    <value>When enabled, repaired files are saved to a separate output folder; otherwise the original files are overwritten in-place.</value>
   </data>
 </root>

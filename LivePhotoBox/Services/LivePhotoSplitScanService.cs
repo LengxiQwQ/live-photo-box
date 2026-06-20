@@ -43,14 +43,21 @@ namespace LivePhotoBox.Services
             Encoding.ASCII.GetBytes("MotionPhoto")
         ];
 
-        private static readonly Regex MicroVideoOffsetRegex = LivePhotoConstants.MicroVideoOffsetRegex;
-        private static readonly Regex MotionPhotoLengthRegex = LivePhotoConstants.MotionPhotoLengthRegex;
+        // 复用 LivePhotoSplitService 中的偏移量解析正则（与拆分时判定标准完全一致）
+        private static readonly Regex MicroVideoOffsetRegex = new(
+            "GCamera:MicroVideoOffset=\"(?<value>\\d+)\"",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+            TimeSpan.FromSeconds(2));
+
+        private static readonly Regex MotionPhotoLengthRegex = new(
+            "Item:Semantic=\"MotionPhoto\"[^>]*Item:Length=\"(?<value>\\d+)\"|Item:Length=\"(?<value>\\d+)\"[^>]*Item:Semantic=\"MotionPhoto\"",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline,
+            TimeSpan.FromSeconds(2));
 
         public static LivePhotoSplitScanResult Scan(
             string inputDirectory,
             CancellationToken cancellationToken = default,
-            IProgress<WorkProgressSnapshot>? progress = null,
-            IProgress<LivePhotoSplitFileInfo>? itemProgress = null)
+            IProgress<WorkProgressSnapshot>? progress = null)
         {
             LogService.Scan($"Split scan started. Directory: {inputDirectory}");
             progress?.Report(new WorkProgressSnapshot(0, 0));
@@ -92,7 +99,7 @@ namespace LivePhotoBox.Services
             catch (OperationCanceledException)
             {
                 LogService.Scan("Split scan cancelled");
-                return new LivePhotoSplitScanResult { Files = [], RecognizedCount = 0, SkippedCount = 0 };
+                throw;
             }
 
             int total = candidates.Count;
@@ -119,10 +126,8 @@ namespace LivePhotoBox.Services
                 var fileInfo = new FileInfo(path);
                 if (IsLikelyLivePhoto(path, fileInfo.Length))
                 {
-                    var file = new LivePhotoSplitFileInfo { SourcePath = path, FileSizeBytes = fileInfo.Length };
-                    files.Add(file);
+                    files.Add(new LivePhotoSplitFileInfo { SourcePath = path, FileSizeBytes = fileInfo.Length });
                     recognizedCount++;
-                    itemProgress?.Report(file);
                 }
                 else
                 {

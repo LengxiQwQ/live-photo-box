@@ -92,6 +92,7 @@ namespace LivePhotoBox
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
             ViewModel.RequestNavigateToPage += OnRequestNavigateToPage;
+            MainFrame.Navigated += OnMainFrameNavigated;
 
             UpdateTheme();
             UpdateBackdrop();
@@ -135,6 +136,25 @@ namespace LivePhotoBox
                 LogService.Info($"NavigateToPage: HomePage, Parameter={feature}", LogSource.UI);
                 ViewModel.SetCurrentStatusPage(null);
                 MainFrame.Navigate(typeof(Views.HomePage), feature);
+            }
+            else if (pageTag.StartsWith("Settings"))
+            {
+                // 从工作页面跳转到设置，带滚动目标
+                string? section = null;
+                if (pageTag.Contains("_"))
+                {
+                    section = pageTag.Split('_')[1];
+                }
+                ViewModel.Settings.PendingScrollSection = section;
+                NavigateToPage(typeof(Views.SettingsPage), null);
+            }
+        }
+
+        private void OnMainFrameNavigated(object sender, Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+        {
+            if (e.Content is Views.SettingsPage settingsPage)
+            {
+                settingsPage.ScrollToPendingSection();
             }
         }
 

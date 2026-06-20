@@ -22,8 +22,6 @@ namespace LivePhotoBox.ViewModels
 
         public override string PageStatusTag => "Repair";
 
-        protected override string ProcessingStatusKey => "Status_Running";
-
         [ObservableProperty]
         private string _inputDirectory = string.Empty;
 
@@ -37,7 +35,6 @@ namespace LivePhotoBox.ViewModels
             {
                 if (ScanDirectoryCommand.CanExecute(null) && !IsScanning)
                 {
-                    if (Tasks.Count > 0) ClearState();
                     ScanDirectoryCommand.Execute(null);
                 }
             }
@@ -60,7 +57,6 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnIsOutputToDirectoryChanged(bool value)
         {
-            AppSettingsService.SetValue(nameof(IsOutputToDirectory), value);
             _openRepairOutputFolderCommand?.NotifyCanExecuteChanged();
 
             // 只有"从关闭切换到打开"时，且目录面板当前是收起的，才自动展开
@@ -124,8 +120,6 @@ namespace LivePhotoBox.ViewModels
         public RepairViewModel()
         {
             SetStatus("RepairPage_Status_Ready");
-            _isOutputToDirectory = AppSettingsService.GetValue(nameof(IsOutputToDirectory), false);
-            _previousIsOutputToDirectory = _isOutputToDirectory;
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
         }
@@ -152,10 +146,10 @@ namespace LivePhotoBox.ViewModels
 
         private void UiUpdateTimer_Tick(object? sender, object e)
         {
-            if (_totalRepairTasks == 0) return;
+            if (TotalPhotosCount == 0) return;
             int currentCompleted = _completedTasksCount;
-            Progress = (currentCompleted * 100.0) / _totalRepairTasks;
-            ProgressText = $"{currentCompleted}/{_totalRepairTasks}";
+            Progress = (currentCompleted * 100.0) / TotalPhotosCount;
+            ProgressText = $"{currentCompleted}/{TotalPhotosCount}";
             CheckAndApplyPendingState();
         }
 
@@ -164,12 +158,11 @@ namespace LivePhotoBox.ViewModels
             _repairStoppedByUser = false;
             _repairDone = false;
 
-            // 进度只算真正需要修复的任务，跳过的照片不参与进度条
-            _completedTasksCount = 0;
-            _totalRepairTasks = Tasks.Count(t => t.NeedsRepair && t.Status != ProcessStatus.Success);
+            // 修复功能特有：跳过不需要修复的文件，将它们直接算入已完成
+            _completedTasksCount = Tasks.Count(t => !t.NeedsRepair || t.Status == ProcessStatus.Success);
 
-            Progress = 0;
-            ProgressText = _totalRepairTasks == 0 ? "0/0" : $"0/{_totalRepairTasks}";
+            Progress = TotalPhotosCount == 0 ? 0 : (_completedTasksCount * 100.0) / TotalPhotosCount;
+            ProgressText = $"{_completedTasksCount}/{TotalPhotosCount}";
             _taskProcessingStartTimes.Clear();
 
             SetStatus("Status_Running");
@@ -191,13 +184,13 @@ namespace LivePhotoBox.ViewModels
             {
                 _repairDone = true;
 
-                if (_totalRepairTasks > 0)
+                if (TotalPhotosCount > 0)
                 {
-                    Progress = (_completedTasksCount * 100.0) / _totalRepairTasks;
-                    ProgressText = $"{_completedTasksCount}/{_totalRepairTasks}";
+                    Progress = (_completedTasksCount * 100.0) / TotalPhotosCount;
+                    ProgressText = $"{_completedTasksCount}/{TotalPhotosCount}";
                 }
 
-                if (_totalRepairTasks == 0 || Progress >= 100)
+                if (Progress >= 100)
                 {
                     ProgressBarState = Models.ProgressBarState.Success;
                     CompleteScanSnapshot();
@@ -224,7 +217,6 @@ namespace LivePhotoBox.ViewModels
             ThumbCorrectCount = 0;
             ThumbErrorCount = 0;
             _completedTasksCount = 0;
-            _totalRepairTasks = 0;
             Progress = 0;
             ProgressText = "0/0";
             _repairStoppedByUser = false;
@@ -235,11 +227,6 @@ namespace LivePhotoBox.ViewModels
             IsDirectoryPanelOpen = true;
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
-        }
-
-        protected override void OnCleanup()
-        {
-            _uiUpdateTimer.Stop();
         }
 
         protected override void OnScanningEnded()
@@ -257,9 +244,8 @@ namespace LivePhotoBox.ViewModels
         private readonly Dictionary<RepairTask, DateTimeOffset> _taskProcessingStartTimes = new();
         private readonly DispatcherTimer _uiUpdateTimer;
         private volatile int _completedTasksCount;
-        private int _totalRepairTasks; // 只算真正需要修复的任务数，跳过的照片不参与进度
 
-        public override string ActionBtnText
+        public new string ActionBtnText
         {
             get
             {
@@ -273,51 +259,6 @@ namespace LivePhotoBox.ViewModels
         }
 
         public override bool IsProcessingAllowed => !IsScanning;
-
-        private async Task ShowRepairCancelledDialogAsync()
-        {
-            if (App.MainWindow?.Content?.XamlRoot != null)
-            {
-                int total = Tasks.Count;
-                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success && (t.AnalysisResult == null || t.AnalysisResult.IssueType != RepairIssueType.Perfect));
-                int skipped = Tasks.Count(t => t.AnalysisResult != null && t.AnalysisResult.IssueType == RepairIssueType.Perfect);
-                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
-                int unprocessed = total - succeeded - skipped - failed;
-
-                var stack = new StackPanel { Spacing = 12 };
-                stack.Children.Add(new TextBlock
-                {
-                    Text = ResourceService.Format("Msg_RepairCancelledSummary", total, succeeded, skipped, failed, unprocessed),
-                    FontSize = 16,
-                    TextWrapping = TextWrapping.Wrap
-                });
-                stack.Children.Add(new TextBlock
-                {
-                    Text = ResourceService.GetString("Msg_RepairCompletedDescription"),
-                    FontSize = 14,
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 12, 0, 0),
-                    Opacity = 0.85
-                });
-
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_TaskCancelledTitle"),
-                    Content = stack,
-                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-
-                var result = await dialog.ShowAsync();
-                if (result == ContentDialogResult.Primary)
-                {
-                    OpenRepairOutputFolder();
-                }
-            }
-        }
 
         private async Task ShowRepairAlreadyDoneDialogAsync()
         {
@@ -370,6 +311,12 @@ namespace LivePhotoBox.ViewModels
 
             if (!TryGuardScanClick()) return;
 
+            if (Tasks.Count > 0)
+            {
+                await ShowQueueNotEmptyDialogAsync();
+                return;
+            }
+
             if (IsScanning)
             {
                 CancelScanning();
@@ -409,13 +356,7 @@ namespace LivePhotoBox.ViewModels
             _repairStoppedByUser = false;
             _repairDone = false;
 
-            if (!token.IsCancellationRequested)
-            {
-                try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
-            }
-
-            // 用户在 1s 延迟期间点了取消 → 直接跳到 finally 清理状态
-            token.ThrowIfCancellationRequested();
+            try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
 
             try
             {
@@ -426,9 +367,7 @@ namespace LivePhotoBox.ViewModels
                         return Directory.GetFiles(InputDirectory, "*.*", SearchOption.TopDirectoryOnly)
                                  .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
                                              f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
-                                             f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase) ||
-                                             f.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
-                                             f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+                                             f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase))
                                  .ToList();
                     }
                     catch (UnauthorizedAccessException ex)
@@ -452,84 +391,20 @@ namespace LivePhotoBox.ViewModels
                 var scanProgress = CreateScanProgressReporter();
                 scanProgress.Report(new WorkProgressSnapshot(files.Count, 0));
 
-                // 创建常驻 exiftool 进程（路径在外层解析，实例在 Task.Run 内创建和销毁，避免 Dispose 阻塞 UI 线程）
-                string exifToolPath = ExternalToolLocator.FindExifTool()
-                    ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
-                bool hasExifTool = File.Exists(exifToolPath);
-
-                int processedCount = 0; // 提到 Task.Run 外层，取消分支需要用到
-
                 await Task.Run(async () =>
                 {
-                    using var persistentExifTool = hasExifTool
-                        ? new PersistentExifTool(exifToolPath) : null;
-
-                    // 流式缓冲：每 200ms 批量刷到 UI（参照 Split 页面做法）
-                    // 顺序循环，不搞并发 — exiftool 的 _ioLock 本身就是串行的，并发无意义
-                    var itemBuffer = new List<RepairTask>();
-                    long lastFlushMs = Environment.TickCount64;
-                    const long flushIntervalMs = 120;
-
-                    void FlushBuffer(int countSnapshot)
+                    int index = 0;
+                    foreach (var file in files)
                     {
-                        if (itemBuffer.Count == 0) return;
-                        var batch = new List<RepairTask>(itemBuffer);
-                        itemBuffer.Clear();
-                        lastFlushMs = Environment.TickCount64;
+                        if (token.IsCancellationRequested)
+                            token.ThrowIfCancellationRequested();
 
-                        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                        var analysis = await LivePhotoRepairService.AnalyzeFileAsync(file);
+                        index++;
+
+                        var task = new RepairTask
                         {
-                            int thumbCorrect = 0, thumbError = 0;
-                            foreach (var t in batch)
-                            {
-                                Tasks.Add(t);
-                                if (t.NeedsRepair) thumbError++;
-                                else thumbCorrect++;
-                            }
-                            ThumbCorrectCount += thumbCorrect;
-                            ThumbErrorCount += thumbError;
-                            Progress = files.Count == 0 ? 0 : (countSnapshot * 100.0) / files.Count;
-                            ProgressText = $"{countSnapshot}/{files.Count}";
-                            ScanItemsFlushed?.Invoke(this, EventArgs.Empty);
-                        });
-                    }
-
-                    bool heicRepairEnabled = AppSettingsService.GetValue("IsHeicRepairEnabled", false);
-
-                    for (int i = 0; i < files.Count; i++)
-                    {
-                        // 取消了就干净退出，不抛异常
-                        if (token.IsCancellationRequested) break;
-
-                        string file = files[i];
-                        bool isHeicFile = file.EndsWith(".heic", StringComparison.OrdinalIgnoreCase)
-                                       || file.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
-
-                        RepairAnalysisResult analysis;
-                        if (isHeicFile && !heicRepairEnabled)
-                        {
-                            // HEIC 修复已关闭 → 跳过分析，提示用户可在设置中开启
-                            analysis = new RepairAnalysisResult
-                            {
-                                IssueType = RepairIssueType.Perfect,
-                                IssueDescription = ResourceService.GetString("Status_HeicRepairDisabled")
-                            };
-                        }
-                        else
-                        {
-                            try
-                            {
-                                analysis = await LivePhotoRepairService.AnalyzeFileAsync(file, persistentExifTool, token);
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                break;
-                            }
-                        }
-
-                        var repairTask = new RepairTask
-                        {
-                            Index = i + 1,
+                            Index = index,
                             FileName = Path.GetFileName(file),
                             FilePath = file,
                             IssueDescription = analysis.IssueDescription,
@@ -541,62 +416,39 @@ namespace LivePhotoBox.ViewModels
                             AnalysisResult = analysis
                         };
 
-                        itemBuffer.Add(repairTask);
-                        processedCount = i + 1;
-                        scanProgress.Report(new WorkProgressSnapshot(files.Count, processedCount));
-
-                        if (Environment.TickCount64 - lastFlushMs >= flushIntervalMs)
+                        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                         {
-                            FlushBuffer(processedCount);
-                        }
+                            Tasks.Add(task);
+                            if (analysis.NeedsRepair) ThumbErrorCount++;
+                            else ThumbCorrectCount++;
+
+                            Progress = files.Count == 0 ? 0 : (index * 100.0) / files.Count;
+                            ProgressText = $"{index}/{files.Count}";
+                        });
+
+                        scanProgress.Report(new WorkProgressSnapshot(files.Count, index));
                     }
 
-                    // 正常扫描完成才报告 100%，取消时保持实际进度不动
-                    if (!token.IsCancellationRequested)
-                    {
-                        scanProgress.Report(new WorkProgressSnapshot(files.Count, files.Count));
-                    }
-                    FlushBuffer(processedCount);
+                    scanProgress.Report(new WorkProgressSnapshot(files.Count, files.Count));
                 }, token);
 
                 FlushPendingScanProgress();
+                CompleteScanSnapshot();
 
-                if (token.IsCancellationRequested)
+                if (TotalPhotosCount > 0)
                 {
-                    // 用户取消扫描 → 清空列表、重置进度，等同于没扫描过（参照 Split 页面）
-                    LogService.Repair($"Scan cancelled by user, {processedCount}/{TotalPhotosCount} files scanned — clearing list");
-                    SetStatus("RepairPage_Status_ScanCancelled");
-
-                    App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                    {
-                        Tasks.ReplaceRange([]);
-                        TotalPhotosCount = 0;
-                        ThumbCorrectCount = 0;
-                        ThumbErrorCount = 0;
-                        Progress = 0;
-                        ProgressText = "0/0";
-                    });
-
-                    AppViewModel.Instance.ResetFooterScanCounters();
-                }
-                else if (TotalPhotosCount > 0)
-                {
-                    CompleteScanSnapshot();
-                    SetStatus("RepairPage_Status_ScanDone", ThumbCorrectCount, ThumbErrorCount);
-                    LogService.Repair($"Scan completed: {TotalPhotosCount} files, {ThumbCorrectCount} healthy, {ThumbErrorCount} need repair");
+                    SetStatus("RepairPage_Status_ScanDone", TotalPhotosCount);
+                    LogService.Repair($"Scan completed: {TotalPhotosCount} files, {ThumbErrorCount} need repair, {ThumbCorrectCount} healthy");
                 }
                 else
                 {
-                    CompleteScanSnapshot();
                     IsDirectoryPanelOpen = true;
                     SetStatus("RepairPage_Status_ScanNoFiles");
                 }
             }
             catch (OperationCanceledException)
             {
-                // 外层 Task.Run 被取消时到这里（极少见），同样清空列表
                 SetStatus("RepairPage_Status_ScanCancelled");
-                LogService.Repair("Scan cancelled via OCE — clearing list");
 
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {
@@ -606,6 +458,7 @@ namespace LivePhotoBox.ViewModels
                     ThumbErrorCount = 0;
                     Progress = 0;
                     ProgressText = "0/0";
+                    OnPropertyChanged(nameof(IsProcessingAllowed));
                 });
 
                 AppViewModel.Instance.ResetFooterScanCounters();
@@ -621,6 +474,7 @@ namespace LivePhotoBox.ViewModels
                 OnScanningEnded();
                 NotifyStatusChanged();
                 _cancelledByUser = false;
+                ProgressBarState = Models.ProgressBarState.Idle;
             }
         }
 
@@ -654,10 +508,7 @@ namespace LivePhotoBox.ViewModels
 
             if (_repairStoppedByUser || _repairDone)
             {
-                if (_repairStoppedByUser)
-                    await ShowRepairCancelledDialogAsync();
-                else
-                    await ShowRepairAlreadyDoneDialogAsync();
+                await ShowRepairAlreadyDoneDialogAsync();
                 return;
             }
 
@@ -685,116 +536,97 @@ namespace LivePhotoBox.ViewModels
             _stopwatch = Stopwatch.StartNew();
 
             var token = GetProcessingToken();
+            int startedCallbacks = 0;
+            int finishedUiCallbacks = 0;
 
             try
             {
-                var repairTasks = Tasks.Where(t => t.NeedsRepair && t.Status != ProcessStatus.Success).ToList();
-
-                // 参照 Split/Combo 的分批调度模式：逐个喂任务，满一批等一个完成再喂下一个。
-                // 取消了就不喂了，当前批次跑完即停。不会像 Task.WhenAll 那样一次性全塞进去。
-                // Task.Run 包裹是因为 PauseEvent.Wait 是同步阻塞，必须在后台线程执行。
                 await Task.Run(async () =>
                 {
-                    // 硬件编码：GPU 吃满无所谓，直接用用户设置。
-                // 软件编码：CPU 编码极重（x264/x265），并行太多互相踩踏。
-                //          固定 2 线程，利用双核同时又不至于 CPU 满载卡死。
-                // 注意：maxParallel 在循环内部动态计算，这样暂停期间切设置 → 恢复后立即生效。
-                int userThreads = AppSettingsService.GetValue("SplitThreadCount", Environment.ProcessorCount);
-                    var pending = new List<Task>();
-
-                    async Task ProcessOneAsync(RepairTask task)
+                    foreach (var task in Tasks)
                     {
-                        await Task.Yield(); // 让调度循环有机会跑
+                        PauseEvent.Wait(token);
+                        if (token.IsCancellationRequested)
+                            token.ThrowIfCancellationRequested();
 
-                        try { PauseEvent.Wait(token); }
-                        catch (OperationCanceledException) { return; }
-                        if (token.IsCancellationRequested) return;
+                        // 只处理需要修复的文件
+                        if (!task.NeedsRepair || task.Status == ProcessStatus.Success)
+                        {
+                            continue;
+                        }
 
-                        Interlocked.Increment(ref _activeWorkerCount);
+                        Interlocked.Increment(ref startedCallbacks);
+                        App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task));
+
+                        bool isSuccess = false;
+                        string detailMessage = string.Empty;
+                        bool isCanceled = false;
+
+                        string targetPath = IsOutputToDirectory
+                            ? Path.Combine(OutputDirectory, task.FileName)
+                            : task.FilePath;
+
                         try
                         {
-                            App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task));
+                            var result = await LivePhotoRepairService.RepairAsync(task.FilePath, targetPath, task.AnalysisResult!, token);
+                            isSuccess = result.Success;
+                            detailMessage = result.Message;
+                        }
+                        catch (OperationCanceledException)
+                        {
+                            isCanceled = true;
+                            detailMessage = ResourceService.GetString("Status_Aborted") ?? "???";
+                        }
+                        catch (Exception ex)
+                        {
+                            isSuccess = false;
+                            detailMessage = ex.Message;
+                            LogService.Repair($"Repair failed for {task.FilePath}: {ex.Message}", LogLevel.Error, ex);
+                        }
 
-                            string targetPath = IsOutputToDirectory
-                                ? Path.Combine(OutputDirectory, task.FileName)
-                                : task.FilePath;
+                        // 原子递增完成数量，Timer会根据这个数量自动更新进度条
+                        Interlocked.Increment(ref _completedTasksCount);
 
-                            bool isSuccess = false;
-                            string detailMessage = string.Empty;
-                            bool isCanceled = false;
-
-                            try
-                            {
-                                var result = await LivePhotoRepairService.RepairAsync(task.FilePath, targetPath, task.AnalysisResult!, token);
-                                isSuccess = result.Success;
-                                detailMessage = result.Message;
-                            }
-                            catch (OperationCanceledException)
-                            {
-                                isCanceled = true;
-                                detailMessage = ResourceService.GetString("Status_Aborted") ?? "???";
-                            }
-                            catch (Exception ex)
-                            {
-                                isSuccess = false;
-                                detailMessage = ex.Message;
-                                LogService.Repair($"Repair failed for {task.FilePath}: {ex.Message}", LogLevel.Error, ex);
-                            }
-
-                            if (!isCanceled)
-                                Interlocked.Increment(ref _completedTasksCount);
-
-                            await EnsureMinimumProcessingDisplayAsync(task);
+                        try
+                        {
+                            await EnsureMinimumProcessingDisplayAsync(task).ConfigureAwait(false);
 
                             var tcs = new TaskCompletionSource<bool>();
-                            App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                            if (App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                             {
                                 try
                                 {
-                                    if (isCanceled)
-                                        UpdateTaskCancelled(task, detailMessage);
-                                    else
-                                        UpdateTaskCompleted(task, isSuccess, detailMessage);
+                                    UpdateTaskCompleted(task, isSuccess, detailMessage);
                                 }
-                                finally { tcs.TrySetResult(true); }
-                            });
-                            await tcs.Task;
+                                finally
+                                {
+                                    tcs.TrySetResult(true);
+                                }
+                            }) == true)
+                            {
+                                await tcs.Task;
+                            }
+                            else
+                            {
+                                tcs.TrySetResult(true);
+                            }
 
                             if (isCanceled)
-                                return;
+                            {
+                                throw new OperationCanceledException();
+                            }
                         }
                         finally
                         {
-                            Interlocked.Decrement(ref _activeWorkerCount);
+                            Interlocked.Increment(ref finishedUiCallbacks);
                         }
                     }
-
-                    foreach (var task in repairTasks)
-                    {
-                        if (token.IsCancellationRequested) break;
-
-                        // 动态计算最大并行数：每次循环都重新读设置。
-                        // 这样暂停 → 切 GPU/CPU → 恢复后并行度立即生效。
-                        bool hw = EncoderHelper.IsUsingHardwareAcceleration();
-                        int maxParallel = hw ? userThreads : 2;
-
-                        // 等有空位再启动下一个（从 GPU 切 CPU 时 pending 可能超限）
-                        while (pending.Count >= maxParallel)
-                        {
-                            var done = await Task.WhenAny(pending);
-                            pending.Remove(done);
-                            try { await done; }
-                            catch (OperationCanceledException) { break; }
-                            catch (InvalidOperationException) { throw; }
-                        }
-
-                        if (token.IsCancellationRequested) break;
-                        pending.Add(ProcessOneAsync(task));
-                    }
-
-                    try { await Task.WhenAll(pending); }
-                    catch (OperationCanceledException) { }
                 }, token);
+            }
+            catch (OperationCanceledException)
+            {
+                LogService.Repair($"Repair cancelled by user after {_stopwatch.Elapsed.TotalSeconds:F1}s, completed {_completedTasksCount}/{TotalPhotosCount}");
+                SetStatus("RepairPage_Status_Aborted");
             }
             catch (Exception ex)
             {
@@ -802,36 +634,24 @@ namespace LivePhotoBox.ViewModels
             }
             finally
             {
-                _stopwatch.Stop();
-                bool wasCancelled = _cancelledByUser;
-
-                if (wasCancelled)
+                // ✨ 核心修复：死等 UI 线程派发完毕！
+                while (Volatile.Read(ref finishedUiCallbacks) < Volatile.Read(ref startedCallbacks))
                 {
-                    int total = Tasks.Count;
-                    int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success && (t.AnalysisResult == null || t.AnalysisResult.IssueType != RepairIssueType.Perfect));
-                    int skipped = Tasks.Count(t => t.AnalysisResult != null && t.AnalysisResult.IssueType == RepairIssueType.Perfect);
-                    int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
-                    int unprocessed = total - succeeded - skipped - failed;
-                    double elapsed = _stopwatch.Elapsed.TotalSeconds;
-                    LogService.Repair($"Repair cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalPhotosCount}");
-                    SetStatus("Status_RepairStoppedSummary", total, elapsed, succeeded, skipped, failed, unprocessed);
+                    await Task.Delay(20);
                 }
 
+                _stopwatch.Stop();
                 FinalizeRunState();
 
-                if (Tasks.Count > 0 && !_isCleaningUp)
+                if (!_cancelledByUser && Tasks.Count > 0)
                 {
-                    if (wasCancelled)
-                        await ShowRepairCancelledDialogAsync();
-                    else
-                        await ShowRepairAlreadyDoneDialogAsync();
+                    await ShowRepairAlreadyDoneDialogAsync();
                 }
             }
         }
 
         public event EventHandler<RepairTask>? TaskStartedForScroll;
         public event EventHandler? ProcessingCompletedForScroll;
-        public event EventHandler? ScanItemsFlushed;
 
         private void UpdateTaskStarted(RepairTask task)
         {
@@ -851,13 +671,6 @@ namespace LivePhotoBox.ViewModels
             {
                 ProcessingCompletedForScroll?.Invoke(this, EventArgs.Empty);
             }
-        }
-
-        private void UpdateTaskCancelled(RepairTask task, string detailMessage)
-        {
-            // 用户取消不标记为"失败"——保留 Processing 状态，只更新详情
-            task.Details = detailMessage;
-            _taskProcessingStartTimes.Remove(task);
         }
 
         private async Task EnsureMinimumProcessingDisplayAsync(RepairTask task)
@@ -907,8 +720,6 @@ namespace LivePhotoBox.ViewModels
             var folderPath = GetRepairResultFolderPath();
             return !string.IsNullOrWhiteSpace(folderPath);
         }
-
-        // IsRepairUsingHardwareAcceleration → EncoderHelper.IsUsingHardwareAcceleration
 
         private string GetRepairResultFolderPath()
         {

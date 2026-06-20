@@ -945,7 +945,7 @@
     <value>让你的 Apple 实况照片也可以在 Windows 上直接显示与处理。</value>
   </data>
   <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
-    <value>缩略图修复配置（视频修复正在开发中）</value>
+    <value>缩略图修复配置</value>
   </data>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>输入目录：</value>
@@ -1198,6 +1198,9 @@
   </data>
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>帮助 &amp; 教程</value>
+  </data>
+  <data name="WorkPage_AdvancedSettings.Text" xml:space="preserve">
+    <value>高级设置</value>
   </data>
   <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>前往主页查看教程</value>
@@ -1501,5 +1504,26 @@
   </data>
   <data name="SettingsPage_Transcode_ThreadCount_Desc.Text" xml:space="preserve">
     <value>同时处理的任务数</value>
+  </data>
+  <data name="RepairPage_StatPaired.Text" xml:space="preserve">
+    <value>配对成功：</value>
+  </data>
+  <data name="RepairPage_StatStandaloneImg.Text" xml:space="preserve">
+    <value>单独照片：</value>
+  </data>
+  <data name="RepairPage_StatStandaloneVid.Text" xml:space="preserve">
+    <value>单独视频：</value>
+  </data>
+  <data name="SettingsPage_Repair_OutputLabel.Text" xml:space="preserve">
+    <value>修复输出目录</value>
+  </data>
+  <data name="SettingsPage_Repair_OutputSwitch.OnContent" xml:space="preserve">
+    <value>输出到新目录</value>
+  </data>
+  <data name="SettingsPage_Repair_OutputSwitch.OffContent" xml:space="preserve">
+    <value>原地替换</value>
+  </data>
+  <data name="SettingsPage_Repair_OutputDesc.Text" xml:space="preserve">
+    <value>开启后修复的文件将保存到单独的输出目录；关闭则直接覆盖原文件。</value>
   </data>
 </root>

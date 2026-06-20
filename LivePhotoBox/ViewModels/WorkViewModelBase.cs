@@ -92,6 +92,9 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         protected void GoToTutorial(string feature) => RequestNavigateToPage?.Invoke(this, $"Home_{feature}");
 
+        [RelayCommand]
+        private void GoToAdvancedSettings() => RequestNavigateToPage?.Invoke(this, $"Settings_{PageStatusTag}");
+
         public event EventHandler<string>? RequestNavigateToPage;
         public event EventHandler? StatusChanged;
 

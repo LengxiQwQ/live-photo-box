@@ -1,5 +1,4 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -32,7 +31,7 @@ namespace LivePhotoBox.Models
 
         public ImageSource? Thumbnail
         {
-            get => ThumbnailService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, SourcePath, value => Thumbnail = value);
+            get => ThumbnailBindingService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, SourcePath, value => Thumbnail = value);
             set
             {
                 if (SetProperty(ref _thumbnail, value))
@@ -42,12 +41,22 @@ namespace LivePhotoBox.Models
             }
         }
 
-        public Visibility ThumbnailPlaceholderVisibility => ThumbnailService.GetPlaceholderVisibility(_thumbnail);
+        public Visibility ThumbnailPlaceholderVisibility => ThumbnailBindingService.GetPlaceholderVisibility(_thumbnail);
 
         partial void OnSourcePathChanged(string value)
         {
             _isLoadingThumbnail = false;
             Thumbnail = null;
+        }
+
+        public Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
+        {
+            var trigger = Thumbnail;
+            return Task.CompletedTask;
+        }
+
+        public void CancelThumbnailLoad()
+        {
         }
 
         partial void OnStatusChanged(ProcessStatus value)
@@ -66,7 +75,7 @@ namespace LivePhotoBox.Models
 
         #region Computed Properties
 
-        public string DisplaySourceFileName => FileNameFormatter.Truncate(SourceFileName);
+        public string DisplaySourceFileName => TruncateFileName(SourceFileName);
 
         public string DisplayStatus
         {
@@ -84,6 +93,19 @@ namespace LivePhotoBox.Models
                     _ => Status.ToString()
                 };
             }
+        }
+
+        #endregion
+
+        #region Helpers
+
+        private string TruncateFileName(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName)) return fileName;
+            string ext = Path.GetExtension(fileName);
+            string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
+            if (nameWithoutExt.Length <= 30) return fileName;
+            return $"{nameWithoutExt.Substring(0, 22)}...{nameWithoutExt.Substring(nameWithoutExt.Length - 8)}{ext}";
         }
 
         #endregion

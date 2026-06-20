@@ -62,10 +62,18 @@ namespace LivePhotoBox.Services
 {
     public static class LivePhotoSplitService
     {
-        private const int MetadataProbeBytes = LivePhotoConstants.MetadataProbeBytes;
+        private const int MetadataProbeBytes = 1024 * 1024; // 探测前 1MB 的元数据
 
-        private static readonly Regex MicroVideoOffsetRegex = LivePhotoConstants.MicroVideoOffsetRegex;
-        private static readonly Regex MotionPhotoLengthRegex = LivePhotoConstants.MotionPhotoLengthRegex;
+        // 添加了 TimeSpan.FromSeconds(2) 作为超时保护，防止正则表达式遇到损坏文件陷入死循环
+        private static readonly Regex MicroVideoOffsetRegex = new(
+            "GCamera:MicroVideoOffset=\"(?<value>\\d+)\"",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+            TimeSpan.FromSeconds(2));
+
+        private static readonly Regex MotionPhotoLengthRegex = new(
+            "Item:Semantic=\"MotionPhoto\"[^>]*Item:Length=\"(?<value>\\d+)\"|Item:Length=\"(?<value>\\d+)\"[^>]*Item:Semantic=\"MotionPhoto\"",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline,
+            TimeSpan.FromSeconds(2));
 
         private static readonly Regex MotionPhotoMimeRegex = new(
             "Item:Semantic=\"MotionPhoto\"[^>]*Item:Mime=\"(?<value>[^\"]+)\"|Item:Mime=\"(?<value>[^\"]+)\"[^>]*Item:Semantic=\"MotionPhoto\"",
@@ -144,12 +152,16 @@ namespace LivePhotoBox.Services
                     }
                     else
                     {
-                        // remux 失败
+                        // remux 失败，抛出异常让上层处理
                         LogService.Split($"Remux failed: {remuxResult.ErrorMessage}", LogLevel.Error);
-                        if (File.Exists(tempVideoPath)) { File.Delete(tempVideoPath); }
-                        if (File.Exists(videoOutputPath)) { File.Delete(videoOutputPath); }
-                        if (token.IsCancellationRequested)
-                            throw new OperationCanceledException(token);
+                        if (File.Exists(tempVideoPath))
+                        {
+                            File.Delete(tempVideoPath);
+                        }
+                        if (File.Exists(videoOutputPath))
+                        {
+                            File.Delete(videoOutputPath);
+                        }
                         throw new InvalidOperationException($"Video remux failed: {remuxResult.ErrorMessage}");
                     }
                 }
@@ -164,12 +176,16 @@ namespace LivePhotoBox.Services
 
                     if (!transcodeResult.Success)
                     {
-                        // 转码失败
+                        // 转码失败，抛出异常让上层处理
                         LogService.Split($"Transcode failed: {transcodeResult.ErrorMessage}", LogLevel.Error);
-                        if (File.Exists(tempVideoPath)) { File.Delete(tempVideoPath); }
-                        if (File.Exists(videoOutputPath)) { File.Delete(videoOutputPath); }
-                        if (token.IsCancellationRequested)
-                            throw new OperationCanceledException(token);
+                        if (File.Exists(tempVideoPath))
+                        {
+                            File.Delete(tempVideoPath);
+                        }
+                        if (File.Exists(videoOutputPath))
+                        {
+                            File.Delete(videoOutputPath);
+                        }
                         throw new InvalidOperationException($"Video transcode failed: {transcodeResult.ErrorMessage}");
                     }
                     else

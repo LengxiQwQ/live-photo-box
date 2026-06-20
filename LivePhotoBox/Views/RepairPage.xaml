@@ -26,9 +26,9 @@
             <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" Spacing="12">
 
                 <Expander IsExpanded="{x:Bind ViewModel.IsDirectoryPanelOpen, Mode=TwoWay}"
-                          HorizontalAlignment="Stretch" 
+                          HorizontalAlignment="Stretch"
                           HorizontalContentAlignment="Stretch"
-                          Background="{ThemeResource CardBackgroundBrush}" 
+                          Background="{ThemeResource CardBackgroundBrush}"
                           CornerRadius="8"
                           BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                           BorderThickness="1">
@@ -70,40 +70,48 @@
                     </Expander.Content>
                 </Expander>
 
+                <!-- 统计栏 -->
                 <Border Background="{ThemeResource CardBackgroundBrush}" CornerRadius="8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="16,10,16,10">
                     <Grid>
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="18" VerticalAlignment="Center">
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="RepairPage_StatTotalPhotos" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.TotalPhotosCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                <TextBlock x:Uid="RepairPage_StatTotalPhotos" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind ViewModel.TotalPhotosCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="RepairPage_StatThumbCorrect" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.ThumbCorrectCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                <TextBlock x:Uid="RepairPage_StatThumbCorrect" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind ViewModel.ThumbCorrectCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
                             </StackPanel>
                             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="RepairPage_StatThumbError" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.ThumbErrorCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                <TextBlock x:Uid="RepairPage_StatThumbError" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind ViewModel.ThumbErrorCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock x:Uid="RepairPage_StatPaired" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock x:Uid="RepairPage_StatStandaloneImg" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind ViewModel.StandaloneImagesCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock x:Uid="RepairPage_StatStandaloneVid" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
+                                <TextBlock Text="{x:Bind ViewModel.StandaloneVideosCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
                             </StackPanel>
                         </StackPanel>
 
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock x:Uid="RepairPage_OutputModeLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <ToggleSwitch x:Uid="RepairPage_OutputModeSwitch" IsOn="{x:Bind ViewModel.IsOutputToDirectory, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
-                            <Button
+                        <Button Grid.Column="1"
                                 Margin="12,0,0,0"
                                 Command="{x:Bind ViewModel.ScanDirectoryCommand}"
                                 Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
                                 Style="{x:Bind ViewModel.ScanButtonStyle, Mode=OneWay}"
                                 IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
                                 VerticalAlignment="Center" />
-                        </StackPanel>
                     </Grid>
                 </Border>
             </StackPanel>
@@ -125,6 +133,13 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
+                        <Button x:Uid="RepairPage_AdvancedSettingsBtn" Command="{x:Bind ViewModel.GoToAdvancedSettingsCommand}" Height="36" Margin="0,0,10,0">
+                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE90F;" FontSize="15" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="WorkPage_AdvancedSettings" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
                         <Button Margin="0,0,10,0" x:Uid="RepairPage_HelpBtn" Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Repair" Height="36">
                             <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <FontIcon Glyph="&#xE9CE;" FontSize="15" VerticalAlignment="Center" Margin="0,1,0,0"/>
@@ -150,15 +165,16 @@
                         <Grid Padding="12,0,12,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,8">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="56"/>
-                                <ColumnDefinition Width="2.9*"/>
-                                <ColumnDefinition Width="2.2*"/>
+                                <ColumnDefinition Width="62"/>
+                                <ColumnDefinition Width="2.0*"/>
+                                <ColumnDefinition Width="2.0*"/>
                                 <ColumnDefinition Width="1.3*"/>
                             </Grid.ColumnDefinitions>
 
                             <TextBlock x:Uid="RepairPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="RepairPage_ColFile" Grid.Column="1" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="RepairPage_ColIssue" Grid.Column="2" Margin="20,0,0,0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="RepairPage_ColStatus" Grid.Column="3" Margin="12,0,0,0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="RepairPage_ColFile" Grid.Column="1" Grid.ColumnSpan="2" Margin="4,0,0,0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="RepairPage_ColIssue" Grid.Column="3" Margin="8,0,0,0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="RepairPage_ColStatus" Grid.Column="4" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                         </Grid>
                     </ListView.Header>
 
@@ -166,47 +182,87 @@
                         <Style TargetType="ListViewItem">
                             <Setter Property="Background" Value="Transparent"/>
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            <Setter Property="Margin" Value="0,0,0,6"/>
+                            <Setter Property="Margin" Value="0,0,0,1"/>
                             <Setter Property="Padding" Value="0"/>
                             <Setter Property="MinHeight" Value="0"/>
+                            <Setter Property="BorderBrush" Value="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                            <Setter Property="BorderThickness" Value="0,0,0,1"/>
                         </Style>
                     </ListView.ItemContainerStyle>
 
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="models:RepairTask">
-                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6,10,6">
-                                <Grid ColumnSpacing="12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="56"/>
-                                        <ColumnDefinition Width="2.9*"/>
-                                        <ColumnDefinition Width="2.2*"/>
-                                        <ColumnDefinition Width="1.3*"/>
-                                    </Grid.ColumnDefinitions>
+                            <!-- 无边框、扁平布局：统一 8px 内边距，所有分割线间距平均 -->
+                            <Grid ColumnSpacing="0" Padding="{x:Bind GridPadding, Mode=OneWay}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="56"/>
+                                    <ColumnDefinition Width="62"/>
+                                    <ColumnDefinition Width="2.0*"/>
+                                    <ColumnDefinition Width="2.0*"/>
+                                    <ColumnDefinition Width="1.3*"/>
+                                </Grid.ColumnDefinitions>
 
-                                    <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
 
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                                        <Button x:Uid="RepairPage_TipFolder" Tag="{x:Bind FilePath}" Click="ThumbnailButton_Click" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6">
-                                            <Border Width="40" Height="40" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
-                                                <Grid>
-                                                    <TextBlock x:Uid="RepairPage_ThumbnailLoadingText" Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="10"/>
-                                                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
-                                                </Grid>
-                                            </Border>
-                                        </Button>
-                                        <Button x:Uid="RepairPage_TipApp" Tag="{x:Bind FilePath}" Click="FileButton_Click" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" VerticalAlignment="Center" CornerRadius="4">
-                                            <StackPanel Orientation="Horizontal" Spacing="6" Height="20">
-                                                <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
-                                                <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplayFileName}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                                            </StackPanel>
-                                        </Button>
+                                <!-- Row 0: 序号1 -->
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="{x:Bind File1Index, Mode=OneWay}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                                <!-- 缩略图（配对）— 48×48 -->
+                                <Button x:Uid="RepairPage_TipFolder" Grid.Row="0" Grid.RowSpan="3" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,4,0" Click="ThumbnailButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6" Visibility="{x:Bind PairedThumbnailVisibility, Mode=OneWay}">
+                                    <Border Width="48" Height="48" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                        <Grid>
+                                            <TextBlock x:Uid="RepairPage_ThumbnailLoadingText" Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="9"/>
+                                            <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                        </Grid>
+                                    </Border>
+                                </Button>
+
+                                <!-- 缩略图（单独）— 48×48 -->
+                                <Button x:Uid="RepairPage_TipFolder" Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,4,0" Click="ThumbnailButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6" Visibility="{x:Bind StandaloneThumbnailVisibility, Mode=OneWay}">
+                                    <Border Width="48" Height="48" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                        <Grid>
+                                            <TextBlock x:Uid="RepairPage_ThumbnailLoadingText" Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="9"/>
+                                            <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                        </Grid>
+                                    </Border>
+                                </Button>
+
+                                <!-- Row 0 File1 -->
+                                <Button x:Uid="RepairPage_TipApp" Grid.Row="0" Grid.Column="2" Click="FileButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                    <StackPanel Orientation="Horizontal" Spacing="5" Height="22">
+                                        <FontIcon Glyph="{x:Bind File1IconGlyph, Mode=OneWay}" Foreground="{x:Bind File1IconForeground, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBlock FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center" Text="{x:Bind File1Name, Mode=OneWay}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
+                                </Button>
 
-                                    <TextBlock Grid.Column="2" Margin="14,0,0,0" Text="{x:Bind IssueDescription}" Foreground="{x:Bind IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped"/>
+                                <TextBlock Grid.Row="0" Grid.Column="3" Margin="8,0,0,0" Text="{x:Bind File1IssueDescription, Mode=OneWay}" Foreground="{x:Bind File1IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File1IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="1"/>
 
-                                    <TextBlock Grid.Column="3" Margin="6,0,0,0" Text="{x:Bind Details, Mode=OneWay}" Foreground="{x:Bind DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="5" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped"/>
-                                </Grid>
-                            </Border>
+                                <TextBlock Grid.Row="0" Grid.Column="4" Margin="10,0,0,0" Text="{x:Bind File1Details, Mode=OneWay}" Foreground="{x:Bind File1DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="1"/>
+
+                                <!-- Row 1: 配对分隔线 — 横跨文件→问题→状态 -->
+                                <Border Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3"
+                                        Visibility="{x:Bind File2Visibility, Mode=OneWay}"
+                                        Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                        Margin="0,18,0,18"/>
+
+                                <!-- Row 2: 序号2 + File2 + Issue2 + Status2 — 仅配对时显示 -->
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="{x:Bind File2Index, Mode=OneWay}" Visibility="{x:Bind File2Visibility, Mode=OneWay}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                                <Button x:Uid="RepairPage_TipApp" Grid.Row="2" Grid.Column="2" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Click="FileButton_Click" Tag="{x:Bind File2Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                    <StackPanel Orientation="Horizontal" Spacing="5" Height="22">
+                                        <FontIcon Glyph="{x:Bind File2IconGlyph, Mode=OneWay}" Foreground="{x:Bind File2IconForeground, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
+                                        <TextBlock FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center" Text="{x:Bind File2Name, Mode=OneWay}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <TextBlock Grid.Row="2" Grid.Column="3" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2IssueDescription, Mode=OneWay}" Foreground="{x:Bind File2IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File2IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="2"/>
+
+                                <TextBlock Grid.Row="2" Grid.Column="4" Margin="10,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2Details, Mode=OneWay}" Foreground="{x:Bind File2DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="2"/>
+                            </Grid>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>

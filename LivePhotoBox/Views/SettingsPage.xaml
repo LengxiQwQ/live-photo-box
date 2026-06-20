@@ -244,7 +244,7 @@
                 <StackPanel Spacing="16">
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                         <FontIcon Glyph="&#xE8B1;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                        <TextBlock x:Uid="SettingsPage_Combo_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                        <TextBlock x:Name="ComboSectionHeader" x:Uid="SettingsPage_Combo_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
                     <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
@@ -317,7 +317,7 @@
                 <StackPanel Spacing="16">
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                         <FontIcon Glyph="&#xE8C6;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                        <TextBlock x:Uid="SettingsPage_Split_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                        <TextBlock x:Name="SplitSectionHeader" x:Uid="SettingsPage_Split_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
                     <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
@@ -348,7 +348,7 @@
                 <StackPanel Spacing="16">
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                         <FontIcon Glyph="&#xE7C5;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                        <TextBlock x:Uid="SettingsPage_Repair_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                        <TextBlock x:Name="RepairSectionHeader" x:Uid="SettingsPage_Repair_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
                     <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
@@ -365,6 +365,19 @@
                                               IsOn="{x:Bind ViewModel.IsHeicRepairEnabled, Mode=TwoWay}"
                                               FontSize="13"/>
                                 <TextBlock x:Uid="SettingsPage_Repair_HeicDesc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+
+                            <!-- 修复输出模式 -->
+                            <StackPanel Spacing="8">
+                                <TextBlock x:Uid="SettingsPage_Repair_OutputLabel"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <ToggleSwitch x:Uid="SettingsPage_Repair_OutputSwitch"
+                                              IsOn="{x:Bind ViewModel.IsRepairOutputToDirectory, Mode=TwoWay}"
+                                              FontSize="13"/>
+                                <TextBlock x:Uid="SettingsPage_Repair_OutputDesc"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
