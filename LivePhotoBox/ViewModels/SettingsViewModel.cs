@@ -233,6 +233,20 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
+        #region Repair Settings
+
+        [ObservableProperty]
+        private bool _isHeicRepairEnabled;
+
+        partial void OnIsHeicRepairEnabledChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsHeicRepairEnabled), value);
+            LogService.Info($"HEIC repair setting changed to: {(value ? "enabled" : "disabled")}", LogSource.Settings);
+        }
+
+        #endregion
+
         public SettingsViewModel()
         {
             LoadSettings();
@@ -280,6 +294,7 @@ namespace LivePhotoBox.ViewModels
             MaxThreadCount = Math.Min(Environment.ProcessorCount, 16);
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 4);
+            IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
         }
 
         private async Task LoadHardwareInfoAsync()
@@ -450,6 +465,9 @@ namespace LivePhotoBox.ViewModels
 
             // 重置合成任务并行数
             ComboThreadCount = 4;
+
+            // 重置 HEIC 修复设置（默认关闭）
+            IsHeicRepairEnabled = false;
 
             // 重新选择最佳硬件
             _isInitializing = true;

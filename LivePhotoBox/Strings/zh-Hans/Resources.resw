@@ -1013,6 +1013,21 @@
   <data name="RepairPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
     <value>打开文件</value>
   </data>
+  <data name="SettingsPage_Repair_Header.Text" xml:space="preserve">
+    <value>缩略图修复</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicLabel.Text" xml:space="preserve">
+    <value>HEIC 照片修复</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicSwitch.OnContent" xml:space="preserve">
+    <value>已启用</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicSwitch.OffContent" xml:space="preserve">
+    <value>已禁用</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
+    <value>启用后将对 HEIC 照片进行方向标签修复和缩略图剥离。HEIC 的旋转标签通常是正确的显示指令，关闭即可跳过所有 HEIC 文件。</value>
+  </data>
   <data name="RepairPage_OutputModeLabel.Text" xml:space="preserve">
     <value>输出模式：</value>
   </data>
@@ -1066,6 +1081,15 @@
   </data>
   <data name="Tag_ExtraThumbnail" xml:space="preserve">
     <value>多余缩略图</value>
+  </data>
+  <data name="Tag_OrientationMirror" xml:space="preserve">
+    <value>EXIF方向含镜像</value>
+  </data>
+  <data name="Tag_OrientationAngleMismatch" xml:space="preserve">
+    <value>方向标签角度不一致</value>
+  </data>
+  <data name="Status_HeicRepairDisabled" xml:space="preserve">
+    <value>[HEIC修复已关闭]</value>
   </data>
   <data name="Status_Perfect" xml:space="preserve">
     <value>无需修复</value>
@@ -1293,10 +1317,10 @@
     <value>工具发出了警告信息 (非致命)</value>
   </data>
   <data name="Error_CheckLog" xml:space="preserve">
-    <value>解析失败，请查看日志</value>
+    <value>解析失败:</value>
   </data>
   <data name="Error_InternalCheckLog" xml:space="preserve">
-    <value>内部错误，请查看日志</value>
+    <value>内部错误:</value>
   </data>
   <data name="Error_RepairFailedCheckLog" xml:space="preserve">
     <value>修复失败，请查看日志</value>

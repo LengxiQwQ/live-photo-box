@@ -122,6 +122,9 @@ namespace LivePhotoBox.Models
 
         public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
 
+        /// <summary>诊断阶段报错 → 诊断结果文字标红 + 可点击查看详情</summary>
+        public bool IsDiagnosisError => AnalysisResult?.IssueType == RepairIssueType.Error;
+
         partial void OnDetailsChanged(string value)
         {
             OnPropertyChanged(nameof(DisplayStatus));

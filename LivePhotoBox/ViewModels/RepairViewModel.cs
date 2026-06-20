@@ -492,20 +492,37 @@ namespace LivePhotoBox.ViewModels
                         });
                     }
 
+                    bool heicRepairEnabled = AppSettingsService.GetValue("IsHeicRepairEnabled", false);
+
                     for (int i = 0; i < files.Count; i++)
                     {
                         // 取消了就干净退出，不抛异常
                         if (token.IsCancellationRequested) break;
 
                         string file = files[i];
+                        bool isHeicFile = file.EndsWith(".heic", StringComparison.OrdinalIgnoreCase)
+                                       || file.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
+
                         RepairAnalysisResult analysis;
-                        try
+                        if (isHeicFile && !heicRepairEnabled)
                         {
-                            analysis = await LivePhotoRepairService.AnalyzeFileAsync(file, persistentExifTool, token);
+                            // HEIC 修复已关闭 → 跳过分析，提示用户可在设置中开启
+                            analysis = new RepairAnalysisResult
+                            {
+                                IssueType = RepairIssueType.Perfect,
+                                IssueDescription = ResourceService.GetString("Status_HeicRepairDisabled")
+                            };
                         }
-                        catch (OperationCanceledException)
+                        else
                         {
-                            break;
+                            try
+                            {
+                                analysis = await LivePhotoRepairService.AnalyzeFileAsync(file, persistentExifTool, token);
+                            }
+                            catch (OperationCanceledException)
+                            {
+                                break;
+                            }
                         }
 
                         var repairTask = new RepairTask

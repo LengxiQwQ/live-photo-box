@@ -202,7 +202,7 @@
                                         </Button>
                                     </StackPanel>
 
-                                    <TextBlock Grid.Column="2" Margin="14,0,0,0" Text="{x:Bind IssueDescription}" Foreground="{ThemeResource TextFillColorPrimaryBrush}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Column="2" Margin="14,0,0,0" Text="{x:Bind IssueDescription}" Foreground="{x:Bind IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped"/>
 
                                     <TextBlock Grid.Column="3" Margin="6,0,0,0" Text="{x:Bind Details, Mode=OneWay}" Foreground="{x:Bind DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="5" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped"/>
                                 </Grid>

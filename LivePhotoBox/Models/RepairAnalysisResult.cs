@@ -15,5 +15,7 @@ namespace LivePhotoBox.Models
         public int RotationAngle { get; set; } = 0;
         public bool NeedsRepair => IssueType == RepairIssueType.NeedsStrip || IssueType == RepairIssueType.NeedsRebuild;
         public bool HasThumbnail { get; set; } = false;
+        /// <summary>HEIC: Original QuickTime:Rotation value preserved during repair (never cleared).</summary>
+        public string HeicOriginalRotation { get; set; } = string.Empty;
     }
 }

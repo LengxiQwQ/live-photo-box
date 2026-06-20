@@ -21,6 +21,10 @@ namespace LivePhotoBox.Services
         private static string? _jpegTranPath;
         private static string JpegTranPath => _jpegTranPath ??= Path.Combine(AppContext.BaseDirectory, "Tools", "jpegtran.exe");
 
+        private static bool IsHeicFile(string path) =>
+            path.EndsWith(".heic", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
+
         /// <summary>
         /// 统一的内部日志记录器
         /// </summary>
@@ -43,22 +47,28 @@ namespace LivePhotoBox.Services
         /// </summary>
         public static async Task<RepairAnalysisResult> AnalyzeFileAsync(string filePath, PersistentExifTool? persistentExifTool = null, CancellationToken token = default)
         {
+            bool isHeic = IsHeicFile(filePath);
+
             if (!File.Exists(ExifToolPath))
             {
                 WriteDebugLog("ERROR", "Analyze", ResourceService.GetString("Log_MissingDependency"), $"File not found: {ExifToolPath}");
                 return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_ExifToolMissing") };
             }
 
-            if (!File.Exists(JheadPath))
+            // jhead / jpegtran 只用于 JPEG 修复，HEIC 不需要
+            if (!isHeic)
             {
-                WriteDebugLog("ERROR", "Analyze", ResourceService.GetString("Log_MissingDependency"), $"File not found: {JheadPath}");
-                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "jhead.exe not found" };
-            }
+                if (!File.Exists(JheadPath))
+                {
+                    WriteDebugLog("ERROR", "Analyze", ResourceService.GetString("Log_MissingDependency"), $"File not found: {JheadPath}");
+                    return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "jhead.exe not found" };
+                }
 
-            if (!File.Exists(JpegTranPath))
-            {
-                WriteDebugLog("ERROR", "Analyze", ResourceService.GetString("Log_MissingDependency"), $"File not found: {JpegTranPath}");
-                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "jpegtran.exe not found (required by jhead)" };
+                if (!File.Exists(JpegTranPath))
+                {
+                    WriteDebugLog("ERROR", "Analyze", ResourceService.GetString("Log_MissingDependency"), $"File not found: {JpegTranPath}");
+                    return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "jpegtran.exe not found (required by jhead)" };
+                }
             }
 
             try
@@ -69,7 +79,8 @@ namespace LivePhotoBox.Services
                 if (persistentExifTool != null)
                 {
                     // ✅ 快速路径：使用常驻 exiftool 进程，无启动开销
-                    output = await persistentExifTool.SendCommandAsync(token, "-j", "-Orientation", "-ThumbnailImage", filePath);
+                    // Rotation 用于 HEIC（QuickTime 标签）+ JPEG 兼容
+                    output = await persistentExifTool.SendCommandAsync(token, "-j", "-Rotation", "-Orientation", "-ThumbnailImage", filePath);
                     error = persistentExifTool.FlushStderr();
                 }
                 else
@@ -94,6 +105,7 @@ namespace LivePhotoBox.Services
                     psi.Environment["PAR_GLOBAL_TMPDIR"] = tempDir;
 
                     psi.ArgumentList.Add("-j");
+                    psi.ArgumentList.Add("-Rotation");
                     psi.ArgumentList.Add("-Orientation");
                     psi.ArgumentList.Add("-ThumbnailImage");
                     psi.ArgumentList.Add(filePath);
@@ -136,8 +148,48 @@ namespace LivePhotoBox.Services
             catch (Exception ex)
             {
                 WriteDebugLog("ERROR", "Analyze", ResourceService.Format("Log_CSharpException", Path.GetFileName(filePath)), ex.ToString());
-                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_InternalCheckLog") };
+                // 把错误详情直接显示在结果中，用户不需要去翻日志
+                string shortMsg = ex.Message;
+                if (shortMsg.Length > 200) shortMsg = shortMsg[..200] + "…";
+                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = $"{ResourceService.GetString("Error_InternalCheckLog")}\n{ex.GetType().Name}: {shortMsg}" };
             }
+        }
+
+        /// <summary>
+        /// 从方向标签字符串中提取旋转角度（0/90/180/270）
+        /// </summary>
+        private static int ParseAngleFromTag(string? tag)
+        {
+            if (string.IsNullOrWhiteSpace(tag)) return 0;
+            if (tag.Contains("270")) return 270;
+            if (tag.Contains("180")) return 180;
+            if (tag.Contains("90")) return 90;
+            return 0;
+        }
+
+        /// <summary>
+        /// 判断方向标签是否包含镜像/翻转标记（mirror / flip）
+        /// </summary>
+        private static bool TagHasMirror(string? tag)
+        {
+            if (string.IsNullOrWhiteSpace(tag)) return false;
+            return tag.Contains("Mirror", StringComparison.OrdinalIgnoreCase)
+                || tag.Contains("Flip", StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 根据 QuickTime:Rotation 值推导正确的 EXIF Orientation 值
+        /// </summary>
+        private static string GetOrientationForRotation(string rotation)
+        {
+            int angle = ParseAngleFromTag(rotation);
+            return angle switch
+            {
+                90 => "Rotate 90 CW",
+                180 => "Rotate 180",
+                270 => "Rotate 270 CW",
+                _ => "Horizontal (normal)"
+            };
         }
 
         /// <summary>
@@ -148,33 +200,70 @@ namespace LivePhotoBox.Services
             if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
             {
                 WriteDebugLog("ERROR", "Analyze", ResourceService.Format("Log_ExifToolParseFailed", Path.GetFileName(filePath)), $"StdError:\n{error}\n\nStdOutput:\n{output}");
-                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_CheckLog") };
+                // 把 exiftool 的实际错误直接显示在结果中
+                string errDetail = string.IsNullOrWhiteSpace(error) ? "stdout is empty or not JSON" : error.Trim();
+                if (errDetail.Length > 300) errDetail = errDetail[..300] + "…";
+                return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = $"{ResourceService.GetString("Error_CheckLog")}\n{errDetail}" };
             }
 
             using var doc = JsonDocument.Parse(output);
             var root = doc.RootElement[0];
 
+            string rotation = root.TryGetProperty("Rotation", out var rProp) ? rProp.GetString() ?? "" : "";
             string orientation = root.TryGetProperty("Orientation", out var oProp) ? oProp.GetString() ?? "" : "";
             bool hasThumb = root.TryGetProperty("ThumbnailImage", out _);
-
-            bool hasRotation = !string.IsNullOrWhiteSpace(orientation)
-                && !orientation.Equals("Horizontal (normal)", StringComparison.OrdinalIgnoreCase)
-                && !orientation.Equals("1", StringComparison.Ordinal);
+            bool isHeic = IsHeicFile(filePath);
 
             var tags = new List<string>();
+            bool needsOrientationFix = false;
 
-            if (hasRotation)
+            if (isHeic)
             {
-                int angle = 0;
-                if (orientation.Contains("90", StringComparison.OrdinalIgnoreCase)) angle = 90;
-                else if (orientation.Contains("180", StringComparison.OrdinalIgnoreCase)) angle = 180;
-                else if (orientation.Contains("270", StringComparison.OrdinalIgnoreCase)) angle = 270;
-                tags.Add($"[{ResourceService.Format("Tag_RotationLabel", angle)}]");
+                // ── HEIC 分析：Rotation 是 QuickTime 标签，用于告诉查看器如何旋转显示 ──
+                // HEIC 像素数据无法无损旋转（无 jpegtran 等效工具），因此 Rotation 是
+                // 正确的元数据，不是问题。只检测以下两种真正的问题：
+                //   1. Orientation 含有镜像/翻转标记（mirror/flip）— 几乎总是误写入
+                //   2. Orientation 的旋转角度与 Rotation 不一致 — 会导致显示冲突
+
+                int rotAngle = ParseAngleFromTag(rotation);
+                int orientAngle = ParseAngleFromTag(orientation);
+                bool orientHasMirror = TagHasMirror(orientation);
+                bool angleMismatch = rotAngle != orientAngle;
+
+                needsOrientationFix = orientHasMirror || angleMismatch;
+
+                if (orientHasMirror)
+                    tags.Add($"[{ResourceService.GetString("Tag_OrientationMirror")}]");
+
+                if (angleMismatch)
+                    tags.Add($"[{ResourceService.GetString("Tag_OrientationAngleMismatch")}]");
+
+                if (hasThumb)
+                    tags.Add($"[{ResourceService.GetString("Tag_ExtraThumbnail")}]");
             }
-
-            if (hasThumb)
+            else
             {
-                tags.Add($"[{ResourceService.GetString("Tag_ExtraThumbnail")}]");
+                // ── JPEG 分析：维持原有逻辑，jhead -autorot 可以无损旋转像素 ──
+                bool hasRotation = (!string.IsNullOrWhiteSpace(rotation)
+                    && !rotation.Equals("Horizontal (normal)", StringComparison.OrdinalIgnoreCase)
+                    && !rotation.Equals("0", StringComparison.Ordinal))
+                    ||
+                    (!string.IsNullOrWhiteSpace(orientation)
+                    && !orientation.Equals("Horizontal (normal)", StringComparison.OrdinalIgnoreCase)
+                    && !orientation.Equals("1", StringComparison.Ordinal));
+
+                if (hasRotation)
+                {
+                    string rotSource = !string.IsNullOrWhiteSpace(rotation) ? rotation : orientation;
+                    int angle = 0;
+                    if (rotSource.Contains("90", StringComparison.OrdinalIgnoreCase)) angle = 90;
+                    else if (rotSource.Contains("180", StringComparison.OrdinalIgnoreCase)) angle = 180;
+                    else if (rotSource.Contains("270", StringComparison.OrdinalIgnoreCase)) angle = 270;
+                    tags.Add($"[{ResourceService.Format("Tag_RotationLabel", angle)}]");
+                }
+
+                if (hasThumb)
+                    tags.Add($"[{ResourceService.GetString("Tag_ExtraThumbnail")}]");
             }
 
             if (tags.Count == 0)
@@ -188,7 +277,10 @@ namespace LivePhotoBox.Services
                 };
             }
 
-            RepairIssueType type = hasRotation ? RepairIssueType.NeedsRebuild : RepairIssueType.NeedsStrip;
+            // HEIC: orientation 修复归类为 NeedsRebuild（元数据重建）
+            // JPEG: 旋转修复归类为 NeedsRebuild
+            bool needsRebuild = isHeic ? needsOrientationFix : tags.Any(t => t.Contains("°"));
+            RepairIssueType type = needsRebuild ? RepairIssueType.NeedsRebuild : RepairIssueType.NeedsStrip;
 
             string lang = LanguageService.GetCurrentLanguageTag();
             string finalDescription;
@@ -212,7 +304,8 @@ namespace LivePhotoBox.Services
                 IssueType = type,
                 IssueDescription = finalDescription,
                 RotationAngle = 0,
-                HasThumbnail = hasThumb
+                HasThumbnail = hasThumb,
+                HeicOriginalRotation = isHeic ? rotation : string.Empty
             };
         }
 
@@ -221,11 +314,14 @@ namespace LivePhotoBox.Services
         /// </summary>
         public static async Task<(bool Success, string Message)> RepairAsync(string sourcePath, string targetPath, RepairAnalysisResult analysis, CancellationToken token)
         {
+            bool isHeic = IsHeicFile(sourcePath);
             bool needsRotation = analysis.IssueType == RepairIssueType.NeedsRebuild;
             bool hasThumbnail = analysis.HasThumbnail;
 
-            // 使用 ASCII 安全的临时路径，避免 jhead/exiftool 中文路径编码问题
-            string tempWorkFile = Path.Combine(Path.GetTempPath(), $"lpb_repair_{Guid.NewGuid():N}.jpg");
+            // 临时文件扩展名跟随原格式，避免 jhead 对 HEIC 文件报错
+            string ext = Path.GetExtension(sourcePath);
+            if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
+            string tempWorkFile = Path.Combine(Path.GetTempPath(), $"lpb_repair_{Guid.NewGuid():N}{ext}");
 
             try
             {
@@ -234,17 +330,53 @@ namespace LivePhotoBox.Services
 
                 token.ThrowIfCancellationRequested();
 
-                // Step 1: jhead -autorot（在临时文件上操作）
-                if (needsRotation)
+                if (isHeic)
                 {
-                    await RunJheadAsync("-autorot", tempWorkFile);
-                    token.ThrowIfCancellationRequested();
-                }
+                    // ── HEIC 修复：仅修正 EXIF Orientation，保留 QuickTime:Rotation ──
+                    // HEIC 像素数据无法无损旋转（无 jpegtran 等效工具），Rotation
+                    // 标签是查看器正确显示照片的关键元数据，绝对不能清除。
+                    // 只修复两类真问题：
+                    //   1. Orientation 含镜像/翻转 → 用 Rotation 推导正确 Orientation
+                    //   2. Orientation 角度与 Rotation 不一致 → 以 Rotation 为准
+                    bool needsOrientFix = needsRotation; // analysis.IssueType == NeedsRebuild（HEIC 下即 Orientation 异常）
+                    bool needsThumbStrip = hasThumbnail;
 
-                // Step 2: exiftool 剥离嵌入缩略图（在临时文件上操作）
-                if (hasThumbnail)
+                    if (needsOrientFix || needsThumbStrip)
+                    {
+                        var exifArgs = new System.Collections.Generic.List<string>();
+                        if (needsOrientFix)
+                        {
+                            // 根据 Rotation 推导正确的 Orientation，清除镜像/角度冲突
+                            string targetOrientation = GetOrientationForRotation(
+                                string.IsNullOrWhiteSpace(analysis.HeicOriginalRotation)
+                                    ? "Horizontal (normal)"
+                                    : analysis.HeicOriginalRotation);
+                            exifArgs.Add($"-Orientation={targetOrientation}");
+                            // 保持 Rotation 不变（不添加 -Rotation 参数）
+                        }
+                        if (needsThumbStrip)
+                        {
+                            exifArgs.Add("-ThumbnailImage=");
+                            exifArgs.Add("-PreviewImage=");
+                        }
+                        exifArgs.Add("-overwrite_original");
+                        exifArgs.Add(tempWorkFile);
+                        await RunExifToolAsync(exifArgs.ToArray());
+                    }
+                }
+                else
                 {
-                    await RunExifToolAsync("-ThumbnailImage=", "-overwrite_original", tempWorkFile);
+                    // ── JPEG 修复：jhead 旋转 + exiftool 剥离缩略图 ──
+                    if (needsRotation)
+                    {
+                        await RunJheadAsync("-autorot", tempWorkFile);
+                        token.ThrowIfCancellationRequested();
+                    }
+
+                    if (hasThumbnail)
+                    {
+                        await RunExifToolAsync("-ThumbnailImage=", "-overwrite_original", tempWorkFile);
+                    }
                 }
 
                 // 移动到目标路径

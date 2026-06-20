@@ -35,13 +35,16 @@ namespace LivePhotoBox.Services
                 RedirectStandardError = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardInputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
             };
 
             psi.Environment["TEMP"] = tempDir;
             psi.Environment["TMP"] = tempDir;
             psi.Environment["PAR_GLOBAL_TMPDIR"] = tempDir;
 
+            psi.ArgumentList.Add("-charset");
+            psi.ArgumentList.Add("filename=utf8");
             psi.ArgumentList.Add("-stay_open");
             psi.ArgumentList.Add("True");
             psi.ArgumentList.Add("-@");
@@ -50,7 +53,7 @@ namespace LivePhotoBox.Services
             _process = Process.Start(psi)
                 ?? throw new InvalidOperationException("Failed to start persistent exiftool process.");
 
-            // 后台消费 stderr，避免缓冲区满阻塞。
+            // 后台消费 stderr，避免缓冲区满阻塞（必须在消费初始 {ready} 之前启动，防止死锁）。
             // 存下 Task 引用，Dispose 时等它退出，防止残留线程在新实例启动后还访问已释放资源。
             _stderrTask = Task.Run(() => ReadStderrLoopAsync(_shutdownCts.Token));
         }

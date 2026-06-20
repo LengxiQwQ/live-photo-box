@@ -320,6 +320,24 @@ namespace LivePhotoBox.Views
             ErrorDetailTip.IsOpen = true;
         }
 
+        private void IssueDescription_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement element) return;
+            if (element.DataContext is not RepairTask task) return;
+            if (!task.IsDiagnosisError) return;
+
+            // 点击同一个 → 关闭
+            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element)
+            {
+                ErrorDetailTip.IsOpen = false;
+                return;
+            }
+
+            ErrorDetailText.Text = task.IssueDescription;
+            ErrorDetailTip.Target = element;
+            ErrorDetailTip.IsOpen = true;
+        }
+
         private void RepairTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
             // 启用 WinUI 分阶段渲染，避免容器回收时整项同时重建导致闪烁

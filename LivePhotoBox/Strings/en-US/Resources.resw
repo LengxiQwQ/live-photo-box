@@ -1014,6 +1014,21 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="RepairPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
     <value>Open File</value>
   </data>
+  <data name="SettingsPage_Repair_Header.Text" xml:space="preserve">
+    <value>Thumbnail Repair</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicLabel.Text" xml:space="preserve">
+    <value>HEIC Photo Repair</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicSwitch.OnContent" xml:space="preserve">
+    <value>Enabled</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicSwitch.OffContent" xml:space="preserve">
+    <value>Disabled</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
+    <value>When enabled, HEIC photos will be checked for orientation metadata issues and extra thumbnails. HEIC rotation tags are usually correct display instructions — leave this off to skip all HEIC files.</value>
+  </data>
   <data name="RepairPage_OutputModeLabel.Text" xml:space="preserve">
     <value>Output Mode:</value>
   </data>
@@ -1067,6 +1082,15 @@ You can open the log folder or export the latest log now to help diagnose the is
   </data>
   <data name="Tag_ExtraThumbnail" xml:space="preserve">
     <value>Extra thumbnail</value>
+  </data>
+  <data name="Tag_OrientationMirror" xml:space="preserve">
+    <value>EXIF mirror flag</value>
+  </data>
+  <data name="Tag_OrientationAngleMismatch" xml:space="preserve">
+    <value>EXIF angle mismatch</value>
+  </data>
+  <data name="Status_HeicRepairDisabled" xml:space="preserve">
+    <value>[HEIC repair off]</value>
   </data>
   <data name="Status_Perfect" xml:space="preserve">
     <value>No repair needed</value>
@@ -1294,10 +1318,10 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Tool issued a warning message (non-fatal)</value>
   </data>
   <data name="Error_CheckLog" xml:space="preserve">
-    <value>Parsing failed, please check logs</value>
+    <value>Parsing failed:</value>
   </data>
   <data name="Error_InternalCheckLog" xml:space="preserve">
-    <value>Internal error, please check logs</value>
+    <value>Internal error:</value>
   </data>
   <data name="Error_RepairFailedCheckLog" xml:space="preserve">
     <value>Repair failed, please check logs</value>

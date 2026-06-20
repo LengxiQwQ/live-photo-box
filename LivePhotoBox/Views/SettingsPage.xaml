@@ -313,6 +313,34 @@
                     </Border>
                 </StackPanel>
 
+                <!-- 缩略图修复设置 -->
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE7C5;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Repair_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
+
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                            Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <toolkit:WrapPanel HorizontalSpacing="32"
+                                           VerticalSpacing="16"
+                                           VerticalAlignment="Center">
+                            <!-- HEIC 修复开关 -->
+                            <StackPanel Spacing="8">
+                                <TextBlock x:Uid="SettingsPage_Repair_HeicLabel"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <ToggleSwitch x:Uid="SettingsPage_Repair_HeicSwitch"
+                                              IsOn="{x:Bind ViewModel.IsHeicRepairEnabled, Mode=TwoWay}"
+                                              FontSize="13"/>
+                                <TextBlock x:Uid="SettingsPage_Repair_HeicDesc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                        </toolkit:WrapPanel>
+                    </Border>
+                </StackPanel>
+
                 <StackPanel Margin="0,20,0,0" Spacing="24">
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
