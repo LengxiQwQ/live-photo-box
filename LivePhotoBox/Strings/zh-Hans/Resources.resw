@@ -670,10 +670,10 @@
     <value>(推荐) Google Motion Photo (V2)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
-    <value>MP4 (H.264/AAC)</value>
+    <value>MP4 (H.264 &amp; AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
-    <value>MOV (HEVC/AAC)</value>
+    <value>MOV (HEVC &amp; AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
     <value>(推荐) 视频默认格式</value>
@@ -1346,21 +1346,6 @@
   <data name="HomePage_SplitTutorial_Ready_Subtitle.Text" xml:space="preserve">
     <value>点击右侧按钮，即可体验内置预设，直观了解完整拆分流程</value>
   </data>
-  <data name="SettingsPage_Split_Hardware.Text" xml:space="preserve">
-    <value>硬件加速</value>
-  </data>
-  <data name="SettingsPage_Split_ThreadCount.Text" xml:space="preserve">
-    <value>拆分任务并行数</value>
-  </data>
-  <data name="SettingsPage_Split_Hardware_Threads.Text" xml:space="preserve">
-    <value>线程</value>
-  </data>
-  <data name="SettingsPage_Split_Hardware_Desc.Text" xml:space="preserve">
-    <value>选择 GPU 或 CPU 进行编码加速</value>
-  </data>
-  <data name="SettingsPage_Split_ThreadCount_Desc.Text" xml:space="preserve">
-    <value>同时处理的任务数</value>
-  </data>
   <data name="SettingsPage_Combo_HeicDecoder.Text" xml:space="preserve">
     <value>HEIC 解码器</value>
   </data>
@@ -1501,5 +1486,20 @@
   </data>
   <data name="SettingsPage_Split_FormatDesc.Text" xml:space="preserve">
     <value>选择拆分后视频的默认保存格式</value>
+  </data>
+  <data name="SettingsPage_Transcode_Hardware.Text" xml:space="preserve">
+    <value>硬件加速</value>
+  </data>
+  <data name="SettingsPage_Transcode_ThreadCount.Text" xml:space="preserve">
+    <value>任务并行数</value>
+  </data>
+  <data name="SettingsPage_Transcode_Hardware_Threads.Text" xml:space="preserve">
+    <value>线程</value>
+  </data>
+  <data name="SettingsPage_Transcode_Hardware_Desc.Text" xml:space="preserve">
+    <value>选择 GPU 或 CPU 进行编码加速</value>
+  </data>
+  <data name="SettingsPage_Transcode_ThreadCount_Desc.Text" xml:space="preserve">
+    <value>同时处理的任务数</value>
   </data>
 </root>

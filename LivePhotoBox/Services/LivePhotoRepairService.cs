@@ -615,18 +615,48 @@ namespace LivePhotoBox.Services
             try
             {
                 // Try hardware encoder first, fall back to software if it fails
-                var (videoEncoder, videoParams) = GetRepairEncoder(codecKey);
+                string? savedEncoder = EncoderHelper.GetSavedEncoder(codecKey);
+                if (string.IsNullOrEmpty(savedEncoder))
+                {
+                    // Try derive from the other codec's saved encoder
+                    string otherCodec = codecKey == "hevc" ? "h264" : "hevc";
+                    string? other = EncoderHelper.GetSavedEncoder(otherCodec);
+                    if (!string.IsNullOrEmpty(other))
+                    {
+                        string? derived = EncoderHelper.DeriveCrossCodecEncoder(other);
+                        if (!string.IsNullOrEmpty(derived) && EncoderHelper.IsEncoderAvailable(derived))
+                        {
+                            savedEncoder = derived;
+                            AppSettingsService.SetValue($"SplitEncoder_{codecKey}", derived);
+                            WriteDebugLog("INFO", "RepairVideo", $"Derived encoder: {other} → {derived}");
+                        }
+                    }
+                }
+
+                string videoEncoder;
+                string videoParams;
+                if (!string.IsNullOrEmpty(savedEncoder) && EncoderHelper.IsEncoderAvailable(savedEncoder))
+                {
+                    videoEncoder = savedEncoder;
+                    videoParams = EncoderHelper.GetHardwareEncoderParams(savedEncoder, (13, 14));
+                }
+                else
+                {
+                    var sw = EncoderHelper.GetSoftwareEncoder(codecKey, codecKey == "hevc" ? 14 : 13);
+                    videoEncoder = sw.encoder;
+                    videoParams = sw.encoderParams;
+                }
+
                 var (ok, errMsg) = await RunRepairFFmpegAsync(sourcePath, tempOutput, videoEncoder, videoParams, isHevc, codecKey, sourceIsMp4, token);
 
-                bool isHardware = videoEncoder.Contains("nvenc") || videoEncoder.Contains("qsv")
-                               || videoEncoder.Contains("amf") || videoEncoder.Contains("vaapi");
+                bool isHardware = EncoderHelper.IsHardwareEncoder(videoEncoder);
 
                 if (!ok && isHardware)
                 {
                     WriteDebugLog("WARN", "RepairVideo", $"Hardware encoder {videoEncoder} failed, falling back to software. HW error: {errMsg}");
                     // 清理硬件尝试可能残留的临时文件
                     try { if (File.Exists(tempOutput)) File.Delete(tempOutput); } catch { }
-                    var (swEncoder, swParams) = GetSoftwareEncoder(codecKey);
+                    var (swEncoder, swParams) = EncoderHelper.GetSoftwareEncoder(codecKey, codecKey == "hevc" ? 14 : 13);
                     (ok, errMsg) = await RunRepairFFmpegAsync(sourcePath, tempOutput, swEncoder, swParams, isHevc, codecKey, sourceIsMp4, token);
                 }
 
@@ -693,7 +723,7 @@ namespace LivePhotoBox.Services
                 "-map", "0:v:0",
                 "-map", "0:a:0?",
                 "-map_metadata", "0",
-                "-threads", GetRepairThreadCount(videoEncoder).ToString(),
+                "-threads", EncoderHelper.GetThreadCount(videoEncoder, maxSoftwareThreads: 6).ToString(),
                 "-vf", "setsar=1",
                 "-c:v", videoEncoder
             };
@@ -743,122 +773,11 @@ namespace LivePhotoBox.Services
             return await RunFFmpegAsync(args, token);
         }
 
-        /// <summary>
-        /// Get encoder + params for repair (reads same settings as Split page).
-        /// Tries hardware encoder first, falls back to software.
-        /// Auto-derives HEVC encoder from H.264 when only h264 key is set (e.g. h264_nvenc → hevc_nvenc).
-        /// </summary>
-        private static (string encoder, string encoderParams) GetRepairEncoder(string codecKey)
-        {
-            string settingKey = $"SplitEncoder_{codecKey}";
-            string? savedEncoder = AppSettingsService.GetValue<string?>(settingKey, null);
-
-            // If no saved encoder for this codec, try to derive from the other codec's setting
-            // (user may have only saved h264_nvenc but needs hevc_nvenc)
-            if (string.IsNullOrEmpty(savedEncoder))
-            {
-                string otherKey = codecKey == "hevc" ? "SplitEncoder_h264" : "SplitEncoder_hevc";
-                string? otherEncoder = AppSettingsService.GetValue<string?>(otherKey, null);
-                if (!string.IsNullOrEmpty(otherEncoder))
-                {
-                    // Derive: h264_nvenc → hevc_nvenc, hevc_nvenc → h264_nvenc
-                    string prefix = codecKey == "hevc" ? "h264_" : "hevc_";
-                    string targetPrefix = codecKey == "hevc" ? "hevc_" : "h264_";
-                    if (otherEncoder.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                    {
-                        string derived = targetPrefix + otherEncoder.Substring(prefix.Length);
-                        if (IsFFmpegEncoderAvailable(derived))
-                        {
-                            savedEncoder = derived;
-                            // Save for future use so derivation isn't needed again
-                            AppSettingsService.SetValue(settingKey, derived);
-                            WriteDebugLog("INFO", "RepairVideo", $"Derived encoder: {otherEncoder} → {derived}");
-                        }
-                    }
-                }
-            }
-
-            if (!string.IsNullOrEmpty(savedEncoder) && IsFFmpegEncoderAvailable(savedEncoder))
-            {
-                string hwParams = GetHardwareRepairParams(savedEncoder, codecKey);
-                return (savedEncoder, hwParams);
-            }
-
-            return GetSoftwareEncoder(codecKey);
-        }
-
-        private static (string encoder, string encoderParams) GetSoftwareEncoder(string codecKey)
-        {
-            return codecKey == "hevc"
-                ? ("libx265", "-preset medium -crf 14")
-                : ("libx264", "-preset medium -crf 13");
-        }
-
-        private static string GetHardwareRepairParams(string encoder, string codecKey)
-        {
-            string lower = encoder.ToLowerInvariant();
-
-            if (lower.StartsWith("h264"))
-            {
-                return lower switch
-                {
-                    "h264_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 19 -b:v 0 -maxrate:v 30M -bufsize:v 60M -profile:v high",
-                    "h264_qsv" => "-global_quality 19 -look_ahead 1",
-                    "h264_amf" => "-preset quality -rc cqp -qp 19",
-                    "h264_vaapi" => "-quality 85 -rc_mode 1",
-                    _ => "-preset medium -crf 13"
-                };
-            }
-
-            return lower switch
-            {
-                "hevc_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 21 -b:v 0 -maxrate:v 25M -bufsize:v 50M -tune hq",
-                "hevc_qsv" => "-global_quality 21 -look_ahead 1",
-                "hevc_amf" => "-preset quality -rc cqp -qp 21",
-                "hevc_vaapi" => "-quality 85 -rc_mode 1",
-                _ => "-preset medium -crf 14"
-            };
-        }
-
-        private static int GetRepairThreadCount(string? encoder)
-        {
-            int userThreads = AppSettingsService.GetValue("SplitThreadCount", Environment.ProcessorCount);
-
-            if (!string.IsNullOrEmpty(encoder))
-            {
-                string enc = encoder.ToLowerInvariant();
-                if (enc.Contains("nvenc") || enc.Contains("qsv") || enc.Contains("vaapi") || enc.Contains("amf"))
-                    return Math.Min(userThreads, 1);
-            }
-
-            return userThreads;
-        }
-
-        private static bool IsFFmpegEncoderAvailable(string encoder)
-        {
-            try
-            {
-                if (!File.Exists(FFmpegPath)) return false;
-
-                using var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = FFmpegPath,
-                        Arguments = "-hide_banner -encoders",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    }
-                };
-                process.Start();
-                string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(5000);
-                return output.Contains(encoder, StringComparison.OrdinalIgnoreCase);
-            }
-            catch { return false; }
-        }
+        // GetRepairEncoder → inline EncoderHelper calls in RepairVideoAsync
+        // GetSoftwareEncoder → EncoderHelper.GetSoftwareEncoder
+        // GetHardwareRepairParams → EncoderHelper.GetHardwareEncoderParams
+        // GetRepairThreadCount → EncoderHelper.GetThreadCount
+        // IsFFmpegEncoderAvailable → EncoderHelper.IsEncoderAvailable
 
         /// <summary>
         /// Run FFmpeg process with given arguments. Returns (success, errorMessage).

@@ -671,10 +671,10 @@ Do you want to restart now?</value>
     <value>(Old) Google Motion Photo (V2)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
-    <value>MP4 (H.264/AAC)</value>
+    <value>MP4 (H.264 &amp; AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
-    <value>MOV (HEVC/AAC)</value>
+    <value>MOV (HEVC &amp; AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
     <value>(Pref) Video Default Format</value>
@@ -1347,21 +1347,6 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="HomePage_SplitTutorial_Ready_Subtitle.Text" xml:space="preserve">
     <value>Click the button on the right to try the built-in sample and see the full split flow in action</value>
   </data>
-  <data name="SettingsPage_Split_Hardware.Text" xml:space="preserve">
-    <value>Hardware Acceleration</value>
-  </data>
-  <data name="SettingsPage_Split_ThreadCount.Text" xml:space="preserve">
-    <value>Split multi-task parallel number</value>
-  </data>
-  <data name="SettingsPage_Split_Hardware_Threads.Text" xml:space="preserve">
-    <value>threads</value>
-  </data>
-  <data name="SettingsPage_Split_Hardware_Desc.Text" xml:space="preserve">
-    <value>Select GPU or CPU for encoding</value>
-  </data>
-  <data name="SettingsPage_Split_ThreadCount_Desc.Text" xml:space="preserve">
-    <value>Number of concurrent tasks</value>
-  </data>
   <data name="SettingsPage_Combo_HeicDecoder.Text" xml:space="preserve">
     <value>HEIC Decoder</value>
   </data>
@@ -1502,5 +1487,20 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="SettingsPage_Split_FormatDesc.Text" xml:space="preserve">
     <value>Default format for split video output</value>
+  </data>
+  <data name="SettingsPage_Transcode_Hardware.Text" xml:space="preserve">
+    <value>Hardware Acceleration</value>
+  </data>
+  <data name="SettingsPage_Transcode_ThreadCount.Text" xml:space="preserve">
+    <value>Task parallel number</value>
+  </data>
+  <data name="SettingsPage_Transcode_Hardware_Threads.Text" xml:space="preserve">
+    <value>threads</value>
+  </data>
+  <data name="SettingsPage_Transcode_Hardware_Desc.Text" xml:space="preserve">
+    <value>Select GPU or CPU for encoding</value>
+  </data>
+  <data name="SettingsPage_Transcode_ThreadCount_Desc.Text" xml:space="preserve">
+    <value>Number of concurrent tasks</value>
   </data>
 </root>

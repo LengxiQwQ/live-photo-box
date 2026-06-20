@@ -34,110 +34,7 @@ namespace LivePhotoBox.Services
             public bool WasRemux { get; set; }
         }
 
-        /// <summary>
-        /// 获取当前选择的硬件编码器（按 codec 格式独立取值）
-        /// 旧版本只存一个 SplitHardwareEncoder（H.264），新版本按 codec 分别存 SplitEncoder_h264 / SplitEncoder_hevc。
-        /// 第一次使用新格式（HEVC）时，如果没有保存值，会自动从旧值迁移：h264_xxx -> hevc_xxx
-        /// </summary>
-        private static string? GetEncoderForCodec(string codec)
-        {
-            string newKey = $"SplitEncoder_{codec}";
-            string? encoder = AppSettingsService.GetValue<string?>(newKey, null);
-
-            // 如果新 key 有值，验证可用性
-            if (!string.IsNullOrEmpty(encoder))
-            {
-                if (!IsEncoderAvailable(encoder))
-                {
-                    LogService.Split($"Saved encoder '{encoder}' for {codec} is not available in current FFmpeg, will re-detect", LogLevel.Warning);
-                    return null;
-                }
-                return encoder;
-            }
-
-            // 新 key 没有值：尝试从旧 SplitHardwareEncoder 迁移
-            if (codec == "hevc")
-            {
-                string? legacyH264 = AppSettingsService.GetValue<string?>("SplitHardwareEncoder", null);
-                if (!string.IsNullOrEmpty(legacyH264) && legacyH264.StartsWith("h264_", StringComparison.OrdinalIgnoreCase))
-                {
-                    // 迁移：h264_xxx -> hevc_xxx
-                    string migratedHevc = "hevc" + legacyH264.Substring(4);
-                    LogService.Split($"Migrating legacy encoder '{legacyH264}' -> '{migratedHevc}' for HEVC", LogLevel.Info);
-                    if (IsEncoderAvailable(migratedHevc))
-                    {
-                        AppSettingsService.SetValue(newKey, migratedHevc);
-                        return migratedHevc;
-                    }
-                    else
-                    {
-                        LogService.Split($"Migrated encoder '{migratedHevc}' not available, will auto-detect", LogLevel.Warning);
-                        return null;
-                    }
-                }
-            }
-
-            return null;
-        }
-
-        /// <summary>
-        /// 检查 FFmpeg 编码器是否可用
-        /// </summary>
-        private static bool IsEncoderAvailable(string encoder)
-        {
-            try
-            {
-                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-                if (string.IsNullOrEmpty(ffmpegPath))
-                {
-                    return false;
-                }
-
-                using var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = ffmpegPath,
-                        Arguments = "-hide_banner -encoders",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    }
-                };
-
-                process.Start();
-                string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(5000);
-
-                return output.Contains(encoder, StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 获取当前线程数设置
-        /// </summary>
-        private static int GetThreadCount(string? encoder = null)
-        {
-            int userThreadCount = AppSettingsService.GetValue<int>("SplitThreadCount", Environment.ProcessorCount);
-
-            // 如果使用硬件编码器（NVENC/QSV/AMF/VAAPI），限制线程数为 1
-            // 硬件编码的瓶颈在 GPU 而非 CPU，过多线程反而增加线程切换开销
-            if (!string.IsNullOrEmpty(encoder))
-            {
-                string enc = encoder.ToLowerInvariant();
-                if (enc.Contains("nvenc") || enc.Contains("qsv") || enc.Contains("vaapi") || enc.Contains("amf"))
-                {
-                    return Math.Min(userThreadCount, 1);
-                }
-            }
-
-            return userThreadCount;
-        }
+        // 编码器可用性 / 参数 / 线程数 → 全部委托给 EncoderHelper（项目唯一入口）。
 
         /// <summary>
         /// 快速容器转换（Remux）- 无损转换视频容器格式，完整保留 HDR 和所有元数据
@@ -348,7 +245,7 @@ namespace LivePhotoBox.Services
             }
 
             string codec = targetFormat == VideoFormat.MP4 ? "h264" : "hevc";
-            bool useHardwareEncoder = !string.IsNullOrEmpty(GetEncoderForCodec(codec));
+            bool useHardwareEncoder = !string.IsNullOrEmpty(EncoderHelper.GetSavedEncoder(codec));
             bool transcodeCompleted = false;
             string? lastError = null;
 
@@ -499,19 +396,16 @@ namespace LivePhotoBox.Services
 
             if (forceSoftware)
             {
-                string enc = codec == "h264" ? "libx264" : "libx265";
-                // CRF 19 (H.264) / CRF 21 (HEVC)：输入≈输出码率的精准平衡点。
-                // CRF 18 膨胀 ~60%，CRF 20 偏压缩 ~20%，CRF 19 恰好持平。
-                string prms = codec == "h264" ? "-preset medium -crf 19" : "-preset medium -crf 21";
-                LogService.Split($"Using software encoder (forced): {enc} for {targetFormat}");
-                return (enc, prms);
+                var sw = EncoderHelper.GetSoftwareEncoder(codec, codec == "h264" ? 19 : 21);
+                LogService.Split($"Using software encoder (forced): {sw.encoder} for {targetFormat}");
+                return sw;
             }
 
-            string? savedEncoder = GetEncoderForCodec(codec);
+            string? savedEncoder = EncoderHelper.GetSavedEncoder(codec);
 
             if (string.IsNullOrEmpty(savedEncoder))
             {
-                string? detected = DetectHardwareEncoderForCodec(codec);
+                string? detected = EncoderHelper.DetectHardwareEncoderForCodec(codec);
                 if (!string.IsNullOrEmpty(detected))
                 {
                     savedEncoder = detected;
@@ -519,9 +413,9 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            if (!string.IsNullOrEmpty(savedEncoder) && IsEncoderAvailable(savedEncoder))
+            if (!string.IsNullOrEmpty(savedEncoder) && EncoderHelper.IsEncoderAvailable(savedEncoder))
             {
-                string encoderParams = GetHardwareEncoderParams(savedEncoder, targetFormat);
+                string encoderParams = EncoderHelper.GetHardwareEncoderParams(savedEncoder, (19, 21));
                 LogService.Split($"Using hardware encoder: {savedEncoder} for {targetFormat}");
                 return (savedEncoder, encoderParams);
             }
@@ -530,51 +424,13 @@ namespace LivePhotoBox.Services
                 LogService.Split($"Saved encoder '{savedEncoder}' not available for {targetFormat}, falling back to CPU", LogLevel.Warning);
             }
 
-            string encName = codec == "h264" ? "libx264" : "libx265";
-            string encParams = codec == "h264" ? "-preset medium -crf 19" : "-preset medium -crf 21";
-
-            LogService.Split($"Using software encoder: {encName} for {targetFormat}");
-            return (encName, encParams);
+            var swFallback = EncoderHelper.GetSoftwareEncoder(codec, codec == "h264" ? 19 : 21);
+            LogService.Split($"Using software encoder: {swFallback.encoder} for {targetFormat}");
+            return swFallback;
         }
 
-        private static string? DetectHardwareEncoderForCodec(string codec)
-        {
-            try
-            {
-                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-                if (string.IsNullOrEmpty(ffmpegPath)) return null;
-
-                string[] candidates = codec == "h264"
-                    ? new[] { "h264_nvenc", "h264_amf", "h264_qsv", "h264_vaapi" }
-                    : new[] { "hevc_nvenc", "hevc_amf", "hevc_qsv", "hevc_vaapi" };
-
-                using var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = ffmpegPath,
-                        Arguments = "-hide_banner -encoders",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    }
-                };
-                process.Start();
-                string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(5000);
-
-                foreach (var candidate in candidates)
-                {
-                    if (output.Contains(candidate, StringComparison.OrdinalIgnoreCase)) return candidate;
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.Split($"DetectHardwareEncoderForCodec error: {ex.Message}", LogLevel.Warning);
-            }
-            return null;
-        }
+        // DetectHardwareEncoderForCodec → EncoderHelper.DetectHardwareEncoderForCodec
+        // GetHardwareEncoderParams → EncoderHelper.GetHardwareEncoderParams
 
         private static string BuildVideoFilter(VideoFormat targetFormat, string encoder)
         {
@@ -589,7 +445,7 @@ namespace LivePhotoBox.Services
         private static string BuildFFmpegArguments(string inputPath, string outputPath, VideoFormat targetFormat, bool forceSoftwareEncoder = false)
         {
             var (videoEncoder, videoParams) = GetEncoderForFormat(targetFormat, forceSoftwareEncoder);
-            int threadCount = GetThreadCount(videoEncoder);
+            int threadCount = EncoderHelper.GetThreadCount(videoEncoder, maxSoftwareThreads: null);
 
             string pixelFormat = GetPixelFormatParams(videoEncoder, targetFormat);
             string videoFilter = BuildVideoFilter(targetFormat, videoEncoder);
@@ -645,33 +501,7 @@ namespace LivePhotoBox.Services
             return "";
         }
 
-        private static string GetHardwareEncoderParams(string encoder, VideoFormat targetFormat)
-        {
-            string lowerEncoder = encoder.ToLowerInvariant();
-
-            // CRF 19 (H.264) / CRF 21 (HEVC)：输入≈输出码率的精准平衡点。
-            // CRF 20 仍会让原本 1 万 kbps 的源被压到 8000+，CRF 19 刚好持平。
-            if (lowerEncoder.StartsWith("h264"))
-            {
-                return lowerEncoder switch
-                {
-                    "h264_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 19 -b:v 0 -maxrate:v 30M -bufsize:v 60M -profile:v high",
-                    "h264_qsv" => "-global_quality 19 -look_ahead 1",
-                    "h264_amf" => "-preset quality -rc cqp -qp 19",
-                    "h264_vaapi" => "-quality 85 -rc_mode 1",
-                    _ => "-preset medium -crf 19"
-                };
-            }
-
-            return lowerEncoder switch
-            {
-                "hevc_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 21 -b:v 0 -maxrate:v 25M -bufsize:v 50M -tune hq",
-                "hevc_qsv" => "-global_quality 21 -look_ahead 1",
-                "hevc_amf" => "-preset quality -rc cqp -qp 21",
-                "hevc_vaapi" => "-quality 85 -rc_mode 1",
-                _ => "-preset medium -crf 21"
-            };
-        }
+        // GetHardwareEncoderParams → EncoderHelper.GetHardwareEncoderParams
 
         private static async Task<string> ReadFFmpegOutputAsync(Process process)
         {

@@ -155,7 +155,7 @@
                 <!-- 视频转码设置 -->
                 <StackPanel Spacing="16">
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-                        <FontIcon Glyph="&#xE787;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <FontIcon Glyph="&#xEA69;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
                         <TextBlock x:Uid="SettingsPage_Transcode_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
@@ -166,7 +166,7 @@
                                            VerticalAlignment="Center">
                             <!-- 硬件加速 -->
                             <StackPanel Spacing="4">
-                                <TextBlock x:Uid="SettingsPage_Split_Hardware"
+                                <TextBlock x:Uid="SettingsPage_Transcode_Hardware"
                                            Style="{ThemeResource BodyStrongTextBlockStyle}"
                                            FontFamily="Microsoft YaHei UI"/>
                                 <StackPanel Orientation="Horizontal" Spacing="4">
@@ -183,14 +183,14 @@
                                         <FontIcon Glyph="&#xE72C;" FontSize="14"/>
                                     </Button>
                                 </StackPanel>
-                                <TextBlock x:Uid="SettingsPage_Split_Hardware_Desc"
+                                <TextBlock x:Uid="SettingsPage_Transcode_Hardware_Desc"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>
 
                             <!-- 编码并行数 -->
                             <StackPanel Spacing="4" VerticalAlignment="Bottom">
-                                <TextBlock x:Uid="SettingsPage_Split_ThreadCount"
+                                <TextBlock x:Uid="SettingsPage_Transcode_ThreadCount"
                                            Style="{ThemeResource BodyStrongTextBlockStyle}"
                                            FontFamily="Microsoft YaHei UI"/>
                                 <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -232,7 +232,7 @@
                                         </RepeatButton>
                                     </Grid>
                                 </Border>
-                                <TextBlock x:Uid="SettingsPage_Split_ThreadCount_Desc"
+                                <TextBlock x:Uid="SettingsPage_Transcode_ThreadCount_Desc"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>

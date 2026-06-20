@@ -695,13 +695,11 @@ namespace LivePhotoBox.ViewModels
                 // Task.Run 包裹是因为 PauseEvent.Wait 是同步阻塞，必须在后台线程执行。
                 await Task.Run(async () =>
                 {
-                    // 硬件加速时：GPU 编码会话有限（NVENC 通常 3 个），
-                // 且多个并行编码会争抢 VRAM，降为 1 避免 GPU 资源耗尽。
-                // 软件编码时：CPU 有 -threads 控制单任务线程数，适度并行。
-                bool isHardwareAccel = IsRepairUsingHardwareAcceleration();
-                int maxParallel = isHardwareAccel
-                    ? 1
-                    : Math.Clamp(Environment.ProcessorCount / 6, 1, 3);
+                    // 硬件编码：GPU 吃满无所谓，直接用用户设置。
+                // 软件编码：CPU 编码极重（x264/x265），并行太多互相踩踏。
+                //          固定 2 线程，利用双核同时又不至于 CPU 满载卡死。
+                // 注意：maxParallel 在循环内部动态计算，这样暂停期间切设置 → 恢复后立即生效。
+                int userThreads = AppSettingsService.GetValue("SplitThreadCount", Environment.ProcessorCount);
                     var pending = new List<Task>();
 
                     async Task ProcessOneAsync(RepairTask task)
@@ -775,9 +773,13 @@ namespace LivePhotoBox.ViewModels
                     {
                         if (token.IsCancellationRequested) break;
 
-                        pending.Add(ProcessOneAsync(task));
+                        // 动态计算最大并行数：每次循环都重新读设置。
+                        // 这样暂停 → 切 GPU/CPU → 恢复后并行度立即生效。
+                        bool hw = EncoderHelper.IsUsingHardwareAcceleration();
+                        int maxParallel = hw ? userThreads : 2;
 
-                        if (pending.Count >= maxParallel)
+                        // 等有空位再启动下一个（从 GPU 切 CPU 时 pending 可能超限）
+                        while (pending.Count >= maxParallel)
                         {
                             var done = await Task.WhenAny(pending);
                             pending.Remove(done);
@@ -785,6 +787,9 @@ namespace LivePhotoBox.ViewModels
                             catch (OperationCanceledException) { break; }
                             catch (InvalidOperationException) { throw; }
                         }
+
+                        if (token.IsCancellationRequested) break;
+                        pending.Add(ProcessOneAsync(task));
                     }
 
                     try { await Task.WhenAll(pending); }
@@ -903,25 +908,7 @@ namespace LivePhotoBox.ViewModels
             return !string.IsNullOrWhiteSpace(folderPath);
         }
 
-        /// <summary>
-        /// 检查当前是否使用硬件加速编码（NVENC/QSV/AMF/VAAPI）。
-        /// 读取 Split 页面共享的编码器设置，与 LivePhotoRepairService.GetRepairEncoder 逻辑一致。
-        /// </summary>
-        private static bool IsRepairUsingHardwareAcceleration()
-        {
-            // 检查 h264 和 hevc 的编码器设置，任一使用硬件即视为硬件加速模式
-            foreach (var codec in new[] { "h264", "hevc" })
-            {
-                string? encoder = AppSettingsService.GetValue<string?>($"SplitEncoder_{codec}", null);
-                if (!string.IsNullOrEmpty(encoder))
-                {
-                    string lower = encoder.ToLowerInvariant();
-                    if (lower.Contains("nvenc") || lower.Contains("qsv") || lower.Contains("amf") || lower.Contains("vaapi"))
-                        return true;
-                }
-            }
-            return false;
-        }
+        // IsRepairUsingHardwareAcceleration → EncoderHelper.IsUsingHardwareAcceleration
 
         private string GetRepairResultFolderPath()
         {

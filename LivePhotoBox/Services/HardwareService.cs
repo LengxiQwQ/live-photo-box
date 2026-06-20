@@ -118,7 +118,7 @@ namespace LivePhotoBox.Services
                 return new HardwareInfo
                 {
                     Name = cpuName,
-                    Description = $"{processorCount} {ResourceService.GetString("SettingsPage_Split_Hardware_Threads.Text")}",
+                    Description = $"{processorCount} {ResourceService.GetString("SettingsPage_Transcode_Hardware_Threads.Text")}",
                     Type = HardwareType.Cpu,
                     IsHardwareEncodingSupported = false,
                     FfmpegEncoder = null
@@ -360,6 +360,17 @@ namespace LivePhotoBox.Services
             return availableEncoders;
         }
 
+        /// <summary>
+        /// 获取 FFmpeg 中所有可用编码器的缓存集合（5 分钟有效）。
+        /// 供 EncoderHelper.IsEncoderAvailable 快速路径使用，避免每次检查都 spawn ffmpeg。
+        /// </summary>
+        public static HashSet<string> GetAvailableEncoders()
+        {
+            if (_cachedAvailableEncoders == null || DateTime.Now - _encoderCacheTime >= EncoderCacheDuration)
+                DetectAvailableEncodersViaFFmpeg();
+            return _cachedAvailableEncoders ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        }
+
         // FindFFmpeg / FindExifTool → migrated to ExternalToolLocator
 
         /// <summary>
@@ -546,17 +557,11 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 检查是否支持特定的硬件编码器
+        /// 检查是否支持特定的硬件编码器（委托给 EncoderHelper）。
         /// </summary>
         public static bool IsEncoderSupported(string encoder)
         {
-            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-            if (string.IsNullOrEmpty(ffmpegPath))
-            {
-                return false;
-            }
-
-            return IsEncoderAvailable(ffmpegPath, encoder);
+            return EncoderHelper.IsEncoderAvailable(encoder);
         }
 
         /// <summary>

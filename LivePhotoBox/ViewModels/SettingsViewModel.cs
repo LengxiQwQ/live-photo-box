@@ -212,22 +212,16 @@ namespace LivePhotoBox.ViewModels
             {
                 AppSettingsService.SetValue("SplitHardwareIndex", index);
                 AppSettingsService.SetValue("SplitHardwareEncoder", value.FfmpegEncoder);
-                // 新增：按 codec 独立保存（H.264 / HEVC）
-                if (!string.IsNullOrEmpty(value.FfmpegEncoder))
-                {
-                    string lower = value.FfmpegEncoder.ToLowerInvariant();
-                    if (lower.StartsWith("h264_"))
-                    {
-                        AppSettingsService.SetValue("SplitEncoder_h264", value.FfmpegEncoder);
-                    }
-                    else if (lower.StartsWith("hevc_"))
-                    {
-                        AppSettingsService.SetValue("SplitEncoder_hevc", value.FfmpegEncoder);
-                    }
-                }
+                EncoderHelper.SaveEncoderForBothCodecs(value.FfmpegEncoder);
                 LogService.Split($"Saved encoder to settings: '{value.FfmpegEncoder}'", LogLevel.Debug);
             }
         }
+
+        /// <summary>
+        /// 根据一个 codec 的编码器名称，同时保存 H.264 和 HEVC 两个 codec 的编码器设置。
+        /// 委托给 EncoderHelper（集中管理编码器逻辑，不再依赖 VideoTranscodeService）。
+        /// </summary>
+        // SaveEncoderForBothCodecs → EncoderHelper.SaveEncoderForBothCodecs
 
         [ObservableProperty]
         private int _threadCount = 5;
@@ -388,22 +382,10 @@ namespace LivePhotoBox.ViewModels
                 SelectedHardware = hardwareToSelect;
                 _isInitializing = false;
 
-                // 初始化完成后，确保编码器被保存
+                // 初始化完成后，确保编码器被保存（两个 codec 都要存）
                 AppSettingsService.SetValue("SplitHardwareIndex", AvailableHardware.IndexOf(hardwareToSelect));
                 AppSettingsService.SetValue("SplitHardwareEncoder", hardwareToSelect.FfmpegEncoder ?? string.Empty);
-                // 新增：按 codec 独立保存
-                if (!string.IsNullOrEmpty(hardwareToSelect.FfmpegEncoder))
-                {
-                    string lower = hardwareToSelect.FfmpegEncoder.ToLowerInvariant();
-                    if (lower.StartsWith("h264_"))
-                    {
-                        AppSettingsService.SetValue("SplitEncoder_h264", hardwareToSelect.FfmpegEncoder);
-                    }
-                    else if (lower.StartsWith("hevc_"))
-                    {
-                        AppSettingsService.SetValue("SplitEncoder_hevc", hardwareToSelect.FfmpegEncoder);
-                    }
-                }
+                EncoderHelper.SaveEncoderForBothCodecs(hardwareToSelect.FfmpegEncoder);
             }
         }
 
@@ -498,6 +480,13 @@ namespace LivePhotoBox.ViewModels
                 }
             }
             _isInitializing = false;
+
+            // 关键：_isInitializing=true 期间 OnSelectedHardwareChanged 被跳过，
+            // 所以必须在 _isInitializing=false 之后手动保存编码器设置。
+            // 否则 SplitEncoder_h264 / SplitEncoder_hevc 仍为空 → 修复时走 CPU。
+            AppSettingsService.SetValue("SplitHardwareIndex", AvailableHardware.IndexOf(SelectedHardware!));
+            AppSettingsService.SetValue("SplitHardwareEncoder", SelectedHardware?.FfmpegEncoder ?? string.Empty);
+            EncoderHelper.SaveEncoderForBothCodecs(SelectedHardware?.FfmpegEncoder);
 
             // 刷新设置以应用更改
             LogService.Split("Settings restored to defaults. Hardware selection re-evaluated.", LogLevel.Info);
