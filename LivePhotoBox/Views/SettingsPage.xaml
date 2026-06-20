@@ -152,6 +152,94 @@
                     </Border>
                 </StackPanel>
 
+                <!-- 视频转码设置 -->
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE787;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Transcode_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
+
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                            Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <toolkit:WrapPanel HorizontalSpacing="32"
+                                           VerticalSpacing="16"
+                                           VerticalAlignment="Center">
+                            <!-- 硬件加速 -->
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Uid="SettingsPage_Split_Hardware"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <ComboBox x:Name="HardwareComboBox"
+                                              ItemsSource="{x:Bind ViewModel.AvailableHardware, Mode=OneWay}"
+                                              SelectedItem="{x:Bind ViewModel.SelectedHardware, Mode=TwoWay}"
+                                              DisplayMemberPath="Name"
+                                              Loaded="HardwareComboBox_Loaded"/>
+                                    <Button Width="32"
+                                            Height="32"
+                                            Padding="0"
+                                            x:Uid="SettingsPage_HardwareRefresh_Button"
+                                            Command="{x:Bind ViewModel.RefreshHardwareCommand, Mode=OneWay}">
+                                        <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                                    </Button>
+                                </StackPanel>
+                                <TextBlock x:Uid="SettingsPage_Split_Hardware_Desc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+
+                            <!-- 编码并行数 -->
+                            <StackPanel Spacing="4" VerticalAlignment="Bottom">
+                                <TextBlock x:Uid="SettingsPage_Split_ThreadCount"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Width="100"
+                                        Height="32">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="30"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="30"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <RepeatButton Grid.Column="0"
+                                                      Width="30"
+                                                      Height="32"
+                                                      Padding="0"
+                                                      Background="Transparent"
+                                                      BorderThickness="0"
+                                                      Command="{x:Bind ViewModel.DecreaseThreadCountCommand, Mode=OneWay}">
+                                            <FontIcon Glyph="&#xE96E;" FontSize="12"/>
+                                        </RepeatButton>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{x:Bind ViewModel.ThreadCount, Mode=OneWay}"
+                                                   TextAlignment="Center"
+                                                   FontSize="14"
+                                                   VerticalAlignment="Center"/>
+
+                                        <RepeatButton Grid.Column="2"
+                                                      Width="30"
+                                                      Height="32"
+                                                      Padding="0"
+                                                      Background="Transparent"
+                                                      BorderThickness="0"
+                                                      Command="{x:Bind ViewModel.IncreaseThreadCountCommand, Mode=OneWay}">
+                                            <FontIcon Glyph="&#xE96D;" FontSize="12"/>
+                                        </RepeatButton>
+                                    </Grid>
+                                </Border>
+                                <TextBlock x:Uid="SettingsPage_Split_ThreadCount_Desc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                        </toolkit:WrapPanel>
+                    </Border>
+                </StackPanel>
+
                 <!-- 实况照片合成设置 -->
                 <StackPanel Spacing="16">
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
@@ -237,75 +325,18 @@
                         <toolkit:WrapPanel HorizontalSpacing="32"
                                            VerticalSpacing="16"
                                            VerticalAlignment="Center">
-                            <!-- 硬件选择 -->
+                            <!-- 默认输出格式 -->
                             <StackPanel Spacing="4">
-                                <TextBlock x:Uid="SettingsPage_Split_Hardware"
+                                <TextBlock x:Uid="SettingsPage_Split_FormatLabel"
                                            Style="{ThemeResource BodyStrongTextBlockStyle}"
                                            FontFamily="Microsoft YaHei UI"/>
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <ComboBox x:Name="HardwareComboBox"
-                                              ItemsSource="{x:Bind ViewModel.AvailableHardware, Mode=OneWay}"
-                                              SelectedItem="{x:Bind ViewModel.SelectedHardware, Mode=TwoWay}"
-                                              DisplayMemberPath="Name"
-                                              Loaded="HardwareComboBox_Loaded"/>
-                                    <Button Width="32"
-                                            Height="32"
-                                            Padding="0"
-                                            x:Uid="SettingsPage_HardwareRefresh_Button"
-                                            Command="{x:Bind ViewModel.RefreshHardwareCommand, Mode=OneWay}">
-                                        <FontIcon Glyph="&#xE72C;" FontSize="14"/>
-                                    </Button>
-                                </StackPanel>
-                                <TextBlock x:Uid="SettingsPage_Split_Hardware_Desc"
-                                           FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </StackPanel>
-
-                            <!-- 线程数选择 -->
-                            <StackPanel Spacing="4" VerticalAlignment="Bottom">
-                                <TextBlock x:Uid="SettingsPage_Split_ThreadCount"
-                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
-                                           FontFamily="Microsoft YaHei UI"/>
-                                <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                        BorderThickness="1"
-                                        CornerRadius="4"
-                                        Width="100"
-                                        Height="32">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="30"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="30"/>
-                                        </Grid.ColumnDefinitions>
-
-                                        <RepeatButton Grid.Column="0"
-                                                      Width="30"
-                                                      Height="32"
-                                                      Padding="0"
-                                                      Background="Transparent"
-                                                      BorderThickness="0"
-                                                      Command="{x:Bind ViewModel.DecreaseThreadCountCommand, Mode=OneWay}">
-                                            <FontIcon Glyph="&#xE96E;" FontSize="12"/>
-                                        </RepeatButton>
-
-                                        <TextBlock Grid.Column="1"
-                                                   Text="{x:Bind ViewModel.ThreadCount, Mode=OneWay}"
-                                                   TextAlignment="Center"
-                                                   FontSize="14"
-                                                   VerticalAlignment="Center"/>
-
-                                        <RepeatButton Grid.Column="2"
-                                                      Width="30"
-                                                      Height="32"
-                                                      Padding="0"
-                                                      Background="Transparent"
-                                                      BorderThickness="0"
-                                                      Command="{x:Bind ViewModel.IncreaseThreadCountCommand, Mode=OneWay}">
-                                            <FontIcon Glyph="&#xE96D;" FontSize="12"/>
-                                        </RepeatButton>
-                                    </Grid>
-                                </Border>
-                                <TextBlock x:Uid="SettingsPage_Split_ThreadCount_Desc"
+                                <ComboBox SelectedIndex="{x:Bind ViewModel.SplitFormatIndex, Mode=TwoWay}"
+                                          Loaded="AppearanceComboBox_Loaded">
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_ImageDefault"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
+                                </ComboBox>
+                                <TextBlock x:Uid="SettingsPage_Split_FormatDesc"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </StackPanel>

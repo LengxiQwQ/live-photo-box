@@ -426,7 +426,9 @@ namespace LivePhotoBox.ViewModels
                         return Directory.GetFiles(InputDirectory, "*.*", SearchOption.TopDirectoryOnly)
                                  .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
                                              f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
-                                             f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase))
+                                             f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase) ||
+                                             f.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
+                                             f.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
                                  .ToList();
                     }
                     catch (UnauthorizedAccessException ex)
@@ -466,7 +468,7 @@ namespace LivePhotoBox.ViewModels
                     // 顺序循环，不搞并发 — exiftool 的 _ioLock 本身就是串行的，并发无意义
                     var itemBuffer = new List<RepairTask>();
                     long lastFlushMs = Environment.TickCount64;
-                    const long flushIntervalMs = 200;
+                    const long flushIntervalMs = 120;
 
                     void FlushBuffer(int countSnapshot)
                     {
@@ -693,7 +695,13 @@ namespace LivePhotoBox.ViewModels
                 // Task.Run 包裹是因为 PauseEvent.Wait 是同步阻塞，必须在后台线程执行。
                 await Task.Run(async () =>
                 {
-                    int maxParallel = Math.Clamp(Environment.ProcessorCount / 6, 1, 3);
+                    // 硬件加速时：GPU 编码会话有限（NVENC 通常 3 个），
+                // 且多个并行编码会争抢 VRAM，降为 1 避免 GPU 资源耗尽。
+                // 软件编码时：CPU 有 -threads 控制单任务线程数，适度并行。
+                bool isHardwareAccel = IsRepairUsingHardwareAcceleration();
+                int maxParallel = isHardwareAccel
+                    ? 1
+                    : Math.Clamp(Environment.ProcessorCount / 6, 1, 3);
                     var pending = new List<Task>();
 
                     async Task ProcessOneAsync(RepairTask task)
@@ -893,6 +901,26 @@ namespace LivePhotoBox.ViewModels
         {
             var folderPath = GetRepairResultFolderPath();
             return !string.IsNullOrWhiteSpace(folderPath);
+        }
+
+        /// <summary>
+        /// 检查当前是否使用硬件加速编码（NVENC/QSV/AMF/VAAPI）。
+        /// 读取 Split 页面共享的编码器设置，与 LivePhotoRepairService.GetRepairEncoder 逻辑一致。
+        /// </summary>
+        private static bool IsRepairUsingHardwareAcceleration()
+        {
+            // 检查 h264 和 hevc 的编码器设置，任一使用硬件即视为硬件加速模式
+            foreach (var codec in new[] { "h264", "hevc" })
+            {
+                string? encoder = AppSettingsService.GetValue<string?>($"SplitEncoder_{codec}", null);
+                if (!string.IsNullOrEmpty(encoder))
+                {
+                    string lower = encoder.ToLowerInvariant();
+                    if (lower.Contains("nvenc") || lower.Contains("qsv") || lower.Contains("amf") || lower.Contains("vaapi"))
+                        return true;
+                }
+            }
+            return false;
         }
 
         private string GetRepairResultFolderPath()

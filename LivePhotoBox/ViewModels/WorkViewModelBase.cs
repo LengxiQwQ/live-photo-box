@@ -43,6 +43,9 @@ namespace LivePhotoBox.ViewModels
         protected bool _isCleaningUp = false;
         protected int _activeWorkerCount;
 
+        /// <summary>是否由用户手动停止（而非自然完成）。页面可据此决定是否跳过完成时的滚动。</summary>
+        public bool WasStoppedByUser => _cancelledByUser;
+
         [ObservableProperty]
         private string _progressText = "0/0";
 

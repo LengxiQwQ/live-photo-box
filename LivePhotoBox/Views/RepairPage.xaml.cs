@@ -1,12 +1,11 @@
+using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using System;
 using System.Threading.Tasks;
 
@@ -14,232 +13,86 @@ namespace LivePhotoBox.Views
 {
     public sealed partial class RepairPage : Page
     {
-        private static readonly TimeSpan AutoFollowDebounce = TimeSpan.FromMilliseconds(120);
-
-        private bool _isAutoScrollScheduled;
-        private bool _hasPendingAutoScroll;
-        private int _pendingAutoScrollIndex = -1;
-        private int _lastAutoScrollIndex = -1;
-        private bool _isUnloaded;
+        private readonly TaskListAutoScroller _scroller;
         private bool _eventsHooked;
-        private ScrollViewer? _taskListScrollViewer;
 
         public RepairViewModel ViewModel => AppViewModel.Instance.Repair;
 
         public RepairPage()
         {
             InitializeComponent();
+
+            _scroller = new TaskListAutoScroller(
+                "Repair",
+                isActive: () => ViewModel.IsProcessing || ViewModel.IsScanning,
+                getTaskCount: () => ViewModel.Tasks.Count,
+                getTaskAt: idx => ViewModel.Tasks[idx]);
+
             Loaded += RepairPage_Loaded;
             Unloaded += RepairPage_Unloaded;
         }
 
         private void RepairPage_Loaded(object sender, RoutedEventArgs e)
         {
-            _isUnloaded = false;
-            _taskListScrollViewer ??= FindDescendant<ScrollViewer>(RepairTaskListView);
+            _scroller.Attach(RepairTaskListView);
 
             if (_eventsHooked) return;
 
-            ViewModel.TaskStartedForScroll += ViewModel_TaskStartedForScroll;
-            ViewModel.ProcessingCompletedForScroll += ViewModel_ProcessingCompletedForScroll;
-            ViewModel.ScanItemsFlushed += ViewModel_ScanItemsFlushed;
-            ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+            ViewModel.TaskStartedForScroll += OnTaskStarted;
+            ViewModel.ProcessingCompletedForScroll += OnAllCompleted;
+            ViewModel.ScanItemsFlushed += OnItemsFlushed;
+            ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             _eventsHooked = true;
         }
 
         private void RepairPage_Unloaded(object sender, RoutedEventArgs e)
         {
-            _isUnloaded = true;
-            _hasPendingAutoScroll = false;
-            _pendingAutoScrollIndex = -1;
+            _scroller.NotifyPageUnloading();
+            _scroller.Detach();
 
             if (!_eventsHooked) return;
 
-            ViewModel.TaskStartedForScroll -= ViewModel_TaskStartedForScroll;
-            ViewModel.ProcessingCompletedForScroll -= ViewModel_ProcessingCompletedForScroll;
-            ViewModel.ScanItemsFlushed -= ViewModel_ScanItemsFlushed;
-            ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
+            ViewModel.TaskStartedForScroll -= OnTaskStarted;
+            ViewModel.ProcessingCompletedForScroll -= OnAllCompleted;
+            ViewModel.ScanItemsFlushed -= OnItemsFlushed;
+            ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _eventsHooked = false;
         }
 
-        private void ViewModel_TaskStartedForScroll(object? sender, RepairTask task)
-        {
-            int taskIndex = task.Index - 1;
-            if (taskIndex == 0)
-            {
-                _pendingAutoScrollIndex = -1;
-                _lastAutoScrollIndex = -1;
-            }
-            ScheduleAutoScroll(taskIndex);
-        }
+        private void OnTaskStarted(object? sender, RepairTask task) =>
+            _scroller.NotifyTaskStarted(task.Index - 1);
 
-        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        private void OnAllCompleted(object? sender, EventArgs e) =>
+            _scroller.NotifyAllCompleted(wasCancelled: ViewModel.WasStoppedByUser);
+
+        private void OnItemsFlushed(object? sender, EventArgs e) =>
+            _scroller.NotifyItemsFlushed();
+
+        private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(ViewModel.IsScanning))
             {
                 if (ViewModel.IsScanning)
-                {
-                    // 新一轮扫描：重置滚动追踪，避免上一轮残留的索引导致不滚动
-                    _pendingAutoScrollIndex = -1;
-                    _lastAutoScrollIndex = -1;
-                    _hasPendingAutoScroll = false;
-                }
-                else if (ViewModel.Tasks.Count > 0)
-                {
-                    _ = FinalScanScrollAsync();
-                }
+                    _scroller.NotifyScanStarting();
+                else
+                    _scroller.NotifyScanFinished();
+            }
+            else if (e.PropertyName == nameof(ViewModel.IsProcessing) && ViewModel.IsProcessing)
+            {
+                _scroller.NotifyProcessingStarting();
+            }
+            else if (e.PropertyName == nameof(ViewModel.IsPaused) && !ViewModel.IsPaused)
+            {
+                // 暂停恢复：重置滚动追踪，确保后续任务正常触发滚动
+                _scroller.NotifyProcessingResumed();
             }
         }
 
-        private async Task FinalScanScrollAsync()
-        {
-            await Task.Delay(30).ConfigureAwait(false);
-            DispatcherQueue?.TryEnqueue(() =>
-            {
-                if (_isUnloaded || ViewModel.Tasks.Count == 0) return;
-                RepairTaskListView.ScrollIntoView(ViewModel.Tasks[ViewModel.Tasks.Count - 1], ScrollIntoViewAlignment.Default);
-            });
-        }
-
-        private void ViewModel_ScanItemsFlushed(object? sender, EventArgs e)
-        {
-            // 使用防抖滚动，避免高速扫描时频繁 ScrollIntoView 给 UI 带来负担
-            int lastIndex = ViewModel.Tasks.Count - 1;
-            if (lastIndex >= 0)
-            {
-                ScheduleAutoScroll(lastIndex);
-            }
-        }
-
-        private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
-        {
-            var dispatcher = DispatcherQueue;
-            if (dispatcher != null && !_isUnloaded)
-            {
-                _ = SafeNudgeTaskListToBottomAsync(dispatcher);
-            }
-        }
-
-        private void ScheduleAutoScroll(int itemIndex)
-        {
-            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count) return;
-            if (!ViewModel.IsProcessing && !ViewModel.IsScanning) return;
-
-            _pendingAutoScrollIndex = Math.Max(_pendingAutoScrollIndex, itemIndex);
-            _hasPendingAutoScroll = true;
-
-            if (!_isAutoScrollScheduled)
-            {
-                _isAutoScrollScheduled = true;
-                _ = RunAutoScrollAsync();
-            }
-        }
-
-        private async Task RunAutoScrollAsync()
-        {
-            try
-            {
-                while (_hasPendingAutoScroll && !_isUnloaded)
-                {
-                    _hasPendingAutoScroll = false;
-                    await Task.Delay(AutoFollowDebounce).ConfigureAwait(false);
-
-                    int targetIndex = _pendingAutoScrollIndex;
-                    if (_isUnloaded || (!ViewModel.IsProcessing && !ViewModel.IsScanning) || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count || targetIndex == _lastAutoScrollIndex)
-                    {
-                        continue;
-                    }
-
-                    var dispatcher = DispatcherQueue;
-                    if (dispatcher != null)
-                    {
-                        try { await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false); } catch (Exception ex) { LogService.Debug($"RepairPage auto-scroll failed: {ex.Message}", LogSource.UI); }
-                    }
-                }
-            }
-            finally
-            {
-                _isAutoScrollScheduled = false;
-                if (_hasPendingAutoScroll && !_isUnloaded)
-                {
-                    _isAutoScrollScheduled = true;
-                    _ = RunAutoScrollAsync();
-                }
-            }
-        }
-
-        private async Task SafeNudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
-        {
-            try { await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false); } catch (Exception ex) { LogService.Debug($"RepairPage auto-scroll nudge failed: {ex.Message}", LogSource.UI); }
-        }
-
-        private async Task NudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
-        {
-            await Task.Delay(TimeSpan.FromMilliseconds(80)).ConfigureAwait(false);
-            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            if (!dispatcher.TryEnqueue(() =>
-            {
-                try
-                {
-                    if (!_isUnloaded)
-                    {
-                        _taskListScrollViewer ??= FindDescendant<ScrollViewer>(RepairTaskListView);
-                        _taskListScrollViewer?.ChangeView(null, _taskListScrollViewer.ScrollableHeight, null, true);
-                    }
-                    tcs.TrySetResult();
-                }
-                catch (Exception ex) { LogService.Debug($"RepairPage scroll nudge dispatcher error: {ex.Message}", LogSource.UI); tcs.TrySetResult(); }
-            }))
-            {
-                tcs.TrySetResult();
-            }
-            await tcs.Task.ConfigureAwait(false);
-        }
-
-        private Task EnqueueScrollIntoViewAsync(DispatcherQueue dispatcher, int targetIndex)
-        {
-            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            if (!dispatcher.TryEnqueue(() =>
-            {
-                try
-                {
-                    if (!_isUnloaded && (ViewModel.IsProcessing || ViewModel.IsScanning) && targetIndex >= 0 && targetIndex < ViewModel.Tasks.Count)
-                    {
-                        var targetTask = ViewModel.Tasks[targetIndex];
-                        RepairTaskListView.ScrollIntoView(targetTask, ScrollIntoViewAlignment.Default);
-                        _lastAutoScrollIndex = targetIndex;
-                    }
-                    tcs.TrySetResult();
-                }
-                catch (Exception ex) { LogService.Debug($"RepairPage scroll-into-view dispatcher error: {ex.Message}", LogSource.UI); tcs.TrySetResult(); }
-            }))
-            {
-                tcs.TrySetResult();
-            }
-            return tcs.Task;
-        }
-
-        private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
-        {
-            int childCount = VisualTreeHelper.GetChildrenCount(root);
-            for (int i = 0; i < childCount; i++)
-            {
-                DependencyObject child = VisualTreeHelper.GetChild(root, i);
-                if (child is T match) return match;
-                T? nested = FindDescendant<T>(child);
-                if (nested is not null) return nested;
-            }
-            return null;
-        }
+        // ── 其他事件处理 ──────────────────────────────────
 
         private void DirectoryBox_GotFocus(object sender, RoutedEventArgs e)
         {
-            if (sender is TextBox textBox)
-            {
-                textBox.Text = string.Empty;
-            }
+            if (sender is TextBox textBox) textBox.Text = string.Empty;
         }
 
         private async void BrowseInput_Click(object sender, RoutedEventArgs e)
@@ -248,57 +101,30 @@ namespace LivePhotoBox.Views
             if (folder != null)
             {
                 ViewModel.InputDirectory = folder.Path;
-
                 await Task.Delay(100);
-
                 if (ViewModel.ScanDirectoryCommand.CanExecute(null))
-                {
                     ViewModel.ScanDirectoryCommand.Execute(null);
-                }
             }
         }
 
         private async void BrowseOutput_Click(object sender, RoutedEventArgs e)
         {
             var folder = await FilePickerService.PickFolderAsync();
-            if (folder != null)
-            {
-                ViewModel.OutputDirectory = folder.Path;
-            }
+            if (folder != null) ViewModel.OutputDirectory = folder.Path;
         }
 
         private async void FileButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path))
-            {
-                return;
-            }
-
-            try
-            {
-                await FilePickerService.OpenFileAsync(path);
-            }
-            catch (Exception ex)
-            {
-                LogService.Debug($"RepairPage open file failed: {ex.Message}", LogSource.UI);
-            }
+            if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
+            try { await FilePickerService.OpenFileAsync(path); }
+            catch (Exception ex) { LogService.Debug($"RepairPage open file failed: {ex.Message}", LogSource.UI); }
         }
 
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path))
-            {
-                return;
-            }
-
-            try
-            {
-                FilePickerService.RevealInExplorer(path);
-            }
-            catch (Exception ex)
-            {
-                LogService.Debug($"RepairPage reveal in explorer failed: {ex.Message}", LogSource.UI);
-            }
+            if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
+            try { FilePickerService.RevealInExplorer(path); }
+            catch (Exception ex) { LogService.Debug($"RepairPage reveal in explorer failed: {ex.Message}", LogSource.UI); }
         }
 
         private void StatusTextBlock_Tapped(object sender, TappedRoutedEventArgs e)
@@ -306,15 +132,7 @@ namespace LivePhotoBox.Views
             if (sender is not FrameworkElement element) return;
             if (element.DataContext is not RepairTask task) return;
             if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details)) return;
-
-            // 点击同一个 → 关闭
-            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element)
-            {
-                ErrorDetailTip.IsOpen = false;
-                return;
-            }
-
-            // 更新内容，换 Target
+            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element) { ErrorDetailTip.IsOpen = false; return; }
             ErrorDetailText.Text = task.Details;
             ErrorDetailTip.Target = element;
             ErrorDetailTip.IsOpen = true;
@@ -325,28 +143,13 @@ namespace LivePhotoBox.Views
             if (sender is not FrameworkElement element) return;
             if (element.DataContext is not RepairTask task) return;
             if (!task.IsDiagnosisError) return;
-
-            // 点击同一个 → 关闭
-            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element)
-            {
-                ErrorDetailTip.IsOpen = false;
-                return;
-            }
-
+            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element) { ErrorDetailTip.IsOpen = false; return; }
             ErrorDetailText.Text = task.IssueDescription;
             ErrorDetailTip.Target = element;
             ErrorDetailTip.IsOpen = true;
         }
 
-        private void RepairTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
-        {
-            // 启用 WinUI 分阶段渲染，避免容器回收时整项同时重建导致闪烁
-        }
-
-        private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args)
-        {
-            // 确保关闭后清理目标引用，避免悬空导致卡死
-            ErrorDetailTip.Target = null;
-        }
+        private void RepairTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args) { }
+        private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args) => ErrorDetailTip.Target = null;
     }
 }

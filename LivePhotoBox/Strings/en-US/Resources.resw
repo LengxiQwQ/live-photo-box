@@ -674,7 +674,7 @@ Do you want to restart now?</value>
     <value>MP4 (H.264/AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
-    <value>MOV (H.265/AAC)</value>
+    <value>MOV (HEVC/AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
     <value>(Pref) Video Default Format</value>
@@ -1014,21 +1014,6 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="RepairPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
     <value>Open File</value>
   </data>
-  <data name="SettingsPage_Repair_Header.Text" xml:space="preserve">
-    <value>Thumbnail Repair</value>
-  </data>
-  <data name="SettingsPage_Repair_HeicLabel.Text" xml:space="preserve">
-    <value>HEIC Photo Repair</value>
-  </data>
-  <data name="SettingsPage_Repair_HeicSwitch.OnContent" xml:space="preserve">
-    <value>Enabled</value>
-  </data>
-  <data name="SettingsPage_Repair_HeicSwitch.OffContent" xml:space="preserve">
-    <value>Disabled</value>
-  </data>
-  <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
-    <value>When enabled, HEIC photos will be checked for orientation metadata issues and extra thumbnails. HEIC rotation tags are usually correct display instructions — leave this off to skip all HEIC files.</value>
-  </data>
   <data name="RepairPage_OutputModeLabel.Text" xml:space="preserve">
     <value>Output Mode:</value>
   </data>
@@ -1082,15 +1067,6 @@ You can open the log folder or export the latest log now to help diagnose the is
   </data>
   <data name="Tag_ExtraThumbnail" xml:space="preserve">
     <value>Extra thumbnail</value>
-  </data>
-  <data name="Tag_OrientationMirror" xml:space="preserve">
-    <value>EXIF mirror flag</value>
-  </data>
-  <data name="Tag_OrientationAngleMismatch" xml:space="preserve">
-    <value>EXIF angle mismatch</value>
-  </data>
-  <data name="Status_HeicRepairDisabled" xml:space="preserve">
-    <value>[HEIC repair off]</value>
   </data>
   <data name="Status_Perfect" xml:space="preserve">
     <value>No repair needed</value>
@@ -1169,9 +1145,6 @@ You can open the log folder or export the latest log now to help diagnose the is
   </data>
   <data name="AboutPage_ExifToolSuffix.Text" xml:space="preserve">
     <value>(by Phil Harvey) — Global metadata parsing, injection, and XMP structure reconstruction</value>
-  </data>
-  <data name="AboutPage_JHeadSuffix.Text" xml:space="preserve">
-    <value>(by Matthias Wandel) — Lossless auto-rotation of JPEG files, correcting orientation at the physical level via jpegtran</value>
   </data>
   <data name="AboutPage_JpegTranSuffix.Text" xml:space="preserve">
     <value>(by IJG) — Lossless JPEG transforms using DCT coefficient space, achieving zero-loss rotation without re-encoding</value>
@@ -1475,5 +1448,59 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="SettingsPage_HardwareRefresh_Button.ToolTipService.ToolTip" xml:space="preserve">
     <value>Refresh hardware detection</value>
+  </data>
+  <data name="AboutPage_JHeadSuffix.Text" xml:space="preserve">
+    <value>(by Matthias Wandel) — Lossless auto-rotation of JPEG files, correcting orientation at the physical level via jpegtran</value>
+  </data>
+  <data name="Tag_OrientationMirror" xml:space="preserve">
+    <value>EXIF mirror flag</value>
+  </data>
+  <data name="Tag_OrientationAngleMismatch" xml:space="preserve">
+    <value>EXIF angle mismatch</value>
+  </data>
+  <data name="SettingsPage_Repair_Header.Text" xml:space="preserve">
+    <value>Thumbnail Repair</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicLabel.Text" xml:space="preserve">
+    <value>HEIC Photo Repair</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicSwitch.OnContent" xml:space="preserve">
+    <value>Enabled</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicSwitch.OffContent" xml:space="preserve">
+    <value>Disabled</value>
+  </data>
+  <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
+    <value>When enabled, HEIC photos will be checked for orientation metadata issues and extra thumbnails. HEIC rotation tags are usually correct display instructions — leave this off to skip all HEIC files.</value>
+  </data>
+  <data name="Status_HeicRepairDisabled" xml:space="preserve">
+    <value>[HEIC repair off]</value>
+  </data>
+  <data name="SettingsPage_Repair_VideoLabel.Text" xml:space="preserve">
+    <value>Video Rotation Fix</value>
+  </data>
+  <data name="SettingsPage_Repair_VideoSwitch.OnContent" xml:space="preserve">
+    <value>Enabled</value>
+  </data>
+  <data name="SettingsPage_Repair_VideoSwitch.OffContent" xml:space="preserve">
+    <value>Disabled</value>
+  </data>
+  <data name="SettingsPage_Repair_VideoDesc.Text" xml:space="preserve">
+    <value>When enabled, videos with rotation matrices will be re-encoded to correct orientation. Video repair is time-consuming and involves re-encoding.</value>
+  </data>
+  <data name="Status_VideoRepairDisabled" xml:space="preserve">
+    <value>[Video repair off]</value>
+  </data>
+  <data name="Tag_VideoRotation" xml:space="preserve">
+    <value>Video rotation {0}°</value>
+  </data>
+  <data name="SettingsPage_Transcode_Header.Text" xml:space="preserve">
+    <value>Video Transcoding</value>
+  </data>
+  <data name="SettingsPage_Split_FormatLabel.Text" xml:space="preserve">
+    <value>Default Output Format</value>
+  </data>
+  <data name="SettingsPage_Split_FormatDesc.Text" xml:space="preserve">
+    <value>Default format for split video output</value>
   </data>
 </root>

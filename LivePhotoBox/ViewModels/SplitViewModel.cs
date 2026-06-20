@@ -306,7 +306,7 @@ namespace LivePhotoBox.ViewModels
                 var itemBuffer = new List<SplitTask>();
                 var bufferLock = new object();
                 long lastFlushMs = Environment.TickCount64;
-                const long flushIntervalMs = 200;
+                const long flushIntervalMs = 120;
                 int streamIndex = 0;
 
                 void FlushBuffer()

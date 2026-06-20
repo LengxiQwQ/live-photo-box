@@ -187,6 +187,17 @@ namespace LivePhotoBox.ViewModels
         #region Split Settings
 
         [ObservableProperty]
+        private int _splitFormatIndex;
+
+        partial void OnSplitFormatIndexChanged(int value)
+        {
+            if (_isInitializing) return;
+            // Use same key as SplitViewModel.SelectedFormatIndex so they share the setting
+            AppSettingsService.SetValue("SelectedFormatIndex", value);
+            LogService.Info($"Split default format changed to index: {value}", LogSource.Settings);
+        }
+
+        [ObservableProperty]
         private ObservableCollection<HardwareService.HardwareInfo> _availableHardware = new();
 
         [ObservableProperty]
@@ -295,6 +306,7 @@ namespace LivePhotoBox.ViewModels
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 4);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
+            SplitFormatIndex = AppSettingsService.GetValue("SelectedFormatIndex", 0);
         }
 
         private async Task LoadHardwareInfoAsync()
@@ -453,6 +465,7 @@ namespace LivePhotoBox.ViewModels
 
             // 重置拆分页面的视频格式选择（默认视频格式）
             AppViewModel.Instance.Split.SelectedFormatIndex = 0;
+            SplitFormatIndex = 0;
 
             // 重置合成页面的协议版本（默认V2版本）
             AppViewModel.Instance.Combo.SelectedModeIndex = 1;

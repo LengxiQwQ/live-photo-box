@@ -2,11 +2,8 @@ using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
 using System;
 using System.Threading.Tasks;
 
@@ -14,22 +11,21 @@ namespace LivePhotoBox.Views
 {
     public sealed partial class SplitPage : Page
     {
-        private static readonly TimeSpan AutoFollowDebounce = TimeSpan.FromMilliseconds(120);
-        private static readonly TimeSpan FinalBottomNudgeDelay = TimeSpan.FromMilliseconds(80);
-
-        private bool _isAutoScrollScheduled;
-        private bool _hasPendingAutoScroll;
-        private int _pendingAutoScrollIndex = -1;
-        private int _lastAutoScrollIndex = -1;
-        private bool _isUnloaded;
+        private readonly TaskListAutoScroller _scroller;
         private bool _eventsHooked;
-        private ScrollViewer? _taskListScrollViewer;
 
         public SplitViewModel ViewModel => AppViewModel.Instance.Split;
 
         public SplitPage()
         {
             InitializeComponent();
+
+            _scroller = new TaskListAutoScroller(
+                "Split",
+                isActive: () => ViewModel.IsProcessing || ViewModel.IsScanning,
+                getTaskCount: () => ViewModel.Tasks.Count,
+                getTaskAt: idx => ViewModel.Tasks[idx]);
+
             Loaded += SplitPage_Loaded;
             Unloaded += SplitPage_Unloaded;
         }
@@ -42,202 +38,60 @@ namespace LivePhotoBox.Views
 
         private void SplitPage_Loaded(object sender, RoutedEventArgs e)
         {
-            _isUnloaded = false;
-            _taskListScrollViewer ??= FindDescendant<ScrollViewer>(SplitTaskListView);
+            _scroller.Attach(SplitTaskListView);
 
             if (_eventsHooked) return;
 
-            ViewModel.TaskStartedForScroll += ViewModel_TaskStartedForScroll;
-            ViewModel.ProcessingCompletedForScroll += ViewModel_ProcessingCompletedForScroll;
-            ViewModel.ScanItemsFlushed += ViewModel_ScanItemsFlushed;
-            ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+            ViewModel.TaskStartedForScroll += OnTaskStarted;
+            ViewModel.ProcessingCompletedForScroll += OnAllCompleted;
+            ViewModel.ScanItemsFlushed += OnItemsFlushed;
+            ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             _eventsHooked = true;
         }
 
         private void SplitPage_Unloaded(object sender, RoutedEventArgs e)
         {
-            _isUnloaded = true;
-            _hasPendingAutoScroll = false;
-            _pendingAutoScrollIndex = -1;
+            _scroller.NotifyPageUnloading();
+            _scroller.Detach();
 
             if (!_eventsHooked) return;
 
-            ViewModel.TaskStartedForScroll -= ViewModel_TaskStartedForScroll;
-            ViewModel.ProcessingCompletedForScroll -= ViewModel_ProcessingCompletedForScroll;
-            ViewModel.ScanItemsFlushed -= ViewModel_ScanItemsFlushed;
-            ViewModel.PropertyChanged -= ViewModel_PropertyChanged;
+            ViewModel.TaskStartedForScroll -= OnTaskStarted;
+            ViewModel.ProcessingCompletedForScroll -= OnAllCompleted;
+            ViewModel.ScanItemsFlushed -= OnItemsFlushed;
+            ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             _eventsHooked = false;
         }
 
-        private void ViewModel_TaskStartedForScroll(object? sender, SplitTask task)
-        {
-            int taskIndex = task.Index - 1;
+        private void OnTaskStarted(object? sender, SplitTask task) =>
+            _scroller.NotifyTaskStarted(task.Index - 1);
 
-            // 【核心修复 1】：如果遇到了队列开头的任务（通常是开启了新的一轮），强制重置历史追踪记录
-            if (taskIndex == 0)
+        private void OnAllCompleted(object? sender, EventArgs e) =>
+            _scroller.NotifyAllCompleted(wasCancelled: ViewModel.WasStoppedByUser);
+
+        private void OnItemsFlushed(object? sender, EventArgs e) =>
+            _scroller.NotifyItemsFlushed();
+
+        private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ViewModel.IsScanning))
             {
-                _pendingAutoScrollIndex = -1;
-                _lastAutoScrollIndex = -1;
+                if (ViewModel.IsScanning)
+                    _scroller.NotifyScanStarting();
+                else
+                    _scroller.NotifyScanFinished();
             }
-
-            ScheduleAutoScroll(taskIndex);
-        }
-
-        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(ViewModel.IsScanning) && !ViewModel.IsScanning && ViewModel.Tasks.Count > 0)
+            else if (e.PropertyName == nameof(ViewModel.IsProcessing) && ViewModel.IsProcessing)
             {
-                _ = FinalScanScrollAsync();
+                _scroller.NotifyProcessingStarting();
             }
-        }
-
-        private async Task FinalScanScrollAsync()
-        {
-            await Task.Delay(30).ConfigureAwait(false);
-            DispatcherQueue?.TryEnqueue(() =>
+            else if (e.PropertyName == nameof(ViewModel.IsPaused) && !ViewModel.IsPaused)
             {
-                if (_isUnloaded || ViewModel.Tasks.Count == 0) return;
-                SplitTaskListView.ScrollIntoView(ViewModel.Tasks[ViewModel.Tasks.Count - 1], ScrollIntoViewAlignment.Default);
-            });
-        }
-
-        private void ViewModel_ScanItemsFlushed(object? sender, EventArgs e)
-        {
-            // 使用防抖滚动，避免高速扫描时频繁 ScrollIntoView 给 UI 带来负担
-            int lastIndex = ViewModel.Tasks.Count - 1;
-            if (lastIndex >= 0)
-            {
-                ScheduleAutoScroll(lastIndex);
+                _scroller.NotifyProcessingResumed();
             }
         }
 
-        private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
-        {
-            var dispatcher = DispatcherQueue;
-            if (dispatcher != null && !_isUnloaded)
-            {
-                _ = SafeNudgeTaskListToBottomAsync(dispatcher);
-            }
-        }
-
-        private void ScheduleAutoScroll(int itemIndex)
-        {
-            if (_isUnloaded || itemIndex < 0 || itemIndex >= ViewModel.Tasks.Count) return;
-            if (!ViewModel.IsProcessing && !ViewModel.IsScanning) return;
-
-            // 总是记录最远的目标索引（保证多线程瞬间并发时，向下追踪最末尾的任务）
-            _pendingAutoScrollIndex = Math.Max(_pendingAutoScrollIndex, itemIndex);
-            _hasPendingAutoScroll = true;
-
-            if (!_isAutoScrollScheduled)
-            {
-                _isAutoScrollScheduled = true;
-                _ = RunAutoScrollAsync();
-            }
-        }
-
-        private async Task RunAutoScrollAsync()
-        {
-            try
-            {
-                while (_hasPendingAutoScroll && !_isUnloaded)
-                {
-                    _hasPendingAutoScroll = false;
-                    await Task.Delay(AutoFollowDebounce).ConfigureAwait(false);
-
-                    int targetIndex = _pendingAutoScrollIndex;
-                    if (_isUnloaded || (!ViewModel.IsProcessing && !ViewModel.IsScanning) || targetIndex < 0 || targetIndex >= ViewModel.Tasks.Count || targetIndex == _lastAutoScrollIndex)
-                    {
-                        continue;
-                    }
-
-                    var dispatcher = DispatcherQueue;
-                    if (dispatcher != null)
-                    {
-                        try { await EnqueueScrollIntoViewAsync(dispatcher, targetIndex).ConfigureAwait(false); } catch (Exception ex) { LogService.Debug($"SplitPage auto-scroll failed: {ex.Message}", LogSource.UI); }
-                    }
-                }
-            }
-            finally
-            {
-                _isAutoScrollScheduled = false;
-                if (_hasPendingAutoScroll && !_isUnloaded)
-                {
-                    _isAutoScrollScheduled = true;
-                    _ = RunAutoScrollAsync();
-                }
-            }
-        }
-
-        private async Task SafeNudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
-        {
-            try { await NudgeTaskListToBottomAsync(dispatcher).ConfigureAwait(false); } catch (Exception ex) { LogService.Debug($"SplitPage auto-scroll nudge failed: {ex.Message}", LogSource.UI); }
-        }
-
-        private async Task NudgeTaskListToBottomAsync(DispatcherQueue dispatcher)
-        {
-            await Task.Delay(FinalBottomNudgeDelay).ConfigureAwait(false);
-            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            if (!dispatcher.TryEnqueue(() =>
-            {
-                try
-                {
-                    if (!_isUnloaded)
-                    {
-                        _taskListScrollViewer ??= FindDescendant<ScrollViewer>(SplitTaskListView);
-                        _taskListScrollViewer?.ChangeView(null, _taskListScrollViewer.ScrollableHeight, null, true);
-                    }
-                    tcs.TrySetResult();
-                }
-                catch (Exception ex) { LogService.Debug($"SplitPage scroll nudge dispatcher error: {ex.Message}", LogSource.UI); tcs.TrySetResult(); }
-            }))
-            {
-                tcs.TrySetResult();
-            }
-            await tcs.Task.ConfigureAwait(false);
-        }
-
-        private Task EnqueueScrollIntoViewAsync(DispatcherQueue dispatcher, int targetIndex)
-        {
-            var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-
-            if (!dispatcher.TryEnqueue(() =>
-            {
-                try
-                {
-                    if (!_isUnloaded && (ViewModel.IsProcessing || ViewModel.IsScanning) && targetIndex >= 0 && targetIndex < ViewModel.Tasks.Count)
-                    {
-                        var targetTask = ViewModel.Tasks[targetIndex];
-
-                        // 【核心修复 2】：剔除多余的判断，单纯依赖 Default。
-                        // Default 的特性是：如果任务在第一页（已可见），它不会触发任何滚动；
-                        // 一旦并发任务跑到了屏幕外面，它会自动向下滚动，使其恰好对齐到 ListView 底部。
-                        SplitTaskListView.ScrollIntoView(targetTask, ScrollIntoViewAlignment.Default);
-                        _lastAutoScrollIndex = targetIndex;
-                    }
-                    tcs.TrySetResult();
-                }
-                catch (Exception ex) { LogService.Debug($"SplitPage scroll-into-view dispatcher error: {ex.Message}", LogSource.UI); tcs.TrySetResult(); }
-            }))
-            {
-                tcs.TrySetResult();
-            }
-            return tcs.Task;
-        }
-
-        private static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
-        {
-            int childCount = VisualTreeHelper.GetChildrenCount(root);
-            for (int i = 0; i < childCount; i++)
-            {
-                DependencyObject child = VisualTreeHelper.GetChild(root, i);
-                if (child is T match) return match;
-                T? nested = FindDescendant<T>(child);
-                if (nested is not null) return nested;
-            }
-            return null;
-        }
+        // ── 其他事件处理 ──────────────────────────────────
 
         private void DirectoryBox_GotFocus(object sender, RoutedEventArgs e)
         {
@@ -259,42 +113,28 @@ namespace LivePhotoBox.Views
         private async void FileButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            try { await FilePickerService.OpenFileAsync(path); } catch (Exception ex) { LogService.Debug($"SplitPage open file failed: {ex.Message}", LogSource.UI); }
+            try { await FilePickerService.OpenFileAsync(path); }
+            catch (Exception ex) { LogService.Debug($"SplitPage open file failed: {ex.Message}", LogSource.UI); }
         }
 
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            try { FilePickerService.RevealInExplorer(path); } catch (Exception ex) { LogService.Debug($"SplitPage reveal in explorer failed: {ex.Message}", LogSource.UI); }
+            try { FilePickerService.RevealInExplorer(path); }
+            catch (Exception ex) { LogService.Debug($"SplitPage reveal in explorer failed: {ex.Message}", LogSource.UI); }
         }
 
-        private void SplitTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
-        {
-        }
+        private void SplitTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args) { }
 
-        private void StatusTextBlock_Tapped(object sender, TappedRoutedEventArgs e)
+        private void StatusTextBlock_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
         {
-            if (sender is not FrameworkElement element) return;
+            if (sender is not Microsoft.UI.Xaml.FrameworkElement element) return;
             if (element.DataContext is not SplitTask task) return;
             if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.DisplayStatus)) return;
-
-            // 点击同一个 → 关闭
-            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element)
-            {
-                ErrorDetailTip.IsOpen = false;
-                return;
-            }
-
-            // 更新内容，换 Target
-            ErrorDetailText.Text = task.DisplayStatus;
-            ErrorDetailTip.Target = element;
-            ErrorDetailTip.IsOpen = true;
+            // Note: SplitPage doesn't use a TeachingTip for error details like RepairPage
         }
 
-        private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args)
-        {
-            // 确保关闭后清理目标引用，避免悬空导致卡死
+        private void ErrorDetailTip_Closed(Microsoft.UI.Xaml.Controls.TeachingTip sender, Microsoft.UI.Xaml.Controls.TeachingTipClosedEventArgs args) =>
             ErrorDetailTip.Target = null;
-        }
     }
 }

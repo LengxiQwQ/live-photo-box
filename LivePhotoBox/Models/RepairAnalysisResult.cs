@@ -17,5 +17,13 @@ namespace LivePhotoBox.Models
         public bool HasThumbnail { get; set; } = false;
         /// <summary>HEIC: Original QuickTime:Rotation value preserved during repair (never cleared).</summary>
         public string HeicOriginalRotation { get; set; } = string.Empty;
+        /// <summary>Whether this file is a video (MOV/MP4).</summary>
+        public bool IsVideo { get; set; } = false;
+        /// <summary>Video rotation angle from QuickTime Rotation tag (0/90/180/270).</summary>
+        public int VideoRotationAngle { get; set; } = 0;
+        /// <summary>Video codec identifier from exiftool CompressorID (e.g. "hvc1"=HEVC, "avc1"=H.264).</summary>
+        public string VideoCodec { get; set; } = string.Empty;
+        /// <summary>Original video bitrate in bps, parsed from exiftool AvgBitrate (e.g. "12.2 Mbps" → 12200000).</summary>
+        public long VideoBitrateBps { get; set; } = 0;
     }
 }

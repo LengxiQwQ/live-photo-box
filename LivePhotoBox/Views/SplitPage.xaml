@@ -88,12 +88,14 @@
                         </StackPanel>
 
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <!-- 格式选择已移至设置页面 → 视频转码面板
                             <TextBlock x:Uid="SplitPage_FormatLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <ComboBox x:Name="FormatComboBox" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditSelectedFormat, Mode=OneWay}" Loaded="FormatComboBox_Loaded">
                                 <ComboBoxItem x:Uid="SettingsPage_SplitFormat_ImageDefault"/>
                                 <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
                                 <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
                             </ComboBox>
+                            -->
                             <Button
                                 Command="{x:Bind ViewModel.ScanDirectoryCommand}"
                                 Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
