@@ -59,6 +59,7 @@
 		<None Remove="Tools\exiftool\exiftool_files\readme_windows.txt" />
 		<None Remove="Tools\exiftool\exiftool_files\windows_exiftool.txt" />
        <None Remove="Tools\jpegtran.exe" />
+       <None Remove="Tools\jhead.exe" />
 		<None Remove="Views\AboutPage.xaml" />
 		<None Remove="Views\ComboPage.xaml" />
 		<None Remove="Views\HomePage.xaml" />
@@ -81,6 +82,9 @@
      <Content Include="Tools\jpegtran.exe">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
+     <Content Include="Tools\jhead.exe">
+       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+     </Content>
      <!-- FFmpeg for video transcoding -->
      <Content Include="Tools\ffmpeg.exe" Condition="Exists('Tools\ffmpeg.exe')">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

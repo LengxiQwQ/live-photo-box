@@ -103,16 +103,12 @@ namespace LivePhotoBox.Views
 
         private void ViewModel_ScanItemsFlushed(object? sender, EventArgs e)
         {
-            if (_isUnloaded || !ViewModel.IsScanning) return;
+            // 使用防抖滚动，避免高速扫描时频繁 ScrollIntoView 给 UI 带来负担
             int lastIndex = ViewModel.Tasks.Count - 1;
-            if (lastIndex < 0) return;
-            // 延迟一帧，等 ListView 处理完新项目再滚
-            DispatcherQueue?.TryEnqueue(() =>
+            if (lastIndex >= 0)
             {
-                if (_isUnloaded) return;
-                if (lastIndex >= 0 && lastIndex < ViewModel.Tasks.Count)
-                    SplitTaskListView.ScrollIntoView(ViewModel.Tasks[lastIndex], ScrollIntoViewAlignment.Default);
-            });
+                ScheduleAutoScroll(lastIndex);
+            }
         }
 
         private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)

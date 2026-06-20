@@ -443,7 +443,7 @@ Do you want to restart now?</value>
     <value>Scan complete: loaded {0} pairs</value>
   </data>
   <data name="RepairPage_Status_ScanDone" xml:space="preserve">
-    <value>Scan complete: loaded {0} photos to repair</value>
+    <value>Scan complete: {0} healthy, {1} need repair</value>
   </data>
   <data name="RepairPage_Status_ScanNoFiles" xml:space="preserve">
     <value>Scan complete: no photos found to repair</value>
@@ -655,7 +655,6 @@ Do you want to restart now?</value>
   <data name="SettingsPage_Language.Text" xml:space="preserve">
     <value>Language</value>
   </data>
-  <!-- Language names hardcoded in XAML to stay native regardless of UI language -->
   <data name="SettingsPage_Backdrop_Mica.Content" xml:space="preserve">
     <value>Mica</value>
   </data>
@@ -1145,16 +1144,19 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Open Source Credits</value>
   </data>
   <data name="AboutPage_ExifToolSuffix.Text" xml:space="preserve">
-    <value>(by Phil Harvey): Responsible for complex metadata parsing, injection, and XMP structure reconstruction.</value>
+    <value>(by Phil Harvey) — Global metadata parsing, injection, and XMP structure reconstruction</value>
+  </data>
+  <data name="AboutPage_JHeadSuffix.Text" xml:space="preserve">
+    <value>(by Matthias Wandel) — Lossless auto-rotation of JPEG files, correcting orientation at the physical level via jpegtran</value>
   </data>
   <data name="AboutPage_JpegTranSuffix.Text" xml:space="preserve">
-    <value>(IJG): By using the lossless transformation algorithm of DCT coefficient space, zero-loss rotation at the physical level can be achieved without recoding.</value>
+    <value>(by IJG) — Lossless JPEG transforms using DCT coefficient space, achieving zero-loss rotation without re-encoding</value>
   </data>
   <data name="AboutPage_FFmpegSuffix.Text" xml:space="preserve">
-    <value> — video transcoding and stream remuxing engine</value>
+    <value>(by FFmpeg team) — Video transcoding and stream remuxing engine</value>
   </data>
   <data name="AboutPage_ImageMagickSuffix.Text" xml:space="preserve">
-    <value> / Magick.NET (dlemstra) — HEIC/HEIF image decoding via libheif</value>
+    <value>(by ImageMagick Studio / dlemstra) — HEIC/HEIF image decoding via libheif</value>
   </data>
   <data name="AboutPage_PrivacyTitle.Text" xml:space="preserve">
     <value>Privacy Policy</value>
@@ -1249,7 +1251,7 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="Msg_InvalidInputDirectoryTitle" xml:space="preserve">
     <value>Invalid Input Directory</value>
   </data>
-<data name="Msg_QueueNotEmptyTitle" xml:space="preserve">
+  <data name="Msg_QueueNotEmptyTitle" xml:space="preserve">
     <value>Queue Not Empty</value>
   </data>
   <data name="Msg_QueueNotEmpty" xml:space="preserve">
@@ -1352,7 +1354,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Hardware Acceleration</value>
   </data>
   <data name="SettingsPage_Split_ThreadCount.Text" xml:space="preserve">
-    <value>Multi-task parallel number</value>
+    <value>Split multi-task parallel number</value>
   </data>
   <data name="SettingsPage_Split_Hardware_Threads.Text" xml:space="preserve">
     <value>threads</value>
@@ -1373,7 +1375,8 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Windows BitmapDecoder (system built-in)</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
-    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC extension&#x0a;(built-in on Win11, available via Microsoft Store on Win10)</value>
+    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC extension
+(built-in on Win11, available via Microsoft Store on Win10)</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
     <value>HEIC Task Parallel Count</value>

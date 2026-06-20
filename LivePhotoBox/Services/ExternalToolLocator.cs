@@ -8,9 +8,11 @@ namespace LivePhotoBox.Services
     {
         private static readonly Lazy<string?> _cachedFFmpegPath = new(ResolveFFmpegPath);
         private static readonly Lazy<string?> _cachedExifToolPath = new(ResolveExifToolPath);
+        private static readonly Lazy<string?> _cachedJheadPath = new(ResolveJheadPath);
 
         public static string? FindFFmpeg() => _cachedFFmpegPath.Value;
         public static string? FindExifTool() => _cachedExifToolPath.Value;
+        public static string? FindJhead() => _cachedJheadPath.Value;
         public static bool IsFFmpegAvailable() => !string.IsNullOrEmpty(FindFFmpeg());
 
         private static string? ResolveFFmpegPath()
@@ -83,6 +85,41 @@ namespace LivePhotoBox.Services
                     try
                     {
                         string candidate = Path.Combine(part.Trim(), "exiftool.exe");
+                        if (File.Exists(candidate)) return candidate;
+                    }
+                    catch { }
+                }
+            }
+
+            return null;
+        }
+
+        private static string? ResolveJheadPath()
+        {
+            string[] candidates =
+            {
+                Path.Combine(AppContext.BaseDirectory, "Tools", "jhead.exe"),
+                Path.Combine(AppContext.BaseDirectory, "jhead.exe"),
+                "jhead"
+            };
+
+            foreach (var candidate in candidates)
+            {
+                try
+                {
+                    if (File.Exists(candidate)) return candidate;
+                }
+                catch { }
+            }
+
+            string? pathEnv = Environment.GetEnvironmentVariable("PATH");
+            if (!string.IsNullOrEmpty(pathEnv))
+            {
+                foreach (var part in pathEnv.Split(Path.PathSeparator))
+                {
+                    try
+                    {
+                        string candidate = Path.Combine(part.Trim(), "jhead.exe");
                         if (File.Exists(candidate)) return candidate;
                     }
                     catch { }

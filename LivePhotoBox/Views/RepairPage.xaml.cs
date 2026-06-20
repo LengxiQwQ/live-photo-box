@@ -75,9 +75,19 @@ namespace LivePhotoBox.Views
 
         private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(ViewModel.IsScanning) && !ViewModel.IsScanning && ViewModel.Tasks.Count > 0)
+            if (e.PropertyName == nameof(ViewModel.IsScanning))
             {
-                _ = FinalScanScrollAsync();
+                if (ViewModel.IsScanning)
+                {
+                    // 新一轮扫描：重置滚动追踪，避免上一轮残留的索引导致不滚动
+                    _pendingAutoScrollIndex = -1;
+                    _lastAutoScrollIndex = -1;
+                    _hasPendingAutoScroll = false;
+                }
+                else if (ViewModel.Tasks.Count > 0)
+                {
+                    _ = FinalScanScrollAsync();
+                }
             }
         }
 
@@ -93,16 +103,12 @@ namespace LivePhotoBox.Views
 
         private void ViewModel_ScanItemsFlushed(object? sender, EventArgs e)
         {
-            if (_isUnloaded || !ViewModel.IsScanning) return;
+            // 使用防抖滚动，避免高速扫描时频繁 ScrollIntoView 给 UI 带来负担
             int lastIndex = ViewModel.Tasks.Count - 1;
-            if (lastIndex < 0) return;
-            // 延迟一帧，等 ListView 处理完新项目再滚
-            DispatcherQueue?.TryEnqueue(() =>
+            if (lastIndex >= 0)
             {
-                if (_isUnloaded) return;
-                if (lastIndex >= 0 && lastIndex < ViewModel.Tasks.Count)
-                    RepairTaskListView.ScrollIntoView(ViewModel.Tasks[lastIndex], ScrollIntoViewAlignment.Default);
-            });
+                ScheduleAutoScroll(lastIndex);
+            }
         }
 
         private void ViewModel_ProcessingCompletedForScroll(object? sender, EventArgs e)
@@ -312,6 +318,11 @@ namespace LivePhotoBox.Views
             ErrorDetailText.Text = task.Details;
             ErrorDetailTip.Target = element;
             ErrorDetailTip.IsOpen = true;
+        }
+
+        private void RepairTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+        {
+            // 启用 WinUI 分阶段渲染，避免容器回收时整项同时重建导致闪烁
         }
 
         private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args)

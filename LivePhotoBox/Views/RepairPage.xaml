@@ -139,10 +139,10 @@
             </Border>
 
             <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
-                <ListView x:Name="RepairTaskListView" ItemsSource="{x:Bind ViewModel.Tasks}" SelectionMode="None" ShowsScrollingPlaceholders="False">
+                <ListView x:Name="RepairTaskListView" ItemsSource="{x:Bind ViewModel.Tasks}" SelectionMode="None" ShowsScrollingPlaceholders="False" ContainerContentChanging="RepairTaskListView_ContainerContentChanging">
                     <ListView.ItemsPanel>
                         <ItemsPanelTemplate>
-                            <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="1" />
+                            <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="4" />
                         </ItemsPanelTemplate>
                     </ListView.ItemsPanel>
 
@@ -164,6 +164,7 @@
 
                     <ListView.ItemContainerStyle>
                         <Style TargetType="ListViewItem">
+                            <Setter Property="Background" Value="Transparent"/>
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                             <Setter Property="Margin" Value="0,0,0,6"/>
                             <Setter Property="Padding" Value="0"/>

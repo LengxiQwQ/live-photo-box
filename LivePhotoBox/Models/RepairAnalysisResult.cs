@@ -14,5 +14,6 @@ namespace LivePhotoBox.Models
         public string IssueDescription { get; set; } = string.Empty;
         public int RotationAngle { get; set; } = 0;
         public bool NeedsRepair => IssueType == RepairIssueType.NeedsStrip || IssueType == RepairIssueType.NeedsRebuild;
+        public bool HasThumbnail { get; set; } = false;
     }
 }
