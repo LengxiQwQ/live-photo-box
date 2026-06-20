@@ -133,13 +133,6 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
-                        <Button x:Uid="RepairPage_AdvancedSettingsBtn" Command="{x:Bind ViewModel.GoToAdvancedSettingsCommand}" Height="36" Margin="0,0,10,0">
-                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xE90F;" FontSize="15" VerticalAlignment="Center"/>
-                                <TextBlock x:Uid="WorkPage_AdvancedSettings" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
-
                         <Button Margin="0,0,10,0" x:Uid="RepairPage_HelpBtn" Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Repair" Height="36">
                             <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
                                 <FontIcon Glyph="&#xE9CE;" FontSize="15" VerticalAlignment="Center" Margin="0,1,0,0"/>

@@ -31,7 +31,7 @@ namespace LivePhotoBox.Models
 
         public ImageSource? Thumbnail
         {
-            get => ThumbnailBindingService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, SourcePath, value => Thumbnail = value);
+            get => ThumbnailService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, SourcePath, value => Thumbnail = value);
             set
             {
                 if (SetProperty(ref _thumbnail, value))
@@ -41,7 +41,7 @@ namespace LivePhotoBox.Models
             }
         }
 
-        public Visibility ThumbnailPlaceholderVisibility => ThumbnailBindingService.GetPlaceholderVisibility(_thumbnail);
+        public Visibility ThumbnailPlaceholderVisibility => ThumbnailService.GetPlaceholderVisibility(_thumbnail);
 
         partial void OnSourcePathChanged(string value)
         {

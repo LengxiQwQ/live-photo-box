@@ -264,9 +264,6 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Repair output mode: {(value ? "separate directory" : "in-place")}", LogSource.Settings);
         }
 
-        /// <summary>从其他页面跳转时自动滚动到的设置区域 ("Combo"/"Split"/"Repair")</summary>
-        public string? PendingScrollSection { get; set; }
-
         #endregion
 
         public SettingsViewModel()

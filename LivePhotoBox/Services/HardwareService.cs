@@ -34,7 +34,6 @@ namespace LivePhotoBox.Services
             public string? FfmpegEncoder { get; set; }
         }
 
-        private static string? _cachedFFmpegPath;
         private static HashSet<string>? _cachedAvailableEncoders;
         private static DateTime _encoderCacheTime = DateTime.MinValue;
         private static readonly TimeSpan EncoderCacheDuration = TimeSpan.FromMinutes(5);
@@ -119,7 +118,7 @@ namespace LivePhotoBox.Services
                 return new HardwareInfo
                 {
                     Name = cpuName,
-                    Description = $"{processorCount} {ResourceService.GetString("SettingsPage_Split_Hardware_Threads")}",
+                    Description = $"{processorCount} {ResourceService.GetString("SettingsPage_Transcode_Hardware_Threads.Text")}",
                     Type = HardwareType.Cpu,
                     IsHardwareEncodingSupported = false,
                     FfmpegEncoder = null
@@ -245,7 +244,7 @@ namespace LivePhotoBox.Services
 
             try
             {
-                string? ffmpegPath = FindFFmpeg();
+                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
                 if (string.IsNullOrEmpty(ffmpegPath))
                 {
                     LogService.Warn("FFmpeg not found, cannot detect hardware encoders", source: LogSource.System);
@@ -256,7 +255,7 @@ namespace LivePhotoBox.Services
 
                 LogService.Debug($"Using FFmpeg at: {ffmpegPath}", LogSource.System);
 
-                var process = new Process
+                using var process = new Process
                 {
                     StartInfo = new ProcessStartInfo
                     {
@@ -362,56 +361,17 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 查找 FFmpeg 可执行文件
+        /// 获取 FFmpeg 中所有可用编码器的缓存集合（5 分钟有效）。
+        /// 供 EncoderHelper.IsEncoderAvailable 快速路径使用，避免每次检查都 spawn ffmpeg。
         /// </summary>
-        private static string? FindFFmpeg()
+        public static HashSet<string> GetAvailableEncoders()
         {
-            if (_cachedFFmpegPath != null)
-            {
-                return _cachedFFmpegPath;
-            }
-
-            string[] candidates =
-            {
-                System.IO.Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg.exe"),
-                System.IO.Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg"),
-                System.IO.Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"),
-                System.IO.Path.Combine(AppContext.BaseDirectory, "ffmpeg"),
-                "ffmpeg"
-            };
-
-            foreach (var candidate in candidates)
-            {
-                try
-                {
-                    if (System.IO.File.Exists(candidate))
-                    {
-                        _cachedFFmpegPath = candidate;
-                        return _cachedFFmpegPath;
-                    }
-
-                    if (candidate == "ffmpeg")
-                    {
-                        var pathEnv = Environment.GetEnvironmentVariable("PATH");
-                        if (!string.IsNullOrEmpty(pathEnv))
-                        {
-                            foreach (var part in pathEnv.Split(System.IO.Path.PathSeparator))
-                            {
-                                string fullPath = System.IO.Path.Combine(part.Trim(), "ffmpeg.exe");
-                                if (System.IO.File.Exists(fullPath))
-                                {
-                                    _cachedFFmpegPath = fullPath;
-                                    return _cachedFFmpegPath;
-                                }
-                            }
-                        }
-                    }
-                }
-                catch { }
-            }
-
-            return null;
+            if (_cachedAvailableEncoders == null || DateTime.Now - _encoderCacheTime >= EncoderCacheDuration)
+                DetectAvailableEncodersViaFFmpeg();
+            return _cachedAvailableEncoders ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
+
+        // FindFFmpeg / FindExifTool → migrated to ExternalToolLocator
 
         /// <summary>
         /// 通过 FFmpeg 检测可用的硬件编码器
@@ -422,7 +382,7 @@ namespace LivePhotoBox.Services
 
             try
             {
-                string? ffmpegPath = FindFFmpeg();
+                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
                 if (string.IsNullOrEmpty(ffmpegPath))
                 {
                     return gpus;
@@ -482,7 +442,7 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                var process = new Process
+                using var process = new Process
                 {
                     StartInfo = new ProcessStartInfo
                     {
@@ -597,17 +557,11 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 检查是否支持特定的硬件编码器
+        /// 检查是否支持特定的硬件编码器（委托给 EncoderHelper）。
         /// </summary>
         public static bool IsEncoderSupported(string encoder)
         {
-            string? ffmpegPath = FindFFmpeg();
-            if (string.IsNullOrEmpty(ffmpegPath))
-            {
-                return false;
-            }
-
-            return IsEncoderAvailable(ffmpegPath, encoder);
+            return EncoderHelper.IsEncoderAvailable(encoder);
         }
 
         /// <summary>

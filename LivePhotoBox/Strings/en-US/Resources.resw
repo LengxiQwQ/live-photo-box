@@ -1200,9 +1200,6 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>Help &amp; Tutorials</value>
   </data>
-  <data name="WorkPage_AdvancedSettings.Text" xml:space="preserve">
-    <value>Advanced Settings</value>
-  </data>
   <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Go to Home for tutorials</value>
   </data>

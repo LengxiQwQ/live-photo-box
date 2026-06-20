@@ -28,14 +28,14 @@ namespace LivePhotoBox.Models
         public string DisplayImageName => TruncateFileName(ImageFileName);
         public string DisplayVideoName => TruncateFileName(VideoFileName);
 
-        public Visibility ThumbnailPlaceholderVisibility => ThumbnailBindingService.GetPlaceholderVisibility(_thumbnail);
+        public Visibility ThumbnailPlaceholderVisibility => ThumbnailService.GetPlaceholderVisibility(_thumbnail);
 
         private bool _isLoadingThumbnail;
         private ImageSource? _thumbnail;
 
         public ImageSource? Thumbnail
         {
-            get => ThumbnailBindingService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, ImagePath, value => Thumbnail = value);
+            get => ThumbnailService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, ImagePath, value => Thumbnail = value);
             set
             {
                 if (SetProperty(ref _thumbnail, value))

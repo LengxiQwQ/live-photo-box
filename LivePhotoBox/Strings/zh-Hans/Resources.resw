@@ -1199,9 +1199,6 @@
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>帮助 &amp; 教程</value>
   </data>
-  <data name="WorkPage_AdvancedSettings.Text" xml:space="preserve">
-    <value>高级设置</value>
-  </data>
   <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>前往主页查看教程</value>
   </data>
