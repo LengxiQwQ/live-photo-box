@@ -674,7 +674,7 @@ Do you want to restart now?</value>
     <value>MP4 (H.264 &amp; AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MOV.Content" xml:space="preserve">
-    <value>MOV (HEVC &amp; AAC)</value>
+    <value>MOV (H.265 &amp; AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
     <value>(Pref) Video Default Format</value>
