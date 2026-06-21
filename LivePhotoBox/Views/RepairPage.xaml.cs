@@ -4,7 +4,6 @@ using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using System;
 using System.Threading.Tasks;
@@ -15,6 +14,7 @@ namespace LivePhotoBox.Views
     {
         private readonly TaskListAutoScroller _scroller;
         private bool _eventsHooked;
+        private bool _scrollViewerHooked;
 
         public RepairViewModel ViewModel => AppViewModel.Instance.Repair;
 
@@ -36,6 +36,16 @@ namespace LivePhotoBox.Views
         {
             _scroller.Attach(RepairTaskListView);
 
+            if (!_scrollViewerHooked)
+            {
+                var sv = FindFirstDescendant<ScrollViewer>(RepairTaskListView);
+                if (sv != null)
+                {
+                    sv.ViewChanged += OnScrollViewChanged;
+                    _scrollViewerHooked = true;
+                }
+            }
+
             if (_eventsHooked) return;
 
             ViewModel.TaskStartedForScroll += OnTaskStarted;
@@ -50,6 +60,13 @@ namespace LivePhotoBox.Views
             _scroller.NotifyPageUnloading();
             _scroller.Detach();
 
+            var sv = FindFirstDescendant<ScrollViewer>(RepairTaskListView);
+            if (sv != null)
+            {
+                sv.ViewChanged -= OnScrollViewChanged;
+                _scrollViewerHooked = false;
+            }
+
             if (!_eventsHooked) return;
 
             ViewModel.TaskStartedForScroll -= OnTaskStarted;
@@ -59,14 +76,72 @@ namespace LivePhotoBox.Views
             _eventsHooked = false;
         }
 
+        /// <summary>在可视树中查找指定类型的第一个后代</summary>
+        private static T? FindFirstDescendant<T>(DependencyObject parent) where T : DependencyObject
+        {
+            int count = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChildrenCount(parent);
+            for (int i = 0; i < count; i++)
+            {
+                var child = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetChild(parent, i);
+                if (child is T match) return match;
+                var descendant = FindFirstDescendant<T>(child);
+                if (descendant != null) return descendant;
+            }
+            return null;
+        }
+
+        /// <summary>滚动时更新"当前显示"分组标签</summary>
+        private void OnScrollViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
+        {
+            UpdateCurrentViewGroup();
+        }
+
+        /// <summary>根据列表视口内第一个可见任务确定当前浏览的分组名称</summary>
+        private void UpdateCurrentViewGroup()
+        {
+            if (ViewModel.FilteredTasks.Count == 0)
+            {
+                ViewModel.CurrentViewGroup = string.Empty;
+                return;
+            }
+
+            // 遍历所有已实现的容器，找到第一个在视口内的（Y >= 0）
+            for (int i = 0; i < ViewModel.FilteredTasks.Count; i++)
+            {
+                var container = RepairTaskListView.ContainerFromIndex(i);
+                if (container is not FrameworkElement element) continue;
+
+                // 获取容器相对于 ListView 视口的 Y 位置
+                var transform = element.TransformToVisual(RepairTaskListView);
+                double y = transform.TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+
+                // 容器底部在视口上方 → 继续找
+                if (y + element.ActualHeight < 0) continue;
+
+                // 找到了：这是视口内第一个（可能部分可见）的项
+                var task = ViewModel.FilteredTasks[i];
+                ViewModel.CurrentViewGroup = RepairViewModel.GetTaskGroupName(task);
+                return;
+            }
+
+            // 所有容器都已滚出视口上方 → 取列表中最后一项的分组
+            // （理论上不会走到这里，因为视口内总有内容）
+        }
+
         private void OnTaskStarted(object? sender, RepairTask task) =>
             _scroller.NotifyTaskStarted(task.Index - 1);
 
         private void OnAllCompleted(object? sender, EventArgs e) =>
             _scroller.NotifyAllCompleted(wasCancelled: ViewModel.WasStoppedByUser);
 
-        private void OnItemsFlushed(object? sender, EventArgs e) =>
+        private void OnItemsFlushed(object? sender, EventArgs e)
+        {
             _scroller.NotifyItemsFlushed();
+            UpdateCurrentViewGroup();
+            // 第一批数据到达后自适应 ComboBox 宽度（Loaded 时可能还未显示/Vibility 为 Collapsed）
+            if (FilterComboBox.Items.Count > 0)
+                ComboBoxHelper.AutoFitWidth(FilterComboBox);
+        }
 
         private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
@@ -79,7 +154,12 @@ namespace LivePhotoBox.Views
                     _scroller.NotifyScanFinished();
                     // 扫描完成：加载当前可见条目的视频缩略图
                     LoadVisibleVideoThumbnails();
+                    UpdateCurrentViewGroup();
                 }
+            }
+            else if (e.PropertyName == nameof(ViewModel.FilterMode))
+            {
+                UpdateCurrentViewGroup();
             }
             else if (e.PropertyName == nameof(ViewModel.IsProcessing) && ViewModel.IsProcessing)
             {
@@ -201,6 +281,12 @@ namespace LivePhotoBox.Views
                 task.File1Entry?.EnsureThumbnailAsync();
             }
         }
+        private void FilterComboBox_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is ComboBox comboBox)
+                ComboBoxHelper.AutoFitWidth(comboBox);
+        }
+
         private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args) => ErrorDetailTip.Target = null;
     }
 }

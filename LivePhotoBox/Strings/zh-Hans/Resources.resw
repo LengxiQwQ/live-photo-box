@@ -1529,4 +1529,31 @@
   <data name="SettingsPage_ScanThumbnailToggle.OffContent" xml:space="preserve">
     <value>关</value>
   </data>
+  <data name="RepairPage_GroupHeaderPairs" xml:space="preserve">
+    <value>实况照片组合</value>
+  </data>
+  <data name="RepairPage_GroupHeaderStandaloneImg" xml:space="preserve">
+    <value>单独照片</value>
+  </data>
+  <data name="RepairPage_GroupHeaderStandaloneVid" xml:space="preserve">
+    <value>单独视频</value>
+  </data>
+  <data name="RepairPage_FilterLabel.Text" xml:space="preserve">
+    <value>筛选：</value>
+  </data>
+  <data name="RepairPage_FilterAll.Content" xml:space="preserve">
+    <value>全部</value>
+  </data>
+  <data name="RepairPage_FilterPairs.Content" xml:space="preserve">
+    <value>实况照片</value>
+  </data>
+  <data name="RepairPage_FilterStandaloneImg.Content" xml:space="preserve">
+    <value>单独照片</value>
+  </data>
+  <data name="RepairPage_FilterStandaloneVid.Content" xml:space="preserve">
+    <value>单独视频</value>
+  </data>
+  <data name="RepairPage_ShowingLabel" xml:space="preserve">
+    <value>当前显示：</value>
+  </data>
 </root>

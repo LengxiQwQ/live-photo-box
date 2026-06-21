@@ -97,6 +97,16 @@ namespace LivePhotoBox.Models
         [ObservableProperty] private ProcessStatus _file2DisplayStatus = ProcessStatus.Success;
         [ObservableProperty] private bool _file2HasErrorDetails;
 
+        /// <summary>是否为分组标题（实况照片组合 / 单独照片 / 单独视频）</summary>
+        [ObservableProperty] private bool _isGroupHeader;
+        /// <summary>分组标题文本（如 "📷 实况照片组合"）</summary>
+        [ObservableProperty] private string _groupHeaderText = string.Empty;
+
+        /// <summary>分组标题可见性</summary>
+        public Visibility GroupHeaderVisibility => IsGroupHeader ? Visibility.Visible : Visibility.Collapsed;
+        /// <summary>常规任务内容可见性</summary>
+        public Visibility RegularContentVisibility => IsGroupHeader ? Visibility.Collapsed : Visibility.Visible;
+
         /// <summary>File2 行的可见性 — 单独文件时 Collapsed，配对时 Visible</summary>
         public Visibility File2Visibility => IsPaired ? Visibility.Visible : Visibility.Collapsed;
 
@@ -121,6 +131,26 @@ namespace LivePhotoBox.Models
 
         public string File2IconGlyph => File2IsImage ? "" : "";
         public SolidColorBrush File2IconForeground => File2IsImage ? PhotoIconBrush : VideoIconBrush;
+
+        #endregion
+
+        #region Group Header Factory
+
+        /// <summary>仅供 <see cref="CreateGroupHeader"/> 使用的内部构造</summary>
+        private RepairTask()
+        {
+            Entries = [];
+        }
+
+        /// <summary>创建一个分组标题项</summary>
+        public static RepairTask CreateGroupHeader(string headerText)
+        {
+            return new RepairTask
+            {
+                IsGroupHeader = true,
+                GroupHeaderText = headerText,
+            };
+        }
 
         #endregion
 
