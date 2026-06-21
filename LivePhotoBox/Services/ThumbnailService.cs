@@ -22,15 +22,16 @@ namespace LivePhotoBox.Services
         private static readonly ConcurrentDictionary<string, ImageSource> _thumbnailCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, Task<ImageSource?>> _inflightLoads = new(StringComparer.OrdinalIgnoreCase);
         private static readonly SemaphoreSlim _loadLimiter = new(4, 4);
-        /// <summary>视频 FFmpeg 抽帧并发数：根据硬件自动调整（GPU→12路，CPU→3路）</summary>
+        /// <summary>视频 FFmpeg 抽帧并发数：根据硬件自动调整（CPU→4路，NVIDIA→16路，QSV→10路，AMF→8路）</summary>
         private static readonly Lazy<SemaphoreSlim> _videoLoadLimiterLazy = new(() =>
         {
-            int c = 3;
+            int c = 4;
             try
             {
                 string enc = AppSettingsService.GetValue("SplitHardwareEncoder", "") ?? "";
-                if (enc.Contains("nvenc") || enc.Contains("cuda")) c = 12;
-                else if (enc.Contains("qsv") || enc.Contains("amf")) c = 8;
+                if (enc.Contains("nvenc") || enc.Contains("cuda")) c = 16;
+                else if (enc.Contains("qsv")) c = 10;
+                else if (enc.Contains("amf")) c = 8;
             }
             catch { }
             return new SemaphoreSlim(c, c);

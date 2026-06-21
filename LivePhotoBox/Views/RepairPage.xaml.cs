@@ -2,10 +2,13 @@ using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox.Views
@@ -15,6 +18,13 @@ namespace LivePhotoBox.Views
         private readonly TaskListAutoScroller _scroller;
         private bool _eventsHooked;
         private bool _scrollViewerHooked;
+
+        // 缩略图加载：只记录最后滚动时间，由独立定时器定期检查是否需要加载
+        // ContainerContentChanging 本身不做任何重活，避免阻塞 UI 线程导致列表空白
+        private long _lastContainerChangeTick;
+        private DispatcherQueueTimer? _thumbnailCheckTimer;
+        private const int ScrollSettleMs = 100;   // 100ms 无新条目 = 视为"可加载"
+        private const int ThumbnailCheckIntervalMs = 200;
 
         public RepairViewModel ViewModel => AppViewModel.Instance.Repair;
 
@@ -46,6 +56,19 @@ namespace LivePhotoBox.Views
                 }
             }
 
+            // 启动缩略图加载定时器：每 300ms 检查是否需要加载可见条目
+            if (_thumbnailCheckTimer == null)
+            {
+                var disp = App.MainWindow?.DispatcherQueue;
+                if (disp != null)
+                {
+                    _thumbnailCheckTimer = disp.CreateTimer();
+                    _thumbnailCheckTimer.Interval = TimeSpan.FromMilliseconds(ThumbnailCheckIntervalMs);
+                    _thumbnailCheckTimer.Tick += ThumbnailCheckTimer_Tick;
+                    _thumbnailCheckTimer.Start();
+                }
+            }
+
             if (_eventsHooked) return;
 
             ViewModel.TaskStartedForScroll += OnTaskStarted;
@@ -65,6 +88,14 @@ namespace LivePhotoBox.Views
             {
                 sv.ViewChanged -= OnScrollViewChanged;
                 _scrollViewerHooked = false;
+            }
+
+            // 停止缩略图加载定时器
+            if (_thumbnailCheckTimer != null)
+            {
+                _thumbnailCheckTimer.Stop();
+                _thumbnailCheckTimer.Tick -= ThumbnailCheckTimer_Tick;
+                _thumbnailCheckTimer = null;
             }
 
             if (!_eventsHooked) return;
@@ -245,41 +276,66 @@ namespace LivePhotoBox.Views
             ErrorDetailTip.IsOpen = true;
         }
 
-        /// <summary>扫描完成后，为当前可见的条目加载视频缩略图</summary>
+        /// <summary>扫描完成后，加载当前可见条目的缩略图</summary>
         private void LoadVisibleVideoThumbnails()
         {
-            int count = ViewModel.Tasks.Count;
+            LoadVisibleThumbnailsForCurrentViewport(maxPerBatch: 6, staggerMs: 50);
+        }
+
+        /// <summary>为当前视口内可见且未加载的条目启动缩略图加载（后台错开）</summary>
+        private void LoadVisibleThumbnailsForCurrentViewport(int maxPerBatch = 4, int staggerMs = 0)
+        {
+            int count = ViewModel.FilteredTasks.Count;
             if (count == 0) return;
 
-            for (int i = 0; i < count; i++)
+            var toLoad = new List<RepairFileEntry?>();
+            for (int i = 0; i < count && toLoad.Count < maxPerBatch; i++)
             {
-                // ContainerFromIndex 非 null = 该条目当前在可视区域内
                 if (RepairTaskListView.ContainerFromIndex(i) != null &&
-                    ViewModel.Tasks[i] is RepairTask task && task.Thumbnail == null)
+                    ViewModel.FilteredTasks[i] is RepairTask task && task.Thumbnail == null)
                 {
-                    task.File1Entry?.EnsureThumbnailAsync();
+                    toLoad.Add(task.File1Entry);
                 }
+            }
+
+            if (toLoad.Count == 0) return;
+
+            _ = Task.Run(async () =>
+            {
+                foreach (var entry in toLoad)
+                {
+                    if (entry != null)
+                    {
+                        var _ = entry.EnsureThumbnailAsync();
+                    }
+                    if (staggerMs > 0)
+                        await Task.Delay(staggerMs);
+                }
+            });
+        }
+
+        /// <summary>定时器回调：滚动停歇 250ms 后加载可见条目的缩略图</summary>
+        private void ThumbnailCheckTimer_Tick(DispatcherQueueTimer sender, object args)
+        {
+            long elapsed = Environment.TickCount64 - Volatile.Read(ref _lastContainerChangeTick);
+            if (elapsed >= ScrollSettleMs)
+            {
+                LoadVisibleThumbnailsForCurrentViewport(maxPerBatch: 4, staggerMs: 50);
             }
         }
 
+        /// <summary>ContainerContentChanging 极致轻量：只取消回收条目的加载 + 记录时间戳。不做任何其他工作，避免阻塞 UI 线程导致列表空白。</summary>
         private void RepairTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
-            // 容器回收（滚动出屏幕）→ 取消还在队列中等待的视频加载
             if (args.InRecycleQueue && args.Item is RepairTask oldTask)
             {
                 ThumbnailService.CancelPendingVideoLoad(oldTask.File1Entry?.FilePath ?? "");
                 return;
             }
 
-            // 可见条目：确保缩略图加载
-            if (args.Item is RepairTask task && task.Thumbnail == null)
-            {
-                // 如果关闭了"扫描时加载"，扫描期间不触发视频加载
-                if (ViewModel.IsScanning && !AppSettingsService.GetValue("IsRepairScanLoadThumbnail", false))
-                    return;
-
-                task.File1Entry?.EnsureThumbnailAsync();
-            }
+            // 仅记录"有新内容进入视口"的时刻。加载由 ThumbnailCheckTimer_Tick 负责。
+            if (args.Item is RepairTask)
+                Interlocked.Exchange(ref _lastContainerChangeTick, Environment.TickCount64);
         }
         private void FilterComboBox_Loaded(object sender, RoutedEventArgs e)
         {
