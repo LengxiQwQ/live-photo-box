@@ -266,6 +266,21 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
+        #region Debug / Test Tools
+
+        /// <summary>修复页面扫描时加载视频缩略图（默认关 = 不加载）</summary>
+        [ObservableProperty]
+        private bool _isRepairScanLoadThumbnail;
+
+        partial void OnIsRepairScanLoadThumbnailChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsRepairScanLoadThumbnail), value);
+            LogService.Info($"Repair scan load thumbnail: {(value ? "enabled" : "disabled")}", LogSource.Settings);
+        }
+
+        #endregion
+
         public SettingsViewModel()
         {
             LoadSettings();
@@ -315,6 +330,7 @@ namespace LivePhotoBox.ViewModels
             ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 4);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
+            IsRepairScanLoadThumbnail = AppSettingsService.GetValue(nameof(IsRepairScanLoadThumbnail), false);
             SplitFormatIndex = AppSettingsService.GetValue("SelectedFormatIndex", 0);
         }
 
@@ -443,69 +459,39 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void RestoreDefaultSettings()
         {
-            LanguageIndex = 0;
-            BackdropIndex = 0;
-            ElementTheme = 0;
+            // 1. 清空所有已保存设置 → 下次读取全部走默认值
+            AppSettingsService.ClearAll();
 
-            // 恢复 Banner 设置
-            IsBannerRandomEnabled = false;
-            BannerPresetIndex = 0;
+            // 2. 重新从默认值加载 → UI 刷新 + OnChanged 回写默认值
+            LoadSettings();
 
-            // 恢复拆分设置为默认值
-            ThreadCount = 5;
-
-            // 清除保存的硬件选择，下次启动时重新检测最佳硬件
+            // 3. 重置硬件选择（LoadSettings 不覆盖的复杂设置）
             AppSettingsService.SetValue("SplitHardwareIndex", -1);
             AppSettingsService.SetValue("SplitHardwareEncoder", string.Empty);
             AppSettingsService.SetValue("SplitEncoder_h264", string.Empty);
             AppSettingsService.SetValue("SplitEncoder_hevc", string.Empty);
 
-            // 重置拆分页面的视频格式选择（默认视频格式）
             AppViewModel.Instance.Split.SelectedFormatIndex = 0;
-            SplitFormatIndex = 0;
-
-            // 重置合成页面的协议版本（默认V2版本）
             AppViewModel.Instance.Combo.SelectedModeIndex = 1;
-
-            // 重置修复页面的输出模式（默认关闭）
             AppViewModel.Instance.Repair.IsOutputToDirectory = false;
 
-            // 重置 HEIC 解码器为默认（Magick.NET）
-            HeicDecoderIndex = 0;
-
-            // 重置合成任务并行数
-            ComboThreadCount = 4;
-
-            // 重置 HEIC 修复设置（默认关闭）
-            IsHeicRepairEnabled = false;
-            IsRepairOutputToDirectory = false;
-
-            // 重新选择最佳硬件
+            // 4. 重新选择最佳硬件
             _isInitializing = true;
             var gpu = AvailableHardware.FirstOrDefault(h => h.Type == HardwareService.HardwareType.Gpu && h.IsHardwareEncodingSupported);
             if (gpu != null)
-            {
                 SelectedHardware = gpu;
-            }
             else
             {
                 var cpu = AvailableHardware.FirstOrDefault(h => h.Type == HardwareService.HardwareType.Cpu);
-                if (cpu != null)
-                {
-                    SelectedHardware = cpu;
-                }
+                if (cpu != null) SelectedHardware = cpu;
             }
             _isInitializing = false;
 
-            // 关键：_isInitializing=true 期间 OnSelectedHardwareChanged 被跳过，
-            // 所以必须在 _isInitializing=false 之后手动保存编码器设置。
-            // 否则 SplitEncoder_h264 / SplitEncoder_hevc 仍为空 → 修复时走 CPU。
             AppSettingsService.SetValue("SplitHardwareIndex", AvailableHardware.IndexOf(SelectedHardware!));
             AppSettingsService.SetValue("SplitHardwareEncoder", SelectedHardware?.FfmpegEncoder ?? string.Empty);
             EncoderHelper.SaveEncoderForBothCodecs(SelectedHardware?.FfmpegEncoder);
 
-            // 刷新设置以应用更改
-            LogService.Split("Settings restored to defaults. Hardware selection re-evaluated.", LogLevel.Info);
+            LogService.Split("All settings restored to defaults via ClearAll+LoadSettings.", LogLevel.Info);
         }
     }
 }

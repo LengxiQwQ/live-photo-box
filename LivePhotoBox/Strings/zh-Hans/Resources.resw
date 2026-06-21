@@ -1503,7 +1503,7 @@
     <value>同时处理的任务数</value>
   </data>
   <data name="RepairPage_StatPaired.Text" xml:space="preserve">
-    <value>配对成功：</value>
+    <value>实况照片：</value>
   </data>
   <data name="RepairPage_StatStandaloneImg.Text" xml:space="preserve">
     <value>单独照片：</value>
@@ -1511,16 +1511,22 @@
   <data name="RepairPage_StatStandaloneVid.Text" xml:space="preserve">
     <value>单独视频：</value>
   </data>
-  <data name="SettingsPage_Repair_OutputLabel.Text" xml:space="preserve">
-    <value>修复输出目录</value>
+  <data name="RepairPage_OutputSwitch.OnContent" xml:space="preserve">
+    <value>输出到目录</value>
   </data>
-  <data name="SettingsPage_Repair_OutputSwitch.OnContent" xml:space="preserve">
-    <value>输出到新目录</value>
+  <data name="RepairPage_OutputSwitch.OffContent" xml:space="preserve">
+    <value>替换原文件</value>
   </data>
-  <data name="SettingsPage_Repair_OutputSwitch.OffContent" xml:space="preserve">
-    <value>原地替换</value>
+  <data name="SettingsPage_ScanThumbnailToggleLabel.Text" xml:space="preserve">
+    <value>在修复页扫描时同步加载缩略图</value>
   </data>
-  <data name="SettingsPage_Repair_OutputDesc.Text" xml:space="preserve">
-    <value>开启后修复的文件将保存到单独的输出目录；关闭则直接覆盖原文件。</value>
+  <data name="SettingsPage_ScanThumbnailToggleDesc.Text" xml:space="preserve">
+    <value>关闭后扫描时跳过视频缩略图加载</value>
+  </data>
+  <data name="SettingsPage_ScanThumbnailToggle.OnContent" xml:space="preserve">
+    <value>开</value>
+  </data>
+  <data name="SettingsPage_ScanThumbnailToggle.OffContent" xml:space="preserve">
+    <value>关</value>
   </data>
 </root>

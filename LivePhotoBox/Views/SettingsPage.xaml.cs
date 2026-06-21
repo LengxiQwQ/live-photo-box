@@ -71,6 +71,11 @@ namespace LivePhotoBox.Views
             Bindings.Update();
         }
 
+        private void ScanThumbnailLabel_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            ViewModel.IsRepairScanLoadThumbnail = !ViewModel.IsRepairScanLoadThumbnail;
+        }
+
         private async void RestartAppButton_Click(object sender, RoutedEventArgs e)
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;
@@ -159,6 +164,8 @@ namespace LivePhotoBox.Views
             if (result == ContentDialogResult.Secondary)
             {
                 ViewModel.RestoreDefaultSettingsCommand.Execute(null);
+                // 立即跳到顶部（无动画），让用户感知已重置
+                PageScrollViewer.ChangeView(null, 0, null, true);
             }
         }
     }

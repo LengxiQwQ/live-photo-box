@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -21,6 +22,22 @@ namespace LivePhotoBox.Services
         private static readonly ConcurrentDictionary<string, ImageSource> _thumbnailCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, Task<ImageSource?>> _inflightLoads = new(StringComparer.OrdinalIgnoreCase);
         private static readonly SemaphoreSlim _loadLimiter = new(4, 4);
+        /// <summary>视频 FFmpeg 抽帧并发数：根据硬件自动调整（GPU→12路，CPU→3路）</summary>
+        private static readonly Lazy<SemaphoreSlim> _videoLoadLimiterLazy = new(() =>
+        {
+            int c = 3;
+            try
+            {
+                string enc = AppSettingsService.GetValue("SplitHardwareEncoder", "") ?? "";
+                if (enc.Contains("nvenc") || enc.Contains("cuda")) c = 12;
+                else if (enc.Contains("qsv") || enc.Contains("amf")) c = 8;
+            }
+            catch { }
+            return new SemaphoreSlim(c, c);
+        });
+        private static SemaphoreSlim _videoLoadLimiter => _videoLoadLimiterLazy.Value;
+        /// <summary>追踪可取消的视频缩略图加载（用于滚动时取消队列中等待的）</summary>
+        private static readonly ConcurrentDictionary<string, CancellationTokenSource> _videoLoadCts = new(StringComparer.OrdinalIgnoreCase);
         private static int _cacheVersion;
 
         public static ImageSource? GetCached(string imagePath)
@@ -46,6 +63,58 @@ namespace LivePhotoBox.Services
             return _inflightLoads.GetOrAdd(imagePath, path => LoadCoreAsync(path, dispatcher, version));
         }
 
+        /// <summary>取消队列中等待的视频缩略图加载（已开始的 FFmpeg 不受影响）</summary>
+        public static void CancelPendingVideoLoad(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return;
+            if (_videoLoadCts.TryRemove(filePath, out var cts))
+            {
+                cts.Cancel();
+                cts.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// 扫描阶段视频背景加载（简单 FIFO，无优先/取消逻辑）。
+        /// 与 UI 可见路径（LoadCoreAsync）共享 _videoLoadLimiter 和 _inflightLoads，不重复加载。
+        /// </summary>
+        public static void BackgroundVideoLoad(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher)
+        {
+            if (string.IsNullOrWhiteSpace(videoPath)) return;
+            if (_thumbnailCache.ContainsKey(videoPath)) return;
+            dispatcher ??= Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            if (dispatcher == null) return;
+
+            int version = Volatile.Read(ref _cacheVersion);
+            _ = _inflightLoads.GetOrAdd(videoPath, path => RunBackgroundVideoLoadAsync(path, dispatcher, version));
+        }
+
+        private static async Task<ImageSource?> RunBackgroundVideoLoadAsync(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
+        {
+            try
+            {
+                await _videoLoadLimiter.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    if (_thumbnailCache.TryGetValue(videoPath, out var cached))
+                        return cached;
+                    return await LoadVideoThumbnailAsync(videoPath, dispatcher, version);
+                }
+                finally
+                {
+                    _videoLoadLimiter.Release();
+                }
+            }
+            catch
+            {
+                return null;
+            }
+            finally
+            {
+                _inflightLoads.TryRemove(videoPath, out _);
+            }
+        }
+
         public static void Preload(IEnumerable<string> imagePaths, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
             dispatcher ??= Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
@@ -64,6 +133,35 @@ namespace LivePhotoBox.Services
         {
             try
             {
+                // 视频走独立信号量（不抢照片通道），支持取消排队
+                if (IsVideoFile(imagePath))
+                {
+                    var cts = new CancellationTokenSource();
+                    _videoLoadCts[imagePath] = cts;
+                    bool acquired = false;
+
+                    try
+                    {
+                        await _videoLoadLimiter.WaitAsync(cts.Token).ConfigureAwait(false);
+                        acquired = true;
+                        cts.Token.ThrowIfCancellationRequested();
+
+                        if (_thumbnailCache.TryGetValue(imagePath, out var cached))
+                            return cached;
+                        return await LoadVideoThumbnailAsync(imagePath, dispatcher, version);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return null;
+                    }
+                    finally
+                    {
+                        if (acquired) _videoLoadLimiter.Release();
+                        _videoLoadCts.TryRemove(imagePath, out _);
+                    }
+                }
+
+                // 照片 / HEIC 走共享快速信号量
                 await _loadLimiter.WaitAsync().ConfigureAwait(false);
                 try
                 {
@@ -80,6 +178,7 @@ namespace LivePhotoBox.Services
                     }
                     else
                     {
+                        // 普通照片（JPG/PNG 等）— 保持原有内联逻辑不变
                         StorageFile file = await StorageFile.GetFileFromPathAsync(imagePath);
                         using var thumbnail = await file.GetThumbnailAsync(ThumbnailMode.ListView, 80, ThumbnailOptions.UseCurrentScale);
 
@@ -132,6 +231,56 @@ namespace LivePhotoBox.Services
             {
                 _inflightLoads.TryRemove(imagePath, out _);
             }
+        }
+
+        /// <summary>
+        /// 普通照片缩略图（JPG/PNG 等）：使用 Windows Shell API。
+        /// </summary>
+        private static async Task<ImageSource?> LoadPhotoThumbnailAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
+        {
+            try
+            {
+                StorageFile file = await StorageFile.GetFileFromPathAsync(imagePath);
+                using var thumbnail = await file.GetThumbnailAsync(ThumbnailMode.ListView, 80, ThumbnailOptions.UseCurrentScale);
+
+                if (thumbnail != null && thumbnail.Size > 0)
+                {
+                    var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                    if (!dispatcher.TryEnqueue(async () =>
+                    {
+                        try
+                        {
+                            var bitmap = new BitmapImage();
+                            await bitmap.SetSourceAsync(thumbnail);
+
+                            if (version == Volatile.Read(ref _cacheVersion))
+                            {
+                                _thumbnailCache[imagePath] = bitmap;
+                                tcs.TrySetResult(bitmap);
+                            }
+                            else
+                            {
+                                tcs.TrySetResult(null);
+                            }
+                        }
+                        catch
+                        {
+                            tcs.TrySetResult(null);
+                        }
+                    }))
+                    {
+                        tcs.TrySetResult(null);
+                    }
+
+                    return await tcs.Task.ConfigureAwait(false);
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
         }
 
         private static async Task<ImageSource?> LoadHeicThumbnailAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
@@ -229,12 +378,136 @@ namespace LivePhotoBox.Services
             }
         }
 
+        /// <summary>
+        /// 视频缩略图提取：使用 FFmpeg 抽取第一帧作为缩略图，
+        /// 避免 Windows Shell API 返回应用图标的问题。
+        /// 根据用户设置中选中的显卡自动添加硬件加速。
+        /// </summary>
+        private static async Task<ImageSource?> LoadVideoThumbnailAsync(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
+        {
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+            if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
+                return null;
+
+            string tempJpeg = Path.Combine(Path.GetTempPath(), $"lpb_vthumb_{Guid.NewGuid():N}.jpg");
+
+            try
+            {
+                string hwaccel = GetVideoHwAccelFlag();
+                string args = string.IsNullOrEmpty(hwaccel)
+                    ? $"-i \"{videoPath}\" -vframes 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error"
+                    : $"{hwaccel} -i \"{videoPath}\" -vframes 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+
+                using var process = new Process { StartInfo = psi };
+                process.Start();
+
+                // 等待 FFmpeg 完成，带超时保护（大视频/慢速解码放宽到 30 秒）
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                try
+                {
+                    await process.WaitForExitAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { process.Kill(); } catch { }
+                    return null;
+                }
+
+                if (process.ExitCode != 0 || !File.Exists(tempJpeg) || new FileInfo(tempJpeg).Length == 0)
+                    return null;
+
+                var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                if (!dispatcher.TryEnqueue(() =>
+                {
+                    try
+                    {
+                        var bitmap = new BitmapImage();
+                        bitmap.DecodePixelWidth = 80;
+                        using var fs = new FileStream(tempJpeg, FileMode.Open, FileAccess.Read);
+                        bitmap.SetSource(fs.AsRandomAccessStream());
+
+                        if (version == Volatile.Read(ref _cacheVersion))
+                        {
+                            _thumbnailCache[videoPath] = bitmap;
+                            tcs.TrySetResult(bitmap);
+                        }
+                        else
+                        {
+                            tcs.TrySetResult(null);
+                        }
+                    }
+                    catch
+                    {
+                        tcs.TrySetResult(null);
+                    }
+                }))
+                {
+                    tcs.TrySetResult(null);
+                }
+
+                return await tcs.Task.ConfigureAwait(false);
+            }
+            catch
+            {
+                return null;
+            }
+            finally
+            {
+                try { File.Delete(tempJpeg); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// 根据用户设置中的硬件编码器获取 FFmpeg 硬件加速解码标志。
+        /// 抽帧是解码操作，用对应的 hwaccel 可大幅提升 HEVC/高码率视频速度。
+        /// </summary>
+        private static string GetVideoHwAccelFlag()
+        {
+            try
+            {
+                string encoder = AppSettingsService.GetValue("SplitHardwareEncoder", "") ?? "";
+                if (string.IsNullOrEmpty(encoder)) return "";
+
+                // 从编码器名推断硬件加速类型
+                if (encoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase))
+                    return "-hwaccel cuda";
+                if (encoder.Contains("qsv", StringComparison.OrdinalIgnoreCase))
+                    return "-hwaccel qsv";
+                if (encoder.Contains("amf", StringComparison.OrdinalIgnoreCase))
+                    return "-hwaccel d3d11va";
+                if (encoder.Contains("vaapi", StringComparison.OrdinalIgnoreCase))
+                    return "-hwaccel vaapi";
+                return "";
+            }
+            catch
+            {
+                return "";
+            }
+        }
+
         public static void ClearCache()
         {
             _thumbnailCache.Clear();
             _inflightLoads.Clear();
             Interlocked.Increment(ref _cacheVersion);
         }
+
+        private static bool IsVideoFile(string path) =>
+            path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".mov", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>公开给外部判断视频文件</summary>
+        public static bool IsVideoFilePath(string path) => IsVideoFile(path);
 
         //  ------  x:Bind property-getter support  ------
 
@@ -255,6 +528,36 @@ namespace LivePhotoBox.Services
 
                 _ = System.Threading.Tasks.Task.Run(async () =>
                 {
+                    // 视频走独立慢速信号量，不阻塞照片加载
+                    if (IsVideoFile(path))
+                    {
+                        await _videoLoadLimiter.WaitAsync();
+                        try
+                        {
+                            var (data, w, h) = await LoadVideoThumbnailDataAsync(path);
+                            if (data is { Length: > 0 } && dispatcher != null)
+                            {
+                                dispatcher.TryEnqueue(() =>
+                                {
+                                    try
+                                    {
+                                        var bmp = new BitmapImage();
+                                        bmp.DecodePixelWidth = 80;
+                                        using var ms = new MemoryStream(data);
+                                        bmp.SetSource(ms.AsRandomAccessStream());
+                                        assignThumbnail(bmp);
+                                    }
+                                    catch { }
+                                });
+                            }
+                        }
+                        finally
+                        {
+                            _videoLoadLimiter.Release();
+                        }
+                        return;
+                    }
+
                     await _loadLimiter.WaitAsync();
 
                     try
@@ -356,6 +659,67 @@ namespace LivePhotoBox.Services
             }
 
             return (Array.Empty<byte>(), 0, 0);
+        }
+
+        /// <summary>
+        /// 视频缩略图数据提取（用于 x:Bind 路径）：使用 FFmpeg 抽取第一帧。
+        /// </summary>
+        private static async Task<(byte[] data, int width, int height)> LoadVideoThumbnailDataAsync(string videoPath)
+        {
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+            if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
+                return (Array.Empty<byte>(), 0, 0);
+
+            string tempJpeg = Path.Combine(Path.GetTempPath(), $"lpb_vthumb_{Guid.NewGuid():N}.jpg");
+
+            try
+            {
+                string hwaccel = GetVideoHwAccelFlag();
+                string args = string.IsNullOrEmpty(hwaccel)
+                    ? $"-i \"{videoPath}\" -vframes 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error"
+                    : $"{hwaccel} -i \"{videoPath}\" -vframes 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+
+                using var process = new Process { StartInfo = psi };
+                process.Start();
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                try
+                {
+                    await process.WaitForExitAsync(cts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { process.Kill(); } catch { }
+                    return (Array.Empty<byte>(), 0, 0);
+                }
+
+                if (process.ExitCode != 0 || !File.Exists(tempJpeg))
+                    return (Array.Empty<byte>(), 0, 0);
+
+                var fileInfo = new FileInfo(tempJpeg);
+                if (fileInfo.Length == 0)
+                    return (Array.Empty<byte>(), 0, 0);
+
+                byte[] imageData = await File.ReadAllBytesAsync(tempJpeg);
+                return (imageData, 80, 80);
+            }
+            catch
+            {
+                return (Array.Empty<byte>(), 0, 0);
+            }
+            finally
+            {
+                try { File.Delete(tempJpeg); } catch { }
+            }
         }
     }
 }

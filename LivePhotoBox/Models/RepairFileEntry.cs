@@ -67,6 +67,15 @@ namespace LivePhotoBox.Models
 
             if (Thumbnail == null && !string.IsNullOrWhiteSpace(value))
             {
+                if (ThumbnailService.IsVideoFilePath(value))
+                {
+                    // 设置开关：关 = 扫描时不加载视频（由 ContainerContentChanging 可见时加载）
+                    bool loadScan = AppSettingsService.GetValue("IsRepairScanLoadThumbnail", false);
+                    if (loadScan)
+                        ThumbnailService.BackgroundVideoLoad(value, App.MainWindow?.DispatcherQueue);
+                    return;
+                }
+
                 var dispatcher = App.MainWindow?.DispatcherQueue;
                 if (dispatcher != null)
                 {

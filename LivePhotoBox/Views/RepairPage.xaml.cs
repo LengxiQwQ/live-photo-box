@@ -75,7 +75,11 @@ namespace LivePhotoBox.Views
                 if (ViewModel.IsScanning)
                     _scroller.NotifyScanStarting();
                 else
+                {
                     _scroller.NotifyScanFinished();
+                    // 扫描完成：加载当前可见条目的视频缩略图
+                    LoadVisibleVideoThumbnails();
+                }
             }
             else if (e.PropertyName == nameof(ViewModel.IsProcessing) && ViewModel.IsProcessing)
             {
@@ -161,7 +165,42 @@ namespace LivePhotoBox.Views
             ErrorDetailTip.IsOpen = true;
         }
 
-        private void RepairTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args) { }
+        /// <summary>扫描完成后，为当前可见的条目加载视频缩略图</summary>
+        private void LoadVisibleVideoThumbnails()
+        {
+            int count = ViewModel.Tasks.Count;
+            if (count == 0) return;
+
+            for (int i = 0; i < count; i++)
+            {
+                // ContainerFromIndex 非 null = 该条目当前在可视区域内
+                if (RepairTaskListView.ContainerFromIndex(i) != null &&
+                    ViewModel.Tasks[i] is RepairTask task && task.Thumbnail == null)
+                {
+                    task.File1Entry?.EnsureThumbnailAsync();
+                }
+            }
+        }
+
+        private void RepairTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+        {
+            // 容器回收（滚动出屏幕）→ 取消还在队列中等待的视频加载
+            if (args.InRecycleQueue && args.Item is RepairTask oldTask)
+            {
+                ThumbnailService.CancelPendingVideoLoad(oldTask.File1Entry?.FilePath ?? "");
+                return;
+            }
+
+            // 可见条目：确保缩略图加载
+            if (args.Item is RepairTask task && task.Thumbnail == null)
+            {
+                // 如果关闭了"扫描时加载"，扫描期间不触发视频加载
+                if (ViewModel.IsScanning && !AppSettingsService.GetValue("IsRepairScanLoadThumbnail", false))
+                    return;
+
+                task.File1Entry?.EnsureThumbnailAsync();
+            }
+        }
         private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args) => ErrorDetailTip.Target = null;
     }
 }

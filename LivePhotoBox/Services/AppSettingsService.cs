@@ -17,5 +17,11 @@ namespace LivePhotoBox.Services
         {
             LocalSettings.Values[key] = value;
         }
+
+        /// <summary>清空所有设置，下次读取时全部走默认值</summary>
+        public static void ClearAll()
+        {
+            LocalSettings.Values.Clear();
+        }
     }
 }

@@ -70,48 +70,85 @@
                     </Expander.Content>
                 </Expander>
 
-                <!-- 统计栏 -->
-                <Border Background="{ThemeResource CardBackgroundBrush}" CornerRadius="8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="16,10,16,10">
+                <!-- 统计栏（左对齐上下两两成对 + 右侧输出模式/扫描按钮水平并列） -->
+                <Border Background="{ThemeResource CardBackgroundBrush}" CornerRadius="8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="16,8,16,8">
                     <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="56"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="56"/>
+                            <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="18" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="RepairPage_StatTotalPhotos" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.TotalPhotosCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="RepairPage_StatThumbCorrect" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.ThumbCorrectCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="RepairPage_StatThumbError" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.ThumbErrorCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="RepairPage_StatPaired" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="RepairPage_StatStandaloneImg" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.StandaloneImagesCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="RepairPage_StatStandaloneVid" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="13" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.StandaloneVideosCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
-                        </StackPanel>
+                        <!-- 第一对：总照片数 / 配对成功（共享列宽，上下数字左对齐） -->
+                        <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="0" VerticalAlignment="Center">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" x:Uid="RepairPage_StatTotalPhotos" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.TotalPhotosCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" x:Uid="RepairPage_StatPaired" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="6,4,0,0"/>
+                        </Grid>
 
-                        <Button Grid.Column="1"
-                                Margin="12,0,0,0"
-                                Command="{x:Bind ViewModel.ScanDirectoryCommand}"
-                                Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
-                                Style="{x:Bind ViewModel.ScanButtonStyle, Mode=OneWay}"
-                                IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
-                                VerticalAlignment="Center" />
+                        <!-- 第二对：正常 / 单独照片（共享列宽，上下数字左对齐） -->
+                        <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="2" VerticalAlignment="Center">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" x:Uid="RepairPage_StatThumbCorrect" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.ThumbCorrectCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" x:Uid="RepairPage_StatStandaloneImg" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.StandaloneImagesCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="6,4,0,0"/>
+                        </Grid>
+
+                        <!-- 第三对：异常 / 单独视频（共享列宽，上下数字左对齐） -->
+                        <Grid Grid.Row="0" Grid.RowSpan="2" Grid.Column="4" VerticalAlignment="Center">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Row="0" Grid.Column="0" x:Uid="RepairPage_StatThumbError" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.ThumbErrorCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="6,0,0,0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="0" x:Uid="RepairPage_StatStandaloneVid" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center" Margin="0,4,0,0"/>
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.StandaloneVideosCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="6,4,0,0"/>
+                        </Grid>
+
+                        <!-- 右侧：输出模式 + 扫描按钮水平并列，跨两行垂直居中 -->
+                        <StackPanel Grid.Row="0" Grid.RowSpan="2" Grid.Column="6"
+                                    Orientation="Horizontal" Spacing="8"
+                                    VerticalAlignment="Center" HorizontalAlignment="Right" Margin="16,0,0,0">
+                            <TextBlock x:Uid="RepairPage_OutputModeLabel" FontSize="12" VerticalAlignment="Center"/>
+                            <ToggleSwitch x:Uid="RepairPage_OutputSwitch"
+                                          IsOn="{x:Bind ViewModel.IsOutputToDirectory, Mode=TwoWay}"
+                                          FontSize="12"/>
+                            <Button Command="{x:Bind ViewModel.ScanDirectoryCommand}"
+                                    Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
+                                    Style="{x:Bind ViewModel.ScanButtonStyle, Mode=OneWay}"
+                                    IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
+                                    VerticalAlignment="Center" />
+                        </StackPanel>
                     </Grid>
                 </Border>
             </StackPanel>

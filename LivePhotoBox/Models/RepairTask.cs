@@ -232,6 +232,13 @@ namespace LivePhotoBox.Models
                 case nameof(RepairFileEntry.HasErrorDetails):
                     File2HasErrorDetails = File2Entry?.HasErrorDetails ?? false;
                     break;
+                // Thumbnail forwarding — paired items use the photo's thumbnail
+                case "Thumbnail":
+                    if (IsPaired)
+                        RefreshThumbnail();
+                    else
+                        Thumbnail = File2Entry?.Thumbnail;
+                    break;
             }
         }
 
