@@ -499,6 +499,7 @@
                                                   FontSize="12"
                                                   HorizontalAlignment="Right"/>
                                 </Grid>
+
                             </StackPanel>
                         </Border>
                     </StackPanel>

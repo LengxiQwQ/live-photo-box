@@ -110,9 +110,9 @@ namespace LivePhotoBox.Models
         /// <summary>File2 行的可见性 — 单独文件时 Collapsed，配对时 Visible</summary>
         public Visibility File2Visibility => IsPaired ? Visibility.Visible : Visibility.Collapsed;
 
-        /// <summary>格子内边距 — 配对 top=16(照片80)/bot=19(视频80)，单独 bot=8(80)</summary>
+        /// <summary>格子内边距 — 配对 top/bot 对称=16（居中分隔线），单独 bot=8</summary>
         public Thickness GridPadding => IsPaired
-            ? new Thickness(8, 16, 8, 19)
+            ? new Thickness(8, 16, 8, 16)
             : new Thickness(8, 7, 8, 8);
 
         /// <summary>配对缩略图可见性 — 仅配对时 Visible（配合大缩略图 56×56）</summary>
