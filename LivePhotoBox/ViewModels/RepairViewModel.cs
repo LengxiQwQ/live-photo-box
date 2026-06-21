@@ -123,6 +123,133 @@ namespace LivePhotoBox.ViewModels
 
         public BulkObservableCollection<RepairTask> Tasks { get; } = [];
 
+        /// <summary>筛选后队列（ListView 实际绑定此集合）</summary>
+        public BulkObservableCollection<RepairTask> FilteredTasks { get; } = [];
+
+        /// <summary>筛选栏可见性 — 有任务时才显示</summary>
+        public Visibility FilterBarVisibility => Tasks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        #region Filter
+
+        [ObservableProperty]
+        private int _filterMode;
+
+        partial void OnFilterModeChanged(int value)
+        {
+            ApplyFilter();
+            OnPropertyChanged(nameof(ViewGroupVisibility));
+        }
+
+        [ObservableProperty]
+        private bool _isFilterEnabled;
+
+        partial void OnIsFilterEnabledChanged(bool value)
+        {
+            if (!value)
+            {
+                if (FilterMode != 0)
+                    FilterMode = 0;
+                FilteredTasks.ReplaceRange([..Tasks]);
+            }
+            OnPropertyChanged(nameof(ViewGroupVisibility));
+        }
+
+        /// <summary>当前浏览的分组名称（由滚动位置决定），如"实况照片组合"</summary>
+        private string _currentViewGroup = string.Empty;
+        public string CurrentViewGroup
+        {
+            get => _currentViewGroup;
+            set
+            {
+                if (SetProperty(ref _currentViewGroup, value))
+                    OnPropertyChanged(nameof(CurrentViewGroupText));
+            }
+        }
+
+        /// <summary>"当前显示：实况照片组合" 之类的完整文本</summary>
+        public string CurrentViewGroupText
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(CurrentViewGroup)) return string.Empty;
+                string label = ResourceService.GetString("RepairPage_ShowingLabel");
+                return $"{label} {CurrentViewGroup}";
+            }
+        }
+
+        /// <summary>分组标签可见性 — 仅"全部"、有任务、非扫描中时显示</summary>
+        public Visibility ViewGroupVisibility => FilterMode == 0 && Tasks.Count > 0 && !IsScanning ? Visibility.Visible : Visibility.Collapsed;
+
+        /// <summary>根据任务确定其所属分组名称</summary>
+        public static string GetTaskGroupName(RepairTask task)
+        {
+            if (task.IsPaired) return ResourceService.GetString("RepairPage_GroupHeaderPairs");
+            if (task.File1IsImage) return ResourceService.GetString("RepairPage_GroupHeaderStandaloneImg");
+            return ResourceService.GetString("RepairPage_GroupHeaderStandaloneVid");
+        }
+
+        private void ApplyFilter()
+        {
+            // 全部 → 恢复原始序号（扫描时的自然顺序）
+            if (FilterMode == 0)
+            {
+                int fileSeq = 1;
+                for (int i = 0; i < Tasks.Count; i++)
+                {
+                    var task = Tasks[i];
+                    task.Index = i + 1;
+                    task.File1Index = fileSeq++;
+                    if (task.File2Entry != null)
+                        task.File2Index = fileSeq++;
+                    else
+                        task.File2Index = 0;
+                }
+                FilteredTasks.ReplaceRange([..Tasks]);
+                OnPropertyChanged(nameof(ViewGroupVisibility));
+                return;
+            }
+
+            List<RepairTask> result = FilterMode switch
+            {
+                // 实况照片组合 → 仅配对项（一个格子里有两个文件）
+                1 => Tasks.Where(t => t.IsPaired).ToList(),
+                // 单独照片 → 仅含一个文件且为图片（排除实况照片中的图片）
+                2 => Tasks.Where(t => t.Entries.Count == 1 && t.File1IsImage).ToList(),
+                // 单独视频 → 仅含一个文件且为视频（排除实况照片中的视频）
+                3 => Tasks.Where(t => t.Entries.Count == 1 && !t.File1IsImage).ToList(),
+                _ => [..Tasks],
+            };
+
+            // 重新编号：不管筛选哪个分类，序号始终从 1 开始
+            int seq = 1;
+            for (int i = 0; i < result.Count; i++)
+            {
+                var task = result[i];
+                task.Index = i + 1;
+                task.File1Index = seq++;
+                if (task.File2Entry != null)
+                    task.File2Index = seq++;
+                else
+                    task.File2Index = 0;
+            }
+
+            FilteredTasks.ReplaceRange(result);
+            OnPropertyChanged(nameof(ViewGroupVisibility));
+        }
+
+        /// <summary>在扫描/处理状态切换时调用，更新 IsFilterEnabled 和筛选状态</summary>
+        private void UpdateFilterEnabled()
+        {
+            bool canFilter = !IsScanning && !IsProcessing && Tasks.Count > 0;
+            if (canFilter != IsFilterEnabled)
+            {
+                IsFilterEnabled = canFilter;
+            }
+            OnPropertyChanged(nameof(FilterBarVisibility));
+        }
+
+        #endregion
+
         private IAsyncRelayCommand? _openRepairInputFolderCommand;
         private IRelayCommand? _openRepairOutputFolderCommand;
 
@@ -141,6 +268,7 @@ namespace LivePhotoBox.ViewModels
         protected override void OnScanStateChanged(bool isScanning)
         {
             OnPropertyChanged(nameof(ScanButtonText));
+            UpdateFilterEnabled();
         }
 
         protected override void OnBeginScanSession()
@@ -232,6 +360,7 @@ namespace LivePhotoBox.ViewModels
         protected override void OnClearState()
         {
             Tasks.ReplaceRange([]);
+            FilteredTasks.ReplaceRange([]);
             TotalPhotosCount = 0;
             ThumbCorrectCount = 0;
             ThumbErrorCount = 0;
@@ -250,6 +379,7 @@ namespace LivePhotoBox.ViewModels
             IsDirectoryPanelOpen = true;
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
+            UpdateFilterEnabled();
         }
 
         protected override void OnCleanup()
@@ -264,6 +394,8 @@ namespace LivePhotoBox.ViewModels
             _scanCancellationTokenSource = null;
             OnPropertyChanged(nameof(IsProcessingAllowed));
             OnPropertyChanged(nameof(ActionBtnText));
+            OnPropertyChanged(nameof(ViewGroupVisibility));
+            UpdateFilterEnabled();
         }
 
         private Stopwatch _stopwatch = new();
@@ -498,25 +630,41 @@ namespace LivePhotoBox.ViewModels
                     }
                 }
 
-                // 组装工作列表：配对优先，然后是单独照片，最后是单独视频
-                var workItems = new List<(string? imagePath, string? videoPath, string baseName, bool isPaired)>();
+                // 组装各组工作列表，各组内按文件名排序
+                var pairList = new List<(string imagePath, string videoPath, string baseName)>();
+                var standaloneImgList = new List<(string imagePath, string baseName)>();
+                var standaloneVidList = new List<(string videoPath, string baseName)>();
 
                 foreach (var kvp in imgDict)
                 {
                     if (vidDict.TryGetValue(kvp.Key, out var vidPath))
                     {
-                        workItems.Add((kvp.Value, vidPath, kvp.Key, true));
+                        pairList.Add((kvp.Value, vidPath, kvp.Key));
                         vidDict.Remove(kvp.Key); // 已配对，不再作为单独视频
                     }
                     else
                     {
-                        workItems.Add((kvp.Value, null, kvp.Key, false));
+                        standaloneImgList.Add((kvp.Value, kvp.Key));
                     }
                 }
                 foreach (var kvp in vidDict)
                 {
-                    workItems.Add((null, kvp.Value, kvp.Key, false));
+                    standaloneVidList.Add((kvp.Value, kvp.Key));
                 }
+
+                // 各组内按文件名排序
+                pairList.Sort((a, b) => string.Compare(a.baseName, b.baseName, StringComparison.OrdinalIgnoreCase));
+                standaloneImgList.Sort((a, b) => string.Compare(a.baseName, b.baseName, StringComparison.OrdinalIgnoreCase));
+                standaloneVidList.Sort((a, b) => string.Compare(a.baseName, b.baseName, StringComparison.OrdinalIgnoreCase));
+
+                // 组装有序工作列表：实况照片组合 → 单独照片 → 单独视频
+                var workItems = new List<(string? imagePath, string? videoPath, string baseName, bool isPaired)>();
+                foreach (var (img, vid, name) in pairList)
+                    workItems.Add((img, vid, name, true));
+                foreach (var (img, name) in standaloneImgList)
+                    workItems.Add((img, null, name, false));
+                foreach (var (vid, name) in standaloneVidList)
+                    workItems.Add((null, vid, name, false));
 
                 // 计算统计
                 int pairCount = workItems.Count(w => w.isPaired);
@@ -563,6 +711,7 @@ namespace LivePhotoBox.ViewModels
                             foreach (var task in batch)
                             {
                                 Tasks.Add(task);
+                                FilteredTasks.Add(task);
                                 foreach (var entry in task.Entries)
                                 {
                                     if (entry.NeedsRepair) thumbError++;
@@ -584,6 +733,7 @@ namespace LivePhotoBox.ViewModels
                         if (token.IsCancellationRequested) break;
 
                         var (imagePath, videoPath, baseName, isPaired) = workItems[wi];
+
                         taskGridIndex = wi + 1;
 
                         RepairFileEntry? imageEntry = null;
@@ -648,7 +798,7 @@ namespace LivePhotoBox.ViewModels
                     App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                     {
                         Tasks.ReplaceRange([]);
-                        TotalPhotosCount = 0;
+                        FilteredTasks.ReplaceRange([]);
                         ThumbCorrectCount = 0;
                         ThumbErrorCount = 0;
                         TotalPairsCount = 0;
@@ -813,6 +963,9 @@ namespace LivePhotoBox.ViewModels
         private async Task RunTasksAsync()
         {
             InitializeRunState();
+            // 开始修复：强制回"全部"并禁用筛选
+            FilterMode = 0;
+            UpdateFilterEnabled();
             _stopwatch = Stopwatch.StartNew();
 
             var token = GetProcessingToken();
@@ -949,6 +1102,8 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 FinalizeRunState();
+                // 修复结束：恢复筛选可用
+                UpdateFilterEnabled();
 
                 if (Tasks.Count > 0 && !_isCleaningUp)
                 {

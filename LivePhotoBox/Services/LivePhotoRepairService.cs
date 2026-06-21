@@ -311,22 +311,7 @@ namespace LivePhotoBox.Services
             bool needsRebuild = isHeic ? needsOrientationFix : tags.Any(t => t.Contains("°"));
             RepairIssueType type = needsRebuild ? RepairIssueType.NeedsRebuild : RepairIssueType.NeedsStrip;
 
-            string lang = LanguageService.GetCurrentLanguageTag();
-            string finalDescription;
-            if (!string.IsNullOrWhiteSpace(lang) && lang.StartsWith("zh", StringComparison.OrdinalIgnoreCase))
-            {
-                var formattedLines = new List<string>();
-                for (int i = 0; i < tags.Count; i += 2)
-                {
-                    var lineTags = tags.Skip(i).Take(2);
-                    formattedLines.Add(string.Join(" ", lineTags));
-                }
-                finalDescription = string.Join("\n", formattedLines);
-            }
-            else
-            {
-                finalDescription = string.Join(" ", tags);
-            }
+            string finalDescription = string.Join("\n", tags);
 
             return new RepairAnalysisResult
             {

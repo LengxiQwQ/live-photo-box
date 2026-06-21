@@ -1530,4 +1530,31 @@ Place any of these files into the same folder.</value>
   <data name="SettingsPage_ScanThumbnailToggle.OffContent" xml:space="preserve">
     <value>Off</value>
   </data>
+  <data name="RepairPage_GroupHeaderPairs" xml:space="preserve">
+    <value>Live Photo Pairs</value>
+  </data>
+  <data name="RepairPage_GroupHeaderStandaloneImg" xml:space="preserve">
+    <value>Standalone Photos</value>
+  </data>
+  <data name="RepairPage_GroupHeaderStandaloneVid" xml:space="preserve">
+    <value>Standalone Videos</value>
+  </data>
+  <data name="RepairPage_FilterLabel.Text" xml:space="preserve">
+    <value>Filter:</value>
+  </data>
+  <data name="RepairPage_FilterAll.Content" xml:space="preserve">
+    <value>All</value>
+  </data>
+  <data name="RepairPage_FilterPairs.Content" xml:space="preserve">
+    <value>Live Photos</value>
+  </data>
+  <data name="RepairPage_FilterStandaloneImg.Content" xml:space="preserve">
+    <value>Photos</value>
+  </data>
+  <data name="RepairPage_FilterStandaloneVid.Content" xml:space="preserve">
+    <value>Videos</value>
+  </data>
+  <data name="RepairPage_ShowingLabel" xml:space="preserve">
+    <value>Showing:</value>
+  </data>
 </root>
