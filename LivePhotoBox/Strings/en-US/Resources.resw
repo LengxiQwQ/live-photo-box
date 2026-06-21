@@ -1522,7 +1522,7 @@ Place any of these files into the same folder.</value>
     <value>Load thumbnails during scan</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggleDesc.Text" xml:space="preserve">
-    <value>When off, video thumbnails are skipped during scanning.</value>
+    <value>When off, video thumbnails are skipped during scanning. (Enabling this may cause lag)</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggle.OnContent" xml:space="preserve">
     <value>On</value>
