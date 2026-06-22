@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Models;
+using LivePhotoBox.Services.Protocols;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
@@ -15,73 +16,77 @@ namespace LivePhotoBox.Services
             return $"{baseName}.jpg";
         }
 
-        public static async Task WriteLivePhotoAsync(string sourceImg, string sourceVid, string targetPath, int selectedModeIndex, CancellationToken token)
+        public static async Task WriteLivePhotoAsync(
+            string sourceImg,
+            string sourceVid,
+            string targetPath,
+            int selectedModeIndex,
+            CancellationToken token)
         {
+            var protocol = LivePhotoProtocol.FromIndex(selectedModeIndex);
             long videoSize = new FileInfo(sourceVid).Length;
-            string xmpContent = CreateXmpContent(selectedModeIndex, videoSize);
-            await WriteNativeAsync(sourceImg, sourceVid, targetPath, xmpContent, token);
+            byte[] xmpBytes = protocol.BuildXmpMetadata(videoSize);
+            await WriteNativeAsync(sourceImg, sourceVid, targetPath, xmpBytes, token);
         }
 
-        private static string CreateXmpContent(int selectedModeIndex, long videoSize)
+        /// <summary>
+        /// Write the combined JPEG + XMP + video file.
+        /// Image pre-processing (e.g. OPPO EXIF injection) is expected to be handled
+        /// by the caller via <see cref="LivePhotoProtocol.PrepareImageAsync"/>.
+        /// </summary>
+        public static async Task WriteNativeAsync(
+            string sourceImg,
+            string sourceVid,
+            string targetPath,
+            byte[] xmpBytes,
+            CancellationToken token)
         {
-            if (selectedModeIndex == 0)
-            {
-                return $@"<?xpacket begin="""" id=""W5M0MpCehiHzreSzNTczkc9d""?>
-<x:xmpmeta xmlns:x=""adobe:ns:meta/"">
-  <rdf:RDF xmlns:rdf=""http://www.w3.org/1999/02/22-rdf-syntax-ns#"">
-    <rdf:Description rdf:about="""" xmlns:GCamera=""http://ns.google.com/photos/1.0/camera/""
-      GCamera:MicroVideo=""1"" 
-      GCamera:MicroVideoVersion=""1"" 
-      GCamera:MicroVideoOffset=""{videoSize}"" 
-      GCamera:MicroVideoPresentationTimestampUs=""0""/>
-  </rdf:RDF>
-</x:xmpmeta>
-<?xpacket end=""w""?>";
-            }
-
-            return $@"<?xpacket begin="""" id=""W5M0MpCehiHzreSzNTczkc9d""?>
-<x:xmpmeta xmlns:x=""adobe:ns:meta/""><rdf:RDF xmlns:rdf=""http://www.w3.org/1999/02/22-rdf-syntax-ns#"">
-<rdf:Description rdf:about="""" xmlns:GCamera=""http://ns.google.com/photos/1.0/camera/"" xmlns:Container=""http://ns.google.com/photos/1.0/container/"" xmlns:Item=""http://ns.google.com/photos/1.0/container/item/""
-GCamera:MotionPhoto=""1"" GCamera:MotionPhotoVersion=""1"" GCamera:MotionPhotoPresentationTimestampUs=""0"">
-<Container:Directory><rdf:Seq><rdf:li rdf:parseType=""Resource""><Container:Item Item:Mime=""image/jpeg"" Item:Semantic=""Primary"" Item:Length=""0"" Item:Padding=""0""/></rdf:li>
-<rdf:li rdf:parseType=""Resource""><Container:Item Item:Mime=""video/mp4"" Item:Semantic=""MotionPhoto"" Item:Length=""{videoSize}"" Item:Padding=""0""/></rdf:li>
-</rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end=""w""?>";
-        }
-
-        private static async Task WriteNativeAsync(string sourceImg, string sourceVid, string targetPath, string xmpXml, CancellationToken token)
-        {
-            byte[] xmpHeader = Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0");
-            byte[] xmpXmlBytes = Encoding.UTF8.GetBytes(xmpXml);
-
-            int segmentLength = 2 + xmpHeader.Length + xmpXmlBytes.Length;
+            int segmentLength = 2 + XmpHeader.Length + xmpBytes.Length;
             if (segmentLength > ushort.MaxValue)
             {
                 LogService.Combo($"XMP metadata too large: {segmentLength} bytes", LogLevel.Error);
-                throw new InvalidOperationException(ResourceService.Format("Error_XmpMetadataTooLarge", segmentLength));
+                throw new InvalidOperationException(
+                    ResourceService.Format("Error_XmpMetadataTooLarge", segmentLength));
             }
 
-            using var imgFs = new FileStream(sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, true);
+            using var imgFs = new FileStream(
+                sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 8192, useAsync: true);
+
             if (imgFs.Length < 2 || imgFs.ReadByte() != 0xFF || imgFs.ReadByte() != 0xD8)
             {
                 LogService.Combo($"Invalid JPEG file: {sourceImg}", LogLevel.Error);
                 throw new InvalidDataException(ResourceService.GetString("Error_InvalidJpegFile"));
             }
 
-            using var targetFs = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None, 8192, true);
+            using var targetFs = new FileStream(
+                targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
+                bufferSize: 8192, useAsync: true);
 
+            // Write SOI
             targetFs.WriteByte(0xFF);
             targetFs.WriteByte(0xD8);
+
+            // Write APP1 XMP
             targetFs.WriteByte(0xFF);
             targetFs.WriteByte(0xE1);
             targetFs.WriteByte((byte)(segmentLength >> 8));
             targetFs.WriteByte((byte)(segmentLength & 0xFF));
-            await targetFs.WriteAsync(xmpHeader, 0, xmpHeader.Length, token);
-            await targetFs.WriteAsync(xmpXmlBytes, 0, xmpXmlBytes.Length, token);
+            await targetFs.WriteAsync(XmpHeader, 0, XmpHeader.Length, token);
+            await targetFs.WriteAsync(xmpBytes, 0, xmpBytes.Length, token);
 
+            // Copy the rest of the JPEG (excluding SOI which we already wrote)
             await imgFs.CopyToAsync(targetFs, token);
 
-            using var vidFs = new FileStream(sourceVid, FileMode.Open, FileAccess.Read, FileShare.Read, 8192, true);
+            // Append video
+            using var vidFs = new FileStream(
+                sourceVid, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 8192, useAsync: true);
             await vidFs.CopyToAsync(targetFs, token);
         }
+
+        /// <summary>Adobe XMP APP1 segment header (29 bytes including NUL).</summary>
+        private static readonly byte[] XmpHeader =
+            Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0");
     }
 }

@@ -517,10 +517,14 @@ namespace LivePhotoBox.Services
             bool needsRotation = analysis.IssueType == RepairIssueType.NeedsRebuild;
             bool hasThumbnail = analysis.HasThumbnail;
 
-            // 临时文件扩展名跟随原格式，避免 jhead 对 HEIC 文件报错
+            // 临时文件放在目标文件同目录的 Temp 子文件夹，保证 File.Move 是同盘原子操作
             string ext = Path.GetExtension(sourcePath);
             if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
-            string tempWorkFile = Path.Combine(Path.GetTempPath(), $"lpb_repair_{Guid.NewGuid():N}{ext}");
+            string imgRepairTempDir = Path.Combine(
+                Path.GetDirectoryName(Path.GetFullPath(targetPath)) ?? Path.GetTempPath(),
+                "Temp");
+            Directory.CreateDirectory(imgRepairTempDir);
+            string tempWorkFile = Path.Combine(imgRepairTempDir, $"repair_{Guid.NewGuid():N}{ext}");
 
             try
             {
@@ -643,9 +647,10 @@ namespace LivePhotoBox.Services
                 Path.GetFullPath(targetPath),
                 StringComparison.OrdinalIgnoreCase);
 
-            string tempOutput = Path.Combine(
-                Path.GetTempPath(),
-                $"lpb_vrepair_{Guid.NewGuid():N}{Path.GetExtension(targetPath)}");
+            // 临时文件放在目标目录的 Temp 子文件夹，保证 File.Move 是同盘原子操作
+            string videoTempDir = Path.Combine(targetDir ?? Path.GetTempPath(), "Temp");
+            Directory.CreateDirectory(videoTempDir);
+            string tempOutput = Path.Combine(videoTempDir, $"repair_{Guid.NewGuid():N}{Path.GetExtension(targetPath)}");
 
             try
             {

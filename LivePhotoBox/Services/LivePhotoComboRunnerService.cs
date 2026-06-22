@@ -1,4 +1,5 @@
 using LivePhotoBox.Models;
+using LivePhotoBox.Services.Protocols;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -27,40 +28,51 @@ namespace LivePhotoBox.Services
             Action<ComboTask, bool, string, int>? onTaskCompleted)
         {
             Directory.CreateDirectory(options.OutputDirectory);
+            string tempDir = Path.Combine(options.OutputDirectory, "Temp");
+            Directory.CreateDirectory(tempDir);
 
-            int completedCount = 0;
-            DateTimeOffset nextAllowedBatchStartTime = DateTimeOffset.MinValue;
-            int batchSize = Math.Max(1, options.MaxDegreeOfParallelism);
-
-            foreach (var batch in tasks.Where(task => task.Status != ProcessStatus.Success).Chunk(batchSize))
+            try
             {
-                await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
+                int completedCount = 0;
+                DateTimeOffset nextAllowedBatchStartTime = DateTimeOffset.MinValue;
+                int batchSize = Math.Max(1, options.MaxDegreeOfParallelism);
 
-                var now = DateTimeOffset.UtcNow;
-                var delay = nextAllowedBatchStartTime - now;
-                if (delay > TimeSpan.Zero)
-                {
-                    await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
-                }
-
-                nextAllowedBatchStartTime = DateTimeOffset.UtcNow + options.TaskStartInterval;
-
-                var runningTasks = batch.Select(async task =>
+                foreach (var batch in tasks.Where(task => task.Status != ProcessStatus.Success).Chunk(batchSize))
                 {
                     await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
 
-                    onTaskStarted?.Invoke(task);
+                    var now = DateTimeOffset.UtcNow;
+                    var delay = nextAllowedBatchStartTime - now;
+                    if (delay > TimeSpan.Zero)
+                    {
+                        await Task.Delay(delay, cancellationToken).ConfigureAwait(false);
+                    }
 
-                    var result = await ProcessSinglePairAsync(
-                        task.ImagePath, task.VideoPath, task.BaseName, options, pauseEvent, cancellationToken)
-                        .ConfigureAwait(false);
-                    int currentCompleted = Interlocked.Increment(ref completedCount);
-                    onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
-                });
+                    nextAllowedBatchStartTime = DateTimeOffset.UtcNow + options.TaskStartInterval;
 
-                await Task.WhenAll(runningTasks).ConfigureAwait(false);
+                    var runningTasks = batch.Select(async task =>
+                    {
+                        await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        onTaskStarted?.Invoke(task);
+
+                        var result = await ProcessSinglePairAsync(
+                            task.ImagePath, task.VideoPath, task.BaseName, options, tempDir,
+                            pauseEvent, cancellationToken)
+                            .ConfigureAwait(false);
+                        int currentCompleted = Interlocked.Increment(ref completedCount);
+                        onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
+                    });
+
+                    await Task.WhenAll(runningTasks).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
+                catch (Exception ex) { LogService.Combo($"Failed to clean temp dir: {ex.Message}", LogLevel.Warning); }
             }
         }
 
@@ -89,29 +101,42 @@ namespace LivePhotoBox.Services
             string videoPath,
             string baseName,
             LivePhotoComboRunOptions options,
+            string tempDir,
             ManualResetEventSlim pauseEvent,
             CancellationToken token)
         {
+            var protocol = LivePhotoProtocol.FromIndex(options.SelectedModeIndex);
             string workingImagePath = imagePath;
+            string workingVideoPath = videoPath;
+            var tempFiles = new List<string>();
             try
             {
                 token.ThrowIfCancellationRequested();
 
                 if (HeicConverterService.IsHeicFile(imagePath))
                 {
-                    workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, options.OutputDirectory, token);
-                    // HEIC 转换耗时较长，完成后检查用户是否点了暂停
+                    workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, tempDir, token);
+                    tempFiles.Add(workingImagePath);
                     await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
                     token.ThrowIfCancellationRequested();
+                }
+
+                (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token);
+                if (vt) tempFiles.Add(workingVideoPath);
+
+                string prepared = await protocol.PrepareImageAsync(workingImagePath, tempDir, token);
+                if (prepared != workingImagePath)
+                {
+                    workingImagePath = prepared;
+                    tempFiles.Add(workingImagePath);
                 }
 
                 string outputName = LivePhotoComboService.CreateOutputFileName(baseName, options.SelectedModeIndex);
                 string finalOutputPath = Path.Combine(options.OutputDirectory, outputName);
 
-                // 合成前再检查一次暂停，提供更即时的暂停响应
                 await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
-                await LivePhotoComboService.WriteLivePhotoAsync(workingImagePath, videoPath, finalOutputPath, options.SelectedModeIndex, token);
+                await LivePhotoComboService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token);
 
                 return (true, ResourceService.GetString("Task_Success"));
             }
@@ -126,11 +151,8 @@ namespace LivePhotoBox.Services
             }
             finally
             {
-                if (workingImagePath != imagePath && File.Exists(workingImagePath))
-                {
-                    try { File.Delete(workingImagePath); }
-                    catch { }
-                }
+                foreach (var f in tempFiles)
+                    try { if (File.Exists(f)) File.Delete(f); } catch { }
             }
         }
     }

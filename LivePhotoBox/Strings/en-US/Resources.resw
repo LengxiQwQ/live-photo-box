@@ -670,6 +670,9 @@ Do you want to restart now?</value>
   <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
     <value>(Old) Google Motion Photo (V2)</value>
   </data>
+  <data name="SettingsPage_Protocol_Oppo.Content" xml:space="preserve">
+    <value>OPPO / OnePlus Live Photo (O-Live Photo)</value>
+  </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
   </data>

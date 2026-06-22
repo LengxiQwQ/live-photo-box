@@ -669,6 +669,9 @@
   <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
     <value>(推荐) Google Motion Photo (V2)</value>
   </data>
+  <data name="SettingsPage_Protocol_Oppo.Content" xml:space="preserve">
+    <value>OPPO / 一加 实况照片 (O-Live Photo)</value>
+  </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
   </data>
