@@ -302,6 +302,107 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
+        /// Ensure the source video is in MP4 format, transcoding if necessary.
+        /// If already MP4, returns the original path with zero overhead.
+        /// If MOV (or other), transcodes to a temp file in <paramref name="workDir"/>.
+        /// </summary>
+        /// <returns>
+        /// (pathToUse, wasTranscoded):
+        ///   pathToUse — original or temp file path;
+        ///   wasTranscoded — true when a temp file was created (caller must clean up).
+        /// </returns>
+        public static async Task<(string Path, bool WasTranscoded)> EnsureMp4Async(
+            string inputPath,
+            string workDir,
+            CancellationToken token = default)
+        {
+            // Already MP4? No-op.
+            if (DetectContainerFormat(inputPath) == "mp4")
+                return (inputPath, false);
+
+            LogService.Combo(
+                $"Auto-transcoding to MP4: '{Path.GetFileName(inputPath)}'",
+                LogLevel.Debug);
+
+            string tempPath = Path.Combine(
+                workDir,
+                $"{Path.GetFileNameWithoutExtension(inputPath)}_combo_trans.mp4");
+
+            if (File.Exists(tempPath))
+                try { File.Delete(tempPath); } catch { }
+
+            var result = await TranscodeToMp4Async(inputPath, tempPath, token);
+
+            if (!result.Success)
+            {
+                string msg = result.ErrorMessage ?? "Unknown error";
+                LogService.Combo(
+                    $"Transcode failed: {msg}", LogLevel.Error);
+                throw new InvalidOperationException(
+                    $"Failed to transcode video to MP4: {msg}");
+            }
+
+            string label = result.WasRemux ? "remuxed" : "transcoded";
+            LogService.Combo(
+                $"Video {label} ({result.Duration.TotalSeconds:F1}s): " +
+                $"{Path.GetFileName(inputPath)} → {Path.GetFileName(tempPath)}",
+                LogLevel.Debug);
+
+            return (tempPath, true);
+        }
+
+        // ── container detection ───────────────────────────────────────
+
+        /// <summary>Detect video container from ftyp box, falling back to extension.</summary>
+        private static string DetectContainerFormat(string path)
+        {
+            if (!File.Exists(path))
+                return "unknown";
+
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            try
+            {
+                using var fs = new FileStream(
+                    path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                    bufferSize: 64, options: FileOptions.SequentialScan);
+
+                byte[] header = new byte[16];
+                if (fs.Read(header, 0, header.Length) < 12)
+                    return ExtToFormat(ext);
+
+                string boxType = System.Text.Encoding.ASCII.GetString(header, 4, 4);
+                if (boxType != "ftyp")
+                    return ExtToFormat(ext);
+
+                string majorBrand = System.Text.Encoding.ASCII.GetString(header, 8, 4);
+                return majorBrand switch
+                {
+                    "qt  " => "mov",
+                    "mp41" => "mp4",
+                    "mp42" => "mp4",
+                    "isom" => "mp4",
+                    "avc1" => "mp4",
+                    "iso2" => "mp4",
+                    "mmp4" => "mp4",
+                    "MSNV" => "mp4",
+                    _ => ExtToFormat(ext),
+                };
+            }
+            catch
+            {
+                return ExtToFormat(ext);
+            }
+        }
+
+        private static string ExtToFormat(string ext) => ext switch
+        {
+            ".mp4" => "mp4",
+            ".mov" => "mov",
+            ".m4v" => "mp4",
+            _      => "unknown",
+        };
+
+        /// <summary>
         /// 通用视频转码方法（支持降级重试）
         /// </summary>
         private static async Task<TranscodeResult> TranscodeAsync(

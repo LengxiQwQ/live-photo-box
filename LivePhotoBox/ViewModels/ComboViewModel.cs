@@ -4,6 +4,7 @@ using LivePhotoBox.Collections;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using LivePhotoBox.Services.Protocols;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
@@ -543,6 +544,10 @@ namespace LivePhotoBox.ViewModels
             int modeIndex = SelectedModeIndex;
             Directory.CreateDirectory(outputDir);
 
+            // 所有临时文件统一放在 Temp 子目录，处理完毕后整体删除
+            string tempDir = Path.Combine(outputDir, "Temp");
+            Directory.CreateDirectory(tempDir);
+
             try
             {
                 await Task.Run(async () =>
@@ -582,18 +587,37 @@ namespace LivePhotoBox.ViewModels
                             string detailMessage = string.Empty;
                             bool isCanceled = false;
 
+                            var protocol = LivePhotoProtocol.FromIndex(modeIndex);
                             string outputName = LivePhotoComboService.CreateOutputFileName(task.BaseName, modeIndex);
                             string finalPath = Path.Combine(outputDir, outputName);
                             string workingImagePath = task.ImagePath;
+                            string workingVideoPath = task.VideoPath;
+                            var tempFiles = new System.Collections.Generic.List<string>();
 
                             try
                             {
                                 if (HeicConverterService.IsHeicFile(workingImagePath))
+                                {
                                     workingImagePath = await HeicConverterService.ConvertToJpegAsync(
-                                        workingImagePath, outputDir, token);
+                                        workingImagePath, tempDir, token);
+                                    tempFiles.Add(workingImagePath);
+                                }
+
+                                (workingVideoPath, bool vt) =
+                                    await VideoTranscodeService.EnsureMp4Async(
+                                        task.VideoPath, tempDir, token);
+                                if (vt) tempFiles.Add(workingVideoPath);
+
+                                string prepared = await protocol.PrepareImageAsync(
+                                    workingImagePath, tempDir, token);
+                                if (prepared != workingImagePath)
+                                {
+                                    workingImagePath = prepared;
+                                    tempFiles.Add(workingImagePath);
+                                }
 
                                 await LivePhotoComboService.WriteLivePhotoAsync(
-                                    workingImagePath, task.VideoPath, finalPath, modeIndex, token);
+                                    workingImagePath, workingVideoPath, finalPath, modeIndex, token);
 
                                 isSuccess = true;
                                 detailMessage = ResourceService.GetString("Task_Success");
@@ -611,11 +635,10 @@ namespace LivePhotoBox.ViewModels
                             }
                             finally
                             {
-                                // 失败或取消时清理输出文件和临时转码文件
                                 if (!isSuccess)
                                     try { if (File.Exists(finalPath)) File.Delete(finalPath); } catch { }
-                                if (workingImagePath != task.ImagePath && File.Exists(workingImagePath))
-                                    try { File.Delete(workingImagePath); } catch { }
+                                foreach (var f in tempFiles)
+                                    try { if (File.Exists(f)) File.Delete(f); } catch { }
                             }
 
                             int currentCompleted = 0;
@@ -733,6 +756,11 @@ namespace LivePhotoBox.ViewModels
             }
             finally
             {
+                // 清理所有临时文件
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
+                catch (Exception ex) { LogService.Combo($"Failed to clean temp dir: {ex.Message}", LogLevel.Warning); }
+
+                _stopwatch.Stop();
                 _stopwatch.Stop();
                 bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();

@@ -3,6 +3,7 @@ using System;
 using System.Buffers;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -111,108 +112,80 @@ namespace LivePhotoBox.Services
                 await CopyJpegStrippingLivePhotoMetadataAsync(sourceStream, imageOutputStream, imageLength, token);
             }
 
-            // 2. 提取视频部分（临时文件）
-            string tempVideoPath = videoOutputPath + ".tmp";
+            // 2. 提取视频部分到临时文件，使用 try-finally 保证任何异常/取消都会清理
+            string tempDir = Path.Combine(outputDirectory, "Temp");
+            Directory.CreateDirectory(tempDir);
+            string tempVideoPath = Path.Combine(tempDir, Path.GetFileName(videoOutputPath) + ".tmp");
+
             sourceStream.Position = imageLength;
             await using (var videoOutputStream = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
                 await CopyExactLengthAsync(sourceStream, videoOutputStream, videoLength, token);
             }
 
-            // 3. 检查是否需要处理
-            bool needsProcessing = selectedSplitFormatIndex switch
+            try
             {
-                1 => true,  // 用户明确选择 MP4
-                2 => true,  // 用户明确选择 MOV
-                _ => false  // 默认格式，直接使用原视频
-            };
-
-            if (needsProcessing)
-            {
-                // 检测源视频格式
-                string sourceVideoExtension = await DetectDefaultVideoExtensionAsync(sourceStream, imageLength, metadataText, token);
-                bool formatMatches = (selectedSplitFormatIndex == 1 && sourceVideoExtension == ".mp4") ||
-                                    (selectedSplitFormatIndex == 2 && sourceVideoExtension == ".mov");
-
-                LogService.Split($"needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}", LogLevel.Debug);
-
-                if (formatMatches)
+                // 3. 检查是否需要处理
+                bool needsProcessing = selectedSplitFormatIndex switch
                 {
-                    // 格式完全匹配，使用 FFmpeg remux（快速无损转换容器，完整保留 HDR 元数据）
-                    LogService.Split($"Remuxing video (container only): {sourceVideoExtension} -> {targetExtension}", LogLevel.Debug);
-                    var remuxResult = await VideoTranscodeService.RemuxAsync(tempVideoPath, videoOutputPath, token);
+                    1 => true,  // 用户明确选择 MP4
+                    2 => true,  // 用户明确选择 MOV
+                    _ => false  // 默认格式，直接使用原视频
+                };
 
-                    if (remuxResult.Success)
+                if (needsProcessing)
+                {
+                    // 检测源视频格式
+                    string sourceVideoExtension = await DetectDefaultVideoExtensionAsync(sourceStream, imageLength, metadataText, token);
+                    bool formatMatches = (selectedSplitFormatIndex == 1 && sourceVideoExtension == ".mp4") ||
+                                        (selectedSplitFormatIndex == 2 && sourceVideoExtension == ".mov");
+
+                    LogService.Split($"needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}", LogLevel.Debug);
+
+                    if (formatMatches)
                     {
-                        // remux 成功，删除临时文件
-                        if (File.Exists(tempVideoPath))
-                        {
-                            File.Delete(tempVideoPath);
-                        }
+                        LogService.Split($"Remuxing video (container only): {sourceVideoExtension} -> {targetExtension}", LogLevel.Debug);
+                        var remuxResult = await VideoTranscodeService.RemuxAsync(tempVideoPath, videoOutputPath, token);
+                        if (!remuxResult.Success)
+                            throw new InvalidOperationException($"Video remux failed: {remuxResult.ErrorMessage}");
                     }
                     else
                     {
-                        // remux 失败，抛出异常让上层处理
-                        LogService.Split($"Remux failed: {remuxResult.ErrorMessage}", LogLevel.Error);
-                        if (File.Exists(tempVideoPath))
-                        {
-                            File.Delete(tempVideoPath);
-                        }
-                        if (File.Exists(videoOutputPath))
-                        {
-                            File.Delete(videoOutputPath);
-                        }
-                        throw new InvalidOperationException($"Video remux failed: {remuxResult.ErrorMessage}");
+                        LogService.Split($"Transcoding video: {sourceVideoExtension} -> {targetExtension}", LogLevel.Debug);
+                        var transcodeResult = selectedSplitFormatIndex == 1
+                            ? await VideoTranscodeService.TranscodeToMp4Async(tempVideoPath, videoOutputPath, token)
+                            : await VideoTranscodeService.TranscodeToMovAsync(tempVideoPath, videoOutputPath, token);
+                        if (!transcodeResult.Success)
+                            throw new InvalidOperationException($"Video transcode failed: {transcodeResult.ErrorMessage}");
                     }
                 }
                 else
                 {
-                    // 格式不匹配，需要转码
-                    LogService.Split($"Transcoding video: {sourceVideoExtension} -> {targetExtension}", LogLevel.Debug);
-
-                    var transcodeResult = selectedSplitFormatIndex == 1
-                        ? await VideoTranscodeService.TranscodeToMp4Async(tempVideoPath, videoOutputPath, token)
-                        : await VideoTranscodeService.TranscodeToMovAsync(tempVideoPath, videoOutputPath, token);
-
-                    if (!transcodeResult.Success)
-                    {
-                        // 转码失败，抛出异常让上层处理
-                        LogService.Split($"Transcode failed: {transcodeResult.ErrorMessage}", LogLevel.Error);
-                        if (File.Exists(tempVideoPath))
-                        {
-                            File.Delete(tempVideoPath);
-                        }
-                        if (File.Exists(videoOutputPath))
-                        {
-                            File.Delete(videoOutputPath);
-                        }
-                        throw new InvalidOperationException($"Video transcode failed: {transcodeResult.ErrorMessage}");
-                    }
-                    else
-                    {
-                        // 转码成功，删除临时文件
-                        if (File.Exists(tempVideoPath))
-                        {
-                            File.Delete(tempVideoPath);
-                        }
-                    }
+                    // 不需要转码，直接移动临时文件到目标位置
+                    if (File.Exists(videoOutputPath))
+                        File.Delete(videoOutputPath);
+                    File.Move(tempVideoPath, videoOutputPath);
                 }
-            }
-            else
-            {
-                // 不需要转码，直接移动临时文件到目标位置
-                if (File.Exists(videoOutputPath))
+
+                return new LivePhotoSplitResult
                 {
-                    File.Delete(videoOutputPath);
-                }
-                File.Move(tempVideoPath, videoOutputPath);
+                    ImageOutputPath = imageOutputPath,
+                    VideoOutputPath = videoOutputPath
+                };
             }
-
-            return new LivePhotoSplitResult
+            catch
             {
-                ImageOutputPath = imageOutputPath,
-                VideoOutputPath = videoOutputPath
-            };
+                // 转码/remux 失败时清理可能已经写入的不完整输出文件
+                try { if (File.Exists(videoOutputPath)) File.Delete(videoOutputPath); } catch { }
+                throw;
+            }
+            finally
+            {
+                // 无论成功/失败/取消，临时文件都要清理
+                try { if (File.Exists(tempVideoPath)) File.Delete(tempVideoPath); } catch { }
+                // Temp 目录如果为空就删掉（由调用方 ViewModel 统一清理也可，这里先兜底）
+                try { if (Directory.Exists(tempDir) && !Directory.EnumerateFileSystemEntries(tempDir).Any()) Directory.Delete(tempDir); } catch { }
+            }
         }
 
         private static async Task<string> ReadMetadataTextAsync(FileStream sourceStream, CancellationToken token)
