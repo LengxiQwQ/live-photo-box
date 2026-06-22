@@ -112,8 +112,21 @@ namespace LivePhotoBox.Models
 
         /// <summary>格子内边距 — 配对 top/bot 对称=16（居中分隔线），单独 bot=8</summary>
         public Thickness GridPadding => IsPaired
-            ? new Thickness(8, 16, 8, 16)
+            ? new Thickness(8, 14, 8, 14)
             : new Thickness(8, 7, 8, 8);
+
+        /// <summary>Row 0 固定高度 — 单独=48(容纳缩略图), 配对=38(纯文字行)</summary>
+        public GridLength Row0Height => IsPaired ? new GridLength(38) : new GridLength(48);
+
+        /// <summary>Row 2 固定高度 — 单独=0, 配对=38(对称 Row0)</summary>
+        public GridLength Row2Height => IsPaired ? new GridLength(38) : new GridLength(0);
+
+        partial void OnIsPairedChanged(bool value)
+        {
+            OnPropertyChanged(nameof(GridPadding));
+            OnPropertyChanged(nameof(Row0Height));
+            OnPropertyChanged(nameof(Row2Height));
+        }
 
         /// <summary>配对缩略图可见性 — 仅配对时 Visible（配合大缩略图 56×56）</summary>
         public Visibility PairedThumbnailVisibility => IsPaired ? Visibility.Visible : Visibility.Collapsed;

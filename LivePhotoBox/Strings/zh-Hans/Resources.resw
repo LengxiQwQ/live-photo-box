@@ -1541,19 +1541,34 @@
   <data name="RepairPage_FilterLabel.Text" xml:space="preserve">
     <value>筛选：</value>
   </data>
-  <data name="RepairPage_FilterAll.Content" xml:space="preserve">
-    <value>全部</value>
-  </data>
-  <data name="RepairPage_FilterPairs.Content" xml:space="preserve">
-    <value>实况照片</value>
-  </data>
-  <data name="RepairPage_FilterStandaloneImg.Content" xml:space="preserve">
-    <value>单独照片</value>
-  </data>
-  <data name="RepairPage_FilterStandaloneVid.Content" xml:space="preserve">
-    <value>单独视频</value>
-  </data>
   <data name="RepairPage_ShowingLabel" xml:space="preserve">
     <value>当前显示：</value>
+  </data>
+  <data name="RepairPage_FilterAll" xml:space="preserve">
+    <value>所有文件</value>
+  </data>
+  <data name="RepairPage_FilterPairs" xml:space="preserve">
+    <value>实况照片</value>
+  </data>
+  <data name="RepairPage_FilterStandaloneImg" xml:space="preserve">
+    <value>单独照片</value>
+  </data>
+  <data name="RepairPage_FilterStandaloneVid" xml:space="preserve">
+    <value>单独视频</value>
+  </data>
+  <data name="RepairPage_FilterStatusAll" xml:space="preserve">
+    <value>所有状态</value>
+  </data>
+  <data name="RepairPage_FilterStatusRepair" xml:space="preserve">
+    <value>仅待修复</value>
+  </data>
+  <data name="RepairPage_FilterStatusPerfect" xml:space="preserve">
+    <value>无需修复</value>
+  </data>
+  <data name="RepairPage_FilterHeaderType" xml:space="preserve">
+    <value>文件类型</value>
+  </data>
+  <data name="RepairPage_FilterHeaderStatus" xml:space="preserve">
+    <value>修复状态</value>
   </data>
 </root>
