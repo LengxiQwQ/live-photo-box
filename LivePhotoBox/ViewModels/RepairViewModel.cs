@@ -204,6 +204,13 @@ namespace LivePhotoBox.ViewModels
             else if (parameter is string s && int.TryParse(s, out var r)) RepairStatusFilter = r;
         }
 
+        [RelayCommand]
+        private void ResetFilter()
+        {
+            FilterMode = 0;
+            RepairStatusFilter = 0;
+        }
+
         /// <summary>当前浏览的分组名称（由滚动位置决定），如"实况照片组合"</summary>
         private string _currentViewGroup = string.Empty;
         public string CurrentViewGroup
@@ -327,6 +334,51 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
         }
 
+        /// <summary>
+        /// Sets status text with hardware acceleration info appended.
+        /// </summary>
+        private void SetStatusWithHardware(string resourceKey, params object[] args)
+        {
+            string baseText = ResourceService.Format(resourceKey, args);
+            string suffix = GetHardwareStatusSuffix();
+            SetDirectStatus(baseText + suffix);
+        }
+
+        /// <summary>
+        /// Returns a user-friendly hardware acceleration suffix string,
+        /// e.g. " | NVENC 硬件加速" or " | CPU 软件编码".
+        /// Returns empty string if hardware info is not yet available.
+        /// </summary>
+        private static string GetHardwareStatusSuffix()
+        {
+            var hw = AppViewModel.Instance?.Settings?.SelectedHardware;
+            if (hw == null) return string.Empty;
+
+            if (hw.Type == HardwareService.HardwareType.Gpu && hw.IsHardwareEncodingSupported)
+            {
+                string protocol = GetEncoderProtocolName(hw.FfmpegEncoder);
+                return ResourceService.Format("RepairPage_HardwareGpu", protocol);
+            }
+
+            // CPU or GPU without hardware encoding support
+            return ResourceService.GetString("RepairPage_HardwareCpu");
+        }
+
+        /// <summary>
+        /// Maps FFmpeg encoder name to a user-friendly protocol label.
+        /// h264_nvenc → "NVENC", h264_amf → "AMF", h264_qsv → "QSV".
+        /// </summary>
+        private static string GetEncoderProtocolName(string? encoder)
+        {
+            if (string.IsNullOrEmpty(encoder)) return "GPU";
+            string lower = encoder.ToLowerInvariant();
+            if (lower.Contains("nvenc")) return "NVENC";
+            if (lower.Contains("amf")) return "AMF";
+            if (lower.Contains("qsv")) return "QSV";
+            if (lower.Contains("vaapi")) return "VAAPI";
+            return "GPU";
+        }
+
         protected override void OnScanStateChanged(bool isScanning)
         {
             OnPropertyChanged(nameof(ScanButtonText));
@@ -372,7 +424,7 @@ namespace LivePhotoBox.ViewModels
             ProgressText = _totalRepairEntries == 0 ? "0/0" : $"0/{_totalRepairEntries}";
             _taskProcessingStartTimes.Clear();
 
-            SetStatus("Status_Running");
+            SetStatusWithHardware("Status_Running");
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
             _uiUpdateTimer.Start();
@@ -815,6 +867,15 @@ namespace LivePhotoBox.ViewModels
                             videoEntry = await AnalyzeFileAndCreateEntry(
                                 videoPath, persistentExifTool, heicRepairEnabled, token);
                             if (videoEntry != null) { entryIndex++; processedCount++; }
+
+                            // 未启用"修复非实况照片视频" → 时长 > 3.5s 的非实况视频直接标为已跳过
+                            bool repairNonLivePhoto = AppSettingsService.GetValue("IsNonLivePhotoVideoRepairEnabled", false);
+                            if (!repairNonLivePhoto && videoEntry?.AnalysisResult != null
+                                && videoEntry.AnalysisResult.VideoDurationSeconds > LivePhotoConstants.MaxLivePhotoVideoDurationSeconds)
+                            {
+                                videoEntry.NeedsRepair = false;
+                                videoEntry.Details = ResourceService.GetString("RepairPage_Task_SkippedNonLivePhoto");
+                            }
                         }
 
                         // 如果两个都被取消了，直接退出
@@ -822,17 +883,68 @@ namespace LivePhotoBox.ViewModels
 
                         if (imageEntry == null && videoEntry == null) continue;
 
-                        // 构建 RepairTask：照片永远是 File1Entry（参照 ComboTask 以 Image 为主）
-                        var file1 = imageEntry ?? videoEntry!;
-                        var file2 = isPaired ? (imageEntry != null ? videoEntry : imageEntry) : null;
+                        // 检查视频时长：> 3.5s 不是实况照片，已配对的拆开
+                        bool isLivePhotoVideo = videoEntry != null
+                            && (videoEntry.AnalysisResult?.VideoDurationSeconds ?? 0) <= LivePhotoConstants.MaxLivePhotoVideoDurationSeconds;
+                        bool effectivePaired = isPaired && isLivePhotoVideo;
 
-                        // 序号：配对时 File1 和 File2 各占一个序号
-                        int file1Idx = isPaired ? (imageEntry != null ? entryIndex - 1 : entryIndex) : entryIndex;
-                        int file2Idx = isPaired ? entryIndex : 0;
+                        // ── 更严格的实况照片扫描：通过 ContentIdentifier UUID 验证配对 ──
+                        bool strictScan = AppSettingsService.GetValue("IsStrictLivePhotoScanEnabled", false);
+                        if (strictScan && effectivePaired && imageEntry != null && videoEntry != null)
+                        {
+                            string? imgCid = imageEntry.AnalysisResult?.ContentIdentifier;
+                            string? vidCid = videoEntry.AnalysisResult?.ContentIdentifier;
+                            bool bothHaveCid = !string.IsNullOrWhiteSpace(imgCid) && !string.IsNullOrWhiteSpace(vidCid);
+                            bool cidsMatch = bothHaveCid && string.Equals(imgCid, vidCid, StringComparison.OrdinalIgnoreCase);
+                            if (!cidsMatch)
+                            {
+                                effectivePaired = false;
+                                LogService.Repair($"Strict scan: unpaired '{baseName}' — ContentIdentifier mismatch (img={imgCid ?? "none"}, vid={vidCid ?? "none"})");
+                            }
+                        }
 
-                        var repairTask = new RepairTask(file1Idx, file2Idx, baseName, isPaired, file1, file2);
-                        repairTask.Index = taskGridIndex; // 格子序号供滚动定位
-                        itemBuffer.Add(repairTask);
+                        // 严格模式下，单独照片检测是否曾是实况照片（有 UUID 但视频缺失）
+                        if (strictScan && !effectivePaired && imageEntry != null && videoEntry == null)
+                        {
+                            if (imageEntry.AnalysisResult?.HasContentIdentifier == true)
+                            {
+                                imageEntry.IssueDescription = ResourceService.GetString("RepairPage_LivePhotoVideoMissing") ?? "Live Photo (video missing)";
+                                imageEntry.NeedsRepair = false;
+                            }
+                        }
+
+                        if (isPaired && !effectivePaired)
+                        {
+                            // 拆为两个独立项
+                            if (imageEntry != null)
+                            {
+                                // 照片独立项：序号回退到分析照片时的值
+                                int imgIdx = entryIndex - (videoEntry != null ? 1 : 0);
+                                var imgTask = new RepairTask(imgIdx, 0, baseName, false, imageEntry, null);
+                                imgTask.Index = taskGridIndex;
+                                itemBuffer.Add(imgTask);
+                            }
+                            if (videoEntry != null)
+                            {
+                                var vidTask = new RepairTask(entryIndex, 0, baseName, false, videoEntry, null);
+                                vidTask.Index = taskGridIndex + 1;
+                                itemBuffer.Add(vidTask);
+                            }
+                        }
+                        else
+                        {
+                            // 构建 RepairTask：照片永远是 File1Entry（参照 ComboTask 以 Image 为主）
+                            var file1 = imageEntry ?? videoEntry!;
+                            var file2 = effectivePaired ? (imageEntry != null ? videoEntry : imageEntry) : null;
+
+                            // 序号：配对时 File1 和 File2 各占一个序号
+                            int file1Idx = effectivePaired ? (imageEntry != null ? entryIndex - 1 : entryIndex) : entryIndex;
+                            int file2Idx = effectivePaired ? entryIndex : 0;
+
+                            var repairTask = new RepairTask(file1Idx, file2Idx, baseName, effectivePaired, file1, file2);
+                            repairTask.Index = taskGridIndex; // 格子序号供滚动定位
+                            itemBuffer.Add(repairTask);
+                        }
 
                         scanProgress.Report(new WorkProgressSnapshot(totalFiles, processedCount));
 
@@ -932,24 +1044,22 @@ namespace LivePhotoBox.ViewModels
                            || filePath.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
 
             RepairAnalysisResult analysis;
-            if (isHeicFile && !heicRepairEnabled)
+
+            // HEIC修复开关只管"修不修"，不管"匹不匹配" — 诊断和配对始终执行
+            try
             {
-                analysis = new RepairAnalysisResult
-                {
-                    IssueType = RepairIssueType.Perfect,
-                    IssueDescription = ResourceService.GetString("Status_HeicRepairDisabled")
-                };
+                analysis = await LivePhotoRepairService.AnalyzeFileAsync(filePath, persistentExifTool, token);
             }
-            else
+            catch (OperationCanceledException)
             {
-                try
-                {
-                    analysis = await LivePhotoRepairService.AnalyzeFileAsync(filePath, persistentExifTool, token);
-                }
-                catch (OperationCanceledException)
-                {
-                    return null;
-                }
+                return null;
+            }
+
+            // HEIC 修复关闭时：诊断结果保留（ContentIdentifier 用于匹配），但不修复
+            if (isHeicFile && !heicRepairEnabled && analysis.NeedsRepair)
+            {
+                analysis.IssueType = RepairIssueType.Perfect;
+                analysis.IssueDescription = ResourceService.GetString("Status_HeicRepairDisabled");
             }
 
             return new RepairFileEntry
@@ -1036,8 +1146,17 @@ namespace LivePhotoBox.ViewModels
             try
             {
                 // 扁平化：从所有 Task 中提取需要修复的 Entry，配对格子里的两个文件分别处理
+                bool repairNonLivePhoto = AppSettingsService.GetValue("IsNonLivePhotoVideoRepairEnabled", false);
                 var repairEntries = Tasks.SelectMany(t => t.Entries)
-                    .Where(e => e.NeedsRepair && e.Status != ProcessStatus.Success).ToList();
+                    .Where(e => e.NeedsRepair && e.Status != ProcessStatus.Success)
+                    .Where(e =>
+                    {
+                        // 未启用"修复非实况照片视频"：跳过时长 > 3.5s 的普通长视频
+                        if (repairNonLivePhoto) return true;
+                        if (!e.IsImage && (e.AnalysisResult?.VideoDurationSeconds ?? 0) > LivePhotoConstants.MaxLivePhotoVideoDurationSeconds)
+                            return false;
+                        return true;
+                    }).ToList();
 
                 await Task.Run(async () =>
                 {

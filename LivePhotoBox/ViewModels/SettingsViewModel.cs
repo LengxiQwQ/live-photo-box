@@ -264,6 +264,17 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Repair output mode: {(value ? "separate directory" : "in-place")}", LogSource.Settings);
         }
 
+        /// <summary>修复非实况照片的视频 — 开启后同时修复 > 3.5s 的普通长视频</summary>
+        [ObservableProperty]
+        private bool _isNonLivePhotoVideoRepairEnabled;
+
+        partial void OnIsNonLivePhotoVideoRepairEnabledChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsNonLivePhotoVideoRepairEnabled), value);
+            LogService.Info($"Repair non-live-photo video setting: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
         #endregion
 
         #region Debug / Test Tools
@@ -277,6 +288,17 @@ namespace LivePhotoBox.ViewModels
             if (_isInitializing) return;
             AppSettingsService.SetValue(nameof(IsRepairScanLoadThumbnail), value);
             LogService.Info($"Repair scan load thumbnail: {(value ? "enabled" : "disabled")}", LogSource.Settings);
+        }
+
+        /// <summary>更严格的实况照片扫描 — 通过 ContentIdentifier UUID 匹配（默认关 = 文件名匹配）</summary>
+        [ObservableProperty]
+        private bool _isStrictLivePhotoScanEnabled;
+
+        partial void OnIsStrictLivePhotoScanEnabledChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsStrictLivePhotoScanEnabled), value);
+            LogService.Info($"Strict Live Photo scan: {(value ? "ON" : "OFF")}", LogSource.Settings);
         }
 
         #endregion
@@ -331,6 +353,8 @@ namespace LivePhotoBox.ViewModels
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
             IsRepairScanLoadThumbnail = AppSettingsService.GetValue(nameof(IsRepairScanLoadThumbnail), false);
+            IsStrictLivePhotoScanEnabled = AppSettingsService.GetValue(nameof(IsStrictLivePhotoScanEnabled), false);
+            IsNonLivePhotoVideoRepairEnabled = AppSettingsService.GetValue(nameof(IsNonLivePhotoVideoRepairEnabled), false);
             SplitFormatIndex = AppSettingsService.GetValue("SelectedFormatIndex", 0);
         }
 

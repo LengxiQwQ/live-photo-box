@@ -302,7 +302,7 @@ namespace LivePhotoBox.ViewModels
                     try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
                 }
 
-                // 流式缓冲：每 200ms 刷新到 UI
+                // 流式缓冲：每 120ms 刷新到 UI（拆分页面逐文件扫描，需要流式加载）
                 var itemBuffer = new List<SplitTask>();
                 var bufferLock = new object();
                 long lastFlushMs = Environment.TickCount64;
@@ -354,7 +354,7 @@ namespace LivePhotoBox.ViewModels
                 });
 
                 var scanResult = await Task.Run(
-                    () => LivePhotoSplitScanService.Scan(InputDirectory, token, scanProgress),
+                    () => LivePhotoSplitScanService.Scan(InputDirectory, token, scanProgress, itemProgress),
                     token);
 
                 // 刷新残留项，然后用扫描结果的确切数量修正

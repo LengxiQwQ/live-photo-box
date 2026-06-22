@@ -1348,7 +1348,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Click the button on the right to try the built-in sample and see the full split flow in action</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder.Text" xml:space="preserve">
-    <value>HEIC Decoder</value>
+    <value>HEIC/HEIF Decoder</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder_MagickNET.Content" xml:space="preserve">
     <value>Magick.NET (ImageMagick + libheif)</value>
@@ -1361,7 +1361,7 @@ You can open the log folder or export the latest log now to help diagnose the is
 (built-in on Win11, available via Microsoft Store on Win10)</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
-    <value>HEIC Task Parallel Count</value>
+    <value>HEIC/HEIF Task Parallel Count</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount_Desc.Text" xml:space="preserve">
     <value>Plain JPG images auto-use 20-way high concurrency</value>
@@ -1447,7 +1447,7 @@ Place any of these files into the same folder.</value>
     <value>Thumbnail Repair</value>
   </data>
   <data name="SettingsPage_Repair_HeicLabel.Text" xml:space="preserve">
-    <value>HEIC Photo Repair</value>
+    <value>HEIC/HEIF Photo Repair</value>
   </data>
   <data name="SettingsPage_Repair_HeicSwitch.OnContent" xml:space="preserve">
     <value>Enabled</value>
@@ -1571,5 +1571,44 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="RepairPage_FilterHeaderStatus" xml:space="preserve">
     <value>Repair Status</value>
+  </data>
+  <data name="RepairPage_ResetFilterBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Reset filter</value>
+  </data>
+  <data name="SettingsPage_Repair_LivePhotoVideoLabel.Text" xml:space="preserve">
+    <value>Repair Non-Live-Photo Videos</value>
+  </data>
+  <data name="SettingsPage_Repair_LivePhotoVideoSwitch.OnContent" xml:space="preserve">
+    <value>Enabled</value>
+  </data>
+  <data name="SettingsPage_Repair_LivePhotoVideoSwitch.OffContent" xml:space="preserve">
+    <value>Disabled</value>
+  </data>
+  <data name="SettingsPage_Repair_LivePhotoVideoDesc.Text" xml:space="preserve">
+    <value>When enabled, long videos (over 3.5 seconds) will also be repaired. Disable to repair only Live Photo videos.</value>
+  </data>
+  <data name="RepairPage_Task_SkippedNonLivePhoto" xml:space="preserve">
+    <value>Skipped (non-live-photo)</value>
+  </data>
+  <data name="RepairPage_HardwareGpu" xml:space="preserve">
+    <value> | {0} hardware acceleration</value>
+  </data>
+  <data name="RepairPage_HardwareCpu" xml:space="preserve">
+    <value> | CPU software encoding</value>
+  </data>
+  <data name="SettingsPage_StrictLivePhotoScanLabel.Text" xml:space="preserve">
+    <value>Strict Live Photo Scanning</value>
+  </data>
+  <data name="SettingsPage_StrictLivePhotoScanDesc.Text" xml:space="preserve">
+    <value>Only match Live Photos via Apple ContentIdentifier (UUID). When enabled, only authentic Apple Live Photos are detected. When disabled, filename-based matching is used for all photos.</value>
+  </data>
+  <data name="SettingsPage_StrictLivePhotoScanToggle.OnContent" xml:space="preserve">
+    <value>On</value>
+  </data>
+  <data name="SettingsPage_StrictLivePhotoScanToggle.OffContent" xml:space="preserve">
+    <value>Off</value>
+  </data>
+  <data name="RepairPage_LivePhotoVideoMissing" xml:space="preserve">
+    <value>Live Photo (video missing)</value>
   </data>
 </root>

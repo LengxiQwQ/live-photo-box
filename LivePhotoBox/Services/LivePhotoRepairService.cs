@@ -92,7 +92,8 @@ namespace LivePhotoBox.Services
                 {
                     // ✅ 快速路径：使用常驻 exiftool 进程，无启动开销
                     // Rotation 用于 HEIC（QuickTime 标签）+ JPEG 兼容
-                    output = await persistentExifTool.SendCommandAsync(token, "-j", "-Rotation", "-Orientation", "-ThumbnailImage", filePath);
+                    // ContentIdentifier 用于实况照片匹配
+                    output = await persistentExifTool.SendCommandAsync(token, "-j", "-Rotation", "-Orientation", "-ThumbnailImage", "-ContentIdentifier", filePath);
                     error = persistentExifTool.FlushStderr();
                 }
                 else
@@ -120,6 +121,7 @@ namespace LivePhotoBox.Services
                     psi.ArgumentList.Add("-Rotation");
                     psi.ArgumentList.Add("-Orientation");
                     psi.ArgumentList.Add("-ThumbnailImage");
+                    psi.ArgumentList.Add("-ContentIdentifier");
                     psi.ArgumentList.Add(filePath);
 
                     using var process = Process.Start(psi);
@@ -240,6 +242,7 @@ namespace LivePhotoBox.Services
 
             string rotation = GetJsonValueAsString(root, "Rotation");
             string orientation = GetJsonValueAsString(root, "Orientation");
+            string contentIdentifier = GetJsonValueAsString(root, "ContentIdentifier");
             bool hasThumb = root.TryGetProperty("ThumbnailImage", out _);
             bool isHeic = IsHeicFile(filePath);
 
@@ -302,7 +305,8 @@ namespace LivePhotoBox.Services
                     IssueType = RepairIssueType.Perfect,
                     IssueDescription = $"[{ResourceService.GetString("Status_Perfect")}]",
                     RotationAngle = 0,
-                    HasThumbnail = false
+                    HasThumbnail = false,
+                    ContentIdentifier = contentIdentifier
                 };
             }
 
@@ -319,7 +323,8 @@ namespace LivePhotoBox.Services
                 IssueDescription = finalDescription,
                 RotationAngle = 0,
                 HasThumbnail = hasThumb,
-                HeicOriginalRotation = isHeic ? rotation : string.Empty
+                HeicOriginalRotation = isHeic ? rotation : string.Empty,
+                ContentIdentifier = contentIdentifier
             };
         }
 
@@ -341,8 +346,8 @@ namespace LivePhotoBox.Services
                 string output;
                 string error = "";
 
-                // Read Rotation, dimensions, codec ID, and average bitrate — all in one exiftool call
-                string[] exifArgs = { "-j", "-Rotation", "-ImageWidth", "-ImageHeight", "-AvgBitrate", "-CompressorID", filePath };
+                // Read Rotation, dimensions, codec ID, average bitrate, and ContentIdentifier — all in one exiftool call
+                string[] exifArgs = { "-j", "-Rotation", "-ImageWidth", "-ImageHeight", "-AvgBitrate", "-CompressorID", "-MediaDuration", "-ContentIdentifier", filePath };
 
                 if (persistentExifTool != null)
                 {
@@ -396,6 +401,8 @@ namespace LivePhotoBox.Services
                 int angle = ParseAngleFromTag(rotation);
                 string compressorId = GetJsonValueAsString(root, "CompressorID");
                 long bitrateBps = ParseAvgBitrate(GetJsonValueAsString(root, "AvgBitrate")) ?? 0;
+                double duration = ParseMediaDuration(GetJsonValueAsString(root, "MediaDuration"));
+                string contentId = GetJsonValueAsString(root, "ContentIdentifier");
 
                 if (angle == 0)
                 {
@@ -406,7 +413,9 @@ namespace LivePhotoBox.Services
                         IsVideo = true,
                         VideoRotationAngle = 0,
                         VideoCodec = compressorId,
-                        VideoBitrateBps = bitrateBps
+                        VideoBitrateBps = bitrateBps,
+                        VideoDurationSeconds = duration,
+                        ContentIdentifier = contentId
                     };
                 }
 
@@ -418,7 +427,9 @@ namespace LivePhotoBox.Services
                     IsVideo = true,
                     VideoRotationAngle = angle,
                     VideoCodec = compressorId,
-                    VideoBitrateBps = bitrateBps
+                    VideoBitrateBps = bitrateBps,
+                    VideoDurationSeconds = duration,
+                    ContentIdentifier = contentId
                 };
             }
             catch (OperationCanceledException) { throw; }
@@ -452,6 +463,45 @@ namespace LivePhotoBox.Services
                 return rawBps;
 
             return null;
+        }
+
+        /// <summary>
+        /// Parse exiftool MediaDuration PrintConv string to seconds.
+        /// Handles three formats:
+        ///   "2.35 s"   — sub-minute (seconds with unit)
+        ///   "0:01:05"  — ≥1 minute (HH:MM:SS)
+        ///   "2.35"     — raw numeric (when -n flag is used)
+        /// </summary>
+        private static double ParseMediaDuration(string? mediaDuration)
+        {
+            if (string.IsNullOrWhiteSpace(mediaDuration)) return 0;
+
+            // Timecode format: "HH:MM:SS" or "MM:SS" (used for ≥60s videos)
+            var tcMatch = System.Text.RegularExpressions.Regex.Match(mediaDuration,
+                @"^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$");
+            if (tcMatch.Success)
+            {
+                int hours = tcMatch.Groups[1].Success ? int.Parse(tcMatch.Groups[1].Value) : 0;
+                int minutes = int.Parse(tcMatch.Groups[2].Value);
+                double secs = double.Parse(tcMatch.Groups[3].Value,
+                    System.Globalization.CultureInfo.InvariantCulture);
+                return hours * 3600 + minutes * 60 + secs;
+            }
+
+            // "2.35 s" format (PrintConv for sub-minute durations)
+            var sMatch = System.Text.RegularExpressions.Regex.Match(mediaDuration, @"^([\d.]+)\s*s");
+            if (sMatch.Success && double.TryParse(sMatch.Groups[1].Value,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double seconds))
+                return seconds;
+
+            // Raw numeric format (e.g. 2.35)
+            if (double.TryParse(mediaDuration,
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double raw))
+                return raw;
+
+            return 0;
         }
 
         /// <summary>
@@ -518,7 +568,7 @@ namespace LivePhotoBox.Services
                     // ── JPEG 修复：jhead 旋转 + exiftool 剥离缩略图 ──
                     if (needsRotation)
                     {
-                        await RunJheadAsync("-autorot", tempWorkFile);
+                        await RunJheadWithRetryAsync("-autorot", tempWorkFile, token);
                         token.ThrowIfCancellationRequested();
                     }
 
@@ -827,6 +877,27 @@ namespace LivePhotoBox.Services
             }
 
             return (true, string.Empty);
+        }
+
+        /// <summary>
+        /// 带重试的 jhead 调用：处理 Windows Defender 等安全软件在文件创建后短暂锁定的偶发问题。
+        /// "Could not open file for write" 时最多重试 3 次，每次间隔 200ms。
+        /// </summary>
+        private static async Task RunJheadWithRetryAsync(string arg1, string arg2, CancellationToken token, int maxRetries = 3)
+        {
+            for (int attempt = 0; attempt < maxRetries; attempt++)
+            {
+                try
+                {
+                    await RunJheadAsync(arg1, arg2);
+                    return; // 成功
+                }
+                catch (Exception ex) when (ex.Message.Contains("Could not open file", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (attempt == maxRetries - 1) throw; // 最后一次仍失败，抛出
+                    await Task.Delay(200, token);
+                }
+            }
         }
 
         /// <summary>

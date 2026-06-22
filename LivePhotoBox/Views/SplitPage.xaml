@@ -107,7 +107,7 @@
                 </Border>
             </StackPanel>
 
-            <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Padding="16,12,16,12">
+            <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Padding="16,10,16,10">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -124,56 +124,61 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
-                        <Button Margin="0,0,10,0" x:Uid="SplitPage_HelpBtn" Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Split" Height="36">
-                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xE9CE;" FontSize="15" VerticalAlignment="Center" Margin="0,1,0,0"/>
-                                <TextBlock x:Uid="SplitPage_HelpBtnText" VerticalAlignment="Center"/>
-                            </StackPanel>
+                        <Button x:Uid="SplitPage_HelpBtn" Height="34" Width="34" Padding="0"
+                                Background="Transparent" BorderBrush="Transparent"
+                                Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Split">
+                            <FontIcon Glyph="&#xE9CE;" FontSize="16"
+                                      Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Button>
 
-                        <Button Margin="0,0,12,0" Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}" Width="100" Height="36"/>
-                        <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.StartProcessingCommand}" Style="{StaticResource AccentButtonStyle}" IsEnabled="{x:Bind ViewModel.IsProcessingAllowed, Mode=OneWay}" Width="120" Height="36"/>
+                        <Button Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}" MinWidth="80" Height="34" FontSize="14"/>
+                        <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.StartProcessingCommand}" Style="{StaticResource AccentButtonStyle}" IsEnabled="{x:Bind ViewModel.IsProcessingAllowed, Mode=OneWay}" MinWidth="100" Height="36" FontSize="14" Margin="16,0,0,0"/>
                     </StackPanel>
                 </Grid>
             </Border>
 
-            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" Padding="12">
-                <ListView x:Name="SplitTaskListView" ItemsSource="{x:Bind ViewModel.Tasks}" SelectionMode="None" ShowsScrollingPlaceholders="False" ContainerContentChanging="SplitTaskListView_ContainerContentChanging">
-                    <ListView.ItemsPanel>
-                        <ItemsPanelTemplate>
-                            <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="1" />
-                        </ItemsPanelTemplate>
-                    </ListView.ItemsPanel>
+            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="8">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                    <ListView.Header>
-                        <Grid Padding="12,0,12,8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="56"/>
-                                <ColumnDefinition Width="62"/>
-                                <ColumnDefinition Width="2.7*"/>
-                                <ColumnDefinition Width="1.15*"/>
-                                <ColumnDefinition Width="1.85*"/>
-                            </Grid.ColumnDefinitions>
+                    <Grid Grid.Row="0" Padding="12,0,12,6" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="56"/>
+                            <ColumnDefinition Width="62"/>
+                            <ColumnDefinition Width="2.7*"/>
+                            <ColumnDefinition Width="1.15*"/>
+                            <ColumnDefinition Width="1.85*"/>
+                        </Grid.ColumnDefinitions>
 
-                            <TextBlock x:Uid="SplitPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="SplitPage_ColSourceHeader" Grid.Column="1" Grid.ColumnSpan="2" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="SplitPage_ColSize" Grid.Column="3" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="SplitPage_ColStatusHeader" Grid.Column="4" FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                        </Grid>
-                    </ListView.Header>
+                        <TextBlock x:Uid="SplitPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="SplitPage_ColSourceHeader" Grid.Column="1" Grid.ColumnSpan="2" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="SplitPage_ColSize" Grid.Column="3" Margin="14,0,0,0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="SplitPage_ColStatusHeader" Grid.Column="4" Margin="32,0,0,0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                    </Grid>
 
-                    <ListView.ItemContainerStyle>
-                        <Style TargetType="ListViewItem">
-                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            <Setter Property="Margin" Value="0,0,0,6"/>
-                            <Setter Property="Padding" Value="0"/>
-                            <Setter Property="MinHeight" Value="0"/>
-                        </Style>
-                    </ListView.ItemContainerStyle>
+                    <ListView x:Name="SplitTaskListView" Grid.Row="1" ItemsSource="{x:Bind ViewModel.Tasks}" SelectionMode="None" ShowsScrollingPlaceholders="False" ContainerContentChanging="SplitTaskListView_ContainerContentChanging">
+                        <ListView.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="4" />
+                            </ItemsPanelTemplate>
+                        </ListView.ItemsPanel>
 
-                    <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:SplitTask">
-                            <Border Height="66" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6,10,6">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Margin" Value="0,0,0,6"/>
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="MinHeight" Value="0"/>
+                            </Style>
+                        </ListView.ItemContainerStyle>
+
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="models:SplitTask">
+                                <Border Height="66" Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6,10,6">
                                 <Grid ColumnSpacing="0">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="56"/>
@@ -198,14 +203,15 @@
                                         <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplaySourceFileName}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
                                     </Button>
 
-                                    <TextBlock Grid.Column="3" Text="{x:Bind FileSize}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    <TextBlock Grid.Column="3" Margin="14,0,0,0" Text="{x:Bind FileSize}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
 
-                                    <TextBlock Grid.Column="4" Text="{x:Bind DisplayStatus, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="5" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped"/>
+                                    <TextBlock Grid.Column="4" Margin="32,0,0,0" Text="{x:Bind DisplayStatus, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="5" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped"/>
                                 </Grid>
                             </Border>
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+            </Grid>
             </Border>
 
         </Grid>
