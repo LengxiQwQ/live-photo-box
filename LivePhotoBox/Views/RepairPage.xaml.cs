@@ -169,9 +169,6 @@ namespace LivePhotoBox.Views
         {
             _scroller.NotifyItemsFlushed();
             UpdateCurrentViewGroup();
-            // 第一批数据到达后自适应 ComboBox 宽度（Loaded 时可能还未显示/Vibility 为 Collapsed）
-            if (FilterComboBox.Items.Count > 0)
-                ComboBoxHelper.AutoFitWidth(FilterComboBox);
         }
 
         private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -333,16 +330,120 @@ namespace LivePhotoBox.Views
                 return;
             }
 
-            // 仅记录"有新内容进入视口"的时刻。加载由 ThumbnailCheckTimer_Tick 负责。
-            if (args.Item is RepairTask)
+            if (args.Item is RepairTask task)
+            {
+                // 固定每项高度 → 虚拟化引擎无需估算，滚动零抖动
+                if (args.ItemContainer is ListViewItem container)
+                {
+                    container.Height = task.IsPaired ? 136 : 68;
+                }
                 Interlocked.Exchange(ref _lastContainerChangeTick, Environment.TickCount64);
+            }
         }
-        private void FilterComboBox_Loaded(object sender, RoutedEventArgs e)
+        private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args) => ErrorDetailTip.Target = null;
+
+        private bool _filterDropDownWidthLocked;
+
+        private void FilterDropDown_Loaded(object sender, RoutedEventArgs e)
         {
-            if (sender is ComboBox comboBox)
-                ComboBoxHelper.AutoFitWidth(comboBox);
+            if (_filterDropDownWidthLocked) return;
+            if (sender is not DropDownButton btn) return;
+
+            string[] types = [
+                ResourceService.GetString("RepairPage_FilterAll"),
+                ResourceService.GetString("RepairPage_FilterPairs"),
+                ResourceService.GetString("RepairPage_FilterStandaloneImg"),
+                ResourceService.GetString("RepairPage_FilterStandaloneVid")
+            ];
+            string[] statuses = [
+                ResourceService.GetString("RepairPage_FilterStatusAll"),
+                ResourceService.GetString("RepairPage_FilterStatusRepair"),
+                ResourceService.GetString("RepairPage_FilterStatusPerfect")
+            ];
+            double fontSize = btn.FontSize > 0 ? btn.FontSize : 14.0;
+            const double chromeWidth = 56;
+
+            double maxWidth = 0;
+            var tb = new TextBlock
+            {
+                FontSize = fontSize,
+                FontFamily = btn.FontFamily,
+                TextWrapping = TextWrapping.NoWrap
+            };
+
+            foreach (var type in types)
+            {
+                foreach (var status in statuses)
+                {
+                    tb.Text = $"{type}  •  {status}";
+                    tb.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+                    maxWidth = Math.Max(maxWidth, tb.DesiredSize.Width);
+                }
+            }
+
+            if (maxWidth > 0)
+            {
+                btn.Width = maxWidth + chromeWidth;
+                _filterDropDownWidthLocked = true;
+            }
         }
 
-        private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args) => ErrorDetailTip.Target = null;
+        private static readonly string[] _filterTypeKeys = [
+            "RepairPage_FilterAll",
+            "RepairPage_FilterPairs",
+            "RepairPage_FilterStandaloneImg",
+            "RepairPage_FilterStandaloneVid"
+        ];
+        private static readonly string[] _filterStatusKeys = [
+            "RepairPage_FilterStatusAll",
+            "RepairPage_FilterStatusRepair",
+            "RepairPage_FilterStatusPerfect"
+        ];
+
+        private static FontIcon CreateCheckedIcon() => new()
+        {
+            Glyph = "", // BulletedList 实心圆点
+            FontSize = 6,
+        };
+
+        private void FilterFlyout_Opening(object sender, object args)
+        {
+            if (sender is not MenuFlyout flyout) return;
+
+            // 分隔线左右留空
+            FilterMenuSeparator.Margin = new Thickness(16, 0, 16, 0);
+
+            const double itemMinWidth = 136;
+
+            // 标题：文件类型（索引 0）
+            if (flyout.Items[0] is MenuFlyoutItem typeHeader)
+            {
+                typeHeader.Text = ResourceService.GetString("RepairPage_FilterHeaderType");
+                typeHeader.MinWidth = itemMinWidth;
+            }
+
+            // 类型筛选项（索引 1-4）
+            for (int i = 0; i < 4; i++)
+                SetupMenuItem(flyout.Items[1 + i], _filterTypeKeys[i], i == ViewModel.FilterMode, itemMinWidth);
+
+            // 标题：修复状态（索引 6）
+            if (flyout.Items[6] is MenuFlyoutItem statusHeader)
+            {
+                statusHeader.Text = ResourceService.GetString("RepairPage_FilterHeaderStatus");
+                statusHeader.MinWidth = itemMinWidth;
+            }
+
+            // 状态筛选项（索引 7-9）
+            for (int i = 0; i < 3; i++)
+                SetupMenuItem(flyout.Items[7 + i], _filterStatusKeys[i], i == ViewModel.RepairStatusFilter, itemMinWidth);
+        }
+
+        private static void SetupMenuItem(MenuFlyoutItemBase item, string resourceKey, bool isSelected, double minWidth)
+        {
+            if (item is not MenuFlyoutItem menuItem) return;
+            menuItem.Text = ResourceService.GetString(resourceKey);
+            menuItem.MinWidth = minWidth;
+            menuItem.Icon = isSelected ? CreateCheckedIcon() : null;
+        }
     }
 }

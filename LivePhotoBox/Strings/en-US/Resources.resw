@@ -296,7 +296,7 @@ Do you want to restart now?</value>
     <value>Cancel Scan</value>
   </data>
   <data name="SplitPage_QueueProgress.Text" xml:space="preserve">
-    <value>Queue Progress: </value>
+    <value>Queue: </value>
   </data>
   <data name="SplitPage_ColSeq.Text" xml:space="preserve">
     <value>No.</value>
@@ -356,7 +356,7 @@ Do you want to restart now?</value>
     <value>Cancel Scan</value>
   </data>
   <data name="ComboPage_QueueProgress.Text" xml:space="preserve">
-    <value>Queue Progress: </value>
+    <value>Queue: </value>
   </data>
   <data name="ComboPage_ColSeq.Text" xml:space="preserve">
     <value>No.</value>
@@ -994,7 +994,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Scan Directory</value>
   </data>
   <data name="RepairPage_QueueProgress.Text" xml:space="preserve">
-    <value>Queue Progress:</value>
+    <value>Queue:</value>
   </data>
   <data name="RepairPage_ColSeq.Text" xml:space="preserve">
     <value>No.</value>
@@ -1542,19 +1542,34 @@ Place any of these files into the same folder.</value>
   <data name="RepairPage_FilterLabel.Text" xml:space="preserve">
     <value>Filter:</value>
   </data>
-  <data name="RepairPage_FilterAll.Content" xml:space="preserve">
-    <value>All</value>
-  </data>
-  <data name="RepairPage_FilterPairs.Content" xml:space="preserve">
-    <value>Live Photos</value>
-  </data>
-  <data name="RepairPage_FilterStandaloneImg.Content" xml:space="preserve">
-    <value>Photos</value>
-  </data>
-  <data name="RepairPage_FilterStandaloneVid.Content" xml:space="preserve">
-    <value>Videos</value>
-  </data>
   <data name="RepairPage_ShowingLabel" xml:space="preserve">
     <value>Showing:</value>
+  </data>
+  <data name="RepairPage_FilterAll" xml:space="preserve">
+    <value>All Files</value>
+  </data>
+  <data name="RepairPage_FilterPairs" xml:space="preserve">
+    <value>Live Photos</value>
+  </data>
+  <data name="RepairPage_FilterStandaloneImg" xml:space="preserve">
+    <value>Photos Only</value>
+  </data>
+  <data name="RepairPage_FilterStandaloneVid" xml:space="preserve">
+    <value>Videos Only</value>
+  </data>
+  <data name="RepairPage_FilterStatusAll" xml:space="preserve">
+    <value>All Status</value>
+  </data>
+  <data name="RepairPage_FilterStatusRepair" xml:space="preserve">
+    <value>Needs repair</value>
+  </data>
+  <data name="RepairPage_FilterStatusPerfect" xml:space="preserve">
+    <value>Perfect only</value>
+  </data>
+  <data name="RepairPage_FilterHeaderType" xml:space="preserve">
+    <value>File Type</value>
+  </data>
+  <data name="RepairPage_FilterHeaderStatus" xml:space="preserve">
+    <value>Repair Status</value>
   </data>
 </root>

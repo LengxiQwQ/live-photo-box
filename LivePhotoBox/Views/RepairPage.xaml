@@ -153,10 +153,9 @@
                 </Border>
             </StackPanel>
 
-            <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Padding="16,12,16,12">
+            <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Padding="16,10,16,10">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
@@ -169,43 +168,77 @@
                         </TextBlock>
                         <ProgressBar Value="{x:Bind ViewModel.Progress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarForegroundConverter}, Mode=OneWay}" IsIndeterminate="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarIndeterminateConverter}, Mode=OneWay}" MaxWidth="400" HorizontalAlignment="Left"/>
                         <!-- 当前浏览分组（滚动感知） -->
-                        <TextBlock Margin="0,-4,0,0"
+                        <TextBlock Margin="0,-5,0,0"
                                    Visibility="{x:Bind ViewModel.ViewGroupVisibility, Mode=OneWay}"
                                    Text="{x:Bind ViewModel.CurrentViewGroupText, Mode=OneWay}"
                                    FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                     </StackPanel>
 
-                    <!-- 筛选 ComboBox（左对齐，离进度区近） -->
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6"
-                                Visibility="{x:Bind ViewModel.FilterBarVisibility, Mode=OneWay}"
-                                VerticalAlignment="Center" Margin="10,0,0,0">
-                        <TextBlock Margin="20,0,0,0"
-                                   x:Uid="RepairPage_FilterLabel"
+                    <!-- 右侧：筛选 + 按钮（右对齐） -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12"
+                                VerticalAlignment="Center" HorizontalAlignment="Right">
+
+                        <!-- 合并筛选按钮（一个下拉代替两个 ComboBox） -->
+                        <!-- 筛选标签 -->
+                        <TextBlock x:Uid="RepairPage_FilterLabel"
                                    FontSize="14" VerticalAlignment="Center"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <ComboBox x:Name="FilterComboBox"
-                                  SelectedIndex="{x:Bind ViewModel.FilterMode, Mode=TwoWay}"
-                                  IsEnabled="{x:Bind ViewModel.IsFilterEnabled, Mode=OneWay}"
-                                  MinWidth="100" Height="36" FontSize="14"
-                                  Loaded="FilterComboBox_Loaded">
-                            <ComboBoxItem x:Uid="RepairPage_FilterAll" />
-                            <ComboBoxItem x:Uid="RepairPage_FilterPairs" />
-                            <ComboBoxItem x:Uid="RepairPage_FilterStandaloneImg" />
-                            <ComboBoxItem x:Uid="RepairPage_FilterStandaloneVid" />
-                        </ComboBox>
-                    </StackPanel>
+                        <DropDownButton x:Name="FilterDropDown"
+                                        Content="{x:Bind ViewModel.CombinedFilterText, Mode=OneWay}"
+                                        Height="34" FontSize="14"
+                                        Visibility="{x:Bind ViewModel.FilterBarVisibility, Mode=OneWay}"
+                                        IsEnabled="{x:Bind ViewModel.IsFilterEnabled, Mode=OneWay}"
+                                        Loaded="FilterDropDown_Loaded">
+                            <DropDownButton.Flyout>
+                                <MenuFlyout Placement="Bottom" Opening="FilterFlyout_Opening">
+                                    <MenuFlyoutItem IsEnabled="False" FontWeight="SemiBold"/>
+                                    <MenuFlyoutItem Tag="TypeFilter_0"
+                                                    Command="{x:Bind ViewModel.SetTypeFilterCommand}" CommandParameter="0"/>
+                                    <MenuFlyoutItem Tag="TypeFilter_1"
+                                                    Command="{x:Bind ViewModel.SetTypeFilterCommand}" CommandParameter="1"/>
+                                    <MenuFlyoutItem Tag="TypeFilter_2"
+                                                    Command="{x:Bind ViewModel.SetTypeFilterCommand}" CommandParameter="2"/>
+                                    <MenuFlyoutItem Tag="TypeFilter_3"
+                                                    Command="{x:Bind ViewModel.SetTypeFilterCommand}" CommandParameter="3"/>
+                                    <MenuFlyoutSeparator x:Name="FilterMenuSeparator"/>
+                                    <MenuFlyoutItem IsEnabled="False" FontWeight="SemiBold"/>
+                                    <MenuFlyoutItem Tag="StatusFilter_0"
+                                                    Command="{x:Bind ViewModel.SetStatusFilterCommand}" CommandParameter="0"/>
+                                    <MenuFlyoutItem Tag="StatusFilter_1"
+                                                    Command="{x:Bind ViewModel.SetStatusFilterCommand}" CommandParameter="1"/>
+                                    <MenuFlyoutItem Tag="StatusFilter_2"
+                                                    Command="{x:Bind ViewModel.SetStatusFilterCommand}" CommandParameter="2"/>
+                                </MenuFlyout>
+                            </DropDownButton.Flyout>
+                        </DropDownButton>
 
-                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
+                        <Border Width="1" Height="20"
+                                Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                Margin="6,0,6,0"/>
 
-                        <Button Margin="0,0,10,0" x:Uid="RepairPage_HelpBtn" Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Repair" Height="36">
-                            <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xE9CE;" FontSize="15" VerticalAlignment="Center" Margin="0,1,0,0"/>
-                                <TextBlock x:Uid="RepairPage_HelpBtnText" VerticalAlignment="Center"/>
+                        <Button x:Uid="RepairPage_HelpBtn" Height="34"
+                                Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Repair">
+                            <StackPanel Orientation="Horizontal" Spacing="4" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE9CE;" FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="RepairPage_HelpBtnText" VerticalAlignment="Center" FontSize="14"/>
                             </StackPanel>
                         </Button>
 
-                        <Button Margin="0,0,12,0" Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}" Width="100" Height="36"/>
-                        <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.ToggleProcessCommand}" Style="{StaticResource AccentButtonStyle}" IsEnabled="{x:Bind ViewModel.IsProcessingAllowed, Mode=OneWay}" Width="120" Height="36"/>
+                        <Border Width="1" Height="20"
+                                Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                Margin="6,0,6,0"/>
+
+                        <Button Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}"
+                                Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}"
+                                IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"
+                                MinWidth="80" Height="34" FontSize="14"/>
+
+                        <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}"
+                                Command="{x:Bind ViewModel.ToggleProcessCommand}"
+                                Style="{StaticResource AccentButtonStyle}"
+                                IsEnabled="{x:Bind ViewModel.IsProcessingAllowed, Mode=OneWay}"
+                                MinWidth="100" Height="36" FontSize="14"
+                                Margin="16,0,0,0"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -266,9 +299,9 @@
                                         </Grid.ColumnDefinitions>
 
                                         <Grid.RowDefinitions>
+                                            <RowDefinition Height="{x:Bind Row0Height, Mode=OneWay}"/>
                                             <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="{x:Bind Row2Height, Mode=OneWay}"/>
                                         </Grid.RowDefinitions>
 
                                         <!-- Row 0: 序号1 -->
@@ -302,15 +335,15 @@
                                             </StackPanel>
                                         </Button>
 
-                                        <TextBlock Grid.Row="0" Grid.Column="3" Margin="8,0,0,0" Text="{x:Bind File1IssueDescription, Mode=OneWay}" Foreground="{x:Bind File1IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File1IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="1"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="3" Margin="8,0,0,0" Text="{x:Bind File1IssueDescription, Mode=OneWay}" Foreground="{x:Bind File1IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File1IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="1"/>
 
-                                        <TextBlock Grid.Row="0" Grid.Column="4" Margin="10,0,0,0" Text="{x:Bind File1Details, Mode=OneWay}" Foreground="{x:Bind File1DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="1"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="4" Margin="10,0,0,0" Text="{x:Bind File1Details, Mode=OneWay}" Foreground="{x:Bind File1DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="1"/>
 
                                         <!-- Row 1: 配对分隔线 — 横跨文件→问题→状态 -->
                                         <Border Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3"
                                                 Visibility="{x:Bind File2Visibility, Mode=OneWay}"
                                                 Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                                Margin="0,18,0,18"/>
+                                                Margin="0,14,0,14"/>
 
                                         <!-- Row 2: 序号2 + File2 + Issue2 + Status2 — 仅配对时显示 -->
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="{x:Bind File2Index, Mode=OneWay}" Visibility="{x:Bind File2Visibility, Mode=OneWay}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -322,9 +355,9 @@
                                             </StackPanel>
                                         </Button>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="3" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2IssueDescription, Mode=OneWay}" Foreground="{x:Bind File2IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File2IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="2"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="3" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2IssueDescription, Mode=OneWay}" Foreground="{x:Bind File2IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File2IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="2"/>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="4" Margin="10,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2Details, Mode=OneWay}" Foreground="{x:Bind File2DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="3" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="2"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="4" Margin="10,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2Details, Mode=OneWay}" Foreground="{x:Bind File2DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="2"/>
                                     </Grid>
                                 </Border>
                         </DataTemplate>

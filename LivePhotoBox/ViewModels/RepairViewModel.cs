@@ -131,6 +131,19 @@ namespace LivePhotoBox.ViewModels
 
         #region Filter
 
+        /// <summary>
+        /// 修复状态筛选：0=全部, 1=仅待修复, 2=仅完好
+        /// </summary>
+        [ObservableProperty]
+        private int _repairStatusFilter;
+
+        partial void OnRepairStatusFilterChanged(int value)
+        {
+            ApplyFilter();
+            OnPropertyChanged(nameof(ViewGroupVisibility));
+            OnPropertyChanged(nameof(CombinedFilterText));
+        }
+
         [ObservableProperty]
         private int _filterMode;
 
@@ -138,6 +151,7 @@ namespace LivePhotoBox.ViewModels
         {
             ApplyFilter();
             OnPropertyChanged(nameof(ViewGroupVisibility));
+            OnPropertyChanged(nameof(CombinedFilterText));
         }
 
         [ObservableProperty]
@@ -147,11 +161,47 @@ namespace LivePhotoBox.ViewModels
         {
             if (!value)
             {
-                if (FilterMode != 0)
-                    FilterMode = 0;
+                FilterMode = 0;
+                RepairStatusFilter = 0;
                 FilteredTasks.ReplaceRange([..Tasks]);
             }
             OnPropertyChanged(nameof(ViewGroupVisibility));
+        }
+
+        /// <summary>合并筛选按钮上显示的文本：例如"实况照片 · 仅待修复"</summary>
+        public string CombinedFilterText
+        {
+            get
+            {
+                string typeText = FilterMode switch
+                {
+                    1 => ResourceService.GetString("RepairPage_FilterPairs"),
+                    2 => ResourceService.GetString("RepairPage_FilterStandaloneImg"),
+                    3 => ResourceService.GetString("RepairPage_FilterStandaloneVid"),
+                    _ => ResourceService.GetString("RepairPage_FilterAll"),
+                };
+                string statusText = RepairStatusFilter switch
+                {
+                    1 => ResourceService.GetString("RepairPage_FilterStatusRepair"),
+                    2 => ResourceService.GetString("RepairPage_FilterStatusPerfect"),
+                    _ => ResourceService.GetString("RepairPage_FilterStatusAll"),
+                };
+                return $"{typeText}  •  {statusText}";
+            }
+        }
+
+        [RelayCommand]
+        private void SetTypeFilter(object parameter)
+        {
+            if (parameter is int i) FilterMode = i;
+            else if (parameter is string s && int.TryParse(s, out var r)) FilterMode = r;
+        }
+
+        [RelayCommand]
+        private void SetStatusFilter(object parameter)
+        {
+            if (parameter is int i) RepairStatusFilter = i;
+            else if (parameter is string s && int.TryParse(s, out var r)) RepairStatusFilter = r;
         }
 
         /// <summary>当前浏览的分组名称（由滚动位置决定），如"实况照片组合"</summary>
@@ -191,7 +241,7 @@ namespace LivePhotoBox.ViewModels
         private void ApplyFilter()
         {
             // 全部 → 恢复原始序号（扫描时的自然顺序）
-            if (FilterMode == 0)
+            if (FilterMode == 0 && RepairStatusFilter == 0)
             {
                 int fileSeq = 1;
                 for (int i = 0; i < Tasks.Count; i++)
@@ -219,6 +269,18 @@ namespace LivePhotoBox.ViewModels
                 3 => Tasks.Where(t => t.Entries.Count == 1 && !t.File1IsImage).ToList(),
                 _ => [..Tasks],
             };
+
+            // 状态筛选：按修复状态过滤
+            if (RepairStatusFilter == 1)
+            {
+                // 仅待修复：至少有一个 entry 需要修复
+                result = result.Where(t => t.Entries.Any(e => e.NeedsRepair)).ToList();
+            }
+            else if (RepairStatusFilter == 2)
+            {
+                // 仅完好：所有 entry 都不需要修复
+                result = result.Where(t => t.Entries.All(e => !e.NeedsRepair)).ToList();
+            }
 
             // 重新编号：不管筛选哪个分类，序号始终从 1 开始
             int seq = 1;
@@ -963,8 +1025,9 @@ namespace LivePhotoBox.ViewModels
         private async Task RunTasksAsync()
         {
             InitializeRunState();
-            // 开始修复：强制回"全部"并禁用筛选
+            // 开始修复：强制回"全部"、取消状态筛选、禁用筛选
             FilterMode = 0;
+            RepairStatusFilter = 0;
             UpdateFilterEnabled();
             _stopwatch = Stopwatch.StartNew();
 
