@@ -353,23 +353,56 @@
 
                     <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                             Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                        <toolkit:WrapPanel HorizontalSpacing="32"
-                                           VerticalSpacing="16"
-                                           VerticalAlignment="Center">
+                        <StackPanel Spacing="12">
                             <!-- HEIC 修复开关 -->
-                            <StackPanel Spacing="8">
-                                <TextBlock x:Uid="SettingsPage_Repair_HeicLabel"
-                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
-                                           FontFamily="Microsoft YaHei UI"/>
-                                <ToggleSwitch x:Uid="SettingsPage_Repair_HeicSwitch"
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="HeicRepairLabel_Tapped">
+                                    <TextBlock x:Uid="SettingsPage_Repair_HeicLabel"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock x:Uid="SettingsPage_Repair_HeicDesc"
+                                               FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1"
+                                              x:Uid="SettingsPage_Repair_HeicSwitch"
                                               IsOn="{x:Bind ViewModel.IsHeicRepairEnabled, Mode=TwoWay}"
-                                              FontSize="13"/>
-                                <TextBlock x:Uid="SettingsPage_Repair_HeicDesc"
-                                           FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </StackPanel>
+                                              FontSize="12"
+                                              HorizontalAlignment="Right"/>
+                            </Grid>
 
-                        </toolkit:WrapPanel>
+                            <!-- 分隔线（仅到文字区域） -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                            </Grid>
+
+                            <!-- 修复非实况照片的视频开关 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="NonLivePhotoVideoRepairLabel_Tapped">
+                                    <TextBlock x:Uid="SettingsPage_Repair_LivePhotoVideoLabel"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock x:Uid="SettingsPage_Repair_LivePhotoVideoDesc"
+                                               FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1"
+                                              x:Uid="SettingsPage_Repair_LivePhotoVideoSwitch"
+                                              IsOn="{x:Bind ViewModel.IsNonLivePhotoVideoRepairEnabled, Mode=TwoWay}"
+                                              FontSize="12"
+                                              HorizontalAlignment="Right"/>
+                            </Grid>
+                        </StackPanel>
                     </Border>
                 </StackPanel>
 
@@ -496,6 +529,26 @@
                                     <ToggleSwitch Grid.Column="1"
                                                   x:Uid="SettingsPage_ScanThumbnailToggle"
                                                   IsOn="{x:Bind ViewModel.IsRepairScanLoadThumbnail, Mode=TwoWay}"
+                                                  FontSize="12"
+                                                  HorizontalAlignment="Right"/>
+                                </Grid>
+
+                                <!-- 分隔线 -->
+                                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                                <!-- 更严格的实况照片扫描开关 -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="StrictLivePhotoScanLabel_Tapped">
+                                        <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanLabel" FontSize="13" FontWeight="SemiBold"/>
+                                        <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1"
+                                                  x:Uid="SettingsPage_StrictLivePhotoScanToggle"
+                                                  IsOn="{x:Bind ViewModel.IsStrictLivePhotoScanEnabled, Mode=TwoWay}"
                                                   FontSize="12"
                                                   HorizontalAlignment="Right"/>
                                 </Grid>

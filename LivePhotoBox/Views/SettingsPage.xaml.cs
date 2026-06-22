@@ -76,6 +76,21 @@ namespace LivePhotoBox.Views
             ViewModel.IsRepairScanLoadThumbnail = !ViewModel.IsRepairScanLoadThumbnail;
         }
 
+        private void HeicRepairLabel_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            ViewModel.IsHeicRepairEnabled = !ViewModel.IsHeicRepairEnabled;
+        }
+
+        private void NonLivePhotoVideoRepairLabel_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            ViewModel.IsNonLivePhotoVideoRepairEnabled = !ViewModel.IsNonLivePhotoVideoRepairEnabled;
+        }
+
+        private void StrictLivePhotoScanLabel_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
+        {
+            ViewModel.IsStrictLivePhotoScanEnabled = !ViewModel.IsStrictLivePhotoScanEnabled;
+        }
+
         private async void RestartAppButton_Click(object sender, RoutedEventArgs e)
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;

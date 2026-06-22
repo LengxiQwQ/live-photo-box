@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -361,7 +362,6 @@ namespace LivePhotoBox.Views
                 ResourceService.GetString("RepairPage_FilterStatusPerfect")
             ];
             double fontSize = btn.FontSize > 0 ? btn.FontSize : 14.0;
-            const double chromeWidth = 56;
 
             double maxWidth = 0;
             var tb = new TextBlock
@@ -383,6 +383,8 @@ namespace LivePhotoBox.Views
 
             if (maxWidth > 0)
             {
+                // 右侧留足呼吸空间，以最长组合文字为准再加 80px 边距
+                const double chromeWidth = 58;
                 btn.Width = maxWidth + chromeWidth;
                 _filterDropDownWidthLocked = true;
             }
@@ -413,7 +415,25 @@ namespace LivePhotoBox.Views
             // 分隔线左右留空
             FilterMenuSeparator.Margin = new Thickness(16, 0, 16, 0);
 
-            const double itemMinWidth = 136;
+            // 自动测量所有下拉项文字宽度，取最长者
+            string[] headerKeys = ["RepairPage_FilterHeaderType", "RepairPage_FilterHeaderStatus"];
+            double maxTextWidth = 0;
+            var tb = new TextBlock
+            {
+                FontSize = 14,
+                TextWrapping = TextWrapping.NoWrap
+            };
+
+            foreach (var key in headerKeys.Concat(_filterTypeKeys).Concat(_filterStatusKeys))
+            {
+                tb.Text = ResourceService.GetString(key);
+                tb.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+                maxTextWidth = Math.Max(maxTextWidth, tb.DesiredSize.Width);
+            }
+
+            // 图标列 ~16px + 间距 + 右侧留白（足够长，不贴边）
+            const double itemChrome = 76;
+            double itemMinWidth = maxTextWidth + itemChrome;
 
             // 标题：文件类型（索引 0）
             if (flyout.Items[0] is MenuFlyoutItem typeHeader)

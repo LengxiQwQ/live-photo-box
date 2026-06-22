@@ -805,7 +805,7 @@
     <value>等待修复</value>
   </data>
   <data name="RepairPage_Task_Skipped" xml:space="preserve">
-    <value>跳过</value>
+    <value>已跳过</value>
   </data>
   <data name="RepairPage_Task_NoRepair" xml:space="preserve">
     <value>无需修复</value>
@@ -1347,7 +1347,7 @@
     <value>点击右侧按钮，即可体验内置预设，直观了解完整拆分流程</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder.Text" xml:space="preserve">
-    <value>HEIC 解码器</value>
+    <value>HEIC/HEIF 解码器</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder_MagickNET.Content" xml:space="preserve">
     <value>Magick.NET（ImageMagick + libheif）</value>
@@ -1360,7 +1360,7 @@
 （Win11 已内置，Win10 需通过 Microsoft Store 安装）</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
-    <value>HEIC 任务并行数</value>
+    <value>HEIC/HEIF 任务并行数</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount_Desc.Text" xml:space="preserve">
     <value>JPG 自动使用 20 路高并发</value>
@@ -1446,7 +1446,7 @@
     <value>缩略图修复</value>
   </data>
   <data name="SettingsPage_Repair_HeicLabel.Text" xml:space="preserve">
-    <value>HEIC 照片修复</value>
+    <value>修复 HEIC/HEIF 照片</value>
   </data>
   <data name="SettingsPage_Repair_HeicSwitch.OnContent" xml:space="preserve">
     <value>已启用</value>
@@ -1570,5 +1570,44 @@
   </data>
   <data name="RepairPage_FilterHeaderStatus" xml:space="preserve">
     <value>修复状态</value>
+  </data>
+  <data name="RepairPage_ResetFilterBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>重置筛选</value>
+  </data>
+  <data name="SettingsPage_Repair_LivePhotoVideoLabel.Text" xml:space="preserve">
+    <value>修复非实况照片的视频</value>
+  </data>
+  <data name="SettingsPage_Repair_LivePhotoVideoSwitch.OnContent" xml:space="preserve">
+    <value>已启用</value>
+  </data>
+  <data name="SettingsPage_Repair_LivePhotoVideoSwitch.OffContent" xml:space="preserve">
+    <value>已禁用</value>
+  </data>
+  <data name="SettingsPage_Repair_LivePhotoVideoDesc.Text" xml:space="preserve">
+    <value>启用后将同时修复普通长视频（时长超过 3.5 秒）。关闭则仅修复实况照片视频，跳过非实况视频。</value>
+  </data>
+  <data name="RepairPage_Task_SkippedNonLivePhoto" xml:space="preserve">
+    <value>已跳过（非实况照片）</value>
+  </data>
+  <data name="RepairPage_HardwareGpu" xml:space="preserve">
+    <value> | {0} 硬件加速</value>
+  </data>
+  <data name="RepairPage_HardwareCpu" xml:space="preserve">
+    <value> | CPU 软件编码</value>
+  </data>
+  <data name="SettingsPage_StrictLivePhotoScanLabel.Text" xml:space="preserve">
+    <value>更严格的实况照片扫描</value>
+  </data>
+  <data name="SettingsPage_StrictLivePhotoScanDesc.Text" xml:space="preserve">
+    <value>通过 Apple ContentIdentifier (UUID) 匹配实况照片。开启后仅识别苹果设备的实况照片，关闭后使用文件名匹配所有照片</value>
+  </data>
+  <data name="SettingsPage_StrictLivePhotoScanToggle.OnContent" xml:space="preserve">
+    <value>开</value>
+  </data>
+  <data name="SettingsPage_StrictLivePhotoScanToggle.OffContent" xml:space="preserve">
+    <value>关</value>
+  </data>
+  <data name="RepairPage_LivePhotoVideoMissing" xml:space="preserve">
+    <value>实况照片（视频缺失）</value>
   </data>
 </root>

@@ -25,5 +25,11 @@ namespace LivePhotoBox.Models
         public string VideoCodec { get; set; } = string.Empty;
         /// <summary>Original video bitrate in bps, parsed from exiftool AvgBitrate (e.g. "12.2 Mbps" → 12200000).</summary>
         public long VideoBitrateBps { get; set; } = 0;
+        /// <summary>Video duration in seconds, parsed from exiftool MediaDuration (e.g. "2.35 s" → 2.35). 0 if unknown.</summary>
+        public double VideoDurationSeconds { get; set; } = 0;
+        /// <summary>Apple ContentIdentifier UUID linking photo to its paired video. Empty if not present.</summary>
+        public string ContentIdentifier { get; set; } = string.Empty;
+        /// <summary>True if this file has a ContentIdentifier (strong indicator of Live Photo).</summary>
+        public bool HasContentIdentifier => !string.IsNullOrWhiteSpace(ContentIdentifier);
     }
 }

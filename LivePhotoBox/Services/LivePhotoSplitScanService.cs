@@ -57,7 +57,8 @@ namespace LivePhotoBox.Services
         public static LivePhotoSplitScanResult Scan(
             string inputDirectory,
             CancellationToken cancellationToken = default,
-            IProgress<WorkProgressSnapshot>? progress = null)
+            IProgress<WorkProgressSnapshot>? progress = null,
+            IProgress<LivePhotoSplitFileInfo>? itemProgress = null)
         {
             LogService.Scan($"Split scan started. Directory: {inputDirectory}");
             progress?.Report(new WorkProgressSnapshot(0, 0));
@@ -126,7 +127,9 @@ namespace LivePhotoBox.Services
                 var fileInfo = new FileInfo(path);
                 if (IsLikelyLivePhoto(path, fileInfo.Length))
                 {
-                    files.Add(new LivePhotoSplitFileInfo { SourcePath = path, FileSizeBytes = fileInfo.Length });
+                    var info = new LivePhotoSplitFileInfo { SourcePath = path, FileSizeBytes = fileInfo.Length };
+                    files.Add(info);
+                    itemProgress?.Report(info);
                     recognizedCount++;
                 }
                 else
