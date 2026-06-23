@@ -374,7 +374,7 @@ Do you want to restart now?</value>
     <value>Show in folder</value>
   </data>
   <data name="ComboPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Open with default app</value>
+    <value>Fullscreen preview</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
     <value>Ready. Select a folder containing photos and videos.</value>
@@ -851,7 +851,7 @@ Do you want to restart now?</value>
     <value>Show in folder</value>
   </data>
   <data name="SplitPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Open with default app</value>
+    <value>Fullscreen preview</value>
   </data>
   <data name="SplitPage_ThumbnailLoadingText.Text" xml:space="preserve">
     <value>Loading...</value>

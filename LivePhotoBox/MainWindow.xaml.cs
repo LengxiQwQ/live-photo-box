@@ -17,8 +17,8 @@ namespace LivePhotoBox
 {
     public sealed partial class MainWindow : Window
     {
-        private const int DefaultWindowWidth = 1120;
-        private const int DefaultWindowHeight = 694;
+        private const int DefaultWindowWidth = 1200;
+        private const int DefaultWindowHeight = 740;
 
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr hwnd);
