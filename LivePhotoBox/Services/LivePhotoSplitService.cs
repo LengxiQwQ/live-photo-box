@@ -112,6 +112,14 @@ namespace LivePhotoBox.Services
                 await CopyJpegStrippingLivePhotoMetadataAsync(sourceStream, imageOutputStream, imageLength, token);
             }
 
+            // OPPO 协议在 EXIF UserComment 里写了 "oplus_10485792" 标记（供 OPPO 相册识别）。
+            // XMP 段已在上面被剥离，但 EXIF 段原样保留了 → 需单独清理。
+            // 只清以 "oplus_" 开头的值，不碰其他内容的 UserComment（如相机自定义备注）。
+            if (metadataText.Contains("xmlns:OpCamera", StringComparison.Ordinal))
+            {
+                await ClearOppoExifMarkerAsync(imageOutputPath, token);
+            }
+
             // 2. 提取视频部分到临时文件，使用 try-finally 保证任何异常/取消都会清理
             string tempDir = Path.Combine(outputDirectory, "Temp");
             Directory.CreateDirectory(tempDir);
@@ -476,19 +484,70 @@ namespace LivePhotoBox.Services
 
         private static bool ContainsLivePhotoMarker(byte[] buffer, int length)
         {
-            // 按 Adobe XMP 规范，XMP APP1 段必须以 "http://ns.adobe.com/xap/1.0/\0"（29 字节）开头。
-            // 普通 EXIF APP1 段以 "Exif\0\0" 开头，结构完全不同，嗅探只针对 XMP 段进行，
-            // 避免误伤 EXIF 中恰好出现的 "Google Camera" 文本或非实况照片的 XMP 数据。
             ReadOnlySpan<byte> data = new ReadOnlySpan<byte>(buffer, 0, length);
             ReadOnlySpan<byte> xmpHeader = "http://ns.adobe.com/xap/1.0/\0"u8;
             if (data.Length < xmpHeader.Length) return false;
             if (!data[..xmpHeader.Length].SequenceEqual(xmpHeader)) return false;
 
-            // 实况照片 XMP 段一定声明了 GCamera / Container / Item 三个 Google Photos 1.0 命名空间
-            // （参考 Google "Motion Photo" 开源规范及 Android ExifInterface 实现）
+            // Google V1 / V2 / OPPO 三个协议的命名空间声明
             if (data.IndexOf("xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\""u8) >= 0) return true;
             if (data.IndexOf("xmlns:Container=\"http://ns.google.com/photos/1.0/container/\""u8) >= 0) return true;
+            if (data.IndexOf("xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\""u8) >= 0) return true;
             return false;
+        }
+
+        /// <summary>
+        /// Clear the OPPO <c>oplus_*</c> marker from EXIF UserComment —
+        /// but ONLY when the current value starts with "oplus_".
+        /// If UserComment contains any other content (camera notes, custom remarks, etc.),
+        /// it is left completely untouched.
+        /// </summary>
+        private static async Task ClearOppoExifMarkerAsync(string imagePath, CancellationToken token)
+        {
+            try
+            {
+                string? exifToolPath = ExternalToolLocator.FindExifTool();
+                if (string.IsNullOrEmpty(exifToolPath)) return;
+
+                // Read current UserComment value
+                string? currentValue = null;
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    Arguments = $"-UserComment -s -s -S \"{imagePath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (var process = Process.Start(psi))
+                {
+                    if (process == null) return;
+                    currentValue = (process.StandardOutput.ReadToEnd()).Trim();
+                    process.WaitForExit(5000);
+                }
+
+                // Only clear if the value is an oplus_ marker
+                if (string.IsNullOrEmpty(currentValue)
+                    || !currentValue.StartsWith("oplus_", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                LogService.Split(
+                    $"Clearing OPPO EXIF UserComment: '{currentValue}' → (empty)",
+                    LogLevel.Debug);
+
+                await LivePhotoRepairService.RunExifToolAsync(token,
+                    "-overwrite_original",
+                    "-UserComment=",
+                    imagePath);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Split(
+                    $"Failed to clear OPPO EXIF UserComment: {ex.Message}",
+                    LogLevel.Warning);
+            }
         }
 
         private static async Task<int> ReadExactAsync(Stream stream, byte[] buffer, int count, CancellationToken token)

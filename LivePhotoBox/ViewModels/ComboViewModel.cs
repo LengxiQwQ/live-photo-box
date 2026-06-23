@@ -608,9 +608,12 @@ namespace LivePhotoBox.ViewModels
                                     tempFiles.Add(workingImagePath);
                                 }
 
+                                // Google协议是否强制转MP4由用户设置控制，OPPO始终转
+                                bool forceMp4 = modeIndex == 2 ||
+                                    AppSettingsService.GetValue("IsGoogleProtocolForceMp4", false);
                                 (workingVideoPath, bool vt) =
                                     await VideoTranscodeService.EnsureMp4Async(
-                                        task.VideoPath, tempDir, token);
+                                        task.VideoPath, tempDir, token, forceMp4);
                                 if (vt) tempFiles.Add(workingVideoPath);
 
                                 string prepared = await protocol.PrepareImageAsync(

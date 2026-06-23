@@ -133,10 +133,10 @@
     <value>Replace Key Photo</value>
   </data>
   <data name="Nav_Home.Content" xml:space="preserve">
-    <value>Home</value>
+    <value>Home &amp; Tutorial</value>
   </data>
   <data name="Nav_Repair.Content" xml:space="preserve">
-    <value>Repair Thumbnail</value>
+    <value>Live Photo Repair</value>
   </data>
   <data name="Nav_Settings" xml:space="preserve">
     <value>Settings</value>
@@ -620,7 +620,7 @@ Do you want to restart now?</value>
     <value>Pending</value>
   </data>
   <data name="Task_Processing" xml:space="preserve">
-    <value>Merging...</value>
+    <value>Repairing...</value>
   </data>
   <data name="Task_Success" xml:space="preserve">
     <value>Native merge succeeded</value>
@@ -713,7 +713,7 @@ Do you want to restart now?</value>
     <value>This is a professional yet easy-to-use Live Photo editing tool designed to help you easily break down the device ecosystem barriers between iOS and Android. It can losslessly convert Live Photos taken on your iPhone into formats natively supported by Google Photos, perfectly preserving the original video quality and dynamic frame rate, allowing your vivid memories to be perfectly presented on any platform.</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
-    <value>Beyond the Live Photos compatibility, I also discovered a significant drawback of Apple's design. To optimize front-facing camera performance, Live Photos uses horizontal storage for the video portion of the physical pixels and employs a built-in Rotation tag to determine the photo's orientation. However, Windows and other systems ignore the tag and directly render the raw pixels, causing the image to rotate. Prior to iOS 17.3, there was also an issue with stretched thumbnails. Apple attempted to add additional low-resolution thumbnails to ensure correct display, but these efforts were unsuccessful. The Thumbnail Fix feature was thus created, achieving lossless pixel-level reconstruction through underlying physical correction, completely resolving the persistent thumbnail compatibility problem on non-Apple devices.</value>
+    <value>Beyond the Live Photos compatibility, I also discovered a significant drawback of Apple's design. To optimize front-facing camera performance, Live Photos uses horizontal storage for the video portion of the physical pixels and employs a built-in Rotation tag to determine the photo's orientation. However, Windows and other systems ignore the tag and directly render the raw pixels, causing the image to rotate. Prior to iOS 17.3, there was also an issue with stretched thumbnails. Apple attempted to add additional low-resolution thumbnails to ensure correct display, but these efforts were unsuccessful. The Live Photo Repair feature was thus created, achieving lossless pixel-level reconstruction through underlying physical correction, completely resolving the persistent thumbnail compatibility problem on non-Apple devices.</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>Tip :</value>
@@ -949,7 +949,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Display and process Apple Live Photos directly on Windows.</value>
   </data>
   <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
-    <value>Thumbnail Repair Settings</value>
+    <value>Live Photo Repair Settings</value>
   </data>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>Input Dir:</value>
@@ -1117,7 +1117,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Select the folder of photos you want to split, and click "Start Splitting".</value>
   </data>
   <data name="HomePage_RepairTitle.Text" xml:space="preserve">
-    <value>Thumbnail Repair</value>
+    <value>Live Photo Repair</value>
   </data>
   <data name="HomePage_RepairDesc.Text" xml:space="preserve">
     <value>This is the main event: fixing the issue mentioned in the above description where Apple photo thumbnails rotate when viewed from the front and stretch in versions prior to iOS 17.3. If you encounter any other new issues, please report them on the About or Settings page.</value>
@@ -1360,14 +1360,19 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Windows BitmapDecoder (system built-in)</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
-    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC/HEIF extension
-(built-in on Win11, available via Microsoft Store on Win10)</value>
+    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC/HEIF extension (built-in on Win11, available via Microsoft Store on Win10)</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
     <value>HEIC/HEIF Task Parallel Count</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount_Desc.Text" xml:space="preserve">
-    <value>Plain JPG images auto-use 20-way high concurrency</value>
+    <value>Parallel task count for HEIC/HEIF photo decoding. Note: JPG photos are not limited by this setting and automatically use up to 20-way concurrency to accelerate composition</value>
+  </data>
+  <data name="SettingsPage_Combo_GoogleForceMp4.Text" xml:space="preserve">
+    <value>Always convert to MP4 for Google protocols</value>
+  </data>
+  <data name="SettingsPage_Combo_GoogleForceMp4_Desc.Text" xml:space="preserve">
+    <value>When enabled, MOV videos are automatically converted to the more compatible MP4 format during Google V1/V2 Live Photo composition. Disabled by default to preserve the original video container format</value>
   </data>
   <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
     <value>Restore Default Settings</value>
@@ -1447,7 +1452,7 @@ Place any of these files into the same folder.</value>
     <value>EXIF angle mismatch</value>
   </data>
   <data name="SettingsPage_Repair_Header.Text" xml:space="preserve">
-    <value>Thumbnail Repair</value>
+    <value>Live Photo Repair</value>
   </data>
   <data name="SettingsPage_Repair_HeicLabel.Text" xml:space="preserve">
     <value>HEIC/HEIF Photo Repair</value>
@@ -1495,16 +1500,16 @@ Place any of these files into the same folder.</value>
     <value>Hardware Acceleration</value>
   </data>
   <data name="SettingsPage_Transcode_ThreadCount.Text" xml:space="preserve">
-    <value>Task parallel number</value>
+    <value>Video task parallelism</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware_Threads.Text" xml:space="preserve">
     <value>threads</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware_Desc.Text" xml:space="preserve">
-    <value>Select GPU or CPU for encoding</value>
+    <value>Hardware encoder used for video transcoding. GPU acceleration significantly improves transcoding speed. Falls back to CPU software encoding if hardware encoding is unavailable. Click the refresh button to re-detect available hardware</value>
   </data>
   <data name="SettingsPage_Transcode_ThreadCount_Desc.Text" xml:space="preserve">
-    <value>Number of concurrent tasks</value>
+    <value>Number of simultaneous video transcoding tasks. Applies only to MP4 and MOV videos that require transcoding. Higher values increase parallel processing speed but consume more system resources</value>
   </data>
   <data name="RepairPage_StatPaired.Text" xml:space="preserve">
     <value>Live Photo:</value>
@@ -1613,5 +1618,47 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="RepairPage_LivePhotoVideoMissing" xml:space="preserve">
     <value>Live Photo (video missing)</value>
+  </data>
+  <data name="SettingsPage_SwitchToModern_Button_Text.Text" xml:space="preserve">
+    <value>Switch to Modern Settings UI</value>
+  </data>
+  <data name="SettingsPage_SwitchToModern_Confirm_Title" xml:space="preserve">
+    <value>Switch Settings UI</value>
+  </data>
+  <data name="SettingsPage_SwitchToModern_Confirm_Message" xml:space="preserve">
+    <value>The app will restart and switch to the modern settings UI. Continue?</value>
+  </data>
+  <data name="SettingsPage_SwitchToClassic_Confirm_Title" xml:space="preserve">
+    <value>Switch to Legacy Settings UI</value>
+  </data>
+  <data name="SettingsPage_SwitchToClassic_Confirm_Message" xml:space="preserve">
+    <value>⚠️ The legacy settings UI may have missing features or display anomalies. The modern UI is recommended. Are you sure you want to switch?</value>
+  </data>
+  <data name="SettingsPageModern_SwitchToClassic_Button_Text.Text" xml:space="preserve">
+    <value>Switch to Legacy Settings UI</value>
+  </data>
+  <data name="SettingsPageModern_SwitchConfirm_Title" xml:space="preserve">
+    <value>Switch Settings Page</value>
+  </data>
+  <data name="SettingsPageModern_SwitchConfirm_Message" xml:space="preserve">
+    <value>Restart the app and switch settings page style. Continue?</value>
+  </data>
+  <data name="SettingsPage_CrashLogPrivacyHint.Text" xml:space="preserve">
+    <value>Logs only record app runtime status and error diagnostics — no personal photo data is collected. Old logs are automatically cleaned up when exceeding 15 files.</value>
+  </data>
+  <data name="Toggle_OnOff.OnContent" xml:space="preserve">
+    <value>On</value>
+  </data>
+  <data name="Toggle_OnOff.OffContent" xml:space="preserve">
+    <value>Off</value>
+  </data>
+  <data name="Toggle_EnabledDisabled.OnContent" xml:space="preserve">
+    <value>Enabled</value>
+  </data>
+  <data name="Toggle_EnabledDisabled.OffContent" xml:space="preserve">
+    <value>Disabled</value>
+  </data>
+  <data name="SettingsPage_Test_Warning.Text" xml:space="preserve">
+    <value> ⚠️ Advanced debugging options below. Modifying these may cause instability, lag, or crashes. Keep default settings unless necessary.</value>
   </data>
 </root>

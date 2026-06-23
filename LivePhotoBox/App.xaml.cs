@@ -3,6 +3,7 @@ using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox
@@ -86,8 +87,19 @@ namespace LivePhotoBox
             }
         }
 
+        [DllImport("kernel32.dll")]
+        private static extern uint SetErrorMode(uint uMode);
+
+        private const uint SEM_FAILCRITICALERRORS = 0x0001;
+        private const uint SEM_NOGPFAULTERRORBOX = 0x0002;
+
         public App()
         {
+            // 禁止子进程崩溃时弹出 Windows 错误报告/JIT 调试器对话框。
+            // exiftool / ffmpeg 等外部工具遇到损坏文件可能触发 Win32 异常，
+            // 主程序有 try-catch 兜底，不需要 OS 弹窗干扰用户。
+            SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+
             ApplyLanguageSetting();
             LogService.Initialize();
 

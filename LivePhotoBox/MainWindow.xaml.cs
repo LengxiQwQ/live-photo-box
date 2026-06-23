@@ -230,7 +230,8 @@ namespace LivePhotoBox
         {
             if (args.IsSettingsSelected)
             {
-                NavigateToPage(typeof(Views.SettingsPage), null);
+                bool useClassic = AppSettingsService.GetValue("UseClassicSettingsPage", false);
+                NavigateToPage(useClassic ? typeof(Views.SettingsPage) : typeof(Views.SettingsPageModern), null);
                 return;
             }
 

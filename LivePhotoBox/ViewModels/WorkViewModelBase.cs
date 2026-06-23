@@ -117,6 +117,17 @@ namespace LivePhotoBox.ViewModels
             NotifyStatusChanged();
         }
 
+        /// <summary>
+        /// 在当前状态文本后面追加提示，用竖线分隔。
+        /// 用于在不打断现有状态（如"正在扫描..."）的前提下叠报警告。
+        /// </summary>
+        protected void AppendDirectStatus(string text)
+        {
+            _status = string.IsNullOrEmpty(_status) ? text : $"{_status} | {text}";
+            _statusForLog = _status;
+            NotifyStatusChanged();
+        }
+
         protected void NotifyStatusChanged()
         {
             OnPropertyChanged(nameof(Status));

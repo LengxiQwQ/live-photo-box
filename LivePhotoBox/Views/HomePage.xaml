@@ -11,7 +11,7 @@
     <Grid>
         <ScrollViewer x:Name="RootScrollViewer" Padding="40,24,40,0" HorizontalContentAlignment="Center">
             <Grid HorizontalAlignment="Stretch">
-                <StackPanel Spacing="24" MaxWidth="1100" HorizontalAlignment="Stretch" Margin="0,0,0,40">
+                <StackPanel Spacing="24" MaxWidth="1400" HorizontalAlignment="Stretch" Margin="0,0,0,40">
 
                 <Grid x:Name="BannerRoot" Height="350" Margin="0,8,0,8" CornerRadius="12">
                     <Image 
@@ -516,7 +516,7 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 缩略图修复 -->
+                <!-- 实况照片显示修复 -->
                 <Border x:Name="RepairTutorialBorder" CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
                     Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                     <Grid>
