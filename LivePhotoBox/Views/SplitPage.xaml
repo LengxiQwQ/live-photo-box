@@ -190,7 +190,7 @@
 
                                     <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                                    <Button x:Uid="SplitPage_TipFolder" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,8,0" Click="ThumbnailButton_Click" Tag="{x:Bind SourcePath}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6">
+                                    <Button x:Uid="SplitPage_TipApp" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,8,0" Click="ThumbnailButton_Click" Tag="{x:Bind SourcePath}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6">
                                         <Border Width="52" Height="52" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
                                             <Grid>
                                                 <TextBlock x:Uid="SplitPage_ThumbnailLoadingText" Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="WrapWholeWords" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="9" Margin="4"/>
@@ -199,7 +199,7 @@
                                         </Border>
                                     </Button>
 
-                                    <Button x:Uid="SplitPage_TipApp" Grid.Column="2" Click="FileButton_Click" Tag="{x:Bind SourcePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" VerticalAlignment="Center" CornerRadius="4">
+                                    <Button x:Uid="SplitPage_TipFolder" Grid.Column="2" Click="FileButton_Click" Tag="{x:Bind SourcePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" VerticalAlignment="Center" CornerRadius="4">
                                         <TextBlock FontSize="13" VerticalAlignment="Center" Text="{x:Bind DisplaySourceFileName}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
                                     </Button>
 
@@ -224,5 +224,26 @@
                 <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap" IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
             </TeachingTip.Content>
         </TeachingTip>
+
+        <!-- 全屏图片预览 -->
+        <Grid x:Name="LightboxOverlay" Visibility="Collapsed"
+              Background="#99000000" Canvas.ZIndex="100"
+              PointerWheelChanged="LightboxOverlay_PointerWheelChanged">
+            <Border Background="Transparent" Tapped="LightboxBackdrop_Tapped"/>
+            <Button x:Name="LightboxCloseButton"
+                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Margin="16" Width="40" Height="40" CornerRadius="20"
+                    Background="#44000000" BorderThickness="0"
+                    Click="LightboxCloseButton_Click">
+                <FontIcon Glyph="&#xE711;" FontSize="16" Foreground="White"/>
+            </Button>
+            <Image x:Name="LightboxImage" Stretch="Uniform"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Margin="60,50,60,50"
+                   IsTapEnabled="True" Tapped="LightboxBackdrop_Tapped"/>
+            <TextBlock x:Name="LightboxCounter"
+                       HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                       Margin="0,0,0,16" Foreground="#CCFFFFFF" FontSize="13"/>
+        </Grid>
     </Grid>
 </Page>

@@ -373,7 +373,7 @@
     <value>在文件夹中查看</value>
   </data>
   <data name="ComboPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>在默认应用打开</value>
+    <value>全屏预览</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
     <value>就绪，请导入包含（照片和视频）的文件夹</value>
@@ -850,7 +850,7 @@
     <value>在文件夹中查看</value>
   </data>
   <data name="SplitPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>在默认应用打开</value>
+    <value>全屏预览</value>
   </data>
   <data name="SplitPage_ThumbnailLoadingText.Text" xml:space="preserve">
     <value>加载中...</value>

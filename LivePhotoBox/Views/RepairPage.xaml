@@ -315,7 +315,7 @@
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="{x:Bind File1Index, Mode=OneWay}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
                                         <!-- 缩略图（配对）— 48×48 -->
-                                        <Button x:Uid="RepairPage_TipFolder" Grid.Row="0" Grid.RowSpan="3" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,4,0" Click="ThumbnailButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6" Visibility="{x:Bind PairedThumbnailVisibility, Mode=OneWay}">
+                                        <Button x:Uid="RepairPage_TipApp" Grid.Row="0" Grid.RowSpan="3" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,4,0" Click="ThumbnailButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6" Visibility="{x:Bind PairedThumbnailVisibility, Mode=OneWay}">
                                             <Border Width="48" Height="48" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
                                                 <Grid>
                                                     <TextBlock x:Uid="RepairPage_ThumbnailLoadingText" Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="9"/>
@@ -325,7 +325,7 @@
                                         </Button>
 
                                         <!-- 缩略图（单独）— 48×48 -->
-                                        <Button x:Uid="RepairPage_TipFolder" Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,4,0" Click="ThumbnailButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6" Visibility="{x:Bind StandaloneThumbnailVisibility, Mode=OneWay}">
+                                        <Button x:Uid="RepairPage_TipApp" Grid.Row="0" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,4,0" Click="ThumbnailButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6" Visibility="{x:Bind StandaloneThumbnailVisibility, Mode=OneWay}">
                                             <Border Width="48" Height="48" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
                                                 <Grid>
                                                     <TextBlock x:Uid="RepairPage_ThumbnailLoadingText" Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="9"/>
@@ -335,7 +335,7 @@
                                         </Button>
 
                                         <!-- Row 0 File1 -->
-                                        <Button x:Uid="RepairPage_TipApp" Grid.Row="0" Grid.Column="2" Click="FileButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                        <Button x:Uid="RepairPage_TipFolder" Grid.Row="0" Grid.Column="2" Click="FileButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
                                             <StackPanel Orientation="Horizontal" Spacing="5" Height="22">
                                                 <FontIcon Glyph="{x:Bind File1IconGlyph, Mode=OneWay}" Foreground="{x:Bind File1IconForeground, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
                                                 <TextBlock FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center" Text="{x:Bind File1Name, Mode=OneWay}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
@@ -355,7 +355,7 @@
                                         <!-- Row 2: 序号2 + File2 + Issue2 + Status2 — 仅配对时显示 -->
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="{x:Bind File2Index, Mode=OneWay}" Visibility="{x:Bind File2Visibility, Mode=OneWay}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                                        <Button x:Uid="RepairPage_TipApp" Grid.Row="2" Grid.Column="2" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Click="FileButton_Click" Tag="{x:Bind File2Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
+                                        <Button x:Uid="RepairPage_TipFolder" Grid.Row="2" Grid.Column="2" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Click="FileButton_Click" Tag="{x:Bind File2Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
                                             <StackPanel Orientation="Horizontal" Spacing="5" Height="22">
                                                 <FontIcon Glyph="{x:Bind File2IconGlyph, Mode=OneWay}" Foreground="{x:Bind File2IconForeground, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
                                                 <TextBlock FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center" Text="{x:Bind File2Name, Mode=OneWay}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
@@ -383,5 +383,26 @@
                 <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap" IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
             </TeachingTip.Content>
         </TeachingTip>
+
+        <!-- 全屏图片预览 -->
+        <Grid x:Name="LightboxOverlay" Visibility="Collapsed"
+              Background="#99000000" Canvas.ZIndex="100"
+              PointerWheelChanged="LightboxOverlay_PointerWheelChanged">
+            <Border Background="Transparent" Tapped="LightboxBackdrop_Tapped"/>
+            <Button x:Name="LightboxCloseButton"
+                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                    Margin="16" Width="40" Height="40" CornerRadius="20"
+                    Background="#44000000" BorderThickness="0"
+                    Click="LightboxCloseButton_Click">
+                <FontIcon Glyph="&#xE711;" FontSize="16" Foreground="White"/>
+            </Button>
+            <Image x:Name="LightboxImage" Stretch="Uniform"
+                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Margin="60,50,60,50"
+                   IsTapEnabled="True" Tapped="LightboxBackdrop_Tapped"/>
+            <TextBlock x:Name="LightboxCounter"
+                       HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                       Margin="0,0,0,16" Foreground="#CCFFFFFF" FontSize="13"/>
+        </Grid>
     </Grid>
 </Page>
