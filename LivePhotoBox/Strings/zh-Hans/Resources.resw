@@ -1356,22 +1356,22 @@
     <value>Magick.NET（ImageMagick + libheif）</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder_BitmapDecoder.Content" xml:space="preserve">
-    <value>Windows BitmapDecoder（系统内置）</value>
+    <value>BitmapDecoder（Windows 系统内置）</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
-    <value>Magick.NET 为自包含方案；BitmapDecoder 依赖系统 HEIC/HEIF 扩展（Win11 已内置，Win10 需通过 Microsoft Store 安装）</value>
+    <value>Magick.NET 为自包含方案；BitmapDecoder 依赖系统 HEIC/HEIF 扩展（Win11 已内置，Win10 需安装以下两个扩展）</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
     <value>HEIC/HEIF 任务并行数</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount_Desc.Text" xml:space="preserve">
-    <value>HEIC/HEIF 照片解码时的并行处理任务数。注意：JPG 格式照片不受此限制，会自动使用最高 20 路并发以加速合成</value>
+    <value>HEIC/HEIF 照片转码时的并行处理任务数。注意：JPG 格式照片无需转码，因此不受限制，会自动使用最高 20 路并发以加速合成</value>
   </data>
   <data name="SettingsPage_Combo_GoogleForceMp4.Text" xml:space="preserve">
     <value>谷歌协议始终转换成 MP4</value>
   </data>
   <data name="SettingsPage_Combo_GoogleForceMp4_Desc.Text" xml:space="preserve">
-    <value>开启后，使用谷歌 V1/V2 协议合成实况照片时，自动将 MOV 视频转为兼容性更广的 MP4 格式。默认关闭，保留视频原始封装格式</value>
+    <value>开启后，使用谷歌 V1/V2 协议合成实况照片时，自动将 MOV 视频转为兼容性更广的 MP4 格式。默认关闭，保留视频原始封装格式，如果导入设备不支持浏览实况照片，可以尝试打开</value>
   </data>
   <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
     <value>恢复默认设置</value>
@@ -1463,7 +1463,7 @@
     <value>已禁用</value>
   </data>
   <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
-    <value>启用后将对 HEIC/HEIF 照片进行方向标签修复和缩略图剥离。HEIC/HEIF 的旋转标签通常是正确的显示指令，关闭即可跳过所有 HEIC/HEIF 文件。</value>
+    <value>启用后将对 HEIC/HEIF 照片进行方向标签修复和缩略图剥离。HEIC/HEIF 的旋转标签通常是正确的显示指令，无特殊需求，保持默认即可</value>
   </data>
   <data name="Status_HeicRepairDisabled" xml:space="preserve">
     <value>[HEIC/HEIF修复已关闭]</value>
@@ -1493,7 +1493,7 @@
     <value>默认输出格式</value>
   </data>
   <data name="SettingsPage_Split_FormatDesc.Text" xml:space="preserve">
-    <value>选择拆分后视频的默认保存格式</value>
+    <value>选择拆分后视频的默认保存格式，无特殊需求，保持默认即可</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware.Text" xml:space="preserve">
     <value>硬件加速</value>
@@ -1505,10 +1505,10 @@
     <value>线程</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware_Desc.Text" xml:space="preserve">
-    <value>视频转码时使用的硬件编码器。GPU 硬件加速可大幅提升转码速度，若不支持则自动回退到 CPU 软件编码。点击右侧刷新按钮重新检测可用硬件</value>
+    <value>视频转码时使用的硬件编码器。GPU 硬件加速可大幅提升转码速度，若不支持则自动回退到 CPU 软件编码。</value>
   </data>
   <data name="SettingsPage_Transcode_ThreadCount_Desc.Text" xml:space="preserve">
-    <value>同时进行视频转码的任务数量，仅对需要转码的 MP4、MOV 视频生效。数值越高，多文件并行处理速度越快，但会占用更多系统资源</value>
+    <value>同时进行视频转码的任务数量，仅对需要转码的 MP4、MOV 视频生效。</value>
   </data>
   <data name="RepairPage_StatPaired.Text" xml:space="preserve">
     <value>实况照片：</value>
@@ -1592,7 +1592,7 @@
     <value>已禁用</value>
   </data>
   <data name="SettingsPage_Repair_LivePhotoVideoDesc.Text" xml:space="preserve">
-    <value>启用后将同时修复普通长视频（时长超过 3.5 秒）。关闭则仅修复实况照片视频，跳过非实况视频。</value>
+    <value>启用后将同时修复时长超过 3.5 秒的普通长视频，长视频一般不用修复</value>
   </data>
   <data name="RepairPage_Task_SkippedNonLivePhoto" xml:space="preserve">
     <value>已跳过（非实况照片）</value>
@@ -1621,18 +1621,6 @@
   <data name="SettingsPage_SwitchToModern_Button_Text.Text" xml:space="preserve">
     <value>切换到新版设置界面</value>
   </data>
-  <data name="SettingsPage_SwitchToModern_Confirm_Title" xml:space="preserve">
-    <value>切换设置界面</value>
-  </data>
-  <data name="SettingsPage_SwitchToModern_Confirm_Message" xml:space="preserve">
-    <value>将重启应用并切换到新版设置界面，是否继续？</value>
-  </data>
-  <data name="SettingsPage_SwitchToClassic_Confirm_Title" xml:space="preserve">
-    <value>切换到旧版设置界面</value>
-  </data>
-  <data name="SettingsPage_SwitchToClassic_Confirm_Message" xml:space="preserve">
-    <value>⚠️ 旧版设置界面可能存在功能缺失或 UI 异常，建议使用新版界面。确定要切换吗？</value>
-  </data>
   <data name="SettingsPageModern_SwitchToClassic_Button_Text.Text" xml:space="preserve">
     <value>切换到旧版设置界面</value>
   </data>
@@ -1643,7 +1631,7 @@
     <value>将重启应用并切换设置页面样式，是否继续？</value>
   </data>
   <data name="SettingsPage_CrashLogPrivacyHint.Text" xml:space="preserve">
-    <value>日志仅记录应用运行状态与错误诊断信息，不包含任何个人照片数据。日志文件超过 15 个时自动清理旧记录，无需手动维护。</value>
+    <value>日志仅记录应用运行状态与错误诊断信息，不包含任何个人照片数据。日志文件超过 15 个自动清理旧记录，无需手动维护。</value>
   </data>
   <data name="Toggle_OnOff.OnContent" xml:space="preserve">
     <value>开</value>
@@ -1659,5 +1647,25 @@
   </data>
   <data name="SettingsPage_Test_Warning.Text" xml:space="preserve">
     <value> ⚠️ 以下为高级调试选项，随意修改可能导致应用运行不稳定、卡顿甚至闪退。如无必要，请保持默认设置。</value>
+  </data>
+  <data name="SettingsPage_SwitchToModern_Confirm_Title" xml:space="preserve">
+    <value>切换设置界面</value>
+  </data>
+  <data name="SettingsPage_SwitchToModern_Confirm_Message" xml:space="preserve">
+    <value>将重启应用并切换到新版设置界面，是否继续？</value>
+  </data>
+  <data name="SettingsPage_SwitchToClassic_Confirm_Title" xml:space="preserve">
+    <value>切换到旧版设置界面</value>
+  </data>
+  <data name="SettingsPage_SwitchToClassic_Confirm_Message" xml:space="preserve">
+    <value>⚠️ 旧版设置界面可能存在功能缺失或 UI 异常，建议使用新版界面。
+
+确定要切换吗？</value>
+  </data>
+  <data name="SettingsPage_Combo_HeicDecoder_HeifLink.Content" xml:space="preserve">
+    <value>安装 HEIF 图像扩展 →</value>
+  </data>
+  <data name="SettingsPage_Combo_HeicDecoder_HevcLink.Content" xml:space="preserve">
+    <value>安装 HEVC 视频扩展 →</value>
   </data>
 </root>
