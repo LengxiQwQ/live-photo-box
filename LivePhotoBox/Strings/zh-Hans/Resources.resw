@@ -664,13 +664,13 @@
     <value>Desktop Acrylic</value>
   </data>
   <data name="SettingsPage_Protocol_V1.Content" xml:space="preserve">
-    <value>(旧版) Google Micro Video (V1)</value>
+    <value>Google - Micro Video (V1)</value>
   </data>
   <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
-    <value>(推荐) Google Motion Photo (V2)</value>
+    <value>Google - Motion Photo (V2)</value>
   </data>
   <data name="SettingsPage_Protocol_Oppo.Content" xml:space="preserve">
-    <value>OPPO / 一加 实况照片 (O-Live Photo)</value>
+    <value>OPPO/OnePlus - O Live Photo</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
@@ -1308,7 +1308,7 @@
     <value>无效的 JPEG 文件：无法读取 JPEG SOI 标记 (0xFF 0xD8)。</value>
   </data>
   <data name="Error_HeicConversionFailed" xml:space="preserve">
-    <value>HEIC 文件 "{0}" 转换失败：{1}</value>
+    <value>HEIC/HEIF 文件 "{0}" 转换失败：{1}</value>
   </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
     <value>将 iPhone 实况照片转换为 Windows 可查看的单文件格式</value>
@@ -1359,7 +1359,7 @@
     <value>Windows BitmapDecoder（系统内置）</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
-    <value>Magick.NET 为自包含方案；BitmapDecoder 依赖系统 HEIC 扩展
+    <value>Magick.NET 为自包含方案；BitmapDecoder 依赖系统 HEIC/HEIF 扩展
 （Win11 已内置，Win10 需通过 Microsoft Store 安装）</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
@@ -1458,10 +1458,10 @@
     <value>已禁用</value>
   </data>
   <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
-    <value>启用后将对 HEIC 照片进行方向标签修复和缩略图剥离。HEIC 的旋转标签通常是正确的显示指令，关闭即可跳过所有 HEIC 文件。</value>
+    <value>启用后将对 HEIC/HEIF 照片进行方向标签修复和缩略图剥离。HEIC/HEIF 的旋转标签通常是正确的显示指令，关闭即可跳过所有 HEIC/HEIF 文件。</value>
   </data>
   <data name="Status_HeicRepairDisabled" xml:space="preserve">
-    <value>[HEIC修复已关闭]</value>
+    <value>[HEIC/HEIF修复已关闭]</value>
   </data>
   <data name="SettingsPage_Repair_VideoLabel.Text" xml:space="preserve">
     <value>视频旋转修复</value>

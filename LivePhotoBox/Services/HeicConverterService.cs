@@ -1,6 +1,5 @@
 using ImageMagick;
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
@@ -174,48 +173,14 @@ namespace LivePhotoBox.Services
         /// </summary>
         private static async Task CopyTagsAsync(string sourcePath, string targetPath, CancellationToken token)
         {
-            string? toolPath = ExternalToolLocator.FindExifTool();
-            if (string.IsNullOrEmpty(toolPath)) return;
-
-            string arguments = $"-TagsFromFile \"{sourcePath}\" -all:all -Orientation= \"{targetPath}\" -overwrite_original -quiet";
-
-            using var process = new Process
-            {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = toolPath,
-                    Arguments = arguments,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true,
-                    RedirectStandardOutput = true
-                }
-            };
-
-            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            process.EnableRaisingEvents = true;
-            process.Exited += (_, _) => tcs.TrySetResult(true);
-
-            try { process.Start(); }
-            catch (Exception ex)
-            {
-                LogService.Combo($"Failed to start exiftool: {ex.Message}", LogLevel.Warning);
-                return;
-            }
-
-            using var reg = token.Register(() =>
-            {
-                try { if (!process.HasExited) process.Kill(); } catch { }
-                tcs.TrySetCanceled();
-            });
-
-            await tcs.Task.ConfigureAwait(false);
-
-            if (process.ExitCode != 0)
-            {
-                string error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-                throw new InvalidOperationException($"exiftool exited with code {process.ExitCode}: {error}");
-            }
+            // 使用 RunExifToolAsync（stdin 管道，UTF-8 编码），兼容所有语言文件名
+            await LivePhotoRepairService.RunExifToolAsync(token,
+                "-TagsFromFile", sourcePath,
+                "-all:all",
+                "-Orientation=",
+                "-overwrite_original",
+                "-quiet",
+                targetPath);
         }
 
         // ── 工具方法 ──────────────────────────────────────

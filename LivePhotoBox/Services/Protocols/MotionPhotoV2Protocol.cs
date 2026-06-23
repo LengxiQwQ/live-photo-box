@@ -12,8 +12,8 @@ namespace LivePhotoBox.Services.Protocols
     {
         public override int Id => 1;
         public override string Key => "MotionPhotoV2";
-        public override string DisplayName => "(推荐) Google Motion Photo (V2)";
-        public override string DisplayNameEn => "(Old) Google Motion Photo (V2)";
+        public override string DisplayName => "Google Motion Photo (V2)";
+        public override string DisplayNameEn => "Google Motion Photo (V2)";
 
         private const string RdfTemplate =
             "<rdf:Description rdf:about=\"\"" +

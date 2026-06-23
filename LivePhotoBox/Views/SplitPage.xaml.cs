@@ -128,10 +128,14 @@ namespace LivePhotoBox.Views
 
         private void StatusTextBlock_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
         {
-            if (sender is not Microsoft.UI.Xaml.FrameworkElement element) return;
+            if (sender is not FrameworkElement element) return;
             if (element.DataContext is not SplitTask task) return;
-            if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.DisplayStatus)) return;
-            // Note: SplitPage doesn't use a TeachingTip for error details like RepairPage
+            if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details)) return;
+
+            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element) { ErrorDetailTip.IsOpen = false; return; }
+            ErrorDetailText.Text = task.Details;
+            ErrorDetailTip.Target = element;
+            ErrorDetailTip.IsOpen = true;
         }
 
         private void ErrorDetailTip_Closed(Microsoft.UI.Xaml.Controls.TeachingTip sender, Microsoft.UI.Xaml.Controls.TeachingTipClosedEventArgs args) =>

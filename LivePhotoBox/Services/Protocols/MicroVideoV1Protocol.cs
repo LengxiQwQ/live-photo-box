@@ -12,8 +12,8 @@ namespace LivePhotoBox.Services.Protocols
     {
         public override int Id => 0;
         public override string Key => "MicroVideoV1";
-        public override string DisplayName => "(旧版) Google Micro Video (V1)";
-        public override string DisplayNameEn => "(Pref) Google Micro Video (V1)";
+        public override string DisplayName => "Google Micro Video (V1)";
+        public override string DisplayNameEn => "Google Micro Video (V1)";
 
         private const string RdfTemplate =
             "<rdf:Description rdf:about=\"\"" +

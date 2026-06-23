@@ -334,50 +334,8 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
         }
 
-        /// <summary>
-        /// Sets status text with hardware acceleration info appended.
-        /// </summary>
-        private void SetStatusWithHardware(string resourceKey, params object[] args)
-        {
-            string baseText = ResourceService.Format(resourceKey, args);
-            string suffix = GetHardwareStatusSuffix();
-            SetDirectStatus(baseText + suffix);
-        }
-
-        /// <summary>
-        /// Returns a user-friendly hardware acceleration suffix string,
-        /// e.g. " | NVENC 硬件加速" or " | CPU 软件编码".
-        /// Returns empty string if hardware info is not yet available.
-        /// </summary>
-        private static string GetHardwareStatusSuffix()
-        {
-            var hw = AppViewModel.Instance?.Settings?.SelectedHardware;
-            if (hw == null) return string.Empty;
-
-            if (hw.Type == HardwareService.HardwareType.Gpu && hw.IsHardwareEncodingSupported)
-            {
-                string protocol = GetEncoderProtocolName(hw.FfmpegEncoder);
-                return ResourceService.Format("RepairPage_HardwareGpu", protocol);
-            }
-
-            // CPU or GPU without hardware encoding support
-            return ResourceService.GetString("RepairPage_HardwareCpu");
-        }
-
-        /// <summary>
-        /// Maps FFmpeg encoder name to a user-friendly protocol label.
-        /// h264_nvenc → "NVENC", h264_amf → "AMF", h264_qsv → "QSV".
-        /// </summary>
-        private static string GetEncoderProtocolName(string? encoder)
-        {
-            if (string.IsNullOrEmpty(encoder)) return "GPU";
-            string lower = encoder.ToLowerInvariant();
-            if (lower.Contains("nvenc")) return "NVENC";
-            if (lower.Contains("amf")) return "AMF";
-            if (lower.Contains("qsv")) return "QSV";
-            if (lower.Contains("vaapi")) return "VAAPI";
-            return "GPU";
-        }
+        protected override string ProcessingStatusText =>
+            ResourceService.Format("Status_Running") + GetHardwareSuffix();
 
         protected override void OnScanStateChanged(bool isScanning)
         {
@@ -424,7 +382,7 @@ namespace LivePhotoBox.ViewModels
             ProgressText = _totalRepairEntries == 0 ? "0/0" : $"0/{_totalRepairEntries}";
             _taskProcessingStartTimes.Clear();
 
-            SetStatusWithHardware("Status_Running");
+            SetDirectStatus(ProcessingStatusText);
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
             _uiUpdateTimer.Start();

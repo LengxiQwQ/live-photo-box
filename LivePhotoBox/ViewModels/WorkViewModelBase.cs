@@ -299,6 +299,37 @@ namespace LivePhotoBox.ViewModels
         // 每个页面自己提供"处理中"的多语言 key，恢复暂停时直接回到处理中文字
         protected abstract string ProcessingStatusKey { get; }
 
+        /// <summary>Full processing status text including hardware/protocol suffix. Override in pages that append extra info.</summary>
+        protected virtual string ProcessingStatusText => ResourceService.Format(ProcessingStatusKey);
+
+        /// <summary>
+        /// Returns hardware acceleration suffix, e.g. " | NVENC hardware acceleration" / " | CPU 软件编码".
+        /// </summary>
+        protected static string GetHardwareSuffix()
+        {
+            var hw = AppViewModel.Instance?.Settings?.SelectedHardware;
+            if (hw == null) return string.Empty;
+
+            if (hw.Type == HardwareService.HardwareType.Gpu && hw.IsHardwareEncodingSupported)
+            {
+                string protocol = GetEncoderProtocolName(hw.FfmpegEncoder);
+                return ResourceService.Format("RepairPage_HardwareGpu", protocol);
+            }
+
+            return ResourceService.GetString("RepairPage_HardwareCpu");
+        }
+
+        private static string GetEncoderProtocolName(string? encoder)
+        {
+            if (string.IsNullOrEmpty(encoder)) return "GPU";
+            string lower = encoder.ToLowerInvariant();
+            if (lower.Contains("nvenc")) return "NVENC";
+            if (lower.Contains("amf")) return "AMF";
+            if (lower.Contains("qsv")) return "QSV";
+            if (lower.Contains("vaapi")) return "VAAPI";
+            return "GPU";
+        }
+
         protected async Task ShowEmptyQueueDialogAsync(string targetFeature)
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -404,7 +435,7 @@ namespace LivePhotoBox.ViewModels
                 _resumeRequested = true;
                 _isPausing = false;
                 PauseEvent.Set();
-                SetStatus(ProcessingStatusKey);
+                SetDirectStatus(ProcessingStatusText);
                 ProgressBarState = Models.ProgressBarState.Processing;
                 NotifyStatusChanged();
             }
@@ -414,7 +445,7 @@ namespace LivePhotoBox.ViewModels
                 _pauseRequested = false;
                 _isPausing = false;
                 PauseEvent.Set();
-                SetStatus(ProcessingStatusKey);
+                SetDirectStatus(ProcessingStatusText);
                 ProgressBarState = Models.ProgressBarState.Processing;
                 NotifyStatusChanged();
             }
@@ -450,7 +481,7 @@ namespace LivePhotoBox.ViewModels
                 IsPaused = false;
                 _isPausing = false;
                 ProgressBarState = Models.ProgressBarState.Processing;
-                SetStatus(ProcessingStatusKey);
+                SetDirectStatus(ProcessingStatusText);
                 _resumeRequested = false;
             }
         }
