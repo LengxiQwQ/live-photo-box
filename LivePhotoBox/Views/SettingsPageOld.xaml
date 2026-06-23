@@ -1,0 +1,625 @@
+<Page
+    x:Class="LivePhotoBox.Views.SettingsPageOld"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
+    mc:Ignorable="d" Background="Transparent"
+    NavigationCacheMode="Required">
+
+    <ScrollViewer x:Name="PageScrollViewer" Padding="40,24,40,0" HorizontalContentAlignment="Center">
+
+        <Grid HorizontalAlignment="Stretch">
+
+            <StackPanel x:Name="ContentPanel" Spacing="24" MaxWidth="1100" HorizontalAlignment="Stretch" Margin="0,0,0,40">
+
+                <TextBlock x:Uid="SettingsPage_Title" FontSize="32" FontWeight="Bold" Margin="0,0,0,8" FontFamily="Microsoft YaHei UI"/>
+
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE790;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Appearance_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
+
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                            Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <StackPanel Spacing="20">
+                            <toolkit:WrapPanel x:Name="AppearanceOptionsPanel"
+                                       HorizontalSpacing="40"
+                                       VerticalSpacing="16">
+
+                                <StackPanel Spacing="8">
+                                    <TextBlock x:Uid="SettingsPage_Language"
+                                               Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                               FontFamily="Microsoft YaHei UI"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}"
+                                              Loaded="AppearanceComboBox_Loaded">
+                                        <ComboBoxItem x:Uid="SettingsPage_Language_System"/>
+                                        <ComboBoxItem Content="English (en-US)"/>
+                                        <ComboBoxItem Content="中文(简体) (zh-Hans)"/>
+                                        <ComboBoxItem Content="中文(繁體) (zh-Hant)"/>
+                                        <ComboBoxItem Content="日本語 (ja) — 開発中"/>
+                                        <ComboBoxItem Content="한국어 (ko) — 개발 중"/>
+                                        <ComboBoxItem Content="Français (fr) — En développement"/>
+                                        <ComboBoxItem Content="Deutsch (de) — In Entwicklung"/>
+                                        <ComboBoxItem Content="Español (es) — En desarrollo"/>
+                                        <ComboBoxItem Content="Русский (ru) — В разработке"/>
+                                    </ComboBox>
+                                    <TextBlock x:Uid="SettingsPage_Language_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <StackPanel Spacing="8">
+                                    <TextBlock x:Uid="SettingsPage_Backdrop_Header"
+                                               Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                               FontFamily="Microsoft YaHei UI"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}"
+                                              Loaded="AppearanceComboBox_Loaded">
+                                        <ComboBoxItem x:Uid="SettingsPage_Backdrop_Mica"/>
+                                        <ComboBoxItem x:Uid="SettingsPage_Backdrop_MicaAlt"/>
+                                        <ComboBoxItem x:Uid="SettingsPage_Backdrop_Acrylic"/>
+                                        <ComboBoxItem x:Uid="SettingsPage_Backdrop_None"/>
+                                    </ComboBox>
+                                    <TextBlock x:Uid="SettingsPage_Backdrop_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+
+                                <StackPanel Spacing="8">
+                                    <TextBlock x:Uid="SettingsPage_Theme_Header"
+                                               Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                               FontFamily="Microsoft YaHei UI"/>
+                                    <ComboBox SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}"
+                                              Loaded="AppearanceComboBox_Loaded">
+                                        <ComboBoxItem x:Uid="SettingsPage_Theme_System"/>
+                                        <ComboBoxItem x:Uid="SettingsPage_Theme_Light"/>
+                                        <ComboBoxItem x:Uid="SettingsPage_Theme_Dark"/>
+                                    </ComboBox>
+                                    <TextBlock x:Uid="SettingsPage_Theme_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </toolkit:WrapPanel>
+
+                            <!-- 分隔线 -->
+                            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                            <!-- 主页 Banner 背景 -->
+                            <TextBlock x:Uid="SettingsPage_Banner_Header" Style="{ThemeResource BodyStrongTextBlockStyle}" FontFamily="Microsoft YaHei UI"/>
+
+                            <toolkit:WrapPanel HorizontalSpacing="32" VerticalSpacing="12">
+
+                                <!-- Banner 预览 + 名称（用 Image + 箭头替代 FlipView，避免滚轮切换图片） -->
+                                <StackPanel>
+                                    <Border CornerRadius="8" MaxWidth="320" Height="135">
+                                        <Grid>
+                                            <!-- 三张图始终在内存中，切换只改 Visibility，零闪烁 -->
+                                            <Image Source="{x:Bind ViewModel.BannerImage0, Mode=OneWay}"
+                                                   Visibility="{x:Bind ViewModel.Banner0Visible, Mode=OneWay}"
+                                                   Stretch="UniformToFill"
+                                                   VerticalAlignment="Stretch"
+                                                   HorizontalAlignment="Center" />
+                                            <Image Source="{x:Bind ViewModel.BannerImage1, Mode=OneWay}"
+                                                   Visibility="{x:Bind ViewModel.Banner1Visible, Mode=OneWay}"
+                                                   Stretch="UniformToFill"
+                                                   VerticalAlignment="Stretch"
+                                                   HorizontalAlignment="Center" />
+                                            <Image Source="{x:Bind ViewModel.BannerImage2, Mode=OneWay}"
+                                                   Visibility="{x:Bind ViewModel.Banner2Visible, Mode=OneWay}"
+                                                   Stretch="UniformToFill"
+                                                   VerticalAlignment="Stretch"
+                                                   HorizontalAlignment="Center" />
+                                            <!-- 左箭头 -->
+                                            <Button HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                    Click="PrevBanner_Click"
+                                                    Background="#33000000" BorderThickness="0"
+                                                    Width="32" Height="48" Padding="0"
+                                                    CornerRadius="0,4,4,0">
+                                                <FontIcon Glyph="&#xE76B;" FontSize="14" Foreground="White"/>
+                                            </Button>
+                                            <!-- 右箭头 -->
+                                            <Button HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                    Click="NextBanner_Click"
+                                                    Background="#33000000" BorderThickness="0"
+                                                    Width="32" Height="48" Padding="0"
+                                                    CornerRadius="4,0,0,4">
+                                                <FontIcon Glyph="&#xE76C;" FontSize="14" Foreground="White"/>
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                    <TextBlock Text="{x:Bind ViewModel.CurrentBannerPresetName, Mode=OneWay}"
+                                               FontSize="12" FontWeight="SemiBold"
+                                               HorizontalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                               Margin="0,6,0,0"/>
+                                </StackPanel>
+
+                                <!-- 控件组：随机开关在上，恢复默认按钮在下 -->
+                                <StackPanel Spacing="18" VerticalAlignment="Center">
+                                    <ToggleSwitch x:Name="BannerRandomToggle"
+                                                  IsOn="{x:Bind ViewModel.IsBannerRandomEnabled, Mode=TwoWay}"
+                                                  FontSize="13"
+                                                  x:Uid="Toggle_OnOff"/>
+                                    <Button Style="{ThemeResource DefaultButtonStyle}"
+                                            Click="ResetBanner_Click"
+                                            HorizontalAlignment="Left"
+                                            Padding="16,6">
+                                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                            <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                                            <TextBlock x:Uid="SettingsPage_ResetBanner_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </toolkit:WrapPanel>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- 视频转码设置 -->
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xEA69;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Transcode_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
+
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                            Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <toolkit:WrapPanel HorizontalSpacing="32"
+                                           VerticalSpacing="16"
+                                           VerticalAlignment="Center">
+                            <!-- 硬件加速 -->
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Uid="SettingsPage_Transcode_Hardware"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <ComboBox x:Name="HardwareComboBox"
+                                              ItemsSource="{x:Bind ViewModel.AvailableHardware, Mode=OneWay}"
+                                              SelectedItem="{x:Bind ViewModel.SelectedHardware, Mode=TwoWay}"
+                                              DisplayMemberPath="Name"
+                                              Loaded="HardwareComboBox_Loaded"/>
+                                    <Button Width="32"
+                                            Height="32"
+                                            Padding="0"
+                                            x:Uid="SettingsPage_HardwareRefresh_Button"
+                                            Command="{x:Bind ViewModel.RefreshHardwareCommand, Mode=OneWay}">
+                                        <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                                    </Button>
+                                </StackPanel>
+                                <TextBlock x:Uid="SettingsPage_Transcode_Hardware_Desc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <!-- 编码并行数 -->
+                            <StackPanel Spacing="4" VerticalAlignment="Bottom">
+                                <TextBlock x:Uid="SettingsPage_Transcode_ThreadCount"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Width="100"
+                                        Height="32">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="30"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="30"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <RepeatButton Grid.Column="0"
+                                                      Width="30"
+                                                      Height="32"
+                                                      Padding="0"
+                                                      Background="Transparent"
+                                                      BorderThickness="0"
+                                                      Command="{x:Bind ViewModel.DecreaseThreadCountCommand, Mode=OneWay}">
+                                            <FontIcon Glyph="&#xE96E;" FontSize="12"/>
+                                        </RepeatButton>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{x:Bind ViewModel.ThreadCount, Mode=OneWay}"
+                                                   TextAlignment="Center"
+                                                   FontSize="14"
+                                                   VerticalAlignment="Center"/>
+
+                                        <RepeatButton Grid.Column="2"
+                                                      Width="30"
+                                                      Height="32"
+                                                      Padding="0"
+                                                      Background="Transparent"
+                                                      BorderThickness="0"
+                                                      Command="{x:Bind ViewModel.IncreaseThreadCountCommand, Mode=OneWay}">
+                                            <FontIcon Glyph="&#xE96D;" FontSize="12"/>
+                                        </RepeatButton>
+                                    </Grid>
+                                </Border>
+                                <TextBlock x:Uid="SettingsPage_Transcode_ThreadCount_Desc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </toolkit:WrapPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- 实况照片合成设置 -->
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE8B1;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Combo_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
+
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                            Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <toolkit:WrapPanel HorizontalSpacing="32"
+                                           VerticalSpacing="16"
+                                           VerticalAlignment="Center">
+                            <!-- HEIC 解码器选择 -->
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Uid="SettingsPage_Combo_HeicDecoder"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <ComboBox SelectedIndex="{x:Bind ViewModel.HeicDecoderIndex, Mode=TwoWay}"
+                                          Loaded="AppearanceComboBox_Loaded">
+                                    <ComboBoxItem x:Uid="SettingsPage_Combo_HeicDecoder_MagickNET"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Combo_HeicDecoder_BitmapDecoder"/>
+                                </ComboBox>
+                                <StackPanel Spacing="2">
+                                    <TextBlock x:Uid="SettingsPage_Combo_HeicDecoder_Desc"
+                                               FontSize="12"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                    <StackPanel Orientation="Horizontal" Spacing="20">
+                                        <HyperlinkButton x:Uid="SettingsPage_Combo_HeicDecoder_HeifLink"
+                                                         FontSize="12"
+                                                         Padding="0"
+                                                         Click="OpenHeifStoreLink_Click"/>
+                                        <HyperlinkButton x:Uid="SettingsPage_Combo_HeicDecoder_HevcLink"
+                                                         FontSize="12"
+                                                         Padding="0"
+                                                         Click="OpenHevcStoreLink_Click"/>
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <!-- 任务并行数 -->
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Uid="SettingsPage_Combo_ThreadCount"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="4"
+                                        Width="100" Height="32"
+                                        HorizontalAlignment="Left">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="30"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="30"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <RepeatButton Grid.Column="0"
+                                                      Width="30" Height="32" Padding="0"
+                                                      Background="Transparent" BorderThickness="0"
+                                                      Command="{x:Bind ViewModel.DecreaseComboThreadCountCommand, Mode=OneWay}">
+                                            <FontIcon Glyph="&#xE96E;" FontSize="12"/>
+                                        </RepeatButton>
+
+                                        <TextBlock Grid.Column="1"
+                                                   Text="{x:Bind ViewModel.ComboThreadCount, Mode=OneWay}"
+                                                   TextAlignment="Center"
+                                                   FontSize="14"
+                                                   VerticalAlignment="Center"/>
+
+                                        <RepeatButton Grid.Column="2"
+                                                      Width="30" Height="32" Padding="0"
+                                                      Background="Transparent" BorderThickness="0"
+                                                      Command="{x:Bind ViewModel.IncreaseComboThreadCountCommand, Mode=OneWay}">
+                                            <FontIcon Glyph="&#xE96D;" FontSize="12"/>
+                                        </RepeatButton>
+                                    </Grid>
+                                </Border>
+                                <TextBlock x:Uid="SettingsPage_Combo_ThreadCount_Desc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <!-- 谷歌协议强制转 MP4 -->
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Uid="SettingsPage_Combo_GoogleForceMp4"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <ToggleSwitch IsOn="{x:Bind ViewModel.IsGoogleProtocolForceMp4, Mode=TwoWay}"
+                                              x:Uid="Toggle_OnOff"/>
+                                <TextBlock x:Uid="SettingsPage_Combo_GoogleForceMp4_Desc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </toolkit:WrapPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- 实况照片拆分设置 -->
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE8C6;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Split_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
+
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                            Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <toolkit:WrapPanel HorizontalSpacing="32"
+                                           VerticalSpacing="16"
+                                           VerticalAlignment="Center">
+                            <!-- 默认输出格式 -->
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Uid="SettingsPage_Split_FormatLabel"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <ComboBox SelectedIndex="{x:Bind ViewModel.SplitFormatIndex, Mode=TwoWay}"
+                                          Loaded="AppearanceComboBox_Loaded">
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_ImageDefault"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
+                                </ComboBox>
+                                <TextBlock x:Uid="SettingsPage_Split_FormatDesc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </toolkit:WrapPanel>
+                    </Border>
+                </StackPanel>
+
+                <!-- 实况照片显示修复设置 -->
+                <StackPanel Spacing="16">
+                    <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <FontIcon Glyph="&#xE7C5;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                        <TextBlock x:Uid="SettingsPage_Repair_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                    </StackPanel>
+
+                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                            Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                        <StackPanel Spacing="12">
+                            <!-- HEIC 修复开关 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="HeicRepairLabel_Tapped" Margin="0,0,12,0">
+                                    <TextBlock x:Uid="SettingsPage_Repair_HeicLabel"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock x:Uid="SettingsPage_Repair_HeicDesc"
+                                               FontSize="11"
+                                               TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1"
+                                              IsOn="{x:Bind ViewModel.IsHeicRepairEnabled, Mode=TwoWay}"
+                                              FontSize="12"
+                                              HorizontalAlignment="Right"
+                                              x:Uid="Toggle_OnOff"/>
+                            </Grid>
+
+                            <!-- 分隔线（仅到文字区域） -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                            </Grid>
+
+                            <!-- 修复非实况照片的视频开关 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="NonLivePhotoVideoRepairLabel_Tapped">
+                                    <TextBlock x:Uid="SettingsPage_Repair_LivePhotoVideoLabel"
+                                               FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock x:Uid="SettingsPage_Repair_LivePhotoVideoDesc"
+                                               FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1"
+                                              IsOn="{x:Bind ViewModel.IsNonLivePhotoVideoRepairEnabled, Mode=TwoWay}"
+                                              FontSize="12"
+                                              HorizontalAlignment="Right"
+                                              x:Uid="Toggle_OnOff"/>
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Margin="0,20,0,0" Spacing="24">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
+                            <Button Click="ToggleTestToolsButton_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xEC7A;" FontSize="14"/>
+                                    <TextBlock Text="{x:Bind TestToolsToggleButtonText, Mode=OneWay}" FontSize="13" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Click="SwitchToModern_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE8B1;" FontSize="14"/>
+                                    <TextBlock x:Uid="SettingsPage_SwitchToModern_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <Button Grid.Column="1"
+                                Click="RestoreDefaultSettings_Click"
+                                HorizontalAlignment="Right"
+                                Style="{ThemeResource DefaultButtonStyle}">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                                <TextBlock x:Uid="SettingsPage_Restore_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <TextBlock Text="{x:Bind CrashNoticeText, Mode=OneTime}"
+                               Visibility="{x:Bind CrashNoticeVisibility, Mode=OneWay}"
+                               Foreground="{ThemeResource SystemErrorTextColor}"
+                               FontSize="12"
+                               TextWrapping="Wrap"
+                               HorizontalAlignment="Center"
+                               Margin="0,10,0,0" />
+
+                    <StackPanel Spacing="16"
+                                Visibility="{x:Bind TestToolsVisibility, Mode=OneWay}">
+                        <!-- 应用日志 -->
+                        <StackPanel Spacing="16">
+                            <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE7BA;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                                <TextBlock x:Uid="SettingsPage_Crash_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                            </StackPanel>
+
+                            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                    Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                                <StackPanel Spacing="16">
+                                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                        <TextBlock x:Uid="SettingsPage_CrashLastTime_Label" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                        <HyperlinkButton Command="{x:Bind AboutViewModel.OpenLatestCrashLogActionCommand, Mode=OneWay}" Padding="0" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind AboutViewModel.LastCrashFileNameText, Mode=OneWay}" TextWrapping="Wrap" FontSize="15" FontWeight="SemiBold"/>
+                                        </HyperlinkButton>
+                                    </StackPanel>
+
+                                    <toolkit:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
+                                        <Button Command="{x:Bind AboutViewModel.OpenCrashLogFolderActionCommand, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE838;" FontSize="14"/>
+                                                <TextBlock x:Uid="SettingsPage_CrashOpenFolder_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Command="{x:Bind AboutViewModel.ExportLatestCrashLogActionCommand, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE74E;" FontSize="14"/>
+                                                <TextBlock x:Uid="SettingsPage_CrashExportLatest_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Command="{x:Bind AboutViewModel.ClearCrashLogsActionCommand, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE74D;" FontSize="14"/>
+                                                <TextBlock x:Uid="SettingsPage_CrashClear_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Command="{x:Bind AboutViewModel.OpenIssueFeedbackActionCommand, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE8A7;" FontSize="14"/>
+                                                <TextBlock x:Uid="SettingsPage_CrashIssue_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </toolkit:WrapPanel>
+
+                                    <TextBlock x:Uid="SettingsPage_CrashLogPrivacyHint"
+                                               FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                               TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <FontIcon Glyph="&#xEBE8;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                            <TextBlock x:Uid="SettingsPage_Test_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                        </StackPanel>
+
+                        <TextBlock x:Uid="SettingsPage_Test_Warning"
+                                   FontSize="12"
+                                   Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,4,0,12"/>
+
+                        <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                            <StackPanel Spacing="16">
+                                <toolkit:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
+                                    <Button Click="RestartAppButton_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <FontIcon Glyph="&#xE72C;" FontSize="14"/>
+                                            <TextBlock x:Uid="SettingsPage_RestartApp_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Click="PreviewCrashDialogButton_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                            <FontIcon Glyph="&#xE8A1;" FontSize="14"/>
+                                            <TextBlock x:Uid="SettingsPage_CrashPreviewDialog_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </toolkit:WrapPanel>
+
+                                <!-- 分隔线 -->
+                                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                                <!-- 修复扫描缩略图开关 -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="ScanThumbnailLabel_Tapped">
+                                        <TextBlock x:Uid="SettingsPage_ScanThumbnailToggleLabel" FontSize="13" FontWeight="SemiBold"/>
+                                        <TextBlock x:Uid="SettingsPage_ScanThumbnailToggleDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1"
+                                                  IsOn="{x:Bind ViewModel.IsRepairScanLoadThumbnail, Mode=TwoWay}"
+                                                  FontSize="12"
+                                                  HorizontalAlignment="Right"
+                                                  x:Uid="Toggle_EnabledDisabled">
+                                        <ToggleSwitch.Resources>
+                                            <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#D32F2F"/>
+                                            <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#EF5350"/>
+                                            <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#C62828"/>
+                                        </ToggleSwitch.Resources>
+                                    </ToggleSwitch>
+                                </Grid>
+
+                                <!-- 分隔线 -->
+                                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                                <!-- 更严格的实况照片扫描开关 -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="StrictLivePhotoScanLabel_Tapped">
+                                        <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanLabel" FontSize="13" FontWeight="SemiBold"/>
+                                        <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1"
+                                                  IsOn="{x:Bind ViewModel.IsStrictLivePhotoScanEnabled, Mode=TwoWay}"
+                                                  FontSize="12"
+                                                  HorizontalAlignment="Right"
+                                                  x:Uid="Toggle_EnabledDisabled">
+                                        <ToggleSwitch.Resources>
+                                            <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#D32F2F"/>
+                                            <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#EF5350"/>
+                                            <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#C62828"/>
+                                        </ToggleSwitch.Resources>
+                                    </ToggleSwitch>
+                                </Grid>
+
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <TextBlock x:Uid="SettingsPage_Footer"
+                               HorizontalAlignment="Center"
+                               Opacity="0.55"
+                               FontSize="12"
+                               FontFamily="Microsoft YaHei UI"
+                               Margin="0,10,0,0"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Page>
