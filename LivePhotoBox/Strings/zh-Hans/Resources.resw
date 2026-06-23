@@ -1361,6 +1361,12 @@
   <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
     <value>Magick.NET 为自包含方案；BitmapDecoder 依赖系统 HEIC/HEIF 扩展（Win11 已内置，Win10 需安装以下两个扩展）</value>
   </data>
+  <data name="SettingsPage_Combo_HeicDecoder_HeifLink.Content" xml:space="preserve">
+    <value>安装 HEIF 图像扩展 →</value>
+  </data>
+  <data name="SettingsPage_Combo_HeicDecoder_HevcLink.Content" xml:space="preserve">
+    <value>安装 HEVC 视频扩展 →</value>
+  </data>
   <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
     <value>HEIC/HEIF 任务并行数</value>
   </data>
@@ -1463,7 +1469,7 @@
     <value>已禁用</value>
   </data>
   <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
-    <value>启用后将对 HEIC/HEIF 照片进行方向标签修复和缩略图剥离。HEIC/HEIF 的旋转标签通常是正确的显示指令，无特殊需求，保持默认即可</value>
+    <value>启用后将对 HEIC/HEIF 照片进行方向标签修复和缩略图剥离。HEIC/HEIF 的旋转标签通常是正确的显示指令，若无特殊需求，保持默认即可</value>
   </data>
   <data name="Status_HeicRepairDisabled" xml:space="preserve">
     <value>[HEIC/HEIF修复已关闭]</value>
@@ -1493,7 +1499,7 @@
     <value>默认输出格式</value>
   </data>
   <data name="SettingsPage_Split_FormatDesc.Text" xml:space="preserve">
-    <value>选择拆分后视频的默认保存格式，无特殊需求，保持默认即可</value>
+    <value>选择拆分后视频的默认保存格式，若无特殊需求，保持默认即可</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware.Text" xml:space="preserve">
     <value>硬件加速</value>
@@ -1661,11 +1667,5 @@
     <value>⚠️ 旧版设置界面可能存在功能缺失或 UI 异常，建议使用新版界面。
 
 确定要切换吗？</value>
-  </data>
-  <data name="SettingsPage_Combo_HeicDecoder_HeifLink.Content" xml:space="preserve">
-    <value>安装 HEIF 图像扩展 →</value>
-  </data>
-  <data name="SettingsPage_Combo_HeicDecoder_HevcLink.Content" xml:space="preserve">
-    <value>安装 HEVC 视频扩展 →</value>
   </data>
 </root>
