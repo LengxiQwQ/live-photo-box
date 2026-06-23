@@ -1,6 +1,4 @@
 using System;
-using System.Diagnostics;
-using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -102,37 +100,19 @@ namespace LivePhotoBox.Services.Protocols
         protected static async Task<bool> WriteExifUserCommentAsync(
             string filePath, string comment, CancellationToken token)
         {
-            var exifToolPath = ExternalToolLocator.FindExifTool();
-            if (string.IsNullOrEmpty(exifToolPath)) return false;
-
-            var psi = new ProcessStartInfo
-            {
-                FileName = exifToolPath,
-                Arguments = $"-overwrite_original -UserComment=\"{comment}\" \"{filePath}\"",
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
+            if (string.IsNullOrEmpty(ExternalToolLocator.FindExifTool())) return false;
 
             try
             {
-                using var process = Process.Start(psi);
-                if (process == null) return false;
-
-                await process.WaitForExitAsync(token);
-
-                if (process.ExitCode != 0)
-                {
-                    var stderr = await process.StandardError.ReadToEndAsync();
-                    LogService.Combo(
-                        $"exiftool UserComment write failed (exit {process.ExitCode}): {stderr.Trim()}",
-                        Models.LogLevel.Warning);
-                    return false;
-                }
+                // 使用 RunExifToolAsync（stdin 管道，UTF-8 编码），兼容所有语言文件名
+                await LivePhotoRepairService.RunExifToolAsync(token,
+                    "-overwrite_original",
+                    $"-UserComment={comment}",
+                    filePath);
                 return true;
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
             {
                 LogService.Combo(
                     $"exiftool UserComment write error: {ex.Message}",

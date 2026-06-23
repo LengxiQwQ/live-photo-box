@@ -562,9 +562,15 @@ namespace LivePhotoBox.Services
                             exifArgs.Add("-ThumbnailImage=");
                             exifArgs.Add("-PreviewImage=");
                         }
-                        exifArgs.Add("-overwrite_original");
+                        // 用 -o 输出到新文件，避免 -overwrite_original 的内部备份机制出错
+                        string cleanedHeicFile = Path.Combine(imgRepairTempDir, $"cleaned_{Guid.NewGuid():N}{ext}");
+                        exifArgs.Add("-o");
+                        exifArgs.Add(cleanedHeicFile);
                         exifArgs.Add(tempWorkFile);
                         await RunExifToolAsync(exifArgs.ToArray());
+                        // 替换原临时文件
+                        File.Delete(tempWorkFile);
+                        tempWorkFile = cleanedHeicFile;
                     }
                 }
                 else
@@ -578,7 +584,13 @@ namespace LivePhotoBox.Services
 
                     if (hasThumbnail)
                     {
-                        await RunExifToolAsync("-ThumbnailImage=", "-overwrite_original", tempWorkFile);
+                        // 用 -o 输出到新文件，避免 -overwrite_original 在某些文件上
+                        // 内部创建备份时出错（报 "File not found" 假象）。
+                        string cleanedFile = Path.Combine(imgRepairTempDir, $"cleaned_{Guid.NewGuid():N}{ext}");
+                        await RunExifToolAsync("-ThumbnailImage=", "-o", cleanedFile, tempWorkFile);
+                        // 替换原临时文件
+                        File.Delete(tempWorkFile);
+                        tempWorkFile = cleanedFile;
                     }
                 }
 
@@ -950,9 +962,18 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 运行 exiftool
+        /// 运行 exiftool（一次性模式）— 无取消令牌的便捷重载。
         /// </summary>
-        private static async Task RunExifToolAsync(params string[] args)
+        public static Task RunExifToolAsync(params string[] args)
+            => RunExifToolAsync(CancellationToken.None, args);
+
+        /// <summary>
+        /// 运行 exiftool（一次性模式）。
+        /// 通过 stdin 管道传递参数（UTF-8 编码），而非命令行参数，
+        /// 彻底避开 Windows GetCommandLineA 的 ANSI 编码问题，
+        /// 任何语言（中日韩阿…）的文件名都能正确处理。
+        /// </summary>
+        public static async Task RunExifToolAsync(CancellationToken token, params string[] args)
         {
             string tempDir = Path.GetTempPath();
             string toolDir = Path.GetDirectoryName(ExifToolPath) ?? AppContext.BaseDirectory;
@@ -963,18 +984,24 @@ namespace LivePhotoBox.Services
                 WorkingDirectory = toolDir,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
+                RedirectStandardInput = true,
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                StandardOutputEncoding = System.Text.Encoding.UTF8
+                StandardOutputEncoding = System.Text.Encoding.UTF8,
+                StandardInputEncoding = new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false)
             };
 
             psi.Environment["TEMP"] = tempDir;
             psi.Environment["TMP"] = tempDir;
             psi.Environment["PAR_GLOBAL_TMPDIR"] = tempDir;
 
+            // 走 stdin 管道，-@ - 表示从标准输入读取参数
+            // -charset filename=utf8 在此路径下是正确的：.NET StreamWriter
+            // 以 UTF-8 写入 stdin，exiftool 也以 UTF-8 解析，编码一致。
             psi.ArgumentList.Add("-charset");
             psi.ArgumentList.Add("filename=utf8");
-            foreach (var arg in args) psi.ArgumentList.Add(arg);
+            psi.ArgumentList.Add("-@");
+            psi.ArgumentList.Add("-");
 
             using var process = Process.Start(psi);
             if (process == null)
@@ -983,19 +1010,54 @@ namespace LivePhotoBox.Services
                 throw new Exception(ResourceService.GetString("Error_CannotStartExifTool"));
             }
 
-            // 并行读取 stderr 避免缓冲区死锁（exiftool 主要输出在 stderr）
-            var errorTask = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-            string error = await errorTask;
+            // 取消时杀掉进程
+            using var ctr = token.Register(() =>
+            {
+                try { if (!process.HasExited) process.Kill(); } catch { }
+            });
 
-            if (error.Contains("Error:", StringComparison.OrdinalIgnoreCase))
+            try
             {
-                WriteDebugLog("ERROR", "ExifTool", ResourceService.GetString("Log_ExifToolFatalError"), $"Args:\nexiftool {string.Join(" ", args)}\n\nOutput:\n{error}");
-                throw new Exception($"exiftool: {error.TrimEnd()}".TrimEnd());
+                // 通过 stdin 写入参数（UTF-8），一行一个，最后 -execute 触发执行
+                foreach (var arg in args)
+                    await process.StandardInput.WriteLineAsync(arg.AsMemory(), token);
+                await process.StandardInput.WriteLineAsync("-execute".AsMemory(), token);
+                process.StandardInput.Close();
+
+                // 读取 stdout 直到 {ready}（-@ - 模式下 exiftool 输出此标记）
+                var sb = new System.Text.StringBuilder();
+                while (true)
+                {
+                    token.ThrowIfCancellationRequested();
+                    string? line = await process.StandardOutput.ReadLineAsync(token);
+                    if (line == null) break;
+                    if (line.TrimEnd() == "{ready}") break;
+                    if (sb.Length > 0) sb.Append('\n');
+                    sb.Append(line);
+                }
+
+                token.ThrowIfCancellationRequested();
+
+                // 同时消费 stderr
+                string error = await process.StandardError.ReadToEndAsync(token);
+                await process.WaitForExitAsync(token);
+
+                if (error.Contains("Error:", StringComparison.OrdinalIgnoreCase))
+                {
+                    WriteDebugLog("ERROR", "ExifTool", ResourceService.GetString("Log_ExifToolFatalError"),
+                        $"Args (via stdin):\n{string.Join("\n", args)}\n\nStderr:\n{error}");
+                    throw new Exception($"exiftool: {error.TrimEnd()}".TrimEnd());
+                }
+                else if (!string.IsNullOrWhiteSpace(error))
+                {
+                    WriteDebugLog("WARN", "ExifTool", ResourceService.GetString("Log_ExifToolWarning"),
+                        $"Args (via stdin):\n{string.Join("\n", args)}\n\nStderr:\n{error}");
+                }
             }
-            else if (!string.IsNullOrWhiteSpace(error))
+            catch (Exception)
             {
-                WriteDebugLog("WARN", "ExifTool", ResourceService.GetString("Log_ExifToolWarning"), $"Args:\nexiftool {string.Join(" ", args)}\n\nOutput:\n{error}");
+                try { process.Kill(); } catch { }
+                throw;
             }
         }
     }

@@ -26,6 +26,9 @@ namespace LivePhotoBox.ViewModels
 
         protected override string ProcessingStatusKey => "SplitPage_Status_Running";
 
+        protected override string ProcessingStatusText =>
+            ResourceService.Format("SplitPage_Status_Running") + GetHardwareSuffix();
+
         [ObservableProperty]
         private string _inputDirectory = string.Empty;
 
@@ -129,7 +132,7 @@ namespace LivePhotoBox.ViewModels
             _completedTasksCount = 0;
             Progress = 0;
             ProgressText = $"0/{QueuedCount}";
-            SetStatus("SplitPage_Status_Running");
+            SetDirectStatus(ProcessingStatusText);
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
             OnPropertyChanged(nameof(CanClickScanButton));
@@ -294,6 +297,8 @@ namespace LivePhotoBox.ViewModels
             try
             {
                 ThumbnailService.ClearCache();
+                Tasks.ReplaceRange([]);
+                QueuedCount = 0;
                 var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
                 var scanProgress = CreateScanProgressReporter();
 
@@ -743,6 +748,9 @@ namespace LivePhotoBox.ViewModels
                 bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
 
+                // 所有任务结束后统一清理 Temp 目录（确保无残留）
+                CleanSplitTempDirectory(outputDir);
+
                 // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot
                 if (Tasks.Count > 0 && !_isCleaningUp)
                 {
@@ -829,5 +837,27 @@ namespace LivePhotoBox.ViewModels
         }
 
         #endregion
+
+        /// <summary>
+        /// 安全地清理拆分过程的 Temp 目录（全部任务结束后调用）。
+        /// 所有临时文件已在 SplitAsync 中逐个删除，这里清理可能残留的空 Temp 目录。
+        /// </summary>
+        private static void CleanSplitTempDirectory(string outputDir)
+        {
+            if (string.IsNullOrWhiteSpace(outputDir)) return;
+            try
+            {
+                string tempDir = Path.Combine(outputDir, "Temp");
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, recursive: true);
+                    LogService.Split($"Cleaned split Temp directory: {tempDir}");
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Split($"Failed to clean split Temp directory: {ex.Message}", LogLevel.Warning);
+            }
+        }
     }
 }

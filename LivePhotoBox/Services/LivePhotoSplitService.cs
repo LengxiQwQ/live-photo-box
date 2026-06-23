@@ -183,8 +183,9 @@ namespace LivePhotoBox.Services
             {
                 // 无论成功/失败/取消，临时文件都要清理
                 try { if (File.Exists(tempVideoPath)) File.Delete(tempVideoPath); } catch { }
-                // Temp 目录如果为空就删掉（由调用方 ViewModel 统一清理也可，这里先兜底）
-                try { if (Directory.Exists(tempDir) && !Directory.EnumerateFileSystemEntries(tempDir).Any()) Directory.Delete(tempDir); } catch { }
+                // 注意：不删除 Temp 目录本身，由 ViewModel 在全部任务完成后统一清理。
+                // 并发拆分时多个任务共享同一个 Temp 目录，单个任务删除会导致其他进行中任务
+                // 路径失效，"Could not find a part of the path"。
             }
         }
 

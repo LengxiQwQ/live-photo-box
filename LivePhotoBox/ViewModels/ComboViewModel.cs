@@ -33,6 +33,11 @@ namespace LivePhotoBox.ViewModels
 
         protected override string ProcessingStatusKey => "Status_Running";
 
+        protected override string ProcessingStatusText =>
+            ResourceService.Format("Status_Running") + " | " +
+            LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName +
+            GetHardwareSuffix();
+
         [ObservableProperty]
         private string _inputDirectory = string.Empty;
 
@@ -160,7 +165,7 @@ namespace LivePhotoBox.ViewModels
             ComboProgress = 0;
             Progress = 0;
             ProgressText = $"0/{TotalPairsCount}";
-            SetStatus("Status_Running");
+            SetDirectStatus(ProcessingStatusText);
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
             OnPropertyChanged(nameof(CanEditSelectedMode));

@@ -24,8 +24,8 @@ namespace LivePhotoBox.Services.Protocols
     {
         public override int Id => 2;
         public override string Key => "OppoLivePhoto";
-        public override string DisplayName => "OPPO O-Live Photo (V2 + OpCamera)";
-        public override string DisplayNameEn => "OPPO O-Live Photo (V2 + OpCamera)";
+        public override string DisplayName => "OPPO / OnePlus Live Photo";
+        public override string DisplayNameEn => "OPPO / OnePlus Live Photo";
 
         /// <summary>
         /// EXIF UserComment value that OPPO Gallery checks for live-photo recognition.

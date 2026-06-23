@@ -47,7 +47,7 @@
                                         <ComboBoxItem Content="Español (es) — En desarrollo"/>
                                         <ComboBoxItem Content="Русский (ru) — В разработке"/>
                                     </ComboBox>
-                                    <TextBlock x:Uid="SettingsPage_Language_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock x:Uid="SettingsPage_Language_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
 
                                 <StackPanel Spacing="8">
@@ -61,7 +61,7 @@
                                         <ComboBoxItem x:Uid="SettingsPage_Backdrop_Acrylic"/>
                                         <ComboBoxItem x:Uid="SettingsPage_Backdrop_None"/>
                                     </ComboBox>
-                                    <TextBlock x:Uid="SettingsPage_Backdrop_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock x:Uid="SettingsPage_Backdrop_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
 
                                 <StackPanel Spacing="8">
@@ -74,7 +74,7 @@
                                         <ComboBoxItem x:Uid="SettingsPage_Theme_Light"/>
                                         <ComboBoxItem x:Uid="SettingsPage_Theme_Dark"/>
                                     </ComboBox>
-                                    <TextBlock x:Uid="SettingsPage_Theme_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock x:Uid="SettingsPage_Theme_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </toolkit:WrapPanel>
 
@@ -185,7 +185,7 @@
                                 </StackPanel>
                                 <TextBlock x:Uid="SettingsPage_Transcode_Hardware_Desc"
                                            FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
 
                             <!-- 编码并行数 -->
@@ -234,7 +234,7 @@
                                 </Border>
                                 <TextBlock x:Uid="SettingsPage_Transcode_ThreadCount_Desc"
                                            FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                         </toolkit:WrapPanel>
                     </Border>
@@ -264,7 +264,7 @@
                                 </ComboBox>
                                 <TextBlock x:Uid="SettingsPage_Combo_HeicDecoder_Desc"
                                            FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
 
                             <!-- 任务并行数 -->
@@ -307,7 +307,7 @@
                                 </Border>
                                 <TextBlock x:Uid="SettingsPage_Combo_ThreadCount_Desc"
                                            FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                         </toolkit:WrapPanel>
                     </Border>
@@ -338,7 +338,7 @@
                                 </ComboBox>
                                 <TextBlock x:Uid="SettingsPage_Split_FormatDesc"
                                            FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
                         </toolkit:WrapPanel>
                     </Border>
@@ -360,11 +360,12 @@
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="HeicRepairLabel_Tapped">
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="HeicRepairLabel_Tapped" Margin="0,0,12,0">
                                     <TextBlock x:Uid="SettingsPage_Repair_HeicLabel"
                                                FontSize="13" FontWeight="SemiBold"/>
                                     <TextBlock x:Uid="SettingsPage_Repair_HeicDesc"
                                                FontSize="11"
+                                               TextWrapping="Wrap"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                 </StackPanel>
                                 <ToggleSwitch Grid.Column="1"
@@ -394,7 +395,7 @@
                                                FontSize="13" FontWeight="SemiBold"/>
                                     <TextBlock x:Uid="SettingsPage_Repair_LivePhotoVideoDesc"
                                                FontSize="11"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <ToggleSwitch Grid.Column="1"
                                               x:Uid="SettingsPage_Repair_LivePhotoVideoSwitch"
@@ -524,7 +525,7 @@
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="ScanThumbnailLabel_Tapped">
                                         <TextBlock x:Uid="SettingsPage_ScanThumbnailToggleLabel" FontSize="13" FontWeight="SemiBold"/>
-                                        <TextBlock x:Uid="SettingsPage_ScanThumbnailToggleDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <TextBlock x:Uid="SettingsPage_ScanThumbnailToggleDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                                     </StackPanel>
                                     <ToggleSwitch Grid.Column="1"
                                                   x:Uid="SettingsPage_ScanThumbnailToggle"
@@ -544,7 +545,7 @@
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="StrictLivePhotoScanLabel_Tapped">
                                         <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanLabel" FontSize="13" FontWeight="SemiBold"/>
-                                        <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                                     </StackPanel>
                                     <ToggleSwitch Grid.Column="1"
                                                   x:Uid="SettingsPage_StrictLivePhotoScanToggle"

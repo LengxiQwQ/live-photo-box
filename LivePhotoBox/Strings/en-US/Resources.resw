@@ -665,13 +665,13 @@ Do you want to restart now?</value>
     <value>Desktop Acrylic</value>
   </data>
   <data name="SettingsPage_Protocol_V1.Content" xml:space="preserve">
-    <value>(Pref) Google Micro Video (V1)</value>
+    <value>Google - Micro Video (V1)</value>
   </data>
   <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
-    <value>(Old) Google Motion Photo (V2)</value>
+    <value>Google - Motion Photo (V2)</value>
   </data>
   <data name="SettingsPage_Protocol_Oppo.Content" xml:space="preserve">
-    <value>OPPO / OnePlus Live Photo (O-Live Photo)</value>
+    <value>OPPO/OnePlus - O Live Photo</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
@@ -1309,7 +1309,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Invalid JPEG file: unable to read JPEG SOI marker (0xFF 0xD8).</value>
   </data>
   <data name="Error_HeicConversionFailed" xml:space="preserve">
-    <value>HEIC file "{0}" conversion failed: {1}</value>
+    <value>HEIC/HEIF file "{0}" conversion failed: {1}</value>
   </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
     <value>Convert iPhone Live Photos into single files viewable on Windows</value>
@@ -1360,7 +1360,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Windows BitmapDecoder (system built-in)</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
-    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC extension
+    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC/HEIF extension
 (built-in on Win11, available via Microsoft Store on Win10)</value>
   </data>
   <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
@@ -1459,10 +1459,10 @@ Place any of these files into the same folder.</value>
     <value>Disabled</value>
   </data>
   <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
-    <value>When enabled, HEIC photos will be checked for orientation metadata issues and extra thumbnails. HEIC rotation tags are usually correct display instructions — leave this off to skip all HEIC files.</value>
+    <value>When enabled, HEIC/HEIF photos will be checked for orientation metadata issues and extra thumbnails. HEIC/HEIF rotation tags are usually correct display instructions — leave this off to skip all HEIC/HEIF files.</value>
   </data>
   <data name="Status_HeicRepairDisabled" xml:space="preserve">
-    <value>[HEIC repair off]</value>
+    <value>[HEIC/HEIF repair off]</value>
   </data>
   <data name="SettingsPage_Repair_VideoLabel.Text" xml:space="preserve">
     <value>Video Rotation Fix</value>
