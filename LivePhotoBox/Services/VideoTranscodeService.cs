@@ -311,14 +311,27 @@ namespace LivePhotoBox.Services
         ///   pathToUse — original or temp file path;
         ///   wasTranscoded — true when a temp file was created (caller must clean up).
         /// </returns>
+        /// <param name="forceMp4">When true, always transcode to MP4. When false, only transcode if
+        /// the container is not MP4-compatible (e.g. AVI, MKV). MOV files are left as-is.</param>
         public static async Task<(string Path, bool WasTranscoded)> EnsureMp4Async(
             string inputPath,
             string workDir,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            bool forceMp4 = true)
         {
             // Already MP4? No-op.
             if (DetectContainerFormat(inputPath) == "mp4")
                 return (inputPath, false);
+
+            // When forceMp4 is disabled, only transcode incompatible formats (AVI, MKV, etc.).
+            // MOV files are compatible with Live Photo protocols — skip transcode.
+            if (!forceMp4 && DetectContainerFormat(inputPath) == "mov")
+            {
+                LogService.Combo(
+                    $"Skipping MP4 conversion (forceMp4=off): '{Path.GetFileName(inputPath)}'",
+                    LogLevel.Debug);
+                return (inputPath, false);
+            }
 
             LogService.Combo(
                 $"Auto-transcoding to MP4: '{Path.GetFileName(inputPath)}'",
@@ -674,14 +687,254 @@ namespace LivePhotoBox.Services
             return null;
         }
 
-        private static string BuildVideoFilter(VideoFormat targetFormat, string encoder)
+        private static string BuildVideoFilter(VideoFormat targetFormat, string encoder, string inputPath)
         {
-            // 这里只用 setsar=1 锁定正方形像素比，不做任何 scale。
-            // 分辨率保护由 decoder 侧的 -apply_cropping 0 处理（见 BuildFFmpegArguments），
-            // 该参数关闭 HEVC conformance window 裁切，确保解码器输出原始完整帧。
-            // 之前在此处放置 scale=trunc(iw/2)*2 无法阻止 decoder 层面的裁切，
-            // 因为 scale 滤镜拿到的帧已经是裁切后的。
-            return "-vf \"setsar=1\"";
+            string sarFilter = "setsar=1";
+            var cropFilter = CropFilterForConformanceWindow(inputPath);
+            if (string.IsNullOrEmpty(cropFilter))
+                return $"-vf \"{sarFilter}\"";
+            return $"-vf \"{cropFilter},{sarFilter}\"";
+        }
+
+        // ╔══════════════════════════════════════════════════════════════════════════╗
+        // ║  HEVC Conformance Window 黑边修复 — 完整设计文档                        ║
+        // ╠══════════════════════════════════════════════════════════════════════════╣
+        // ║                                                                          ║
+        // ║  【问题背景】                                                            ║
+        // ║  iPhone 拍摄的 Live Photo 视频（MOV 容器 + HEVC 编码）有两层尺寸信息：   ║
+        // ║                                                                          ║
+        // ║  1. HEVC 码流 SPS 的 conformance window                                 ║
+        // ║     coded=1440×1088 → display=1440×1080（CTU 64×64 对齐垫了 8 像素）    ║
+        // ║     → 播放器只认这个，自动裁掉垫像素，所以播放器看着没黑边              ║
+        // ║                                                                          ║
+        // ║  2. MOV 容器的 clap (Clean Aperture) 原子                               ║
+        // ║     exiftool 可读: CleanApertureDimensions = 1308×980                   ║
+        // ║     → 这是旧版 iPhone (iOS ≤12/13) 写入的"干净显示区"                   ║
+        // ║     → 数值不准确，可能是电子防抖或 ISP 处理的残余参数                   ║
+        // ║     → 播放器不理它，但 FFmpeg 认它！                                    ║
+        // ║                                                                          ║
+        // ║  【FFmpeg 的问题】                                                       ║
+        // ║  -apply_cropping 1 (默认): SPS window + clap 两层都裁                  ║
+        // ║    1440×1088 → 1308×980 → 旋转 90° → 980×1308 ❌ 严重过裁！            ║
+        // ║  -apply_cropping 0: 两层都不裁                                          ║
+        // ║    1440×1088 → 旋转 90° → 1088×1440 ⚠️ 留了 8px CTU 垫像素 = 黑边      ║
+        // ║  FFmpeg 没有"只关 clap 不关 SPS window"的开关                          ║
+        // ║                                                                          ║
+        // ║  【我们的方案】                                                          ║
+        // ║  1. -apply_cropping 0: 全关 FFmpeg 的自动裁切                          ║
+        // ║  2. exiftool 读 ImageWidth/ImageHeight（= QuickTime tkhd 尺寸           ║
+        // ║     = Production Aperture = 播放器显示尺寸，不读 clap）                  ║
+        // ║  3. 根据 Rotation 算出 autorotate 后的期望尺寸                          ║
+        // ║  4. crop 滤镜裁到该尺寸（HEVC CTU 垫像素自然被去除）                     ║
+        // ║                                                                          ║
+        // ║  【与播放器行为对齐】                                                    ║
+        // ║  播放器 = 认 SPS conformance window + 不理 clap                        ║
+        // ║  我们   = 认 tkhd 显示尺寸 + 不理 clap + 有 64px 安全锁               ║
+        // ║  两者结果一致                                                            ║
+        // ║                                                                          ║
+        // ║  【安全防护（宁可不裁，绝不误裁）】                                      ║
+        // ║  a. exiftool 读不到 → 跳过                                              ║
+        // ║  b. 尺寸 < 320 或 > 8192 → 脏数据 → 跳过                               ║
+        // ║  c. Rotation 为 null → 无法判断方向 → 跳过                             ║
+        // ║  d. Rotation 非 0/90/180/270 标准值 → 异常数据 → 跳过                  ║
+        // ║  e. crop 滤镜内置 64px 硬上限                                           ║
+        // ║     if(gte(iw-target,64), iw, target)                                   ║
+        // ║     实际帧比期望宽超过 64px → metadata 不可靠 → 不裁，保留原帧          ║
+        // ║     HEVC CTU=64×64，单边垫量 ≤ 64，所以 64 是安全天花板                ║
+        // ║     如果差超过 64，说明 exiftool 读到的尺寸不属于这个视频              ║
+        // ║     （如 2K/4K 视频被错误打了 1080p 标签）                              ║
+        // ║  f. 整个方法包在 try-catch 里，任何异常 → 跳过                         ║
+        // ║                                                                          ║
+        // ║  【依赖】                                                                ║
+        // ║  exiftool（项目 Tools/ 目录已有）+ FFmpeg（项目 Tools/ 目录已有）       ║
+        // ║  不额外引入任何工具                                                     ║
+        // ╚══════════════════════════════════════════════════════════════════════════╝
+        private static string? CropFilterForConformanceWindow(string inputPath)
+        {
+            try
+            {
+                string? exifToolPath = ExternalToolLocator.FindExifTool();
+                if (string.IsNullOrEmpty(exifToolPath) || !File.Exists(inputPath))
+                    return null;
+
+                // -s -s -S → 只输出值，三个标签各占一行
+                int? dispW = null, dispH = null, rotation = null;
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    Arguments = $"-ImageWidth -ImageHeight -Rotation -CompressorID -s -s -S \"{inputPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (var process = Process.Start(psi))
+                {
+                    if (process == null) return null;
+                    string output = process.StandardOutput.ReadToEnd();
+                    process.WaitForExit(5000);
+                    // 输出: "1440\n1080\n90\n"（ImageWidth / ImageHeight / Rotation）
+                    var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                    if (lines.Length >= 2)
+                    {
+                        int.TryParse(lines[0].Trim(), out int w); dispW = w > 0 ? w : null;
+                        int.TryParse(lines[1].Trim(), out int h); dispH = h > 0 ? h : null;
+                    }
+                    if (lines.Length >= 3)
+                    {
+                        int.TryParse(lines[2].Trim(), out int r); rotation = r;
+                    }
+                }
+
+                if (dispW == null || dispH == null) return null;
+
+                // 防护：尺寸必须在合理范围内（320~8192），否则是 exiftool 读到了脏数据
+                if (dispW.Value < 320 || dispW.Value > 8192 || dispH.Value < 320 || dispH.Value > 8192)
+                {
+                    LogService.Split($"Crop skipped: unreasonable dimensions {dispW}x{dispH}", LogLevel.Warning);
+                    return null;
+                }
+
+                // autorotate 后 frame 尺寸变换：90°/270° 时 w↔h 互换
+                bool isRotated = rotation != null && (Math.Abs(rotation.Value) == 90 || Math.Abs(rotation.Value) == 270);
+                int expectedW = isRotated ? dispH.Value : dispW.Value;
+                int expectedH = isRotated ? dispW.Value : dispH.Value;
+
+                if (expectedW <= 0 || expectedH <= 0) return null;
+
+                // 防护：宽高比变化不能超过 2%（防误裁）
+                // 正常情况下 coded ≈ display（差几个 CTU 垫像素），如果 display
+                // 尺寸本身就是错的，不做 crop 比做错 crop 好。
+                // 这里检查 display 和 coded 的差异，由 -apply_cropping 0 保留全帧，
+                // 如果 display size 和 coded size 差距 > 5%，视为数据不可靠，跳过 crop。
+                // 注：此时我们还不知道 coded size（exiftool 读不到 HEVC coded 尺寸），
+                // 但 crop 目标即 display，若 coded 远大于 display 会把内容裁烂。
+                // 大部分视频 coded-display 差 < 1%，所以最大允许 2% 差异。
+                // 但这个检查需要 coded 尺寸…所以退而求其次：仅当 exiftool 读到
+                // rotation 且值合法时才做 crop，否则宁可留 padding 也不错裁。
+                if (rotation == null)
+                {
+                    // 无旋转信息 → 无法可靠判断方向 → 跳过
+                    LogService.Split($"Crop skipped: no rotation metadata", LogLevel.Debug);
+                    return null;
+                }
+                if (rotation.Value != 0 && rotation.Value != 90 && rotation.Value != 180 && rotation.Value != 270 && rotation.Value != -90 && rotation.Value != -180 && rotation.Value != -270)
+                {
+                    LogService.Split($"Crop skipped: unexpected rotation {rotation.Value}°", LogLevel.Warning);
+                    return null;
+                }
+
+                LogService.Split(
+                    $"exiftool crop: display={dispW.Value}x{dispH.Value} rot={rotation}° → crop={expectedW}:{expectedH} (max 64px trim)",
+                    LogLevel.Debug);
+
+                // 最终防线：crop 最多裁 64 像素（HEVC CTU 64×64，单边垫量 ≤ 64）。
+                // 如果实际帧比目标宽/高超过 64px，说明 exiftool 数据不可靠
+                // （可能是 2K/4K 视频被错误打标），此时不裁，保留原始帧。
+                // FFmpeg 表达式：iw-目标>64 则用 iw，否则用目标。
+                return $"crop='if(gte(iw-{expectedW},64),iw,{expectedW})':'if(gte(ih-{expectedH},64),ih,{expectedH})':0:0";
+            }
+            catch (Exception ex)
+            {
+                LogService.Split($"CropFilterForConformanceWindow error: {ex.Message}", LogLevel.Warning);
+                return null;
+            }
+        }
+
+        // ── Adaptive audio detection ───────────────────────────────────
+
+        /// <summary>
+        /// Detect source audio format and channel count via exiftool.
+        /// Returns (format, channels) — format is exiftool's AudioFormat
+        /// (e.g. "lpcm", "mp4a", "MPEG AAC Audio"), channels is integer count.
+        /// Returns (null, 0) when detection fails.
+        /// </summary>
+        private static (string? format, int channels) DetectAudioInfo(string inputPath)
+        {
+            try
+            {
+                string? exifToolPath = ExternalToolLocator.FindExifTool();
+                if (string.IsNullOrEmpty(exifToolPath))
+                    return (null, 0);
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    Arguments = $"-AudioFormat -AudioChannels -s -s -S \"{inputPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using var process = Process.Start(psi);
+                if (process == null) return (null, 0);
+                string output = process.StandardOutput.ReadToEnd();
+                process.WaitForExit(5000);
+
+                var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                string? format = null;
+                int channels = 0;
+
+                if (lines.Length >= 1)
+                {
+                    format = lines[0].Trim();
+                    if (string.IsNullOrWhiteSpace(format)) format = null;
+                }
+                if (lines.Length >= 2)
+                {
+                    int.TryParse(lines[1].Trim(), out channels);
+                }
+
+                return (format, channels);
+            }
+            catch
+            {
+                return (null, 0);
+            }
+        }
+
+        /// <summary>
+        /// Build adaptive audio arguments for MP4 transcoding.
+        /// - Already compressed (AAC/MP3/MP4A): -c:a copy — avoids generation loss
+        /// - PCM (lpcm/raw/twos/sowt): re-encode to AAC with channel-based bitrate
+        ///   · Mono (most live photos, voice memos): 256k — near-transparent
+        ///   · Stereo (music, ambient): 320k — AAC maximum, transparent
+        ///   · Unknown channels: 256k — safe middle ground
+        /// - Detection failure: AAC 256k — conservative fallback
+        /// </summary>
+        private static string BuildAudioArgsForMp4(string inputPath)
+        {
+            var (format, channels) = DetectAudioInfo(inputPath);
+
+            // Already-compressed formats MP4 supports natively → copy
+            if (format != null)
+            {
+                string fmt = format.ToLowerInvariant().Trim();
+                bool isCompressed = fmt is "mp4a" or "aac" or "mpeg aac audio"
+                    or "mp3" or "mpeg audio" or "mpa" or "mp2";
+                if (isCompressed)
+                {
+                    LogService.Split(
+                        $"Audio: source is {format} → -c:a copy (no generation loss)",
+                        LogLevel.Debug);
+                    return "-c:a copy";
+                }
+            }
+
+            // PCM (lpcm, pcm, twos, sowt, raw, in24, etc.) or unknown → encode to AAC
+            int targetBitrate = channels switch
+            {
+                1 => 256,
+                >= 2 => 320,
+                _ => 256
+            };
+
+            string reason = format ?? "unknown format";
+            LogService.Split(
+                $"Audio: {reason}, {channels}ch → AAC {targetBitrate}k",
+                LogLevel.Debug);
+
+            return $"-c:a aac -b:a {targetBitrate}k";
         }
 
         private static string BuildFFmpegArguments(string inputPath, string outputPath, VideoFormat targetFormat, bool forceSoftwareEncoder = false)
@@ -690,37 +943,49 @@ namespace LivePhotoBox.Services
             int threadCount = GetThreadCount(videoEncoder);
 
             string pixelFormat = GetPixelFormatParams(videoEncoder, targetFormat);
-            string videoFilter = BuildVideoFilter(targetFormat, videoEncoder);
+            string videoFilter = BuildVideoFilter(targetFormat, videoEncoder, inputPath);
 
-            // -apply_cropping 0 -> 关闭 HEVC conformance window 自动裁切。
-            //   手机（尤其 iPhone/三星）拍摄的 Live Photo 视频常以 HEVC 编码，
-            //   编码分辨率会 pad 到 CTU 对齐（如 1920→1920, 1440→1472），
-            //   再通过 metadata 让解码器裁回"显示尺寸"。FFmpeg 默认执行此裁切，
-            //   导致 1920×1440 → 1744×1308 这类非预期的分辨率变化。
-            //   设为 0 后解码器输出完整帧，-vf setsar=1 + -pix_fmt 再规范化输出。
+            string audioArgs = BuildAudioArgsForMp4(inputPath);
+
+            // ── 参数说明 ──────────────────────────────────────────────
             //
-            // -map 0:v:0 -> 小写 v，标准视频流选择（temp 文件只有一条视频轨，无需大写 V）
-            // -map 0:a:0? -> 提取单一主音频，若不存在则跳过
-            // -c:a copy -> 直接复制原始音频流，完全保留原始音质
+            // -apply_cropping 0
+            //   关闭 FFmpeg 所有自动裁切（SPS conformance window + MOV clap 原子）。
+            //   必须为 0，因为旧 iPhone MOV 的 clap (CleanAperture) 数据错误，
+            //   若让 FFmpeg 自动裁会严重过裁（1440→980）。详见 CropFilterForConformanceWindow 注释。
+            //   裁切补偿由 -vf crop 滤镜完成。
             //
-            //  不加 -noautorotate：让 FFmpeg 自动将旋转矩阵应用到像素上。
-            //  iPhone MOV 的旋转在 moov.trak.tkhd 中，-vf 触发 autorotate 滤镜
-            //  物理旋转像素，确保输出始终正立，不依赖播放器解析旋转标签。
+            // -map 0:V:0 (大写 V)
+            //   只选真正的视频轨，跳过 iPhone MOV 里的 128×96 / 256×192 缩略图轨。
+            //   小写 v 会选中缩略图，导致分辨率错乱和音频丢失。
+            //
+            // -map 0:a:0?
+            //   提取第一个音频轨，? 表示没有也不报错（静音视频兼容）。
+            //
+            // {audioArgs}
+            //   自适应音频策略（BuildAudioArgsForMp4）：
+            //   · AAC/MP3 等已压缩格式 → -c:a copy（零质量损失）
+            //   · PCM（lpcm）→ AAC 编码，码率按声道自适应（单声道 128k / 立体声 256k）
+            //   · 检测失败 → AAC 192k 保守兜底
+            //
+            // 不加 -noautorotate
+            //   让 FFmpeg 读取 QuickTime 旋转矩阵并物理旋转像素，
+            //   输出始终正立，不依赖播放器解析旋转标签。
             return targetFormat switch
             {
                 VideoFormat.MP4 => $"-apply_cropping 0 -y -i \"{inputPath}\" " +
-                    $"-map 0:v:0 -map 0:a:0? " +
+                    $"-map 0:V:0 -map 0:a:0? " +
                     $"-map_metadata 0 " +
                     $"-threads {threadCount} " +
                     $"{videoFilter} " +
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} " +
-                    $"-c:a copy " +
+                    $"{audioArgs} " +
                     $"-movflags +faststart " +
                     $"\"{outputPath}\"",
 
                 VideoFormat.MOV => $"-apply_cropping 0 -y -i \"{inputPath}\" " +
-                    $"-map 0:v:0 -map 0:a:0? " +
+                    $"-map 0:V:0 -map 0:a:0? " +
                     $"-map_metadata 0 " +
                     $"-threads {threadCount} " +
                     $"{videoFilter} " +
@@ -730,7 +995,7 @@ namespace LivePhotoBox.Services
                     $"-movflags +faststart " +
                     $"\"{outputPath}\"",
 
-                _ => $"-apply_cropping 0 -y -i \"{inputPath}\" -c copy -map 0:v:0 -map 0:a:0? \"{outputPath}\""
+                _ => $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? \"{outputPath}\""
             };
         }
 

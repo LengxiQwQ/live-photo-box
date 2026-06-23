@@ -134,9 +134,9 @@
                                 <!-- 控件组：随机开关在上，恢复默认按钮在下 -->
                                 <StackPanel Spacing="18" VerticalAlignment="Center">
                                     <ToggleSwitch x:Name="BannerRandomToggle"
-                                                  x:Uid="SettingsPage_BannerRandom_Toggle"
                                                   IsOn="{x:Bind ViewModel.IsBannerRandomEnabled, Mode=TwoWay}"
-                                                  FontSize="13"/>
+                                                  FontSize="13"
+                                                  x:Uid="Toggle_OnOff"/>
                                     <Button Style="{ThemeResource DefaultButtonStyle}"
                                             Click="ResetBanner_Click"
                                             HorizontalAlignment="Left"
@@ -309,6 +309,18 @@
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
+
+                            <!-- 谷歌协议强制转 MP4 -->
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Uid="SettingsPage_Combo_GoogleForceMp4"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <ToggleSwitch IsOn="{x:Bind ViewModel.IsGoogleProtocolForceMp4, Mode=TwoWay}"
+                                              x:Uid="Toggle_OnOff"/>
+                                <TextBlock x:Uid="SettingsPage_Combo_GoogleForceMp4_Desc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
                         </toolkit:WrapPanel>
                     </Border>
                 </StackPanel>
@@ -344,7 +356,7 @@
                     </Border>
                 </StackPanel>
 
-                <!-- 缩略图修复设置 -->
+                <!-- 实况照片显示修复设置 -->
                 <StackPanel Spacing="16">
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                         <FontIcon Glyph="&#xE7C5;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
@@ -369,10 +381,10 @@
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                 </StackPanel>
                                 <ToggleSwitch Grid.Column="1"
-                                              x:Uid="SettingsPage_Repair_HeicSwitch"
                                               IsOn="{x:Bind ViewModel.IsHeicRepairEnabled, Mode=TwoWay}"
                                               FontSize="12"
-                                              HorizontalAlignment="Right"/>
+                                              HorizontalAlignment="Right"
+                                              x:Uid="Toggle_OnOff"/>
                             </Grid>
 
                             <!-- 分隔线（仅到文字区域） -->
@@ -398,10 +410,10 @@
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <ToggleSwitch Grid.Column="1"
-                                              x:Uid="SettingsPage_Repair_LivePhotoVideoSwitch"
                                               IsOn="{x:Bind ViewModel.IsNonLivePhotoVideoRepairEnabled, Mode=TwoWay}"
                                               FontSize="12"
-                                              HorizontalAlignment="Right"/>
+                                              HorizontalAlignment="Right"
+                                              x:Uid="Toggle_OnOff"/>
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -414,14 +426,20 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <Button Grid.Column="0"
-                                HorizontalAlignment="Left"
-                                Click="ToggleTestToolsButton_Click">
-                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xEC7A;" FontSize="14"/>
-                                <TextBlock Text="{x:Bind TestToolsToggleButtonText, Mode=OneWay}" FontSize="13" VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12">
+                            <Button Click="ToggleTestToolsButton_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xEC7A;" FontSize="14"/>
+                                    <TextBlock Text="{x:Bind TestToolsToggleButtonText, Mode=OneWay}" FontSize="13" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Click="SwitchToModern_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE8B1;" FontSize="14"/>
+                                    <TextBlock x:Uid="SettingsPage_SwitchToModern_Button_Text" FontSize="13" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
 
                         <Button Grid.Column="1"
                                 Click="RestoreDefaultSettings_Click"
@@ -434,9 +452,9 @@
                         </Button>
                     </Grid>
 
-                    <TextBlock Text="{x:Bind CrashNoticeText, Mode=OneWay}"
+                    <TextBlock Text="{x:Bind CrashNoticeText, Mode=OneTime}"
                                Visibility="{x:Bind CrashNoticeVisibility, Mode=OneWay}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Foreground="{ThemeResource SystemErrorTextColor}"
                                FontSize="12"
                                TextWrapping="Wrap"
                                HorizontalAlignment="Center"
@@ -487,6 +505,11 @@
                                             </StackPanel>
                                         </Button>
                                     </toolkit:WrapPanel>
+
+                                    <TextBlock x:Uid="SettingsPage_CrashLogPrivacyHint"
+                                               FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                               TextWrapping="Wrap"/>
                                 </StackPanel>
                             </Border>
                         </StackPanel>
@@ -495,6 +518,12 @@
                             <FontIcon Glyph="&#xEBE8;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
                             <TextBlock x:Uid="SettingsPage_Test_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                         </StackPanel>
+
+                        <TextBlock x:Uid="SettingsPage_Test_Warning"
+                                   FontSize="12"
+                                   Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                                   TextWrapping="Wrap"
+                                   Margin="0,4,0,12"/>
 
                         <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                                 Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
@@ -528,10 +557,10 @@
                                         <TextBlock x:Uid="SettingsPage_ScanThumbnailToggleDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                                     </StackPanel>
                                     <ToggleSwitch Grid.Column="1"
-                                                  x:Uid="SettingsPage_ScanThumbnailToggle"
                                                   IsOn="{x:Bind ViewModel.IsRepairScanLoadThumbnail, Mode=TwoWay}"
                                                   FontSize="12"
-                                                  HorizontalAlignment="Right"/>
+                                                  HorizontalAlignment="Right"
+                                                  x:Uid="Toggle_EnabledDisabled"/>
                                 </Grid>
 
                                 <!-- 分隔线 -->
@@ -548,10 +577,10 @@
                                         <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                                     </StackPanel>
                                     <ToggleSwitch Grid.Column="1"
-                                                  x:Uid="SettingsPage_StrictLivePhotoScanToggle"
                                                   IsOn="{x:Bind ViewModel.IsStrictLivePhotoScanEnabled, Mode=TwoWay}"
                                                   FontSize="12"
-                                                  HorizontalAlignment="Right"/>
+                                                  HorizontalAlignment="Right"
+                                                  x:Uid="Toggle_EnabledDisabled"/>
                                 </Grid>
 
                             </StackPanel>

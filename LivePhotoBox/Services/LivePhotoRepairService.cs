@@ -153,11 +153,18 @@ namespace LivePhotoBox.Services
                 // 取消信号必须穿透，不吞
                 throw;
             }
-            catch (InvalidOperationException)
+            catch (InvalidOperationException ex)
             {
-                // exiftool 进程崩溃类异常（stdout 关闭、进程退出等），
-                // 穿透出去让扫描停止，不要吞掉然后傻傻地逐个文件重试
-                throw;
+                // exiftool 进程崩溃：PersistentExifTool 已自动重启，
+                // 无需停止扫描——返回 Error 让当前文件失败，下一个文件继续。
+                WriteDebugLog("ERROR", "Analyze",
+                    $"ExifTool crashed on {Path.GetFileName(filePath)}, scan will continue",
+                    ex.Message);
+                return new RepairAnalysisResult
+                {
+                    IssueType = RepairIssueType.Error,
+                    IssueDescription = $"ExifTool 进程异常退出，已自动重启\n{ex.Message}"
+                };
             }
             catch (Exception ex)
             {
@@ -871,25 +878,36 @@ namespace LivePhotoBox.Services
             try { await process.WaitForExitAsync(token); }
             catch (OperationCanceledException) { process.Kill(); throw; }
 
-            string error = await errorTask;
+            string stdout = await outputTask;
+            string stderr = await errorTask;
 
             if (process.ExitCode != 0)
             {
-                // FFmpeg writes progress to stderr — keep the last part which has the actual error
-                string errSummary = error;
+                // 组装完整错误信息：exit code + stderr + stdout（某些错误走 stdout）
+                var parts = new System.Collections.Generic.List<string>();
+                if (!string.IsNullOrWhiteSpace(stderr))
+                    parts.Add(stderr.Trim());
+                if (!string.IsNullOrWhiteSpace(stdout))
+                    parts.Add($"[stdout] {stdout.Trim()}");
+
+                string errSummary = parts.Count > 0
+                    ? string.Join("\n", parts)
+                    : $"(无错误输出 — FFmpeg 进程退出码 {process.ExitCode}，但 stdout/stderr 均为空)";
+
                 if (errSummary.Length > 600)
                     errSummary = "…" + errSummary[^600..];
+
                 WriteDebugLog("ERROR", "FFmpeg", $"FFmpeg exited with code {process.ExitCode}", errSummary);
                 return (false, errSummary.TrimEnd());
             }
 
-            if (!string.IsNullOrWhiteSpace(error))
+            if (!string.IsNullOrWhiteSpace(stderr))
             {
-                if (error.Contains("Error", StringComparison.OrdinalIgnoreCase)
-                    || error.Contains("failed", StringComparison.OrdinalIgnoreCase)
-                    || error.Contains("Invalid", StringComparison.OrdinalIgnoreCase))
+                if (stderr.Contains("Error", StringComparison.OrdinalIgnoreCase)
+                    || stderr.Contains("failed", StringComparison.OrdinalIgnoreCase)
+                    || stderr.Contains("Invalid", StringComparison.OrdinalIgnoreCase))
                 {
-                    WriteDebugLog("WARN", "FFmpeg", "FFmpeg completed with warnings/errors in stderr", error[..Math.Min(error.Length, 500)]);
+                    WriteDebugLog("WARN", "FFmpeg", "FFmpeg completed with warnings/errors in stderr", stderr[..Math.Min(stderr.Length, 500)]);
                 }
             }
 

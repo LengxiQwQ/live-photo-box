@@ -11,7 +11,7 @@ using System.Runtime.CompilerServices;
 
 namespace LivePhotoBox.Views
 {
-    public sealed partial class SettingsPage : Page, INotifyPropertyChanged
+    public sealed partial class SettingsPageModern : Page, INotifyPropertyChanged
     {
         public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -37,12 +37,12 @@ namespace LivePhotoBox.Views
 
         private bool _isTestToolsVisible;
 
-        public SettingsPage()
+        public SettingsPageModern()
         {
             InitializeComponent();
             Loaded += (_, _) =>
             {
-                // 后台预加载 Banner，不阻塞页面打开（fire-and-forget）
+                // 后台预加载 Banner
                 _ = ViewModel.EnsureBannersPreloadedAsync();
 
                 // 如果上一次非正常退出，自动展开日志与调试工具区
@@ -83,26 +83,6 @@ namespace LivePhotoBox.Views
             Bindings.Update();
         }
 
-        private void ScanThumbnailLabel_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
-        {
-            ViewModel.IsRepairScanLoadThumbnail = !ViewModel.IsRepairScanLoadThumbnail;
-        }
-
-        private void HeicRepairLabel_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
-        {
-            ViewModel.IsHeicRepairEnabled = !ViewModel.IsHeicRepairEnabled;
-        }
-
-        private void NonLivePhotoVideoRepairLabel_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
-        {
-            ViewModel.IsNonLivePhotoVideoRepairEnabled = !ViewModel.IsNonLivePhotoVideoRepairEnabled;
-        }
-
-        private void StrictLivePhotoScanLabel_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
-        {
-            ViewModel.IsStrictLivePhotoScanEnabled = !ViewModel.IsStrictLivePhotoScanEnabled;
-        }
-
         private async void RestartAppButton_Click(object sender, RoutedEventArgs e)
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;
@@ -126,7 +106,6 @@ namespace LivePhotoBox.Views
             var result = await dialog.ShowAsync();
             if (result != ContentDialogResult.Secondary) return;
 
-            // 启动新实例后关闭当前应用
             string? processPath = Environment.ProcessPath;
             if (!string.IsNullOrWhiteSpace(processPath))
             {
@@ -191,24 +170,23 @@ namespace LivePhotoBox.Views
             if (result == ContentDialogResult.Secondary)
             {
                 ViewModel.RestoreDefaultSettingsCommand.Execute(null);
-                // 立即跳到顶部（无动画），让用户感知已重置
                 PageScrollViewer.ChangeView(null, 0, null, true);
             }
         }
 
         /// <summary>
-        /// 切换到新版设置页面（需重启生效）
+        /// 切换到经典设置页面（需重启生效）
         /// </summary>
-        private async void SwitchToModern_Click(object sender, RoutedEventArgs e)
+        private async void SwitchToClassic_Click(object sender, RoutedEventArgs e)
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;
 
             var dialog = new ContentDialog
             {
-                Title = ResourceService.GetString("SettingsPage_SwitchToModern_Confirm_Title"),
+                Title = ResourceService.GetString("SettingsPage_SwitchToClassic_Confirm_Title"),
                 Content = new TextBlock
                 {
-                    Text = ResourceService.GetString("SettingsPage_SwitchToModern_Confirm_Message"),
+                    Text = ResourceService.GetString("SettingsPage_SwitchToClassic_Confirm_Message"),
                     FontSize = 14,
                     TextWrapping = TextWrapping.Wrap
                 },
@@ -222,8 +200,8 @@ namespace LivePhotoBox.Views
             var result = await dialog.ShowAsync();
             if (result != ContentDialogResult.Secondary) return;
 
-            // Save preference: switch to modern
-            AppSettingsService.SetValue("UseClassicSettingsPage", false);
+            // Save preference: switch back to classic
+            AppSettingsService.SetValue("UseClassicSettingsPage", true);
 
             string? processPath = Environment.ProcessPath;
             if (!string.IsNullOrWhiteSpace(processPath))

@@ -121,7 +121,8 @@ namespace LivePhotoBox.Services
                     token.ThrowIfCancellationRequested();
                 }
 
-                (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token);
+                bool forceMp4 = ComputeForceMp4(options.SelectedModeIndex);
+                (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token, forceMp4);
                 if (vt) tempFiles.Add(workingVideoPath);
 
                 string prepared = await protocol.PrepareImageAsync(workingImagePath, tempDir, token);
@@ -154,6 +155,18 @@ namespace LivePhotoBox.Services
                 foreach (var f in tempFiles)
                     try { if (File.Exists(f)) File.Delete(f); } catch { }
             }
+        }
+
+        /// <summary>
+        /// Determine whether to force MP4 conversion.
+        /// Google protocols (V1/V2) respect the user setting; OPPO always forces MP4.
+        /// </summary>
+        private static bool ComputeForceMp4(int selectedModeIndex)
+        {
+            // OPPO protocol (Id=2) always needs MP4
+            if (selectedModeIndex == 2) return true;
+            // Google V1 (Id=0) / V2 (Id=1) respect user's toggle (default false / off)
+            return AppSettingsService.GetValue("IsGoogleProtocolForceMp4", false);
         }
     }
 }

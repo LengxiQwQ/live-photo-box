@@ -766,6 +766,18 @@ namespace LivePhotoBox.ViewModels
                     using var persistentExifTool = hasExifTool
                         ? new PersistentExifTool(exifToolPath) : null;
 
+                    // 订阅 exiftool 崩溃自动重启事件 → 状态栏通知用户
+                    if (persistentExifTool != null)
+                    {
+                        persistentExifTool.OnRestarted += (msg) =>
+                        {
+                            App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                            {
+                                AppendDirectStatus(msg);
+                            });
+                        };
+                    }
+
                     var itemBuffer = new List<RepairTask>();
                     long lastFlushMs = Environment.TickCount64;
                     const long flushIntervalMs = 120;

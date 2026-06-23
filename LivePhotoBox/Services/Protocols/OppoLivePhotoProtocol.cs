@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 namespace LivePhotoBox.Services.Protocols
 {
     /// <summary>
-    /// OPPO / OnePlus O-Live Photo (ColorOS / OxygenOS).
+    /// OPPO/OnePlus O-Live Photo (ColorOS / OxygenOS).
     ///
     /// Extends Google Motion Photo V2 with:
     ///   1. OpCamera XMP namespace — 4 proprietary fields
@@ -24,8 +24,8 @@ namespace LivePhotoBox.Services.Protocols
     {
         public override int Id => 2;
         public override string Key => "OppoLivePhoto";
-        public override string DisplayName => "OPPO / OnePlus Live Photo";
-        public override string DisplayNameEn => "OPPO / OnePlus Live Photo";
+        public override string DisplayName => "OPPO/OnePlus Live Photo";
+        public override string DisplayNameEn => "OPPO/OnePlus Live Photo";
 
         /// <summary>
         /// EXIF UserComment value that OPPO Gallery checks for live-photo recognition.

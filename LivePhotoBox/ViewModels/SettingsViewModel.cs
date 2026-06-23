@@ -161,6 +161,16 @@ namespace LivePhotoBox.ViewModels
         }
 
         [ObservableProperty]
+        private bool _isGoogleProtocolForceMp4;
+
+        partial void OnIsGoogleProtocolForceMp4Changed(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsGoogleProtocolForceMp4), value);
+            LogService.Info($"Google protocol force-MP4: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
+        [ObservableProperty]
         private int _comboThreadCount = 4;
 
         partial void OnComboThreadCountChanged(int value)
@@ -170,10 +180,13 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Combo thread count changed to: {value}", LogSource.Settings);
         }
 
+        /// <summary>合成并行数最大值</summary>
+        public int MaxComboThreadCount => 8;
+
         [RelayCommand]
         private void IncreaseComboThreadCount()
         {
-            if (ComboThreadCount < 8) ComboThreadCount++;
+            if (ComboThreadCount < MaxComboThreadCount) ComboThreadCount++;
         }
 
         [RelayCommand]
@@ -349,6 +362,7 @@ namespace LivePhotoBox.ViewModels
             ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 5);
             MaxThreadCount = Math.Min(Environment.ProcessorCount, 16);
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
+            IsGoogleProtocolForceMp4 = AppSettingsService.GetValue(nameof(IsGoogleProtocolForceMp4), false);
             ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 4);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
@@ -499,7 +513,10 @@ namespace LivePhotoBox.ViewModels
             AppViewModel.Instance.Combo.SelectedModeIndex = 1;
             AppViewModel.Instance.Repair.IsOutputToDirectory = false;
 
-            // 4. 重新选择最佳硬件
+            // 4. 重置页面偏好为现代版
+            AppSettingsService.SetValue("UseClassicSettingsPage", false);
+
+            // 5. 重新选择最佳硬件
             _isInitializing = true;
             var gpu = AvailableHardware.FirstOrDefault(h => h.Type == HardwareService.HardwareType.Gpu && h.IsHardwareEncodingSupported);
             if (gpu != null)
