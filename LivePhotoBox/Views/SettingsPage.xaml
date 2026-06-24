@@ -35,7 +35,7 @@
                         <TextBlock x:Uid="SettingsPage_Language_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xE8C1;" FontSize="16"/>
+                        <FontIcon Glyph="&#xF2B7;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
                     <ComboBox SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}"
                               Loaded="AppearanceComboBox_Loaded"
@@ -80,7 +80,7 @@
                         <TextBlock x:Uid="SettingsPage_Backdrop_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <ic:SymbolIcon Symbol="WindowColumnOneFourthLeft" />
+                        <FontIcon Glyph="&#xEB91;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
                     <ComboBox SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}"
                               Loaded="AppearanceComboBox_Loaded"
@@ -88,10 +88,71 @@
                         <ComboBoxItem x:Uid="SettingsPage_Backdrop_Mica"/>
                         <ComboBoxItem x:Uid="SettingsPage_Backdrop_MicaAlt"/>
                         <ComboBoxItem x:Uid="SettingsPage_Backdrop_Acrylic"/>
+                        <ComboBoxItem x:Uid="SettingsPage_Backdrop_AcrylicLight"/>
                         <ComboBoxItem x:Uid="SettingsPage_Backdrop_None"/>
                     </ComboBox>
                 </controls:SettingsCard>
 
+                <!-- Acrylic 浓度滑块（仅选 Acrylic / Acrylic 薄透 时可见） -->
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI"
+                                       Visibility="{x:Bind ViewModel.BackdropIndex, Mode=OneWay, Converter={StaticResource BackdropToAcrylicVisibilityConverter}}">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_AcrylicOpacity_Header" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_AcrylicOpacity_Desc" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <ic:SymbolIcon Symbol="SquareHintSparkles" />
+                    </controls:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <Slider Minimum="0.0" Maximum="1.0"
+                                Value="{x:Bind ViewModel.AcrylicTintOpacity, Mode=TwoWay}"
+                                StepFrequency="0.05" Width="220" VerticalAlignment="Center"
+                                ThumbToolTipValueConverter="{StaticResource DoubleToPercentConverter}"/>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4"
+                                MinWidth="44" Height="36"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock VerticalAlignment="Center" HorizontalAlignment="Center"
+                                       Margin="8,0" FontSize="13" FontWeight="SemiBold">
+                                <Run Text="{x:Bind ViewModel.AcrylicTintOpacityText, Mode=OneWay}"/>
+                            </TextBlock>
+                        </Border>
+                    </StackPanel>
+                </controls:SettingsCard>
+
+                <!-- 窗口整体透明度 -->
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_WindowOpacity_Header" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_WindowOpacity_Desc" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xF5EF;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                        <Slider Minimum="0.1" Maximum="1.0"
+                                Value="{x:Bind ViewModel.WindowOpacity, Mode=TwoWay}"
+                                StepFrequency="0.01" Width="220" VerticalAlignment="Center"
+                                ThumbToolTipValueConverter="{StaticResource DoubleToPercentConverter}"/>
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                BorderThickness="1" CornerRadius="4"
+                                MinWidth="44" Height="36"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock VerticalAlignment="Center" HorizontalAlignment="Center"
+                                       Margin="8,0" FontSize="13" FontWeight="SemiBold">
+                                <Run Text="{x:Bind ViewModel.WindowOpacityText, Mode=OneWay}"/>
+                            </TextBlock>
+                        </Border>
+                    </StackPanel>
+                </controls:SettingsCard>
 
                 <!-- 主页背景（可折叠） -->
                 <controls:SettingsExpander FontFamily="Microsoft YaHei UI">
@@ -99,16 +160,15 @@
                         <TextBlock x:Uid="SettingsPage_Banner_Header" FontFamily="Microsoft YaHei UI"/>
                     </controls:SettingsExpander.Header>
                     <controls:SettingsExpander.Description>
-                        <TextBlock Text="{x:Bind ViewModel.CurrentBannerPresetName, Mode=OneWay}"
-                                   FontSize="12"
+                        <TextBlock x:Uid="SettingsPage_Banner_Desc" FontSize="12"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsExpander.Description>
                     <controls:SettingsExpander.HeaderIcon>
-                        <FontIcon Glyph="&#xE7FB;" />
+                        <FontIcon Glyph="&#xE9A6;" />
                     </controls:SettingsExpander.HeaderIcon>
 
                     <controls:SettingsExpander.Items>
-                        <!-- 折叠内容：左预览图 + 右随机切换 -->
+                        <!-- 折叠内容：左预览图 + 右当前预设名称 -->
                         <!-- ContentAlignment="Vertical" → 内容独占全宽，不走默认的左右分栏 -->
                         <controls:SettingsCard ContentAlignment="Vertical"
                                                HorizontalContentAlignment="Stretch">
@@ -119,7 +179,6 @@
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
 
                                 <!-- 左侧：320×135 预览 + 切换箭头 -->
@@ -157,13 +216,31 @@
                                     </Grid>
                                 </Border>
 
-                                <!-- 右侧：随机切换 -->
-                                <ToggleSwitch Grid.Column="2"
-                                              VerticalAlignment="Center"
-                                              IsOn="{x:Bind ViewModel.IsBannerRandomEnabled, Mode=TwoWay}"
-                                              FontSize="13"
-                                              x:Uid="Toggle_OnOff"/>
+                                <!-- 右侧：当前预设名称 -->
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="16,0,0,0">
+                                    <TextBlock x:Uid="SettingsPage_Banner_CurrentLabel" FontSize="13"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock Text="{x:Bind ViewModel.CurrentBannerPresetName, Mode=OneWay}"
+                                               FontSize="18" FontWeight="SemiBold"
+                                               Margin="0,2,0,0"/>
+                                </StackPanel>
                             </Grid>
+                        </controls:SettingsCard>
+
+                        <!-- 随机切换开关 -->
+                        <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                            <controls:SettingsCard.Header>
+                                <TextBlock x:Uid="SettingsPage_BannerRandom_Header" FontFamily="Microsoft YaHei UI"/>
+                            </controls:SettingsCard.Header>
+                            <controls:SettingsCard.Description>
+                                <TextBlock x:Uid="SettingsPage_BannerRandom_Desc" FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </controls:SettingsCard.Description>
+                            <controls:SettingsCard.HeaderIcon>
+                                <FontIcon Glyph="&#xE8AE;" FontSize="16"/>
+                            </controls:SettingsCard.HeaderIcon>
+                            <ToggleSwitch IsOn="{x:Bind ViewModel.IsBannerRandomEnabled, Mode=TwoWay}"
+                                          x:Uid="Toggle_OnOff"/>
                         </controls:SettingsCard>
                     </controls:SettingsExpander.Items>
                 </controls:SettingsExpander>
@@ -211,7 +288,7 @@
                         <TextBlock x:Uid="SettingsPage_Transcode_ThreadCount_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xF0B5;" FontSize="16"/>
+                        <ic:SymbolIcon Symbol="FastForward" />
                     </controls:SettingsCard.HeaderIcon>
                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                         <Slider Minimum="1"
@@ -267,7 +344,7 @@
                         </StackPanel>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xE964;" FontSize="16"/>
+                        <ic:SymbolIcon Symbol="DeveloperBoardSearch" />
                     </controls:SettingsCard.HeaderIcon>
                     <ComboBox SelectedIndex="{x:Bind ViewModel.HeicDecoderIndex, Mode=TwoWay}"
                               Loaded="AppearanceComboBox_Loaded"
@@ -285,7 +362,7 @@
                         <TextBlock x:Uid="SettingsPage_Combo_ThreadCount_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xF0B5;" FontSize="16"/>
+                        <ic:SymbolIcon Symbol="FastForward" />
                     </controls:SettingsCard.HeaderIcon>
                     <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                         <Slider Minimum="1"
@@ -319,7 +396,7 @@
                         <TextBlock x:Uid="SettingsPage_Combo_GoogleForceMp4_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xE8AB;" FontSize="16"/>
+                        <ic:SymbolIcon Symbol="VideoSync" />
                     </controls:SettingsCard.HeaderIcon>
                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsGoogleProtocolForceMp4, Mode=TwoWay}"
                                   x:Uid="Toggle_OnOff"/>
@@ -386,7 +463,7 @@
                         <TextBlock x:Uid="SettingsPage_Repair_LivePhotoVideoDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xE8B2;" FontSize="16"/>
+                        <ic:SymbolIcon Symbol="VideoSettings" />
                     </controls:SettingsCard.HeaderIcon>
                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsNonLivePhotoVideoRepairEnabled, Mode=TwoWay}"
                                   x:Uid="Toggle_OnOff"/>

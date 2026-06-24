@@ -1,6 +1,8 @@
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI;
+using Microsoft.UI.Composition;
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -8,10 +10,13 @@ using Microsoft.UI.Xaml.Media;
 using System;
 using System.Runtime.InteropServices;
 using System.ComponentModel;
+using System.Threading;
+using System.Threading.Tasks;
 using System.IO;
 using Windows.Graphics;
 using Windows.UI;
 using LivePhotoBox.Models;
+using WinRT;
 
 namespace LivePhotoBox
 {
@@ -23,6 +28,25 @@ namespace LivePhotoBox
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr hwnd);
 
+        // 窗口整体透明度
+        [DllImport("user32.dll")]
+        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll")]
+        private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
+
+        private const int GWL_EXSTYLE = -20;
+        private const int WS_EX_LAYERED = 0x80000;
+        private const uint LWA_ALPHA = 0x2;
+
+        private DesktopAcrylicController? _acrylicController;
+        private SystemBackdropConfiguration? _acrylicConfig;
+        private ICompositionSupportsSystemBackdrop? _acrylicTarget;
+        private CancellationTokenSource? _acrylicDebounceCts;
+
         public AppViewModel ViewModel => AppViewModel.Instance;
 
         public MainWindow()
@@ -31,6 +55,7 @@ namespace LivePhotoBox
             LogService.Info("MainWindow constructed.", LogSource.UI);
             Closed += (_, _) =>
             {
+                CleanupAcrylicController();
                 LogService.Info("MainWindow closed.", LogSource.UI);
                 LogService.MarkCleanShutdown();
                 ViewModel.Cleanup();
@@ -96,6 +121,14 @@ namespace LivePhotoBox
             UpdateTheme();
             UpdateBackdrop();
             UpdateStatusBarVisibility();
+
+            // 应用持久化的窗口透明度
+            if (ViewModel.Settings.WindowOpacity < 1.0)
+            {
+                EnableWindowLayering();
+                ApplyWindowOpacity();
+            }
+
             NavigateToPage(typeof(Views.HomePage), null);
         }
 
@@ -116,6 +149,12 @@ namespace LivePhotoBox
                     break;
                 case nameof(SettingsViewModel.ElementTheme):
                     UpdateTheme();
+                    break;
+                case nameof(SettingsViewModel.AcrylicTintOpacity):
+                    UpdateAcrylicTintOpacity();
+                    break;
+                case nameof(SettingsViewModel.WindowOpacity):
+                    ApplyWindowOpacity();
                     break;
             }
         }
@@ -145,17 +184,44 @@ namespace LivePhotoBox
 
         private void UpdateBackdrop()
         {
-            SystemBackdrop = ViewModel.Settings.BackdropIndex switch
+            // 先清理旧的 Acrylic Controller
+            CleanupAcrylicController();
+
+            int idx = ViewModel.Settings.BackdropIndex;
+            if (idx is 2 or 3) // 2=Acrylic  3=Acrylic 薄透
             {
-                0 => new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.Base },
-                1 => new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt },
-                2 => new DesktopAcrylicBackdrop(),
-                _ => null
-            };
+                _acrylicTarget = this.As<ICompositionSupportsSystemBackdrop>();
+                _acrylicController = new DesktopAcrylicController
+                {
+                    Kind = idx == 2
+                        ? Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicKind.Base
+                        : Microsoft.UI.Composition.SystemBackdrops.DesktopAcrylicKind.Thin,
+                    TintOpacity = (float)ViewModel.Settings.AcrylicTintOpacity,
+                };
+                _acrylicConfig = new SystemBackdropConfiguration
+                {
+                    IsInputActive = true,
+                    Theme = GetCurrentTheme() == ElementTheme.Dark
+                        ? Microsoft.UI.Composition.SystemBackdrops.SystemBackdropTheme.Dark
+                        : Microsoft.UI.Composition.SystemBackdrops.SystemBackdropTheme.Light,
+                };
+                _acrylicController.SetSystemBackdropConfiguration(_acrylicConfig);
+                _acrylicController.AddSystemBackdropTarget(_acrylicTarget);
+                SystemBackdrop = null;
+            }
+            else
+            {
+                SystemBackdrop = idx switch
+                {
+                    0 => new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.Base },
+                    1 => new MicaBackdrop { Kind = Microsoft.UI.Composition.SystemBackdrops.MicaKind.BaseAlt },
+                    _ => null
+                };
+            }
 
             if (Content is Grid rootGrid)
             {
-                if (ViewModel.Settings.BackdropIndex == 3)
+                if (idx == 4) // None
                 {
                     rootGrid.Background = GetCurrentTheme() == ElementTheme.Dark
                         ? new SolidColorBrush(Microsoft.UI.Colors.Black)
@@ -168,6 +234,35 @@ namespace LivePhotoBox
             }
         }
 
+        private void CleanupAcrylicController()
+        {
+            _acrylicDebounceCts?.Cancel();
+            if (_acrylicController == null) return;
+            if (_acrylicTarget != null) _acrylicController.RemoveSystemBackdropTarget(_acrylicTarget);
+            _acrylicController.Dispose();
+            _acrylicController = null;
+            _acrylicTarget = null;
+            _acrylicConfig = null;
+        }
+
+        /// <summary>
+        /// 滑块拖拽时频繁触发 → 防抖 250ms，松手后只重建一次 controller。
+        /// DesktopAcrylicController.TintOpacity 在 AddSystemBackdropTarget 后设值无效，必须重建。
+        /// </summary>
+        private async void UpdateAcrylicTintOpacity()
+        {
+            _acrylicDebounceCts?.Cancel();
+            _acrylicDebounceCts = new CancellationTokenSource();
+            var token = _acrylicDebounceCts.Token;
+            try
+            {
+                await Task.Delay(250, token);
+                if (!token.IsCancellationRequested)
+                    UpdateBackdrop();
+            }
+            catch (OperationCanceledException) { }
+        }
+
         private void UpdateTheme()
         {
             if (Content is FrameworkElement rootElement)
@@ -177,7 +272,8 @@ namespace LivePhotoBox
 
             UpdateTitleBarButtonColors();
 
-            if (ViewModel.Settings.BackdropIndex == 3)
+            // Acrylic controller 需要随主题重建
+            if (ViewModel.Settings.BackdropIndex is 2 or 3 or 4)
             {
                 UpdateBackdrop();
             }
@@ -271,5 +367,40 @@ namespace LivePhotoBox
                 }
             }
         }
+
+        #region Window Opacity
+
+        private bool _windowLayeringEnabled;
+
+        /// <summary>启用窗口 WS_EX_LAYERED 样式（仅一次），后续通过 SetLayeredWindowAttributes 调整透明度</summary>
+        private void EnableWindowLayering()
+        {
+            if (_windowLayeringEnabled) return;
+            IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            int exStyle = GetWindowLong(hWnd, GWL_EXSTYLE);
+            SetWindowLong(hWnd, GWL_EXSTYLE, exStyle | WS_EX_LAYERED);
+            _windowLayeringEnabled = true;
+        }
+
+        /// <summary>将 ViewModel.WindowOpacity 应用到窗口</summary>
+        private void ApplyWindowOpacity()
+        {
+            double value = ViewModel.Settings.WindowOpacity;
+            IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+
+            if (value >= 1.0)
+            {
+                // 完全不透明 → 移除 LWA_ALPHA，但保留 WS_EX_LAYERED（不影响性能）
+                SetLayeredWindowAttributes(hWnd, 0, 255, LWA_ALPHA);
+            }
+            else
+            {
+                if (!_windowLayeringEnabled) EnableWindowLayering();
+                byte alpha = (byte)(value * 255);
+                SetLayeredWindowAttributes(hWnd, 0, alpha, LWA_ALPHA);
+            }
+        }
+
+        #endregion
     }
 }

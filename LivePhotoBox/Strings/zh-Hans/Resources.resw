@@ -183,6 +183,42 @@
   <data name="SettingsPage_Banner_Header.Text" xml:space="preserve">
     <value>主页背景</value>
   </data>
+  <data name="SettingsPage_Banner_Desc.Text" xml:space="preserve">
+    <value>自定义主页的背景横幅图片</value>
+  </data>
+  <data name="SettingsPage_Banner_CurrentLabel.Text" xml:space="preserve">
+    <value>当前</value>
+  </data>
+  <data name="SettingsPage_BannerRandom_Header.Text" xml:space="preserve">
+    <value>启动时随机切换</value>
+  </data>
+  <data name="SettingsPage_BannerRandom_Desc.Text" xml:space="preserve">
+    <value>每次打开软件时自动随机选择一张主页背景图片</value>
+  </data>
+  <data name="BannerPreset_Name_default" xml:space="preserve">
+    <value>预设 1</value>
+  </data>
+  <data name="BannerPreset_Name_scenic" xml:space="preserve">
+    <value>预设 2</value>
+  </data>
+  <data name="BannerPreset_Name_anime" xml:space="preserve">
+    <value>预设 3</value>
+  </data>
+  <data name="SettingsPage_Backdrop_AcrylicLight.Content" xml:space="preserve">
+    <value>Acrylic Thin</value>
+  </data>
+  <data name="SettingsPage_AcrylicOpacity_Header.Text" xml:space="preserve">
+    <value>Acrylic 材质浓度</value>
+  </data>
+  <data name="SettingsPage_AcrylicOpacity_Desc.Text" xml:space="preserve">
+    <value>调整毛玻璃效果的着色透明度</value>
+  </data>
+  <data name="SettingsPage_WindowOpacity_Header.Text" xml:space="preserve">
+    <value>窗口整体透明度</value>
+  </data>
+  <data name="SettingsPage_WindowOpacity_Desc.Text" xml:space="preserve">
+    <value>调整整个应用窗口的透明度</value>
+  </data>
   <data name="SettingsPage_Backdrop_None.Content" xml:space="preserve">
     <value>无</value>
   </data>
@@ -1511,10 +1547,10 @@
     <value>线程</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware_Desc.Text" xml:space="preserve">
-    <value>视频转码时使用的硬件编码器。GPU 硬件加速可大幅提升转码速度，若不支持则自动回退到 CPU 软件编码。</value>
+    <value>视频转码时使用的硬件编码器。GPU 硬件加速可大幅提升转码速度，若不支持则自动回退到 CPU 软件编码</value>
   </data>
   <data name="SettingsPage_Transcode_ThreadCount_Desc.Text" xml:space="preserve">
-    <value>同时进行视频转码的任务数量，仅对需要转码的 MP4、MOV 视频生效。</value>
+    <value>同时进行视频转码的任务数量，仅对需要转码的 MP4、MOV 视频生效</value>
   </data>
   <data name="RepairPage_StatPaired.Text" xml:space="preserve">
     <value>实况照片：</value>
