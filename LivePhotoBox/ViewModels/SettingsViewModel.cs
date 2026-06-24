@@ -388,7 +388,7 @@ namespace LivePhotoBox.ViewModels
             ElementTheme = AppSettingsService.GetValue(nameof(ElementTheme), 0);
             BackdropIndex = AppSettingsService.GetValue(nameof(BackdropIndex), 0);
             WindowOpacity = AppSettingsService.GetValue(nameof(WindowOpacity), 1.0);
-            AcrylicTintOpacity = AppSettingsService.GetValue(nameof(AcrylicTintOpacity), 0.5);
+            AcrylicTintOpacity = AppSettingsService.GetValue(nameof(AcrylicTintOpacity), 0.2);
             BannerPresetIndex = AppSettingsService.GetValue(nameof(BannerPresetIndex), 0);
             IsBannerRandomEnabled = AppSettingsService.GetValue(nameof(IsBannerRandomEnabled), false);
             ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 8);

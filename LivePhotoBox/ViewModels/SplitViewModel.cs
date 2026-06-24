@@ -280,7 +280,7 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
-                OutputDirectory = Path.Combine(InputDirectory, "Output_SplitPhotos");
+                OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_SplitPhotos"));
             }
 
             LogService.Split($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
@@ -473,7 +473,7 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
-                OutputDirectory = Path.Combine(InputDirectory, "Output_SplitPhotos");
+                OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_SplitPhotos"));
             }
 
             IsDirectoryPanelOpen = false;

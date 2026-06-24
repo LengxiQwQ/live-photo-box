@@ -1,3 +1,23 @@
+<!--
+ * AboutPage.xaml
+ *
+ * 关于页面 — 展示应用信息、开发动机、项目信息、开源致谢和隐私条款。
+ *
+ * 布局结构（自上而下）：
+ *   1. Hero 区      — 应用大图标（220×220）+ 名称 + 版本号（居中）
+ *   2. 关于本应用    — 应用描述与开发初衷
+ *   3. 项目信息      — 开发者、仓库地址、开源协议、问题反馈
+ *   4. 开源致谢      — 所引用的第三方工具与库
+ *   5. 隐私与法律    — 隐私政策 + 免责声明
+ *   6. Footer       — 版权信息
+ *
+ * 设计原则：
+ *   - 与 SettingsPage 保持一致的视觉节奏（卡片间距 Spacing="28"、圆角 12px）
+ *   - 每个功能区块为独立卡片，避免信息堆叠
+ *   - 区块标题使用 图标 + 18px SemiBold 文字，对齐设置页风格
+ *   - 自适应宽度：无 MaxWidth 限制，随窗口宽度自然伸展/收窄
+ -->
+
 <Page
     x:Class="LivePhotoBox.Views.AboutPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -9,6 +29,9 @@
     NavigationCacheMode="Required">
 
     <Page.Resources>
+        <!-- ========================================================== -->
+        <!--  链接按钮样式 — 让 Button 看起来像可点击的文字链接            -->
+        <!-- ========================================================== -->
         <Style x:Key="AboutLinkButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderBrush" Value="Transparent"/>
@@ -24,13 +47,9 @@
             <Setter Property="VerticalContentAlignment" Value="Center"/>
         </Style>
 
-        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="16"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontFamily" Value="Microsoft YaHei UI"/>
-            <Setter Property="Margin" Value="0,0,0,12"/>
-        </Style>
-
+        <!-- ========================================================== -->
+        <!--  正文内容样式 — 页面上的说明、描述文字                        -->
+        <!-- ========================================================== -->
         <Style x:Key="ContentTextStyle" TargetType="TextBlock">
             <Setter Property="TextWrapping" Value="Wrap"/>
             <Setter Property="LineHeight" Value="22"/>
@@ -40,121 +59,336 @@
         </Style>
     </Page.Resources>
 
-    <ScrollViewer Padding="40,18,40,0">
-        <StackPanel Spacing="24" MaxWidth="800" HorizontalAlignment="Center">
+    <ScrollViewer Padding="40,24,40,0">
+        <StackPanel Spacing="28" HorizontalAlignment="Stretch" Margin="0,0,0,40">
 
-            <Grid Margin="0,28,0,4" HorizontalAlignment="Stretch">
+            <!-- ========================================================== -->
+            <!--  Hero 区：应用大图标 + 名称 + 版本号                      -->
+            <!--  居中展示，图标用圆角边框突出设计细节                       -->
+            <!-- ========================================================== -->
+            <StackPanel Spacing="0" Margin="0,28,0,8">
+                <!-- 应用图标 220×220，圆角 30px 带边框 -->
                 <Border MaxWidth="220" MinWidth="220" Height="220" Padding="0" CornerRadius="30"
                         HorizontalAlignment="Center" Background="{ThemeResource CardBackgroundBrush}"
                         BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                     <Image Source="/Assets/AppIcon-full.png" Stretch="Uniform"/>
                 </Border>
-            </Grid>
 
-            <TextBlock x:Uid="AboutPage_Title" FontSize="36" FontWeight="Bold" HorizontalAlignment="Center" FontFamily="Microsoft YaHei UI"/>
-            <TextBlock x:Name="VersionTextBlock" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" Margin="0,-16,0,0"/>
+                <!-- 应用名称 -->
+                <TextBlock x:Uid="AboutPage_Title"
+                           FontSize="36" FontWeight="Bold"
+                           HorizontalAlignment="Center"
+                           FontFamily="Microsoft YaHei UI"
+                           Margin="0,20,0,0"/>
 
-            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
-                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,20,0,0">
-                <StackPanel Spacing="40">
-                    <StackPanel>
-                        <TextBlock x:Uid="AboutPage_Header" Style="{StaticResource SectionHeaderStyle}"/>
-                        <TextBlock x:Uid="AboutPage_Description" Style="{StaticResource ContentTextStyle}"/>
-                    </StackPanel>
-                    
-                    <StackPanel>
-                        <TextBlock x:Uid="AboutPage_MotivationTitle" Style="{StaticResource SectionHeaderStyle}"/>
-                        <TextBlock x:Uid="AboutPage_MotivationContent" Style="{StaticResource ContentTextStyle}"/>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
+                <!-- 版本号（通过代码填充版本字符串） -->
+                <TextBlock x:Name="VersionTextBlock"
+                           FontSize="14"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           HorizontalAlignment="Center"
+                           Margin="0,4,0,0"/>
+            </StackPanel>
 
-            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
-                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,20,0,0">
-                <StackPanel Spacing="40">
-                    <StackPanel>
-                        <TextBlock x:Uid="AboutPage_InfoHeader" Style="{StaticResource SectionHeaderStyle}"/>
-                        <StackPanel Spacing="10" Margin="0,4,0,0">
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <ic:FluentIcon Icon="PersonDesktop" />
-                                <TextBlock x:Uid="AboutPage_DeveloperLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <Button x:Uid="AboutPage_DeveloperValue" Grid.Column="2" Click="DeveloperLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
-                            </Grid>
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <Viewbox Width="16" Height="16" VerticalAlignment="Center">
-                                    <PathIcon Data="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
-                                </Viewbox>
-                                <TextBlock x:Uid="AboutPage_SourceLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <Button x:Uid="AboutPage_SourceLink" Grid.Column="2" Click="RepositoryLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
-                            </Grid>
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <ic:SymbolIcon Symbol="Scales" FontSize="15" VerticalAlignment="Center"/>
-                                <TextBlock x:Uid="AboutPage_LicenseLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <Button x:Uid="AboutPage_LicenseValue" Grid.Column="2" Click="LicenseLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
-                            </Grid>
-                            <Grid ColumnSpacing="16">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="96"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                <FontIcon Glyph="&#xE8A7;" FontSize="15" VerticalAlignment="Center"/>
-                                <TextBlock x:Uid="AboutPage_IssueLabel" Grid.Column="1" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <Button x:Uid="AboutPage_IssueLink" Grid.Column="2" Click="IssueLinkButton_Click" Style="{StaticResource AboutLinkButtonStyle}"/>
-                            </Grid>
-                        </StackPanel>
+            <!-- ========================================================== -->
+            <!--  卡片 1：关于本应用                                         -->
+            <!--  包含应用简介和开发初衷两个子区块                           -->
+            <!-- ========================================================== -->
+            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                <StackPanel Spacing="20">
+                    <!-- 区块标题：图标 + "关于本应用" -->
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <FontIcon Glyph="&#xE946;" FontSize="18"
+                                  Foreground="{ThemeResource SystemAccentColor}"
+                                  VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="AboutPage_Header"
+                                   FontSize="18" FontWeight="SemiBold"
+                                   FontFamily="Microsoft YaHei UI"
+                                   VerticalAlignment="Center"/>
                     </StackPanel>
 
-                    <StackPanel>
-                        <TextBlock x:Uid="AboutPage_CreditsTitle" Style="{StaticResource SectionHeaderStyle}"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                            <Button Click="ExifTool_Click" Style="{StaticResource AboutLinkButtonStyle}" Padding="0,0,4,0">
-                                <TextBlock Text="ExifTool" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                            </Button>
-                            <TextBlock x:Uid="AboutPage_ExifToolSuffix" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                            <Button Click="JHead_Click" Style="{StaticResource AboutLinkButtonStyle}" Padding="0,0,4,0">
-                                <TextBlock Text="JHead" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                            </Button>
-                            <TextBlock x:Uid="AboutPage_JHeadSuffix" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                            <Button Click="JpegTran_Click" Style="{StaticResource AboutLinkButtonStyle}" Padding="0,0,4,0">
-                                <TextBlock Text="JPEGTran" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                            </Button>
-                            <TextBlock x:Uid="AboutPage_JpegTranSuffix" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                            <Button Click="FFmpeg_Click" Style="{StaticResource AboutLinkButtonStyle}" Padding="0,0,4,0">
-                                <TextBlock Text="FFmpeg" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                            </Button>
-                            <TextBlock x:Uid="AboutPage_FFmpegSuffix" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center"/>
-                        </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                            <Button Click="ImageMagick_Click" Style="{StaticResource AboutLinkButtonStyle}" Padding="0,0,4,0">
-                                <TextBlock Text="ImageMagick / Magick.NET" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center" FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                            </Button>
-                            <TextBlock x:Uid="AboutPage_ImageMagickSuffix" Style="{StaticResource ContentTextStyle}" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </StackPanel>
+                    <!-- 应用简介 -->
+                    <TextBlock x:Uid="AboutPage_Description"
+                               Style="{StaticResource ContentTextStyle}"/>
 
-                    <StackPanel>
-                        <TextBlock x:Uid="AboutPage_PrivacyTitle" Style="{StaticResource SectionHeaderStyle}"/>
-                        <TextBlock x:Uid="AboutPage_Privacy_Local" Style="{StaticResource ContentTextStyle}"/>
-                        <TextBlock x:Uid="AboutPage_Privacy_NoCollect" Style="{StaticResource ContentTextStyle}" Margin="0,4,0,0"/>
-                    </StackPanel>
+                    <!-- 分隔线 -->
+                    <Border Height="1"
+                            Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                            Opacity="0.4"
+                            Margin="0,4,0,0"/>
 
-                    <StackPanel>
-                        <TextBlock x:Uid="AboutPage_DisclaimerTitle" Style="{StaticResource SectionHeaderStyle}"/>
-                        <TextBlock x:Uid="AboutPage_DisclaimerContent" Style="{StaticResource ContentTextStyle}"/>
+                    <!-- 开发初衷子区块 -->
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Uid="AboutPage_MotivationTitle"
+                                   FontSize="16" FontWeight="SemiBold"
+                                   FontFamily="Microsoft YaHei UI"/>
+                        <TextBlock x:Uid="AboutPage_MotivationContent"
+                                   Style="{StaticResource ContentTextStyle}"/>
                     </StackPanel>
                 </StackPanel>
             </Border>
 
-            <TextBlock x:Uid="SettingsPage_Footer" 
-                       FontSize="12" Opacity="0.3" 
-                       HorizontalAlignment="Center" 
-                       Margin="0,30,0,60"/>
+            <!-- ========================================================== -->
+            <!--  卡片 2：项目信息                                           -->
+            <!--  以列表形式展示开发者、仓库、协议、反馈等链接               -->
+            <!--  每行 = [图标] [96px 标签] [可点击链接值]                  -->
+            <!-- ========================================================== -->
+            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                <StackPanel Spacing="16">
+                    <!-- 区块标题：图标 + "项目信息" -->
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,8">
+                        <FontIcon Glyph="&#xE8CE;" FontSize="18"
+                                  Foreground="{ThemeResource SystemAccentColor}"
+                                  VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="AboutPage_InfoHeader"
+                                   FontSize="18" FontWeight="SemiBold"
+                                   FontFamily="Microsoft YaHei UI"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- 开发者 -->
+                    <Grid ColumnSpacing="16" Height="36">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="96"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <ic:FluentIcon Grid.Column="0" Icon="PersonDesktop"
+                                       VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   x:Uid="AboutPage_DeveloperLabel"
+                                   FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="2"
+                                x:Uid="AboutPage_DeveloperValue"
+                                Click="DeveloperLinkButton_Click"
+                                Style="{StaticResource AboutLinkButtonStyle}"/>
+                    </Grid>
+
+                    <!-- 仓库地址 -->
+                    <Grid ColumnSpacing="16" Height="36">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="96"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Viewbox Grid.Column="0" Width="16" Height="16" VerticalAlignment="Center">
+                            <PathIcon Data="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.385.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 18.07 3.633 17.7 3.633 17.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12"/>
+                        </Viewbox>
+                        <TextBlock Grid.Column="1"
+                                   x:Uid="AboutPage_SourceLabel"
+                                   FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="2"
+                                x:Uid="AboutPage_SourceLink"
+                                Click="RepositoryLinkButton_Click"
+                                Style="{StaticResource AboutLinkButtonStyle}"/>
+                    </Grid>
+
+                    <!-- 开源协议 -->
+                    <Grid ColumnSpacing="16" Height="36">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="96"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <ic:SymbolIcon Grid.Column="0" Symbol="Scales" FontSize="15"
+                                       VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   x:Uid="AboutPage_LicenseLabel"
+                                   FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="2"
+                                x:Uid="AboutPage_LicenseValue"
+                                Click="LicenseLinkButton_Click"
+                                Style="{StaticResource AboutLinkButtonStyle}"/>
+                    </Grid>
+
+                    <!-- 问题反馈 -->
+                    <Grid ColumnSpacing="16" Height="36">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="96"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <FontIcon Grid.Column="0" Glyph="&#xE8A7;" FontSize="15"
+                                  VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1"
+                                   x:Uid="AboutPage_IssueLabel"
+                                   FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   VerticalAlignment="Center"/>
+                        <Button Grid.Column="2"
+                                x:Uid="AboutPage_IssueLink"
+                                Click="IssueLinkButton_Click"
+                                Style="{StaticResource AboutLinkButtonStyle}"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ========================================================== -->
+            <!--  卡片 3：开源致谢                                           -->
+            <!--  列出本应用所引用的第三方工具，点击名称可跳转官网           -->
+            <!-- ========================================================== -->
+            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                <StackPanel Spacing="10">
+                    <!-- 区块标题：图标 + "开源致谢" -->
+                    <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
+                        <FontIcon Glyph="&#xEB51;" FontSize="18"
+                                  Foreground="{ThemeResource SystemAccentColor}"
+                                  VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="AboutPage_CreditsTitle"
+                                   FontSize="18" FontWeight="SemiBold"
+                                   FontFamily="Microsoft YaHei UI"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- 每个致谢项：左侧工具名（可点击链接）+ 右侧说明 -->
+                    <!-- ExifTool -->
+                    <Grid ColumnSpacing="6" Margin="0,4,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Click="ExifTool_Click"
+                                Style="{StaticResource AboutLinkButtonStyle}" Padding="0">
+                            <TextBlock Text="ExifTool" Style="{StaticResource ContentTextStyle}"
+                                       FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        </Button>
+                        <TextBlock Grid.Column="1" x:Uid="AboutPage_ExifToolSuffix"
+                                   Style="{StaticResource ContentTextStyle}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <!-- JHead -->
+                    <Grid ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Click="JHead_Click"
+                                Style="{StaticResource AboutLinkButtonStyle}" Padding="0">
+                            <TextBlock Text="JHead" Style="{StaticResource ContentTextStyle}"
+                                       FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        </Button>
+                        <TextBlock Grid.Column="1" x:Uid="AboutPage_JHeadSuffix"
+                                   Style="{StaticResource ContentTextStyle}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <!-- JPEGTran -->
+                    <Grid ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Click="JpegTran_Click"
+                                Style="{StaticResource AboutLinkButtonStyle}" Padding="0">
+                            <TextBlock Text="JPEGTran" Style="{StaticResource ContentTextStyle}"
+                                       FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        </Button>
+                        <TextBlock Grid.Column="1" x:Uid="AboutPage_JpegTranSuffix"
+                                   Style="{StaticResource ContentTextStyle}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <!-- FFmpeg -->
+                    <Grid ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Click="FFmpeg_Click"
+                                Style="{StaticResource AboutLinkButtonStyle}" Padding="0">
+                            <TextBlock Text="FFmpeg" Style="{StaticResource ContentTextStyle}"
+                                       FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        </Button>
+                        <TextBlock Grid.Column="1" x:Uid="AboutPage_FFmpegSuffix"
+                                   Style="{StaticResource ContentTextStyle}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+
+                    <!-- ImageMagick / Magick.NET -->
+                    <Grid ColumnSpacing="6">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Click="ImageMagick_Click"
+                                Style="{StaticResource AboutLinkButtonStyle}" Padding="0">
+                            <TextBlock Text="ImageMagick / Magick.NET"
+                                       Style="{StaticResource ContentTextStyle}"
+                                       FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        </Button>
+                        <TextBlock Grid.Column="1" x:Uid="AboutPage_ImageMagickSuffix"
+                                   Style="{StaticResource ContentTextStyle}"
+                                   VerticalAlignment="Center"/>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ========================================================== -->
+            <!--  卡片 4：隐私与法律                                         -->
+            <!--  包含隐私政策（本地处理、零收集）和免责声明两个子区块       -->
+            <!--  子区块之间以分隔线隔开                                     -->
+            <!-- ========================================================== -->
+            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                <StackPanel Spacing="20">
+                    <!-- 区块标题：图标 + "隐私政策" -->
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <FontIcon Glyph="&#xE72E;" FontSize="18"
+                                  Foreground="{ThemeResource SystemAccentColor}"
+                                  VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="AboutPage_PrivacyTitle"
+                                   FontSize="18" FontWeight="SemiBold"
+                                   FontFamily="Microsoft YaHei UI"
+                                   VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <!-- 隐私政策内容 -->
+                    <StackPanel Spacing="6">
+                        <TextBlock x:Uid="AboutPage_Privacy_Local"
+                                   Style="{StaticResource ContentTextStyle}"/>
+                        <TextBlock x:Uid="AboutPage_Privacy_NoCollect"
+                                   Style="{StaticResource ContentTextStyle}"/>
+                    </StackPanel>
+
+                    <!-- 分隔线（弱化，40% 不透明度） -->
+                    <Border Height="1"
+                            Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                            Opacity="0.4"
+                            Margin="0,4,0,0"/>
+
+                    <!-- 免责声明子区块 -->
+                    <StackPanel Spacing="8">
+                        <TextBlock x:Uid="AboutPage_DisclaimerTitle"
+                                   FontSize="16" FontWeight="SemiBold"
+                                   FontFamily="Microsoft YaHei UI"/>
+                        <TextBlock x:Uid="AboutPage_DisclaimerContent"
+                                   Style="{StaticResource ContentTextStyle}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- ========================================================== -->
+            <!--  Footer：版权信息                                           -->
+            <!--  与 SettingsPage 的 Footer 共用同一资源字符串               -->
+            <!-- ========================================================== -->
+            <TextBlock x:Uid="SettingsPage_Footer"
+                       FontSize="12" Opacity="0.3"
+                       HorizontalAlignment="Center"
+                       Margin="0,30,0,20"/>
 
         </StackPanel>
     </ScrollViewer>

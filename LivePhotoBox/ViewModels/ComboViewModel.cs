@@ -262,7 +262,7 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
-                OutputDirectory = Path.Combine(InputDirectory, "Output_LivePhotos");
+                OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_LivePhotos"));
             }
 
             LogService.Combo($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
