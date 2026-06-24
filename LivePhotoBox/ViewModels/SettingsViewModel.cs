@@ -68,13 +68,43 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Backdrop changed to index: {value}", LogSource.Settings);
         }
 
+        /// <summary>Acrylic 着色浓度 (0.0–1.0)，仅在 BackdropIndex 为 2/3 时生效</summary>
+        [ObservableProperty]
+        private double _acrylicTintOpacity = 0.5;
+
+        partial void OnAcrylicTintOpacityChanged(double value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(AcrylicTintOpacity), value);
+            OnPropertyChanged(nameof(AcrylicTintOpacityText));
+            LogService.Info($"Acrylic tint opacity: {value:F2}", LogSource.Settings);
+        }
+
+        /// <summary>窗口整体透明度 (0.1–1.0)，1.0 = 完全不透明</summary>
+        [ObservableProperty]
+        private double _windowOpacity = 1.0;
+
+        partial void OnWindowOpacityChanged(double value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(WindowOpacity), value);
+            OnPropertyChanged(nameof(WindowOpacityText));
+            LogService.Info($"Window opacity: {value:F2}", LogSource.Settings);
+        }
+
+        /// <summary>窗口透明度的步长（0.05）— 供 Slider 使用</summary>
+        public double OpacityStepFrequency => 0.05;
+
+        public string AcrylicTintOpacityText => $"{AcrylicTintOpacity * 100:F1}%";
+        public string WindowOpacityText => $"{WindowOpacity * 100:F2}%";
+
         #region Banner Settings
 
         public List<BannerPreset> BannerPresets { get; } = new()
         {
-            new BannerPreset { Name = "预设 1 — 默认风景", Key = "default", AssetPath = "ms-appx:///Assets/Banners/banner_01.jpg" },
-            new BannerPreset { Name = "预设 2 — 海岸风光", Key = "scenic",   AssetPath = "ms-appx:///Assets/Banners/banner_02.jpg" },
-            new BannerPreset { Name = "预设 3 — 动漫画风", Key = "anime",    AssetPath = "ms-appx:///Assets/Banners/banner_03.jpg" },
+            new BannerPreset { Name = "BannerPreset_Name_default", Key = "default", AssetPath = "ms-appx:///Assets/Banners/banner_01.jpg" },
+            new BannerPreset { Name = "BannerPreset_Name_scenic", Key = "scenic",   AssetPath = "ms-appx:///Assets/Banners/banner_02.jpg" },
+            new BannerPreset { Name = "BannerPreset_Name_anime", Key = "anime",    AssetPath = "ms-appx:///Assets/Banners/banner_03.jpg" },
         };
 
         /// <summary>预加载的 Banner BitmapImage，切换时只改引用不重新解码</summary>
@@ -116,8 +146,8 @@ namespace LivePhotoBox.ViewModels
             get
             {
                 if (BannerPresetIndex >= 0 && BannerPresetIndex < BannerPresets.Count)
-                    return BannerPresets[BannerPresetIndex].Name;
-                return BannerPresets.Count > 0 ? BannerPresets[0].Name : "";
+                    return ResourceService.GetString(BannerPresets[BannerPresetIndex].Name);
+                return BannerPresets.Count > 0 ? ResourceService.GetString(BannerPresets[0].Name) : "";
             }
         }
 
@@ -171,7 +201,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         [ObservableProperty]
-        private int _comboThreadCount = 4;
+        private int _comboThreadCount = 5;
 
         partial void OnComboThreadCountChanged(int value)
         {
@@ -181,7 +211,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         /// <summary>合成并行数最大值</summary>
-        public int MaxComboThreadCount => 8;
+        public int MaxComboThreadCount => 10;
 
         [RelayCommand]
         private void IncreaseComboThreadCount()
@@ -237,7 +267,7 @@ namespace LivePhotoBox.ViewModels
         // SaveEncoderForBothCodecs → EncoderHelper.SaveEncoderForBothCodecs
 
         [ObservableProperty]
-        private int _threadCount = 5;
+        private int _threadCount = 8;
 
         partial void OnThreadCountChanged(int value)
         {
@@ -247,7 +277,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         [ObservableProperty]
-        private int _maxThreadCount = 16;
+        private int _maxThreadCount = 20;
 
         #endregion
 
@@ -357,13 +387,15 @@ namespace LivePhotoBox.ViewModels
             LanguageIndex = AppSettingsService.GetValue(nameof(LanguageIndex), 0);
             ElementTheme = AppSettingsService.GetValue(nameof(ElementTheme), 0);
             BackdropIndex = AppSettingsService.GetValue(nameof(BackdropIndex), 0);
+            WindowOpacity = AppSettingsService.GetValue(nameof(WindowOpacity), 1.0);
+            AcrylicTintOpacity = AppSettingsService.GetValue(nameof(AcrylicTintOpacity), 0.5);
             BannerPresetIndex = AppSettingsService.GetValue(nameof(BannerPresetIndex), 0);
             IsBannerRandomEnabled = AppSettingsService.GetValue(nameof(IsBannerRandomEnabled), false);
-            ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 5);
-            MaxThreadCount = Math.Min(Environment.ProcessorCount, 16);
+            ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 8);
+            MaxThreadCount = Math.Min(Environment.ProcessorCount, 20);
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             IsGoogleProtocolForceMp4 = AppSettingsService.GetValue(nameof(IsGoogleProtocolForceMp4), false);
-            ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 4);
+            ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 5);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
             IsRepairScanLoadThumbnail = AppSettingsService.GetValue(nameof(IsRepairScanLoadThumbnail), false);

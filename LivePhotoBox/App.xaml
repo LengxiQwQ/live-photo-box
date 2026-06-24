@@ -13,6 +13,8 @@
             <converters:ProgressBarForegroundConverter x:Key="ProgressBarForegroundConverter"/>
             <converters:ProgressBarIndeterminateConverter x:Key="ProgressBarIndeterminateConverter"/>
             <converters:BoolToDiagnosisErrorBrushConverter x:Key="BoolToDiagnosisErrorBrushConverter"/>
+            <converters:BackdropToAcrylicVisibilityConverter x:Key="BackdropToAcrylicVisibilityConverter"/>
+            <converters:DoubleToPercentConverter x:Key="DoubleToPercentConverter"/>
 
             <SolidColorBrush x:Key="CyberCyanBrush" Color="#00E5FF"/>
             <SolidColorBrush x:Key="CyberPurpleBrush" Color="#B388FF"/>

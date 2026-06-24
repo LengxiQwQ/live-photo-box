@@ -181,8 +181,23 @@ Do you want to restart now?</value>
   <data name="SettingsPage_Backdrop_Desc.Text" xml:space="preserve">
     <value>Choose Windows 11 immersive background</value>
   </data>
+  <data name="SettingsPage_AcrylicOpacity_Header.Text" xml:space="preserve">
+    <value>Acrylic Tint Opacity</value>
+  </data>
+  <data name="SettingsPage_AcrylicOpacity_Desc.Text" xml:space="preserve">
+    <value>Adjust the frosted glass tint opacity</value>
+  </data>
+  <data name="SettingsPage_WindowOpacity_Header.Text" xml:space="preserve">
+    <value>Window Opacity</value>
+  </data>
+  <data name="SettingsPage_WindowOpacity_Desc.Text" xml:space="preserve">
+    <value>Adjust overall application window transparency</value>
+  </data>
   <data name="SettingsPage_Banner_Header.Text" xml:space="preserve">
     <value>Home Background</value>
+  </data>
+  <data name="SettingsPage_Backdrop_AcrylicLight.Content" xml:space="preserve">
+    <value>Acrylic Thin</value>
   </data>
   <data name="SettingsPage_Backdrop_None.Content" xml:space="preserve">
     <value>None</value>
@@ -1663,6 +1678,27 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="SettingsPage_SwitchToClassic_Confirm_Title" xml:space="preserve">
     <value>Switch to Legacy Settings UI</value>
+  </data>
+  <data name="SettingsPage_Banner_Desc.Text" xml:space="preserve">
+    <value>Customize the homepage banner background image</value>
+  </data>
+  <data name="SettingsPage_Banner_CurrentLabel.Text" xml:space="preserve">
+    <value>Current</value>
+  </data>
+  <data name="SettingsPage_BannerRandom_Header.Text" xml:space="preserve">
+    <value>Randomize on Startup</value>
+  </data>
+  <data name="SettingsPage_BannerRandom_Desc.Text" xml:space="preserve">
+    <value>Automatically select a random home background image each time you open the app</value>
+  </data>
+  <data name="BannerPreset_Name_default" xml:space="preserve">
+    <value>Preset 1</value>
+  </data>
+  <data name="BannerPreset_Name_scenic" xml:space="preserve">
+    <value>Preset 2</value>
+  </data>
+  <data name="BannerPreset_Name_anime" xml:space="preserve">
+    <value>Preset 3</value>
   </data>
   <data name="SettingsPage_SwitchToClassic_Confirm_Message" xml:space="preserve">
     <value>⚠️ The legacy settings UI may have missing features or display anomalies. The modern UI is recommended. 
