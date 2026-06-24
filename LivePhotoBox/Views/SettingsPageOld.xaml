@@ -620,6 +620,51 @@
 
                                 <!-- 更严格的实况照片扫描开关 -->
 
+                                <!-- 分隔线 -->
+                                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                                <!-- HEIC 预览并发数 -->
+                                <Grid ColumnSpacing="12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                        <TextBlock x:Uid="SettingsPage_HeicConcurrencyLabel" FontSize="13" FontWeight="SemiBold"/>
+                                        <TextBlock x:Uid="SettingsPage_HeicConcurrencyDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <Slider Minimum="1"
+                                                Maximum="{x:Bind ViewModel.MaxHeicConcurrency, Mode=OneWay}"
+                                                Value="{x:Bind ViewModel.HeicConcurrency, Mode=TwoWay}"
+                                                StepFrequency="1"
+                                                Width="160"
+                                                VerticalAlignment="Center">
+                                            <Slider.Resources>
+                                                <SolidColorBrush x:Key="SliderTrackValueFill" Color="#D32F2F"/>
+                                                <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#EF5350"/>
+                                                <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#C62828"/>
+                                                <SolidColorBrush x:Key="SliderThumbBackground" Color="#D32F2F"/>
+                                                <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#EF5350"/>
+                                                <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#C62828"/>
+                                            </Slider.Resources>
+                                        </Slider>
+                                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                BorderThickness="1" CornerRadius="4"
+                                                MinWidth="30" Height="30"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind ViewModel.HeicConcurrency, Mode=OneWay}"
+                                                       TextAlignment="Center"
+                                                       FontSize="13"
+                                                       FontWeight="SemiBold"
+                                                       VerticalAlignment="Center"
+                                                       HorizontalAlignment="Center"
+                                                       Margin="6,0"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+
                             </StackPanel>
                         </Border>
                     </StackPanel>

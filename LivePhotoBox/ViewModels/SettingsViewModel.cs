@@ -290,6 +290,18 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private int _maxThreadCount = 20;
 
+        [ObservableProperty]
+        private int _heicConcurrency = 8;
+
+        partial void OnHeicConcurrencyChanged(int value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue("HeicConcurrency", value);
+            LogService.Info($"HEIC concurrency changed to: {value}", LogSource.Settings);
+        }
+
+        public int MaxHeicConcurrency => 64;
+
         #endregion
 
         #region Repair Settings
@@ -404,6 +416,8 @@ namespace LivePhotoBox.ViewModels
             IsBannerRandomEnabled = AppSettingsService.GetValue(nameof(IsBannerRandomEnabled), false);
             ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 8);
             MaxThreadCount = Math.Min(Environment.ProcessorCount, 20);
+            HeicConcurrency = AppSettingsService.GetValue("HeicConcurrency",
+                EncoderHelper.IsUsingHardwareAcceleration() ? 8 : 1);
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             IsGoogleProtocolForceMp4 = AppSettingsService.GetValue(nameof(IsGoogleProtocolForceMp4), false);
             ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 5);

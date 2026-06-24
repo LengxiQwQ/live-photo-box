@@ -116,6 +116,9 @@
 	</ItemGroup>
 
 	<ItemGroup>
+		<Page Update="Controls\LightboxPreview.xaml">
+			<Generator>MSBuild:Compile</Generator>
+		</Page>
 		<Page Update="Controls\PageStatusBar.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
