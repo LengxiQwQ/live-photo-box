@@ -95,8 +95,8 @@ namespace LivePhotoBox.ViewModels
         /// <summary>窗口透明度的步长（0.05）— 供 Slider 使用</summary>
         public double OpacityStepFrequency => 0.05;
 
-        public string AcrylicTintOpacityText => $"{AcrylicTintOpacity * 100:F1}%";
-        public string WindowOpacityText => $"{WindowOpacity * 100:F2}%";
+        public string AcrylicTintOpacityText => $"{AcrylicTintOpacity * 100:F0}%";
+        public string WindowOpacityText => $"{WindowOpacity * 100:F0}%";
 
         #region Banner Settings
 
