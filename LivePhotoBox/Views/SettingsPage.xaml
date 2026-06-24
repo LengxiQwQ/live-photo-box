@@ -679,6 +679,50 @@
                             </ToggleSwitch>
                         </controls:SettingsCard>
 
+                        <!-- HEIC 预览并发数 -->
+                        <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                            <controls:SettingsCard.Header>
+                                <TextBlock x:Uid="SettingsPage_HeicConcurrencyLabel" FontFamily="Microsoft YaHei UI"/>
+                            </controls:SettingsCard.Header>
+                            <controls:SettingsCard.Description>
+                                <TextBlock x:Uid="SettingsPage_HeicConcurrencyDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </controls:SettingsCard.Description>
+                            <controls:SettingsCard.HeaderIcon>
+                                <FontIcon Glyph="&#xE8B7;" FontSize="16"/>
+                            </controls:SettingsCard.HeaderIcon>
+                            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                <Slider Minimum="1"
+                                        Maximum="{x:Bind ViewModel.MaxHeicConcurrency, Mode=OneWay}"
+                                        Value="{x:Bind ViewModel.HeicConcurrency, Mode=TwoWay}"
+                                        StepFrequency="1"
+                                        Width="220"
+                                        VerticalAlignment="Center">
+                                    <Slider.Resources>
+                                        <SolidColorBrush x:Key="SliderTrackValueFill" Color="#D32F2F"/>
+                                        <SolidColorBrush x:Key="SliderTrackValueFillPointerOver" Color="#EF5350"/>
+                                        <SolidColorBrush x:Key="SliderTrackValueFillPressed" Color="#C62828"/>
+                                        <SolidColorBrush x:Key="SliderThumbBackground" Color="#D32F2F"/>
+                                        <SolidColorBrush x:Key="SliderThumbBackgroundPointerOver" Color="#EF5350"/>
+                                        <SolidColorBrush x:Key="SliderThumbBackgroundPressed" Color="#C62828"/>
+                                    </Slider.Resources>
+                                </Slider>
+                                <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1" CornerRadius="4"
+                                        MinWidth="36" Height="36"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ViewModel.HeicConcurrency, Mode=OneWay}"
+                                               TextAlignment="Center"
+                                               FontSize="15"
+                                               FontWeight="SemiBold"
+                                               VerticalAlignment="Center"
+                                               HorizontalAlignment="Center"
+                                               Margin="8,0"/>
+                                </Border>
+                            </StackPanel>
+                        </controls:SettingsCard>
+
                     </StackPanel>
                 </StackPanel>
 

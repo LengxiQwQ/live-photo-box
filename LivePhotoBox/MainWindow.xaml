@@ -69,6 +69,9 @@
                 <controls:PageStatusBar x:Name="PageStatusBar"
                                         Visibility="Collapsed"
                                         VerticalAlignment="Bottom" />
+
+                <!-- 全屏灯箱：覆盖内容区 + 状态栏，不挡左侧菜单和标题栏 -->
+                <controls:LightboxPreview x:Name="LightboxPreview"/>
             </Grid>
         </NavigationView>
     </Grid>

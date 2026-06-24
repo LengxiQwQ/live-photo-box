@@ -469,6 +469,7 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
+        /// 
         /// 根据用户设置中的硬件编码器获取 FFmpeg 硬件加速解码标志。
         /// 抽帧是解码操作，用对应的 hwaccel 可大幅提升 HEVC/高码率视频速度。
         /// </summary>

@@ -178,7 +178,7 @@
     <value>窗口材质</value>
   </data>
   <data name="SettingsPage_Backdrop_Desc.Text" xml:space="preserve">
-    <value>选择 Windows 11 沉浸式背景（在 Aritic Thin 材质下，深色模式体验最佳）</value>
+    <value>选择 Windows 11 沉浸式背景（Aritic Thin 材质更加沉浸）</value>
   </data>
   <data name="SettingsPage_AcrylicOpacity_Header.Text" xml:space="preserve">
     <value>Acrylic 材质浓度</value>
@@ -1557,6 +1557,12 @@
   </data>
   <data name="SettingsPage_ScanThumbnailToggle.OffContent" xml:space="preserve">
     <value>关</value>
+  </data>
+  <data name="SettingsPage_HeicConcurrencyLabel.Text" xml:space="preserve">
+    <value>缩略图预览并发数</value>
+  </data>
+  <data name="SettingsPage_HeicConcurrencyDesc.Text" xml:space="preserve">
+    <value>控制灯箱预览时同时解码 HEIC 缩略图的最大数量。设为 1 逐张解码，设为较高值利用 GPU 并行解码以加速浏览</value>
   </data>
   <data name="RepairPage_GroupHeaderPairs" xml:space="preserve">
     <value>实况照片组合</value>

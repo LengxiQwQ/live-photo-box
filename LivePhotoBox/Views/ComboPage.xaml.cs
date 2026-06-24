@@ -6,9 +6,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 
 namespace LivePhotoBox.Views
 {
@@ -16,12 +14,6 @@ namespace LivePhotoBox.Views
     {
         private readonly TaskListAutoScroller _scroller;
         private bool _eventsHooked;
-        private KeyEventHandler? _pageKeyDownHandler;
-
-        // ── 全屏图片预览 ──
-        private static readonly ImagePreviewService _previewService = new(maxCacheSize: 20, decodePixelWidth: 1920, preloadCount: 2);
-        private List<string> _previewPaths = [];
-        private int _previewCurrentIndex = -1;
 
         public ComboViewModel ViewModel => AppViewModel.Instance.Combo;
 
@@ -49,9 +41,6 @@ namespace LivePhotoBox.Views
         {
             _scroller.Attach(ComboTaskListView);
 
-            _pageKeyDownHandler = new KeyEventHandler(OnPageKeyDown);
-            AddHandler(UIElement.KeyDownEvent, _pageKeyDownHandler, true);
-
             if (_eventsHooked) return;
 
             ViewModel.TaskStartedForScroll += OnTaskStarted;
@@ -64,12 +53,6 @@ namespace LivePhotoBox.Views
         {
             _scroller.NotifyPageUnloading();
             _scroller.Detach();
-
-            if (_pageKeyDownHandler != null)
-            {
-                RemoveHandler(UIElement.KeyDownEvent, _pageKeyDownHandler);
-                _pageKeyDownHandler = null;
-            }
 
             if (!_eventsHooked) return;
 
@@ -139,68 +122,15 @@ namespace LivePhotoBox.Views
 
         private void ComboTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args) { }
 
-        // ── 全屏图片预览 ──────────────────────────────────
+        // ── 全屏预览 ──────────────────────────────────
 
-        private async void ThumbnailButton_Click(object sender, RoutedEventArgs e)
+        private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            _previewPaths = ViewModel.Tasks.Select(t => t.ImagePath).ToList();
-            int idx = _previewPaths.IndexOf(path);
+            var paths = ViewModel.Tasks.Select(t => t.ImagePath).ToList();
+            int idx = paths.IndexOf(path);
             if (idx < 0) return;
-            OpenPreview(idx);
-        }
-
-        private async void OpenPreview(int index)
-        {
-            _previewCurrentIndex = index;
-            LightboxImage.Source = await _previewService.LoadAsync(_previewPaths[index]);
-            _previewService.PreloadNeighbors(_previewPaths, index);
-            LightboxCounter.Text = $"{index + 1} / {_previewPaths.Count}";
-            LightboxOverlay.Visibility = Visibility.Visible;
-            LightboxCloseButton.Focus(FocusState.Programmatic);
-        }
-
-        private async void Navigate(int direction)
-        {
-            int newIdx = _previewCurrentIndex + direction;
-            if (newIdx < 0 || newIdx >= _previewPaths.Count) return;
-            _previewCurrentIndex = newIdx;
-            LightboxImage.Source = await _previewService.LoadAsync(_previewPaths[newIdx]);
-            _previewService.PreloadNeighbors(_previewPaths, newIdx);
-            LightboxCounter.Text = $"{newIdx + 1} / {_previewPaths.Count}";
-        }
-
-        private void ClosePreview()
-        {
-            LightboxOverlay.Visibility = Visibility.Collapsed;
-            LightboxImage.Source = null;
-            _previewCurrentIndex = -1;
-        }
-
-        private void LightboxBackdrop_Tapped(object sender, TappedRoutedEventArgs e) => ClosePreview();
-        private void LightboxCloseButton_Click(object sender, RoutedEventArgs e) => ClosePreview();
-
-        private void LightboxOverlay_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
-        {
-            var delta = e.GetCurrentPoint(null).Properties.MouseWheelDelta;
-            Navigate(delta < 0 ? 1 : -1);
-            e.Handled = true;
-        }
-
-        private void OnPageKeyDown(object sender, KeyRoutedEventArgs e)
-        {
-            if (LightboxOverlay.Visibility != Visibility.Visible) return;
-            switch (e.Key)
-            {
-                case Windows.System.VirtualKey.Left:
-                case Windows.System.VirtualKey.GamepadDPadLeft:
-                    Navigate(-1); e.Handled = true; break;
-                case Windows.System.VirtualKey.Right:
-                case Windows.System.VirtualKey.GamepadDPadRight:
-                    Navigate(1); e.Handled = true; break;
-                case Windows.System.VirtualKey.Escape:
-                    ClosePreview(); e.Handled = true; break;
-            }
+            _ = ((MainWindow)App.MainWindow!).Lightbox.ShowAsync(paths, idx);
         }
 
         // ── 错误详情提示 ──────────────────────────────────

@@ -48,6 +48,7 @@ namespace LivePhotoBox
         private CancellationTokenSource? _acrylicDebounceCts;
 
         public AppViewModel ViewModel => AppViewModel.Instance;
+        public Controls.LightboxPreview Lightbox => LightboxPreview;
 
         public MainWindow()
         {
