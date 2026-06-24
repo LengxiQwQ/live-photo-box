@@ -250,9 +250,14 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            if (string.IsNullOrWhiteSpace(InputDirectory) || !Directory.Exists(InputDirectory))
+            if (string.IsNullOrWhiteSpace(InputDirectory))
             {
                 await ShowNoInputDirectoryDialogAsync("Combo");
+                return;
+            }
+            if (!Directory.Exists(InputDirectory))
+            {
+                await ShowInvalidInputDirectoryDialogAsync();
                 return;
             }
 
