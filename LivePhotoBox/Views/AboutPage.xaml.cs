@@ -1,3 +1,14 @@
+/*
+ * AboutPage.xaml.cs
+ *
+ * 关于页面的代码后置。
+ * 负责对外链接的点击跳转和版本号的展示。
+ *
+ * 生命周期：
+ *   - 构造函数中初始化版本号（通过 GetAppVersion()）
+ *   - 各链接按钮统一通过 FilePickerService / Launcher 打开 Uri
+ */
+
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI.Xaml;

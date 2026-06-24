@@ -89,18 +89,21 @@
 
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
-                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#FFFFFFFF" Opacity="0.9"/>
-                    <SolidColorBrush x:Key="PageStatusBarBackgroundBrush" Color="#FFF7F7F7" Opacity="0.98"/>
+                    <!-- Card 背景改为与 SettingsCard 同款的系统画笔，统一材质感 -->
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
+                    <SolidColorBrush x:Key="PageStatusBarBackgroundBrush" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
                     <SolidColorBrush x:Key="ButtonHoverBrush" Color="#E5E5E5"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Dark">
-                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="#FF1E1E1E" Opacity="0.95"/>
-                    <SolidColorBrush x:Key="PageStatusBarBackgroundBrush" Color="#FF1E1E1E" Opacity="0.98"/>
+                    <!-- Card 背景改为与 SettingsCard 同款的系统画笔，统一材质感 -->
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
+                    <SolidColorBrush x:Key="PageStatusBarBackgroundBrush" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
                     <SolidColorBrush x:Key="ButtonHoverBrush" Color="#3D3D3D"/>
                 </ResourceDictionary>
                 <ResourceDictionary x:Key="Default">
-                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="{ThemeResource LayerOnAcrylicFillColorDefault}" Opacity="0.8"/>
-                    <SolidColorBrush x:Key="PageStatusBarBackgroundBrush" Color="{ThemeResource SolidBackgroundFillColorBase}" Opacity="0.98"/>
+                    <!-- Card 背景改为与 SettingsCard 同款的系统画笔，统一材质感 -->
+                    <SolidColorBrush x:Key="CardBackgroundBrush" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
+                    <SolidColorBrush x:Key="PageStatusBarBackgroundBrush" Color="{ThemeResource CardBackgroundFillColorDefault}"/>
                     <SolidColorBrush x:Key="ButtonHoverBrush" Color="#E5E5E5"/>
                 </ResourceDictionary>
             </ResourceDictionary.ThemeDictionaries>

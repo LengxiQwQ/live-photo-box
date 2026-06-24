@@ -74,7 +74,7 @@ namespace LivePhotoBox.ViewModels
                 LogService.Repair($"Output to separate directory enabled");
                 if (string.IsNullOrWhiteSpace(OutputDirectory) && !string.IsNullOrWhiteSpace(InputDirectory) && Directory.Exists(InputDirectory))
                 {
-                    OutputDirectory = Path.Combine(InputDirectory, "Output_RepairedPhotos");
+                    OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_RepairedPhotos"));
                     LogService.Repair($"Output directory auto-set to: {OutputDirectory}");
                 }
             }
@@ -620,7 +620,7 @@ namespace LivePhotoBox.ViewModels
 
             if (IsOutputToDirectory && string.IsNullOrWhiteSpace(OutputDirectory))
             {
-                OutputDirectory = Path.Combine(InputDirectory, "Output_RepairedPhotos");
+                OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_RepairedPhotos"));
             }
 
             var token = GetScanningToken();
@@ -1093,7 +1093,7 @@ namespace LivePhotoBox.ViewModels
             if (IsOutputToDirectory)
             {
                 if (string.IsNullOrWhiteSpace(OutputDirectory))
-                    OutputDirectory = Path.Combine(InputDirectory, "Output_RepairedPhotos");
+                    OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_RepairedPhotos"));
                 if (!Directory.Exists(OutputDirectory))
                     Directory.CreateDirectory(OutputDirectory);
             }

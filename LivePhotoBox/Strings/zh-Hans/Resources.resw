@@ -178,7 +178,7 @@
     <value>窗口材质</value>
   </data>
   <data name="SettingsPage_Backdrop_Desc.Text" xml:space="preserve">
-    <value>选择 Windows 11 沉浸式背景</value>
+    <value>选择 Windows 11 沉浸式背景（在 Aritic Thin 材质下，深色模式体验最佳）</value>
   </data>
   <data name="SettingsPage_AcrylicOpacity_Header.Text" xml:space="preserve">
     <value>Acrylic 材质浓度</value>
@@ -1703,5 +1703,33 @@
     <value>⚠️ 旧版设置界面可能存在功能缺失或 UI 异常，建议使用新版界面。
 
 确定要切换吗？</value>
+  </data>
+  <data name="OutputDir_SplitPhotos" xml:space="preserve">
+    <value>输出_拆分照片</value>
+    <comment>拆分页默认输出文件夹名</comment>
+  </data>
+  <data name="OutputDir_LivePhotos" xml:space="preserve">
+    <value>输出_实况照片</value>
+    <comment>合成页默认输出文件夹名</comment>
+  </data>
+  <data name="OutputDir_RepairedPhotos" xml:space="preserve">
+    <value>输出_修复照片</value>
+    <comment>修复页默认输出文件夹名</comment>
+  </data>
+  <data name="HomePage_DemoTempRoot" xml:space="preserve">
+    <value>LivePhotoBox_示例</value>
+    <comment>示例文件临时目录名</comment>
+  </data>
+  <data name="HomePage_DemoSubFolder_Merge" xml:space="preserve">
+    <value>合成示例</value>
+    <comment>合成页示例子文件夹名</comment>
+  </data>
+  <data name="HomePage_DemoSubFolder_Split" xml:space="preserve">
+    <value>拆分示例</value>
+    <comment>拆分页示例子文件夹名</comment>
+  </data>
+  <data name="HomePage_DemoSubFolder_Repair" xml:space="preserve">
+    <value>修复示例</value>
+    <comment>修复页示例子文件夹名</comment>
   </data>
 </root>

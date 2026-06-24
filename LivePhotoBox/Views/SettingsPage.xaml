@@ -176,7 +176,7 @@
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </controls:SettingsCard.Description>
                             <controls:SettingsCard.HeaderIcon>
-                                <FontIcon Glyph="&#xE8AE;" FontSize="16"/>
+                                <FontIcon Glyph="&#xE7F8;" FontSize="16"/>
                             </controls:SettingsCard.HeaderIcon>
                             <ToggleSwitch IsOn="{x:Bind ViewModel.IsBannerRandomEnabled, Mode=TwoWay}"
                                           x:Uid="Toggle_OnOff"/>

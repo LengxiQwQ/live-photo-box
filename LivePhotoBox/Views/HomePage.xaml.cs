@@ -222,10 +222,20 @@ namespace LivePhotoBox.Views
         {
             try
             {
+                // subFolder 是内部资源目录名（英文，必须与 Assets/Samples/ 下的物理文件夹名一致）
+                // localizedSubFolder 是用户可见的输出子文件夹名（跟随界面语言）
+                string localizedSubFolder = pageTag switch
+                {
+                    "Combo" => ResourceService.GetString("HomePage_DemoSubFolder_Merge"),
+                    "Split" => ResourceService.GetString("HomePage_DemoSubFolder_Split"),
+                    "Repair" => ResourceService.GetString("HomePage_DemoSubFolder_Repair"),
+                    _ => subFolder
+                };
+
                 string internalSamplePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Samples", subFolder);
                 string tempInputPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "LivePhotoBox_Demo", subFolder);
                 string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
-                string desktopOutputPath = System.IO.Path.Combine(desktopPath, "LivePhotoBox_Output", subFolder);
+                string desktopOutputPath = System.IO.Path.Combine(desktopPath, ResourceService.GetString("HomePage_DemoOutputFolder"), localizedSubFolder);
 
                 if (!System.IO.Directory.Exists(tempInputPath))
                 {

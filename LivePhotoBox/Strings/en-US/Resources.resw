@@ -179,7 +179,7 @@ Do you want to restart now?</value>
     <value>Window Backdrop</value>
   </data>
   <data name="SettingsPage_Backdrop_Desc.Text" xml:space="preserve">
-    <value>Choose Windows 11 immersive background</value>
+    <value>Choose Windows 11 immersive background (Acrylic Thin + Dark mode for best experience)</value>
   </data>
   <data name="SettingsPage_AcrylicOpacity_Header.Text" xml:space="preserve">
     <value>Acrylic Tint Opacity</value>
@@ -1704,5 +1704,33 @@ Place any of these files into the same folder.</value>
     <value>⚠️ The legacy settings UI may have missing features or display anomalies. The modern UI is recommended. 
 
 Are you sure you want to switch?</value>
+  </data>
+  <data name="OutputDir_SplitPhotos" xml:space="preserve">
+    <value>Output_SplitPhotos</value>
+    <comment>Default output folder name for Split page</comment>
+  </data>
+  <data name="OutputDir_LivePhotos" xml:space="preserve">
+    <value>Output_LivePhotos</value>
+    <comment>Default output folder name for Combo/Merge page</comment>
+  </data>
+  <data name="OutputDir_RepairedPhotos" xml:space="preserve">
+    <value>Output_RepairedPhotos</value>
+    <comment>Default output folder name for Repair page</comment>
+  </data>
+  <data name="HomePage_DemoTempRoot" xml:space="preserve">
+    <value>LivePhotoBox_Demo</value>
+    <comment>Temp folder for demo/sample files</comment>
+  </data>
+  <data name="HomePage_DemoSubFolder_Merge" xml:space="preserve">
+    <value>Merge Sample</value>
+    <comment>Demo subfolder name for Merge/Combo page</comment>
+  </data>
+  <data name="HomePage_DemoSubFolder_Split" xml:space="preserve">
+    <value>Split Sample</value>
+    <comment>Demo subfolder name for Split page</comment>
+  </data>
+  <data name="HomePage_DemoSubFolder_Repair" xml:space="preserve">
+    <value>Repair Sample</value>
+    <comment>Demo subfolder name for Repair page</comment>
   </data>
 </root>
