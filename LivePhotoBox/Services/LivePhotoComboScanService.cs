@@ -21,6 +21,10 @@ namespace LivePhotoBox.Services
         public required IReadOnlyList<LivePhotoFilePairInfo> Pairs { get; init; }
         public required int StandaloneImagesCount { get; init; }
         public required int StandaloneVideosCount { get; init; }
+        /// <summary>文件名匹配后未配对的照片路径（供元数据匹配使用）。</summary>
+        public IReadOnlyList<string> StandaloneImagePaths { get; init; } = Array.Empty<string>();
+        /// <summary>文件名匹配后未配对的视频路径（供元数据匹配使用）。</summary>
+        public IReadOnlyList<string> StandaloneVideoPaths { get; init; } = Array.Empty<string>();
     }
 
     public static class LivePhotoComboScanService
@@ -108,6 +112,7 @@ namespace LivePhotoBox.Services
             }
 
             var pairs = new List<LivePhotoFilePairInfo>(Math.Min(imgDict.Count, vidDict.Count));
+            var matchedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var kvp in imgDict)
             {
@@ -123,6 +128,7 @@ namespace LivePhotoBox.Services
                             ImageSizeBytes = new FileInfo(kvp.Value).Length,
                             VideoSizeBytes = new FileInfo(vidPath).Length
                         });
+                        matchedKeys.Add(kvp.Key);
                     }
                     catch (IOException ex)
                     {
@@ -132,8 +138,18 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            int standaloneImagesCount = imgDict.Count - pairs.Count;
-            int standaloneVideosCount = vidDict.Count - pairs.Count;
+            // 收集未匹配的文件路径（供后续元数据匹配使用）
+            var unmatchedImages = imgDict
+                .Where(kvp => !matchedKeys.Contains(kvp.Key))
+                .Select(kvp => kvp.Value)
+                .ToList();
+            var unmatchedVideos = vidDict
+                .Where(kvp => !matchedKeys.Contains(kvp.Key))
+                .Select(kvp => kvp.Value)
+                .ToList();
+
+            int standaloneImagesCount = unmatchedImages.Count;
+            int standaloneVideosCount = unmatchedVideos.Count;
 
             LogService.Scan($"Scan completed. Found {pairs.Count} pairs, {standaloneImagesCount} standalone images, {standaloneVideosCount} standalone videos");
 
@@ -141,7 +157,9 @@ namespace LivePhotoBox.Services
             {
                 Pairs = pairs,
                 StandaloneImagesCount = standaloneImagesCount,
-                StandaloneVideosCount = standaloneVideosCount
+                StandaloneVideosCount = standaloneVideosCount,
+                StandaloneImagePaths = unmatchedImages,
+                StandaloneVideoPaths = unmatchedVideos
             };
         }
 

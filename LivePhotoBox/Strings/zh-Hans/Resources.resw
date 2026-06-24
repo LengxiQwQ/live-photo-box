@@ -1374,7 +1374,7 @@
     <value>BitmapDecoder（Windows 系统内置）</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
-    <value>Magick.NET 为自包含方案；BitmapDecoder 依赖系统 HEIC/HEIF 扩展（Win11 已内置，Win10 需安装以下两个扩展）</value>
+    <value>Magick.NET 方案软件已自带；BitmapDecoder 方案更快，但依赖系统的 HEIC/HEIF 扩展（Win11 已内置，Win10 需安装以下两个扩展）</value>
   </data>
   <data name="SettingsPage_Combo_HeicDecoder_HeifLink.Content" xml:space="preserve">
     <value>安装 HEIF 图像扩展 →</value>
@@ -1547,7 +1547,7 @@
     <value>替换原文件</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggleLabel.Text" xml:space="preserve">
-    <value>在修复页扫描时同步加载缩略图</value>
+    <value>在修复页扫描时同步加载视频缩略图</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggleDesc.Text" xml:space="preserve">
     <value>关闭后扫描时跳过视频缩略图加载（开启后可能导致卡顿）</value>
@@ -1731,5 +1731,23 @@
   <data name="HomePage_DemoSubFolder_Repair" xml:space="preserve">
     <value>修复示例</value>
     <comment>修复页示例子文件夹名</comment>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatchingLabel.Text" xml:space="preserve">
+    <value>实况照片配对方式</value>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatchingDesc.Text" xml:space="preserve">
+    <value>默认通过文件名称和 ContentIdentifier (UUID) 匹配；元数据配对仅支持未修改的 MOV 视频，MP4 格式不支持。「拍摄日期」为兜底选项，可能匹配出错，谨慎开启</value>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatching_Both.Content" xml:space="preserve">
+    <value>文件名 + 元数据</value>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatching_Filename.Content" xml:space="preserve">
+    <value>仅文件名</value>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatching_Metadata.Content" xml:space="preserve">
+    <value>仅元数据</value>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatching_BothWithDate.Content" xml:space="preserve">
+    <value>文件名 + 元数据 + 拍摄日期</value>
   </data>
 </root>

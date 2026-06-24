@@ -225,6 +225,17 @@ namespace LivePhotoBox.ViewModels
             if (ComboThreadCount > 1) ComboThreadCount--;
         }
 
+        /// <summary>实况照片配对方式：文件名+元数据 / 仅文件名 / 仅元数据</summary>
+        [ObservableProperty]
+        private int _metadataMatchingModeIndex;
+
+        partial void OnMetadataMatchingModeIndexChanged(int value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(MetadataMatchingModeIndex), value);
+            LogService.Info($"Metadata matching mode changed to index: {value}", LogSource.Settings);
+        }
+
         #endregion
 
         #region Split Settings
@@ -396,6 +407,7 @@ namespace LivePhotoBox.ViewModels
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             IsGoogleProtocolForceMp4 = AppSettingsService.GetValue(nameof(IsGoogleProtocolForceMp4), false);
             ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 5);
+            MetadataMatchingModeIndex = AppSettingsService.GetValue(nameof(MetadataMatchingModeIndex), 0);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
             IsRepairScanLoadThumbnail = AppSettingsService.GetValue(nameof(IsRepairScanLoadThumbnail), false);

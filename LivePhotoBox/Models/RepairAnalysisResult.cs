@@ -31,5 +31,11 @@ namespace LivePhotoBox.Models
         public string ContentIdentifier { get; set; } = string.Empty;
         /// <summary>True if this file has a ContentIdentifier (strong indicator of Live Photo).</summary>
         public bool HasContentIdentifier => !string.IsNullOrWhiteSpace(ContentIdentifier);
+        /// <summary>EXIF DateTimeOriginal — 原始拍摄时间（精确到秒）。照片存本地时间，视频存 UTC。</summary>
+        public string DateTimeOriginal { get; set; } = string.Empty;
+        /// <summary>QuickTime / EXIF CreateDate — 创建时间。兜底字段，当 DateTimeOriginal 为空时使用。</summary>
+        public string CreateDate { get; set; } = string.Empty;
+        /// <summary>EXIF OffsetTimeOriginal — 拍摄时间的 UTC 偏移量（如 "+08:00"）。用于照片日期转 UTC。</summary>
+        public string OffsetTimeOriginal { get; set; } = string.Empty;
     }
 }

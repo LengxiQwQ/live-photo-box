@@ -3,6 +3,19 @@ using System.Text.RegularExpressions;
 
 namespace LivePhotoBox.Models
 {
+    /// <summary>实况照片配对方式。</summary>
+    public enum MetadataMatchingMode
+    {
+        /// <summary>先文件名匹配，剩余用 ContentIdentifier 匹配（默认，不含拍摄日期）。</summary>
+        Both = 0,
+        /// <summary>先文件名匹配，再用 ContentIdentifier + 拍摄日期兜底。</summary>
+        BothWithDate = 1,
+        /// <summary>仅按文件名匹配（和现有行为一致）。</summary>
+        FilenameOnly = 2,
+        /// <summary>仅按 ContentIdentifier 匹配，忽略文件名（不含拍摄日期）。</summary>
+        MetadataOnly = 3
+    }
+
     /// <summary>Shared constants for Live Photo detection / splitting.</summary>
     public static class LivePhotoConstants
     {
