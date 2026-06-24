@@ -166,8 +166,23 @@
                     </controls:SettingsExpander.HeaderIcon>
 
                     <controls:SettingsExpander.Items>
+                        <!-- 随机切换开关 -->
+                        <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                            <controls:SettingsCard.Header>
+                                <TextBlock x:Uid="SettingsPage_BannerRandom_Header" FontFamily="Microsoft YaHei UI"/>
+                            </controls:SettingsCard.Header>
+                            <controls:SettingsCard.Description>
+                                <TextBlock x:Uid="SettingsPage_BannerRandom_Desc" FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </controls:SettingsCard.Description>
+                            <controls:SettingsCard.HeaderIcon>
+                                <FontIcon Glyph="&#xE8AE;" FontSize="16"/>
+                            </controls:SettingsCard.HeaderIcon>
+                            <ToggleSwitch IsOn="{x:Bind ViewModel.IsBannerRandomEnabled, Mode=TwoWay}"
+                                          x:Uid="Toggle_OnOff"/>
+                        </controls:SettingsCard>
+
                         <!-- 折叠内容：左预览图 + 右当前预设名称 -->
-                        <!-- ContentAlignment="Vertical" → 内容独占全宽，不走默认的左右分栏 -->
                         <controls:SettingsCard ContentAlignment="Vertical"
                                                HorizontalContentAlignment="Stretch">
                             <controls:SettingsCard.Resources>
@@ -223,22 +238,6 @@
                                                Margin="0,2,0,0"/>
                                 </StackPanel>
                             </Grid>
-                        </controls:SettingsCard>
-
-                        <!-- 随机切换开关 -->
-                        <controls:SettingsCard FontFamily="Microsoft YaHei UI">
-                            <controls:SettingsCard.Header>
-                                <TextBlock x:Uid="SettingsPage_BannerRandom_Header" FontFamily="Microsoft YaHei UI"/>
-                            </controls:SettingsCard.Header>
-                            <controls:SettingsCard.Description>
-                                <TextBlock x:Uid="SettingsPage_BannerRandom_Desc" FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                            </controls:SettingsCard.Description>
-                            <controls:SettingsCard.HeaderIcon>
-                                <FontIcon Glyph="&#xE8AE;" FontSize="16"/>
-                            </controls:SettingsCard.HeaderIcon>
-                            <ToggleSwitch IsOn="{x:Bind ViewModel.IsBannerRandomEnabled, Mode=TwoWay}"
-                                          x:Uid="Toggle_OnOff"/>
                         </controls:SettingsCard>
                     </controls:SettingsExpander.Items>
                 </controls:SettingsExpander>
