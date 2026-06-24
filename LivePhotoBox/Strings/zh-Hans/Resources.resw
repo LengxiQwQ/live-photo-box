@@ -1652,7 +1652,7 @@
     <value>将重启应用并切换设置页面样式，是否继续？</value>
   </data>
   <data name="SettingsPage_CrashLogPrivacyHint.Text" xml:space="preserve">
-    <value>日志仅记录应用运行状态与错误诊断信息，不包含任何个人照片数据。日志文件超过 15 个自动清理旧记录，无需手动维护。</value>
+    <value>日志仅记录应用运行状态与错误诊断信息，不包含任何个人照片数据。日志文件超过 15 个自动清理旧记录，无需手动维护</value>
   </data>
   <data name="Toggle_OnOff.OnContent" xml:space="preserve">
     <value>开</value>
