@@ -333,6 +333,23 @@
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
+
+                            <!-- 照片与视频配对方式 -->
+                            <StackPanel Spacing="4">
+                                <TextBlock x:Uid="SettingsPage_Combo_MetadataMatchingLabel"
+                                           Style="{ThemeResource BodyStrongTextBlockStyle}"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <ComboBox SelectedIndex="{x:Bind ViewModel.MetadataMatchingModeIndex, Mode=TwoWay}"
+                                          MinWidth="200">
+                                    <ComboBoxItem x:Uid="SettingsPage_Combo_MetadataMatching_Both"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Combo_MetadataMatching_BothWithDate"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Combo_MetadataMatching_Filename"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Combo_MetadataMatching_Metadata"/>
+                                </ComboBox>
+                                <TextBlock x:Uid="SettingsPage_Combo_MetadataMatchingDesc"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </StackPanel>
                         </toolkit:WrapPanel>
                     </Border>
                 </StackPanel>
@@ -378,6 +395,23 @@
                     <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                             Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                         <StackPanel Spacing="12">
+                            <!-- 更严格的实况照片扫描 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="StrictLivePhotoScanLabel_Tapped">
+                                    <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanLabel" FontSize="13" FontWeight="SemiBold"/>
+                                    <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1"
+                                              IsOn="{x:Bind ViewModel.IsStrictLivePhotoScanEnabled, Mode=TwoWay}"
+                                              FontSize="12"
+                                              HorizontalAlignment="Right"
+                                              x:Uid="Toggle_OnOff"/>
+                            </Grid>
+
                             <!-- HEIC 修复开关 -->
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -585,27 +619,6 @@
                                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
 
                                 <!-- 更严格的实况照片扫描开关 -->
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Tapped="StrictLivePhotoScanLabel_Tapped">
-                                        <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanLabel" FontSize="13" FontWeight="SemiBold"/>
-                                        <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanDesc" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                    <ToggleSwitch Grid.Column="1"
-                                                  IsOn="{x:Bind ViewModel.IsStrictLivePhotoScanEnabled, Mode=TwoWay}"
-                                                  FontSize="12"
-                                                  HorizontalAlignment="Right"
-                                                  x:Uid="Toggle_EnabledDisabled">
-                                        <ToggleSwitch.Resources>
-                                            <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#D32F2F"/>
-                                            <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#EF5350"/>
-                                            <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#C62828"/>
-                                        </ToggleSwitch.Resources>
-                                    </ToggleSwitch>
-                                </Grid>
 
                             </StackPanel>
                         </Border>

@@ -1,10 +1,12 @@
 using LivePhotoBox.Models;
 using System;
 using System.Buffers;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -174,6 +176,9 @@ namespace LivePhotoBox.Services
                         File.Delete(videoOutputPath);
                     File.Move(tempVideoPath, videoOutputPath);
                 }
+
+                // 4. 将源文件的关键元数据写回视频输出（供后续元数据匹配使用）
+                await CopyMetadataToVideoAsync(sourcePath, videoOutputPath, token);
 
                 return new LivePhotoSplitResult
                 {
@@ -482,12 +487,23 @@ namespace LivePhotoBox.Services
         }
         
 
+        /// <summary>
+        /// 检测 APP 段是否包含本应用 Combo 页面生成的实况照片元数据。
+        /// 必须同时满足两个条件才判定为"需要剥离"：
+        ///   1. 包含 LivePhotoBox:generated 标记（本应用 Combo 合成时写入的注释）
+        ///   2. 包含 Google / OPPO 实况照片命名空间
+        /// 原始相机拍的照片（如 Pixel 原生 XMP）不含 LivePhotoBox 标记，不会被误删。
+        /// </summary>
         private static bool ContainsLivePhotoMarker(byte[] buffer, int length)
         {
             ReadOnlySpan<byte> data = new ReadOnlySpan<byte>(buffer, 0, length);
             ReadOnlySpan<byte> xmpHeader = "http://ns.adobe.com/xap/1.0/\0"u8;
             if (data.Length < xmpHeader.Length) return false;
             if (!data[..xmpHeader.Length].SequenceEqual(xmpHeader)) return false;
+
+            // 必须是本应用 Combo 页面生成的元数据（而非原始相机 XMP）
+            if (data.IndexOf("<!-- LivePhotoBox:generated -->"u8) < 0)
+                return false;
 
             // Google V1 / V2 / OPPO 三个协议的命名空间声明
             if (data.IndexOf("xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\""u8) >= 0) return true;
@@ -578,6 +594,119 @@ namespace LivePhotoBox.Services
                 if (read <= 0) break;
                 remaining -= read;
             }
+        }
+
+        /// <summary>
+        /// 将源 JPEG 的关键元数据（ContentIdentifier、拍摄日期）写回拆分出的视频文件，
+        /// 确保后续元数据匹配能识别拆分后的视频与照片属于同一实况照片。
+        /// </summary>
+        private static async Task CopyMetadataToVideoAsync(
+            string sourceImagePath, string videoOutputPath, CancellationToken token)
+        {
+            string? exifToolPath = ExternalToolLocator.FindExifTool();
+            if (string.IsNullOrEmpty(exifToolPath) || !File.Exists(exifToolPath))
+                return;
+
+            try
+            {
+                // 1. 从源图片读取元数据
+                string readOutput;
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                psi.ArgumentList.Add("-j");
+                psi.ArgumentList.Add("-ContentIdentifier");
+                psi.ArgumentList.Add("-DateTimeOriginal");
+                psi.ArgumentList.Add("-OffsetTimeOriginal");
+                psi.ArgumentList.Add("-Make");
+                psi.ArgumentList.Add("-Model");
+                psi.ArgumentList.Add("-GPSLatitude");
+                psi.ArgumentList.Add("-GPSLongitude");
+                psi.ArgumentList.Add("-GPSAltitude");
+                psi.ArgumentList.Add("-GPSLatitudeRef");
+                psi.ArgumentList.Add("-GPSLongitudeRef");
+                psi.ArgumentList.Add(sourceImagePath);
+
+                using (var process = Process.Start(psi))
+                {
+                    if (process == null) return;
+                    readOutput = await process.StandardOutput.ReadToEndAsync(token);
+                    await process.WaitForExitAsync(token);
+                }
+
+                if (string.IsNullOrWhiteSpace(readOutput) || !readOutput.TrimStart().StartsWith("["))
+                    return;
+
+                using var doc = System.Text.Json.JsonDocument.Parse(readOutput);
+                var root = doc.RootElement[0];
+
+                string cid = TryGetJsonString(root, "ContentIdentifier");
+                string dto = TryGetJsonString(root, "DateTimeOriginal");
+                string offset = TryGetJsonString(root, "OffsetTimeOriginal");
+                string make = TryGetJsonString(root, "Make");
+                string model = TryGetJsonString(root, "Model");
+                string gpsLat = TryGetJsonString(root, "GPSLatitude");
+                string gpsLon = TryGetJsonString(root, "GPSLongitude");
+                string gpsAlt = TryGetJsonString(root, "GPSAltitude");
+                string gpsLatRef = TryGetJsonString(root, "GPSLatitudeRef");
+                string gpsLonRef = TryGetJsonString(root, "GPSLongitudeRef");
+
+                // 2. 写入视频文件
+                var writeArgs = new List<string>();
+                writeArgs.Add("-overwrite_original");
+
+                if (!string.IsNullOrWhiteSpace(cid))
+                    writeArgs.Add($"-ContentIdentifier={cid}");
+
+                if (!string.IsNullOrWhiteSpace(dto))
+                {
+                    // 拼接时区偏移，确保视频写入的是正确的 UTC 时间
+                    string dateWithOffset = string.IsNullOrWhiteSpace(offset) ? dto : dto + offset;
+                    writeArgs.Add($"-CreateDate={dateWithOffset}");
+                }
+
+                if (!string.IsNullOrWhiteSpace(make))
+                    writeArgs.Add($"-Make={make}");
+
+                if (!string.IsNullOrWhiteSpace(model))
+                    writeArgs.Add($"-Model={model}");
+
+                // GPS：拼接纬度/经度和方向标识
+                if (!string.IsNullOrWhiteSpace(gpsLat))
+                    writeArgs.Add($"-GPSLatitude={gpsLat}");
+                if (!string.IsNullOrWhiteSpace(gpsLatRef))
+                    writeArgs.Add($"-GPSLatitudeRef={gpsLatRef}");
+                if (!string.IsNullOrWhiteSpace(gpsLon))
+                    writeArgs.Add($"-GPSLongitude={gpsLon}");
+                if (!string.IsNullOrWhiteSpace(gpsLonRef))
+                    writeArgs.Add($"-GPSLongitudeRef={gpsLonRef}");
+                if (!string.IsNullOrWhiteSpace(gpsAlt))
+                    writeArgs.Add($"-GPSAltitude={gpsAlt}");
+
+                if (writeArgs.Count > 1) // 有除了 -overwrite_original 之外的参数
+                {
+                    writeArgs.Add(videoOutputPath);
+                    LogService.Split($"Writing metadata to split video: CID={(string.IsNullOrWhiteSpace(cid) ? "none" : cid)}, Date={dto}, Make={make}, GPS={gpsLat},{gpsLon}", LogLevel.Debug);
+                    await LivePhotoRepairService.RunExifToolAsync(token, writeArgs.ToArray());
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Split($"Failed to copy metadata to split video: {ex.Message}", LogLevel.Warning);
+            }
+        }
+
+        private static string TryGetJsonString(JsonElement element, string propertyName)
+        {
+            if (element.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.String)
+                return prop.GetString() ?? "";
+            return "";
         }
 
         private static bool TryGetLong(Match match, out long value)

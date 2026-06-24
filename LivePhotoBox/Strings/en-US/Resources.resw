@@ -1548,7 +1548,7 @@ Place any of these files into the same folder.</value>
     <value>Replace Original</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggleLabel.Text" xml:space="preserve">
-    <value>Load thumbnails during scan</value>
+    <value>Load video thumbnails during scan</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggleDesc.Text" xml:space="preserve">
     <value>When off, video thumbnails are skipped during scanning. (Enabling this may cause lag)</value>
@@ -1732,5 +1732,23 @@ Are you sure you want to switch?</value>
   <data name="HomePage_DemoSubFolder_Repair" xml:space="preserve">
     <value>Repair Sample</value>
     <comment>Demo subfolder name for Repair page</comment>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatchingLabel.Text" xml:space="preserve">
+    <value>Live Photo Matching</value>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatchingDesc.Text" xml:space="preserve">
+    <value>Metadata matching only works with MOV videos, not MP4. Default uses filename and ContentIdentifier (UUID). "Capture Date" is a fallback option — may be inaccurate due to timezone or editing, generally not recommended.</value>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatching_Both.Content" xml:space="preserve">
+    <value>Filename + Metadata</value>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatching_Filename.Content" xml:space="preserve">
+    <value>Filename Only</value>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatching_Metadata.Content" xml:space="preserve">
+    <value>Metadata Only</value>
+  </data>
+  <data name="SettingsPage_Combo_MetadataMatching_BothWithDate.Content" xml:space="preserve">
+    <value>Filename + Metadata + Capture Date</value>
   </data>
 </root>

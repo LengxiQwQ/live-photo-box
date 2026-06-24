@@ -93,7 +93,8 @@ namespace LivePhotoBox.Services
                     // ✅ 快速路径：使用常驻 exiftool 进程，无启动开销
                     // Rotation 用于 HEIC（QuickTime 标签）+ JPEG 兼容
                     // ContentIdentifier 用于实况照片匹配
-                    output = await persistentExifTool.SendCommandAsync(token, "-j", "-Rotation", "-Orientation", "-ThumbnailImage", "-ContentIdentifier", filePath);
+                    // DateTimeOriginal + CreateDate 用于元数据匹配
+                    output = await persistentExifTool.SendCommandAsync(token, "-j", "-Rotation", "-Orientation", "-ThumbnailImage", "-ContentIdentifier", "-DateTimeOriginal", "-CreateDate", "-OffsetTimeOriginal", "-OffsetTimeDigitized", filePath);
                     error = persistentExifTool.FlushStderr();
                 }
                 else
@@ -122,6 +123,10 @@ namespace LivePhotoBox.Services
                     psi.ArgumentList.Add("-Orientation");
                     psi.ArgumentList.Add("-ThumbnailImage");
                     psi.ArgumentList.Add("-ContentIdentifier");
+                    psi.ArgumentList.Add("-DateTimeOriginal");
+                    psi.ArgumentList.Add("-CreateDate");
+                    psi.ArgumentList.Add("-OffsetTimeOriginal");
+                    psi.ArgumentList.Add("-OffsetTimeDigitized");
                     psi.ArgumentList.Add(filePath);
 
                     using var process = Process.Start(psi);
@@ -250,6 +255,11 @@ namespace LivePhotoBox.Services
             string rotation = GetJsonValueAsString(root, "Rotation");
             string orientation = GetJsonValueAsString(root, "Orientation");
             string contentIdentifier = GetJsonValueAsString(root, "ContentIdentifier");
+            string dateTimeOriginal = GetJsonValueAsString(root, "DateTimeOriginal");
+            string createDate = GetJsonValueAsString(root, "CreateDate");
+            string offsetTimeOriginal = GetJsonValueAsString(root, "OffsetTimeOriginal");
+            if (string.IsNullOrWhiteSpace(offsetTimeOriginal))
+                offsetTimeOriginal = GetJsonValueAsString(root, "OffsetTimeDigitized");
             bool hasThumb = root.TryGetProperty("ThumbnailImage", out _);
             bool isHeic = IsHeicFile(filePath);
 
@@ -313,7 +323,10 @@ namespace LivePhotoBox.Services
                     IssueDescription = $"[{ResourceService.GetString("Status_Perfect")}]",
                     RotationAngle = 0,
                     HasThumbnail = false,
-                    ContentIdentifier = contentIdentifier
+                    ContentIdentifier = contentIdentifier,
+                    DateTimeOriginal = dateTimeOriginal,
+                    CreateDate = createDate,
+                    OffsetTimeOriginal = offsetTimeOriginal
                 };
             }
 
@@ -331,7 +344,10 @@ namespace LivePhotoBox.Services
                 RotationAngle = 0,
                 HasThumbnail = hasThumb,
                 HeicOriginalRotation = isHeic ? rotation : string.Empty,
-                ContentIdentifier = contentIdentifier
+                ContentIdentifier = contentIdentifier,
+                DateTimeOriginal = dateTimeOriginal,
+                CreateDate = createDate,
+                OffsetTimeOriginal = offsetTimeOriginal
             };
         }
 
@@ -353,8 +369,8 @@ namespace LivePhotoBox.Services
                 string output;
                 string error = "";
 
-                // Read Rotation, dimensions, codec ID, average bitrate, and ContentIdentifier — all in one exiftool call
-                string[] exifArgs = { "-j", "-Rotation", "-ImageWidth", "-ImageHeight", "-AvgBitrate", "-CompressorID", "-MediaDuration", "-ContentIdentifier", filePath };
+                // Read Rotation, dimensions, codec ID, average bitrate, ContentIdentifier, and capture dates — all in one exiftool call
+                string[] exifArgs = { "-j", "-Rotation", "-ImageWidth", "-ImageHeight", "-AvgBitrate", "-CompressorID", "-MediaDuration", "-ContentIdentifier", "-DateTimeOriginal", "-CreateDate", filePath };
 
                 if (persistentExifTool != null)
                 {
@@ -410,6 +426,8 @@ namespace LivePhotoBox.Services
                 long bitrateBps = ParseAvgBitrate(GetJsonValueAsString(root, "AvgBitrate")) ?? 0;
                 double duration = ParseMediaDuration(GetJsonValueAsString(root, "MediaDuration"));
                 string contentId = GetJsonValueAsString(root, "ContentIdentifier");
+                string dateTimeOriginal = GetJsonValueAsString(root, "DateTimeOriginal");
+                string createDate = GetJsonValueAsString(root, "CreateDate");
 
                 if (angle == 0)
                 {
@@ -422,7 +440,9 @@ namespace LivePhotoBox.Services
                         VideoCodec = compressorId,
                         VideoBitrateBps = bitrateBps,
                         VideoDurationSeconds = duration,
-                        ContentIdentifier = contentId
+                        ContentIdentifier = contentId,
+                        DateTimeOriginal = dateTimeOriginal,
+                        CreateDate = createDate
                     };
                 }
 
@@ -436,7 +456,9 @@ namespace LivePhotoBox.Services
                     VideoCodec = compressorId,
                     VideoBitrateBps = bitrateBps,
                     VideoDurationSeconds = duration,
-                    ContentIdentifier = contentId
+                    ContentIdentifier = contentId,
+                    DateTimeOriginal = dateTimeOriginal,
+                    CreateDate = createDate
                 };
             }
             catch (OperationCanceledException) { throw; }

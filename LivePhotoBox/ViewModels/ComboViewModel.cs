@@ -298,8 +298,73 @@ namespace LivePhotoBox.ViewModels
 
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
 
+                // ── 元数据匹配：根据设置模式决定是否补充 / 替换文件名匹配结果 ──
+                int matchingMode = AppSettingsService.GetValue("MetadataMatchingModeIndex", 0);
+                int pairsFromFilename = scanResult.Pairs.Count;
+                int standaloneImg = scanResult.StandaloneImagesCount;
+                int standaloneVid = scanResult.StandaloneVideosCount;
+                var allPairs = new List<LivePhotoFilePairInfo>(scanResult.Pairs);
+                var metadataPairs = new List<MetadataPair>();
+
+                if (matchingMode != (int)MetadataMatchingMode.FilenameOnly)
+                {
+                    string exifToolPath = ExternalToolLocator.FindExifTool()
+                        ?? System.IO.Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
+
+                    if (System.IO.File.Exists(exifToolPath))
+                    {
+                        try
+                        {
+                            bool enableDate = matchingMode == (int)MetadataMatchingMode.BothWithDate;
+
+                            // MetadataOnly: 所有文件都走元数据匹配，丢弃文件名匹配结果
+                            // Both / BothWithDate: 只对文件名匹配剩余的文件做元数据匹配
+                            var imgList = matchingMode == (int)MetadataMatchingMode.MetadataOnly
+                                ? scanResult.Pairs.Select(p => p.ImagePath)
+                                    .Concat(scanResult.StandaloneImagePaths).ToList()
+                                : scanResult.StandaloneImagePaths.ToList();
+
+                            var vidList = matchingMode == (int)MetadataMatchingMode.MetadataOnly
+                                ? scanResult.Pairs.Select(p => p.VideoPath)
+                                    .Concat(scanResult.StandaloneVideoPaths).ToList()
+                                : scanResult.StandaloneVideoPaths.ToList();
+
+                            if (imgList.Count > 0 && vidList.Count > 0)
+                            {
+                                var matchOutput = await Task.Run(
+                                    () => LivePhotoMetadataMatcher.MatchAsync(imgList, vidList, exifToolPath, token, enableDate),
+                                    token);
+
+                                metadataPairs.AddRange(matchOutput.Pairs);
+                                standaloneImg = matchOutput.RemainingImages;
+                                standaloneVid = matchOutput.RemainingVideos;
+
+                                LogService.Combo($"Metadata matching: found {matchOutput.Pairs.Count} additional pairs " +
+                                    $"(mode={matchingMode}, dateEnabled={enableDate}, filenamePairs={pairsFromFilename})");
+                            }
+
+                            if (matchingMode == (int)MetadataMatchingMode.MetadataOnly)
+                            {
+                                // 元数据优先模式：丢弃文件名匹配结果，只用元数据配对
+                                allPairs.Clear();
+                                pairsFromFilename = 0;
+                            }
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            LogService.Combo($"Metadata matching failed, falling back to filename-only: {ex.Message}", LogLevel.Warning);
+                            // 出错时退回纯文件名匹配结果
+                            standaloneImg = scanResult.StandaloneImagesCount;
+                            standaloneVid = scanResult.StandaloneVideosCount;
+                            metadataPairs.Clear();
+                        }
+                    }
+                }
+
                 int index = 0;
-                var tempTasks = scanResult.Pairs.Select(pair =>
+                // 文件名匹配的结果（Both 模式下保留，MetadataOnly 模式下已清空）
+                var tempTasks = allPairs.Select(pair =>
                 {
                     index++;
                     return new ComboTask
@@ -318,10 +383,41 @@ namespace LivePhotoBox.ViewModels
                     };
                 }).ToList();
 
+                // 元数据匹配的结果（Both 或 MetadataOnly 模式下可能有）
+                foreach (var mp in metadataPairs)
+                {
+                    index++;
+                    string baseName = Path.GetFileNameWithoutExtension(mp.ImagePath);
+                    try
+                    {
+                        long imgSize = new System.IO.FileInfo(mp.ImagePath).Length;
+                        long vidSize = new System.IO.FileInfo(mp.VideoPath).Length;
+                        tempTasks.Add(new ComboTask
+                        {
+                            Index = index,
+                            ImageFileName = Path.GetFileName(mp.ImagePath),
+                            VideoFileName = Path.GetFileName(mp.VideoPath),
+                            ImageSize = FileSizeFormatter.Format(imgSize),
+                            VideoSize = FileSizeFormatter.Format(vidSize),
+                            TotalSizeBytes = imgSize + vidSize,
+                            BaseName = baseName,
+                            ImagePath = mp.ImagePath,
+                            VideoPath = mp.VideoPath,
+                            Status = ProcessStatus.Pending,
+                            Details = pendingText
+                        });
+                    }
+                    catch (System.IO.IOException ex)
+                    {
+                        LogService.Combo($"Failed to get file size for metadata pair {baseName}", LogLevel.Warning, ex);
+                    }
+                }
+
+                int totalPairs = tempTasks.Count;
                 Tasks.ReplaceRange(tempTasks);
-                TotalPairsCount = scanResult.Pairs.Count;
-                StandaloneImagesCount = scanResult.StandaloneImagesCount;
-                StandaloneVideosCount = scanResult.StandaloneVideosCount;
+                TotalPairsCount = totalPairs;
+                StandaloneImagesCount = standaloneImg;
+                StandaloneVideosCount = standaloneVid;
 
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {

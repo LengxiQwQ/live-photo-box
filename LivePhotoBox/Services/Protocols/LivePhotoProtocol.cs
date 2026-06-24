@@ -75,12 +75,15 @@ namespace LivePhotoBox.Services.Protocols
 
         /// <summary>
         /// Build a standard xpacket-wrapped XMP document with the given RDF body.
+        /// Includes a LivePhotoBox marker comment so the Split page can identify
+        /// and only strip metadata that was added by this app (not original camera XMP).
         /// </summary>
         protected static byte[] WrapXmp(string rdfDescription)
         {
             string xml = $"<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" +
                          $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n" +
                          $"  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n" +
+                         $"    <!-- LivePhotoBox:generated -->\n" +
                          $"    {rdfDescription}\n" +
                          $"  </rdf:RDF>\n" +
                          $"</x:xmpmeta>\n" +
