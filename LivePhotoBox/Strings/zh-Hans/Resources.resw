@@ -180,33 +180,6 @@
   <data name="SettingsPage_Backdrop_Desc.Text" xml:space="preserve">
     <value>选择 Windows 11 沉浸式背景</value>
   </data>
-  <data name="SettingsPage_Banner_Header.Text" xml:space="preserve">
-    <value>主页背景</value>
-  </data>
-  <data name="SettingsPage_Banner_Desc.Text" xml:space="preserve">
-    <value>自定义主页的背景横幅图片</value>
-  </data>
-  <data name="SettingsPage_Banner_CurrentLabel.Text" xml:space="preserve">
-    <value>当前</value>
-  </data>
-  <data name="SettingsPage_BannerRandom_Header.Text" xml:space="preserve">
-    <value>启动时随机切换</value>
-  </data>
-  <data name="SettingsPage_BannerRandom_Desc.Text" xml:space="preserve">
-    <value>每次打开软件时自动随机选择一张主页背景图片</value>
-  </data>
-  <data name="BannerPreset_Name_default" xml:space="preserve">
-    <value>预设 1</value>
-  </data>
-  <data name="BannerPreset_Name_scenic" xml:space="preserve">
-    <value>预设 2</value>
-  </data>
-  <data name="BannerPreset_Name_anime" xml:space="preserve">
-    <value>预设 3</value>
-  </data>
-  <data name="SettingsPage_Backdrop_AcrylicLight.Content" xml:space="preserve">
-    <value>Acrylic Thin</value>
-  </data>
   <data name="SettingsPage_AcrylicOpacity_Header.Text" xml:space="preserve">
     <value>Acrylic 材质浓度</value>
   </data>
@@ -218,6 +191,12 @@
   </data>
   <data name="SettingsPage_WindowOpacity_Desc.Text" xml:space="preserve">
     <value>调整整个应用窗口的透明度</value>
+  </data>
+  <data name="SettingsPage_Banner_Header.Text" xml:space="preserve">
+    <value>主页背景</value>
+  </data>
+  <data name="SettingsPage_Backdrop_AcrylicLight.Content" xml:space="preserve">
+    <value>Acrylic Thin</value>
   </data>
   <data name="SettingsPage_Backdrop_None.Content" xml:space="preserve">
     <value>无</value>
@@ -972,7 +951,7 @@
     <value>隐藏日志与调试工具</value>
   </data>
   <data name="SettingsPage_CrashNotice_Text" xml:space="preserve">
-    <value>检测到上次应用非正常退出，你可以导出日志文件，通过 GitHub 反馈。</value>
+    <value>检测到上次应用非正常退出，你可以导出日志文件，通过 GitHub 反馈</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
     <value>暂无</value>
@@ -1688,7 +1667,7 @@
     <value>已禁用</value>
   </data>
   <data name="SettingsPage_Test_Warning.Text" xml:space="preserve">
-    <value> ⚠️ 以下为高级调试选项，随意修改可能导致应用运行不稳定、卡顿甚至闪退。如无必要，请保持默认设置。</value>
+    <value> ⚠️ 以下为高级调试选项，随意修改可能导致应用运行不稳定、卡顿甚至闪退。如无必要，请保持默认设置</value>
   </data>
   <data name="SettingsPage_SwitchToModern_Confirm_Title" xml:space="preserve">
     <value>切换设置界面</value>
@@ -1698,6 +1677,27 @@
   </data>
   <data name="SettingsPage_SwitchToClassic_Confirm_Title" xml:space="preserve">
     <value>切换到旧版设置界面</value>
+  </data>
+  <data name="SettingsPage_Banner_Desc.Text" xml:space="preserve">
+    <value>自定义主页的背景横幅图片</value>
+  </data>
+  <data name="SettingsPage_Banner_CurrentLabel.Text" xml:space="preserve">
+    <value>当前</value>
+  </data>
+  <data name="SettingsPage_BannerRandom_Header.Text" xml:space="preserve">
+    <value>启动时随机切换</value>
+  </data>
+  <data name="SettingsPage_BannerRandom_Desc.Text" xml:space="preserve">
+    <value>每次打开软件时自动随机选择一张主页背景图片</value>
+  </data>
+  <data name="BannerPreset_Name_default" xml:space="preserve">
+    <value>预设 1</value>
+  </data>
+  <data name="BannerPreset_Name_scenic" xml:space="preserve">
+    <value>预设 2</value>
+  </data>
+  <data name="BannerPreset_Name_anime" xml:space="preserve">
+    <value>预设 3</value>
   </data>
   <data name="SettingsPage_SwitchToClassic_Confirm_Message" xml:space="preserve">
     <value>⚠️ 旧版设置界面可能存在功能缺失或 UI 异常，建议使用新版界面。

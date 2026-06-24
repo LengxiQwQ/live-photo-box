@@ -114,12 +114,11 @@
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="4"
-                                MinWidth="44" Height="36"
+                                Width="52" Height="36"
                                 HorizontalAlignment="Center" VerticalAlignment="Center">
                             <TextBlock VerticalAlignment="Center" HorizontalAlignment="Center"
-                                       Margin="8,0" FontSize="13" FontWeight="SemiBold">
-                                <Run Text="{x:Bind ViewModel.AcrylicTintOpacityText, Mode=OneWay}"/>
-                            </TextBlock>
+                                       FontSize="13" FontWeight="SemiBold"
+                                       Text="{x:Bind ViewModel.AcrylicTintOpacityText, Mode=OneWay}"/>
                         </Border>
                     </StackPanel>
                 </controls:SettingsCard>
@@ -144,12 +143,11 @@
                         <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                                 BorderThickness="1" CornerRadius="4"
-                                MinWidth="44" Height="36"
+                                Width="52" Height="36"
                                 HorizontalAlignment="Center" VerticalAlignment="Center">
                             <TextBlock VerticalAlignment="Center" HorizontalAlignment="Center"
-                                       Margin="8,0" FontSize="13" FontWeight="SemiBold">
-                                <Run Text="{x:Bind ViewModel.WindowOpacityText, Mode=OneWay}"/>
-                            </TextBlock>
+                                       FontSize="13" FontWeight="SemiBold"
+                                       Text="{x:Bind ViewModel.WindowOpacityText, Mode=OneWay}"/>
                         </Border>
                     </StackPanel>
                 </controls:SettingsCard>
