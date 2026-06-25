@@ -703,7 +703,7 @@
     <value>MOV (H.265 &amp; AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
-    <value>(推荐) 视频默认格式</value>
+    <value>视频默认格式</value>
   </data>
   <data name="SplitPage_Status_EmptyQueue" xml:space="preserve">
     <value>当前没有可拆分的实况照片，请先扫描目录</value>
@@ -1151,12 +1151,12 @@
   <data name="HomePage_RepairTutorial_Step1_Desc.Text" xml:space="preserve">
     <value>将 iPhone 实况照片导出后，常见的显示异常包括：
 
-多余缩略图及横向拉伸（iOS 17.3 之前）：
+1. 多余缩略图及横向拉伸（iOS 17.3 之前）：
 Apple 曾嵌入低分辨率缩略图来改善兼容性，但该缩略图带有方向标签，Windows 误将其当作横图处理，导致缩略图被异常拉宽或压扁。
 iOS 17.3 起已不再内嵌。通过 jpegtran 无损旋转并剥离残留缩略图即可修复。
 
-视频画面旋转：
-iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正确显示角度，但 Windows 并不识别此标签。通过 jpegtran 无损旋转或 FFmpeg 重编码即可修正。</value>
+2. 前摄实况照片的视频部分画面会旋转：
+iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正确显示角度，但 Windows 并不识别此标签。通过 FFmpeg 重编码即可修正。</value>
   </data>
   <data name="HomePage_RepairTutorial_Step2_Title.Text" xml:space="preserve">
     <value>扫描并查看诊断</value>
