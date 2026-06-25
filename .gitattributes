@@ -79,3 +79,6 @@
 # 音频视频
 #*.mp3 linguist-vendored
 #*.mp4 linguist-vendored
+
+# exiftool Perl 第三方库（不参与语言统计）
+/LivePhotoBox/Tools/exiftool_files/** linguist-vendored
