@@ -36,6 +36,6 @@ namespace LivePhotoBox.Services.Protocols
             "</rdf:Description>";
 
         public override byte[] BuildXmpMetadata(long videoSize)
-            => WrapXmp(string.Format(RdfTemplate, videoSize));
+            => WrapXmp(string.Format(RdfTemplate, videoSize), Key);
     }
 }

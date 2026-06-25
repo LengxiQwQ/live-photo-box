@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +13,9 @@ namespace LivePhotoBox.Services.Protocols
     /// </summary>
     public abstract class LivePhotoProtocol
     {
+        /// <summary>Cached app version string read from the entry assembly.</summary>
+        private static readonly string _appVersion = GetAppVersionFromAssembly();
+
         /// <summary>Stable numeric id matching the ComboBox SelectedIndex in the UI.</summary>
         public abstract int Id { get; }
 
@@ -75,16 +79,44 @@ namespace LivePhotoBox.Services.Protocols
 
         /// <summary>
         /// Build a standard xpacket-wrapped XMP document with the given RDF body.
-        /// Includes a LivePhotoBox marker comment so the Split page can identify
-        /// and only strip metadata that was added by this app (not original camera XMP).
+        /// Injects a LivePhotoBox tracking namespace so the app can later identify
+        /// files it generated (via <see cref="LivePhotoSplitService.ContainsLivePhotoMarker"/>).
+        ///
+        /// The extra XMP attributes do NOT affect live-photo detection on any platform
+        /// (Windows 11, Google Photos, Xiaomi, OPPO, Samsung, Apple) — XMP parsers
+        /// silently ignore namespaces they don't recognise.
         /// </summary>
-        protected static byte[] WrapXmp(string rdfDescription)
+        /// <param name="rdfDescription">The rdf:Description XML element.</param>
+        /// <param name="protocolKey">
+        /// Identifier of the protocol that generated this XMP (e.g. "MotionPhotoV2").
+        /// If null or empty, the Protocol attribute is omitted.
+        /// </param>
+        protected static byte[] WrapXmp(string rdfDescription, string? protocolKey = null)
         {
+            string marker = " xmlns:LivePhotoBox=\"https://github.com/LengxiQwQ/live-photo-box\"" +
+                           $" LivePhotoBox:Action=\"Combo\"";
+            if (!string.IsNullOrEmpty(protocolKey))
+                marker += $" LivePhotoBox:Protocol=\"{protocolKey}\"";
+            // Only add version on the first call to avoid the reflection cost each time
+            marker += $" LivePhotoBox:Version=\"{_appVersion}\"";
+
+            // Determine where to inject the marker:
+            //   - Self-closing tag (V1):  <rdf:Description ... attr="val"/>  → insert before />
+            //   - Regular tag (V2/OPPO):  <rdf:Description ... attr="val">   → insert before >
+            int tagEnd;
+            int selfClose = rdfDescription.IndexOf("/>");
+            if (selfClose >= 0)
+                tagEnd = selfClose;       // self-closing tag — inject before /
+            else
+                tagEnd = rdfDescription.IndexOf('>'); // regular — inject before >
+            string marked = tagEnd >= 0
+                ? rdfDescription.Insert(tagEnd, marker)
+                : rdfDescription;
+
             string xml = $"<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" +
                          $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n" +
                          $"  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n" +
-                         $"    <!-- LivePhotoBox:generated -->\n" +
-                         $"    {rdfDescription}\n" +
+                         $"    {marked}\n" +
                          $"  </rdf:RDF>\n" +
                          $"</x:xmpmeta>\n" +
                          $"<?xpacket end=\"w\"?>";
@@ -122,6 +154,21 @@ namespace LivePhotoBox.Services.Protocols
                     Models.LogLevel.Warning);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Read the application version string from the entry assembly.
+        /// This is cached in <see cref="_appVersion"/> so called only once.
+        /// </summary>
+        private static string GetAppVersionFromAssembly()
+        {
+            try
+            {
+                var ver = Assembly.GetEntryAssembly()?.GetName()?.Version;
+                if (ver != null) return $"{ver.Major}.{ver.Minor}.{ver.Build}";
+            }
+            catch { }
+            return "0.0.0";
         }
     }
 }
