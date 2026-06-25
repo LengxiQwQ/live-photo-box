@@ -1,3 +1,4 @@
+<!-- MainWindow.xaml — 主窗口布局：标题栏 + NavigationView侧边导航 + 内容区 + 状态栏 + 灯箱 -->
 <Window
     x:Class="LivePhotoBox.MainWindow"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -11,6 +12,7 @@
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
+        <!-- 自定义标题栏 -->
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent">
             <StackPanel Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="8">
                 <Image Source="/Assets/AppIcon-2D-Translucence.png" Width="16" Height="16" Stretch="Uniform" />
@@ -18,26 +20,26 @@
             </StackPanel>
         </Grid>
 
-        <NavigationView Grid.Row="1" x:Name="NavView" 
-                        PaneDisplayMode="Left" 
+        <!-- 侧边导航栏 -->
+        <NavigationView Grid.Row="1" x:Name="NavView"
+                        PaneDisplayMode="Left"
                         IsBackButtonVisible="Collapsed"
                         IsSettingsVisible="True"
-                        OpenPaneLength="200" 
+                        OpenPaneLength="200"
                         SelectionChanged="NavView_SelectionChanged">
 
+            <!-- 主导航菜单 -->
             <NavigationView.MenuItems>
                 <NavigationViewItem x:Uid="Nav_Home" Tag="Home" IsSelected="True">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE80F;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-
                 <NavigationViewItem x:Uid="Nav_Merge" Tag="Merge">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8B1;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-
                 <NavigationViewItem x:Uid="Nav_Split" Tag="Split">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8C6;"/>
@@ -65,6 +67,7 @@
                 </NavigationViewItem>
             </NavigationView.MenuItems>
 
+            <!-- 底部页脚菜单 -->
             <NavigationView.FooterMenuItems>
                 <NavigationViewItem Tag="About" x:Uid="Nav_About">
                     <NavigationViewItem.Icon>
@@ -73,14 +76,13 @@
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>
 
+            <!-- 内容区：Frame 加载页面 + 状态栏 + 全屏灯箱 -->
             <Grid>
                 <Frame x:Name="MainFrame" Padding="0" Background="Transparent"/>
-
                 <controls:PageStatusBar x:Name="PageStatusBar"
                                         Visibility="Collapsed"
                                         VerticalAlignment="Bottom" />
-
-                <!-- 全屏灯箱：覆盖内容区 + 状态栏，不挡左侧菜单和标题栏 -->
+                <!-- 全屏灯箱：覆盖内容区+状态栏，不遮导航和标题栏 -->
                 <controls:LightboxPreview x:Name="LightboxPreview"/>
             </Grid>
         </NavigationView>

@@ -8,22 +8,27 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
+// <summary>
+// File: TaskListAutoScroller.cs
+// 任务列表自动滚动控制器。统一管理列表的"跟随最新任务"行为：
+// 扫描/处理阶段自动滚动到最新任务（120ms 防抖），
+// 用户手动上滚时暂停跟随，2 秒空闲后自动恢复，
+// 用户手动滚到底部立即恢复。
+// </summary>
+
 namespace LivePhotoBox.Helpers
 {
-    /// <summary>
-    /// 任务列表自动滚动控制器。
-    /// 统一管理列表的"跟随最新任务"行为：
-    ///   - 扫描/处理阶段自动滚动到最新任务（120ms 防抖）
-    ///   - 用户手动上滚时暂停跟随，2 秒空闲后自动恢复
-    ///   - 用户手动滚到底部立即恢复
-    ///   - 区分程序自动滚动与用户手动滚动
-    ///
-    /// 使用方法：
-    ///   1. 在 Page.Loaded 中调用 Attach(listView)
-    ///   2. 在 Page.Unloaded 中调用 Detach()
-    ///   3. 将 ViewModel 事件转发给对应的 NotifyXxx 方法
-    ///   4. 当扫描/处理开始时调用 NotifyScanStarting() / NotifyProcessingStarting()
-    /// </summary>
+    // 任务列表自动滚动控制器。
+    // 统一管理列表的"跟随最新任务"行为：
+    // - 扫描/处理阶段自动滚动到最新任务（120ms 防抖）
+    // - 用户手动上滚时暂停跟随，2 秒空闲后自动恢复
+    // - 用户手动滚到底部立即恢复
+    // - 区分程序自动滚动与用户手动滚动
+    // 使用方法：
+    // 1. 在 Page.Loaded 中调用 Attach(listView)
+    // 2. 在 Page.Unloaded 中调用 Detach()
+    // 3. 将 ViewModel 事件转发给对应的 NotifyXxx 方法
+    // 4. 当扫描/处理开始时调用 NotifyScanStarting() / NotifyProcessingStarting()
     public class TaskListAutoScroller
     {
         private static readonly TimeSpan AutoFollowDebounce = TimeSpan.FromMilliseconds(120);
@@ -61,7 +66,7 @@ namespace LivePhotoBox.Helpers
 
         // ── 公开 API ──────────────────────────────────────
 
-        /// <summary>挂载到 ListView，开始监听滚动事件。</summary>
+        // 挂载到 ListView，开始监听滚动事件。
         public void Attach(ListView listView)
         {
             if (_isAttached) return;
@@ -72,7 +77,7 @@ namespace LivePhotoBox.Helpers
             _isAttached = true;
         }
 
-        /// <summary>卸载，释放资源。</summary>
+        // 卸载，释放资源。
         public void Detach()
         {
             _isAttached = false;
@@ -89,7 +94,7 @@ namespace LivePhotoBox.Helpers
             _pausedByUser = false;
         }
 
-        /// <summary>某个任务开始处理 — 触发自动滚动。</summary>
+        // 某个任务开始处理 — 触发自动滚动。
         public void NotifyTaskStarted(int zeroBasedIndex)
         {
             if (zeroBasedIndex == 0)
@@ -100,24 +105,22 @@ namespace LivePhotoBox.Helpers
             ScheduleAutoScroll(zeroBasedIndex);
         }
 
-        /// <summary>
-        /// 全部处理完毕。
-        /// 自然完成时滚到底部展示结果；用户手动停止时保持当前位置。
-        /// </summary>
+        // 全部处理完毕。
+        // 自然完成时滚到底部展示结果；用户手动停止时保持当前位置。
         public void NotifyAllCompleted(bool wasCancelled = false)
         {
             if (!wasCancelled)
                 _ = SafeNudgeToBottomAsync();
         }
 
-        /// <summary>扫描阶段批量刷入项目 — 滚动到最新。</summary>
+        // 扫描阶段批量刷入项目 — 滚动到最新。
         public void NotifyItemsFlushed()
         {
             int idx = _getTaskCount() - 1;
             if (idx >= 0) ScheduleAutoScroll(idx);
         }
 
-        /// <summary>新一轮扫描开始 — 重置所有状态。</summary>
+        // 新一轮扫描开始 — 重置所有状态。
         public void NotifyScanStarting()
         {
             _pendingIndex = -1;
@@ -127,7 +130,7 @@ namespace LivePhotoBox.Helpers
             CancelIdleTimer();
         }
 
-        /// <summary>处理阶段开始 — 清除扫描阶段残留的暂停状态。</summary>
+        // 处理阶段开始 — 清除扫描阶段残留的暂停状态。
         public void NotifyProcessingStarting()
         {
             _pendingIndex = -1;
@@ -137,7 +140,7 @@ namespace LivePhotoBox.Helpers
             CancelIdleTimer();
         }
 
-        /// <summary>暂停后恢复 — 重置追踪索引，避免旧索引导致跳过后续滚动。</summary>
+        // 暂停后恢复 — 重置追踪索引，避免旧索引导致跳过后续滚动。
         public void NotifyProcessingResumed()
         {
             _pendingIndex = -1;
@@ -297,10 +300,8 @@ namespace LivePhotoBox.Helpers
 
         // ── 可靠的 UI 线程调度 ────────────────────────────
 
-        /// <summary>
-        /// 将操作可靠地排入 UI 线程。TryEnqueue 在队列满时返回 false，
-        /// 这里用轮询重试 + 递增退避，最多 30 次（约 500ms）。
-        /// </summary>
+        // 将操作可靠地排入 UI 线程。TryEnqueue 在队列满时返回 false，
+        // 这里用轮询重试 + 递增退避，最多 30 次（约 500ms）。
         private async Task DispatchAsync(Action action)
         {
             for (int attempt = 0; attempt < 30; attempt++)

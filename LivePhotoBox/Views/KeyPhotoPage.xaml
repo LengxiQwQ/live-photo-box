@@ -1,3 +1,4 @@
+<!-- KeyPhotoPage.xaml — 封面修改页（占位，功能开发中） -->
 <Page
     x:Class="LivePhotoBox.Views.KeyPhotoPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"

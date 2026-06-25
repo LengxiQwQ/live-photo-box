@@ -1,3 +1,4 @@
+<!-- 设置页（旧版）：经典布局的设置页，保留以兼容旧版用户 -->
 <Page
     x:Class="LivePhotoBox.Views.SettingsPageOld"
     x:Name="RootPage"

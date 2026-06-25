@@ -7,24 +7,18 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
 {
-    /// <summary>
-    /// 视频转码服务 - 使用 FFmpeg 进行视频格式转换
-    /// 支持硬件加速 (NVENC/QSV/AMF) 和多线程处理
-    /// </summary>
+    // 视频转码服务 - 使用 FFmpeg 进行视频格式转换
+    // 支持硬件加速 (NVENC/QSV/AMF) 和多线程处理
     public static class VideoTranscodeService
     {
-        /// <summary>
-        /// 目标视频格式
-        /// </summary>
+        // 目标视频格式
         public enum VideoFormat
         {
             MP4,
             MOV
         }
 
-        /// <summary>
-        /// 视频转码结果
-        /// </summary>
+        // 视频转码结果
         public class TranscodeResult
         {
             public bool Success { get; set; }
@@ -34,11 +28,9 @@ namespace LivePhotoBox.Services
             public bool WasRemux { get; set; }
         }
 
-        /// <summary>
-        /// 获取当前选择的硬件编码器（按 codec 格式独立取值）
-        /// 旧版本只存一个 SplitHardwareEncoder（H.264），新版本按 codec 分别存 SplitEncoder_h264 / SplitEncoder_hevc。
-        /// 第一次使用新格式（HEVC）时，如果没有保存值，会自动从旧值迁移：h264_xxx -> hevc_xxx
-        /// </summary>
+        // 获取当前选择的硬件编码器（按 codec 格式独立取值）
+        // 旧版本只存一个 SplitHardwareEncoder（H.264），新版本按 codec 分别存 SplitEncoder_h264 / SplitEncoder_hevc。
+        // 第一次使用新格式（HEVC）时，如果没有保存值，会自动从旧值迁移：h264_xxx -> hevc_xxx
         private static string? GetEncoderForCodec(string codec)
         {
             string newKey = $"SplitEncoder_{codec}";
@@ -80,9 +72,7 @@ namespace LivePhotoBox.Services
             return null;
         }
 
-        /// <summary>
-        /// 检查 FFmpeg 编码器是否可用
-        /// </summary>
+        // 检查 FFmpeg 编码器是否可用
         private static bool IsEncoderAvailable(string encoder)
         {
             try
@@ -118,9 +108,7 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 获取当前线程数设置
-        /// </summary>
+        // 获取当前线程数设置
         private static int GetThreadCount(string? encoder = null)
         {
             int userThreadCount = AppSettingsService.GetValue<int>("SplitThreadCount", Environment.ProcessorCount);
@@ -139,13 +127,11 @@ namespace LivePhotoBox.Services
             return userThreadCount;
         }
 
-        /// <summary>
-        /// 快速容器转换（Remux）- 无损转换视频容器格式，完整保留 HDR 和所有元数据
-        /// </summary>
-        /// <param name="inputPath">输入视频路径</param>
-        /// <param name="outputPath">输出视频路径</param>
-        /// <param name="token">取消令牌</param>
-        /// <returns>转换结果</returns>
+        // 快速容器转换（Remux）- 无损转换视频容器格式，完整保留 HDR 和所有元数据
+        // inputPath: 输入视频路径
+        // outputPath: 输出视频路径
+        // token: 取消令牌
+        // è¿å: 转换结果
         public static async Task<TranscodeResult> RemuxAsync(
             string inputPath,
             string outputPath,
@@ -279,9 +265,7 @@ namespace LivePhotoBox.Services
             return result;
         }
 
-        /// <summary>
-        /// 将视频转换为 MP4 格式 (H.264/AAC)
-        /// </summary>
+        // 将视频转换为 MP4 格式 (H.264/AAC)
         public static async Task<TranscodeResult> TranscodeToMp4Async(
             string inputPath,
             string outputPath,
@@ -290,9 +274,7 @@ namespace LivePhotoBox.Services
             return await TranscodeAsync(inputPath, outputPath, VideoFormat.MP4, token);
         }
 
-        /// <summary>
-        /// 将视频转换为 MOV 格式 (H.264/AAC)
-        /// </summary>
+        // 将视频转换为 MOV 格式 (H.264/AAC)
         public static async Task<TranscodeResult> TranscodeToMovAsync(
             string inputPath,
             string outputPath,
@@ -301,18 +283,12 @@ namespace LivePhotoBox.Services
             return await TranscodeAsync(inputPath, outputPath, VideoFormat.MOV, token);
         }
 
-        /// <summary>
-        /// Ensure the source video is in MP4 format, transcoding if necessary.
-        /// If already MP4, returns the original path with zero overhead.
-        /// If MOV (or other), transcodes to a temp file in <paramref name="workDir"/>.
-        /// </summary>
-        /// <returns>
-        /// (pathToUse, wasTranscoded):
-        ///   pathToUse — original or temp file path;
-        ///   wasTranscoded — true when a temp file was created (caller must clean up).
-        /// </returns>
-        /// <param name="forceMp4">When true, always transcode to MP4. When false, only transcode if
-        /// the container is not MP4-compatible (e.g. AVI, MKV). MOV files are left as-is.</param>
+        // Ensure the source video is in MP4 format, transcoding if necessary.
+        // If already MP4, returns the original path with zero overhead.
+        // If MOV (or other), transcodes to a temp file in <paramref name="workDir"/>.
+        // è¿å: (pathToUse, wasTranscoded):pathToUse — original or temp file path;wasTranscoded — true when a temp file was created (caller must clean up).
+        // <param name="forceMp4">When true, always transcode to MP4. When false, only transcode if
+        // the container is not MP4-compatible (e.g. AVI, MKV). MOV files are left as-is.</param>
         public static async Task<(string Path, bool WasTranscoded)> EnsureMp4Async(
             string inputPath,
             string workDir,
@@ -366,7 +342,7 @@ namespace LivePhotoBox.Services
 
         // ── container detection ───────────────────────────────────────
 
-        /// <summary>Detect video container from ftyp box, falling back to extension.</summary>
+        // Detect video container from ftyp box, falling back to extension.
         private static string DetectContainerFormat(string path)
         {
             if (!File.Exists(path))
@@ -415,9 +391,7 @@ namespace LivePhotoBox.Services
             _      => "unknown",
         };
 
-        /// <summary>
-        /// 通用视频转码方法（支持降级重试）
-        /// </summary>
+        // 通用视频转码方法（支持降级重试）
         private static async Task<TranscodeResult> TranscodeAsync(
             string inputPath,
             string outputPath,
@@ -604,6 +578,11 @@ namespace LivePhotoBox.Services
             return false;
         }
 
+        // 为指定目标格式获取编码器（硬件优先，支持软件回退）。
+        // 自动从设置读取保存的硬件编码器，或检测 FFmpeg 可用编码器。
+        // targetFormat: 目标视频格式。
+        // forceSoftware: 是否强制使用软件编码器。
+        // è¿å: (编码器名, 编码参数)。
         private static (string encoder, string encoderParams) GetEncoderForFormat(VideoFormat targetFormat, bool forceSoftware = false)
         {
             string codec = targetFormat == VideoFormat.MP4 ? "h264" : "hevc";
@@ -648,6 +627,10 @@ namespace LivePhotoBox.Services
             return (encName, encParams);
         }
 
+        // 通过枚举 FFmpeg 编码器列表检测可用的硬件编码器。
+        // 按优先级顺序：NVENC > AMF > QSV > VAAPI。
+        // codec: 编码标准（"h264" 或 "hevc"）。
+        // è¿å: 检测到的硬件编码器名，如 "h264_nvenc"，若无则返回 null。
         private static string? DetectHardwareEncoderForCodec(string codec)
         {
             try
@@ -687,6 +670,8 @@ namespace LivePhotoBox.Services
             return null;
         }
 
+        // 构建 FFmpeg 视频滤镜字符串。
+        // 包含 setsar=1（设置 SAR 为 1:1）以及可选的 HEVC Conformance Window 黑边裁切。
         private static string BuildVideoFilter(VideoFormat targetFormat, string encoder, string inputPath)
         {
             string sarFilter = "setsar=1";
@@ -843,12 +828,10 @@ namespace LivePhotoBox.Services
 
         // ── Adaptive audio detection ───────────────────────────────────
 
-        /// <summary>
-        /// Detect source audio format and channel count via exiftool.
-        /// Returns (format, channels) — format is exiftool's AudioFormat
-        /// (e.g. "lpcm", "mp4a", "MPEG AAC Audio"), channels is integer count.
-        /// Returns (null, 0) when detection fails.
-        /// </summary>
+        // Detect source audio format and channel count via exiftool.
+        // Returns (format, channels) — format is exiftool's AudioFormat
+        // (e.g. "lpcm", "mp4a", "MPEG AAC Audio"), channels is integer count.
+        // Returns (null, 0) when detection fails.
         private static (string? format, int channels) DetectAudioInfo(string inputPath)
         {
             try
@@ -893,15 +876,13 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// Build adaptive audio arguments for MP4 transcoding.
-        /// - Already compressed (AAC/MP3/MP4A): -c:a copy — avoids generation loss
-        /// - PCM (lpcm/raw/twos/sowt): re-encode to AAC with channel-based bitrate
-        ///   · Mono (most live photos, voice memos): 256k — near-transparent
-        ///   · Stereo (music, ambient): 320k — AAC maximum, transparent
-        ///   · Unknown channels: 256k — safe middle ground
-        /// - Detection failure: AAC 256k — conservative fallback
-        /// </summary>
+        // Build adaptive audio arguments for MP4 transcoding.
+        // - Already compressed (AAC/MP3/MP4A): -c:a copy — avoids generation loss
+        // - PCM (lpcm/raw/twos/sowt): re-encode to AAC with channel-based bitrate
+        // · Mono (most live photos, voice memos): 256k — near-transparent
+        // · Stereo (music, ambient): 320k — AAC maximum, transparent
+        // · Unknown channels: 256k — safe middle ground
+        // - Detection failure: AAC 256k — conservative fallback
         private static string BuildAudioArgsForMp4(string inputPath)
         {
             var (format, channels) = DetectAudioInfo(inputPath);
@@ -999,6 +980,8 @@ namespace LivePhotoBox.Services
             };
         }
 
+        // 获取像素格式参数。MP4 始终强制 yuv420p（保证兼容性），
+        // HEVC/H.265 编码器自动优选，不强制。
         private static string GetPixelFormatParams(string encoder, VideoFormat targetFormat)
         {
             if (targetFormat == VideoFormat.MP4) return "-pix_fmt yuv420p";
@@ -1034,15 +1017,20 @@ namespace LivePhotoBox.Services
             };
         }
 
+        // 读取 FFmpeg 进程的 stderr 输出（异步）。
         private static async Task<string> ReadFFmpegOutputAsync(Process process)
         {
             try { return await process.StandardError.ReadToEndAsync().ConfigureAwait(false); }
             catch { return string.Empty; }
         }
 
-        /// <summary>
-        /// 查找 FFmpeg 可执行文件
-        /// </summary>
+        // 在多个候选路径和系统 PATH 中查找 FFmpeg 可执行文件。
+        // 搜索顺序：
+        // 1. AppContext.BaseDirectory/Tools/ffmpeg.exe
+        // 2. AppContext.BaseDirectory/ffmpeg.exe
+        // 3. 上一级目录的 Tools/
+        // 4. PATH 环境变量中的 "ffmpeg" / "ffmpeg.exe"
+        // è¿å: FFmpeg 的完整路径，未找到则返回 null。
         public static string? FindFFmpeg()
         {
             string[] candidates =
@@ -1088,11 +1076,15 @@ namespace LivePhotoBox.Services
             return null;
         }
 
+        // 判断 FFmpeg 是否可用。
+        // è¿å: true 表示可在系统中找到 FFmpeg。
         public static bool IsFFmpegAvailable()
         {
             return !string.IsNullOrEmpty(FindFFmpeg());
         }
 
+        // 异步获取 FFmpeg 版本号（输出第一行）。
+        // è¿å: 版本字符串，如 "ffmpeg version n7.1"，失败返回 null。
         public static async Task<string?> GetFFmpegVersionAsync()
         {
             string? ffmpegPath = FindFFmpeg();

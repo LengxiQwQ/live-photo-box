@@ -9,6 +9,7 @@
     Background="Transparent"
     NavigationCacheMode="Required">
 
+    <!-- 实况照片拆分页：将实况照片拆分为独立的照片和视频 -->
     <Grid>
         <Grid Padding="24,24,24,40">
 
@@ -25,6 +26,7 @@
 
             <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" Spacing="12">
 
+                <!-- 配置面板 -->
                 <Expander IsExpanded="{x:Bind ViewModel.IsDirectoryPanelOpen, Mode=TwoWay}"
                           HorizontalAlignment="Stretch"
                           HorizontalContentAlignment="Stretch"
@@ -145,6 +147,7 @@
                 </Grid>
             </Border>
 
+            <!-- 任务列表 -->
             <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="8">
                 <Grid>
                     <Grid.RowDefinitions>

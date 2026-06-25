@@ -10,8 +10,9 @@
     Background="Transparent"
     NavigationCacheMode="Required">
 
+    <!-- 文件历史分析页：扫描文件夹并展示实况照片文件的操作历史 -->
     <Page.Resources>
-        <!-- Color converters for timeline dots -->
+        <!-- 时间线圆点颜色 -->
         <Color x:Key="MergeColor">#4CAF50</Color>
         <Color x:Key="SplitColor">#2196F3</Color>
         <Color x:Key="RepairColor">#FF9800</Color>
@@ -24,11 +25,11 @@
             <Setter Property="Margin" Value="0,0,0,16"/>
         </Style>
 
-        <!-- File card template -->
+        <!-- 文件卡片模板 -->
         <DataTemplate x:Key="FileCardTemplate" x:DataType="models:FileHistoryInfo">
             <Border Style="{StaticResource CardBorderStyle}" Padding="20">
                 <StackPanel Spacing="0">
-                    <!-- File header -->
+                    <!-- 文件头部 -->
                     <Grid ColumnSpacing="14" Margin="0,0,0,16">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -36,7 +37,7 @@
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- File icon -->
+                        <!-- 文件图标 -->
                         <Border Grid.Column="0"
                                 Width="44" Height="44"
                                 CornerRadius="10"
@@ -48,14 +49,14 @@
                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                         </Border>
 
-                        <!-- File name + metadata -->
+                        <!-- 文件名 + 元数据 -->
                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                             <TextBlock Text="{x:Bind FileName}"
                                        FontSize="15" FontWeight="SemiBold"
                                        TextTrimming="CharacterEllipsis"
                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                             <StackPanel Orientation="Horizontal" Spacing="8">
-                                <!-- Live Photo badge -->
+                                <!-- 实况照片标记 -->
                                 <Border Visibility="{x:Bind IsLivePhoto, Converter={StaticResource VisibilityConverter}}"
                                         CornerRadius="4" Padding="8,2"
                                         Background="{ThemeResource SystemAccentColor}">
@@ -63,7 +64,7 @@
                                                FontSize="11" Foreground="White"
                                                FontWeight="SemiBold"/>
                                 </Border>
-                                <!-- LivePhotoBox badge -->
+                                <!-- LivePhotoBox 标记 -->
                                 <Border Visibility="{x:Bind IsLivePhotoBoxGenerated, Converter={StaticResource VisibilityConverter}}"
                                         CornerRadius="4" Padding="8,2"
                                         Background="#4CAF50">
@@ -76,7 +77,7 @@
                             </StackPanel>
                         </StackPanel>
 
-                        <!-- Entry count -->
+                        <!-- 条目数 -->
                         <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
                             <TextBlock Text="{x:Bind EntryCountText}"
                                        FontSize="13"
@@ -85,12 +86,12 @@
                         </StackPanel>
                     </Grid>
 
-                    <!-- Entries separator -->
+                    <!-- 条目分隔线 -->
                     <Rectangle Height="1" Fill="{ThemeResource CardStrokeColorDefaultBrush}"
                                Margin="0,0,0,12"
                                Visibility="{x:Bind HasEntries, Converter={StaticResource VisibilityConverter}}"/>
 
-                    <!-- Timeline entries -->
+                    <!-- 时间线条目 -->
                     <ItemsControl ItemsSource="{x:Bind Entries}"
                                   Visibility="{x:Bind HasEntries, Converter={StaticResource VisibilityConverter}}">
                         <ItemsControl.ItemTemplate>
@@ -101,7 +102,7 @@
                                         <ColumnDefinition Width="*"/>
                                     </Grid.ColumnDefinitions>
 
-                                    <!-- Timeline dot -->
+                                    <!-- 时间线圆点 -->
                                     <Border Grid.Column="0"
                                             Width="32" Height="32"
                                             CornerRadius="16"
@@ -113,9 +114,9 @@
                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                                     </Border>
 
-                                    <!-- Entry content -->
+                                    <!-- 条目内容 -->
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="1">
-                                        <!-- Action name + timestamp + version -->
+                                        <!-- 操作名称 + 时间戳 + 版本 -->
                                         <StackPanel Orientation="Horizontal" Spacing="8">
                                             <TextBlock Text="{x:Bind ActionDisplayName}"
                                                        FontSize="14" FontWeight="SemiBold"
@@ -135,7 +136,7 @@
                                             </Border>
                                         </StackPanel>
 
-                                        <!-- Description -->
+                                        <!-- 描述 -->
                                         <TextBlock Text="{x:Bind Description}"
                                                    FontSize="13"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -147,7 +148,7 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <!-- No entries text -->
+                    <!-- 无条目提示 -->
                     <TextBlock x:Uid="History_NoEntries"
                                FontSize="13"
                                Foreground="{ThemeResource TextFillColorTertiaryBrush}"
@@ -158,16 +159,16 @@
     </Page.Resources>
 
     <Grid>
-        <!-- ========== Main content ========== -->
+        <!-- ========== 主内容区 ========== -->
         <Grid x:Name="ContentArea" Margin="40,24,40,0">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>  <!-- Header -->
-                <RowDefinition Height="Auto"/>  <!-- Folder picker -->
-                <RowDefinition Height="Auto"/>  <!-- Status -->
-                <RowDefinition Height="*"/>     <!-- Results / Empty -->
+                <RowDefinition Height="Auto"/>  <!-- 标题 -->
+                <RowDefinition Height="Auto"/>  <!-- 文件夹选择 -->
+                <RowDefinition Height="Auto"/>  <!-- 状态 -->
+                <RowDefinition Height="*"/>     <!-- 结果 / 空状态 -->
             </Grid.RowDefinitions>
 
-            <!-- ── Page header ── -->
+            <!-- ── 页面标题 ── -->
             <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,20">
                 <StackPanel Orientation="Horizontal" Spacing="10">
                     <FontIcon Glyph="&#xE7BA;" FontSize="22" Foreground="{ThemeResource SystemAccentColor}"
@@ -183,7 +184,7 @@
                            FontFamily="Microsoft YaHei UI"/>
             </StackPanel>
 
-            <!-- ── Folder picker bar ── -->
+            <!-- ── 文件夹选择栏 ── -->
             <Border Grid.Row="1"
                     Style="{StaticResource CardBorderStyle}"
                     Padding="16">
@@ -194,7 +195,7 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- Select folder button -->
+                    <!-- 选择文件夹按钮 -->
                     <Button Grid.Column="0"
                             x:Name="SelectFolderButton"
                             Click="SelectFolder_Click"
@@ -205,7 +206,7 @@
                         </StackPanel>
                     </Button>
 
-                    <!-- Folder path display -->
+                    <!-- 路径显示 -->
                     <Border Grid.Column="1"
                             Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -218,7 +219,7 @@
                                    TextTrimming="CharacterEllipsis"/>
                     </Border>
 
-                    <!-- Scan button -->
+                    <!-- 扫描按钮 -->
                     <Button Grid.Column="2"
                             x:Name="ScanButton"
                             Command="{x:Bind ViewModel.ScanFolderCommand, Mode=OneWay}"
@@ -232,7 +233,7 @@
                 </Grid>
             </Border>
 
-            <!-- ── Status bar ── -->
+            <!-- ── 状态栏 ── -->
             <Border Grid.Row="2" Margin="0,8,0,0"
                     Visibility="{x:Bind ViewModel.IsScanning, Converter={StaticResource VisibilityConverter}}">
                 <StackPanel Orientation="Horizontal" Spacing="12">
@@ -244,7 +245,7 @@
                 </StackPanel>
             </Border>
 
-            <!-- ── Summary bar (after scan) ── -->
+            <!-- ── 摘要栏（扫描完成后）── -->
             <Border Grid.Row="2" Margin="0,12,0,0"
                     Visibility="{x:Bind ViewModel.HasResults, Converter={StaticResource VisibilityConverter}}">
                 <StackPanel Orientation="Horizontal" Spacing="16" Margin="4,0">
@@ -257,7 +258,7 @@
                 </StackPanel>
             </Border>
 
-            <!-- ── Results list ── -->
+            <!-- ── 结果列表 ── -->
             <ScrollViewer Grid.Row="3"
                           Margin="0,16,0,0"
                           Visibility="{x:Bind ViewModel.HasResults, Converter={StaticResource VisibilityConverter}}">
@@ -272,11 +273,11 @@
                 </ItemsControl>
             </ScrollViewer>
 
-            <!-- ── Empty state ── -->
+            <!-- ── 空状态 ── -->
             <Grid Grid.Row="3"
                   Visibility="{x:Bind ViewModel.HasResults, Converter={StaticResource InverseVisibilityConverter}}">
                 <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="16">
-                    <!-- Elegant empty state icon -->
+                    <!-- 空状态图标 -->
                     <Border Width="88" Height="88" CornerRadius="44"
                             Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"

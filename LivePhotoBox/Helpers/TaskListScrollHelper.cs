@@ -6,15 +6,19 @@ using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Threading.Tasks;
 
+// <summary>
+// File: TaskListScrollHelper.cs
+// 任务列表自动滚动辅助类，封装 MergePage / SplitPage / RepairPage 的公共滚动逻辑。
+// 提供处理中自动跟随（带防抖）、扫描结束滚到底部、处理完成后推到底部等功能。
+// Merge 页面不需要扫描滚动（任务在扫描完成后一次性装入），但仍可使用 Nudge / ScrollIntoView。
+// </summary>
+
 namespace LivePhotoBox.Helpers
 {
-    /// <summary>
-    /// 任务列表自动滚动辅助类。
-    /// 封装 MergePage / SplitPage / RepairPage 的公共滚动逻辑。
-    ///
-    /// Merge 页面不需要扫描滚动（任务在扫描完成后一次性装入），
-    /// 也不需要防抖（批次回调），但仍可借助 Nudge / ScrollIntoView。
-    /// </summary>
+    // 任务列表自动滚动辅助类。
+    // 封装 MergePage / SplitPage / RepairPage 的公共滚动逻辑。
+    // Merge 页面不需要扫描滚动（任务在扫描完成后一次性装入），
+    // 也不需要防抖（批次回调），但仍可借助 Nudge / ScrollIntoView。
     public sealed class TaskListScrollHelper
     {
         private static readonly TimeSpan AutoScrollDebounce = TimeSpan.FromMilliseconds(120);
@@ -33,9 +37,9 @@ namespace LivePhotoBox.Helpers
 
         public bool IsUnloaded { get; set; }
 
-        /// <param name="listView">要滚动的 ListView</param>
-        /// <param name="logPrefix">日志前缀，例如 "MergePage" / "SplitPage" / "RepairPage"</param>
-        /// <param name="isActive">当前是否处于"活跃滚动"状态，Split/Repair 用 () => IsProcessing || IsScanning，Merge 用 () => IsProcessing</param>
+        // listView: 要滚动的 ListView
+        // logPrefix: 日志前缀，例如 "MergePage" / "SplitPage" / "RepairPage"
+        // isActive: 当前是否处于"活跃滚动"状态，Split/Repair 用 () => IsProcessing || IsScanning，Merge 用 () => IsProcessing
         public TaskListScrollHelper(ListView listView, string logPrefix, Func<bool> isActive)
         {
             _listView = listView ?? throw new ArgumentNullException(nameof(listView));
@@ -47,7 +51,10 @@ namespace LivePhotoBox.Helpers
         //  公开方法：页面事件 → 调用这些
         // ─────────────────────────────────────
 
-        /// <summary>TaskStartedForScroll 的回调。Merge 不需要 resetOnFirst。</summary>
+        // TaskStartedForScroll 的回调。Merge 不需要 resetOnFirst。
+        // taskIndex: 当前任务在列表中的索引（从 0 开始）。
+        // totalCount: 任务总数，用于边界检查。
+        // resetOnFirst: 当 taskIndex 为 0 时是否重置追踪索引，默认 true。Merge 页面应传 false。
         public void OnTaskStarted(int taskIndex, int totalCount, bool resetOnFirst = true)
         {
             if (IsUnloaded || taskIndex < 0 || taskIndex >= totalCount) return;
@@ -69,7 +76,10 @@ namespace LivePhotoBox.Helpers
             }
         }
 
-        /// <summary>批量滚动到指定索引，Merge 专用（无防抖，直接滚）。</summary>
+        // 批量滚动到指定索引，Merge 专用（无防抖，直接滚）。
+        // itemIndex: 要滚动到的目标项索引。
+        // totalCount: 列表总项数，用于边界检查。
+        // dispatcher: 用于在 UI 线程执行滚动的 DispatcherQueue。
         public void ScrollToTask(int itemIndex, int totalCount, DispatcherQueue dispatcher)
         {
             if (IsUnloaded || itemIndex < 0 || itemIndex >= totalCount || !_isActive() || itemIndex == _lastIndex) return;
@@ -80,7 +90,9 @@ namespace LivePhotoBox.Helpers
             }
         }
 
-        /// <summary>扫描过程中新增项目时滚动到底部。Split/Repair 用。</summary>
+        // 扫描过程中新增项目时滚动到底部。Split/Repair 用。
+        // dispatcher: 用于在 UI 线程执行滚动的 DispatcherQueue。
+        // totalCount: 刷新后的列表总项数。
         public void OnScanItemsFlushed(DispatcherQueue dispatcher, int totalCount)
         {
             if (IsUnloaded || !_isActive()) return;
@@ -95,7 +107,8 @@ namespace LivePhotoBox.Helpers
             });
         }
 
-        /// <summary>扫描结束后滚到底部。Split/Repair 用。</summary>
+        // 扫描结束后滚到底部。Split/Repair 用。
+        // dispatcher: 用于在 UI 线程执行滚动的 DispatcherQueue。
         public async Task FinalScanScrollAsync(DispatcherQueue dispatcher)
         {
             await Task.Delay(ScanEndDelay).ConfigureAwait(false);
@@ -108,14 +121,16 @@ namespace LivePhotoBox.Helpers
             });
         }
 
-        /// <summary>处理完成后缓慢推到底部。</summary>
+        // 处理完成后缓慢推到底部。
+        // dispatcher: 用于在 UI 线程执行滚动的 DispatcherQueue。
         public void OnProcessingCompleted(DispatcherQueue dispatcher)
         {
             if (dispatcher != null && !IsUnloaded)
                 _ = SafeNudgeToBottomAsync(dispatcher);
         }
 
-        /// <summary>重置所有滚动追踪状态（切换页面、清空队列时调用）。</summary>
+        // 重置所有滚动追踪状态（切换页面、清空队列时调用）。
+        // 将 _pendingIndex、_lastIndex 和 _hasPending 全部清空，下次滚动操作将重新追踪。
         public void Reset()
         {
             _pendingIndex = -1;

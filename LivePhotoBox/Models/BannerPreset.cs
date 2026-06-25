@@ -2,26 +2,19 @@ using System;
 
 namespace LivePhotoBox.Models
 {
-    /// <summary>
-    /// Represents a banner image preset for the home page.
-    /// </summary>
+    // Represents a banner image preset for the home page.
     public class BannerPreset
     {
-        /// <summary>
-        /// Display name shown below the FlipView.
-        /// </summary>
+        // Display name shown below the FlipView.
         public string Name { get; init; } = string.Empty;
 
-        /// <summary>
-        /// Unique key used for settings persistence.
-        /// </summary>
+        // Unique key used for settings persistence.
         public string Key { get; init; } = string.Empty;
 
-        /// <summary>
-        /// ms-appx:/// asset path to the banner image.
-        /// </summary>
+        // ms-appx:/// asset path to the banner image.
         public string AssetPath { get; init; } = string.Empty;
 
+        // 返回预设的显示名称。
         public override string ToString() => Name;
     }
 }

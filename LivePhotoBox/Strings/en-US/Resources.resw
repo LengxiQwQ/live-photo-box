@@ -1191,8 +1191,7 @@ Click "Start Repair" and the app will handle everything automatically:
 Open the output folder when done — your photos are back to normal ~</value>
   </data>
   <data name="HomePage_RepairTutorial_Reassurance.Text" xml:space="preserve">
-    <value>Photos not taken with an iPhone generally don't need repair — scanning or repairing won't affect normal photos in any way. 
-To scan only iPhone Live Photos, enable "Strict Live Photo Scanning".</value>
+    <value>Photos not taken with an iPhone generally don't need repair — scanning or repairing won't affect normal photos in any way. To scan only iPhone Live Photos, enable "Strict Live Photo Scanning".</value>
   </data>
   <data name="HomePage_GoToSettingsStrictScan.Content" xml:space="preserve">
     <value>Go to Settings</value>
@@ -1948,5 +1947,14 @@ Are you sure you want to switch?</value>
   </data>
   <data name="RepairPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Go to Settings for advanced options</value>
+  </data>
+  <data name="SettingsPage_General_Header.Text" xml:space="preserve">
+    <value>General</value>
+  </data>
+  <data name="SettingsPage_General_RecursiveScan.Text" xml:space="preserve">
+    <value>Scan Subfolders</value>
+  </data>
+  <data name="SettingsPage_General_RecursiveScan_Desc.Text" xml:space="preserve">
+    <value>When scanning files, also scan files in subfolders</value>
   </data>
 </root>

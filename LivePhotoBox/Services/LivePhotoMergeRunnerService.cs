@@ -9,16 +9,33 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
 {
+    // 合并任务的运行配置项。
     public sealed class LivePhotoMergeRunOptions
     {
+        // 输出目录路径。
         public required string OutputDirectory { get; init; }
+        // 选中的合成协议索引。
         public required int SelectedModeIndex { get; init; }
+        // 最大并行任务数。
         public int MaxDegreeOfParallelism { get; init; } = Math.Min(Environment.ProcessorCount, 5);
+        // 每批任务的启动间隔。
         public TimeSpan TaskStartInterval { get; init; } = TimeSpan.FromMilliseconds(250);
     }
 
+    // 实况照片合并运行器。
+    // 将一组 MergeTask 分批并行执行合并操作，
+    // 支持暂停/取消/进度回调，以及临时文件自动清理。
     public static class LivePhotoMergeRunnerService
     {
+        // 批量运行合并任务。
+        // 按 <see cref="LivePhotoMergeRunOptions.MaxDegreeOfParallelism"/> 分块并行处理，
+        // 每个任务内部自动处理 HEIC 转换、视频转码、协议预处理与最终写入。
+        // tasks: 待处理的任务集合。
+        // options: 运行配置。
+        // pauseEvent: 暂停信号量。
+        // cancellationToken: 取消令牌。
+        // onTaskStarted: 任务开始回调。
+        // onTaskCompleted: 任务完成回调（参数：task, success, details, completedCount）。
         public static async Task RunAsync(
             IReadOnlyCollection<MergeTask> tasks,
             LivePhotoMergeRunOptions options,
@@ -76,11 +93,9 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// Async pause-wait that does NOT block a thread-pool thread.
-        /// The paused worker is represented as an uncompleted Task rather than
-        /// a parked OS thread, so cancellation and Set() both propagate cleanly.
-        /// </summary>
+        // Async pause-wait that does NOT block a thread-pool thread.
+        // The paused worker is represented as an uncompleted Task rather than
+        // a parked OS thread, so cancellation and Set() both propagate cleanly.
         private static async Task WaitPauseAsync(ManualResetEventSlim pauseEvent, CancellationToken token)
         {
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -96,6 +111,17 @@ namespace LivePhotoBox.Services
             }
         }
 
+        // 处理单对图片+视频的合并操作。
+        // 按序执行：HEIC 转换 → MP4 保证 → 协议预处理 → 写入目标。
+        // 任何步骤失败会用 try-catch 捕获并返回错误详情（不会中断整个批次）。
+        // imagePath: 源图片路径。
+        // videoPath: 源视频路径。
+        // baseName: 输出文件名基础部分。
+        // options: 运行配置。
+        // tempDir: 临时文件目录。
+        // pauseEvent: 暂停信号量。
+        // token: 取消令牌。
+        // è¿å: (是否成功, 结果描述)
         private static async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
             string imagePath,
             string videoPath,
@@ -133,7 +159,7 @@ namespace LivePhotoBox.Services
                 }
 
                 string outputName = LivePhotoMergeService.CreateOutputFileName(baseName, options.SelectedModeIndex);
-                string finalOutputPath = Path.Combine(options.OutputDirectory, outputName);
+                string finalOutputPath = PathHelper.GetUniqueFilePath(options.OutputDirectory, outputName);
 
                 await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
@@ -157,10 +183,8 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// Determine whether to force MP4 conversion.
-        /// Google protocols (V1/V2) respect the user setting; OPPO always forces MP4.
-        /// </summary>
+        // Determine whether to force MP4 conversion.
+        // Google protocols (V1/V2) respect the user setting; OPPO always forces MP4.
         private static bool ComputeForceMp4(int selectedModeIndex)
         {
             // OPPO protocol (Id=2) always needs MP4

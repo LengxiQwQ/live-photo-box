@@ -3,7 +3,9 @@ using System.IO;
 
 namespace LivePhotoBox.Services
 {
-    /// <summary>Thread-safe locator for external tools (FFmpeg, exiftool, jpegtran).</summary>
+    // 外部工具定位服务 — 在应用目录和系统 PATH 中查找 FFmpeg / FFprobe / ExifTool / jhead 等命令行工具。
+    // 所有路径结果通过 Lazy&lt;T&gt; 线程安全地缓存，首次访问后不再重复扫描磁盘。
+    // 视频转码、HEIC 转换、元数据处理等模块均通过此服务获取外部工具路径。
     public static class ExternalToolLocator
     {
         private static readonly Lazy<string?> _cachedFFmpegPath = new(ResolveFFmpegPath);
@@ -11,10 +13,15 @@ namespace LivePhotoBox.Services
         private static readonly Lazy<string?> _cachedExifToolPath = new(ResolveExifToolPath);
         private static readonly Lazy<string?> _cachedJheadPath = new(ResolveJheadPath);
 
+        // 获取缓存的 FFmpeg 可执行文件路径，未找到时返回 null。
         public static string? FindFFmpeg() => _cachedFFmpegPath.Value;
+        // 获取缓存的 FFprobe 可执行文件路径，未找到时返回 null。
         public static string? FindFFprobe() => _cachedFFprobePath.Value;
+        // 获取缓存的 ExifTool 可执行文件路径，未找到时返回 null。
         public static string? FindExifTool() => _cachedExifToolPath.Value;
+        // 获取缓存的 jhead 可执行文件路径，未找到时返回 null。
         public static string? FindJhead() => _cachedJheadPath.Value;
+        // 检查 FFmpeg 是否可用（FindFFmpeg 不为 null）。
         public static bool IsFFmpegAvailable() => !string.IsNullOrEmpty(FindFFmpeg());
 
         private static string? ResolveFFmpegPath()

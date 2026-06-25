@@ -1,4 +1,22 @@
-﻿using LivePhotoBox.Models;
+/*
+ * App.xaml.cs
+ *
+ * 应用程序入口点。继承 Microsoft.UI.Xaml.Application，负责全局初始化：
+ *   - 抑制子进程崩溃弹窗（SetErrorMode）
+ *   - 应用语言设置
+ *   - 初始化日志系统
+ *   - 硬件检测（写入日志）
+ *   - 崩溃处理（CrashHandler）
+ *   - 构造并激活 MainWindow
+ *
+ * 对应 ViewModel：无（全局单例 AppViewModel 在 App 层级持有）
+ *
+ * 生命周期：
+ *   - 构造函数 → 环境准备 → 日志初始化 → 硬件检测 → 崩溃处理器注册
+ *   - OnLaunched → 创建 MainWindow → 激活窗口
+ */
+
+using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -10,16 +28,16 @@ namespace LivePhotoBox
 {
     public partial class App : Application
     {
+        // 主窗口引用，供全局访问（如从 ViewModel 或子页面操作窗口）
         public static Window? MainWindow { get; private set; }
 
+        // 当前首页横幅缓存的 BitmapImage，避免跨页面导航时重复加载
         public static BitmapImage? CachedBannerImage { get; set; }
 
-        /// <summary>
-        /// 应用版本号（单一来源）。
-        /// 优先读取 MSIX 包清单中的版本（随发布/更新同步），
-        /// 未打包运行时回退到入口程序集版本。
-        /// 所有需要显示或写入版本号的地方统一使用此属性。
-        /// </summary>
+        // 应用版本号（单一来源）。
+        // 优先读取 MSIX 包清单中的版本（随发布/更新同步），
+        // 未打包运行时回退到入口程序集版本。
+        // 所有需要显示或写入版本号的地方统一使用此属性。
         public static string AppVersion
         {
             get
@@ -37,10 +55,8 @@ namespace LivePhotoBox
             }
         }
 
-        /// <summary>
-        /// Refreshes <see cref="CachedBannerImage"/> to the given preset.
-        /// The home page picks this up on next render.
-        /// </summary>
+        // Refreshes <see cref="CachedBannerImage"/> to the given preset.
+        // The home page picks this up on next render.
         public static void RefreshBannerImage(BannerPreset preset)
         {
             try
@@ -54,11 +70,8 @@ namespace LivePhotoBox
             }
         }
 
-        /// <summary>
-        /// Load banner image from persisted settings. If random mode is on,
-        /// picks a random preset each time. Called on app start before the
-        /// Settings VM is available, and when the home page needs a refresh.
-        /// </summary>
+        // 从持久化设置中加载横幅图片。如果启用随机模式，则在预设中随机选择。
+        // 在 SettingsViewModel 可用之前（应用启动时）及首页需要刷新时调用。
         public static BitmapImage LoadBannerImageFromSettings()
         {
             bool random = AppSettingsService.GetValue("IsBannerRandomEnabled", false);
@@ -82,11 +95,9 @@ namespace LivePhotoBox
             return new BitmapImage(new Uri(path));
         }
 
-        /// <summary>
-        /// Gets the current effective <see cref="ElementTheme"/> for the application.
-        /// When the user has selected "Default", detects the system theme.
-        /// Returns <see cref="ElementTheme.Light"/> if the main window is not yet available.
-        /// </summary>
+        // 获取当前有效的 <see cref="ElementTheme"/>。
+        // 当用户选择 "Default" 时，自动检测系统主题。
+        // 若主窗口尚不可用，默认返回浅色主题。
         public static ElementTheme CurrentTheme
         {
             get
@@ -116,6 +127,8 @@ namespace LivePhotoBox
         private const uint SEM_FAILCRITICALERRORS = 0x0001;
         private const uint SEM_NOGPFAULTERRORBOX = 0x0002;
 
+        // 构造函数：执行应用级初始化。
+        // 包括错误模式抑制、语言设置、日志系统、硬件检测和崩溃处理器注册。
         public App()
         {
             // 禁止子进程崩溃时弹出 Windows 错误报告/JIT 调试器对话框。
@@ -126,7 +139,7 @@ namespace LivePhotoBox
             ApplyLanguageSetting();
             LogService.Initialize();
 
-            // Detect hardware early so its summary appears in the log before App/UI messages
+            // 尽早检测硬件，使摘要信息在 UI 消息前出现在日志中
             try { HardwareService.GetAvailableHardware(); }
             catch (Exception ex) { LogService.Warn($"Hardware detection failed: {ex.Message}", source: LogSource.System); }
 
@@ -135,12 +148,14 @@ namespace LivePhotoBox
             LogService.Info("Application initialized.", LogSource.App);
         }
 
+        // 从持久化设置中读取语言索引并应用语言覆盖
         private void ApplyLanguageSetting()
         {
             int languageIndex = AppSettingsService.GetValue("LanguageIndex", 0);
             LanguageService.ApplyLanguageOverride(languageIndex);
         }
 
+        // 应用启动后触发，创建并激活主窗口
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             LogService.Info("Main window launch started.", LogSource.UI);

@@ -1,3 +1,4 @@
+<!-- PageStatusBar.xaml — 底部状态栏：左侧状态文本 + 右侧进度百分比 + 顶部细进度条 -->
 <UserControl
     x:Class="LivePhotoBox.Controls.PageStatusBar"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"

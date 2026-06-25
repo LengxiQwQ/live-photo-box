@@ -837,6 +837,15 @@
   <data name="RepairPage_Task_NoRepair" xml:space="preserve">
     <value>无需修复</value>
   </data>
+  <data name="SettingsPage_General_Header.Text" xml:space="preserve">
+    <value>通用</value>
+  </data>
+  <data name="SettingsPage_General_RecursiveScan.Text" xml:space="preserve">
+    <value>扫描子文件夹</value>
+  </data>
+  <data name="SettingsPage_General_RecursiveScan_Desc.Text" xml:space="preserve">
+    <value>在执行扫描文件的时候，会同时扫描子文件夹中的文件</value>
+  </data>
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
     <value>© 2026 LengxiQwQ · 基于 GPL-3.0 开源协议发布</value>
   </data>

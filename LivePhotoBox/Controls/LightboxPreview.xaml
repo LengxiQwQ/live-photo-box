@@ -1,3 +1,4 @@
+<!-- LightboxPreview.xaml — 全屏灯箱控件：半透明遮罩中预览图片/视频，支持双播放器无缝切换 -->
 <UserControl
     x:Class="LivePhotoBox.Controls.LightboxPreview"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"

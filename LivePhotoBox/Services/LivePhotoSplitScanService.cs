@@ -10,19 +10,31 @@ using System.Threading;
 
 namespace LivePhotoBox.Services
 {
+    // 拆分扫描时识别出的潜在实况照片文件信息。
     public sealed class LivePhotoSplitFileInfo
     {
+        // 源文件完整路径。
         public required string SourcePath { get; init; }
+        // 文件字节大小。
         public required long FileSizeBytes { get; init; }
     }
 
+    // 拆分扫描结果。
     public sealed class LivePhotoSplitScanResult
     {
+        // 扫描出的实况照片文件列表。
         public required IReadOnlyList<LivePhotoSplitFileInfo> Files { get; init; }
+        // 识别为实况照片的文件数。
         public required int RecognizedCount { get; init; }
+        // 跳过的普通图片文件数。
         public required int SkippedCount { get; init; }
     }
 
+    // 实况照片拆分扫描服务。
+    // 遍历目录中的 JPEG 文件，通过读取文件头部元数据（XMP/APP 段）
+    // 检测是否包含 Google Camera:MicroVideoOffset 或 MotionPhoto 特征，
+    // 从而识别出嵌有视频尾部的实况照片（Android 标准）。
+    // 支持递归扫描与详细进度报告。
     public static class LivePhotoSplitScanService
     {
         // 统一与 SplitService 相同的 1MB 探测深度，避免遗漏包含较大 EXIF 的实况照片
@@ -54,6 +66,14 @@ namespace LivePhotoBox.Services
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline,
             TimeSpan.FromSeconds(2));
 
+        // 扫描指定目录，检测所有 JPEG 文件中的实况照片特征。
+        // 使用二分策略：先快速枚举所有图片文件，再逐个进行实况照片检测。
+        // 检测时先用字节流粗筛特征字符串，再精确解析视频偏移量，最后校验偏移合法性。
+        // inputDirectory: 要扫描的输入目录。
+        // cancellationToken: 取消令牌。抛出 OperationCanceledException 表示扫描被取消。
+        // progress: 批量进度报告（total, completed, recognized, skipped）。
+        // itemProgress: 单个文件识别报告（每次发现实况照片时触发）。
+        // è¿å: 扫描结果，包含所有识别出的实况照片文件列表与统计。
         public static LivePhotoSplitScanResult Scan(
             string inputDirectory,
             CancellationToken cancellationToken = default,
@@ -67,7 +87,9 @@ namespace LivePhotoBox.Services
             int enumerated = 0;
             try
             {
-                foreach (var path in Directory.EnumerateFiles(inputDirectory))
+                bool recursive = AppSettingsService.GetValue("IsRecursiveScanEnabled", false);
+                var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                foreach (var path in Directory.EnumerateFiles(inputDirectory, "*.*", searchOption))
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     enumerated++;

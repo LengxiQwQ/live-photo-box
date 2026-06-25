@@ -1,10 +1,23 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 
+// <summary>
+// File: VisualTreeHelperExtensions.cs
+// 为 WinUI 3 / UWP 可视化树提供扩展方法，
+// 简化按类型查找后代控件（Descendant）的常见操作。
+// </summary>
+
 namespace LivePhotoBox.Helpers
 {
+    // VisualTreeHelper 扩展方法集合。
+    // 提供深度优先的可视化树后代查找功能，用于在 XAML 可视化树中
+    // 按类型递归查找指定类型的子控件（如查找 ListView 内部的 ScrollViewer）。
     public static class VisualTreeHelperExtensions
     {
+        // 在可视化树中深度优先查找指定类型的后代元素。
+        // T: 要查找的后代元素类型，须为 DependencyObject。
+        // root: 搜索的根元素。
+        // è¿å: 第一个匹配的 T 类型后代元素；若未找到则返回 null。
         public static T? FindDescendant<T>(DependencyObject root) where T : DependencyObject
         {
             int childCount = VisualTreeHelper.GetChildrenCount(root);

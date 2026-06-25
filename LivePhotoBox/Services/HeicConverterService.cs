@@ -12,25 +12,24 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
 {
-    /// <summary>
-    /// HEIC/HEIF → JPEG 转码服务
-    ///
-    /// 支持两种解码器，可在设置页面中切换：
-    ///   0 — Magick.NET (ImageMagick + libheif)，默认
-    ///   1 — Windows BitmapDecoder（系统内置 HEIC 解码器）
-    ///
-    /// 两种方案各有利弊，用户可根据实际效果选择。
-    /// 转换后均通过 ExifTool 复制元数据（排除 Orientation 以避免双重旋转）。
-    /// </summary>
+    // HEIC/HEIF → JPEG 转码服务
+    // 支持两种解码器，可在设置页面中切换：
+    // 0 — Magick.NET (ImageMagick + libheif)，默认
+    // 1 — Windows BitmapDecoder（系统内置 HEIC 解码器）
+    // 两种方案各有利弊，用户可根据实际效果选择。
+    // 转换后均通过 ExifTool 复制元数据（排除 Orientation 以避免双重旋转）。
     public static class HeicConverterService
     {
+        // 判断指定文件是否为 HEIC 或 HEIF 格式（仅检查扩展名，不读取文件头）。
+        // path: 文件路径
+        // è¿å: 是 HEIC/HEIF 文件返回 true
         public static bool IsHeicFile(string path)
         {
             return path.EndsWith(".heic", StringComparison.OrdinalIgnoreCase)
                 || path.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>读取用户选择的解码器：0=Magick.NET, 1=Windows BitmapDecoder</summary>
+        // 读取用户选择的解码器：0=Magick.NET, 1=Windows BitmapDecoder
         public static int DecoderIndex => AppSettingsService.GetValue("HeicDecoderIndex", 0);
 
         // ── 公开 API ──────────────────────────────────────
@@ -58,9 +57,15 @@ namespace LivePhotoBox.Services
 
         // ── 调度 ──────────────────────────────────────────
 
+        // 核心转换逻辑 — 根据用户选择的解码器方案分派到不同的实现。
+        // 转换完成后通过 ExifTool 复制元数据，失败时清理临时产物。
+        // heicPath: 源 HEIC 文件路径
+        // outputPath: 目标 JPEG 文件路径
+        // token: 取消令牌
+        // è¿å: 转换后的 JPEG 文件路径
         private static async Task<string> ConvertInternalAsync(string heicPath, string outputPath, CancellationToken token)
         {
-            // 一次读取，避免多次调 AppSettingsService
+            // 一次读取解码器索引，避免多次调 AppSettingsService（IO 开销）
             int decoderIndex = DecoderIndex;
             var decoderName = decoderIndex == 1 ? "BitmapDecoder" : "Magick.NET";
             LogService.Merge($"Converting HEIC to JPEG ({decoderName}): {heicPath}");
@@ -96,11 +101,9 @@ namespace LivePhotoBox.Services
 
         // ── 方案 A：Magick.NET ─────────────────────────────
 
-        /// <summary>
-        /// 使用 ImageMagick/libheif 解码 HEIC。
-        /// 优点：完全自包含，无需 Windows 商店扩展；瓦片网格自动拼接；
-        ///       Display P3→sRGB 自动转换；EXIF 方向自动应用。
-        /// </summary>
+        // 使用 ImageMagick/libheif 解码 HEIC。
+        // 优点：完全自包含，无需 Windows 商店扩展；瓦片网格自动拼接；
+        // Display P3→sRGB 自动转换；EXIF 方向自动应用。
         private static void ConvertWithMagickNET(string heicPath, string outputPath)
         {
             using var image = new MagickImage(heicPath);
@@ -119,11 +122,9 @@ namespace LivePhotoBox.Services
 
         // ── 方案 B：Windows BitmapDecoder ──────────────────
 
-        /// <summary>
-        /// 使用 Windows 内置 BitmapDecoder 解码 HEIC。
-        /// 优点：系统原生解码，色彩还原最准确，HDR 色调映射由系统完成。
-        /// 缺点：依赖 Windows HEIC 扩展（Win10 需手动安装，Win11 内置）。
-        /// </summary>
+        // 使用 Windows 内置 BitmapDecoder 解码 HEIC。
+        // 优点：系统原生解码，色彩还原最准确，HDR 色调映射由系统完成。
+        // 缺点：依赖 Windows HEIC 扩展（Win10 需手动安装，Win11 内置）。
         private static async Task ConvertWithBitmapDecoderAsync(string heicPath, string outputPath)
         {
             StorageFile sourceFile = await StorageFile.GetFileFromPathAsync(heicPath);
@@ -167,10 +168,8 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 复制所有标签但排除 Orientation。
-        /// AutoOrient / BitmapDecoder 已把方向应用到像素上，再复制 Orientation 会导致双重旋转。
-        /// </summary>
+        // 复制所有标签但排除 Orientation。
+        // AutoOrient / BitmapDecoder 已把方向应用到像素上，再复制 Orientation 会导致双重旋转。
         private static async Task CopyTagsAsync(string sourcePath, string targetPath, CancellationToken token)
         {
             // 使用 RunExifToolAsync（stdin 管道，UTF-8 编码），兼容所有语言文件名

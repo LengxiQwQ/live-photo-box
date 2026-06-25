@@ -14,15 +14,23 @@ using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.ViewModels
 {
+    // 设置页面的 ViewModel。
+    // 管理所有应用设置项（语言、主题、背景、Banner、合并/拆分/修复参数、硬件编码等），
+    // 提供默认值加载、持久化保存和 UI 双向绑定支持。
+    // 继承自 ViewModelBase（无扫描/处理生命周期）。
     public partial class SettingsViewModel : ViewModelBase
     {
+        // 初始化中标志位，避免初始化期间触发的 OnChanged 重复写入设置。
         private bool _isInitializing;
 
+        // 该页面不在导航栏显示状态标签，返回 null。
         public override string? PageStatusTag => null;
 
+        // 硬件信息是否正在加载中（用于 UI 显示加载动画）。
         [ObservableProperty]
-        private bool _isHardwareLoading; // 新增：用于在UI显示硬件加载状态（可选绑定转圈圈动画）
+        private bool _isHardwareLoading;
 
+        // 当前选择的语言索引，写入 AppSettings 并应用语言覆盖。
         [ObservableProperty]
         private int _languageIndex;
 
@@ -50,6 +58,7 @@ namespace LivePhotoBox.ViewModels
             _ = LanguageService.ShowRestartPromptAsync(targetLanguage);
         }
 
+        // 当前选择的主题索引（0=默认, 1=浅色, 2=深色）。
         [ObservableProperty]
         private int _elementTheme;
 
@@ -59,6 +68,7 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Theme changed to: {(ElementTheme)value}", LogSource.Settings);
         }
 
+        // 窗口背景（Backdrop）效果索引：0= 无, 1= Mica, 2= Acrylic, 3= AcrylicThin。
         [ObservableProperty]
         private int _backdropIndex;
 
@@ -68,7 +78,7 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Backdrop changed to index: {value}", LogSource.Settings);
         }
 
-        /// <summary>Acrylic 着色浓度 (0.0–1.0)，仅在 BackdropIndex 为 2/3 时生效</summary>
+        // Acrylic 着色浓度 (0.0–1.0)，仅在 BackdropIndex 为 2/3 时生效
         [ObservableProperty]
         private double _acrylicTintOpacity = 0.5;
 
@@ -80,7 +90,7 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Acrylic tint opacity: {value:F2}", LogSource.Settings);
         }
 
-        /// <summary>窗口整体透明度 (0.1–1.0)，1.0 = 完全不透明</summary>
+        // 窗口整体透明度 (0.1–1.0)，1.0 = 完全不透明
         [ObservableProperty]
         private double _windowOpacity = 1.0;
 
@@ -92,10 +102,12 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Window opacity: {value:F2}", LogSource.Settings);
         }
 
-        /// <summary>窗口透明度的步长（0.05）— 供 Slider 使用</summary>
+        // 窗口透明度的步长（0.05）— 供 Slider 使用
         public double OpacityStepFrequency => 0.05;
 
+        // Acrylic 着色浓度的 UI 百分比文本。
         public string AcrylicTintOpacityText => $"{AcrylicTintOpacity * 100:F0}%";
+        // 窗口透明度的 UI 百分比文本。
         public string WindowOpacityText => $"{WindowOpacity * 100:F0}%";
 
         #region Banner Settings
@@ -107,7 +119,7 @@ namespace LivePhotoBox.ViewModels
             new BannerPreset { Name = "BannerPreset_Name_anime", Key = "anime",    AssetPath = "ms-appx:///Assets/Banners/banner_03.jpg" },
         };
 
-        /// <summary>预加载的 Banner BitmapImage，切换时只改引用不重新解码</summary>
+        // 预加载的 Banner BitmapImage，切换时只改引用不重新解码
         private readonly List<BitmapImage> _preloadedBanners = new();
 
         [ObservableProperty]
@@ -141,6 +153,7 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Banner random mode: {(value ? "ON" : "OFF")}", LogSource.Settings);
         }
 
+        // 当前选中的 Banner 预设名称（已本地化），用于 UI 显示。
         public string CurrentBannerPresetName
         {
             get
@@ -151,15 +164,22 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        /// <summary>三张预加载 Banner 的图片源，供 Image 控件直接绑定（切换时不换 Source，只换 Visibility）</summary>
+        // 三张预加载 Banner 的图片源，供 Image 控件直接绑定（切换时不换 Source，只换 Visibility）
+        // 三张预加载 Banner 的 BitmapImage 源（索引 0）。
         public BitmapImage? BannerImage0 => _preloadedBanners.Count > 0 ? _preloadedBanners[0] : null;
+        // 三张预加载 Banner 的 BitmapImage 源（索引 1）。
         public BitmapImage? BannerImage1 => _preloadedBanners.Count > 1 ? _preloadedBanners[1] : null;
+        // 三张预加载 Banner 的 BitmapImage 源（索引 2）。
         public BitmapImage? BannerImage2 => _preloadedBanners.Count > 2 ? _preloadedBanners[2] : null;
 
+        // Banner 预设 0 的可见性。
         public Visibility Banner0Visible => BannerPresetIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
+        // Banner 预设 1 的可见性。
         public Visibility Banner1Visible => BannerPresetIndex == 1 ? Visibility.Visible : Visibility.Collapsed;
+        // Banner 预设 2 的可见性。
         public Visibility Banner2Visible => BannerPresetIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
 
+        // 切换到上一个 Banner 预设。
         public void PrevBanner()
         {
             if (BannerPresets.Count == 0) return;
@@ -168,6 +188,7 @@ namespace LivePhotoBox.ViewModels
             BannerPresetIndex = newIndex;
         }
 
+        // 切换到下一个 Banner 预设。
         public void NextBanner()
         {
             if (BannerPresets.Count == 0) return;
@@ -200,6 +221,7 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Google protocol force-MP4: {(value ? "ON" : "OFF")}", LogSource.Settings);
         }
 
+        // 合成并行线程数。
         [ObservableProperty]
         private int _mergeThreadCount = 5;
 
@@ -210,22 +232,24 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Merge thread count changed to: {value}", LogSource.Settings);
         }
 
-        /// <summary>合成并行数最大值</summary>
+        // 合成并行数最大值
         public int MaxMergeThreadCount => 10;
 
+        // 增加合成并行线程数。
         [RelayCommand]
         private void IncreaseMergeThreadCount()
         {
             if (MergeThreadCount < MaxMergeThreadCount) MergeThreadCount++;
         }
 
+        // 减少合成并行线程数。
         [RelayCommand]
         private void DecreaseMergeThreadCount()
         {
             if (MergeThreadCount > 1) MergeThreadCount--;
         }
 
-        /// <summary>实况照片配对方式：文件名+元数据 / 仅文件名 / 仅元数据</summary>
+        // 实况照片配对方式：文件名+元数据 / 仅文件名 / 仅元数据
         [ObservableProperty]
         private int _metadataMatchingModeIndex;
 
@@ -240,6 +264,7 @@ namespace LivePhotoBox.ViewModels
 
         #region Split Settings
 
+        // 拆分默认输出格式索引（与 SplitViewModel.SelectedFormatIndex 共享设置键）。
         [ObservableProperty]
         private int _splitFormatIndex;
 
@@ -271,10 +296,8 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        /// <summary>
-        /// 根据一个 codec 的编码器名称，同时保存 H.264 和 HEVC 两个 codec 的编码器设置。
-        /// 委托给 EncoderHelper（集中管理编码器逻辑，不再依赖 VideoTranscodeService）。
-        /// </summary>
+        // 根据一个 codec 的编码器名称，同时保存 H.264 和 HEVC 两个 codec 的编码器设置。
+        // 委托给 EncoderHelper（集中管理编码器逻辑，不再依赖 VideoTranscodeService）。
         // SaveEncoderForBothCodecs → EncoderHelper.SaveEncoderForBothCodecs
 
         [ObservableProperty]
@@ -316,7 +339,7 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"HEIC repair setting changed to: {(value ? "enabled" : "disabled")}", LogSource.Settings);
         }
 
-        /// <summary>修复输出模式 — 开启时修复到单独目录，关闭时原地替换</summary>
+        // 修复输出模式 — 开启时修复到单独目录，关闭时原地替换
         [ObservableProperty]
         private bool _isRepairOutputToDirectory;
 
@@ -330,7 +353,7 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Repair output mode: {(value ? "separate directory" : "in-place")}", LogSource.Settings);
         }
 
-        /// <summary>修复非实况照片的视频 — 开启后同时修复 > 3.5s 的普通长视频</summary>
+        // 修复非实况照片的视频 — 开启后同时修复 > 3.5s 的普通长视频
         [ObservableProperty]
         private bool _isNonLivePhotoVideoRepairEnabled;
 
@@ -345,7 +368,7 @@ namespace LivePhotoBox.ViewModels
 
         #region History / Inspector Settings
 
-        /// <summary>是否在导航栏显示"照片历史"页面（默认隐藏）</summary>
+        // 是否在导航栏显示"照片历史"页面（默认隐藏）
         [ObservableProperty]
         private bool _isHistoryPageVisible;
 
@@ -358,9 +381,23 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
+        #region General Settings
+
+        [ObservableProperty]
+        private bool _isRecursiveScanEnabled;
+
+        partial void OnIsRecursiveScanEnabledChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsRecursiveScanEnabled), value);
+            LogService.Info($"Recursive scan: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
+        #endregion
+
         #region Debug / Test Tools
 
-        /// <summary>修复页面扫描时加载视频缩略图（默认关 = 不加载）</summary>
+        // 修复页面扫描时加载视频缩略图（默认关 = 不加载）
         [ObservableProperty]
         private bool _isRepairScanLoadThumbnail;
 
@@ -371,7 +408,7 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Repair scan load thumbnail: {(value ? "enabled" : "disabled")}", LogSource.Settings);
         }
 
-        /// <summary>更严格的实况照片扫描 — 通过 ContentIdentifier UUID 匹配（默认关 = 文件名匹配）</summary>
+        // 更严格的实况照片扫描 — 通过 ContentIdentifier UUID 匹配（默认关 = 文件名匹配）
         [ObservableProperty]
         private bool _isStrictLivePhotoScanEnabled;
 
@@ -382,10 +419,8 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Strict Live Photo scan: {(value ? "ON" : "OFF")}", LogSource.Settings);
         }
 
-        /// <summary>
-        /// 详细操作记录开关（默认关闭）
-        /// 关闭后仅标记经本软件处理过（合成/拆分/修复），不通过 dc:subject 写入具体更改内容
-        /// </summary>
+        // 详细操作记录开关（默认关闭）
+        // 关闭后仅标记经本软件处理过（合成/拆分/修复），不通过 dc:subject 写入具体更改内容
         [ObservableProperty]
         private bool _isDetailedHistoryEnabled;
 
@@ -405,11 +440,9 @@ namespace LivePhotoBox.ViewModels
             _ = LoadHardwareInfoAsync();
         }
 
-        /// <summary>
-        /// 进入设置页面时调用：预加载 Banner → 通知 UI。
-        /// 只执行一次（_preloadedBanners 非空则跳过）。
-        /// 使用 SetSourceAsync 强制立即解码，避免 UriSource 懒加载导致切换闪烁。
-        /// </summary>
+        // 进入设置页面时调用：预加载 Banner → 通知 UI。
+        // 只执行一次（_preloadedBanners 非空则跳过）。
+        // 使用 SetSourceAsync 强制立即解码，避免 UriSource 懒加载导致切换闪烁。
         public async Task EnsureBannersPreloadedAsync()
         {
             if (_preloadedBanners.Count > 0) return;  // 已加载，跳过
@@ -420,7 +453,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(Banner0Visible));
         }
 
-        /// <summary>用 SetSourceAsync 强制解码所有 Banner，返回时图片已在内存中</summary>
+        // 用 SetSourceAsync 强制解码所有 Banner，返回时图片已在内存中
         private async Task PreloadBannersAsync()
         {
             foreach (var preset in BannerPresets)
@@ -434,6 +467,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 从 AppSettingsService 加载所有设置项到 ViewModel 属性。
         private void LoadSettings()
         {
             LanguageIndex = AppSettingsService.GetValue(nameof(LanguageIndex), 0);
@@ -458,8 +492,10 @@ namespace LivePhotoBox.ViewModels
             SplitFormatIndex = AppSettingsService.GetValue("SelectedFormatIndex", 0);
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
+            IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), false);
         }
 
+        // 异步加载硬件编码信息（WMI + FFmpeg 检测），完成后设置 SelectedHardware。
         private async Task LoadHardwareInfoAsync()
         {
             IsHardwareLoading = true;
@@ -488,6 +524,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 将检测到的硬件列表应用到 UI 绑定的集合，并设置当前选择。
         private void ApplyHardwareList(List<HardwareService.HardwareInfo> hardware)
         {
             AvailableHardware.Clear();
@@ -500,6 +537,7 @@ namespace LivePhotoBox.ViewModels
             IsHardwareLoading = false;
         }
 
+        // 根据上次保存的设置或自动推荐，选定当前的硬件编码器。
         private void SetHardwareSelection(List<HardwareService.HardwareInfo> hardware)
         {
             if (AvailableHardware.Count == 0) return;
@@ -546,6 +584,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 强制重新检测硬件编码器（清除缓存后重新加载）。
         [RelayCommand]
         private async Task RefreshHardwareAsync()
         {
@@ -564,6 +603,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 增加拆分线程数。
         [RelayCommand]
         private void IncreaseThreadCount()
         {
@@ -573,6 +613,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 减少拆分线程数。
         [RelayCommand]
         private void DecreaseThreadCount()
         {
@@ -582,6 +623,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 将所有设置恢复为默认值，包括硬件选择、合成/拆分/修复参数等。
         [RelayCommand]
         private void RestoreDefaultSettings()
         {

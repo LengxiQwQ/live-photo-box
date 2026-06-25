@@ -7,8 +7,11 @@ using System;
 
 namespace LivePhotoBox.Converters
 {
+    // 根据 ProcessStatus 枚举值返回对应的状态颜色画刷。
+    // Processing → 橙；Success → 绿；Failed → 红；其他状态跟随系统主题自动适配。
     public sealed class StatusToColorConverter : IValueConverter
     {
+        // 将 ProcessStatus 转换为表示处理状态的 SolidColorBrush。
         public object Convert(object value, Type targetType, object parameter, string language)
         {
             if (value is ProcessStatus status)
@@ -25,11 +28,13 @@ namespace LivePhotoBox.Converters
             return GetDefaultColorBrush();
         }
 
+        // 不支持反向转换。
         public object ConvertBack(object value, Type targetType, object parameter, string language)
         {
             throw new NotImplementedException();
         }
 
+        // 获取默认状态颜色画刷，根据系统主题（亮色/暗色）自动选择灰色调。
         private static SolidColorBrush GetDefaultColorBrush()
         {
             return Application.Current.RequestedTheme == ApplicationTheme.Light

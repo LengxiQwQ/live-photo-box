@@ -1,3 +1,7 @@
+// <copyright file="MergeViewModel.cs" company="Live Photo Box">
+// Copyright (c) Live Photo Box. All rights reserved.
+// </copyright>
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Collections;
@@ -20,24 +24,41 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.ViewModels
 {
+    // 实况照片合并页面的 ViewModel，对应 MergePage。
+    // 负责扫描输入文件夹中的图片-视频配对，选择合并协议（Google/HEIC/OPPO），
+    // 以及执行合并任务并将结果写入输出文件夹。
     public partial class MergeViewModel : WorkViewModelBase
     {
+        // 用于统计合并耗时的计时器。
         private Stopwatch _stopwatch = new();
+
+        // 合并是否被用户手动停止。
         private bool _mergeStoppedByUser;
+
+        // 所有合并任务是否已完成（成功/失败都算）。
         private bool _mergeDone;
 
+        // UI 更新计时器（约 60ms 间隔），用于在合并过程中刷新进度条和进度文本。
         private readonly DispatcherTimer _uiUpdateTimer;
+
+        // 当前已完成的合并任务数（线程安全，使用 volatile）。
         private volatile int _completedTasksCount;
 
+        // <inheritdoc/>
         public override string PageStatusTag => "Merge";
 
+        // <inheritdoc/>
         protected override string ProcessingStatusKey => "Status_Running";
 
+        // 处理中的状态文本，包含当前选中的协议名称和硬件加速信息。
         protected override string ProcessingStatusText =>
             ResourceService.Format("Status_Running") + " | " +
             LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName +
             GetHardwareSuffix();
 
+        #region Observable Properties
+
+        // 输入文件夹路径（用户选择的待扫描目录）。
         [ObservableProperty]
         private string _inputDirectory = string.Empty;
 
@@ -56,32 +77,45 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 输出文件夹路径（合并后的实况照片存放目录）。默认在输入目录下创建子目录。
         [ObservableProperty]
         private string _outputDirectory = string.Empty;
 
         partial void OnOutputDirectoryChanged(string value) => _openMergeOutputFolderCommand?.NotifyCanExecuteChanged();
 
+        // 扫描到的有效配对总数。
         [ObservableProperty]
         private int _totalPairsCount = 0;
 
+        // 扫描到的无配对图片文件数。
         [ObservableProperty]
         private int _standaloneImagesCount = 0;
 
+        // 扫描到的无配对视频文件数。
         [ObservableProperty]
         private int _standaloneVideosCount = 0;
 
+        // 目录选择面板是否展开显示。
         [ObservableProperty]
         private bool _isDirectoryPanelOpen = true;
 
+        // 合并进度百分比（0~100）。
         [ObservableProperty]
         private double _mergeProgress = 0;
 
+        #endregion
+
+        #region Properties
+
+        // 扫描按钮的文本，扫描中显示"取消"，其余显示"扫描"。
         public string ScanButtonText => IsScanning
             ? ResourceService.GetString("MergePage_DynamicCancelText")
             : ResourceService.GetString("MergePage_DynamicScanText");
 
+        // 合并任务列表（Observable 集合，支持高性能批量更新）。
         public BulkObservableCollection<MergeTask> Tasks { get; } = [];
 
+        // 当前选中的合并模式（协议）索引，持久化存储到设置中。
         public int SelectedModeIndex
         {
             get => AppSettingsService.GetValue(nameof(SelectedModeIndex), 1);
@@ -96,8 +130,15 @@ namespace LivePhotoBox.ViewModels
         private IAsyncRelayCommand? _openMergeInputFolderCommand;
         private IAsyncRelayCommand? _openMergeOutputFolderCommand;
 
+        // 在文件资源管理器中打开输入文件夹的命令。
         public IAsyncRelayCommand OpenMergeInputFolderCommand => _openMergeInputFolderCommand ??= new AsyncRelayCommand(OpenMergeInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
+
+        // 在文件资源管理器中打开输出文件夹的命令。
         public IAsyncRelayCommand OpenMergeOutputFolderCommand => _openMergeOutputFolderCommand ??= new AsyncRelayCommand(OpenMergeOutputFolderAsync, () => !string.IsNullOrWhiteSpace(OutputDirectory));
+
+        #endregion
+
+        #region Constructor
 
         public MergeViewModel()
         {
@@ -106,6 +147,11 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
         }
 
+        #endregion
+
+        #region Command-Related Properties
+
+        // 主操作按钮（开始/停止合并）的文本。
         public override string ActionBtnText
         {
             get
@@ -119,34 +165,52 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 当前是否允许开始处理（扫描中不允许）。
         public override bool IsProcessingAllowed => !IsScanning;
+
+        // 当前是否可以编辑合并模式选择（扫描和处理中均不允许）。
         public bool CanEditSelectedMode => !IsScanning && !IsProcessing;
 
+        #endregion
+
+        #region WorkViewModelBase Overrides
+
+        // <inheritdoc/>
         protected override void OnScanStateChanged(bool isScanning)
         {
             OnPropertyChanged(nameof(ScanButtonText));
         }
 
+        // <inheritdoc/>
         protected override void OnBeginScanSession()
         {
             AppViewModel.Instance.BeginMergeScanSession();
         }
 
+        // <inheritdoc/>
         protected override void OnApplyScanProgress(WorkProgressSnapshot snapshot)
         {
             AppViewModel.Instance.ApplyMergeScanProgress(snapshot);
         }
 
+        // <inheritdoc/>
         protected override void OnCompleteScanSnapshot()
         {
             AppViewModel.Instance.CompleteFooterWorkSnapshot();
         }
 
+        // <inheritdoc/>
         protected override void OnScanningEnded()
         {
             base.OnScanningEnded();
         }
 
+        #endregion
+
+        #region UI Update Timer
+
+        // UI 更新定时器回调，定期刷新合并进度和进度文本。
+        // 通过 _completedTasksCount 和 TotalPairsCount 计算百分比。
         private void UiUpdateTimer_Tick(object? sender, object e)
         {
             if (TotalPairsCount == 0) return;
@@ -157,6 +221,11 @@ namespace LivePhotoBox.ViewModels
             CheckAndApplyPendingState();
         }
 
+        #endregion
+
+        #region Run State Lifecycle
+
+        // <inheritdoc/>
         protected override void OnInitializeRunState()
         {
             _mergeStoppedByUser = false;
@@ -172,6 +241,7 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer.Start();
         }
 
+        // <inheritdoc/>
         protected override void OnFinalizeRunState()
         {
             _uiUpdateTimer.Stop();
@@ -212,6 +282,7 @@ namespace LivePhotoBox.ViewModels
             IsDirectoryPanelOpen = true;
         }
 
+        // <inheritdoc/>
         protected override void OnClearState()
         {
             Tasks.ReplaceRange([]);
@@ -232,11 +303,17 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(CanEditSelectedMode));
         }
 
+        // <inheritdoc/>
         protected override void OnCleanup()
         {
             _uiUpdateTimer.Stop();
         }
 
+        #endregion
+
+        #region Scan Command
+
+        // 扫描输入文件夹中的图片-视频配对，支持文件名匹配和元数据匹配两种模式。
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ScanDirectoryAsync()
         {
@@ -471,6 +548,11 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        #endregion
+
+        #region Secondary / Toggle Commands
+
+        // 切换次要操作：未处理时清除状态，处理中则切换暂停/继续。
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
@@ -486,6 +568,8 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 切换合并处理状态：开始合并或停止合并。
+        // 停止时显示已取消对话框，完成后显示完成对话框。
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleProcessAsync()
         {
@@ -525,7 +609,11 @@ namespace LivePhotoBox.ViewModels
             await RunTasksAsync();
         }
 
+        #endregion
 
+        #region Result Dialogs
+
+        // 显示合并已完成对话框，可打开输出文件夹。
         private async Task ShowMergeAlreadyDoneDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -582,6 +670,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 显示合并已被用户取消的结果对话框，汇总成功/失败/未处理数量。
         private async Task ShowMergeCancelledDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -640,6 +729,14 @@ namespace LivePhotoBox.ViewModels
         }
 
 
+        #endregion
+
+        #region Task Execution
+
+        // 执行所有合并任务的异步核心方法。
+        // 处理流程：初始化状态 → 创建输出/临时目录 → 按并发限制并行处理任务 →
+        // 对 HEIC 图片转码 JPEG、视频转码 MP4、协议预处理 → 写入实况照片文件 →
+        // 清理临时文件 → 显示结果对话框。
         private async Task RunTasksAsync()
         {
             InitializeRunState();
@@ -695,7 +792,7 @@ namespace LivePhotoBox.ViewModels
 
                             var protocol = LivePhotoProtocol.FromIndex(modeIndex);
                             string outputName = LivePhotoMergeService.CreateOutputFileName(task.BaseName, modeIndex);
-                            string finalPath = Path.Combine(outputDir, outputName);
+                            string finalPath = PathHelper.GetUniqueFilePath(outputDir, outputName);
                             string workingImagePath = task.ImagePath;
                             string workingVideoPath = task.VideoPath;
                             var tempFiles = new System.Collections.Generic.List<string>();
@@ -885,9 +982,17 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        #endregion
+
+        #region Task Status Events
+
+        // 当某个合并任务开始时触发，可用于自动滚动到当前处理的任务。
         public event EventHandler<MergeTask>? TaskStartedForScroll;
+
+        // 当所有合并任务处理完毕（全部完成或停止）时触发，可用于滚动到列表顶部。
         public event EventHandler? ProcessingCompletedForScroll;
 
+        // 标记任务开始处理（设置为 Processing 状态）。
         private void UpdateTaskStarted(MergeTask task)
         {
             task.Status = ProcessStatus.Processing;
@@ -895,12 +1000,14 @@ namespace LivePhotoBox.ViewModels
             TaskStartedForScroll?.Invoke(this, task);
         }
 
+        // 标记任务被用户取消（保留 Processing 状态，颜色中性，只更新详情）。
         private void UpdateTaskCancelled(MergeTask task, string detailMessage)
         {
             // 用户取消不标记为"失败"——保留 Processing 状态，颜色中性，只更新详情
             task.Details = detailMessage;
         }
 
+        // 更新任务完成状态（成功/失败），如果所有任务完成则触发 ProcessingCompletedForScroll 事件。
         private void UpdateTaskCompleted(MergeTask task, bool isSuccess, string detailMessage, int completedCount)
         {
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
@@ -912,6 +1019,11 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        #endregion
+
+        #region Folder Commands
+
+        // 在文件资源管理器中打开输入文件夹。
         private async Task OpenMergeInputFolderAsync()
         {
             try
@@ -927,6 +1039,7 @@ namespace LivePhotoBox.ViewModels
             catch (Exception ex) { LogService.Merge($"OpenMergeInput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
+        // 在文件资源管理器中打开输出文件夹（不存在则自动创建）。
         private async Task OpenMergeOutputFolderAsync()
         {
             try
@@ -938,5 +1051,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex) { LogService.Merge($"OpenMergeOutput error: {ex.Message}", LogLevel.Error, ex); }
         }
+
+        #endregion
     }
 }

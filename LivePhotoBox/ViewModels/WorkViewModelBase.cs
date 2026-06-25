@@ -11,10 +11,16 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.ViewModels
 {
+    // 工作流型页面（拆分/修复/合成）的抽象基类。
+    // 封装了扫描、处理、暂停、取消、进度报告等通用生命周期管理，
+    // 以及按钮文本、进度条状态、对话框显示等公用逻辑。
+    // 子类需实现 OnInitializeRunState / OnFinalizeRunState / OnClearState 等抽象方法。
     public abstract partial class WorkViewModelBase : ViewModelBase
     {
+        // 崩溃日志强制使用的语言标签（英语），确保崩溃信息可读。
         private const string CrashLogLanguageTag = "en-US";
 
+        // 是否正在处理中。
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(IsProcessingAllowed))]
         [NotifyPropertyChangedFor(nameof(ActionBtnText))]
@@ -23,6 +29,7 @@ namespace LivePhotoBox.ViewModels
         [NotifyPropertyChangedFor(nameof(CanEditOutputConfiguration))]
         private bool _isProcessing = false;
 
+        // 是否正在扫描中。
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(ScanButtonStyle))]
         [NotifyPropertyChangedFor(nameof(IsProcessingAllowed))]
@@ -30,33 +37,46 @@ namespace LivePhotoBox.ViewModels
         [NotifyPropertyChangedFor(nameof(CanEditInputConfiguration))]
         private bool _isScanning = false;
 
+        // 是否处于暂停状态。
         [ObservableProperty]
         private bool _isPaused = false;
 
+        // 当前进度（0.0–100.0）。
         [ObservableProperty]
         private double _progress = 0;
 
+        // 是否请求了暂停（等待工作线程完成当前任务后进入暂停）。
         private bool _pauseRequested = false;
+        // 是否请求了恢复。
         private bool _resumeRequested = false;
+        // 是否正在暂停过渡中（工作线程执行完当前任务后才真正暂停）。
         private bool _isPausing = false;
+        // 是否由用户主动取消（而非自然完成）。
         protected bool _cancelledByUser = false;
+        // 页面正在关闭清理中，跳过部分 UI 更新以避免操作已销毁的 XamlRoot。
         protected bool _isCleaningUp = false;
+        // 当前活跃的工作线程数，用于判断是否可以安全暂停。
         protected int _activeWorkerCount;
 
-        /// <summary>是否由用户手动停止（而非自然完成）。页面可据此决定是否跳过完成时的滚动。</summary>
+        // 是否由用户手动停止（而非自然完成）。页面可据此决定是否跳过完成时的滚动。
         public bool WasStoppedByUser => _cancelledByUser;
 
+        // 进度文本，如"5/100"。
         [ObservableProperty]
         private string _progressText = "0/0";
 
+        // 主操作按钮文本的后备字段。
         private string _actionBtnText = string.Empty;
+        // 主操作按钮的文本（扫描/取消/开始处理/停止等），由子类覆盖。
         public virtual string ActionBtnText
         {
             get => _actionBtnText;
             protected set => SetProperty(ref _actionBtnText, value);
         }
 
+        // 进度条状态的后备字段。
         private ProgressBarState _progressBarState = Models.ProgressBarState.Idle;
+        // 进度条状态（空闲/处理中/暂停/成功/失败/取消）。
         public Models.ProgressBarState ProgressBarState
         {
             get => _progressBarState;
@@ -70,17 +90,25 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 是否不在处理中（取反）。
         public bool IsNotProcessing => !IsProcessing;
+        // 是否不在扫描中（取反）。
         public bool IsNotScanning => !IsScanning;
 
+        // 输入配置是否可编辑（处理中和扫描中不可编辑）。
         public bool CanEditInputConfiguration => !IsProcessing && !IsScanning;
+        // 输出配置是否可编辑（处理中不可编辑）。
         public bool CanEditOutputConfiguration => !IsProcessing;
 
+        // 是否可以开始处理（默认 true，子类可重写限制）。
         public virtual bool IsProcessingAllowed => true;
 
+        // 上次扫描按钮点击的时间戳（防抖用）。
         private long _lastScanClickTimestamp = 0;
+        // 扫描按钮点击防抖间隔（毫秒）。
         private const long ScanClickDebounceMs = 200;
 
+        // 扫描按钮点击防抖：200ms 内重复点击只生效一次。
         protected bool TryGuardScanClick()
         {
             var now = Environment.TickCount64;
@@ -89,15 +117,22 @@ namespace LivePhotoBox.ViewModels
             return true;
         }
 
+        // 导航到指定功能的教程页面。
         [RelayCommand]
         protected void GoToTutorial(string feature) => RequestNavigateToPage?.Invoke(this, $"Home_{feature}");
 
+        // 页面导航请求事件（参数为目标页标识）。
         public event EventHandler<string>? RequestNavigateToPage;
+        // 状态文本变更事件。
         public event EventHandler? StatusChanged;
 
+        // 当前状态文本的后备字段。
         private string _status = string.Empty;
+        // 当前状态文本的多语言资源键。
         private string _statusKey = string.Empty;
+        // 用于日志的状态文本（始终使用英语以避免乱码）。
         private string _statusForLog = string.Empty;
+        // 当前状态文本（覆盖 ViewModelBase.Status）。
         public new string Status => _status;
 
         protected void SetStatus(string resourceKey, params object[] args)
@@ -117,10 +152,8 @@ namespace LivePhotoBox.ViewModels
             NotifyStatusChanged();
         }
 
-        /// <summary>
-        /// 在当前状态文本后面追加提示，用竖线分隔。
-        /// 用于在不打断现有状态（如"正在扫描..."）的前提下叠报警告。
-        /// </summary>
+        // 在当前状态文本后面追加提示，用竖线分隔。
+        // 用于在不打断现有状态（如"正在扫描..."）的前提下叠报警告。
         protected void AppendDirectStatus(string text)
         {
             _status = string.IsNullOrEmpty(_status) ? text : $"{_status} | {text}";
@@ -139,20 +172,31 @@ namespace LivePhotoBox.ViewModels
             StatusChanged?.Invoke(this, EventArgs.Empty);
         }
 
+        // 次要按钮文本：处理中为"暂停/继续"，空闲时为"清空列表"。
         public string SecondaryBtnText => !IsProcessing
             ? ResourceService.GetString("Btn_ClearList")
             : (_isPausing ? ResourceService.GetString("Btn_Pausing")
                : (IsPaused ? ResourceService.GetString("Btn_Resume") : ResourceService.GetString("Btn_Pause")));
 
+        // 用于日志的状态文本（英语）。
         protected string StatusForLog => _statusForLog;
 
+        #region Scan Progress Management
+
+        // 扫描总文件数。
         private int _scanTotal;
+        // 已扫描处理数。
         private int _scanProcessed;
+        // 待应用的扫描进度快照（用于节流合并）。
         private WorkProgressSnapshot _pendingScanSnapshot;
+        // 上次 UI 更新时间戳（用于节流）。
         private long _lastScanUiUpdateMs;
+        // 扫描取消 TokenSource。
         protected CancellationTokenSource? _scanCancellationTokenSource;
+        // 扫描是否由用户取消。
         protected bool _scanCancelledByUser = false;
 
+        // 开始一次扫描会话，重置进度状态并调用子类钩子。
         protected void BeginScanSession()
         {
             ProgressBarState = Models.ProgressBarState.Idle;
@@ -163,6 +207,7 @@ namespace LivePhotoBox.ViewModels
             OnBeginScanSession();
         }
 
+        // 应用扫描进度快照，更新 UI。
         protected void ApplyScanProgress(WorkProgressSnapshot snapshot)
         {
             _scanTotal = snapshot.Total;
@@ -171,8 +216,10 @@ namespace LivePhotoBox.ViewModels
             NotifyStatusChanged();
         }
 
+        // 刷新累积的待处理进度快照到 UI。
         protected void FlushPendingScanProgress() => ApplyScanProgress(_pendingScanSnapshot);
 
+        // 完成扫描快照，标记 100%。
         protected void CompleteScanSnapshot()
         {
             _scanProcessed = _scanTotal;
@@ -180,12 +227,14 @@ namespace LivePhotoBox.ViewModels
             NotifyStatusChanged();
         }
 
+        // 创建扫描进度报告器（自动节流到 UI 线程）。
         protected IProgress<WorkProgressSnapshot> CreateScanProgressReporter()
         {
             var dispatcher = App.MainWindow?.DispatcherQueue;
             return new Progress<WorkProgressSnapshot>(snapshot => EnqueueThrottledScanProgress(snapshot, dispatcher));
         }
 
+        // 将扫描进度快照排队到 UI 线程（节流：最高每 100ms 一次，完成时强制刷新）。
         private void EnqueueThrottledScanProgress(WorkProgressSnapshot snapshot, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher)
         {
             _pendingScanSnapshot = snapshot;
@@ -200,14 +249,25 @@ namespace LivePhotoBox.ViewModels
             dispatcher.TryEnqueue(() => ApplyScanProgress(captured));
         }
 
+        // 扫描会话开始时的子类钩子。
         protected abstract void OnBeginScanSession();
+        // 应用扫描进度时的子类钩子。
         protected abstract void OnApplyScanProgress(WorkProgressSnapshot snapshot);
+        // 扫描快照完成时的子类钩子。
         protected abstract void OnCompleteScanSnapshot();
+        // 页面导航栏状态标签（子类实现）。
         public abstract override string PageStatusTag { get; }
 
+        #endregion
+
+        #region Processing State Management
+
+        // 处理取消 TokenSource。
         private CancellationTokenSource? _cancellationTokenSource;
+        // 暂停/恢复信号量（Reset 时工作线程阻塞在 Wait）。
         protected readonly ManualResetEventSlim PauseEvent = new(true);
 
+        // 初始化运行状态，标记 IsProcessing=true，调用子类钩子。
         protected void InitializeRunState()
         {
             IsProcessing = true;
@@ -218,6 +278,7 @@ namespace LivePhotoBox.ViewModels
             ProgressBarState = Models.ProgressBarState.Processing;
         }
 
+        // 结束运行状态，根据完成情况设置进度条颜色，释放资源。
         protected void FinalizeRunState()
         {
             IsProcessing = false;
@@ -258,6 +319,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 获取或创建新的处理取消 Token。
         protected CancellationToken GetProcessingToken()
         {
             _cancellationTokenSource?.Dispose();
@@ -265,6 +327,7 @@ namespace LivePhotoBox.ViewModels
             return _cancellationTokenSource.Token;
         }
 
+        // 取消处理（标记用户取消、释放信号量、触发 Token 取消）。
         protected void CancelProcessing()
         {
             _cancelledByUser = true;
@@ -273,6 +336,7 @@ namespace LivePhotoBox.ViewModels
             PauseEvent.Set();
         }
 
+        // 取消扫描。
         protected void CancelScanning()
         {
             _scanCancelledByUser = true;
@@ -281,6 +345,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
+        // 获取或创建新的扫描取消 Token。
         protected CancellationToken GetScanningToken()
         {
             _scanCancellationTokenSource?.Dispose();
@@ -288,6 +353,7 @@ namespace LivePhotoBox.ViewModels
             return _scanCancellationTokenSource.Token;
         }
 
+        // 清理所有 Token 和信号量（页面关闭时调用）。
         protected void CleanupTokens()
         {
             _isCleaningUp = true;
@@ -303,19 +369,23 @@ namespace LivePhotoBox.ViewModels
             PauseEvent.Set();
         }
 
+        #endregion
+
+        // 扫描结束时的子类钩子（默认空实现）。
         protected virtual void OnScanningEnded() { }
+        // 初始化运行状态时的子类钩子（子类在此设置进度计数等）。
         protected abstract void OnInitializeRunState();
+        // 结束运行状态时的子类钩子（子类在此输出完成统计日志等）。
         protected abstract void OnFinalizeRunState();
 
-        // 每个页面自己提供"处理中"的多语言 key，恢复暂停时直接回到处理中文字
+        // 每个页面自己提供的"处理中"多语言资源键，恢复暂停时回到处理中文字。
         protected abstract string ProcessingStatusKey { get; }
 
-        /// <summary>Full processing status text including hardware/protocol suffix. Override in pages that append extra info.</summary>
+        // 完整的处理中状态文本（含硬件加速/协议后缀）。子类可覆盖追加额外信息。
         protected virtual string ProcessingStatusText => ResourceService.Format(ProcessingStatusKey);
 
-        /// <summary>
-        /// Returns hardware acceleration suffix, e.g. " | NVENC hardware acceleration" / " | CPU 软件编码".
-        /// </summary>
+        // 返回硬件加速后缀文本，如 " | NVENC hardware acceleration" / " | CPU 软件编码"。
+        // 根据 Settings.SelectedHardware 自动判断。
         protected static string GetHardwareSuffix()
         {
             var hw = AppViewModel.Instance?.Settings?.SelectedHardware;
@@ -330,6 +400,7 @@ namespace LivePhotoBox.ViewModels
             return ResourceService.GetString("RepairPage_HardwareCpu");
         }
 
+        // 根据编码器名称返回协议名（NVENC / AMF / QSV / VAAPI / GPU）。
         private static string GetEncoderProtocolName(string? encoder)
         {
             if (string.IsNullOrEmpty(encoder)) return "GPU";
@@ -341,6 +412,7 @@ namespace LivePhotoBox.ViewModels
             return "GPU";
         }
 
+        // 显示空队列对话框，提示用户先扫描添加任务。
         protected async Task ShowEmptyQueueDialogAsync(string targetFeature)
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -362,6 +434,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 显示"未选择输入目录"对话框。
         protected async Task ShowNoInputDirectoryDialogAsync(string targetFeature)
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -379,6 +452,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 显示"输入目录无效或不存在"对话框。
         protected async Task ShowInvalidInputDirectoryDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -396,6 +470,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 显示"队列不为空，请先清空"对话框。
         protected async Task ShowQueueNotEmptyDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -413,11 +488,15 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 缓存的默认按钮样式。
         private static Style? _defaultButtonStyle;
+        // 缓存的扫描取消按钮样式。
         private static Style? _scanCancelButtonStyle;
 
+        // 扫描按钮样式：扫描中切换为取消样式，空闲时恢复默认样式。
         public Style ScanButtonStyle => ResolveScanButtonStyle(IsScanning);
 
+        // 根据扫描状态解析按钮样式。
         private static Style ResolveScanButtonStyle(bool isCancelAppearance)
         {
             EnsureScanButtonStyles();
@@ -426,6 +505,7 @@ namespace LivePhotoBox.ViewModels
             return new Style(typeof(Button));
         }
 
+        // 确保按钮样式已从 Application.Resources 中加载并缓存。
         private static void EnsureScanButtonStyles()
         {
             if (_defaultButtonStyle != null && _scanCancelButtonStyle != null) return;
@@ -437,6 +517,7 @@ namespace LivePhotoBox.ViewModels
                 _scanCancelButtonStyle = cbs;
         }
 
+        // 切换暂停/恢复状态。暂停时阻塞新任务，等待活跃工作线程结束后置 IsPaused=true。
         protected void TogglePause()
         {
             if (IsPaused)
@@ -473,6 +554,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 由定时器每帧调用：检查是否所有工作线程已退出，从而安全切换暂停状态。
         protected void CheckAndApplyPendingState()
         {
             if (_pauseRequested && !IsPaused)
@@ -497,6 +579,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 应用取消状态：将进度条置为 Cancelled（红色），清除取消标志。
         protected void ApplyCancellationState()
         {
             if (_cancelledByUser)
@@ -506,6 +589,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 清除所有状态（重置进度、取消扫描/处理、清空列表）。
         protected void ClearState()
         {
             IsProcessing = false;
@@ -523,10 +607,13 @@ namespace LivePhotoBox.ViewModels
             NotifyStatusChanged();
         }
 
+        // 子类清空状态时的钩子（在此清空 Task 列表、重置计数器等）。
         protected abstract void OnClearState();
 
+        // 子类清理资源的钩子（在此停止定时器等）。
         protected virtual void OnCleanup() { }
 
+        // 页面关闭时调用，清理所有资源（Token、定时器等）。
         public void Cleanup()
         {
             OnCleanup();
