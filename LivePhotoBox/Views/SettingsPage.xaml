@@ -1,3 +1,4 @@
+<!-- 设置页（新版）：外观、转码、合成、拆分、修复配置及调试工具 -->
 <Page
     x:Class="LivePhotoBox.Views.SettingsPage"
     x:Name="RootPage"
@@ -30,12 +31,15 @@
             （#D32F2F）覆写，不跟随主题色，参见下方注释。
          ═══════════════════════════════════════════════════════════════════════ -->
 
-    <ScrollViewer x:Name="PageScrollViewer" Padding="40,24,40,0">
+    <!-- 布局：第0行固定标题，第1行可滚动内容 -->
+    <Grid RowDefinitions="Auto,*">
+        <!-- 固定标题 -->
+        <TextBlock Grid.Row="0"
+                   x:Uid="SettingsPage_Title" FontSize="32" FontWeight="Bold"
+                   Margin="40,24,40,8" FontFamily="Microsoft YaHei UI"/>
 
+        <ScrollViewer Grid.Row="1" x:Name="PageScrollViewer" Padding="40,0,40,0">
         <StackPanel x:Name="ContentPanel" Spacing="28" HorizontalAlignment="Stretch" Margin="0,0,0,40">
-
-            <!-- ==================== 页面标题 ==================== -->
-            <TextBlock x:Uid="SettingsPage_Title" FontSize="32" FontWeight="Bold" Margin="0,0,0,8" FontFamily="Microsoft YaHei UI"/>
 
             <!-- ====================================================================== -->
             <!--  外观与个性化                                                         -->
@@ -260,6 +264,31 @@
                         </controls:SettingsCard>
                     </controls:SettingsExpander.Items>
                 </controls:SettingsExpander>
+            </StackPanel>
+
+            <!-- ====================================================================== -->
+            <!--  通用                                                                 -->
+            <!-- ====================================================================== -->
+            <StackPanel Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
+                    <FontIcon Glyph="&#xE713;" FontSize="18" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock x:Uid="SettingsPage_General_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                </StackPanel>
+
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_General_RecursiveScan" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_General_RecursiveScan_Desc" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xEC42;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.IsRecursiveScanEnabled, Mode=TwoWay}"
+                                  x:Uid="Toggle_OnOff"/>
+                </controls:SettingsCard>
             </StackPanel>
 
             <!-- ====================================================================== -->
@@ -834,5 +863,6 @@
                            Margin="0,38,0,20"/>
             </StackPanel>
         </StackPanel>
-    </ScrollViewer>
+        </ScrollViewer>
+    </Grid>
 </Page>

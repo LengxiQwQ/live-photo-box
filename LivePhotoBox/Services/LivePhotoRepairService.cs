@@ -10,7 +10,14 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
 {
-    public static class LivePhotoRepairService
+// 实况照片修复服务。
+// 功能包括：
+// 1. 诊断（AnalyzeFileAsync）：通过 exiftool 扫描文件的方向标记、缩略图、ContentIdentifier 等
+// 2. 修复（RepairAsync）：修正 EXIF Orientation / 旋转角度（JPEG 用 jhead，HEIC 用 exiftool）、剥离多余缩略图
+// 3. 视频修复（RepairVideoAsync）：FFmpeg 重编码 + auto-rotate，支持硬件加速与软件回退
+// 4. 标记（TryWriteLivePhotoBoxMarkerAsync）：在 XMP dc:subject 写入操作记录
+// 依赖的外部工具：exiftool, jhead, jpegtran, ffmpeg。
+public static class LivePhotoRepairService
     {
         private static string? _exifToolPath;
         private static string ExifToolPath => _exifToolPath ??= ExternalToolLocator.FindExifTool() ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
@@ -33,9 +40,7 @@ namespace LivePhotoBox.Services
             path.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
             path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase);
 
-        /// <summary>
-        /// 统一的内部日志记录器
-        /// </summary>
+        // 统一的内部日志记录器
         private static void WriteDebugLog(string level, string source, string message, string details = "")
         {
             var logLevel = level switch
@@ -49,10 +54,8 @@ namespace LivePhotoBox.Services
             LogService.Repair(msg, logLevel);
         }
 
-        /// <summary>
-        /// 1. 扫描与诊断文件：仅用 exiftool 读取方向与缩略图状态。
-        /// 可传入常驻 exiftool 进程避免重复启动开销。
-        /// </summary>
+        // 1. 扫描与诊断文件：仅用 exiftool 读取方向与缩略图状态。
+        // 可传入常驻 exiftool 进程避免重复启动开销。
         public static async Task<RepairAnalysisResult> AnalyzeFileAsync(string filePath, PersistentExifTool? persistentExifTool = null, CancellationToken token = default)
         {
             // Video files use a separate analysis path (ffprobe + exiftool Rotation)
@@ -181,9 +184,7 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 从方向标签字符串中提取旋转角度（0/90/180/270）
-        /// </summary>
+        // 从方向标签字符串中提取旋转角度（0/90/180/270）
         private static int ParseAngleFromTag(string? tag)
         {
             if (string.IsNullOrWhiteSpace(tag)) return 0;
@@ -193,9 +194,7 @@ namespace LivePhotoBox.Services
             return 0;
         }
 
-        /// <summary>
-        /// 判断方向标签是否包含镜像/翻转标记（mirror / flip）
-        /// </summary>
+        // 判断方向标签是否包含镜像/翻转标记（mirror / flip）
         private static bool TagHasMirror(string? tag)
         {
             if (string.IsNullOrWhiteSpace(tag)) return false;
@@ -203,9 +202,7 @@ namespace LivePhotoBox.Services
                 || tag.Contains("Flip", StringComparison.OrdinalIgnoreCase);
         }
 
-        /// <summary>
-        /// 根据 QuickTime:Rotation 值推导正确的 EXIF Orientation 值
-        /// </summary>
+        // 根据 QuickTime:Rotation 值推导正确的 EXIF Orientation 值
         private static string GetOrientationForRotation(string rotation)
         {
             int angle = ParseAngleFromTag(rotation);
@@ -218,10 +215,8 @@ namespace LivePhotoBox.Services
             };
         }
 
-        /// <summary>
-        /// 安全地从 JsonElement 读取值（兼容 string 和 number 类型）。
-        /// exiftool 对 MOV 视频的 Rotation 输出为数字（如 90），对 JPEG/HEIC 为字符串（如 "Rotate 90 CW"）。
-        /// </summary>
+        // 安全地从 JsonElement 读取值（兼容 string 和 number 类型）。
+        // exiftool 对 MOV 视频的 Rotation 输出为数字（如 90），对 JPEG/HEIC 为字符串（如 "Rotate 90 CW"）。
         private static string GetJsonValueAsString(JsonElement element, string propertyName)
         {
             if (!element.TryGetProperty(propertyName, out var prop))
@@ -235,9 +230,7 @@ namespace LivePhotoBox.Services
             };
         }
 
-        /// <summary>
-        /// 解析 exiftool 的 JSON 输出，生成 RepairAnalysisResult
-        /// </summary>
+        // 解析 exiftool 的 JSON 输出，生成 RepairAnalysisResult
         private static RepairAnalysisResult ParseExifToolOutput(string output, string error, string filePath)
         {
             if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
@@ -351,10 +344,8 @@ namespace LivePhotoBox.Services
             };
         }
 
-        /// <summary>
-        /// Analyze video file (MOV/MP4) with exiftool. Reads Rotation, AvgBitrate, CompressorID.
-        /// No ffprobe needed — exiftool provides all necessary metadata.
-        /// </summary>
+        // Analyze video file (MOV/MP4) with exiftool. Reads Rotation, AvgBitrate, CompressorID.
+        // No ffprobe needed — exiftool provides all necessary metadata.
         private static async Task<RepairAnalysisResult> AnalyzeVideoAsync(
             string filePath, PersistentExifTool? persistentExifTool, CancellationToken token)
         {
@@ -473,9 +464,7 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// Parse exiftool AvgBitrate string (e.g. "12.2 Mbps") to bps (12200000).
-        /// </summary>
+        // Parse exiftool AvgBitrate string (e.g. "12.2 Mbps") to bps (12200000).
         private static long? ParseAvgBitrate(string? avgBitrate)
         {
             if (string.IsNullOrWhiteSpace(avgBitrate)) return null;
@@ -494,13 +483,11 @@ namespace LivePhotoBox.Services
             return null;
         }
 
-        /// <summary>
-        /// Parse exiftool MediaDuration PrintConv string to seconds.
-        /// Handles three formats:
-        ///   "2.35 s"   — sub-minute (seconds with unit)
-        ///   "0:01:05"  — ≥1 minute (HH:MM:SS)
-        ///   "2.35"     — raw numeric (when -n flag is used)
-        /// </summary>
+        // Parse exiftool MediaDuration PrintConv string to seconds.
+        // Handles three formats:
+        // "2.35 s"   — sub-minute (seconds with unit)
+        // "0:01:05"  — ≥1 minute (HH:MM:SS)
+        // "2.35"     — raw numeric (when -n flag is used)
         private static double ParseMediaDuration(string? mediaDuration)
         {
             if (string.IsNullOrWhiteSpace(mediaDuration)) return 0;
@@ -533,9 +520,7 @@ namespace LivePhotoBox.Services
             return 0;
         }
 
-        /// <summary>
-        /// 2. 修复文件：jhead 自动旋转 + exiftool 剥离缩略图
-        /// </summary>
+        // 2. 修复文件：jhead 自动旋转 + exiftool 剥离缩略图
         public static async Task<(bool Success, string Message)> RepairAsync(string sourcePath, string targetPath, RepairAnalysisResult analysis, CancellationToken token)
         {
             // Video repair uses FFmpeg re-encode with autorotate
@@ -657,16 +642,13 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 3. 视频旋转修复：FFmpeg 编码 + autorotate，将旋转矩阵烘焙到像素中。
-        /// 支持硬件加速（NVENC/QSV/AMF/VAAPI），失败自动回退 CPU 编码。
-        /// 设置从"视频转码"面板读取（与拆分页面共享）。
-        ///
-        /// 安全机制：
-        ///   1. 始终先写入临时文件，成功后再移动到目标路径。
-        ///      防止硬件编码中途失败损坏源文件（原地修复时 sourcePath==targetPath）。
-        ///   2. 硬件失败自动回退到软件编码，源文件始终保持完整。
-        /// </summary>
+        // 3. 视频旋转修复：FFmpeg 编码 + autorotate，将旋转矩阵烘焙到像素中。
+        // 支持硬件加速（NVENC/QSV/AMF/VAAPI），失败自动回退 CPU 编码。
+        // 设置从"视频转码"面板读取（与拆分页面共享）。
+        // 安全机制：
+        // 1. 始终先写入临时文件，成功后再移动到目标路径。
+        // 防止硬件编码中途失败损坏源文件（原地修复时 sourcePath==targetPath）。
+        // 2. 硬件失败自动回退到软件编码，源文件始终保持完整。
         private static async Task<(bool Success, string Message)> RepairVideoAsync(
             string sourcePath, string targetPath, RepairAnalysisResult analysis, CancellationToken token)
         {
@@ -785,17 +767,15 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// Build FFmpeg arguments and run for video repair.
-        /// Both hardware and software paths now align with the proven transcode path
-        /// (VideoTranscodeService.BuildFFmpegArguments). Key alignment points:
-        ///   -apply_cropping 0: HEVC decoder option, safe for both SW and HW decoder.
-        ///     HW decoders (NVDEC) ignore it; SW decoder preserves full encoded frame.
-        ///   -map 0:v:0: lowercase v, consistent with transcode path.
-        ///   -threads: always specified (HW=1, SW=user configured).
-        ///   -c:a aac: always re-encode audio (HW muxer can't copy PCM; safer than copy).
-        ///   No forced -f: let FFmpeg auto-detect output format from extension.
-        /// </summary>
+        // Build FFmpeg arguments and run for video repair.
+        // Both hardware and software paths now align with the proven transcode path
+        // (VideoTranscodeService.BuildFFmpegArguments). Key alignment points:
+        // -apply_cropping 0: HEVC decoder option, safe for both SW and HW decoder.
+        // HW decoders (NVDEC) ignore it; SW decoder preserves full encoded frame.
+        // -map 0:v:0: lowercase v, consistent with transcode path.
+        // -threads: always specified (HW=1, SW=user configured).
+        // -c:a aac: always re-encode audio (HW muxer can't copy PCM; safer than copy).
+        // No forced -f: let FFmpeg auto-detect output format from extension.
         private static async Task<(bool success, string errorMessage)> RunRepairFFmpegAsync(
             string sourcePath, string targetPath,
             string videoEncoder, string videoParams,
@@ -869,10 +849,8 @@ namespace LivePhotoBox.Services
         // GetRepairThreadCount → EncoderHelper.GetThreadCount
         // IsFFmpegEncoderAvailable → EncoderHelper.IsEncoderAvailable
 
-        /// <summary>
-        /// Run FFmpeg process with given arguments. Returns (success, errorMessage).
-        /// On failure, errorMessage contains the last portion of FFmpeg stderr for diagnosis.
-        /// </summary>
+        // Run FFmpeg process with given arguments. Returns (success, errorMessage).
+        // On failure, errorMessage contains the last portion of FFmpeg stderr for diagnosis.
         private static async Task<(bool success, string errorMessage)> RunFFmpegAsync(List<string> args, CancellationToken token)
         {
             string tempDir = Path.GetTempPath();
@@ -945,10 +923,8 @@ namespace LivePhotoBox.Services
             return (true, string.Empty);
         }
 
-        /// <summary>
-        /// 带重试的 jhead 调用：处理 Windows Defender 等安全软件在文件创建后短暂锁定的偶发问题。
-        /// "Could not open file for write" 时最多重试 3 次，每次间隔 200ms。
-        /// </summary>
+        // 带重试的 jhead 调用：处理 Windows Defender 等安全软件在文件创建后短暂锁定的偶发问题。
+        // "Could not open file for write" 时最多重试 3 次，每次间隔 200ms。
         private static async Task RunJheadWithRetryAsync(string arg1, string arg2, CancellationToken token, int maxRetries = 3)
         {
             for (int attempt = 0; attempt < maxRetries; attempt++)
@@ -966,9 +942,7 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 运行 jhead（jhead 需要 jpegtran 在同目录或 PATH 中，设置 WorkingDirectory 为 Tools 目录）
-        /// </summary>
+        // 运行 jhead（jhead 需要 jpegtran 在同目录或 PATH 中，设置 WorkingDirectory 为 Tools 目录）
         private static async Task RunJheadAsync(params string[] args)
         {
             string toolDir = Path.GetDirectoryName(JheadPath) ?? AppContext.BaseDirectory;
@@ -1010,18 +984,14 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 运行 exiftool（一次性模式）— 无取消令牌的便捷重载。
-        /// </summary>
+        // 运行 exiftool（一次性模式）— 无取消令牌的便捷重载。
         public static Task RunExifToolAsync(params string[] args)
             => RunExifToolAsync(CancellationToken.None, args);
 
-        /// <summary>
-        /// 运行 exiftool（一次性模式）。
-        /// 通过 stdin 管道传递参数（UTF-8 编码），而非命令行参数，
-        /// 彻底避开 Windows GetCommandLineA 的 ANSI 编码问题，
-        /// 任何语言（中日韩阿…）的文件名都能正确处理。
-        /// </summary>
+        // 运行 exiftool（一次性模式）。
+        // 通过 stdin 管道传递参数（UTF-8 编码），而非命令行参数，
+        // 彻底避开 Windows GetCommandLineA 的 ANSI 编码问题，
+        // 任何语言（中日韩阿…）的文件名都能正确处理。
         public static async Task RunExifToolAsync(CancellationToken token, params string[] args)
         {
             string tempDir = Path.GetTempPath();
@@ -1110,26 +1080,21 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// Append a LivePhotoBox tracking entry to the XMP <c>dc:subject</c> array.
-        ///
-        /// Two detail levels, controlled by the "详细操作记录" toggle:
-        ///   - Toggle OFF (default): writes a lightweight marker —
-        ///     <c>LivePhotoBox:{action}@@v{version}@</c>
-        ///     (action + version only, no timestamp or fix details).
-        ///   - Toggle ON: writes the full chronological entry —
-        ///     <c>LivePhotoBox:{action}@{timestamp}@v{version}@{details}</c>
-        ///
-        /// The lightweight marker is always written so every Split/Repair file
-        /// can be identified as processed by LivePhotoBox, matching Merge's
-        /// always-on XMP namespace attributes.
-        ///
-        /// Best-effort — failures are silently swallowed so the caller never breaks.
-        /// </summary>
-        /// <param name="filePath">JPEG, HEIC, MP4, or MOV path.</param>
-        /// <param name="action">Operation name: "Split" or "Repair".</param>
-        /// <param name="details">Action-specific key=value pairs, e.g. "Fix=Rotation+Thumbnail".
-        /// Only written when detailed history is enabled.</param>
+        // Append a LivePhotoBox tracking entry to the XMP <c>dc:subject</c> array.
+        // Two detail levels, controlled by the "详细操作记录" toggle:
+        // - Toggle OFF (default): writes a lightweight marker —
+        // <c>LivePhotoBox:{action}@@v{version}@</c>
+        // (action + version only, no timestamp or fix details).
+        // - Toggle ON: writes the full chronological entry —
+        // <c>LivePhotoBox:{action}@{timestamp}@v{version}@{details}</c>
+        // The lightweight marker is always written so every Split/Repair file
+        // can be identified as processed by LivePhotoBox, matching Merge's
+        // always-on XMP namespace attributes.
+        // Best-effort — failures are silently swallowed so the caller never breaks.
+        // filePath: JPEG, HEIC, MP4, or MOV path.
+        // action: Operation name: "Split" or "Repair".
+        // <param name="details">Action-specific key=value pairs, e.g. "Fix=Rotation+Thumbnail".
+        // Only written when detailed history is enabled.</param>
         public static async Task TryWriteLivePhotoBoxMarkerAsync(
             string filePath, string action, string details, CancellationToken token)
         {
@@ -1158,6 +1123,5 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
     }
 }

@@ -8,18 +8,28 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Models
 {
+    // 拆分任务 — 表示一个待拆分的实况照片文件。
+    // 支持 MVVM 属性变更通知、缩略图懒加载和状态显示。
     public partial class SplitTask : ObservableObject
     {
         #region Observable Properties
 
+        // 任务在队列中的序号
         [ObservableProperty] private int _index;
+        // 源文件（实况照片）的文件名
         [ObservableProperty] private string _sourceFileName = string.Empty;
+        // 源文件完整路径
         [ObservableProperty] private string _sourcePath = string.Empty;
+        // 源文件大小（格式化字符串）
         [ObservableProperty] private string _fileSize = string.Empty;
+        // 进度文本（如 "50%"）
         [ObservableProperty] private string _progressText = "0%";
+        // 处理状态
         [ObservableProperty] private ProcessStatus _status = ProcessStatus.Pending;
+        // 处理详情/错误信息
         [ObservableProperty] private string _details = string.Empty;
 
+        // 任务失败且有错误详情时返回 true
         public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
 
         #endregion
@@ -29,6 +39,7 @@ namespace LivePhotoBox.Models
         private bool _isLoadingThumbnail;
         private ImageSource? _thumbnail;
 
+        // 源文件缩略图（懒加载，优先使用缓存）
         public ImageSource? Thumbnail
         {
             get => ThumbnailService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, SourcePath, value => Thumbnail = value);
@@ -41,30 +52,36 @@ namespace LivePhotoBox.Models
             }
         }
 
+        // 缩略图占位符可见性 — 缩略图未加载时显示默认图标
         public Visibility ThumbnailPlaceholderVisibility => ThumbnailService.GetPlaceholderVisibility(_thumbnail);
 
+        // 源路径变更时重置缩略图加载状态
         partial void OnSourcePathChanged(string value)
         {
             _isLoadingThumbnail = false;
             Thumbnail = null;
         }
 
+        // 确保缩略图已加载（当前实现为触发 getter 后即返回）
         public Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
             var trigger = Thumbnail;
             return Task.CompletedTask;
         }
 
+        // 取消正在进行的缩略图加载（当前实现为空操作）
         public void CancelThumbnailLoad()
         {
         }
 
+        // 状态变更时刷新 DisplayStatus 和 HasErrorDetails
         partial void OnStatusChanged(ProcessStatus value)
         {
             OnPropertyChanged(nameof(DisplayStatus));
             OnPropertyChanged(nameof(HasErrorDetails));
         }
 
+        // 详情变更时刷新 DisplayStatus 和 HasErrorDetails
         partial void OnDetailsChanged(string value)
         {
             OnPropertyChanged(nameof(DisplayStatus));
@@ -75,8 +92,10 @@ namespace LivePhotoBox.Models
 
         #region Computed Properties
 
+        // 截断后的源文件名（过长时省略中间）
         public string DisplaySourceFileName => TruncateFileName(SourceFileName);
 
+        // 用于 UI 显示的本地化状态文本
         public string DisplayStatus
         {
             get
@@ -99,6 +118,7 @@ namespace LivePhotoBox.Models
 
         #region Helpers
 
+        // 截断文件名 — 超过 30 字符时保留首尾，中间用 "..." 代替
         private string TruncateFileName(string fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return fileName;

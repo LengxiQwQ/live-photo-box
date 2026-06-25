@@ -9,27 +9,32 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Models
 {
-    /// <summary>
-    /// 修复队列中的单个文件条目 — 表示一个待诊断/修复的照片或视频。
-    /// 一个 RepairTask（格子）包含 1 个（单独文件）或 2 个（配对实况照片）RepairFileEntry。
-    /// </summary>
+    // 修复队列中的单个文件条目 — 表示一个待诊断/修复的照片或视频。
+    // 一个 RepairTask（格子）包含 1 个（单独文件）或 2 个（配对实况照片）RepairFileEntry。
     public partial class RepairFileEntry : ObservableObject
     {
         #region Observable Properties
 
+        // 文件名
         [ObservableProperty] private string _fileName = string.Empty;
+        // 文件完整路径
         [ObservableProperty] private string _filePath = string.Empty;
+        // 处理状态
         [ObservableProperty] private ProcessStatus _status = ProcessStatus.Pending;
+        // 问题描述文本
         [ObservableProperty] private string _issueDescription = string.Empty;
+        // 是否需要修复
         [ObservableProperty] private bool _needsRepair = false;
+        // 详细错误信息
         [ObservableProperty] private string _details = string.Empty;
-        /// <summary>true=照片, false=视频（决定图标和缩略图展示）</summary>
+        // true=照片, false=视频（决定图标和缩略图展示）
         [ObservableProperty] private bool _isImage = true;
 
         #endregion
 
         #region Data Properties
 
+        // 诊断分析结果（由诊断步骤填充）
         public RepairAnalysisResult? AnalysisResult { get; set; }
 
         #endregion
@@ -39,6 +44,7 @@ namespace LivePhotoBox.Models
         private bool _isLoadingThumbnail = false;
         private ImageSource? _thumbnail;
 
+        // 文件缩略图（支持 UI 线程切换，自动加载缓存）
         public ImageSource? Thumbnail
         {
             get => _thumbnail;
@@ -58,8 +64,10 @@ namespace LivePhotoBox.Models
             }
         }
 
+        // 缩略图占位符可见性 — 缩略图未加载时显示默认图标
         public Visibility ThumbnailPlaceholderVisibility => Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
+        // 文件路径变更时重置缩略图，尝试从缓存或异步加载
         partial void OnFilePathChanged(string value)
         {
             _isLoadingThumbnail = false;
@@ -84,6 +92,7 @@ namespace LivePhotoBox.Models
             }
         }
 
+        // 异步加载缩略图（确保同一时间只有一个加载操作）
         private async Task AutoLoadThumbnailAsync(string path, Microsoft.UI.Dispatching.DispatcherQueue dispatcher)
         {
             if (_isLoadingThumbnail) return;
@@ -98,6 +107,7 @@ namespace LivePhotoBox.Models
             }
         }
 
+        // 确保缩略图已加载（有缓存则直接使用，否则异步加载）
         public async Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
             if (_thumbnail != null || _isLoadingThumbnail || string.IsNullOrWhiteSpace(FilePath)) return;
@@ -119,8 +129,11 @@ namespace LivePhotoBox.Models
 
         #region Computed Properties
 
+        // 截断后的文件名（过长时省略中间）
         public string DisplayFileName => FileNameFormatter.Truncate(FileName);
 
+        // 用于 UI 显示的最终状态。
+        // 无需修复的文件直接视为成功（绿色），避免依赖多语言字符串比较。
         public ProcessStatus DisplayStatus
         {
             get
@@ -134,17 +147,20 @@ namespace LivePhotoBox.Models
             }
         }
 
+        // 任务失败且有错误详情时返回 true（用于 UI 显示错误图标）
         public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
 
-        /// <summary>诊断阶段报错 → 诊断结果文字标红 + 可点击查看详情</summary>
+        // 诊断阶段报错 → 诊断结果文字标红 + 可点击查看详情
         public bool IsDiagnosisError => AnalysisResult?.IssueType == RepairIssueType.Error;
 
+        // 详情变更时刷新 DisplayStatus 和 HasErrorDetails
         partial void OnDetailsChanged(string value)
         {
             OnPropertyChanged(nameof(DisplayStatus));
             OnPropertyChanged(nameof(HasErrorDetails));
         }
 
+        // 状态变更时刷新 DisplayStatus 和 HasErrorDetails
         partial void OnStatusChanged(ProcessStatus value)
         {
             OnPropertyChanged(nameof(DisplayStatus));

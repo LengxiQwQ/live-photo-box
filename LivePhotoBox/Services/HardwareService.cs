@@ -8,23 +8,17 @@ using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.Services
 {
-    /// <summary>
-    /// 硬件检测服务 - 检测系统中的 CPU、GPU 等硬件信息
-    /// </summary>
+    // 硬件检测服务 - 检测系统中的 CPU、GPU 等硬件信息
     public static class HardwareService
     {
-        /// <summary>
-        /// 硬件类型
-        /// </summary>
+        // 硬件类型
         public enum HardwareType
         {
             Cpu,
             Gpu
         }
 
-        /// <summary>
-        /// 硬件加速器信息
-        /// </summary>
+        // 硬件加速器信息
         public class HardwareInfo
         {
             public string Name { get; set; } = string.Empty;
@@ -39,17 +33,13 @@ namespace LivePhotoBox.Services
         private static readonly TimeSpan EncoderCacheDuration = TimeSpan.FromMinutes(5);
         private static List<HardwareInfo>? _cachedHardwareList;
 
-        /// <summary>
-        /// 异步获取所有可用的硬件加速器（不阻塞 UI 线程）
-        /// </summary>
+        // 异步获取所有可用的硬件加速器（不阻塞 UI 线程）
         public static Task<List<HardwareInfo>> GetAvailableHardwareAsync()
         {
             return Task.Run(() => GetAvailableHardware());
         }
 
-        /// <summary>
-        /// 获取所有可用的硬件加速器
-        /// </summary>
+        // 获取所有可用的硬件加速器
         public static List<HardwareInfo> GetAvailableHardware()
         {
             if (_cachedHardwareList != null)
@@ -85,23 +75,23 @@ namespace LivePhotoBox.Services
             return hardware;
         }
 
+        // 根据 GPU 名称估算性能分数，用于排序（分数越高越优先推荐）。
+        // 排序结果影响硬件加速编码器的默认选择顺序。
         private static int GetGpuPerformanceScore(string gpuName)
         {
             string lower = gpuName.ToLowerInvariant();
             if (lower.Contains("nvidia") || lower.Contains("geforce") ||
                 lower.Contains("gtx") || lower.Contains("rtx") || lower.Contains("quadro"))
-                return 300; // NVIDIA 通常最强
+                return 300; // NVIDIA 独立显卡，通常性能最强
             if (lower.Contains("amd") || lower.Contains("radeon") ||
                 lower.Contains("rx ") || lower.Contains("vega"))
-                return 200; // AMD 次之
+                return 200; // AMD 独立显卡，性能次之
             if (lower.Contains("intel"))
-                return 100; // Intel 核显较弱
-            return 50; // 其他
+                return 100; // Intel 集成/独立显卡
+            return 50; // 其他（如 Microsoft Basic Display Adapter）
         }
 
-        /// <summary>
-        /// 检测 CPU 信息
-        /// </summary>
+        // 检测 CPU 信息
         private static HardwareInfo? DetectCpu()
         {
             try
@@ -131,9 +121,7 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 使用 WMI 检测 GPU，并用 FFmpeg 验证编码器是否真正可用
-        /// </summary>
+        // 使用 WMI 检测 GPU，并用 FFmpeg 验证编码器是否真正可用
         private static List<HardwareInfo> DetectGpus()
         {
             var gpus = new List<HardwareInfo>();
@@ -229,9 +217,7 @@ namespace LivePhotoBox.Services
             return gpus;
         }
 
-        /// <summary>
-        /// 通过 FFmpeg 获取所有可用的硬件编码器名称（小写，带 5 分钟缓存）
-        /// </summary>
+        // 通过 FFmpeg 获取所有可用的硬件编码器名称（小写，带 5 分钟缓存）
         private static HashSet<string> DetectAvailableEncodersViaFFmpeg()
         {
             // 检查缓存是否有效
@@ -360,10 +346,8 @@ namespace LivePhotoBox.Services
             return availableEncoders;
         }
 
-        /// <summary>
-        /// 获取 FFmpeg 中所有可用编码器的缓存集合（5 分钟有效）。
-        /// 供 EncoderHelper.IsEncoderAvailable 快速路径使用，避免每次检查都 spawn ffmpeg。
-        /// </summary>
+        // 获取 FFmpeg 中所有可用编码器的缓存集合（5 分钟有效）。
+        // 供 EncoderHelper.IsEncoderAvailable 快速路径使用，避免每次检查都 spawn ffmpeg。
         public static HashSet<string> GetAvailableEncoders()
         {
             if (_cachedAvailableEncoders == null || DateTime.Now - _encoderCacheTime >= EncoderCacheDuration)
@@ -373,9 +357,7 @@ namespace LivePhotoBox.Services
 
         // FindFFmpeg / FindExifTool → migrated to ExternalToolLocator
 
-        /// <summary>
-        /// 通过 FFmpeg 检测可用的硬件编码器
-        /// </summary>
+        // 通过 FFmpeg 检测可用的硬件编码器
         private static List<HardwareInfo> DetectGpusViaFFmpeg()
         {
             var gpus = new List<HardwareInfo>();
@@ -435,9 +417,7 @@ namespace LivePhotoBox.Services
             return gpus;
         }
 
-        /// <summary>
-        /// 检查 FFmpeg 编码器是否可用
-        /// </summary>
+        // 检查 FFmpeg 编码器是否可用
         private static bool IsEncoderAvailable(string ffmpegPath, string encoder)
         {
             try
@@ -467,9 +447,7 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 根据 GPU 名称判断支持的编码器
-        /// </summary>
+        // 根据 GPU 名称判断支持的编码器
         private static (bool supported, string? encoder) DetermineFfmpegEncoder(string gpuName)
         {
             string lowerName = gpuName.ToLowerInvariant();
@@ -498,9 +476,7 @@ namespace LivePhotoBox.Services
             return (false, null);
         }
 
-        /// <summary>
-        /// 获取 CPU 名称
-        /// </summary>
+        // 获取 CPU 名称
         private static string GetCpuName()
         {
             try
@@ -516,9 +492,7 @@ namespace LivePhotoBox.Services
             return string.Empty;
         }
 
-        /// <summary>
-        /// 从已有的硬件列表中获取推荐的默认硬件设置
-        /// </summary>
+        // 从已有的硬件列表中获取推荐的默认硬件设置
         public static HardwareInfo? GetRecommendedHardwareFromList(List<HardwareInfo> hardware)
         {
             // 优先选择支持硬件编码的 GPU
@@ -539,43 +513,33 @@ namespace LivePhotoBox.Services
             return hardware.FirstOrDefault(h => h.Type == HardwareType.Cpu);
         }
 
-        /// <summary>
-        /// 获取推荐的默认硬件设置
-        /// </summary>
+        // 获取推荐的默认硬件设置
         public static HardwareInfo? GetRecommendedHardware()
         {
             var hardware = GetAvailableHardware();
             return GetRecommendedHardwareFromList(hardware);
         }
 
-        /// <summary>
-        /// 获取系统逻辑处理器数量
-        /// </summary>
+        // 获取系统逻辑处理器数量
         public static int GetProcessorCount()
         {
             return Environment.ProcessorCount;
         }
 
-        /// <summary>
-        /// 检查是否支持特定的硬件编码器（委托给 EncoderHelper）。
-        /// </summary>
+        // 检查是否支持特定的硬件编码器（委托给 EncoderHelper）。
         public static bool IsEncoderSupported(string encoder)
         {
             return EncoderHelper.IsEncoderAvailable(encoder);
         }
 
-        /// <summary>
-        /// 清除硬件检测结果和编码器缓存，强制重新检测。
-        /// </summary>
+        // 清除硬件检测结果和编码器缓存，强制重新检测。
         public static void ClearHardwareCache()
         {
             _cachedHardwareList = null;
             ClearEncoderCache();
         }
 
-        /// <summary>
-        /// 清除编码器缓存，强制重新检测（下次获取硬件信息时会重新检测）
-        /// </summary>
+        // 清除编码器缓存，强制重新检测（下次获取硬件信息时会重新检测）
         public static void ClearEncoderCache()
         {
             _cachedAvailableEncoders = null;

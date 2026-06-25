@@ -7,28 +7,47 @@ using System.Threading;
 
 namespace LivePhotoBox.Services
 {
+    // 通过文件名匹配发现的图片-视频文件对信息。
     public sealed class LivePhotoFilePairInfo
     {
+        // 文件名基础部分（不含扩展名）。
         public required string BaseName { get; init; }
+        // 图片文件完整路径。
         public required string ImagePath { get; init; }
+        // 视频文件完整路径。
         public required string VideoPath { get; init; }
+        // 图片文件字节大小。
         public required long ImageSizeBytes { get; init; }
+        // 视频文件字节大小。
         public required long VideoSizeBytes { get; init; }
     }
 
+    // 合并扫描结果，包含文件配对信息与未匹配文件的统计。
     public sealed class LivePhotoScanResult
     {
+        // 通过文件名匹配到的图片-视频文件对。
         public required IReadOnlyList<LivePhotoFilePairInfo> Pairs { get; init; }
+        // 未匹配的图片文件数。
         public required int StandaloneImagesCount { get; init; }
+        // 未匹配的视频文件数。
         public required int StandaloneVideosCount { get; init; }
-        /// <summary>文件名匹配后未配对的照片路径（供元数据匹配使用）。</summary>
+        // 文件名匹配后未配对的照片路径（供元数据匹配使用）。
         public IReadOnlyList<string> StandaloneImagePaths { get; init; } = Array.Empty<string>();
-        /// <summary>文件名匹配后未配对的视频路径（供元数据匹配使用）。</summary>
+        // 文件名匹配后未配对的视频路径（供元数据匹配使用）。
         public IReadOnlyList<string> StandaloneVideoPaths { get; init; } = Array.Empty<string>();
     }
 
+    // 合并扫描服务 — 遍历指定目录，通过文件名匹配图片（.jpg/.jpeg/.heic/.heif）
+    // 与视频（.mov/.mp4）文件，识别实况照片对。
+    // 支持递归扫描与进度报告，未配对的路径可传递给元数据匹配器进一步处理。
     public static class LivePhotoMergeScanService
     {
+        // 扫描目录中的文件，按文件名基础部分（不含扩展名）匹配图片-视频对。
+        // 支持递归扫描，通过 IProgress 报告进度。
+        // inputDirectory: 要扫描的输入目录。
+        // cancellationToken: 取消令牌。
+        // progress: 进度报告器（total, completed, matchedPairs）。
+        // è¿å: 扫描结果，包含成功配对的列表与未配对文件的统计。
         public static LivePhotoScanResult Scan(
             string inputDirectory,
             CancellationToken cancellationToken = default,
@@ -42,7 +61,9 @@ namespace LivePhotoBox.Services
 
             try
             {
-                var allFiles = Directory.EnumerateFiles(inputDirectory).ToList();
+                bool recursive = AppSettingsService.GetValue("IsRecursiveScanEnabled", false);
+                var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                var allFiles = Directory.EnumerateFiles(inputDirectory, "*.*", searchOption).ToList();
                 int total = allFiles.Count;
                 LogService.Scan($"Found {total} files to scan");
                 progress?.Report(new WorkProgressSnapshot(total, 0));
@@ -54,11 +75,13 @@ namespace LivePhotoBox.Services
 
                     if (IsImageFile(path))
                     {
-                        imgDict[Path.GetFileNameWithoutExtension(path)] = path;
+                        string key = PathHelper.GetPairingKey(inputDirectory, path);
+                        imgDict[key] = path;
                     }
                     else if (IsVideoFile(path))
                     {
-                        vidDict[Path.GetFileNameWithoutExtension(path)] = path;
+                        string key = PathHelper.GetPairingKey(inputDirectory, path);
+                        vidDict[key] = path;
                     }
 
                     int completed = i + 1;
@@ -122,7 +145,7 @@ namespace LivePhotoBox.Services
                     {
                         pairs.Add(new LivePhotoFilePairInfo
                         {
-                            BaseName = kvp.Key,
+                            BaseName = Path.GetFileName(kvp.Key),
                             ImagePath = kvp.Value,
                             VideoPath = vidPath,
                             ImageSizeBytes = new FileInfo(kvp.Value).Length,

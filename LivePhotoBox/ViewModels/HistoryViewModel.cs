@@ -1,3 +1,7 @@
+// <copyright file="HistoryViewModel.cs" company="Live Photo Box">
+// Copyright (c) Live Photo Box. All rights reserved.
+// </copyright>
+
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -14,6 +18,9 @@ using LivePhotoBox.Services;
 
 namespace LivePhotoBox.ViewModels
 {
+    // 历史记录页面的 ViewModel，对应 HistoryPage。
+    // 支持扫描文件夹中的图片文件，通过解析 XMP 元数据检测实况照片
+    // 以及 LivePhotoBox 的历史操作记录（合并/拆分/修复），以列表形式展示。
     public partial class HistoryViewModel : ViewModelBase
     {
         // ── Protocol XMP namespaces ────────────────────────────────────────
@@ -26,31 +33,38 @@ namespace LivePhotoBox.ViewModels
 
         // ── Observable properties ──────────────────────────────────────────
 
+        // 用户选择的待扫描文件夹路径。
         [ObservableProperty]
         private string _selectedFolder = string.Empty;
 
+        // 是否正在扫描中。
         [ObservableProperty]
         private bool _isScanning;
 
+        // 扫描完成后是否有检测结果。
         [ObservableProperty]
         private bool _hasResults;
 
+        // 当前状态文本（扫描中/完成/无结果等）。
         [ObservableProperty]
         private string _statusText = string.Empty;
 
+        // 扫描到的总文件数。
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(SummaryStatsText))]
         private int _totalFiles;
 
+        // 检测到的实况照片数。
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(SummaryStatsText))]
         private int _livePhotoCount;
 
+        // 检测到的 LivePhotoBox 生成文件数。
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(SummaryStatsText))]
         private int _livePhotoBoxCount;
 
-        /// <summary>Summary line shown after scan completes.</summary>
+        // 扫描完成后的汇总文本行（如"共 100 个文件  •  实况照片 50  •  已标记 30"）。
         public string SummaryStatsText
         {
             get
@@ -62,12 +76,15 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 扫描结果的文件历史信息列表。
         public ObservableCollection<FileHistoryInfo> Files { get; } = new();
 
+        // <inheritdoc/>
         public override string? PageStatusTag => null;
 
         // ── Commands ───────────────────────────────────────────────────────
 
+        // 扫描所选文件夹中所有图片的实况照片历史记录。
         [RelayCommand]
         private async Task ScanFolderAsync()
         {
@@ -165,6 +182,8 @@ namespace LivePhotoBox.ViewModels
 
         // ── File analysis ──────────────────────────────────────────────────
 
+        // 使用 ExifTool 读取图片的 XMP 元数据，解析并返回文件历史信息。
+        // 如果文件不包含实况照片或 LivePhotoBox 相关元数据，返回 null。
         private async Task<FileHistoryInfo?> AnalyzeFileAsync(
             string? exifToolPath, string filePath, CancellationToken ct)
         {
@@ -187,6 +206,7 @@ namespace LivePhotoBox.ViewModels
             return info;
         }
 
+        // 调用 ExifTool 命令行工具，读取文件的原始 XMP XML 数据。
         private static async Task<string> ReadRawXmpAsync(
             string exifToolPath, string filePath, CancellationToken ct)
         {
@@ -233,6 +253,8 @@ namespace LivePhotoBox.ViewModels
             return output;
         }
 
+        // 解析 XMP XML，提取实况照片协议信息（Google MicroVideo、MotionPhoto、OPPO）
+        // 以及 LivePhotoBox 的历史操作记录（合并/拆分/修复）。
         private FileHistoryInfo? ParseXmp(string xmpXml, string filePath)
         {
             // ── Sanitize exiftool output ──────────────────────────────
@@ -373,7 +395,7 @@ namespace LivePhotoBox.ViewModels
             return info;
         }
 
-        /// <summary>Parse a dc:subject entry like "LivePhotoBox:Split@2026-06-25T14:30:22@v1.2.0@Format=JPEG+MP4"</summary>
+        // Parse a dc:subject entry like "LivePhotoBox:Split@2026-06-25T14:30:22@v1.2.0@Format=JPEG+MP4"
         private static HistoryEntry? ParseHistorySubject(string subject)
         {
             if (string.IsNullOrWhiteSpace(subject))
@@ -448,12 +470,14 @@ namespace LivePhotoBox.ViewModels
 
         // ── Helpers ───────────────────────────────────────────────────────
 
+        // 获取 XML 元素的指定命名空间属性值。
         private static string? GetAttributeValue(XElement element, XNamespace ns, string localName)
         {
             var attr = element.Attribute(ns + localName);
             return attr?.Value;
         }
 
+        // 判断文件是否为支持的图片格式（jpg/jpeg/heic/heif/png）。
         private static bool IsSupportedImage(string path)
         {
             var ext = Path.GetExtension(path).ToLowerInvariant();

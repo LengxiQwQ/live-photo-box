@@ -1,3 +1,21 @@
+/*
+ * MainWindow.xaml.cs
+ *
+ * 主窗口代码后置。继承 Microsoft.UI.Xaml.Window，负责：
+ *   - 窗口初始化和 DPI 适配
+ *   - NavigationView 页面导航
+ *   - 背景材质（Mica / Acrylic）管理和切换
+ *   - 窗口透明度控制
+ *   - 主题切换与标题栏按钮配色
+ *   - 状态栏/历史导航可见性控制
+ *
+ * 对应 ViewModel：AppViewModel（单例）
+ *
+ * 生命周期：
+ *   - 构造函数 → 窗口初始化 → 材质设置 → 主题应用 → 默认导航到 HomePage
+ *   - 全局 ViewModel 属性变更驱动 UI 更新
+ */
+
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI;
@@ -28,7 +46,7 @@ namespace LivePhotoBox
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr hwnd);
 
-        // 窗口整体透明度
+        // 窗口整体透明度相关 Win32 API
         [DllImport("user32.dll")]
         private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
@@ -47,13 +65,19 @@ namespace LivePhotoBox
         private ICompositionSupportsSystemBackdrop? _acrylicTarget;
         private CancellationTokenSource? _acrylicDebounceCts;
 
+        // 全局 AppViewModel 单例
         public AppViewModel ViewModel => AppViewModel.Instance;
+
+        // 全屏预览控件（Lightbox），供各页面调用
         public Controls.LightboxPreview Lightbox => LightboxPreview;
 
+        // 构造函数：初始化窗口、设置标题栏、配置背景材质、绑定 ViewModel 事件、导航到默认页面
         public MainWindow()
         {
             InitializeComponent();
             LogService.Info("MainWindow constructed.", LogSource.UI);
+
+            // 窗口关闭时清理资源和日志
             Closed += (_, _) =>
             {
                 CleanupAcrylicController();
@@ -61,9 +85,12 @@ namespace LivePhotoBox
                 LogService.MarkCleanShutdown();
                 ViewModel.Cleanup();
             };
+
+            // 启用自定义标题栏
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
 
+            // 获取窗口句柄并设置图标、尺寸和居中位置（支持 DPI 缩放）
             IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             Microsoft.UI.WindowId windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
             AppWindow appWindow = AppWindow.GetFromWindowId(windowId);
@@ -107,6 +134,7 @@ namespace LivePhotoBox
                 }
             }
 
+            // NavigationView 加载完成后本地化设置项标签
             NavView.Loaded += (_, _) =>
             {
                 if (NavView.SettingsItem is NavigationViewItem settingsItem)
@@ -115,11 +143,13 @@ namespace LivePhotoBox
                 }
             };
 
+            // 绑定 ViewModel 事件
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
             ViewModel.Settings.PropertyChanged += OnSettingsHistoryVisibilityChanged;
             ViewModel.RequestNavigateToPage += OnRequestNavigateToPage;
 
+            // 应用初始化配置
             UpdateTheme();
             UpdateBackdrop();
             UpdateStatusBarVisibility();
@@ -132,9 +162,11 @@ namespace LivePhotoBox
                 ApplyWindowOpacity();
             }
 
+            // 默认导航到首页
             NavigateToPage(typeof(Views.HomePage), null);
         }
 
+        // 响应 AppViewModel 属性变更：状态栏可见性
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(AppViewModel.IsStatusBarVisible))
@@ -143,6 +175,7 @@ namespace LivePhotoBox
             }
         }
 
+        // 响应 SettingsViewModel 属性变更：背景材质、主题、亚克力透明度、窗口透明度
         private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
             switch (e.PropertyName)
@@ -162,6 +195,7 @@ namespace LivePhotoBox
             }
         }
 
+        // 响应外部页面导航请求，解析 pageTag 并跳转到对应页面
         private void OnRequestNavigateToPage(object? sender, string pageTag)
         {
             if (pageTag.StartsWith("Home"))
@@ -180,11 +214,13 @@ namespace LivePhotoBox
             }
         }
 
+        // 更新页面底部状态栏的可见性
         private void UpdateStatusBarVisibility()
         {
             PageStatusBar.Visibility = ViewModel.IsStatusBarVisible ? Visibility.Visible : Visibility.Collapsed;
         }
 
+        // 更新导航栏中历史页面的可见性
         private void UpdateHistoryNavVisibility()
         {
             NavHistory.Visibility = ViewModel.Settings.IsHistoryPageVisible
@@ -192,12 +228,20 @@ namespace LivePhotoBox
                 : Visibility.Collapsed;
         }
 
+        // 响应历史页面可见性设置变更
         private void OnSettingsHistoryVisibilityChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(SettingsViewModel.IsHistoryPageVisible))
                 UpdateHistoryNavVisibility();
         }
 
+        // 更新窗口背景材质。根据 BackdropIndex 选择：
+        // 0 — Mica Base
+        // 1 — Mica BaseAlt
+        // 2 — Acrylic Base
+        // 3 — Acrylic Thin
+        // 4 — None（纯色背景）
+        // 在 Acrylic 与 Mica/None 之间切换时清理旧的 Acrylic Controller。
         private void UpdateBackdrop()
         {
             // 先清理旧的 Acrylic Controller
@@ -250,6 +294,7 @@ namespace LivePhotoBox
             }
         }
 
+        // 清理 Acrylic Controller 资源，移除背景目标并释放对象
         private void CleanupAcrylicController()
         {
             _acrylicDebounceCts?.Cancel();
@@ -261,10 +306,8 @@ namespace LivePhotoBox
             _acrylicConfig = null;
         }
 
-        /// <summary>
-        /// 滑块拖拽时频繁触发 → 防抖 250ms，松手后只重建一次 controller。
-        /// DesktopAcrylicController.TintOpacity 在 AddSystemBackdropTarget 后设值无效，必须重建。
-        /// </summary>
+        // 滑块拖拽时频繁触发 → 防抖 250ms，松手后只重建一次 controller。
+        // DesktopAcrylicController.TintOpacity 在 AddSystemBackdropTarget 后设值无效，必须重建。
         private async void UpdateAcrylicTintOpacity()
         {
             _acrylicDebounceCts?.Cancel();
@@ -279,6 +322,7 @@ namespace LivePhotoBox
             catch (OperationCanceledException) { }
         }
 
+        // 更新窗口主题，同步标题栏按钮颜色，必要时重建背景材质
         private void UpdateTheme()
         {
             if (Content is FrameworkElement rootElement)
@@ -295,6 +339,7 @@ namespace LivePhotoBox
             }
         }
 
+        // 根据当前主题设置标题栏按钮的悬停/按下/非活动配色
         private void UpdateTitleBarButtonColors()
         {
             IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -326,6 +371,7 @@ namespace LivePhotoBox
             }
         }
 
+        // 获取当前有效主题（若设为 Default 则根据系统背景色推断）
         private ElementTheme GetCurrentTheme()
         {
             if (Content is FrameworkElement rootElement && rootElement.RequestedTheme != ElementTheme.Default)
@@ -338,6 +384,7 @@ namespace LivePhotoBox
             return backgroundColor.R < 128 ? ElementTheme.Dark : ElementTheme.Light;
         }
 
+        // NavigationView 选中项变更时，根据 Tag 或 Settings 项导航到对应页面
         private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
             if (args.IsSettingsSelected)
@@ -365,6 +412,7 @@ namespace LivePhotoBox
             }
         }
 
+        // 执行 Frame 导航并设置当前状态页标签
         private void NavigateToPage(Type pageType, string? statusPageTag)
         {
             LogService.Info($"NavigateToPage: {pageType.Name}, StatusTag={statusPageTag ?? "(null)"}", LogSource.UI);
@@ -372,6 +420,7 @@ namespace LivePhotoBox
             MainFrame.Navigate(pageType);
         }
 
+        // 根据 Tag 字符串切换 NavigationView 的选中项（不触发导航）
         public void SwitchToPageByTag(string tag)
         {
             if (NavView == null) return;
@@ -386,11 +435,9 @@ namespace LivePhotoBox
             }
         }
 
-        /// <summary>
-        /// 导航到设置页面，可附带导航参数（如滚动到指定分类标题）。
-        /// 先直接导航 Frame（确保参数传递），再更新侧栏选中项。
-        /// 临时解绑 SelectionChanged 防止重复导航。
-        /// </summary>
+        // 导航到设置页面，可附带导航参数（如滚动到指定分类标题）。
+        // 先直接导航 Frame（确保参数传递），再更新侧栏选中项。
+        // 临时解绑 SelectionChanged 防止重复导航。
         public void NavigateToSettings(string? parameter)
         {
             if (NavView == null) return;
@@ -413,7 +460,7 @@ namespace LivePhotoBox
 
         private bool _windowLayeringEnabled;
 
-        /// <summary>启用窗口 WS_EX_LAYERED 样式（仅一次），后续通过 SetLayeredWindowAttributes 调整透明度</summary>
+        // 启用窗口 WS_EX_LAYERED 样式（仅一次），后续通过 SetLayeredWindowAttributes 调整透明度
         private void EnableWindowLayering()
         {
             if (_windowLayeringEnabled) return;
@@ -423,7 +470,7 @@ namespace LivePhotoBox
             _windowLayeringEnabled = true;
         }
 
-        /// <summary>将 ViewModel.WindowOpacity 应用到窗口</summary>
+        // 将 ViewModel.WindowOpacity 应用到窗口
         private void ApplyWindowOpacity()
         {
             double value = ViewModel.Settings.WindowOpacity;

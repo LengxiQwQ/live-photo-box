@@ -208,6 +208,8 @@ namespace LivePhotoBox.Services
             }
         }
 
+        // 从源文件流中读取前 <see cref="MetadataProbeBytes"/> 字节的文本内容，
+        // 用于提取实况照片的 XMP 元数据（MicroVideoOffset 等）。
         private static async Task<string> ReadMetadataTextAsync(FileStream sourceStream, CancellationToken token)
         {
             sourceStream.Position = 0;
@@ -218,6 +220,8 @@ namespace LivePhotoBox.Services
             return Encoding.UTF8.GetString(buffer, 0, bytesRead);
         }
 
+        // 从 XMP 元数据文本中提取视频尾部长度。
+        // 依次尝试：MicroVideoOffset → MotionPhotoLength。
         private static long GetAppendedVideoLength(string metadataText)
         {
             if (TryGetLong(MicroVideoOffsetRegex.Match(metadataText), out long microVideoOffset))
@@ -241,6 +245,8 @@ namespace LivePhotoBox.Services
             };
         }
 
+        // 通过视频流头部魔数（ftyp box）检测默认视频格式。
+        // 优先级：二进制魔数 > XMP MIME 类型 > 兜底 .mp4。
         private static async Task<string> DetectDefaultVideoExtensionAsync(FileStream sourceStream, long videoStartOffset, string metadataText, CancellationToken token)
         {
             // 1. 视频流头部魔数判断（权威最高优先级）
@@ -290,6 +296,12 @@ namespace LivePhotoBox.Services
             return ".mp4";
         }
 
+        // 构建拆分后图片和视频的输出路径。
+        // 自动处理同名冲突（追加后缀），并防止输出路径覆盖源文件。
+        // sourcePath: 源文件路径。
+        // outputDirectory: 输出目录。
+        // videoExtension: 视频扩展名（.mp4 / .mov）。
+        // è¿å: (图片输出路径, 视频输出路径)
         private static (string ImageOutputPath, string VideoOutputPath) BuildOutputPaths(string sourcePath, string outputDirectory, string videoExtension)
         {
             string sourceFileNameWithoutExtension = Path.GetFileNameWithoutExtension(sourcePath);
@@ -300,8 +312,8 @@ namespace LivePhotoBox.Services
                 imageExtension = ".jpg";
             }
 
-            string imageOutputPath = Path.Combine(outputDirectory, $"{sourceFileNameWithoutExtension}{imageExtension}");
-            string videoOutputPath = Path.Combine(outputDirectory, $"{sourceFileNameWithoutExtension}{videoExtension}");
+            string imageOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{sourceFileNameWithoutExtension}{imageExtension}");
+            string videoOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{sourceFileNameWithoutExtension}{videoExtension}");
             string sourceFullPath = Path.GetFullPath(sourcePath);
 
             // 防止输出文件覆盖掉正在读取的源文件
@@ -318,6 +330,13 @@ namespace LivePhotoBox.Services
             return (imageOutputPath, videoOutputPath);
         }
 
+        // 从源流复制指定字节数到目标流。
+        // 使用 81920 字节缓冲区（低于 LOH 阈值，最优 IO 大小）。
+        // 若提前遇到流结尾则抛出 EndOfStreamException。
+        // sourceStream: 源流。
+        // destinationStream: 目标流。
+        // length: 要复制的字节数。
+        // token: 取消令牌。
         private static async Task CopyExactLengthAsync(Stream sourceStream, Stream destinationStream, long length, CancellationToken token)
         {
             // 81920 (80KB) 刚好低于 LOH (Large Object Heap) 的阈值，是最优的 IO 缓冲大小
@@ -339,11 +358,9 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 复制 JPEG 字节流到目标，过程中跳过包含实况照片元数据的 APP 段（XMP/EXIF），
-        /// 避免拆分出的图片仍带有 GCamera:MicroVideo / MotionPhoto 等标记，
-        /// 防止下次扫描时再次被误识别为实况照片。
-        /// </summary>
+        // 复制 JPEG 字节流到目标，过程中跳过包含实况照片元数据的 APP 段（XMP/EXIF），
+        // 避免拆分出的图片仍带有 GCamera:MicroVideo / MotionPhoto 等标记，
+        // 防止下次扫描时再次被误识别为实况照片。
         private static async Task CopyJpegStrippingLivePhotoMetadataAsync(Stream sourceStream, Stream destinationStream, long imageLength, CancellationToken token)
         {
             // 1. 确保起始是 SOI (0xFF 0xD8)
@@ -493,13 +510,10 @@ namespace LivePhotoBox.Services
         }
         
 
-        /// <summary>
-        /// 检测 APP1 段是否包含实况照片元数据，判断是否为需要剥离的元数据。
-        ///
-        /// 检测顺序：
-        ///   1. 先看是否包含本应用的 LivePhotoBox 命名空间标记（最精确）
-        ///   2. 如果没有，再回退到通用实况照片命名空间检测（兼容早期没有标记的旧文件）
-        /// </summary>
+        // 检测 APP1 段是否包含实况照片元数据，判断是否为需要剥离的元数据。
+        // 检测顺序：
+        // 1. 先看是否包含本应用的 LivePhotoBox 命名空间标记（最精确）
+        // 2. 如果没有，再回退到通用实况照片命名空间检测（兼容早期没有标记的旧文件）
         private static bool ContainsLivePhotoMarker(byte[] buffer, int length)
         {
             ReadOnlySpan<byte> data = new ReadOnlySpan<byte>(buffer, 0, length);
@@ -518,12 +532,10 @@ namespace LivePhotoBox.Services
             return false;
         }
 
-        /// <summary>
-        /// Clear the OPPO <c>oplus_*</c> marker from EXIF UserComment —
-        /// but ONLY when the current value starts with "oplus_".
-        /// If UserComment contains any other content (camera notes, custom remarks, etc.),
-        /// it is left completely untouched.
-        /// </summary>
+        // Clear the OPPO <c>oplus_*</c> marker from EXIF UserComment —
+        // but ONLY when the current value starts with "oplus_".
+        // If UserComment contains any other content (camera notes, custom remarks, etc.),
+        // it is left completely untouched.
         private static async Task ClearOppoExifMarkerAsync(string imagePath, CancellationToken token)
         {
             try
@@ -602,10 +614,8 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 将源 JPEG 的关键元数据（ContentIdentifier、拍摄日期）写回拆分出的视频文件，
-        /// 确保后续元数据匹配能识别拆分后的视频与照片属于同一实况照片。
-        /// </summary>
+        // 将源 JPEG 的关键元数据（ContentIdentifier、拍摄日期）写回拆分出的视频文件，
+        // 确保后续元数据匹配能识别拆分后的视频与照片属于同一实况照片。
         private static async Task CopyMetadataToVideoAsync(
             string sourceImagePath, string videoOutputPath, CancellationToken token)
         {
@@ -708,6 +718,7 @@ namespace LivePhotoBox.Services
             }
         }
 
+        // 安全地从 JsonElement 读取字符串属性值，仅当 ValueKind 为 String 时返回。
         private static string TryGetJsonString(JsonElement element, string propertyName)
         {
             if (element.TryGetProperty(propertyName, out var prop) && prop.ValueKind == JsonValueKind.String)
@@ -715,6 +726,7 @@ namespace LivePhotoBox.Services
             return "";
         }
 
+        // 从正则匹配的 "value" 命名组中安全解析 long 值。
         private static bool TryGetLong(Match match, out long value)
         {
             value = 0;

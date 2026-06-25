@@ -10,67 +10,60 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
 {
-    /// <summary>
-    /// 元数据匹配结果 — 一组通过 ContentIdentifier 或拍摄日期匹配到的照片/视频对。
-    /// </summary>
+    // 元数据匹配结果 — 一组通过 ContentIdentifier 或拍摄日期匹配到的照片/视频对。
     public sealed class MetadataPair
     {
-        /// <summary>照片文件的完整路径。</summary>
+        // 照片文件的完整路径。
         public required string ImagePath { get; init; }
-        /// <summary>视频文件的完整路径。</summary>
+        // 视频文件的完整路径。
         public required string VideoPath { get; init; }
-        /// <summary>匹配依据（用于日志和调试）。</summary>
+        // 匹配依据（用于日志和调试）。
         public required MatchSource Source { get; init; }
     }
 
-    /// <summary>匹配来源。</summary>
+    // 匹配来源。
     public enum MatchSource
     {
-        /// <summary>通过 Apple ContentIdentifier UUID 精确匹配。</summary>
+        // 通过 Apple ContentIdentifier UUID 精确匹配。
         ContentIdentifier,
-        /// <summary>通过拍摄日期 ±2 秒容差匹配。</summary>
+        // 通过拍摄日期 ±2 秒容差匹配。
         CreateDate
     }
 
-    /// <summary>元数据匹配器的完整输出。</summary>
+    // 元数据匹配器的完整输出。
     public sealed class MetadataMatchOutput
     {
-        /// <summary>通过元数据额外匹配到的照片/视频对。</summary>
+        // 通过元数据额外匹配到的照片/视频对。
         public required IReadOnlyList<MetadataPair> Pairs { get; init; }
-        /// <summary>匹配后仍剩余的照片路径数。</summary>
+        // 匹配后仍剩余的照片路径数。
         public required int RemainingImages { get; init; }
-        /// <summary>匹配后仍剩余的视频路径数。</summary>
+        // 匹配后仍剩余的视频路径数。
         public required int RemainingVideos { get; init; }
     }
 
-    /// <summary>
-    /// 实况照片元数据匹配引擎。
-    /// 提供两级降级匹配策略：
-    ///   1. ContentIdentifier（UUID）精确匹配 — 零歧义
-    ///   2. 拍摄日期 ±2 秒容差匹配 — 时区感知
-    ///
-    /// 两种调用路径：
-    ///   - MatchAsync：Merge 页面使用，内部启动 exiftool 提取元数据
-    ///   - MatchFromAnalysis：Repair 页面使用，复用已有的 RepairAnalysisResult
-    /// </summary>
+    // 实况照片元数据匹配引擎。
+    // 提供两级降级匹配策略：
+    // 1. ContentIdentifier（UUID）精确匹配 — 零歧义
+    // 2. 拍摄日期 ±2 秒容差匹配 — 时区感知
+    // 两种调用路径：
+    // - MatchAsync：Merge 页面使用，内部启动 exiftool 提取元数据
+    // - MatchFromAnalysis：Repair 页面使用，复用已有的 RepairAnalysisResult
     public static partial class LivePhotoMetadataMatcher
     {
-        /// <summary>日期匹配的容差（秒）。Apple 实况照片的照片和视频在秒级一致，±2 秒足以覆盖微小偏差。</summary>
+        // 日期匹配的容差（秒）。Apple 实况照片的照片和视频在秒级一致，±2 秒足以覆盖微小偏差。
         private const double DateMatchToleranceSeconds = 2.0;
 
         // ──────────────────────────────────────────────
         //  Merge 页面路径：内部运行 exiftool 提取元数据
         // ──────────────────────────────────────────────
 
-        /// <summary>
-        /// 对未匹配的照片和视频列表运行元数据匹配。
-        /// 内部启动 PersistentExifTool 批量查询 ContentIdentifier 和 CreateDate。
-        /// </summary>
-        /// <param name="unmatchedImagePaths">文件名匹配后未配对的照片路径</param>
-        /// <param name="unmatchedVideoPaths">文件名匹配后未配对的视频路径</param>
-        /// <param name="exifToolPath">exiftool.exe 的完整路径</param>
-        /// <param name="token">取消令牌</param>
-        /// <returns>额外匹配到的配对 + 剩余未匹配计数</returns>
+        // 对未匹配的照片和视频列表运行元数据匹配。
+        // 内部启动 PersistentExifTool 批量查询 ContentIdentifier 和 CreateDate。
+        // unmatchedImagePaths: 文件名匹配后未配对的照片路径
+        // unmatchedVideoPaths: 文件名匹配后未配对的视频路径
+        // exifToolPath: exiftool.exe 的完整路径
+        // token: 取消令牌
+        // è¿å: 额外匹配到的配对 + 剩余未匹配计数
         public static async Task<MetadataMatchOutput> MatchAsync(
             IReadOnlyList<string> unmatchedImagePaths,
             IReadOnlyList<string> unmatchedVideoPaths,
@@ -153,13 +146,11 @@ namespace LivePhotoBox.Services
         //  Repair 页面路径：复用已有的 RepairAnalysisResult
         // ──────────────────────────────────────────────
 
-        /// <summary>
-        /// 使用已有的 RepairAnalysisResult 进行元数据匹配（Repair 页面专用）。
-        /// 不需要额外启动 exiftool — 分析数据已在扫描阶段提取。
-        /// </summary>
-        /// <param name="images">独立照片（路径 + 分析结果）</param>
-        /// <param name="videos">独立视频（路径 + 分析结果）</param>
-        /// <returns>额外匹配到的配对 + 剩余未匹配计数</returns>
+        // 使用已有的 RepairAnalysisResult 进行元数据匹配（Repair 页面专用）。
+        // 不需要额外启动 exiftool — 分析数据已在扫描阶段提取。
+        // images: 独立照片（路径 + 分析结果）
+        // videos: 独立视频（路径 + 分析结果）
+        // è¿å: 额外匹配到的配对 + 剩余未匹配计数
         public static MetadataMatchOutput MatchFromAnalysis(
             IReadOnlyList<(string path, RepairAnalysisResult analysis)> images,
             IReadOnlyList<(string path, RepairAnalysisResult analysis)> videos,
@@ -202,11 +193,9 @@ namespace LivePhotoBox.Services
         //  核心匹配引擎
         // ──────────────────────────────────────────────
 
-        /// <summary>
-        /// 根据已有的元数据映射进行两级匹配。
-        /// Pass 1: ContentIdentifier UUID 精确匹配
-        /// Pass 2: 拍摄日期 UTC ±2 秒容差匹配
-        /// </summary>
+        // 根据已有的元数据映射进行两级匹配。
+        // Pass 1: ContentIdentifier UUID 精确匹配
+        // Pass 2: 拍摄日期 UTC ±2 秒容差匹配
         private static MetadataMatchOutput MatchFromMaps(
             IReadOnlyList<string> imagePaths,
             IReadOnlyList<string> videoPaths,
@@ -321,20 +310,17 @@ namespace LivePhotoBox.Services
         //  日期解析工具
         // ──────────────────────────────────────────────
 
-        /// <summary>
-        /// 解析 exiftool 日期字符串并转换为 UTC DateTime。
-        /// exiftool -j 输出示例：
-        ///   - 照片 EXIF（本地时间，无偏移）: "2026:06:20 12:26:26"（需结合 OffsetTimeOriginal）
-        ///   - 视频 QuickTime（UTC，无偏移）:  "2026:06:20 04:26:26"
-        ///
-        /// 策略：
-        ///   1. 若 offsetString 有值 → 追加到日期后
-        ///   2. 若日期含显式时区偏移 (+HH:MM / Z) → 直接用偏移解析
-        ///   3. 若无显式偏移 → 假定 UTC（QuickTime 标准）
-        ///      （照片应通过 offsetString 参数提供 OffsetTimeOriginal）
-        /// </summary>
-        /// <param name="exifDateString">exiftool 返回的日期字符串</param>
-        /// <param name="offsetString">可选 — EXIF OffsetTimeOriginal 值，如 "+08:00"</param>
+        // 解析 exiftool 日期字符串并转换为 UTC DateTime。
+        // exiftool -j 输出示例：
+        // - 照片 EXIF（本地时间，无偏移）: "2026:06:20 12:26:26"（需结合 OffsetTimeOriginal）
+        // - 视频 QuickTime（UTC，无偏移）:  "2026:06:20 04:26:26"
+        // 策略：
+        // 1. 若 offsetString 有值 → 追加到日期后
+        // 2. 若日期含显式时区偏移 (+HH:MM / Z) → 直接用偏移解析
+        // 3. 若无显式偏移 → 假定 UTC（QuickTime 标准）
+        // （照片应通过 offsetString 参数提供 OffsetTimeOriginal）
+        // exifDateString: exiftool 返回的日期字符串
+        // offsetString: 可选 — EXIF OffsetTimeOriginal 值，如 "+08:00"
         private static DateTime? ParseExifDateToUtc(string? exifDateString, string? offsetString = null)
         {
             if (string.IsNullOrWhiteSpace(exifDateString))
@@ -380,7 +366,7 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>检测日期字符串是否以 +HH:MM / -HH:MM / Z 结尾。</summary>
+        // 检测日期字符串是否以 +HH:MM / -HH:MM / Z 结尾。
         private static bool HasExplicitOffset(string normalizedDate)
         {
             // 匹配 "+08:00", "-05:30", "Z" 等
@@ -389,9 +375,7 @@ namespace LivePhotoBox.Services
                 System.Text.RegularExpressions.RegexOptions.CultureInvariant);
         }
 
-        /// <summary>
-        /// 从 exiftool JSON 元素安全读取字符串值（兼容 string 和 number 类型）。
-        /// </summary>
+        // 从 exiftool JSON 元素安全读取字符串值（兼容 string 和 number 类型）。
         private static string GetJsonValueAsString(System.Text.Json.JsonElement element, string propertyName)
         {
             if (!element.TryGetProperty(propertyName, out var prop))
@@ -405,10 +389,8 @@ namespace LivePhotoBox.Services
             };
         }
 
-        /// <summary>
-        /// 匹配 exiftool 日期格式 "YYYY:MM:DD" 的开头，替换为 "YYYY-MM-DD"。
-        /// 编译一次，避免每次调用时重新编译。
-        /// </summary>
+        // 匹配 exiftool 日期格式 "YYYY:MM:DD" 的开头，替换为 "YYYY-MM-DD"。
+        // 编译一次，避免每次调用时重新编译。
         [System.Text.RegularExpressions.GeneratedRegex(@"^(\d{4}):(\d{2}):(\d{2})")]
         private static partial Regex ExifDateRegex();
     }

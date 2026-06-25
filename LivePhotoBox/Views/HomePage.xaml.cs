@@ -1,3 +1,22 @@
+/*
+ * HomePage.xaml.cs
+ *
+ * 首页的代码后置。作为应用启动后的默认着陆页，提供：
+ *   - 横幅图片展示
+ *   - 功能教程卡片（Merge / Split / Repair）的悬浮预览（Hover）
+ *   - 试玩演示功能（SetupAndNavigateDemo）
+ *   - 浮动引导按钮滚动到核心功能区域
+ *   - 导航参数支持（滚动到指定功能区域）
+ *
+ * 对应 ViewModel：HomeViewModel
+ *
+ * 生命周期：
+ *   - 构造函数 → 注册加载事件
+ *   - HomePage_Loaded → 设置横幅、隐藏教程"试一下"区域
+ *   - OnNavigatedTo → 处理导航参数（滚动到指定特征）
+ *   - 悬浮预览通过 PointerEntered/Exited/Moved 实现
+ */
+
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
@@ -13,6 +32,7 @@ namespace LivePhotoBox.Views
 {
     public sealed partial class HomePage : Page
     {
+        // 关联的 HomeViewModel
         public HomeViewModel ViewModel => AppViewModel.Instance.Home;
 
         private bool _isHoverActive;
@@ -24,6 +44,7 @@ namespace LivePhotoBox.Views
         private readonly Dictionary<string, (double Width, double Height)> _imageSizes = new();
         private RoutedEventHandler? _scrollToFeatureHandler;
 
+        // 构造函数：初始化鼠标移动处理器和组件，注册加载事件
         public HomePage()
         {
             _scrollViewerMovedHandler = ScrollViewer_PointerMoved;
@@ -31,8 +52,10 @@ namespace LivePhotoBox.Views
             this.Loaded += HomePage_Loaded;
         }
 
+        // 页面加载完成后的初始化：设置横幅图片、文字阴影、隐藏教程"试一下"区域
         private void HomePage_Loaded(object sender, RoutedEventArgs e)
         {
+            // 从 App 缓存中获取横幅图片，首次加载则从设置中读取
             if (App.CachedBannerImage == null)
             {
                 App.CachedBannerImage = App.LoadBannerImageFromSettings();
@@ -43,6 +66,7 @@ namespace LivePhotoBox.Views
                 bannerImage.Source = App.CachedBannerImage;
             }
 
+            // 主标题文字阴影同步
             if (this.FindName("HeroTitleText") is TextBlock heroTitleText &&
                 this.FindName("HeroTitleShadow") is TextBlock heroTitleShadow)
             {
@@ -64,6 +88,7 @@ namespace LivePhotoBox.Views
                 repairSection.Visibility = Visibility.Collapsed;
         }
 
+        // 教程图片加载完成后，隐藏占位边框并记录原始尺寸
         private void TutorialImage_Opened(object sender, RoutedEventArgs e)
         {
             if (sender is Image image)
@@ -81,6 +106,7 @@ namespace LivePhotoBox.Views
             }
         }
 
+        // 教程图片加载失败时，显示占位边框
         private void TutorialImage_Failed(object sender, Microsoft.UI.Xaml.ExceptionRoutedEventArgs e)
         {
             if (sender is Image image)
@@ -93,6 +119,7 @@ namespace LivePhotoBox.Views
             }
         }
 
+        // 鼠标进入教程图片区域时，显示悬浮大图预览
         private void TutorialImageBorder_PointerEntered(object sender, PointerRoutedEventArgs e)
         {
             try
@@ -146,6 +173,7 @@ namespace LivePhotoBox.Views
             }
         }
 
+        // 鼠标离开教程图片区域时，隐藏悬浮预览
         private void TutorialImageBorder_PointerExited(object sender, PointerRoutedEventArgs e)
         {
             try
@@ -162,6 +190,7 @@ namespace LivePhotoBox.Views
             }
         }
 
+        // 鼠标在页面内移动时，动态更新悬浮预览的位置（跟随光标，自动避让窗口边缘）
         private void ScrollViewer_PointerMoved(object sender, PointerRoutedEventArgs e)
         {
             try
@@ -223,6 +252,11 @@ namespace LivePhotoBox.Views
             }
         }
 
+        // 准备演示数据并导航到目标功能页面。
+        // 将内置示例文件复制到临时目录，设置 ViewModel 路径并触发扫描，最后切换侧栏选中项。
+        // subFolder: 内部资源子目录名（必须与 Assets/Samples/ 下物理文件夹名一致）
+        // pageTag: 页面对应的侧栏 Tag
+        // pageType: 目标页面类型
         private void SetupAndNavigateDemo(string subFolder, string pageTag, Type pageType)
         {
             try
@@ -298,6 +332,7 @@ namespace LivePhotoBox.Views
             }
         }
 
+        // 递归复制目录及其子目录的所有文件
         private void CopyDirectory(string sourceDir, string destinationDir)
         {
             if (!System.IO.Directory.Exists(sourceDir)) return;
@@ -320,6 +355,7 @@ namespace LivePhotoBox.Views
             }
         }
 
+        // 跳转到设置页面的严格实况照片扫描设置项
         private void GoToSettingsStrictScan_Click(object sender, RoutedEventArgs e)
         {
             if (App.MainWindow is MainWindow mainWindow)
@@ -328,24 +364,28 @@ namespace LivePhotoBox.Views
             }
         }
 
+        // 点击"试一下"合并演示，加载示例并导航到合并页
         private void TryMergeDemo_Click(object sender, RoutedEventArgs e)
         {
             LogService.Info("Demo: loading Merge sample & navigating to Merge page.", LogSource.UI);
             SetupAndNavigateDemo("Merge", "Merge", typeof(MergePage));
         }
 
+        // 点击"试一下"拆分演示，加载示例并导航到拆分页
         private void TrySplitDemo_Click(object sender, RoutedEventArgs e)
         {
             LogService.Info("Demo: loading Split sample & navigating to Split page.", LogSource.UI);
             SetupAndNavigateDemo("Split", "Split", typeof(SplitPage));
         }
 
+        // 点击"试一下"修复演示，加载示例并导航到修复页
         private void TryRepairDemo_Click(object sender, RoutedEventArgs e)
         {
             LogService.Info("Demo: loading Repair sample & navigating to Repair page.", LogSource.UI);
             SetupAndNavigateDemo("Repair", "Repair", typeof(RepairPage));
         }
 
+        // 浮动引导按钮：平滑滚动到核心功能标题区域
         private void FloatingGuideButton_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -360,6 +400,7 @@ namespace LivePhotoBox.Views
             catch (Exception ex) { LogService.Debug($"FloatingGuideButton scroll failed: {ex.Message}", LogSource.UI); }
         }
 
+        // 导航到本页时处理参数：若有 feature 参数，在页面加载完成后自动滚动到对应教程区域
         protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
@@ -384,6 +425,7 @@ namespace LivePhotoBox.Views
             }
         }
 
+        // 根据功能名称滚动到页面上对应的教程区域
         private void ScrollToFeature(string feature)
         {
             try

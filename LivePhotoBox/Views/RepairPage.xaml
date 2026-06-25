@@ -1,3 +1,4 @@
+<!-- 实况照片修复页：扫描目录，诊断配对问题并执行修复 -->
 <Page
     x:Class="LivePhotoBox.Views.RepairPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"

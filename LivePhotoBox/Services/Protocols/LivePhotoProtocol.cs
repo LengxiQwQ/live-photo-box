@@ -1,3 +1,14 @@
+// <summary>
+// Live Photo Box — Live Photo Protocol base class.
+// Provides the abstract contract and shared utilities for all live photo packaging
+// protocols. Each concrete subclass defines the XMP metadata format and optional
+// image pre-processing for a specific platform.
+// Supported protocol implementations:
+//   - Google MicroVideo V1 (deprecated, Id=0)
+//   - Google Motion Photo V2 (Id=1)
+//   - OPPO/OnePlus O-Live Photo (Id=2)
+// </summary>
+
 using System;
 using System.Reflection;
 using System.Text;
@@ -6,41 +17,36 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services.Protocols
 {
-    /// <summary>
-    /// Abstract base for Live Photo packaging protocols.
-    /// Each concrete protocol defines how XMP metadata is generated and optionally
-    /// how the source image is pre-processed before the JPEG+video concatenation.
-    /// </summary>
+    // Abstract base for Live Photo packaging protocols.
+    // Each concrete protocol defines how XMP metadata is generated and optionally
+    // how the source image is pre-processed before the JPEG+video concatenation.
     public abstract class LivePhotoProtocol
     {
-        /// <summary>Cached app version string read from the entry assembly.</summary>
+        // Cached app version string read from the entry assembly.
         private static readonly string _appVersion = App.AppVersion;
 
-        /// <summary>Stable numeric id matching the ComboBox SelectedIndex in the UI.</summary>
+        // Stable numeric id matching the ComboBox SelectedIndex in the UI.
         public abstract int Id { get; }
 
-        /// <summary>Short identifier for logging / debugging.</summary>
+        // Short identifier for logging / debugging.
         public abstract string Key { get; }
 
-        /// <summary>Human-readable label (Chinese).</summary>
+        // Human-readable label (Chinese).
         public abstract string DisplayName { get; }
 
-        /// <summary>Human-readable label (English).</summary>
+        // Human-readable label (English).
         public abstract string DisplayNameEn { get; }
 
-        /// <summary>
-        /// Build the complete XMP XML bytes for the Live Photo APP1 segment.
-        /// The returned bytes include the xpacket wrapper and are UTF-8 encoded.
-        /// </summary>
-        /// <param name="videoSize">Size of the appended video in bytes.</param>
+        // Build the complete XMP XML bytes for the Live Photo APP1 segment.
+        // The returned bytes include the xpacket wrapper and are UTF-8 encoded.
+        // videoSize: Size of the appended video in bytes.
+        // è¿å: UTF-8 encoded XMP bytes including xpacket wrapper markers.
         public abstract byte[] BuildXmpMetadata(long videoSize);
 
-        /// <summary>
-        /// Optional pre-processing on the source JPEG before it is combined with the video.
-        /// Returns the filesystem path to use as the image source (the original path, or
-        /// a temporary copy that the caller is responsible for cleaning up).
-        /// The default implementation is a no-op (returns <paramref name="sourceImagePath"/>).
-        /// </summary>
+        // Optional pre-processing on the source JPEG before it is combined with the video.
+        // Returns the filesystem path to use as the image source (the original path, or
+        // a temporary copy that the caller is responsible for cleaning up).
+        // The default implementation is a no-op (returns <paramref name="sourceImagePath"/>).
         public virtual Task<string> PrepareImageAsync(
             string sourceImagePath,
             string workDir,
@@ -52,6 +58,7 @@ namespace LivePhotoBox.Services.Protocols
 
         // ── Protocol registry ──────────────────────────────────────────
 
+        // All registered protocol instances, ordered by Id.
         private static readonly LivePhotoProtocol[] _all =
         [
             new MicroVideoV1Protocol(),
@@ -59,10 +66,12 @@ namespace LivePhotoBox.Services.Protocols
             new OppoLivePhotoProtocol(),
         ];
 
-        /// <summary>All registered protocols ordered by Id.</summary>
+        // All registered protocols ordered by Id.
         public static LivePhotoProtocol[] All => _all;
 
-        /// <summary>Look up a protocol by its <see cref="Id"/>.</summary>
+        // Look up a protocol by its <see cref="Id"/>.
+        // index: The protocol index (matches <see cref="Id"/>).
+        // è¿å: The matching <see cref="LivePhotoProtocol"/> instance, or MotionPhoto V2 as fallback if not found.
         public static LivePhotoProtocol FromIndex(int index)
         {
             foreach (var p in _all)
@@ -74,25 +83,24 @@ namespace LivePhotoBox.Services.Protocols
 
         // ── shared helpers ─────────────────────────────────────────────
 
+        // ASCII-encoded byte sequence for the XMP APP1 identifier header.
+        // This is the standard XMP namespace identifier written immediately after
+        // the JPEG APP1 marker (0xFFE1) and length field in the EXIF segment.
         protected static readonly byte[] XmpHeaderBytes =
             Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0");
 
-        /// <summary>
-        /// Build a standard xpacket-wrapped XMP document with the given RDF body.
-        /// Injects a LivePhotoBox tracking namespace so the app can later identify
-        /// files it generated (via <see cref="LivePhotoSplitService.ContainsLivePhotoMarker"/>).
-        ///
-        /// The extra XMP attributes do NOT affect live-photo detection on any platform
-        /// (Windows 11, Google Photos, Xiaomi, OPPO, Samsung, Apple) — XMP parsers
-        /// silently ignore namespaces they don't recognise.
-        /// </summary>
-        /// <param name="rdfDescription">The rdf:Description XML element.</param>
-        /// <param name="protocolKey">
-        /// Identifier of the protocol that generated this XMP (e.g. "MotionPhotoV2").
-        /// If null or empty, the Protocol attribute is omitted.
-        /// </param>
+        // Build a standard xpacket-wrapped XMP document with the given RDF body.
+        // Injects a LivePhotoBox tracking namespace so the app can later identify
+        // files it generated (via <see cref="LivePhotoSplitService.ContainsLivePhotoMarker"/>).
+        // The extra XMP attributes do NOT affect live-photo detection on any platform
+        // (Windows 11, Google Photos, Xiaomi, OPPO, Samsung, Apple) — XMP parsers
+        // silently ignore namespaces they don't recognise.
+        // rdfDescription: The rdf:Description XML element.
+        // protocolKey: Identifier of the protocol that generated this XMP (e.g. "MotionPhotoV2").If null or empty, the Protocol attribute is omitted.
+        // è¿å: UTF-8 encoded XMP bytes including xpacket wrapper markers.
         protected static byte[] WrapXmp(string rdfDescription, string? protocolKey = null)
         {
+            // Build the LivePhotoBox tracking marker with app version and optional protocol key
             string marker = " xmlns:LivePhotoBox=\"https://github.com/LengxiQwQ/live-photo-box\"" +
                            $" LivePhotoBox:Action=\"Merge\"";
             if (!string.IsNullOrEmpty(protocolKey))
@@ -124,6 +132,7 @@ namespace LivePhotoBox.Services.Protocols
                 ? rdfDescription.Insert(tagEnd, marker)
                 : rdfDescription;
 
+            // Build the complete XMP document with xpacket wrapper markers
             string xml = $"<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" +
                          $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n" +
                          $"  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n" +
@@ -134,18 +143,21 @@ namespace LivePhotoBox.Services.Protocols
             return Encoding.UTF8.GetBytes(xml);
         }
 
-        /// <summary>Whether exiftool is available on this system.</summary>
+        // Whether exiftool is available on this system.
         protected static bool IsExifToolAvailable =>
             !string.IsNullOrEmpty(ExternalToolLocator.FindExifTool());
 
-        /// <summary>
-        /// Run exiftool to write an EXIF UserComment tag. Used by OPPO protocol
-        /// to inject the <c>oplus_</c> gallery-recognition marker.
-        /// Returns true on success, false if exiftool is unavailable or fails.
-        /// </summary>
+        // Run exiftool to write an EXIF UserComment tag. Used by OPPO protocol
+        // to inject the <c>oplus_</c> gallery-recognition marker.
+        // Returns true on success, false if exiftool is unavailable or fails.
+        // filePath: Path to the image file to modify.
+        // comment: The UserComment string value to write.
+        // token: Cancellation token.
+        // è¿å: True if the EXIF write succeeded; false if exiftool is unavailable or the write failed.
         protected static async Task<bool> WriteExifUserCommentAsync(
             string filePath, string comment, CancellationToken token)
         {
+            // Check if exiftool is available on the system path
             if (string.IsNullOrEmpty(ExternalToolLocator.FindExifTool())) return false;
 
             try

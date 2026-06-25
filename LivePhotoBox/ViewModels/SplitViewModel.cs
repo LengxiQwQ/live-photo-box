@@ -18,6 +18,10 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.ViewModels
 {
+    // 实况照片拆分页面的 ViewModel。
+    // 负责扫描输入目录中的实况照片（MOV/MP4 文件），将其拆分为独立的照片和视频文件，
+    // 并支持输出格式选择、并行处理、暂停/取消等操作。
+    // 继承自 WorkViewModelBase，复用扫描/处理/暂停/取消等生命周期管理。
     public partial class SplitViewModel : WorkViewModelBase
     {
         #region Properties
@@ -29,6 +33,7 @@ namespace LivePhotoBox.ViewModels
         protected override string ProcessingStatusText =>
             ResourceService.Format("SplitPage_Status_Running") + GetHardwareSuffix();
 
+        // 输入目录路径。赋值后自动触发扫描（若当前允许）。
         [ObservableProperty]
         private string _inputDirectory = string.Empty;
 
@@ -47,30 +52,38 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 拆分输出目录路径。
         [ObservableProperty]
         private string _outputDirectory = string.Empty;
 
         partial void OnOutputDirectoryChanged(string value) => _openSplitOutputFolderCommand?.NotifyCanExecuteChanged();
 
+        // 已入队的拆分任务总数（扫描完成后确定）。
         [ObservableProperty]
         private int _queuedCount = 0;
 
+        // 扫描识别的实况照片文件数（含已识别但可能跳过的）。
         [ObservableProperty]
         private int _recognizedCount = 0;
 
+        // 扫描中跳过的文件数（非实况照片格式等）。
         [ObservableProperty]
         private int _skippedCount = 0;
 
         [ObservableProperty]
         private bool _isDirectoryPanelOpen = true;
 
+        // 扫描按钮上的动态文本：扫描中显示"取消"，否则显示"扫描"。
         public string ScanButtonText => IsScanning
             ? ResourceService.GetString("SplitPage_DynamicCancelText")
             : ResourceService.GetString("SplitPage_DynamicScanText");
 
+        // 扫描按钮是否可点击（处理中不可点击）。
         public bool CanClickScanButton => !IsProcessing;
+        // 输出格式选择是否可编辑（扫描/处理中不可编辑）。
         public bool CanEditSelectedFormat => !IsScanning && !IsProcessing;
 
+        // 所有拆分任务的集合。
         public BulkObservableCollection<SplitTask> Tasks { get; } = [];
 
         #endregion
@@ -216,11 +229,16 @@ namespace LivePhotoBox.ViewModels
 
         #region Fields
 
+        // 拆分处理计时器。
         private Stopwatch _stopwatch = new();
+        // 是否被用户手动停止。
         private bool _splitStoppedByUser;
+        // 是否自然完成。
         private bool _splitDone;
 
+        // UI 更新定时器（60ms 间隔），用于刷新进度条和文本。
         private readonly DispatcherTimer _uiUpdateTimer;
+        // 已完成的任务数（线程安全，volatile）。
         private volatile int _completedTasksCount;
 
         public override string ActionBtnText
@@ -240,8 +258,11 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
+        // 某个拆分任务开始处理时触发，供 ListView 滚动到对应项。
         public event EventHandler<SplitTask>? TaskStartedForScroll;
+        // 全部处理完成时触发，供 ListView 滚动回顶部。
         public event EventHandler? ProcessingCompletedForScroll;
+        // 扫描进度的批量项刷新到 UI 时触发。
         public event EventHandler? ScanItemsFlushed;
 
         private void UiUpdateTimer_Tick(object? sender, object e)
@@ -432,6 +453,7 @@ namespace LivePhotoBox.ViewModels
 
         #region Process
 
+        // 切换次要操作（暂停/继续 或 清空列表），取决于当前处理状态。
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
@@ -447,6 +469,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 切换处理状态：运行时点击停止，已完成时弹出结果对话框，空闲时启动拆分处理。
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task StartProcessingAsync()
         {
@@ -486,6 +509,7 @@ namespace LivePhotoBox.ViewModels
         }
 
 
+        // 弹出一个 ContentDialog 窗口展示拆分被取消时的汇总信息。
         private async Task ShowSplitCancelledDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -530,6 +554,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 弹出一个 ContentDialog 窗口展示拆分已全部完成时的汇总信息。
         private async Task ShowSplitAlreadyDoneDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -767,6 +792,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 更新 Task 为"处理中"状态，触发滚动事件。
         private void UpdateTaskStarted(SplitTask task)
         {
             task.Status = ProcessStatus.Processing;
@@ -776,6 +802,7 @@ namespace LivePhotoBox.ViewModels
             TaskStartedForScroll?.Invoke(this, task);
         }
 
+        // 更新 Task 为"已完成/失败"状态，触发完成滚动事件（若全部完成）。
         private void UpdateTaskCompleted(SplitTask task, bool isSuccess, string detailMessage, int completedCount)
         {
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
@@ -788,6 +815,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 更新被取消的 Task 的状态（保留 Processing，不标记失败）。
         private void UpdateTaskCancelled(SplitTask task, string detailMessage)
         {
             // 用户取消不标记为"失败"——保留 Processing 状态，颜色中性，只更新详情
@@ -799,6 +827,7 @@ namespace LivePhotoBox.ViewModels
 
         #region Folder Operations
 
+        // 在文件管理器中打开输入文件夹。
         private async Task OpenSplitInputFolderAsync()
         {
             try
@@ -814,6 +843,7 @@ namespace LivePhotoBox.ViewModels
             catch (Exception ex) { LogService.Split($"OpenSplitInput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
+        // 在文件管理器中打开拆分输出文件夹。
         private void OpenSplitOutputFolder()
         {
             try
@@ -830,6 +860,7 @@ namespace LivePhotoBox.ViewModels
 
         #region Settings
 
+        // 拆分输出格式索引（实时读写 AppSettings）。
         public int SelectedFormatIndex
         {
             get => AppSettingsService.GetValue(nameof(SelectedFormatIndex), 0);
@@ -843,10 +874,8 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
-        /// <summary>
-        /// 安全地清理拆分过程的 Temp 目录（全部任务结束后调用）。
-        /// 所有临时文件已在 SplitAsync 中逐个删除，这里清理可能残留的空 Temp 目录。
-        /// </summary>
+        // 安全地清理拆分过程的 Temp 目录（全部任务结束后调用）。
+        // 所有临时文件已在 SplitAsync 中逐个删除，这里清理可能残留的空 Temp 目录。
         private static void CleanSplitTempDirectory(string outputDir)
         {
             if (string.IsNullOrWhiteSpace(outputDir)) return;

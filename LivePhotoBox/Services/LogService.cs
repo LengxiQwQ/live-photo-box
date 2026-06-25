@@ -16,20 +16,29 @@ using LogSource = LivePhotoBox.Models.LogSource;
 // For Package.Current.Id.Version — matches AboutPage's version display
 using Windows.ApplicationModel;
 
+// =======================================================================================
+// LogService — 统一日志服务
+// =======================================================================================
+// 设计原则：
+//   - 每次会话 = 一个 .log 文件，文件名格式 app-YYYYMMDD-HHmmss.log
+//   - 所有日志（常规信息、崩溃报告、会话标记）写入同一文件流
+//   - 崩溃报告直接追加到日志文件尾部（不设独立文件）
+//   - 崩溃检测通过读取上次会话日志尾部标记实现（无需额外状态文件）
+//   - 线程安全：ConcurrentQueue 入队，异步批量 flush + 同步加锁写盘
+//   - 保留策略：保留最近 15 个日志文件 + 5 个 dump 文件
+// =======================================================================================
+
 namespace LivePhotoBox.Services
 {
-    /// <summary>
-    /// Unified logging service.
-    /// All logs — normal entries, crash reports, session markers — are written
-    /// to a single log file per session. No separate crash files, no JSON state.
-    ///
-    /// Design principles:
-    /// - One session = one log file
-    /// - Crash reports are appended inline to the same log stream
-    /// - Crash detection reads the previous session's log tail (no external state)
-    /// - Thread-safe, async flush with immediate sync write for critical/crash entries
-    /// - Max 15 log files + 5 dumps retained; older ones auto-deleted
-    /// </summary>
+    // Unified logging service.
+    // All logs — normal entries, crash reports, session markers — are written
+    // to a single log file per session. No separate crash files, no JSON state.
+    // Design principles:
+    // - One session = one log file
+    // - Crash reports are appended inline to the same log stream
+    // - Crash detection reads the previous session's log tail (no external state)
+    // - Thread-safe, async flush with immediate sync write for critical/crash entries
+    // - Max 15 log files + 5 dumps retained; older ones auto-deleted
     public static class LogService
     {
         #region Constants
@@ -83,34 +92,27 @@ namespace LivePhotoBox.Services
 
         #region Public State
 
-        /// <summary>
-        /// True if the previous application session did not end with a clean shutdown
-        /// (i.e. the last log file is missing the CLEAN SHUTDOWN marker).
-        /// Set by <see cref="Initialize"/>.
-        /// </summary>
+        // True if the previous application session did not end with a clean shutdown
+        // (i.e. the last log file is missing the CLEAN SHUTDOWN marker).
+        // Set by <see cref="Initialize"/>.
         public static bool LastSessionCrashed { get; private set; }
 
-        /// <summary>
-        /// Path to the log file from the previous session (crashed or not).
-        /// Useful for showing the user which file to inspect after a crash.
-        /// </summary>
+        // Path to the log file from the previous session (crashed or not).
+        // Useful for showing the user which file to inspect after a crash.
         public static string? PreviousLogPath { get; private set; }
 
         #endregion
 
         #region Initialization & Shutdown
 
-        /// <summary>
-        /// Initializes the logging service. Must be called once at application startup,
-        /// before any logging calls.
-        ///
-        /// Actions:
-        /// 1. Creates the Logs directory
-        /// 2. Rotates old log files (keeps last 15) and dumps (keeps last 5)
-        /// 3. Detects whether the previous session crashed
-        /// 4. Opens a new log file for this session
-        /// 5. Starts the background flush loop
-        /// </summary>
+        // Initializes the logging service. Must be called once at application startup,
+        // before any logging calls.
+        // Actions:
+        // 1. Creates the Logs directory
+        // 2. Rotates old log files (keeps last 15) and dumps (keeps last 5)
+        // 3. Detects whether the previous session crashed
+        // 4. Opens a new log file for this session
+        // 5. Starts the background flush loop
         public static void Initialize()
         {
             if (_initialized) return;
@@ -144,10 +146,8 @@ namespace LivePhotoBox.Services
             Task.Run(BackgroundFlushLoop);
         }
 
-        /// <summary>
-        /// Gracefully shuts down the logging service.
-        /// Writes the CLEAN SHUTDOWN marker, flushes all pending entries, and stops the flush loop.
-        /// </summary>
+        // Gracefully shuts down the logging service.
+        // Writes the CLEAN SHUTDOWN marker, flushes all pending entries, and stops the flush loop.
         public static void MarkCleanShutdown()
         {
             if (string.IsNullOrEmpty(_currentLogPath)) return;
@@ -170,10 +170,8 @@ namespace LivePhotoBox.Services
             Shutdown();
         }
 
-        /// <summary>
-        /// Force-flush all pending entries to disk immediately.
-        /// Called by crash handlers to ensure the log is as complete as possible.
-        /// </summary>
+        // Force-flush all pending entries to disk immediately.
+        // Called by crash handlers to ensure the log is as complete as possible.
         public static void ForceFlush()
         {
             FlushPendingEntries();
@@ -190,9 +188,7 @@ namespace LivePhotoBox.Services
 
         #region Core Logging API
 
-        /// <summary>
-        /// Low-level log method. All convenience methods delegate here.
-        /// </summary>
+        // Low-level log method. All convenience methods delegate here.
         public static void Log(
             LogSource source,
             LogLevel level,
@@ -277,19 +273,16 @@ namespace LivePhotoBox.Services
 
         #region Crash Section
 
-        /// <summary>
-        /// Writes a formatted crash-report section directly into the current log file.
-        /// This method flushes any pending queue entries first, then appends the crash
-        /// section synchronously — it does NOT go through the async queue, because
-        /// the process may terminate immediately after.
-        ///
-        /// The crash section includes:
-        /// - Header (timestamp, source, version)
-        /// - Exception details (type, message, stack trace)
-        /// - Optional extra fields (e.g. IsTerminating)
-        /// - The last ~50 log entries that were still in the memory queue (crash context)
-        /// - System memory snapshot
-        /// </summary>
+        // Writes a formatted crash-report section directly into the current log file.
+        // This method flushes any pending queue entries first, then appends the crash
+        // section synchronously — it does NOT go through the async queue, because
+        // the process may terminate immediately after.
+        // The crash section includes:
+        // - Header (timestamp, source, version)
+        // - Exception details (type, message, stack trace)
+        // - Optional extra fields (e.g. IsTerminating)
+        // - The last ~50 log entries that were still in the memory queue (crash context)
+        // - System memory snapshot
         public static void WriteCrashSection(string source, Exception? exception,
             IEnumerable<(string Key, string Value)>? extraFields = null)
         {
@@ -358,9 +351,7 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// Generates a test crash section for verifying the crash-reporting pipeline.
-        /// </summary>
+        // Generates a test crash section for verifying the crash-reporting pipeline.
         public static void GenerateTestCrashSection()
         {
             WriteCrashSection("Manual.TestCrashLog",
@@ -372,9 +363,7 @@ namespace LivePhotoBox.Services
 
         #region Query API
 
-        /// <summary>
-        /// Returns up to <paramref name="count"/> recent log entries from the in-memory queue.
-        /// </summary>
+        // Returns up to <paramref name="count"/> recent log entries from the in-memory queue.
         public static IReadOnlyList<AppLogEntry> GetRecentEntries(int count = 100)
         {
             var result = new List<AppLogEntry>();
@@ -387,25 +376,17 @@ namespace LivePhotoBox.Services
             return result;
         }
 
-        /// <summary>
-        /// Total number of log entries processed this session.
-        /// </summary>
+        // Total number of log entries processed this session.
         public static long TotalCount => Interlocked.Read(ref _totalCount);
 
-        /// <summary>
-        /// Path to the currently active log file.
-        /// </summary>
+        // Path to the currently active log file.
         public static string? CurrentLogPath => _currentLogPath;
 
-        /// <summary>
-        /// Path to the Logs directory.
-        /// </summary>
+        // Path to the Logs directory.
         public static string LogDirectory => _logDirectory ?? ResolveLogDirectory();
 
-        /// <summary>
-        /// Returns the path to the most recent app-*.log file (current or previous session).
-        /// Returns null if no log files exist.
-        /// </summary>
+        // Returns the path to the most recent app-*.log file (current or previous session).
+        // Returns null if no log files exist.
         public static string? GetLatestLogPath()
         {
             if (string.IsNullOrEmpty(_logDirectory) || !Directory.Exists(_logDirectory))
@@ -416,9 +397,7 @@ namespace LivePhotoBox.Services
                 .FirstOrDefault();
         }
 
-        /// <summary>
-        /// Returns the path to the most recent .dmp (crash dump) file, or null if none exist.
-        /// </summary>
+        // Returns the path to the most recent .dmp (crash dump) file, or null if none exist.
         public static string? GetLatestDumpPath()
         {
             var dumpDir = Path.Combine(LogDirectory, "Dumps");
@@ -429,10 +408,8 @@ namespace LivePhotoBox.Services
                 .FirstOrDefault();
         }
 
-        /// <summary>
-        /// Deletes all app-*.log files (used by "Clear All Logs" in settings).
-        /// The current log file will be recreated.
-        /// </summary>
+        // Deletes all app-*.log files (used by "Clear All Logs" in settings).
+        // The current log file will be recreated.
         public static int DeleteAllLogFiles()
         {
             int deleted = 0;
@@ -546,10 +523,8 @@ namespace LivePhotoBox.Services
 
         #region Private — Crash Detection
 
-        /// <summary>
-        /// Scans the most recent previous log file for a CLEAN SHUTDOWN marker.
-        /// Sets <see cref="LastSessionCrashed"/> and <see cref="PreviousLogPath"/>.
-        /// </summary>
+        // Scans the most recent previous log file for a CLEAN SHUTDOWN marker.
+        // Sets <see cref="LastSessionCrashed"/> and <see cref="PreviousLogPath"/>.
         private static void DetectPreviousCrash()
         {
             if (string.IsNullOrEmpty(_logDirectory) || !Directory.Exists(_logDirectory))
@@ -608,11 +583,9 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// Logs system information (OS, runtime, CPU, memory, app path, culture) at startup,
-        /// before any module-specific initialization runs. All data here is available
-        /// without WMI queries — the hardware detection that follows fills in GPU details.
-        /// </summary>
+        // Logs system information (OS, runtime, CPU, memory, app path, culture) at startup,
+        // before any module-specific initialization runs. All data here is available
+        // without WMI queries — the hardware detection that follows fills in GPU details.
         private static void LogSystemInfo()
         {
             try

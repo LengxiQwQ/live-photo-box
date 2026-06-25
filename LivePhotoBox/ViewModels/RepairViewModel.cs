@@ -16,14 +16,23 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.ViewModels
 {
+    // 实况照片修复页面的 ViewModel。
+    // 负责扫描输入目录中的实况照片（JPG/HEIC + MOV/MP4 配对），
+    // 分析每对文件的元数据完整性（缩略图、ContentIdentifier、视频时长等），
+    // 并对需要修复的文件执行修复操作（原地替换或输出到独立目录）。
+    // 继承自 WorkViewModelBase，复用扫描/处理/暂停/取消等生命周期管理。
     public partial class RepairViewModel : WorkViewModelBase
     {
+        // 文件修复处理中的最短显示持续时间，避免进度闪烁。
         private static readonly TimeSpan MinimumProcessingDisplayDuration = TimeSpan.FromMilliseconds(100);
 
+        // 导航栏状态标签。
         public override string PageStatusTag => "Repair";
 
+        // 处理中状态的多语言资源键。
         protected override string ProcessingStatusKey => "Status_Running";
 
+        // 输入目录路径。赋值后自动触发扫描（若当前允许）。
         [ObservableProperty]
         private string _inputDirectory = string.Empty;
 
@@ -43,11 +52,13 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 修复输出目录路径（仅在 IsOutputToDirectory 为 true 时使用）。
         [ObservableProperty]
         private string _outputDirectory = string.Empty;
 
         partial void OnOutputDirectoryChanged(string value) => _openRepairOutputFolderCommand?.NotifyCanExecuteChanged();
 
+        // 是否输出到独立目录。true 时修复结果保存到 OutputDirectory；false 时原地替换。
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(OutputGridVisibility))]
         [NotifyPropertyChangedFor(nameof(InputLabelVisibility))]
@@ -84,56 +95,63 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 输出目录网格的可见性（启用独立目录时显示）。
         public Visibility OutputGridVisibility =>
             IsOutputToDirectory ? Visibility.Visible : Visibility.Collapsed;
 
+        // 输入标签的可见性（启用独立目录时作为左标签显示）。
         public Visibility InputLabelVisibility =>
             IsOutputToDirectory ? Visibility.Visible : Visibility.Collapsed;
 
+        // 输入/输出合并标签的可见性（原地替换时显示"输入/输出"）。
         public Visibility InputOutputLabelVisibility =>
             IsOutputToDirectory ? Visibility.Collapsed : Visibility.Visible;
 
+        // 扫描到的文件总数（按 Entry 维度计数）。
         [ObservableProperty]
         private int _totalPhotosCount = 0;
 
+        // 文件名配对分析无需修复的文件数。
         [ObservableProperty]
         private int _thumbCorrectCount = 0;
 
+        // 文件名配对分析需要修复的文件数。
         [ObservableProperty]
         private int _thumbErrorCount = 0;
 
-        /// <summary>配对成功的实况照片组数（新增统计）</summary>
+        // 配对成功的实况照片组数（新增统计）
         [ObservableProperty]
         private int _totalPairsCount = 0;
 
-        /// <summary>单独照片数（匹配不到视频的孤立照片）</summary>
+        // 单独照片数（匹配不到视频的孤立照片）
         [ObservableProperty]
         private int _standaloneImagesCount = 0;
 
-        /// <summary>单独视频数（匹配不到照片的孤立视频）</summary>
+        // 单独视频数（匹配不到照片的孤立视频）
         [ObservableProperty]
         private int _standaloneVideosCount = 0;
 
+        // 目录展开面板（输入/输出路径选择区域）是否打开。
         [ObservableProperty]
         private bool _isDirectoryPanelOpen = true;
 
+        // 扫描按钮上的动态文本：扫描中显示"取消"，否则显示"扫描"。
         public string ScanButtonText => IsScanning
             ? ResourceService.GetString("RepairPage_DynamicCancelText")
             : ResourceService.GetString("RepairPage_DynamicScanText");
 
+        // 所有扫描得到的修复任务集合，包含配对和独立项。
         public BulkObservableCollection<RepairTask> Tasks { get; } = [];
 
-        /// <summary>筛选后队列（ListView 实际绑定此集合）</summary>
+        // 筛选后队列（ListView 实际绑定此集合）。
         public BulkObservableCollection<RepairTask> FilteredTasks { get; } = [];
 
-        /// <summary>筛选栏可见性 — 有任务时才显示</summary>
+        // 筛选栏可见性 — 有任务时才显示。
         public Visibility FilterBarVisibility => Tasks.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         #region Filter
 
-        /// <summary>
-        /// 修复状态筛选：0=全部, 1=仅待修复, 2=仅完好
-        /// </summary>
+        // 修复状态筛选：0=全部, 1=仅待修复, 2=仅完好
         [ObservableProperty]
         private int _repairStatusFilter;
 
@@ -168,7 +186,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(ViewGroupVisibility));
         }
 
-        /// <summary>合并筛选按钮上显示的文本：例如"实况照片 · 仅待修复"</summary>
+        // 合并筛选按钮上显示的文本：例如"实况照片 · 仅待修复"
         public string CombinedFilterText
         {
             get
@@ -190,6 +208,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 设置类型筛选（实况照片组合/单独照片/单独视频）。
         [RelayCommand]
         private void SetTypeFilter(object parameter)
         {
@@ -197,6 +216,7 @@ namespace LivePhotoBox.ViewModels
             else if (parameter is string s && int.TryParse(s, out var r)) FilterMode = r;
         }
 
+        // 设置状态筛选（全部/仅待修复/仅完好）。
         [RelayCommand]
         private void SetStatusFilter(object parameter)
         {
@@ -204,6 +224,7 @@ namespace LivePhotoBox.ViewModels
             else if (parameter is string s && int.TryParse(s, out var r)) RepairStatusFilter = r;
         }
 
+        // 重置筛选条件到默认（全部）。
         [RelayCommand]
         private void ResetFilter()
         {
@@ -211,7 +232,7 @@ namespace LivePhotoBox.ViewModels
             RepairStatusFilter = 0;
         }
 
-        /// <summary>当前浏览的分组名称（由滚动位置决定），如"实况照片组合"</summary>
+        // 当前浏览的分组名称（由滚动位置决定），如"实况照片组合"
         private string _currentViewGroup = string.Empty;
         public string CurrentViewGroup
         {
@@ -223,7 +244,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        /// <summary>"当前显示：实况照片组合" 之类的完整文本</summary>
+        // "当前显示：实况照片组合" 之类的完整文本
         public string CurrentViewGroupText
         {
             get
@@ -234,10 +255,10 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        /// <summary>分组标签可见性 — 仅"全部"、有任务、非扫描中时显示</summary>
+        // 分组标签可见性 — 仅"全部"、有任务、非扫描中时显示
         public Visibility ViewGroupVisibility => FilterMode == 0 && Tasks.Count > 0 && !IsScanning ? Visibility.Visible : Visibility.Collapsed;
 
-        /// <summary>根据任务确定其所属分组名称</summary>
+        // 根据任务确定其所属分组名称
         public static string GetTaskGroupName(RepairTask task)
         {
             if (task.IsPaired) return ResourceService.GetString("RepairPage_GroupHeaderPairs");
@@ -306,7 +327,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(ViewGroupVisibility));
         }
 
-        /// <summary>在扫描/处理状态切换时调用，更新 IsFilterEnabled 和筛选状态</summary>
+        // 在扫描/处理状态切换时调用，更新 IsFilterEnabled 和筛选状态
         private void UpdateFilterEnabled()
         {
             bool canFilter = !IsScanning && !IsProcessing && Tasks.Count > 0;
@@ -319,12 +340,17 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
+        // 打开输入文件夹命令的后备字段。
         private IAsyncRelayCommand? _openRepairInputFolderCommand;
+        // 打开输出文件夹命令的后备字段。
         private IRelayCommand? _openRepairOutputFolderCommand;
 
+        // 在文件管理器中打开输入文件夹的命令。
         public IAsyncRelayCommand OpenRepairInputFolderCommand => _openRepairInputFolderCommand ??= new AsyncRelayCommand(OpenRepairInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
+        // 在文件管理器中打开输出文件夹的命令。
         public IRelayCommand OpenRepairOutputFolderCommand => _openRepairOutputFolderCommand ??= new RelayCommand(OpenRepairOutputFolder, CanOpenRepairOutputFolder);
 
+        // 初始化 RepairViewModel，加载设置并启动 UI 更新定时器。
         public RepairViewModel()
         {
             SetStatus("RepairPage_Status_Ready");
@@ -470,13 +496,20 @@ namespace LivePhotoBox.ViewModels
             UpdateFilterEnabled();
         }
 
+        // 修复处理计时器。
         private Stopwatch _stopwatch = new();
+        // 是否被用户手动停止。
         private bool _repairStoppedByUser;
+        // 是否自然完成。
         private bool _repairDone;
+        // 每个 Entry 的处理开始时间，用于保证最短显示时长。
         private readonly Dictionary<RepairFileEntry, DateTimeOffset> _taskProcessingStartTimes = new();
+        // UI 更新定时器（60ms 间隔），用于刷新进度条和文本。
         private readonly DispatcherTimer _uiUpdateTimer;
+        // 已完成处理的 Entry 计数（线程安全，volatile）。
         private volatile int _completedEntriesCount;
-        private int _totalRepairEntries; // 按 Entry（文件）计数，配对格子里的两个文件各算一个
+        // 待修复的 Entry 总数（按文件计数，配对格子里两个文件各算一个）。
+        private int _totalRepairEntries;
 
         public override string ActionBtnText
         {
@@ -493,6 +526,7 @@ namespace LivePhotoBox.ViewModels
 
         public override bool IsProcessingAllowed => !IsScanning;
 
+        // 弹出一个 ContentDialog 窗口展示修复被取消时的汇总信息。
         private async Task ShowRepairCancelledDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -541,6 +575,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 弹出一个 ContentDialog 窗口展示修复已全部完成时的汇总信息。
         private async Task ShowRepairAlreadyDoneDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -588,9 +623,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        /// <summary>
-        /// 查找某个 RepairFileEntry 所属的 RepairTask（用于滚动事件等）
-        /// </summary>
+        // 查找某个 RepairFileEntry 所属的 RepairTask（用于滚动事件等）
         private RepairTask? FindParentTask(RepairFileEntry entry)
         {
             return Tasks.FirstOrDefault(t => t.Entries.Contains(entry));
@@ -663,7 +696,9 @@ namespace LivePhotoBox.ViewModels
                 {
                     try
                     {
-                        return Directory.GetFiles(InputDirectory, "*.*", SearchOption.TopDirectoryOnly)
+                        bool recursive = AppSettingsService.GetValue("IsRecursiveScanEnabled", false);
+                        var searchOption = recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly;
+                        return Directory.GetFiles(InputDirectory, "*.*", searchOption)
                                  .Where(f => f.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
                                              f.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ||
                                              f.EndsWith(".heic", StringComparison.OrdinalIgnoreCase) ||
@@ -696,14 +731,17 @@ namespace LivePhotoBox.ViewModels
                 {
                     string stem = Path.GetFileNameWithoutExtension(file);
                     string ext = Path.GetExtension(file).ToLowerInvariant();
+
+                    // 递归扫描时用包含子文件夹的 key 避免跨文件夹同名文件冲突
+                    string key = PathHelper.GetPairingKey(InputDirectory, file);
+
                     if (ext == ".jpg" || ext == ".jpeg" || ext == ".heic" || ext == ".heif")
                     {
-                        // 同名文件冲突：后来的覆盖前面的
-                        imgDict[stem] = file;
+                        imgDict[key] = file;
                     }
                     else if (ext == ".mov" || ext == ".mp4")
                     {
-                        vidDict[stem] = file;
+                        vidDict[key] = file;
                     }
                 }
 
@@ -1148,9 +1186,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        /// <summary>
-        /// 分析单个文件并创建 RepairFileEntry。返回 null 表示被取消。
-        /// </summary>
+        // 分析单个文件并创建 RepairFileEntry。返回 null 表示被取消。
         private async Task<RepairFileEntry?> AnalyzeFileAndCreateEntry(
             string filePath, PersistentExifTool? persistentExifTool,
             bool heicRepairEnabled, CancellationToken token)
@@ -1194,6 +1230,7 @@ namespace LivePhotoBox.ViewModels
             };
         }
 
+        // 切换次要操作（暂停/继续 或 清空列表），取决于当前处理状态。
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
@@ -1209,6 +1246,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 切换处理状态：运行时点击停止，停止后（已取消或已完成）点击弹出结果对话框，空闲时启动修复。
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ToggleProcessAsync()
         {
@@ -1299,7 +1337,7 @@ namespace LivePhotoBox.ViewModels
                             }
 
                             string targetPath = IsOutputToDirectory
-                                ? Path.Combine(OutputDirectory, entry.FileName)
+                                ? PathHelper.GetUniqueFilePath(OutputDirectory, entry.FileName)
                                 : entry.FilePath;
 
                             bool isSuccess = false;
@@ -1414,10 +1452,14 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 某个修复任务开始处理时触发，供 ListView 滚动到对应项。
         public event EventHandler<RepairTask>? TaskStartedForScroll;
+        // 全部处理完成时触发，供 ListView 滚动回顶部。
         public event EventHandler? ProcessingCompletedForScroll;
+        // 扫描进度的批量项刷新到 UI 时触发。
         public event EventHandler? ScanItemsFlushed;
 
+        // 更新 Entry 为"处理中"状态，记录开始时间，触发滚动事件。
         private void UpdateEntryStarted(RepairFileEntry entry, RepairTask parentTask)
         {
             entry.Status = ProcessStatus.Processing;
@@ -1426,6 +1468,7 @@ namespace LivePhotoBox.ViewModels
             TaskStartedForScroll?.Invoke(this, parentTask);
         }
 
+        // 更新 Entry 为"已完成/失败"状态，触发完成滚动事件（若全部完成）。
         private void UpdateEntryCompleted(RepairFileEntry entry, bool isSuccess, string detailMessage)
         {
             entry.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
@@ -1438,12 +1481,14 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 更新被取消的 Entry 的状态详情（保持 Processing，不标记失败）。
         private void UpdateEntryCancelled(RepairFileEntry entry, string detailMessage)
         {
             entry.Details = detailMessage;
             _taskProcessingStartTimes.Remove(entry);
         }
 
+        // 确保每个 Entry 至少显示了最短持续时间（100ms），避免进度闪烁。
         private async Task EnsureMinimumProcessingDisplayAsync(RepairFileEntry entry)
         {
             if (!_taskProcessingStartTimes.TryGetValue(entry, out var startedAt)) return;
@@ -1451,6 +1496,7 @@ namespace LivePhotoBox.ViewModels
             if (remaining > TimeSpan.Zero) await Task.Delay(remaining).ConfigureAwait(false);
         }
 
+        // 通过文件夹选择器选取输入目录。
         [RelayCommand]
         private async Task PickInputDirectoryAsync()
         {
@@ -1461,6 +1507,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 通过文件夹选择器选取修复输出目录。
         [RelayCommand]
         private async Task PickOutputDirectoryAsync()
         {
@@ -1471,6 +1518,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 在文件管理器中打开修复输入文件夹。
         private async Task OpenRepairInputFolderAsync()
         {
             try
@@ -1486,17 +1534,20 @@ namespace LivePhotoBox.ViewModels
             catch (Exception ex) { LogService.Repair($"OpenRepairInput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
+        // 判断是否可以打开修复输出文件夹。
         private bool CanOpenRepairOutputFolder()
         {
             var folderPath = GetRepairResultFolderPath();
             return !string.IsNullOrWhiteSpace(folderPath);
         }
 
+        // 获取修复结果所在的文件夹路径（依据 IsOutputToDirectory 决定）。
         private string GetRepairResultFolderPath()
         {
             return IsOutputToDirectory ? OutputDirectory : InputDirectory;
         }
 
+        // 在文件管理器中打开修复输出文件夹。
         private void OpenRepairOutputFolder()
         {
             try

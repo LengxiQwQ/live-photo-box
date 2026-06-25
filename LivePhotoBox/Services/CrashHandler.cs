@@ -10,15 +10,12 @@ using XamlUnhandledExceptionEventArgs = Microsoft.UI.Xaml.UnhandledExceptionEven
 
 namespace LivePhotoBox.Services
 {
-    /// <summary>
-    /// Crash handler — registers exception handlers and shows crash-report dialogs.
-    ///
-    /// All crash REPORTING (writing to log) is delegated to <see cref="LogService"/>.
-    /// This class only handles:
-    /// - Exception handler registration
-    /// - WER local dump registration
-    /// - Crash dialog UI (ContentDialog)
-    /// </summary>
+    // Crash handler — registers exception handlers and shows crash-report dialogs.
+    // All crash REPORTING (writing to log) is delegated to <see cref="LogService"/>.
+    // This class only handles:
+    // - Exception handler registration
+    // - WER local dump registration
+    // - Crash dialog UI (ContentDialog)
     public static class CrashHandler
     {
         private static bool _initialized;
@@ -41,6 +38,11 @@ namespace LivePhotoBox.Services
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
         private static extern bool FreeLibrary(IntPtr hModule);
 
+        // 尝试注册 WER (Windows Error Reporting) 本地转储。
+        // 通过动态加载 KernelBase.dll 中的 WerRegisterAppLocalDump 函数指针实现，
+        // 避免对旧版 Windows 的直接依赖。注册后应用发生原生崩溃时会在指定目录生成 .dmp 文件。
+        // localAppDataRelativePath: 相对 LocalAppData 的转储目录路径
+        // è¿å: 注册成功返回 true
         private static bool TryRegisterAppLocalDump(string localAppDataRelativePath)
         {
             IntPtr hModule = LoadLibrary("KernelBase.dll");
@@ -62,10 +64,8 @@ namespace LivePhotoBox.Services
 
         #region Initialization
 
-        /// <summary>
-        /// Registers exception handlers and WER local dump.
-        /// Must be called once at application startup, AFTER <see cref="LogService.Initialize"/>.
-        /// </summary>
+        // Registers exception handlers and WER local dump.
+        // Must be called once at application startup, AFTER <see cref="LogService.Initialize"/>.
         public static void Initialize(Application app)
         {
             if (_initialized) return;
@@ -136,10 +136,8 @@ namespace LivePhotoBox.Services
 
         #region Dialogs
 
-        /// <summary>
-        /// Shows the crash dialog on startup if the previous session crashed.
-        /// Reads the previous log path from <see cref="LogService"/>.
-        /// </summary>
+        // Shows the crash dialog on startup if the previous session crashed.
+        // Reads the previous log path from <see cref="LogService"/>.
         public static async Task ShowPendingCrashDialogAsync(XamlRoot xamlRoot)
         {
             if (xamlRoot == null) return;
@@ -151,10 +149,8 @@ namespace LivePhotoBox.Services
             await ShowCrashDialogAsync(xamlRoot, logPath);
         }
 
-        /// <summary>
-        /// Shows the crash report dialog for a specific log file.
-        /// If logPath is null or file doesn't exist, shows "Not detected" in place of the file name.
-        /// </summary>
+        // Shows the crash report dialog for a specific log file.
+        // If logPath is null or file doesn't exist, shows "Not detected" in place of the file name.
         public static async Task ShowCrashDialogAsync(XamlRoot xamlRoot, string? logPath)
         {
             if (xamlRoot == null) return;

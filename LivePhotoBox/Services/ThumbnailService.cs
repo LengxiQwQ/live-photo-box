@@ -17,12 +17,19 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
 {
+    // 缩略图服务 — 为文件列表提供异步缩略图加载与缓存。
+    // 支持三种来源：
+    // - 普通图片（JPG/PNG）：Windows Shell API (StorageFile.GetThumbnailAsync)
+    // - HEIC 图片：通过 BitmapDecoder 解码并缩放到 80px
+    // - 视频（MOV/MP4）：FFmpeg 抽第一帧，支持硬件加速解码
+    // 使用两级缓存（_thumbnailCache + _inflightLoads）防止重复加载，
+    // 并用 SemaphoreSlim 限制并发数（照片 4 路，视频根据硬件自动调整）。
     public static class ThumbnailService
     {
         private static readonly ConcurrentDictionary<string, ImageSource> _thumbnailCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, Task<ImageSource?>> _inflightLoads = new(StringComparer.OrdinalIgnoreCase);
         private static readonly SemaphoreSlim _loadLimiter = new(4, 4);
-        /// <summary>视频 FFmpeg 抽帧并发数：根据硬件自动调整（CPU→4路，NVIDIA→16路，QSV→10路，AMF→8路）</summary>
+        // 视频 FFmpeg 抽帧并发数：根据硬件自动调整（CPU→4路，NVIDIA→16路，QSV→10路，AMF→8路）
         private static readonly Lazy<SemaphoreSlim> _videoLoadLimiterLazy = new(() =>
         {
             int c = 4;
@@ -37,16 +44,25 @@ namespace LivePhotoBox.Services
             return new SemaphoreSlim(c, c);
         });
         private static SemaphoreSlim _videoLoadLimiter => _videoLoadLimiterLazy.Value;
-        /// <summary>追踪可取消的视频缩略图加载（用于滚动时取消队列中等待的）</summary>
+        // 追踪可取消的视频缩略图加载（用于滚动时取消队列中等待的）
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _videoLoadCts = new(StringComparer.OrdinalIgnoreCase);
         private static int _cacheVersion;
 
+        // 从缓存中直接获取已加载的缩略图（同步，非阻塞）。
+        // imagePath: 文件路径。
+        // è¿å: 缓存的 ImageSource，若尚未加载则返回 null。
         public static ImageSource? GetCached(string imagePath)
         {
             if (string.IsNullOrWhiteSpace(imagePath)) return null;
             return _thumbnailCache.TryGetValue(imagePath, out var cached) ? cached : null;
         }
 
+        // 异步加载指定文件的缩略图（走限量的并发信号量）。
+        // 照片（JPG/HEIC）和视频分别走独立的信号量，互不阻塞。
+        // 已缓存的直接返回，正在加载中的复用同一个 Task。
+        // imagePath: 文件路径。
+        // dispatcher: UI 线程调度器，用于在 UI 线程创建 BitmapImage。若为 null 则自动获取当前线程的。
+        // è¿å: 加载完成的 ImageSource，失败或取消返回 null。
         public static Task<ImageSource?> LoadAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
             if (string.IsNullOrWhiteSpace(imagePath)) return Task.FromResult<ImageSource?>(null);
@@ -64,7 +80,7 @@ namespace LivePhotoBox.Services
             return _inflightLoads.GetOrAdd(imagePath, path => LoadCoreAsync(path, dispatcher, version));
         }
 
-        /// <summary>取消队列中等待的视频缩略图加载（已开始的 FFmpeg 不受影响）</summary>
+        // 取消队列中等待的视频缩略图加载（已开始的 FFmpeg 不受影响）
         public static void CancelPendingVideoLoad(string filePath)
         {
             if (string.IsNullOrWhiteSpace(filePath)) return;
@@ -75,10 +91,8 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 扫描阶段视频背景加载（简单 FIFO，无优先/取消逻辑）。
-        /// 与 UI 可见路径（LoadCoreAsync）共享 _videoLoadLimiter 和 _inflightLoads，不重复加载。
-        /// </summary>
+        // 扫描阶段视频背景加载（简单 FIFO，无优先/取消逻辑）。
+        // 与 UI 可见路径（LoadCoreAsync）共享 _videoLoadLimiter 和 _inflightLoads，不重复加载。
         public static void BackgroundVideoLoad(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher)
         {
             if (string.IsNullOrWhiteSpace(videoPath)) return;
@@ -234,9 +248,7 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 普通照片缩略图（JPG/PNG 等）：使用 Windows Shell API。
-        /// </summary>
+        // 普通照片缩略图（JPG/PNG 等）：使用 Windows Shell API。
         private static async Task<ImageSource?> LoadPhotoThumbnailAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
         {
             try
@@ -379,11 +391,9 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 视频缩略图提取：使用 FFmpeg 抽取第一帧作为缩略图，
-        /// 避免 Windows Shell API 返回应用图标的问题。
-        /// 根据用户设置中选中的显卡自动添加硬件加速。
-        /// </summary>
+        // 视频缩略图提取：使用 FFmpeg 抽取第一帧作为缩略图，
+        // 避免 Windows Shell API 返回应用图标的问题。
+        // 根据用户设置中选中的显卡自动添加硬件加速。
         private static async Task<ImageSource?> LoadVideoThumbnailAsync(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
         {
             string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
@@ -468,11 +478,8 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 
-        /// 根据用户设置中的硬件编码器获取 FFmpeg 硬件加速解码标志。
-        /// 抽帧是解码操作，用对应的 hwaccel 可大幅提升 HEVC/高码率视频速度。
-        /// </summary>
+        // 根据用户设置中的硬件编码器获取 FFmpeg 硬件加速解码标志。
+        // 抽帧是解码操作，用对应的 hwaccel 可大幅提升 HEVC/高码率视频速度。
         private static string GetVideoHwAccelFlag()
         {
             try
@@ -497,6 +504,7 @@ namespace LivePhotoBox.Services
             }
         }
 
+        // 清空所有缩略图缓存并递增版本号，使进行中的旧版本加载结果被丢弃。
         public static void ClearCache()
         {
             _thumbnailCache.Clear();
@@ -508,14 +516,12 @@ namespace LivePhotoBox.Services
             path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
             path.EndsWith(".mov", StringComparison.OrdinalIgnoreCase);
 
-        /// <summary>公开给外部判断视频文件</summary>
+        // 公开给外部判断视频文件
         public static bool IsVideoFilePath(string path) => IsVideoFile(path);
 
         //  ------  x:Bind property-getter support  ------
 
-        /// <summary>
-        /// For x:Bind property getter usage. Non-async, returns cached or triggers background load.
-        /// </summary>
+        // For x:Bind property getter usage. Non-async, returns cached or triggers background load.
         public static ImageSource? TryGetOrLoad(
             ref ImageSource? thumbnail,
             ref bool isLoading,
@@ -610,6 +616,8 @@ namespace LivePhotoBox.Services
             return thumbnail;
         }
 
+        // 判断缩略图占位符的可见性：缩略图未加载时显示占位符，加载后隐藏。
+        // 用于 x:Bind 绑定。
         public static Visibility GetPlaceholderVisibility(ImageSource? thumbnail)
             => thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
@@ -663,9 +671,7 @@ namespace LivePhotoBox.Services
             return (Array.Empty<byte>(), 0, 0);
         }
 
-        /// <summary>
-        /// 视频缩略图数据提取（用于 x:Bind 路径）：使用 FFmpeg 抽取第一帧。
-        /// </summary>
+        // 视频缩略图数据提取（用于 x:Bind 路径）：使用 FFmpeg 抽取第一帧。
         private static async Task<(byte[] data, int width, int height)> LoadVideoThumbnailDataAsync(string videoPath)
         {
             string? ffmpegPath = ExternalToolLocator.FindFFmpeg();

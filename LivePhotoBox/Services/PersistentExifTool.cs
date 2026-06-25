@@ -7,14 +7,11 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
 {
-    /// <summary>
-    /// exiftool 常驻进程包装器：使用 -stay_open 模式，启动一次，通过 stdin/stdout 持续派发任务，
-    /// 避免每次调用都重新加载 Perl 运行时（节省 ~200-400ms/次）。
-    /// 线程安全：内部用 SemaphoreSlim 序列化 stdin/stdout 的读写。
-    ///
-    /// 崩溃自动恢复：当 exiftool 进程意外退出时（如遇损坏文件触发 Win32 异常），
-    /// 自动重启进程并重试当前命令一次。若二次崩溃则放弃本条命令、抛出异常。
-    /// </summary>
+    // exiftool 常驻进程包装器：使用 -stay_open 模式，启动一次，通过 stdin/stdout 持续派发任务，
+    // 避免每次调用都重新加载 Perl 运行时（节省 ~200-400ms/次）。
+    // 线程安全：内部用 SemaphoreSlim 序列化 stdin/stdout 的读写。
+    // 崩溃自动恢复：当 exiftool 进程意外退出时（如遇损坏文件触发 Win32 异常），
+    // 自动重启进程并重试当前命令一次。若二次崩溃则放弃本条命令、抛出异常。
     public sealed class PersistentExifTool : IDisposable
     {
         private Process _process;
@@ -27,13 +24,11 @@ namespace LivePhotoBox.Services
         private readonly string _tempDir;
         private bool _disposed;
 
-        /// <summary>第几次崩溃后重启（0 = 从未崩溃）。</summary>
+        // 第几次崩溃后重启（0 = 从未崩溃）。
         public int RestartCount { get; private set; }
 
-        /// <summary>
-        /// 当 exiftool 进程意外退出并完成自动重启时触发。
-        /// 参数为可显示给用户的消息文本。
-        /// </summary>
+        // 当 exiftool 进程意外退出并完成自动重启时触发。
+        // 参数为可显示给用户的消息文本。
         public event Action<string>? OnRestarted;
 
         public PersistentExifTool(string exifToolPath)
@@ -46,9 +41,7 @@ namespace LivePhotoBox.Services
             _stderrTask = Task.Run(() => ReadStderrLoopAsync(_shutdownCts.Token));
         }
 
-        /// <summary>
-        /// 创建一个新的 exiftool -stay_open 进程。与构造函数共享的初始化逻辑。
-        /// </summary>
+        // 创建一个新的 exiftool -stay_open 进程。与构造函数共享的初始化逻辑。
         private Process LaunchProcess()
         {
             var psi = new ProcessStartInfo
@@ -79,13 +72,11 @@ namespace LivePhotoBox.Services
                 ?? throw new InvalidOperationException("Failed to start persistent exiftool process.");
         }
 
-        /// <summary>最近一条命令的参数，崩溃时用于诊断日志。</summary>
+        // 最近一条命令的参数，崩溃时用于诊断日志。
         private string[]? _lastCommandArgs;
 
-        /// <summary>
-        /// 重启已崩溃的 exiftool 进程。调用方必须持有 _ioLock。
-        /// </summary>
-        /// <param name="context">崩溃时正在执行的命令描述（如文件路径）</param>
+        // 重启已崩溃的 exiftool 进程。调用方必须持有 _ioLock。
+        // context: 崩溃时正在执行的命令描述（如文件路径）
         private void RestartProcess(string? context = null)
         {
             // 抢在进程被 Kill 之前收集 stderr（崩溃原因可能在里面）
@@ -123,10 +114,8 @@ namespace LivePhotoBox.Services
             OnRestarted?.Invoke(uiMsg);
         }
 
-        /// <summary>
-        /// 发送一条命令并等待 JSON 响应。线程安全。
-        /// 如 exiftool 在命令执行期间崩溃，自动重启并重试一次。
-        /// </summary>
+        // 发送一条命令并等待 JSON 响应。线程安全。
+        // 如 exiftool 在命令执行期间崩溃，自动重启并重试一次。
         public async Task<string> SendCommandAsync(CancellationToken token, params string[] args)
         {
             if (_disposed)
@@ -144,10 +133,8 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 实际执行命令。isRetry=true 表示这是一次崩溃后的重试，
-        /// 如再次崩溃则不再重试，直接抛出异常。
-        /// </summary>
+        // 实际执行命令。isRetry=true 表示这是一次崩溃后的重试，
+        // 如再次崩溃则不再重试，直接抛出异常。
         private async Task<string> SendCommandInternalAsync(
             CancellationToken token, string[] args, bool isRetry)
         {
@@ -244,9 +231,8 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>
-        /// 获取并清空 stderr 缓冲区（用于日志记录）
-        /// </summary>
+        // 获取并清空 stderr 缓冲区（用于日志记录）。
+        // 线程安全，加锁后返回当前累积的 stderr 内容并清空。
         public string FlushStderr()
         {
             lock (_stderrCollector)

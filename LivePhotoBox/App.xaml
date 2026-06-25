@@ -1,3 +1,4 @@
+<!-- App.xaml — 全局资源字典：值转换器、主题画笔、按钮样式、浅/深色主题色 -->
 <Application
     x:Class="LivePhotoBox.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -9,6 +10,7 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
+            <!-- 值转换器 -->
             <converters:StatusToColorConverter x:Key="StatusToColorConverter"/>
             <converters:ProgressBarForegroundConverter x:Key="ProgressBarForegroundConverter"/>
             <converters:ProgressBarIndeterminateConverter x:Key="ProgressBarIndeterminateConverter"/>
@@ -20,13 +22,16 @@
             <converters:StringNotEmptyConverter x:Key="StringNotEmptyConverter"/>
             <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
 
+            <!-- 主题色 -->
             <SolidColorBrush x:Key="CyberCyanBrush" Color="#00E5FF"/>
             <SolidColorBrush x:Key="CyberPurpleBrush" Color="#B388FF"/>
+            <!-- 取消扫描按钮配色 -->
             <SolidColorBrush x:Key="ScanCancelButtonBackgroundBrush" Color="#C42B1C"/>
             <SolidColorBrush x:Key="ScanCancelButtonBackgroundPointerOverBrush" Color="#A82418"/>
             <SolidColorBrush x:Key="ScanCancelButtonBackgroundPressedBrush" Color="#8B1E14"/>
             <SolidColorBrush x:Key="ScanCancelButtonForegroundBrush" Color="#FFFFFF"/>
 
+            <!-- 取消扫描按钮样式（红色警示风格） -->
             <Style x:Key="ScanCancelButtonStyle" TargetType="Button">
                 <Setter Property="Background" Value="{StaticResource ScanCancelButtonBackgroundBrush}"/>
                 <Setter Property="Foreground" Value="{StaticResource ScanCancelButtonForegroundBrush}"/>
@@ -91,6 +96,7 @@
                 </Setter>
             </Style>
 
+            <!-- 浅/深/默认 主题色字典 -->
             <ResourceDictionary.ThemeDictionaries>
                 <ResourceDictionary x:Key="Light">
                     <!-- Card 背景改为与 SettingsCard 同款的系统画笔，统一材质感 -->

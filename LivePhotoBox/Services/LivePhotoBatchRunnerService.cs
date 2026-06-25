@@ -9,16 +9,32 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
 {
+    // 批量测试处理的运行配置项。
     public sealed class LivePhotoBatchRunOptions
     {
+        // 输出目录路径。
         public required string OutputDirectory { get; init; }
+        // 选中的合成协议索引。
         public required int SelectedModeIndex { get; init; }
+        // 最大并行任务数（默认取 CPU 核心数与 5 的较小值）。
         public int MaxDegreeOfParallelism { get; init; } = Math.Min(Environment.ProcessorCount, 5);
+        // 每批任务启动的间隔时间。
         public TimeSpan TaskStartInterval { get; init; } = TimeSpan.FromMilliseconds(250);
     }
 
+    // 批量测试处理运行器。
+    // 用于开发测试场景，按批并行处理 MergeTask 列表，
+    // 与 <see cref="LivePhotoMergeRunnerService"/> 逻辑相似但更简洁。
     public static class LivePhotoBatchRunnerService
     {
+        // 批量运行实况照片合成任务。
+        // 将任务分批并行执行，支持暂停/取消/进度回调。
+        // tasks: 待处理的合成任务集合。
+        // options: 运行配置（输出目录、协议索引、并行度等）。
+        // pauseEvent: 暂停信号量，Wait 阻塞直到 Set。
+        // cancellationToken: 取消令牌。
+        // onTaskStarted: 每个任务开始时的回调。
+        // onTaskCompleted: 每个任务完成时的回调（参数：task, success, details, completedCount）。
         public static async Task RunAsync(
             IReadOnlyCollection<MergeTask> tasks,
             LivePhotoBatchRunOptions options,
@@ -106,7 +122,7 @@ namespace LivePhotoBox.Services
                 }
 
                 string outputName = LivePhotoCompositionService.CreateOutputFileName(baseName, options.SelectedModeIndex);
-                string finalOutputPath = Path.Combine(options.OutputDirectory, outputName);
+                string finalOutputPath = PathHelper.GetUniqueFilePath(options.OutputDirectory, outputName);
 
                 await LivePhotoCompositionService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token);
 

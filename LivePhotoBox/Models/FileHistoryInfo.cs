@@ -6,51 +6,49 @@ using LivePhotoBox.Services;
 
 namespace LivePhotoBox.Models
 {
-    /// <summary>
-    /// 单张照片的操作历史记录
-    /// </summary>
+    // 单张照片的操作历史记录
     public class FileHistoryInfo
     {
+        // 文件完整路径
         public string FilePath { get; set; } = string.Empty;
 
+        // 文件名（不含目录）
         public string FileName => Path.GetFileName(FilePath);
 
-        /// <summary>文件的简短摘要（协议 + 状态）</summary>
+        // 文件的简短摘要（协议 + 状态）
         public string Summary { get; set; } = string.Empty;
 
-        /// <summary>是否识别为实况照片</summary>
+        // 是否识别为实况照片
         public bool IsLivePhoto { get; set; }
 
-        /// <summary>检测到的实况照片协议类型描述</summary>
+        // 检测到的实况照片协议类型描述
         public string DetectedProtocol { get; set; } = string.Empty;
 
-        /// <summary>是否由 LivePhotoBox 生成</summary>
+        // 是否由 LivePhotoBox 生成
         public bool IsLivePhotoBoxGenerated { get; set; }
 
-        /// <summary>Merge 协议标识</summary>
+        // Merge 协议标识
         public string MergeProtocol { get; set; } = string.Empty;
 
-        /// <summary>生成时的版本</summary>
+        // 生成时的版本
         public string MergeVersion { get; set; } = string.Empty;
 
-        /// <summary>时间线条目（按时间排序）</summary>
+        // 时间线条目（按时间排序）
         public ObservableCollection<HistoryEntry> Entries { get; set; } = new();
 
-        /// <summary>
-        /// 历史条目数量（用于 UI 可见性）
-        /// </summary>
+        // 历史条目数量（用于 UI 可见性）
         public bool HasEntries => Entries.Count > 0;
 
-        /// <summary>是否为 LivePhotoBox 生成 + 有历史记录</summary>
+        // 是否为 LivePhotoBox 生成且含有非 Merge 的操作历史
         public bool HasLivePhotoBoxHistory =>
             IsLivePhotoBoxGenerated && Entries.Any(e => e.Action != "Merge");
 
-        /// <summary>条目的 Summary 文本（如 "处理过 2 次"）</summary>
+        // 条目的 Summary 文本（如 "处理过 2 次"）
         public string EntryCountText =>
             Entries.Count == 0 ? string.Empty :
             ResourceService.Format("History_EntryCount", Entries.Count);
 
-        /// <summary>图标 Segoe MDL2 字符</summary>
+        // 根据文件扩展名返回对应的 Segoe MDL2 图标字符
         public string FileTypeIcon => Path.GetExtension(FilePath)?.ToLowerInvariant() switch
         {
             ".heic" or ".heif" => "", // HEIC file icon
@@ -61,27 +59,25 @@ namespace LivePhotoBox.Models
         };
     }
 
-    /// <summary>
-    /// 单个历史操作条目
-    /// </summary>
+    // 单个历史操作条目
     public class HistoryEntry
     {
-        /// <summary>操作类型: Merge / Split / Repair</summary>
+        // 操作类型: Merge / Split / Repair
         public string Action { get; set; } = string.Empty;
 
-        /// <summary>操作时间</summary>
+        // 操作时间
         public DateTime? Timestamp { get; set; }
 
-        /// <summary>格式化后的时间文本</summary>
+        // 格式化后的时间文本
         public string TimestampDisplay => Timestamp?.ToString("yyyy-MM-dd HH:mm:ss") ?? "——";
 
-        /// <summary>执行操作的 LivePhotoBox 版本</summary>
+        // 执行操作的 LivePhotoBox 版本
         public string Version { get; set; } = string.Empty;
 
-        /// <summary>详细描述（协议、格式、修复内容等）</summary>
+        // 详细描述（协议、格式、修复内容等）
         public string Description { get; set; } = string.Empty;
 
-        /// <summary>操作类型对应的颜色</summary>
+        // 操作类型对应的颜色
         public string ActionColor => Action switch
         {
             "Merge" => "#4CAF50",    // 绿色
@@ -90,7 +86,7 @@ namespace LivePhotoBox.Models
             _ => "#9E9E9E",          // 灰色（未知）
         };
 
-        /// <summary>操作类型对应的 Segoe MDL2 图标</summary>
+        // 操作类型对应的 Segoe MDL2 图标
         public string ActionIcon => Action switch
         {
             "Merge" => "",     // Merge/Combine
@@ -99,7 +95,7 @@ namespace LivePhotoBox.Models
             _ => "",           // Info
         };
 
-        /// <summary>操作类型对应的本地化名称</summary>
+        // 操作类型对应的本地化名称
         public string ActionDisplayName => Action switch
         {
             "Merge" => ResourceService.GetString("History_Action_Merge"),
