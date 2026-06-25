@@ -61,7 +61,7 @@
        <None Remove="Tools\jpegtran.exe" />
        <None Remove="Tools\jhead.exe" />
 		<None Remove="Views\AboutPage.xaml" />
-		<None Remove="Views\ComboPage.xaml" />
+		<None Remove="Views\MergePage.xaml" />
 		<None Remove="Views\HomePage.xaml" />
         <!-- Remove any residual font assets that were deleted from disk but still referenced by the project -->
 		<Content Remove="Assets\Fonts\**\*.*" />
@@ -125,7 +125,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<Page Update="Views\ComboPage.xaml">
+		<Page Update="Views\MergePage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
 		<Page Update="Views\HomePage.xaml">
@@ -143,12 +143,16 @@
 		<Page Update="Views\SettingsPage.xaml">
 			<Generator>MSBuild:Compile</Generator>
 		</Page>
-        <Page Update="Views\KeyPhotoPage.xaml">
-			<Generator>MSBuild:Compile</Generator>
-		</Page>
-        <Page Update="Views/SettingsPageModern.xaml">
+	        <Page Update="Views\HistoryPage.xaml">
 				<Generator>MSBuild:Compile</Generator>
 			</Page>
+	        <Page Update="Views\KeyPhotoPage.xaml">
+				<Generator>MSBuild:Compile</Generator>
+			</Page>
+	        <Page Update="Views/SettingsPageModern.xaml">
+					<Generator>MSBuild:Compile</Generator>
+				</Page>
+
 	</ItemGroup>
 
 	<ItemGroup>

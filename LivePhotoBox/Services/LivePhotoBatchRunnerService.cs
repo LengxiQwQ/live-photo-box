@@ -69,7 +69,7 @@ namespace LivePhotoBox.Services
             finally
             {
                 try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
-                catch (Exception ex) { LogService.Combo($"Failed to clean temp dir: {ex.Message}", LogLevel.Warning); }
+                catch (Exception ex) { LogService.Merge($"Failed to clean temp dir: {ex.Message}", LogLevel.Warning); }
             }
         }
 
@@ -118,7 +118,7 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                LogService.Combo($"Combo task failed for {baseName}: {ex.Message}", LogLevel.Error, ex);
+                LogService.Merge($"Merge task failed for {baseName}: {ex.Message}", LogLevel.Error, ex);
                 return (false, ResourceService.Format("Task_Error", ex.Message));
             }
             finally

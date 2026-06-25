@@ -126,11 +126,14 @@
   <data name="Nav_About.Content" xml:space="preserve">
     <value>About</value>
   </data>
-  <data name="Nav_Combo.Content" xml:space="preserve">
+  <data name="Nav_Merge.Content" xml:space="preserve">
     <value>Merge Live Photo</value>
   </data>
   <data name="Nav_KeyPhoto.Content" xml:space="preserve">
     <value>Replace Key Photo</value>
+  </data>
+  <data name="Nav_PhotoClassify.Content" xml:space="preserve">
+    <value>Photo Organize</value>
   </data>
   <data name="Nav_Home.Content" xml:space="preserve">
     <value>Home &amp; Tutorial</value>
@@ -217,7 +220,7 @@ Do you want to restart now?</value>
   <data name="SettingsPage_Theme_Desc.Text" xml:space="preserve">
     <value>Adjust the overall visual color scheme</value>
   </data>
-  <data name="SettingsPage_Combo_Header.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_Header.Text" xml:space="preserve">
     <value>Live Photo Merge</value>
   </data>
   <data name="SettingsPage_Protocol_Header.Header" xml:space="preserve">
@@ -254,7 +257,13 @@ Do you want to restart now?</value>
     <value>Replace key photo is not available yet</value>
   </data>
   <data name="KeyPhotoPage_PlaceholderDescription.Text" xml:space="preserve">
-    <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
+    <value>Freely replace the key photo (cover image) of your Live Photos. By parsing the underlying data structure, pick your favorite frame from the motion video and losslessly swap it in as the new static cover — so every Live Photo freezes at its most perfect moment.</value>
+  </data>
+  <data name="PhotoClassifyPage_PlaceholderTitle.Text" xml:space="preserve">
+    <value>Photo Organize is not available yet</value>
+  </data>
+  <data name="PhotoClassifyPage_PlaceholderDescription.Text" xml:space="preserve">
+    <value>Automatically reads photo metadata to intelligently identify Live Photos, Portrait mode, bursts, and other capture types, then organizes them into classified albums. Initial support for Apple-shot photos, with mainstream Android vendor formats to follow — building a truly cross-platform, one-stop photo management solution.</value>
   </data>
   <data name="RepairPage_PlaceholderDescription.Text" xml:space="preserve">
     <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
@@ -328,67 +337,67 @@ Do you want to restart now?</value>
   <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
     <value>Split execution logic will be connected next. The UI is now ready.</value>
   </data>
-  <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
+  <data name="MergePage_ConfigHeader.Text" xml:space="preserve">
     <value>Live Photo Merge Settings</value>
   </data>
-  <data name="ComboPage_InputLabel.Text" xml:space="preserve">
+  <data name="MergePage_InputLabel.Text" xml:space="preserve">
     <value>Input Dir:</value>
   </data>
-  <data name="ComboPage_InputBox.PlaceholderText" xml:space="preserve">
+  <data name="MergePage_InputBox.PlaceholderText" xml:space="preserve">
     <value>Select source folder with photos &amp; videos</value>
   </data>
-  <data name="ComboPage_BrowseBtn1.Content" xml:space="preserve">
+  <data name="MergePage_BrowseBtn1.Content" xml:space="preserve">
     <value>Browse...</value>
   </data>
-  <data name="ComboPage_OutputLabel.Text" xml:space="preserve">
+  <data name="MergePage_OutputLabel.Text" xml:space="preserve">
     <value>Output Dir:</value>
   </data>
-  <data name="ComboPage_OutputBox.PlaceholderText" xml:space="preserve">
+  <data name="MergePage_OutputBox.PlaceholderText" xml:space="preserve">
     <value>Select destination folder to save Live Photos</value>
   </data>
-  <data name="ComboPage_BrowseBtn2.Content" xml:space="preserve">
+  <data name="MergePage_BrowseBtn2.Content" xml:space="preserve">
     <value>Browse...</value>
   </data>
-  <data name="ComboPage_StatPaired.Text" xml:space="preserve">
+  <data name="MergePage_StatPaired.Text" xml:space="preserve">
     <value>Paired :</value>
   </data>
-  <data name="ComboPage_StatImg.Text" xml:space="preserve">
+  <data name="MergePage_StatImg.Text" xml:space="preserve">
     <value>Lone Img :</value>
   </data>
-  <data name="ComboPage_StatVid.Text" xml:space="preserve">
+  <data name="MergePage_StatVid.Text" xml:space="preserve">
     <value>Lone Vid :</value>
   </data>
-  <data name="ComboPage_ProtocolLabel.Text" xml:space="preserve">
+  <data name="MergePage_ProtocolLabel.Text" xml:space="preserve">
     <value>Protocol:</value>
   </data>
-  <data name="ComboPage_ScanBtn.Content" xml:space="preserve">
+  <data name="MergePage_ScanBtn.Content" xml:space="preserve">
     <value>Scan Files</value>
   </data>
-  <data name="ComboPage_DynamicScanText" xml:space="preserve">
+  <data name="MergePage_DynamicScanText" xml:space="preserve">
     <value>Scan Files</value>
   </data>
-  <data name="ComboPage_DynamicCancelText" xml:space="preserve">
+  <data name="MergePage_DynamicCancelText" xml:space="preserve">
     <value>Cancel Scan</value>
   </data>
-  <data name="ComboPage_QueueProgress.Text" xml:space="preserve">
+  <data name="MergePage_QueueProgress.Text" xml:space="preserve">
     <value>Queue: </value>
   </data>
-  <data name="ComboPage_ColSeq.Text" xml:space="preserve">
+  <data name="MergePage_ColSeq.Text" xml:space="preserve">
     <value>No.</value>
   </data>
-  <data name="ComboPage_ColFile.Text" xml:space="preserve">
+  <data name="MergePage_ColFile.Text" xml:space="preserve">
     <value>Source File Group</value>
   </data>
-  <data name="ComboPage_ColSize.Text" xml:space="preserve">
+  <data name="MergePage_ColSize.Text" xml:space="preserve">
     <value>Size</value>
   </data>
-  <data name="ComboPage_ColStatus.Text" xml:space="preserve">
+  <data name="MergePage_ColStatus.Text" xml:space="preserve">
     <value>Status</value>
   </data>
-  <data name="ComboPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="MergePage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
     <value>Show in folder</value>
   </data>
-  <data name="ComboPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="MergePage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
     <value>Fullscreen preview</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
@@ -400,7 +409,7 @@ Do you want to restart now?</value>
   <data name="StatusBar_Scanning_Split" xml:space="preserve">
     <value>Scanning live photos {0}/{1}</value>
   </data>
-  <data name="StatusBar_Scanning_Combo" xml:space="preserve">
+  <data name="StatusBar_Scanning_Merge" xml:space="preserve">
     <value>Scanning files {0}/{1}</value>
   </data>
   <data name="StatusBar_Scanning_Repair" xml:space="preserve">
@@ -505,7 +514,7 @@ Do you want to restart now?</value>
   <data name="Status_Done" xml:space="preserve">
     <value>Completed in {0:F1} seconds</value>
   </data>
-  <data name="Status_ComboCompletedSummary" xml:space="preserve">
+  <data name="Status_MergeCompletedSummary" xml:space="preserve">
     <value>Completed. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} failed</value>
   </data>
   <data name="Status_SplitCompletedSummary" xml:space="preserve">
@@ -514,7 +523,7 @@ Do you want to restart now?</value>
   <data name="Status_RepairCompletedSummary" xml:space="preserve">
     <value>Completed. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} skipped, {4} failed</value>
   </data>
-  <data name="Status_ComboStoppedSummary" xml:space="preserve">
+  <data name="Status_MergeStoppedSummary" xml:space="preserve">
     <value>Task stopped. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} failed, {4} unprocessed</value>
   </data>
   <data name="Status_SplitStoppedSummary" xml:space="preserve">
@@ -523,7 +532,7 @@ Do you want to restart now?</value>
   <data name="Status_RepairStoppedSummary" xml:space="preserve">
     <value>Repair stopped. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} skipped, {4} failed, {5} unprocessed</value>
   </data>
-  <data name="Btn_StartCombo" xml:space="preserve">
+  <data name="Btn_StartMerge" xml:space="preserve">
     <value>Start Merge</value>
   </data>
   <data name="Btn_StartSplit" xml:space="preserve">
@@ -565,10 +574,10 @@ Do you want to restart now?</value>
   <data name="Msg_ProcessingNotAllowed" xml:space="preserve">
     <value>Scan not complete, cannot start repair</value>
   </data>
-  <data name="Msg_ComboAlreadyStopped" xml:space="preserve">
+  <data name="Msg_MergeAlreadyStopped" xml:space="preserve">
     <value>Merge has been stopped. Please clear the list and rescan to restart.</value>
   </data>
-  <data name="Msg_ComboAlreadyDone" xml:space="preserve">
+  <data name="Msg_MergeAlreadyDone" xml:space="preserve">
     <value>Merge is already done. Please clear the list and rescan to restart.</value>
   </data>
   <data name="Msg_RepairCompletedTitle" xml:space="preserve">
@@ -580,19 +589,19 @@ Do you want to restart now?</value>
   <data name="Msg_RepairCompletedSummary" xml:space="preserve">
     <value>Total: {0} tasks. Succeeded: {1}, Skipped: {2}, Failed: {3}.</value>
   </data>
-  <data name="Msg_ComboCompletedTitle" xml:space="preserve">
+  <data name="Msg_MergeCompletedTitle" xml:space="preserve">
     <value>Task Completed</value>
   </data>
-  <data name="Msg_ComboCompletedDescription" xml:space="preserve">
+  <data name="Msg_MergeCompletedDescription" xml:space="preserve">
     <value>You can open the output folder, or clear the list and start again.</value>
   </data>
-  <data name="Msg_ComboCompletedSummary" xml:space="preserve">
+  <data name="Msg_MergeCompletedSummary" xml:space="preserve">
     <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}.</value>
   </data>
   <data name="Msg_TaskCancelledTitle" xml:space="preserve">
     <value>Task Cancelled</value>
   </data>
-  <data name="Msg_ComboCancelledSummary" xml:space="preserve">
+  <data name="Msg_MergeCancelledSummary" xml:space="preserve">
     <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}, Unprocessed: {3}</value>
   </data>
   <data name="Msg_SplitCancelledSummary" xml:space="preserve">
@@ -619,10 +628,10 @@ Do you want to restart now?</value>
   <data name="Msg_SplitCompletedSummary" xml:space="preserve">
     <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}.</value>
   </data>
-  <data name="Btn_ComboStopped" xml:space="preserve">
+  <data name="Btn_MergeStopped" xml:space="preserve">
     <value>Stopped</value>
   </data>
-  <data name="Btn_ComboDone" xml:space="preserve">
+  <data name="Btn_MergeDone" xml:space="preserve">
     <value>Done</value>
   </data>
   <data name="Btn_SplitStopped" xml:space="preserve">
@@ -835,7 +844,7 @@ Do you want to restart now?</value>
   <data name="RepairPage_Status_Ready" xml:space="preserve">
     <value>Ready. Select the folder you want to repair.</value>
   </data>
-  <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
+  <data name="MergePage_ThumbnailLoadingText.Text" xml:space="preserve">
     <value>Loading...</value>
   </data>
   <data name="SplitPage_Status_Scanning" xml:space="preserve">
@@ -1134,8 +1143,62 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="HomePage_RepairTitle.Text" xml:space="preserve">
     <value>Live Photo Display Repair</value>
   </data>
-  <data name="HomePage_RepairDesc.Text" xml:space="preserve">
-    <value>This is the main event: fixing the issue mentioned in the above description where Apple photo thumbnails rotate when viewed from the front and stretch in versions prior to iOS 17.3. If you encounter any other new issues, please report them on the About or Settings page.</value>
+  <data name="HomePage_RepairSubtitle.Text" xml:space="preserve">
+    <value>Fix rotation, stretching and thumbnail issues of Apple Live Photos on Windows</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step1_Title.Text" xml:space="preserve">
+    <value>What Does It Fix?</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step1_Desc.Text" xml:space="preserve">
+    <value>After exporting iPhone Live Photos, common display issues include:
+
+Stretched Thumbnail with Extra Embedded Data (pre‑iOS 17.3):
+Apple embedded a low-resolution thumbnail for compatibility, but it carried an orientation tag that Windows misinterpreted as landscape, causing the thumbnail to be stretched or squished.
+iOS 17.3 and later no longer embed this data.
+Fixed by lossless jpegtran rotation and stripping the leftover embedded thumbnail.
+
+Rotated Video:
+  The iPhone front camera stores portrait pixels horizontally, relying on an orientation tag for correct display — but Windows ignores it. Corrected via jpegtran lossless rotation or FFmpeg re-encoding.</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step2_Title.Text" xml:space="preserve">
+    <value>Scan &amp; Review Diagnosis</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step2_Desc.Text" xml:space="preserve">
+    <value>Click "Browse" to select a photo folder, then click "Scan Directory" to start the automatic analysis.
+
+Once scanning is complete, the stats panel shows an overview:
+· Total Photos / Live Photos — folder summary
+· Normal — no repair needed, photo is perfectly healthy
+· Abnormal — rotation, stretching, or extra thumbnails detected; repair needed
+· Lone Img / Lone Vid — files not paired as Live Photos
+
+The "Diagnosis" column on the right shows the specific issue for each photo. Click any abnormal entry to view detailed descriptions. Use the filters at the top to quickly find files by type or repair status.</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step3_Title.Text" xml:space="preserve">
+    <value>Choose Output Mode &amp; Start Repair</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step3_Desc.Text" xml:space="preserve">
+    <value>Once confirmed, select an output mode:
+
+· Output to Directory — Repaired files are saved to a separate folder, keeping originals untouched (recommended for first use)
+· Replace Original — Repairs files in place; please back up first
+
+Click "Start Repair" and the app will handle everything automatically:
+· JPEG → jpegtran lossless rotation + strip extra thumbnails
+· HEIC → correct erroneous Orientation tags
+· Video → FFmpeg re-encode to remove rotation matrix
+
+Open the output folder when done — your photos are back to normal ~</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Reassurance.Text" xml:space="preserve">
+    <value>Photos not taken with an iPhone generally don't need repair — scanning or repairing won't affect normal photos in any way. 
+To scan only iPhone Live Photos, enable "Strict Live Photo Scanning".</value>
+  </data>
+  <data name="HomePage_GoToSettingsStrictScan.Content" xml:space="preserve">
+    <value>Go to Settings</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Ready_Subtitle.Text" xml:space="preserve">
+    <value>Click the button on the right to try the built-in sample and see the full repair flow in action</value>
   </data>
   <data name="HomePage_RepairUsage.Text" xml:space="preserve">
     <value>Select the problematic Live Photos, and the program will automatically reconstruct the metadata to bring them back to life.</value>
@@ -1206,10 +1269,10 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="HomePage_GuideButton_Tooltip.Text" xml:space="preserve">
     <value>Beginner Guide</value>
   </data>
-  <data name="ComboPage_HelpButton.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="MergePage_HelpButton.ToolTipService.ToolTip" xml:space="preserve">
     <value>View Tutorial</value>
   </data>
-  <data name="ComboPage_HelpBtnText.Text" xml:space="preserve">
+  <data name="MergePage_HelpBtnText.Text" xml:space="preserve">
     <value>Help &amp; Tutorials</value>
   </data>
   <data name="SplitPage_HelpBtnText.Text" xml:space="preserve">
@@ -1218,7 +1281,7 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>Help &amp; Tutorials</value>
   </data>
-  <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="MergePage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Go to Home for tutorials</value>
   </data>
   <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
@@ -1227,10 +1290,10 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Go to Home for tutorials</value>
   </data>
-  <data name="ComboPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
+  <data name="MergePage_Msg_NoInputDirectoryTitle" xml:space="preserve">
     <value>Input Folder Not Selected</value>
   </data>
-  <data name="ComboPage_Msg_NoInputDirectory" xml:space="preserve">
+  <data name="MergePage_Msg_NoInputDirectory" xml:space="preserve">
     <value>Please select a folder containing the files to be merged. The folder should contain static photos (currently supports JPG) and dynamic videos (MOV or MP4) with the same name. The app will automatically scan the directory and pair them.</value>
   </data>
   <data name="SplitPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
@@ -1245,10 +1308,10 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="RepairPage_Msg_NoInputDirectory" xml:space="preserve">
     <value>Please select a folder containing images to be repaired. The app will automatically scan for images with thumbnail rotation or stretching issues caused by device compatibility and perform a lossless repair.</value>
   </data>
-  <data name="ComboPage_OpenInputBtn.Content" xml:space="preserve">
+  <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
     <value>Open Input Folder</value>
   </data>
-  <data name="ComboPage_OpenOutputBtn.Content" xml:space="preserve">
+  <data name="MergePage_OpenOutputBtn.Content" xml:space="preserve">
     <value>Open Output Folder</value>
   </data>
   <data name="SplitPage_OpenInputBtn.Content" xml:space="preserve">
@@ -1327,7 +1390,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>HEIC/HEIF file "{0}" conversion failed: {1}</value>
   </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
-    <value>Convert iPhone Live Photos into single files viewable on Windows</value>
+    <value>Convert iPhone Live Photos into single files viewable on both Windows and Android</value>
   </data>
   <data name="HomePage_Tutorial_ImagePlaceholder.Text" xml:space="preserve">
     <value>Tutorial image coming soon</value>
@@ -1365,34 +1428,34 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="HomePage_SplitTutorial_Ready_Subtitle.Text" xml:space="preserve">
     <value>Click the button on the right to try the built-in sample and see the full split flow in action</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder.Text" xml:space="preserve">
     <value>HEIC/HEIF Decoder</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder_MagickNET.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder_MagickNET.Content" xml:space="preserve">
     <value>Magick.NET (ImageMagick + libheif)</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder_BitmapDecoder.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder_BitmapDecoder.Content" xml:space="preserve">
     <value>Windows BitmapDecoder (system built-in)</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder_Desc.Text" xml:space="preserve">
     <value>Magick.NET is self-contained; BitmapDecoder requires HEIC/HEIF extensions (built-in on Win11, Win10 requires both extensions below)</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder_HeifLink.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder_HeifLink.Content" xml:space="preserve">
     <value>Install HEIF Image Extensions →</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder_HevcLink.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder_HevcLink.Content" xml:space="preserve">
     <value>Install HEVC Video Extensions →</value>
   </data>
-  <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_ThreadCount.Text" xml:space="preserve">
     <value>HEIC/HEIF Task Parallel Count</value>
   </data>
-  <data name="SettingsPage_Combo_ThreadCount_Desc.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_ThreadCount_Desc.Text" xml:space="preserve">
     <value>HEIC/HEIF transcoding parallel task count. JPG needs no transcoding and automatically uses up to 20 concurrent threads for faster composition.</value>
   </data>
-  <data name="SettingsPage_Combo_GoogleForceMp4.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_GoogleForceMp4.Text" xml:space="preserve">
     <value>Always convert to MP4 for Google protocols</value>
   </data>
-  <data name="SettingsPage_Combo_GoogleForceMp4_Desc.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_GoogleForceMp4_Desc.Text" xml:space="preserve">
     <value>When enabled, MOV videos are automatically converted to the more compatible MP4 format during Google V1/V2 Live Photo composition. Disabled by default, keeps the original video container format. If live photos fail to preview on your target imported device, you may try enabling this option.</value>
   </data>
   <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
@@ -1426,22 +1489,31 @@ Supported video formats: MOV, MP4
     <value>On the "Live Photo Merge" page, click the "Browse" button and select the folder you just prepared. The output directory is set automatically by default; change it only if you need a custom location.</value>
   </data>
   <data name="HomePage_Tutorial_Step3_Desc.Text" xml:space="preserve">
-    <value>The app will automatically identify paired files in the folder. Check the statistics to confirm:
- • Paired: number of photo groups ready to merge
- • Lone Img: photos without matching videos
- • Lone Vid: videos without matching photos
+    <value>After scanning, select the appropriate protocol from the "Protocol" dropdown:
 
-Once confirmed, click "Start Merge".</value>
+🔹 Only viewing on Windows?
+Any protocol works. Google - Motion Photo (V2) is recommended.
+
+🔹 Importing to an Android device?
+Choose the protocol that best matches your phone brand.
+
+⚠️ Currently not supported:
+· VIVO / iQOO — Uses separate file format, not supported
+· Samsung / Huawei / Honor — Not tested, currently not supported
+
+Once selected, click "Start Merge".</value>
   </data>
   <data name="HomePage_Tutorial_Step4_Desc.Text" xml:space="preserve">
     <value>The merging process runs automatically — no extra action needed. Once done, the output folder contains your merged Live Photos!
 
-Open them in the Windows Photos app to view and play ~</value>
+The resulting single-file format can be viewed and played directly on both Windows and Android devices ~</value>
   </data>
   <data name="HomePage_SplitTutorial_Step1_Desc.Text" xml:space="preserve">
     <value>You need to import single-file Live Photos in JPG format. Each file contains both a still image and a motion video. These can be:
+
  • Live Photos generated by this app
  • Live Photos captured directly on Android phones
+(Single file format, excluding VIVO)
 
 Place any of these files into the same folder.</value>
   </data>
@@ -1485,7 +1557,7 @@ Place any of these files into the same folder.</value>
     <value>Disabled</value>
   </data>
   <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
-    <value>When enabled, HEIC/HEIF photos will be checked for orientation metadata issues and extra thumbnails. HEIC/HEIF rotation tags are usually correct display instructions. Use default settings if you have no special requirements.</value>
+    <value>When enabled, HEIC/HEIF photos will be checked for orientation metadata issues and extra thumbnails. HEIC/HEIF rotation tags are usually correct display instructions — leave this off unless you have specific needs.</value>
   </data>
   <data name="Status_HeicRepairDisabled" xml:space="preserve">
     <value>[HEIC/HEIF repair off]</value>
@@ -1635,7 +1707,7 @@ Place any of these files into the same folder.</value>
     <value>Strict Live Photo Scanning</value>
   </data>
   <data name="SettingsPage_StrictLivePhotoScanDesc.Text" xml:space="preserve">
-    <value>Only match Live Photos via Apple ContentIdentifier (UUID). When enabled, only authentic Apple Live Photos are detected. When disabled, filename-based matching is used for all photos.</value>
+    <value>When enabled, only original Live Photos taken by Apple devices are identified via ContentIdentifier (UUID) matching, other photos and videos are skipped during scanning. When disabled, all files are matched by filename.</value>
   </data>
   <data name="SettingsPage_StrictLivePhotoScanToggle.OnContent" xml:space="preserve">
     <value>On</value>
@@ -1717,7 +1789,7 @@ Are you sure you want to switch?</value>
   </data>
   <data name="OutputDir_LivePhotos" xml:space="preserve">
     <value>Output_LivePhotos</value>
-    <comment>Default output folder name for Combo/Merge page</comment>
+    <comment>Default output folder name for Merge page</comment>
   </data>
   <data name="OutputDir_RepairedPhotos" xml:space="preserve">
     <value>Output_RepairedPhotos</value>
@@ -1729,7 +1801,7 @@ Are you sure you want to switch?</value>
   </data>
   <data name="HomePage_DemoSubFolder_Merge" xml:space="preserve">
     <value>Merge Sample</value>
-    <comment>Demo subfolder name for Merge/Combo page</comment>
+    <comment>Demo subfolder name for Merge/Merge page</comment>
   </data>
   <data name="HomePage_DemoSubFolder_Split" xml:space="preserve">
     <value>Split Sample</value>
@@ -1739,22 +1811,142 @@ Are you sure you want to switch?</value>
     <value>Repair Sample</value>
     <comment>Demo subfolder name for Repair page</comment>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatchingLabel.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatchingLabel.Text" xml:space="preserve">
     <value>Live Photo Matching</value>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatchingDesc.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatchingDesc.Text" xml:space="preserve">
     <value>Metadata matching only works with MOV videos, not MP4. Default uses filename and ContentIdentifier (UUID). "Capture Date" is a fallback option — may be inaccurate due to timezone or editing, generally not recommended.</value>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatching_Both.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatching_Both.Content" xml:space="preserve">
     <value>Filename + Metadata</value>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatching_Filename.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatching_Filename.Content" xml:space="preserve">
     <value>Filename Only</value>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatching_Metadata.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatching_Metadata.Content" xml:space="preserve">
     <value>Metadata Only</value>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatching_BothWithDate.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatching_BothWithDate.Content" xml:space="preserve">
     <value>Filename + Metadata + Capture Date</value>
+  </data>
+  <data name="Nav_History.Content" xml:space="preserve">
+    <value>Photo History (In Development)</value>
+  </data>
+  <data name="HistoryPage_Title.Text" xml:space="preserve">
+    <value>Photo Operation History</value>
+  </data>
+  <data name="HistoryPage_Subtitle.Text" xml:space="preserve">
+    <value>View operation records of photos processed by LivePhotoBox</value>
+  </data>
+  <data name="History_SelectFolder.Text" xml:space="preserve">
+    <value>Select Folder</value>
+  </data>
+  <data name="History_NoFolderSelected.Text" xml:space="preserve">
+    <value>No folder selected</value>
+  </data>
+  <data name="History_ScanButton.Text" xml:space="preserve">
+    <value>Scan</value>
+  </data>
+  <data name="History_EmptyTitle.Text" xml:space="preserve">
+    <value>Select a folder to get started</value>
+  </data>
+  <data name="History_EmptyDesc.Text" xml:space="preserve">
+    <value>Choose a folder containing photos. After scanning, all live photo operation records will be displayed.</value>
+  </data>
+  <data name="History_NoEntries.Text" xml:space="preserve">
+    <value>No operation records</value>
+  </data>
+  <data name="History_EntryCount" xml:space="preserve">
+    <value>{0} operations</value>
+  </data>
+  <data name="History_Action_Merge" xml:space="preserve">
+    <value>Merge</value>
+  </data>
+  <data name="History_Action_Split" xml:space="preserve">
+    <value>Split</value>
+  </data>
+  <data name="History_Action_Repair" xml:space="preserve">
+    <value>Repair</value>
+  </data>
+  <data name="History_MergeDesc" xml:space="preserve">
+    <value>Protocol: {0}</value>
+  </data>
+  <data name="History_FormatDesc" xml:space="preserve">
+    <value>Output {0}</value>
+  </data>
+  <data name="History_FixDesc" xml:space="preserve">
+    <value>Fix {0}</value>
+  </data>
+  <data name="History_Protocol_MotionPhotoV2" xml:space="preserve">
+    <value>Motion Photo V2</value>
+  </data>
+  <data name="History_Protocol_MicroVideoV1" xml:space="preserve">
+    <value>MicroVideo V1</value>
+  </data>
+  <data name="History_Protocol_OPPO" xml:space="preserve">
+    <value>OPPO Live Photo</value>
+  </data>
+  <data name="History_Summary_Generated" xml:space="preserve">
+    <value>{0} operations</value>
+  </data>
+  <data name="History_Summary_MergeOnly" xml:space="preserve">
+    <value>Merge created</value>
+  </data>
+  <data name="History_Summary_LivePhoto" xml:space="preserve">
+    <value>Live Photo</value>
+  </data>
+  <data name="History_TotalLabel" xml:space="preserve">
+    <value>Files:</value>
+  </data>
+  <data name="History_LivePhotoLabel" xml:space="preserve">
+    <value>Live Photos:</value>
+  </data>
+  <data name="History_MarkedLabel" xml:space="preserve">
+    <value>Marked:</value>
+  </data>
+  <data name="History_Scanning" xml:space="preserve">
+    <value>Scanning...</value>
+  </data>
+  <data name="History_ScanProgress" xml:space="preserve">
+    <value>Scanning {0}/{1}</value>
+  </data>
+  <data name="History_ScanComplete" xml:space="preserve">
+    <value>Found {0} files ({1} live photos, {2} with markers)</value>
+  </data>
+  <data name="History_NoImages" xml:space="preserve">
+    <value>No supported image files in the folder</value>
+  </data>
+  <data name="History_NoLivePhotos" xml:space="preserve">
+    <value>No live photos found</value>
+  </data>
+  <data name="SettingsPage_Debug_PhotoHistoryHeader.Text" xml:space="preserve">
+    <value>Photo History Page</value>
+  </data>
+  <data name="SettingsPage_Debug_PhotoHistoryDesc.Text" xml:space="preserve">
+    <value>Show the Photo History page in the navigation bar to view operation records of photos processed by LivePhotoBox</value>
+  </data>
+  <data name="SettingsPage_Debug_OpenHistoryBtn.Text" xml:space="preserve">
+    <value>Open</value>
+  </data>
+  <data name="SettingsPage_Debug_WriteHistoryHeader.Text" xml:space="preserve">
+    <value>Write Photo Operation Records</value>
+  </data>
+  <data name="SettingsPage_Debug_WriteHistoryDesc.Text" xml:space="preserve">
+    <value>When enabled, records all combo, split, and repair operations (e.g. rotation fix, thumbnail fix) performed by LivePhotoBox. View the complete timeline in the Photo History page</value>
+  </data>
+  <data name="SettingsPage_Merge_HeicDecoder_HeifLinkText.Text" xml:space="preserve">
+    <value>Install HEIF Image Extensions</value>
+  </data>
+  <data name="SettingsPage_Merge_HeicDecoder_HevcLinkText.Text" xml:space="preserve">
+    <value>Install HEVC Video Extensions</value>
+  </data>
+  <data name="MergePage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Go to Settings for advanced options</value>
+  </data>
+  <data name="SplitPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Go to Settings for advanced options</value>
+  </data>
+  <data name="RepairPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Go to Settings for advanced options</value>
   </data>
 </root>

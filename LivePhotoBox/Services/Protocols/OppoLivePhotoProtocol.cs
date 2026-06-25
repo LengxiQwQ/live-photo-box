@@ -86,7 +86,7 @@ namespace LivePhotoBox.Services.Protocols
 
             if (!IsExifToolAvailable)
             {
-                LogService.Combo(
+                LogService.Merge(
                     "exiftool not found — OPPO oplus_ marker will not be injected. " +
                     "The output will be a valid Motion Photo but may not animate in OPPO Gallery.",
                     Models.LogLevel.Warning);

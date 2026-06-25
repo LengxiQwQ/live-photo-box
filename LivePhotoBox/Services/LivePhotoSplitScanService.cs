@@ -206,7 +206,7 @@ namespace LivePhotoBox.Services
                     return false;
                 }
 
-                // 3. 校验偏移量合法性（谷歌标准：videoLength 即为文件尾部的视频字节数）
+                // 3. 校验偏移量合法性（Google标准：videoLength 即为文件尾部的视频字节数）
                 if (videoLength < MinVideoBytes) return false;
                 if (videoLength >= fileSize) return false;
 

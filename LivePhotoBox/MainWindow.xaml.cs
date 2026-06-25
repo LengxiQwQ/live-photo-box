@@ -117,11 +117,13 @@ namespace LivePhotoBox
 
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
             ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
+            ViewModel.Settings.PropertyChanged += OnSettingsHistoryVisibilityChanged;
             ViewModel.RequestNavigateToPage += OnRequestNavigateToPage;
 
             UpdateTheme();
             UpdateBackdrop();
             UpdateStatusBarVisibility();
+            UpdateHistoryNavVisibility();
 
             // 应用持久化的窗口透明度
             if (ViewModel.Settings.WindowOpacity < 1.0)
@@ -181,6 +183,19 @@ namespace LivePhotoBox
         private void UpdateStatusBarVisibility()
         {
             PageStatusBar.Visibility = ViewModel.IsStatusBarVisible ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void UpdateHistoryNavVisibility()
+        {
+            NavHistory.Visibility = ViewModel.Settings.IsHistoryPageVisible
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        private void OnSettingsHistoryVisibilityChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(SettingsViewModel.IsHistoryPageVisible))
+                UpdateHistoryNavVisibility();
         }
 
         private void UpdateBackdrop()
@@ -340,9 +355,11 @@ namespace LivePhotoBox
             switch (tag)
             {
                 case "Home": NavigateToPage(typeof(Views.HomePage), null); break;
-                case "Combo": NavigateToPage(typeof(Views.ComboPage), "Combo"); break;
+                case "Merge": NavigateToPage(typeof(Views.MergePage), "Merge"); break;
                 case "Split": NavigateToPage(typeof(Views.SplitPage), "Split"); break;
+                case "History": NavigateToPage(typeof(Views.HistoryPage), null); break;
                 case "KeyPhoto": NavigateToPage(typeof(Views.KeyPhotoPage), null); break;
+                case "PhotoClassify": NavigateToPage(typeof(Views.PhotoClassifyPage), null); break;
                 case "Repair": NavigateToPage(typeof(Views.RepairPage), "Repair"); break;
                 case "About": NavigateToPage(typeof(Views.AboutPage), null); break;
             }
@@ -366,6 +383,29 @@ namespace LivePhotoBox
                     NavView.SelectedItem = navItem;
                     break;
                 }
+            }
+        }
+
+        /// <summary>
+        /// 导航到设置页面，可附带导航参数（如滚动到指定分类标题）。
+        /// 先直接导航 Frame（确保参数传递），再更新侧栏选中项。
+        /// 临时解绑 SelectionChanged 防止重复导航。
+        /// </summary>
+        public void NavigateToSettings(string? parameter)
+        {
+            if (NavView == null) return;
+
+            bool useClassic = AppSettingsService.GetValue("UseClassicSettingsPage", false);
+            var pageType = useClassic ? typeof(Views.SettingsPageOld) : typeof(Views.SettingsPage);
+            ViewModel.SetCurrentStatusPage(null);
+            MainFrame.Navigate(pageType, parameter);
+
+            // 更新侧栏，但不触发重复导航
+            if (NavView.SelectedItem != NavView.SettingsItem)
+            {
+                NavView.SelectionChanged -= NavView_SelectionChanged;
+                NavView.SelectedItem = NavView.SettingsItem;
+                NavView.SelectionChanged += NavView_SelectionChanged;
             }
         }
 

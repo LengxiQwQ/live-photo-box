@@ -27,7 +27,7 @@ namespace LivePhotoBox.Services
         public IReadOnlyList<string> StandaloneVideoPaths { get; init; } = Array.Empty<string>();
     }
 
-    public static class LivePhotoComboScanService
+    public static class LivePhotoMergeScanService
     {
         public static LivePhotoScanResult Scan(
             string inputDirectory,

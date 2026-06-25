@@ -15,6 +15,29 @@ namespace LivePhotoBox
         public static BitmapImage? CachedBannerImage { get; set; }
 
         /// <summary>
+        /// 应用版本号（单一来源）。
+        /// 优先读取 MSIX 包清单中的版本（随发布/更新同步），
+        /// 未打包运行时回退到入口程序集版本。
+        /// 所有需要显示或写入版本号的地方统一使用此属性。
+        /// </summary>
+        public static string AppVersion
+        {
+            get
+            {
+                try
+                {
+                    var v = Windows.ApplicationModel.Package.Current.Id.Version;
+                    return $"{v.Major}.{v.Minor}.{v.Build}.{v.Revision}";
+                }
+                catch
+                {
+                    var v = System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version;
+                    return v != null ? $"{v.Major}.{v.Minor}.{v.Build}" : "0.0.0";
+                }
+            }
+        }
+
+        /// <summary>
         /// Refreshes <see cref="CachedBannerImage"/> to the given preset.
         /// The home page picks this up on next render.
         /// </summary>

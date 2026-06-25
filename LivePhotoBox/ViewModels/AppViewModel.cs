@@ -14,13 +14,15 @@ namespace LivePhotoBox.ViewModels
     {
         public static AppViewModel Instance { get; } = new AppViewModel();
 
-        public ComboViewModel Combo { get; }
+        public MergeViewModel Merge { get; }
         public SplitViewModel Split { get; }
         public RepairViewModel Repair { get; }
         public HomeViewModel Home { get; }
         public SettingsViewModel Settings { get; }
         public AboutViewModel About { get; }
         public KeyPhotoViewModel KeyPhoto { get; }
+        public PhotoClassifyViewModel PhotoClassify { get; }
+        public HistoryViewModel History { get; }
 
         public event EventHandler<string>? RequestNavigateToPage;
 
@@ -39,18 +41,18 @@ namespace LivePhotoBox.ViewModels
 
         public string CurrentPageStatus => CurrentStatusPageTag switch
         {
-            "Combo" => Combo.Status,
+            "Merge" => Merge.Status,
             "Split" => Split.Status,
             "Repair" => Repair.Status,
             _ => string.Empty
         };
 
-        public bool IsStatusBarVisible => CurrentStatusPageTag is "Combo" or "Split" or "Repair";
+        public bool IsStatusBarVisible => CurrentStatusPageTag is "Merge" or "Split" or "Repair";
 
         private int _splitScanTotal;
         private int _splitScanProcessed;
-        private int _comboScanTotal;
-        private int _comboScanProcessed;
+        private int _mergeScanTotal;
+        private int _mergeScanProcessed;
         private int _repairScanTotal;
         private int _repairScanProcessed;
 
@@ -60,7 +62,7 @@ namespace LivePhotoBox.ViewModels
             {
                 return CurrentStatusPageTag switch
                 {
-                    "Combo" => Combo.ProgressBarState,
+                    "Merge" => Merge.ProgressBarState,
                     "Split" => Split.ProgressBarState,
                     "Repair" => Repair.ProgressBarState,
                     _ => ProgressBarState.Idle
@@ -74,8 +76,8 @@ namespace LivePhotoBox.ViewModels
             {
                 return CurrentStatusPageTag switch
                 {
-                    "Combo" when Combo.IsScanning =>
-                        ResourceService.Format("StatusBar_Scanning_Combo", _comboScanProcessed, Math.Max(_comboScanTotal, _comboScanProcessed)),
+                    "Merge" when Merge.IsScanning =>
+                        ResourceService.Format("StatusBar_Scanning_Merge", _mergeScanProcessed, Math.Max(_mergeScanTotal, _mergeScanProcessed)),
                     "Split" when Split.IsScanning =>
                         ResourceService.Format("StatusBar_Scanning_Split", _splitScanProcessed, Math.Max(_splitScanTotal, _splitScanProcessed)),
                     "Repair" when Repair.IsScanning =>
@@ -90,7 +92,7 @@ namespace LivePhotoBox.ViewModels
             get
             {
                 var tag = CurrentStatusPageTag;
-                if (tag == "Combo") return GetProgress(Combo, _comboScanProcessed, _comboScanTotal);
+                if (tag == "Merge") return GetProgress(Merge, _mergeScanProcessed, _mergeScanTotal);
                 if (tag == "Split") return GetProgress(Split, _splitScanProcessed, _splitScanTotal);
                 if (tag == "Repair") return GetProgress(Repair, _repairScanProcessed, _repairScanTotal);
                 return 0;
@@ -109,7 +111,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         public bool FooterIsIndeterminate =>
-            (CurrentStatusPageTag == "Combo" && Combo.IsScanning && _comboScanTotal == 0)
+            (CurrentStatusPageTag == "Merge" && Merge.IsScanning && _mergeScanTotal == 0)
             || (CurrentStatusPageTag == "Split" && Split.IsScanning && _splitScanTotal == 0)
             || (CurrentStatusPageTag == "Repair" && Repair.IsScanning && _repairScanTotal == 0);
 
@@ -126,7 +128,7 @@ namespace LivePhotoBox.ViewModels
 
                 var vm = CurrentStatusPageTag switch
                 {
-                    "Combo" => (WorkViewModelBase)Combo,
+                    "Merge" => (WorkViewModelBase)Merge,
                     "Split" => Split,
                     "Repair" => Repair,
                     _ => null
@@ -163,7 +165,7 @@ namespace LivePhotoBox.ViewModels
                             // After scan, before processing -> "Ready"
                             bool hasData = CurrentStatusPageTag switch
                             {
-                                "Combo" => _comboScanTotal > 0,
+                                "Merge" => _mergeScanTotal > 0,
                                 "Split" => _splitScanTotal > 0,
                                 "Repair" => _repairScanTotal > 0,
                                 _ => false
@@ -181,7 +183,7 @@ namespace LivePhotoBox.ViewModels
 
                     // Fallback: show scan progress if there's residual scan data
                     bool fallbackHasData = false;
-                    if (CurrentStatusPageTag == "Combo") fallbackHasData = _comboScanTotal > 0;
+                    if (CurrentStatusPageTag == "Merge") fallbackHasData = _mergeScanTotal > 0;
                     if (CurrentStatusPageTag == "Split") fallbackHasData = _splitScanTotal > 0;
                     if (CurrentStatusPageTag == "Repair") fallbackHasData = _repairScanTotal > 0;
 
@@ -205,7 +207,7 @@ namespace LivePhotoBox.ViewModels
 
                 var vm = CurrentStatusPageTag switch
                 {
-                    "Combo" => (WorkViewModelBase)Combo,
+                    "Merge" => (WorkViewModelBase)Merge,
                     "Split" => Split,
                     "Repair" => Repair,
                     _ => null
@@ -228,7 +230,7 @@ namespace LivePhotoBox.ViewModels
                         case ProgressBarState.Idle:
                             bool hasData = CurrentStatusPageTag switch
                             {
-                                "Combo" => _comboScanTotal > 0,
+                                "Merge" => _mergeScanTotal > 0,
                                 "Split" => _splitScanTotal > 0,
                                 "Repair" => _repairScanTotal > 0,
                                 _ => false
@@ -253,7 +255,7 @@ namespace LivePhotoBox.ViewModels
 
                 var vm = CurrentStatusPageTag switch
                 {
-                    "Combo" => (WorkViewModelBase)Combo,
+                    "Merge" => (WorkViewModelBase)Merge,
                     "Split" => Split,
                     "Repair" => Repair,
                     _ => null
@@ -270,10 +272,10 @@ namespace LivePhotoBox.ViewModels
         public Visibility FooterPercentVisibility =>
             string.IsNullOrEmpty(FooterPercentLabel) ? Visibility.Collapsed : Visibility.Visible;
 
-        public void ApplyComboScanProgress(WorkProgressSnapshot snapshot)
+        public void ApplyMergeScanProgress(WorkProgressSnapshot snapshot)
         {
-            _comboScanTotal = snapshot.Total;
-            _comboScanProcessed = snapshot.Completed;
+            _mergeScanTotal = snapshot.Total;
+            _mergeScanProcessed = snapshot.Completed;
             NotifyFooterProperties();
         }
 
@@ -291,10 +293,10 @@ namespace LivePhotoBox.ViewModels
             NotifyFooterProperties();
         }
 
-        public void BeginComboScanSession()
+        public void BeginMergeScanSession()
         {
-            _comboScanProcessed = 0;
-            _comboScanTotal = 0;
+            _mergeScanProcessed = 0;
+            _mergeScanTotal = 0;
         }
 
         public void BeginSplitScanSession()
@@ -316,8 +318,8 @@ namespace LivePhotoBox.ViewModels
                 case "Split":
                     _splitScanProcessed = _splitScanTotal;
                     break;
-                case "Combo":
-                    _comboScanProcessed = _comboScanTotal;
+                case "Merge":
+                    _mergeScanProcessed = _mergeScanTotal;
                     break;
                 case "Repair":
                     _repairScanProcessed = _repairScanTotal;
@@ -328,8 +330,8 @@ namespace LivePhotoBox.ViewModels
 
         public void ResetFooterScanCounters()
         {
-            _comboScanTotal = 0;
-            _comboScanProcessed = 0;
+            _mergeScanTotal = 0;
+            _mergeScanProcessed = 0;
             _splitScanTotal = 0;
             _splitScanProcessed = 0;
             _repairScanTotal = 0;
@@ -352,13 +354,15 @@ namespace LivePhotoBox.ViewModels
 
         private AppViewModel()
         {
-            Combo = new ComboViewModel();
+            Merge = new MergeViewModel();
             Split = new SplitViewModel();
             Repair = new RepairViewModel();
             Home = new HomeViewModel();
             Settings = new SettingsViewModel();
             About = new AboutViewModel();
             KeyPhoto = new KeyPhotoViewModel();
+            PhotoClassify = new PhotoClassifyViewModel();
+            History = new HistoryViewModel();
 
             SubscribeToChildStatusChanges();
             SubscribeHomeNavigation();
@@ -392,11 +396,11 @@ namespace LivePhotoBox.ViewModels
 
         private void SubscribeToChildStatusChanges()
         {
-            Combo.StatusChanged += OnChildStatusChanged;
+            Merge.StatusChanged += OnChildStatusChanged;
             Split.StatusChanged += OnChildStatusChanged;
             Repair.StatusChanged += OnChildStatusChanged;
 
-            Combo.PropertyChanged += OnChildPropertyChangedHandler;
+            Merge.PropertyChanged += OnChildPropertyChangedHandler;
             Split.PropertyChanged += OnChildPropertyChangedHandler;
             Repair.PropertyChanged += OnChildPropertyChangedHandler;
 
@@ -416,7 +420,7 @@ namespace LivePhotoBox.ViewModels
             {
                 case "IsScanning":
                 case "IsProcessing":
-                case "ComboProgress":
+                case "MergeProgress":
                 case "Progress":
                 case "Status":
                 case "ProgressBarState":
@@ -436,14 +440,14 @@ namespace LivePhotoBox.ViewModels
         private void SubscribeHomeNavigation()
         {
             Home.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
-            Combo.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
+            Merge.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
             Split.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
             Repair.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
         }
 
         public void Cleanup()
         {
-            Combo.Cleanup();
+            Merge.Cleanup();
             Split.Cleanup();
             Repair.Cleanup();
         }

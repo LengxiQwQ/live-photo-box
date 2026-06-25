@@ -14,7 +14,7 @@ namespace LivePhotoBox.Services.Protocols
     public abstract class LivePhotoProtocol
     {
         /// <summary>Cached app version string read from the entry assembly.</summary>
-        private static readonly string _appVersion = GetAppVersionFromAssembly();
+        private static readonly string _appVersion = App.AppVersion;
 
         /// <summary>Stable numeric id matching the ComboBox SelectedIndex in the UI.</summary>
         public abstract int Id { get; }
@@ -94,7 +94,7 @@ namespace LivePhotoBox.Services.Protocols
         protected static byte[] WrapXmp(string rdfDescription, string? protocolKey = null)
         {
             string marker = " xmlns:LivePhotoBox=\"https://github.com/LengxiQwQ/live-photo-box\"" +
-                           $" LivePhotoBox:Action=\"Combo\"";
+                           $" LivePhotoBox:Action=\"Merge\"";
             if (!string.IsNullOrEmpty(protocolKey))
                 marker += $" LivePhotoBox:Protocol=\"{protocolKey}\"";
             // Only add version on the first call to avoid the reflection cost each time
@@ -103,12 +103,23 @@ namespace LivePhotoBox.Services.Protocols
             // Determine where to inject the marker:
             //   - Self-closing tag (V1):  <rdf:Description ... attr="val"/>  → insert before />
             //   - Regular tag (V2/OPPO):  <rdf:Description ... attr="val">   → insert before >
+            //
+            // NOTE: Must search BEFORE the first '>', NOT globally for "/>".
+            // The rdfDescription may contain child elements (e.g. <Container:Item.../>)
+            // whose "/>" would be matched by IndexOf("/>") first, causing the marker
+            // to be injected on the wrong element.
             int tagEnd;
-            int selfClose = rdfDescription.IndexOf("/>");
-            if (selfClose >= 0)
-                tagEnd = selfClose;       // self-closing tag — inject before /
+            int firstCloseBracket = rdfDescription.IndexOf('>');
+            if (firstCloseBracket >= 1 && rdfDescription[firstCloseBracket - 1] == '/')
+            {
+                // Self-closing Description tag (MicroVideo V1) — inject before />
+                tagEnd = firstCloseBracket - 1;
+            }
             else
-                tagEnd = rdfDescription.IndexOf('>'); // regular — inject before >
+            {
+                // Regular Description opening tag (V2/OPPO) — inject before >
+                tagEnd = firstCloseBracket;
+            }
             string marked = tagEnd >= 0
                 ? rdfDescription.Insert(tagEnd, marker)
                 : rdfDescription;
@@ -149,26 +160,12 @@ namespace LivePhotoBox.Services.Protocols
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                LogService.Combo(
+                LogService.Merge(
                     $"exiftool UserComment write error: {ex.Message}",
                     Models.LogLevel.Warning);
                 return false;
             }
         }
 
-        /// <summary>
-        /// Read the application version string from the entry assembly.
-        /// This is cached in <see cref="_appVersion"/> so called only once.
-        /// </summary>
-        private static string GetAppVersionFromAssembly()
-        {
-            try
-            {
-                var ver = Assembly.GetEntryAssembly()?.GetName()?.Version;
-                if (ver != null) return $"{ver.Major}.{ver.Minor}.{ver.Build}";
-            }
-            catch { }
-            return "0.0.0";
-        }
     }
 }

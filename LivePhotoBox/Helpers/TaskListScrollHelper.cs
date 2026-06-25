@@ -10,9 +10,9 @@ namespace LivePhotoBox.Helpers
 {
     /// <summary>
     /// 任务列表自动滚动辅助类。
-    /// 封装 ComboPage / SplitPage / RepairPage 的公共滚动逻辑。
+    /// 封装 MergePage / SplitPage / RepairPage 的公共滚动逻辑。
     ///
-    /// Combo 页面不需要扫描滚动（任务在扫描完成后一次性装入），
+    /// Merge 页面不需要扫描滚动（任务在扫描完成后一次性装入），
     /// 也不需要防抖（批次回调），但仍可借助 Nudge / ScrollIntoView。
     /// </summary>
     public sealed class TaskListScrollHelper
@@ -34,8 +34,8 @@ namespace LivePhotoBox.Helpers
         public bool IsUnloaded { get; set; }
 
         /// <param name="listView">要滚动的 ListView</param>
-        /// <param name="logPrefix">日志前缀，例如 "ComboPage" / "SplitPage" / "RepairPage"</param>
-        /// <param name="isActive">当前是否处于"活跃滚动"状态，Split/Repair 用 () => IsProcessing || IsScanning，Combo 用 () => IsProcessing</param>
+        /// <param name="logPrefix">日志前缀，例如 "MergePage" / "SplitPage" / "RepairPage"</param>
+        /// <param name="isActive">当前是否处于"活跃滚动"状态，Split/Repair 用 () => IsProcessing || IsScanning，Merge 用 () => IsProcessing</param>
         public TaskListScrollHelper(ListView listView, string logPrefix, Func<bool> isActive)
         {
             _listView = listView ?? throw new ArgumentNullException(nameof(listView));
@@ -47,7 +47,7 @@ namespace LivePhotoBox.Helpers
         //  公开方法：页面事件 → 调用这些
         // ─────────────────────────────────────
 
-        /// <summary>TaskStartedForScroll 的回调。Combo 不需要 resetOnFirst。</summary>
+        /// <summary>TaskStartedForScroll 的回调。Merge 不需要 resetOnFirst。</summary>
         public void OnTaskStarted(int taskIndex, int totalCount, bool resetOnFirst = true)
         {
             if (IsUnloaded || taskIndex < 0 || taskIndex >= totalCount) return;
@@ -69,7 +69,7 @@ namespace LivePhotoBox.Helpers
             }
         }
 
-        /// <summary>批量滚动到指定索引，Combo 专用（无防抖，直接滚）。</summary>
+        /// <summary>批量滚动到指定索引，Merge 专用（无防抖，直接滚）。</summary>
         public void ScrollToTask(int itemIndex, int totalCount, DispatcherQueue dispatcher)
         {
             if (IsUnloaded || itemIndex < 0 || itemIndex >= totalCount || !_isActive() || itemIndex == _lastIndex) return;

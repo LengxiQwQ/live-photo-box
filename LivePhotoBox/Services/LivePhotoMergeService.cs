@@ -9,7 +9,7 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
 {
-    public static class LivePhotoComboService
+    public static class LivePhotoMergeService
     {
         public static string CreateOutputFileName(string baseName, int selectedModeIndex)
         {
@@ -27,6 +27,11 @@ namespace LivePhotoBox.Services
             long videoSize = new FileInfo(sourceVid).Length;
             byte[] xmpBytes = protocol.BuildXmpMetadata(videoSize);
             await WriteNativeAsync(sourceImg, sourceVid, targetPath, xmpBytes, token);
+
+            // 追加 dc:subject 操作记录（与 Split/Repair 统一格式）
+            string details = !string.IsNullOrEmpty(protocol.Key) ? $"Protocol={protocol.Key}" : "";
+            await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
+                targetPath, "Merge", details, token);
         }
 
         /// <summary>
@@ -44,7 +49,7 @@ namespace LivePhotoBox.Services
             int segmentLength = 2 + XmpHeader.Length + xmpBytes.Length;
             if (segmentLength > ushort.MaxValue)
             {
-                LogService.Combo($"XMP metadata too large: {segmentLength} bytes", LogLevel.Error);
+                LogService.Merge($"XMP metadata too large: {segmentLength} bytes", LogLevel.Error);
                 throw new InvalidOperationException(
                     ResourceService.Format("Error_XmpMetadataTooLarge", segmentLength));
             }
@@ -55,7 +60,7 @@ namespace LivePhotoBox.Services
 
             if (imgFs.Length < 2 || imgFs.ReadByte() != 0xFF || imgFs.ReadByte() != 0xD8)
             {
-                LogService.Combo($"Invalid JPEG file: {sourceImg}", LogLevel.Error);
+                LogService.Merge($"Invalid JPEG file: {sourceImg}", LogLevel.Error);
                 throw new InvalidDataException(ResourceService.GetString("Error_InvalidJpegFile"));
             }
 

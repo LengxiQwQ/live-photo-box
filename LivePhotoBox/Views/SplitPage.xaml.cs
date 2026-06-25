@@ -143,5 +143,11 @@ namespace LivePhotoBox.Views
 
         private void ErrorDetailTip_Closed(Microsoft.UI.Xaml.Controls.TeachingTip sender, Microsoft.UI.Xaml.Controls.TeachingTipClosedEventArgs args) =>
             ErrorDetailTip.Target = null;
+
+        private void GoToSplitSettings_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow is MainWindow mainWindow)
+                mainWindow.NavigateToSettings("Split");
+        }
     }
 }

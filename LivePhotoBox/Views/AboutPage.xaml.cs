@@ -30,7 +30,7 @@ namespace LivePhotoBox.Views
         public AboutPage()
         {
             InitializeComponent();
-            VersionTextBlock.Text = ResourceService.Format("AboutPage_Version_Format", GetAppVersion());
+            VersionTextBlock.Text = ResourceService.Format("AboutPage_Version_Format", App.AppVersion);
         }
 
         private async void DeveloperLinkButton_Click(object sender, RoutedEventArgs e) => await FilePickerService.OpenUriAsync(DeveloperUri);
@@ -44,10 +44,5 @@ namespace LivePhotoBox.Views
         private async void FFmpeg_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://ffmpeg.org/"));
         private async void ImageMagick_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://imagemagick.org/"));
 
-        private static string GetAppVersion()
-        {
-            try { return Package.Current.Id.Version.Major + "." + Package.Current.Id.Version.Minor + "." + Package.Current.Id.Version.Build + "." + Package.Current.Id.Version.Revision; }
-            catch { return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0.0"; }
-        }
     }
 }

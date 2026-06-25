@@ -178,7 +178,7 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
-        #region Combo Settings
+        #region Merge Settings
 
         [ObservableProperty]
         private int _heicDecoderIndex;
@@ -201,28 +201,28 @@ namespace LivePhotoBox.ViewModels
         }
 
         [ObservableProperty]
-        private int _comboThreadCount = 5;
+        private int _mergeThreadCount = 5;
 
-        partial void OnComboThreadCountChanged(int value)
+        partial void OnMergeThreadCountChanged(int value)
         {
             if (_isInitializing) return;
-            AppSettingsService.SetValue("ComboThreadCount", value);
-            LogService.Info($"Combo thread count changed to: {value}", LogSource.Settings);
+            AppSettingsService.SetValue("MergeThreadCount", value);
+            LogService.Info($"Merge thread count changed to: {value}", LogSource.Settings);
         }
 
         /// <summary>合成并行数最大值</summary>
-        public int MaxComboThreadCount => 10;
+        public int MaxMergeThreadCount => 10;
 
         [RelayCommand]
-        private void IncreaseComboThreadCount()
+        private void IncreaseMergeThreadCount()
         {
-            if (ComboThreadCount < MaxComboThreadCount) ComboThreadCount++;
+            if (MergeThreadCount < MaxMergeThreadCount) MergeThreadCount++;
         }
 
         [RelayCommand]
-        private void DecreaseComboThreadCount()
+        private void DecreaseMergeThreadCount()
         {
-            if (ComboThreadCount > 1) ComboThreadCount--;
+            if (MergeThreadCount > 1) MergeThreadCount--;
         }
 
         /// <summary>实况照片配对方式：文件名+元数据 / 仅文件名 / 仅元数据</summary>
@@ -343,6 +343,21 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
+        #region History / Inspector Settings
+
+        /// <summary>是否在导航栏显示"照片历史"页面（默认隐藏）</summary>
+        [ObservableProperty]
+        private bool _isHistoryPageVisible;
+
+        partial void OnIsHistoryPageVisibleChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsHistoryPageVisible), value);
+            LogService.Info($"History page visibility: {(value ? "shown" : "hidden")}", LogSource.Settings);
+        }
+
+        #endregion
+
         #region Debug / Test Tools
 
         /// <summary>修复页面扫描时加载视频缩略图（默认关 = 不加载）</summary>
@@ -365,6 +380,20 @@ namespace LivePhotoBox.ViewModels
             if (_isInitializing) return;
             AppSettingsService.SetValue(nameof(IsStrictLivePhotoScanEnabled), value);
             LogService.Info($"Strict Live Photo scan: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
+        /// <summary>
+        /// 详细操作记录开关（默认关闭）
+        /// 关闭后仅标记经本软件处理过（合成/拆分/修复），不通过 dc:subject 写入具体更改内容
+        /// </summary>
+        [ObservableProperty]
+        private bool _isDetailedHistoryEnabled;
+
+        partial void OnIsDetailedHistoryEnabledChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsDetailedHistoryEnabled), value);
+            LogService.Info($"Detailed history recording: {(value ? "enabled" : "disabled")}", LogSource.Settings);
         }
 
         #endregion
@@ -416,11 +445,10 @@ namespace LivePhotoBox.ViewModels
             IsBannerRandomEnabled = AppSettingsService.GetValue(nameof(IsBannerRandomEnabled), false);
             ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 8);
             MaxThreadCount = Math.Min(Environment.ProcessorCount, 20);
-            HeicConcurrency = AppSettingsService.GetValue("HeicConcurrency",
-                EncoderHelper.IsUsingHardwareAcceleration() ? 8 : 1);
+            HeicConcurrency = AppSettingsService.GetValue("HeicConcurrency", 8);
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             IsGoogleProtocolForceMp4 = AppSettingsService.GetValue(nameof(IsGoogleProtocolForceMp4), false);
-            ComboThreadCount = AppSettingsService.GetValue("ComboThreadCount", 5);
+            MergeThreadCount = AppSettingsService.GetValue("MergeThreadCount", 5);
             MetadataMatchingModeIndex = AppSettingsService.GetValue(nameof(MetadataMatchingModeIndex), 0);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
@@ -428,6 +456,8 @@ namespace LivePhotoBox.ViewModels
             IsStrictLivePhotoScanEnabled = AppSettingsService.GetValue(nameof(IsStrictLivePhotoScanEnabled), false);
             IsNonLivePhotoVideoRepairEnabled = AppSettingsService.GetValue(nameof(IsNonLivePhotoVideoRepairEnabled), false);
             SplitFormatIndex = AppSettingsService.GetValue("SelectedFormatIndex", 0);
+            IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
+            IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
         }
 
         private async Task LoadHardwareInfoAsync()
@@ -568,7 +598,7 @@ namespace LivePhotoBox.ViewModels
             AppSettingsService.SetValue("SplitEncoder_hevc", string.Empty);
 
             AppViewModel.Instance.Split.SelectedFormatIndex = 0;
-            AppViewModel.Instance.Combo.SelectedModeIndex = 1;
+            AppViewModel.Instance.Merge.SelectedModeIndex = 1;
             AppViewModel.Instance.Repair.IsOutputToDirectory = false;
 
             // 4. 重置页面偏好为现代版

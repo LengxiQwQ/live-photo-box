@@ -1112,31 +1112,40 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// Append a LivePhotoBox tracking entry to the XMP <c>dc:subject</c> array.
-        /// Each entry records what action was performed, when, and by which app version.
-        /// Entries are never overwritten — they accumulate as a chronological history.
         ///
-        /// The standard XMP <c>dc:subject</c> field is safe to use across all file types
-        /// (JPEG, HEIC, MP4, MOV) and does NOT affect live-photo detection on any platform.
+        /// Two detail levels, controlled by the "详细操作记录" toggle:
+        ///   - Toggle OFF (default): writes a lightweight marker —
+        ///     <c>LivePhotoBox:{action}@@v{version}@</c>
+        ///     (action + version only, no timestamp or fix details).
+        ///   - Toggle ON: writes the full chronological entry —
+        ///     <c>LivePhotoBox:{action}@{timestamp}@v{version}@{details}</c>
         ///
-        /// Entry format:
-        ///   <c>LivePhotoBox:{action}@{timestamp}@v{version}@{details}</c>
+        /// The lightweight marker is always written so every Split/Repair file
+        /// can be identified as processed by LivePhotoBox, matching Merge's
+        /// always-on XMP namespace attributes.
         ///
         /// Best-effort — failures are silently swallowed so the caller never breaks.
         /// </summary>
         /// <param name="filePath">JPEG, HEIC, MP4, or MOV path.</param>
-        /// <param name="action">Operation name: "Combo", "Split", "Repair".</param>
-        /// <param name="details">Action-specific key=value pairs, e.g. "Fix=Rotation+Thumbnail".</param>
+        /// <param name="action">Operation name: "Split" or "Repair".</param>
+        /// <param name="details">Action-specific key=value pairs, e.g. "Fix=Rotation+Thumbnail".
+        /// Only written when detailed history is enabled.</param>
         public static async Task TryWriteLivePhotoBoxMarkerAsync(
             string filePath, string action, string details, CancellationToken token)
         {
             if (string.IsNullOrEmpty(ExternalToolLocator.FindExifTool()))
                 return;
 
+            bool detailed = AppSettingsService.GetValue("IsDetailedHistoryEnabled", false);
+
             try
             {
-                string timestamp = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:sszzz");
-                string version = GetAppVersion();
-                string entry = $"LivePhotoBox:{action}@{timestamp}@v{version}@{details}";
+                string version = App.AppVersion;
+
+                // 轻量标记：仅 action + version；详细信息：含时间戳 + 修复内容
+                string entry = detailed
+                    ? $"LivePhotoBox:{action}@{DateTimeOffset.Now:yyyy-MM-ddTHH:mm:sszzz}@v{version}@{details}"
+                    : $"LivePhotoBox:{action}@@v{version}@";
 
                 await RunExifToolAsync(token,
                     "-overwrite_original",
@@ -1150,19 +1159,5 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// Read the application version from the entry assembly.
-        /// Falls back to "0.0.0" if unavailable.
-        /// </summary>
-        private static string GetAppVersion()
-        {
-            try
-            {
-                var ver = System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version;
-                if (ver != null)
-                    return $"{ver.Major}.{ver.Minor}.{ver.Build}";
-            }
-            catch { }
-            return "0.0.0";
-        }
     }
 }

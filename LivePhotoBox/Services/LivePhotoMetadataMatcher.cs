@@ -50,7 +50,7 @@ namespace LivePhotoBox.Services
     ///   2. 拍摄日期 ±2 秒容差匹配 — 时区感知
     ///
     /// 两种调用路径：
-    ///   - MatchAsync：Combo 页面使用，内部启动 exiftool 提取元数据
+    ///   - MatchAsync：Merge 页面使用，内部启动 exiftool 提取元数据
     ///   - MatchFromAnalysis：Repair 页面使用，复用已有的 RepairAnalysisResult
     /// </summary>
     public static partial class LivePhotoMetadataMatcher
@@ -59,7 +59,7 @@ namespace LivePhotoBox.Services
         private const double DateMatchToleranceSeconds = 2.0;
 
         // ──────────────────────────────────────────────
-        //  Combo 页面路径：内部运行 exiftool 提取元数据
+        //  Merge 页面路径：内部运行 exiftool 提取元数据
         // ──────────────────────────────────────────────
 
         /// <summary>

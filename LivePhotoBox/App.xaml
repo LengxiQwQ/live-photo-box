@@ -15,6 +15,10 @@
             <converters:BoolToDiagnosisErrorBrushConverter x:Key="BoolToDiagnosisErrorBrushConverter"/>
             <converters:BackdropToAcrylicVisibilityConverter x:Key="BackdropToAcrylicVisibilityConverter"/>
             <converters:DoubleToPercentConverter x:Key="DoubleToPercentConverter"/>
+            <converters:VisibilityConverter x:Key="VisibilityConverter"/>
+            <converters:InverseVisibilityConverter x:Key="InverseVisibilityConverter"/>
+            <converters:StringNotEmptyConverter x:Key="StringNotEmptyConverter"/>
+            <converters:InverseBoolConverter x:Key="InverseBoolConverter"/>
 
             <SolidColorBrush x:Key="CyberCyanBrush" Color="#00E5FF"/>
             <SolidColorBrush x:Key="CyberPurpleBrush" Color="#B388FF"/>
