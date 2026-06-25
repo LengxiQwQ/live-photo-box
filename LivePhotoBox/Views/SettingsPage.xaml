@@ -284,7 +284,7 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xEC42;" FontSize="16"/>
+                        <FontIcon Glyph="&#xE838;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsRecursiveScanEnabled, Mode=TwoWay}"
                                   x:Uid="Toggle_OnOff"/>

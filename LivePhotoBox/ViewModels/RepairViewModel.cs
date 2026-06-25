@@ -729,7 +729,6 @@ namespace LivePhotoBox.ViewModels
 
                 foreach (var file in files)
                 {
-                    string stem = Path.GetFileNameWithoutExtension(file);
                     string ext = Path.GetExtension(file).ToLowerInvariant();
 
                     // 递归扫描时用包含子文件夹的 key 避免跨文件夹同名文件冲突
