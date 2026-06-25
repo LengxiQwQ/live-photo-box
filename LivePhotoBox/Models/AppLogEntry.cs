@@ -22,14 +22,15 @@ namespace LivePhotoBox.Models
     public enum LogSource
     {
         App,
-        Combo,
+        Merge,
         Split,
         Repair,
         Scan,
         File,
         Settings,
         UI,
-        System
+        System,
+        History
     }
 
     /// <summary>
@@ -77,19 +78,19 @@ namespace LivePhotoBox.Models
         public DateTimeOffset LastUpdatedAt { get; set; }
         public bool CleanShutdown { get; set; }
         public string CurrentPageTag { get; set; } = string.Empty;
-        public string ComboStatus { get; set; } = string.Empty;
+        public string MergeStatus { get; set; } = string.Empty;
         public string SplitStatus { get; set; } = string.Empty;
         public string RepairStatus { get; set; } = string.Empty;
         public bool IsProcessing { get; set; }
         public bool IsPaused { get; set; }
-        public int ComboTaskCount { get; set; }
+        public int MergeTaskCount { get; set; }
         public int SplitTaskCount { get; set; }
         public int RepairTaskCount { get; set; }
-        public double ComboProgress { get; set; }
+        public double MergeProgress { get; set; }
         public double SplitProgress { get; set; }
         public double RepairProgress { get; set; }
-        public string ComboInputDir { get; set; } = string.Empty;
-        public string ComboOutputDir { get; set; } = string.Empty;
+        public string MergeInputDir { get; set; } = string.Empty;
+        public string MergeOutputDir { get; set; } = string.Empty;
         public string SplitInputDir { get; set; } = string.Empty;
         public string SplitOutputDir { get; set; } = string.Empty;
         public string RepairInputDir { get; set; } = string.Empty;

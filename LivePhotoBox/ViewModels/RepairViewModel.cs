@@ -688,7 +688,7 @@ namespace LivePhotoBox.ViewModels
                     }
                 }, token);
 
-                // ── 按文件名配对（参照 ComboScanService）──
+                // ── 按文件名配对（参照 MergeScanService）──
                 var imgDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                 var vidDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 

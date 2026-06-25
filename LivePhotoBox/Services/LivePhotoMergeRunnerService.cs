@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
 {
-    public sealed class LivePhotoComboRunOptions
+    public sealed class LivePhotoMergeRunOptions
     {
         public required string OutputDirectory { get; init; }
         public required int SelectedModeIndex { get; init; }
@@ -17,15 +17,15 @@ namespace LivePhotoBox.Services
         public TimeSpan TaskStartInterval { get; init; } = TimeSpan.FromMilliseconds(250);
     }
 
-    public static class LivePhotoComboRunnerService
+    public static class LivePhotoMergeRunnerService
     {
         public static async Task RunAsync(
-            IReadOnlyCollection<ComboTask> tasks,
-            LivePhotoComboRunOptions options,
+            IReadOnlyCollection<MergeTask> tasks,
+            LivePhotoMergeRunOptions options,
             ManualResetEventSlim pauseEvent,
             CancellationToken cancellationToken,
-            Action<ComboTask>? onTaskStarted,
-            Action<ComboTask, bool, string, int>? onTaskCompleted)
+            Action<MergeTask>? onTaskStarted,
+            Action<MergeTask, bool, string, int>? onTaskCompleted)
         {
             Directory.CreateDirectory(options.OutputDirectory);
             string tempDir = Path.Combine(options.OutputDirectory, "Temp");
@@ -72,7 +72,7 @@ namespace LivePhotoBox.Services
             finally
             {
                 try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
-                catch (Exception ex) { LogService.Combo($"Failed to clean temp dir: {ex.Message}", LogLevel.Warning); }
+                catch (Exception ex) { LogService.Merge($"Failed to clean temp dir: {ex.Message}", LogLevel.Warning); }
             }
         }
 
@@ -100,7 +100,7 @@ namespace LivePhotoBox.Services
             string imagePath,
             string videoPath,
             string baseName,
-            LivePhotoComboRunOptions options,
+            LivePhotoMergeRunOptions options,
             string tempDir,
             ManualResetEventSlim pauseEvent,
             CancellationToken token)
@@ -132,12 +132,12 @@ namespace LivePhotoBox.Services
                     tempFiles.Add(workingImagePath);
                 }
 
-                string outputName = LivePhotoComboService.CreateOutputFileName(baseName, options.SelectedModeIndex);
+                string outputName = LivePhotoMergeService.CreateOutputFileName(baseName, options.SelectedModeIndex);
                 string finalOutputPath = Path.Combine(options.OutputDirectory, outputName);
 
                 await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
-                await LivePhotoComboService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token);
+                await LivePhotoMergeService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token);
 
                 return (true, ResourceService.GetString("Task_Success"));
             }
@@ -147,7 +147,7 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                LogService.Combo($"Combo task failed for {baseName}: {ex.Message}", LogLevel.Error, ex);
+                LogService.Merge($"Merge task failed for {baseName}: {ex.Message}", LogLevel.Error, ex);
                 return (false, ResourceService.Format("Task_Error", ex.Message));
             }
             finally

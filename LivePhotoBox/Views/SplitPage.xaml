@@ -96,6 +96,20 @@
                                 <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
                             </ComboBox>
                             -->
+                            <Button x:Uid="SplitPage_HelpBtn" Height="34" Width="34" Padding="0"
+                                    Background="Transparent" BorderBrush="Transparent"
+                                    Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Split">
+                                <FontIcon Glyph="&#xE9CE;" FontSize="16"
+                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+                            <Button x:Uid="SplitPage_SettingsBtn" Height="34" Width="34" Padding="0"
+                                    Background="Transparent" BorderBrush="Transparent"
+                                    Click="GoToSplitSettings_Click">
+                                <FontIcon Glyph="&#xE90F;" FontSize="16"
+                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
                             <Button
                                 Command="{x:Bind ViewModel.ScanDirectoryCommand}"
                                 Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
@@ -124,13 +138,6 @@
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
-                        <Button x:Uid="SplitPage_HelpBtn" Height="34" Width="34" Padding="0"
-                                Background="Transparent" BorderBrush="Transparent"
-                                Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Split">
-                            <FontIcon Glyph="&#xE9CE;" FontSize="16"
-                                      Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Button>
 
                         <Button Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}" MinWidth="80" Height="34" FontSize="14"/>
                         <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.StartProcessingCommand}" Style="{StaticResource AccentButtonStyle}" IsEnabled="{x:Bind ViewModel.IsProcessingAllowed, Mode=OneWay}" MinWidth="100" Height="36" FontSize="14" Margin="16,0,0,0"/>

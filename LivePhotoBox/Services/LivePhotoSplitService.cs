@@ -507,7 +507,7 @@ namespace LivePhotoBox.Services
             if (data.Length < xmpHeader.Length) return false;
             if (!data[..xmpHeader.Length].SequenceEqual(xmpHeader)) return false;
 
-            // 精确检测：本应用的 LivePhotoBox 标记（Combo 合成时注入的）
+            // 精确检测：本应用的 LivePhotoBox 标记（Merge 合成时注入的）
             if (data.IndexOf("xmlns:LivePhotoBox=\"http://ns.livephotobox.app/1.0/\""u8) >= 0) return true;
 
             // 回退检测：通用实况照片命名空间（兼容旧版本应用合成的文件）

@@ -20,16 +20,16 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.ViewModels
 {
-    public partial class ComboViewModel : WorkViewModelBase
+    public partial class MergeViewModel : WorkViewModelBase
     {
         private Stopwatch _stopwatch = new();
-        private bool _comboStoppedByUser;
-        private bool _comboDone;
+        private bool _mergeStoppedByUser;
+        private bool _mergeDone;
 
         private readonly DispatcherTimer _uiUpdateTimer;
         private volatile int _completedTasksCount;
 
-        public override string PageStatusTag => "Combo";
+        public override string PageStatusTag => "Merge";
 
         protected override string ProcessingStatusKey => "Status_Running";
 
@@ -43,7 +43,7 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnInputDirectoryChanged(string value)
         {
-            _openComboInputFolderCommand?.NotifyCanExecuteChanged();
+            _openMergeInputFolderCommand?.NotifyCanExecuteChanged();
             OutputDirectory = string.Empty;
 
             if (!string.IsNullOrWhiteSpace(value) && Directory.Exists(value))
@@ -59,7 +59,7 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private string _outputDirectory = string.Empty;
 
-        partial void OnOutputDirectoryChanged(string value) => _openComboOutputFolderCommand?.NotifyCanExecuteChanged();
+        partial void OnOutputDirectoryChanged(string value) => _openMergeOutputFolderCommand?.NotifyCanExecuteChanged();
 
         [ObservableProperty]
         private int _totalPairsCount = 0;
@@ -74,13 +74,13 @@ namespace LivePhotoBox.ViewModels
         private bool _isDirectoryPanelOpen = true;
 
         [ObservableProperty]
-        private double _comboProgress = 0;
+        private double _mergeProgress = 0;
 
         public string ScanButtonText => IsScanning
-            ? ResourceService.GetString("ComboPage_DynamicCancelText")
-            : ResourceService.GetString("ComboPage_DynamicScanText");
+            ? ResourceService.GetString("MergePage_DynamicCancelText")
+            : ResourceService.GetString("MergePage_DynamicScanText");
 
-        public BulkObservableCollection<ComboTask> Tasks { get; } = [];
+        public BulkObservableCollection<MergeTask> Tasks { get; } = [];
 
         public int SelectedModeIndex
         {
@@ -88,18 +88,18 @@ namespace LivePhotoBox.ViewModels
             set
             {
                 AppSettingsService.SetValue(nameof(SelectedModeIndex), value);
-                LogService.Combo($"Live Photo format changed to index: {value}");
+                LogService.Merge($"Live Photo format changed to index: {value}");
                 OnPropertyChanged();
             }
         }
 
-        private IAsyncRelayCommand? _openComboInputFolderCommand;
-        private IAsyncRelayCommand? _openComboOutputFolderCommand;
+        private IAsyncRelayCommand? _openMergeInputFolderCommand;
+        private IAsyncRelayCommand? _openMergeOutputFolderCommand;
 
-        public IAsyncRelayCommand OpenComboInputFolderCommand => _openComboInputFolderCommand ??= new AsyncRelayCommand(OpenComboInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
-        public IAsyncRelayCommand OpenComboOutputFolderCommand => _openComboOutputFolderCommand ??= new AsyncRelayCommand(OpenComboOutputFolderAsync, () => !string.IsNullOrWhiteSpace(OutputDirectory));
+        public IAsyncRelayCommand OpenMergeInputFolderCommand => _openMergeInputFolderCommand ??= new AsyncRelayCommand(OpenMergeInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
+        public IAsyncRelayCommand OpenMergeOutputFolderCommand => _openMergeOutputFolderCommand ??= new AsyncRelayCommand(OpenMergeOutputFolderAsync, () => !string.IsNullOrWhiteSpace(OutputDirectory));
 
-        public ComboViewModel()
+        public MergeViewModel()
         {
             SetStatus("Status_Init");
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
@@ -115,7 +115,7 @@ namespace LivePhotoBox.ViewModels
                     if (_cancelledByUser) return ResourceService.GetString("Btn_Stopping");
                     return ResourceService.GetString("Btn_Stop");
                 }
-                return ResourceService.GetString("Btn_StartCombo");
+                return ResourceService.GetString("Btn_StartMerge");
             }
         }
 
@@ -129,12 +129,12 @@ namespace LivePhotoBox.ViewModels
 
         protected override void OnBeginScanSession()
         {
-            AppViewModel.Instance.BeginComboScanSession();
+            AppViewModel.Instance.BeginMergeScanSession();
         }
 
         protected override void OnApplyScanProgress(WorkProgressSnapshot snapshot)
         {
-            AppViewModel.Instance.ApplyComboScanProgress(snapshot);
+            AppViewModel.Instance.ApplyMergeScanProgress(snapshot);
         }
 
         protected override void OnCompleteScanSnapshot()
@@ -151,18 +151,18 @@ namespace LivePhotoBox.ViewModels
         {
             if (TotalPairsCount == 0) return;
             int currentCompleted = _completedTasksCount;
-            ComboProgress = (currentCompleted * 100.0) / TotalPairsCount;
-            Progress = ComboProgress;
+            MergeProgress = (currentCompleted * 100.0) / TotalPairsCount;
+            Progress = MergeProgress;
             ProgressText = $"{currentCompleted}/{TotalPairsCount}";
             CheckAndApplyPendingState();
         }
 
         protected override void OnInitializeRunState()
         {
-            _comboStoppedByUser = false;
-            _comboDone = false;
+            _mergeStoppedByUser = false;
+            _mergeDone = false;
             _completedTasksCount = 0;
-            ComboProgress = 0;
+            MergeProgress = 0;
             Progress = 0;
             ProgressText = $"0/{TotalPairsCount}";
             SetDirectStatus(ProcessingStatusText);
@@ -178,20 +178,20 @@ namespace LivePhotoBox.ViewModels
 
             if (_cancelledByUser)
             {
-                _comboStoppedByUser = true;
+                _mergeStoppedByUser = true;
             }
             else
             {
-                _comboDone = true;
+                _mergeDone = true;
 
                 if (TotalPairsCount > 0)
                 {
-                    ComboProgress = (_completedTasksCount * 100.0) / TotalPairsCount;
-                    Progress = ComboProgress;
+                    MergeProgress = (_completedTasksCount * 100.0) / TotalPairsCount;
+                    Progress = MergeProgress;
                     ProgressText = $"{_completedTasksCount}/{TotalPairsCount}";
                 }
 
-                if (ComboProgress >= 100)
+                if (MergeProgress >= 100)
                 {
                     ProgressBarState = Models.ProgressBarState.Success;
                     CompleteScanSnapshot();
@@ -202,8 +202,8 @@ namespace LivePhotoBox.ViewModels
                     int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
                     double elapsed = _stopwatch.Elapsed.TotalSeconds;
 
-                    SetStatus("Status_ComboCompletedSummary", total, elapsed, succeeded, failed);
-                    LogService.Combo($"Combo completed: {succeeded} succeeded, {failed} failed in {elapsed:F1}s");
+                    SetStatus("Status_MergeCompletedSummary", total, elapsed, succeeded, failed);
+                    LogService.Merge($"Merge completed: {succeeded} succeeded, {failed} failed in {elapsed:F1}s");
                 }
             }
             OnPropertyChanged(nameof(ActionBtnText));
@@ -220,11 +220,11 @@ namespace LivePhotoBox.ViewModels
             StandaloneImagesCount = 0;
             StandaloneVideosCount = 0;
             _completedTasksCount = 0;
-            ComboProgress = 0;
+            MergeProgress = 0;
             Progress = 0;
             ProgressText = "0/0";
-            _comboStoppedByUser = false;
-            _comboDone = false;
+            _mergeStoppedByUser = false;
+            _mergeDone = false;
             SetStatus("Status_Cleared");
             IsDirectoryPanelOpen = true;
             OnPropertyChanged(nameof(ActionBtnText));
@@ -252,7 +252,7 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(InputDirectory))
             {
-                await ShowNoInputDirectoryDialogAsync("Combo");
+                await ShowNoInputDirectoryDialogAsync("Merge");
                 return;
             }
             if (!Directory.Exists(InputDirectory))
@@ -270,7 +270,7 @@ namespace LivePhotoBox.ViewModels
                 OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_LivePhotos"));
             }
 
-            LogService.Combo($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
+            LogService.Merge($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
 
             SetStatus("Status_Scanning");
             BeginScanSession();
@@ -278,8 +278,8 @@ namespace LivePhotoBox.ViewModels
             NotifyStatusChanged();
 
             _scanCancelledByUser = false;
-            _comboStoppedByUser = false;
-            _comboDone = false;
+            _mergeStoppedByUser = false;
+            _mergeDone = false;
 
             try
             {
@@ -293,7 +293,7 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 var scanResult = await Task.Run(
-                    () => LivePhotoComboScanService.Scan(InputDirectory, token, scanProgress),
+                    () => LivePhotoMergeScanService.Scan(InputDirectory, token, scanProgress),
                     token);
 
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
@@ -339,7 +339,7 @@ namespace LivePhotoBox.ViewModels
                                 standaloneImg = matchOutput.RemainingImages;
                                 standaloneVid = matchOutput.RemainingVideos;
 
-                                LogService.Combo($"Metadata matching: found {matchOutput.Pairs.Count} additional pairs " +
+                                LogService.Merge($"Metadata matching: found {matchOutput.Pairs.Count} additional pairs " +
                                     $"(mode={matchingMode}, dateEnabled={enableDate}, filenamePairs={pairsFromFilename})");
                             }
 
@@ -353,7 +353,7 @@ namespace LivePhotoBox.ViewModels
                         catch (OperationCanceledException) { throw; }
                         catch (Exception ex)
                         {
-                            LogService.Combo($"Metadata matching failed, falling back to filename-only: {ex.Message}", LogLevel.Warning);
+                            LogService.Merge($"Metadata matching failed, falling back to filename-only: {ex.Message}", LogLevel.Warning);
                             // 出错时退回纯文件名匹配结果
                             standaloneImg = scanResult.StandaloneImagesCount;
                             standaloneVid = scanResult.StandaloneVideosCount;
@@ -367,7 +367,7 @@ namespace LivePhotoBox.ViewModels
                 var tempTasks = allPairs.Select(pair =>
                 {
                     index++;
-                    return new ComboTask
+                    return new MergeTask
                     {
                         Index = index,
                         ImageFileName = Path.GetFileName(pair.ImagePath),
@@ -392,7 +392,7 @@ namespace LivePhotoBox.ViewModels
                     {
                         long imgSize = new System.IO.FileInfo(mp.ImagePath).Length;
                         long vidSize = new System.IO.FileInfo(mp.VideoPath).Length;
-                        tempTasks.Add(new ComboTask
+                        tempTasks.Add(new MergeTask
                         {
                             Index = index,
                             ImageFileName = Path.GetFileName(mp.ImagePath),
@@ -409,7 +409,7 @@ namespace LivePhotoBox.ViewModels
                     }
                     catch (System.IO.IOException ex)
                     {
-                        LogService.Combo($"Failed to get file size for metadata pair {baseName}", LogLevel.Warning, ex);
+                        LogService.Merge($"Failed to get file size for metadata pair {baseName}", LogLevel.Warning, ex);
                     }
                 }
 
@@ -421,7 +421,7 @@ namespace LivePhotoBox.ViewModels
 
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {
-                    ComboProgress = 0;
+                    MergeProgress = 0;
                     Progress = 0;
                     ProgressText = $"0/{TotalPairsCount}";
                 });
@@ -448,7 +448,7 @@ namespace LivePhotoBox.ViewModels
                     TotalPairsCount = 0;
                     StandaloneImagesCount = 0;
                     StandaloneVideosCount = 0;
-                    ComboProgress = 0;
+                    MergeProgress = 0;
                     Progress = 0;
                     ProgressText = "0/0";
                     OnPropertyChanged(nameof(IsProcessingAllowed));
@@ -459,7 +459,7 @@ namespace LivePhotoBox.ViewModels
             }
             catch (Exception ex)
             {
-                LogService.Combo($"ScanDirectory error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Merge($"ScanDirectory error: {ex.Message}", LogLevel.Error, ex);
                 SetStatus("Status_Error", ex.Message);
             }
             finally
@@ -474,7 +474,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
-            LogService.Combo($"ToggleSecondaryAction requested. IsProcessing={IsProcessing}, IsPaused={IsPaused}");
+            LogService.Merge($"ToggleSecondaryAction requested. IsProcessing={IsProcessing}, IsPaused={IsPaused}");
 
             if (!IsProcessing)
             {
@@ -489,7 +489,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleProcessAsync()
         {
-            LogService.Combo($"ToggleProcessAsync requested. IsProcessing={IsProcessing}, QueueCount={Tasks.Count}");
+            LogService.Merge($"ToggleProcessAsync requested. IsProcessing={IsProcessing}, QueueCount={Tasks.Count}");
 
             if (IsProcessing)
             {
@@ -500,18 +500,18 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            if (_comboStoppedByUser || _comboDone)
+            if (_mergeStoppedByUser || _mergeDone)
             {
-                if (_comboStoppedByUser)
-                    await ShowComboCancelledDialogAsync();
+                if (_mergeStoppedByUser)
+                    await ShowMergeCancelledDialogAsync();
                 else
-                    await ShowComboAlreadyDoneDialogAsync();
+                    await ShowMergeAlreadyDoneDialogAsync();
                 return;
             }
 
             if (Tasks.Count == 0)
             {
-                await ShowEmptyQueueDialogAsync("Combo");
+                await ShowEmptyQueueDialogAsync("Merge");
                 return;
             }
 
@@ -526,7 +526,7 @@ namespace LivePhotoBox.ViewModels
         }
 
 
-        private async Task ShowComboAlreadyDoneDialogAsync()
+        private async Task ShowMergeAlreadyDoneDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
             {
@@ -542,7 +542,7 @@ namespace LivePhotoBox.ViewModels
 
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.GetString("Msg_ComboCompletedTitle"),
+                    Text = ResourceService.GetString("Msg_MergeCompletedTitle"),
                     FontSize = 22,
                     FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                     TextWrapping = TextWrapping.Wrap
@@ -550,14 +550,14 @@ namespace LivePhotoBox.ViewModels
 
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.Format("Msg_ComboCompletedSummary", total, succeeded, failed),
+                    Text = ResourceService.Format("Msg_MergeCompletedSummary", total, succeeded, failed),
                     FontSize = 16,
                     TextWrapping = TextWrapping.Wrap
                 });
 
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.GetString("Msg_ComboCompletedDescription"),
+                    Text = ResourceService.GetString("Msg_MergeCompletedDescription"),
                     FontSize = 14,
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 12, 0, 0),
@@ -577,12 +577,12 @@ namespace LivePhotoBox.ViewModels
                 var result = await dialog.ShowAsync();
                 if (result == ContentDialogResult.Primary)
                 {
-                    await OpenComboOutputFolderAsync();
+                    await OpenMergeOutputFolderAsync();
                 }
             }
         }
 
-        private async Task ShowComboCancelledDialogAsync()
+        private async Task ShowMergeCancelledDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
             {
@@ -607,14 +607,14 @@ namespace LivePhotoBox.ViewModels
 
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.Format("Msg_ComboCancelledSummary", total, succeeded, failed, unprocessed),
+                    Text = ResourceService.Format("Msg_MergeCancelledSummary", total, succeeded, failed, unprocessed),
                     FontSize = 16,
                     TextWrapping = TextWrapping.Wrap
                 });
 
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.GetString("Msg_ComboCompletedDescription"),
+                    Text = ResourceService.GetString("Msg_MergeCompletedDescription"),
                     FontSize = 14,
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 12, 0, 0),
@@ -634,7 +634,7 @@ namespace LivePhotoBox.ViewModels
                 var result = await dialog.ShowAsync();
                 if (result == ContentDialogResult.Primary)
                 {
-                    await OpenComboOutputFolderAsync();
+                    await OpenMergeOutputFolderAsync();
                 }
             }
         }
@@ -663,16 +663,16 @@ namespace LivePhotoBox.ViewModels
                     // 智能并行数：含 HEIC 用保守值，纯 JPG 直接拉满
                     bool hasHeic = tasksToProcess.Any(t => HeicConverterService.IsHeicFile(t.ImagePath));
                     int maxParallel = hasHeic
-                        ? AppSettingsService.GetValue("ComboThreadCount", 4)
+                        ? AppSettingsService.GetValue("MergeThreadCount", 4)
                         : 20;
-                    LogService.Combo($"Parallel: {maxParallel} (hasHeic={hasHeic}, {tasksToProcess.Count} tasks)", LogLevel.Debug);
+                    LogService.Merge($"Parallel: {maxParallel} (hasHeic={hasHeic}, {tasksToProcess.Count} tasks)", LogLevel.Debug);
 
                     var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
                     var pendingTasks = new List<Task>();
                     int localCompletedCount = 0;
                     var lockObj = new object();
 
-                    async Task ProcessTask(ComboTask task)
+                    async Task ProcessTask(MergeTask task)
                     {
                         await semaphore.WaitAsync(token);
 
@@ -694,7 +694,7 @@ namespace LivePhotoBox.ViewModels
                             bool isCanceled = false;
 
                             var protocol = LivePhotoProtocol.FromIndex(modeIndex);
-                            string outputName = LivePhotoComboService.CreateOutputFileName(task.BaseName, modeIndex);
+                            string outputName = LivePhotoMergeService.CreateOutputFileName(task.BaseName, modeIndex);
                             string finalPath = Path.Combine(outputDir, outputName);
                             string workingImagePath = task.ImagePath;
                             string workingVideoPath = task.VideoPath;
@@ -725,7 +725,7 @@ namespace LivePhotoBox.ViewModels
                                     tempFiles.Add(workingImagePath);
                                 }
 
-                                await LivePhotoComboService.WriteLivePhotoAsync(
+                                await LivePhotoMergeService.WriteLivePhotoAsync(
                                     workingImagePath, workingVideoPath, finalPath, modeIndex, token);
 
                                 isSuccess = true;
@@ -740,7 +740,7 @@ namespace LivePhotoBox.ViewModels
                             {
                                 isSuccess = false;
                                 detailMessage = ResourceService.Format("Task_Error", ex.Message);
-                                LogService.Combo($"Combo task failed for {task.BaseName}: {ex.Message}", LogLevel.Error, ex);
+                                LogService.Merge($"Merge task failed for {task.BaseName}: {ex.Message}", LogLevel.Error, ex);
                             }
                             finally
                             {
@@ -856,18 +856,18 @@ namespace LivePhotoBox.ViewModels
                 int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
                 int unprocessed = total - succeeded - failed;
                 double elapsed = _stopwatch.Elapsed.TotalSeconds;
-                LogService.Combo($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalPairsCount}");
-                SetStatus("Status_ComboStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
+                LogService.Merge($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalPairsCount}");
+                SetStatus("Status_MergeStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
             }
             catch (Exception ex)
             {
-                LogService.Combo($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Merge($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
             }
             finally
             {
                 // 清理所有临时文件
                 try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
-                catch (Exception ex) { LogService.Combo($"Failed to clean temp dir: {ex.Message}", LogLevel.Warning); }
+                catch (Exception ex) { LogService.Merge($"Failed to clean temp dir: {ex.Message}", LogLevel.Warning); }
 
                 _stopwatch.Stop();
                 _stopwatch.Stop();
@@ -878,30 +878,30 @@ namespace LivePhotoBox.ViewModels
                 if (Tasks.Count > 0 && !_isCleaningUp)
                 {
                     if (wasCancelled)
-                        await ShowComboCancelledDialogAsync();
+                        await ShowMergeCancelledDialogAsync();
                     else
-                        await ShowComboAlreadyDoneDialogAsync();
+                        await ShowMergeAlreadyDoneDialogAsync();
                 }
             }
         }
 
-        public event EventHandler<ComboTask>? TaskStartedForScroll;
+        public event EventHandler<MergeTask>? TaskStartedForScroll;
         public event EventHandler? ProcessingCompletedForScroll;
 
-        private void UpdateTaskStarted(ComboTask task)
+        private void UpdateTaskStarted(MergeTask task)
         {
             task.Status = ProcessStatus.Processing;
             task.Details = ResourceService.GetString("Task_Processing");
             TaskStartedForScroll?.Invoke(this, task);
         }
 
-        private void UpdateTaskCancelled(ComboTask task, string detailMessage)
+        private void UpdateTaskCancelled(MergeTask task, string detailMessage)
         {
             // 用户取消不标记为"失败"——保留 Processing 状态，颜色中性，只更新详情
             task.Details = detailMessage;
         }
 
-        private void UpdateTaskCompleted(ComboTask task, bool isSuccess, string detailMessage, int completedCount)
+        private void UpdateTaskCompleted(MergeTask task, bool isSuccess, string detailMessage, int completedCount)
         {
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.Details = detailMessage;
@@ -912,7 +912,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        private async Task OpenComboInputFolderAsync()
+        private async Task OpenMergeInputFolderAsync()
         {
             try
             {
@@ -924,10 +924,10 @@ namespace LivePhotoBox.ViewModels
                 }
                 FilePickerService.OpenFolderInExplorer(InputDirectory);
             }
-            catch (Exception ex) { LogService.Combo($"OpenComboInput error: {ex.Message}", LogLevel.Error, ex); }
+            catch (Exception ex) { LogService.Merge($"OpenMergeInput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
-        private async Task OpenComboOutputFolderAsync()
+        private async Task OpenMergeOutputFolderAsync()
         {
             try
             {
@@ -936,7 +936,7 @@ namespace LivePhotoBox.ViewModels
                     Directory.CreateDirectory(OutputDirectory);
                 FilePickerService.OpenFolderInExplorer(OutputDirectory);
             }
-            catch (Exception ex) { LogService.Combo($"OpenComboOutput error: {ex.Message}", LogLevel.Error, ex); }
+            catch (Exception ex) { LogService.Merge($"OpenMergeOutput error: {ex.Message}", LogLevel.Error, ex); }
         }
     }
 }

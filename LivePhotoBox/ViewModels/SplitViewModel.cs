@@ -164,7 +164,7 @@ namespace LivePhotoBox.ViewModels
                     ProgressBarState = Models.ProgressBarState.Success;
                     CompleteScanSnapshot();
 
-                    // ✨ 修复：与 Combo 保持一致，状态栏显示详细的数据统计
+                    // ✨ 修复：与 Merge 保持一致，状态栏显示详细的数据统计
                     int total = Tasks.Count;
                     int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
                     int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);

@@ -75,7 +75,7 @@
                             </Grid.ColumnDefinitions>
 
                             <!-- 文字 - 序号和文字同行 -->
-                            <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" Padding="16">
+                            <Border Grid.Column="0" Background="Transparent" CornerRadius="8" Padding="16">
                                 <StackPanel Spacing="12" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <Border Width="32" Height="32" CornerRadius="16"
@@ -95,7 +95,7 @@
                             </Border>
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
-                            <Grid Grid.Column="1" MinHeight="200">
+                            <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
                                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
@@ -130,7 +130,7 @@
                             </Grid.ColumnDefinitions>
 
                             <!-- 文字 - 序号和文字同行 -->
-                            <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" Padding="16">
+                            <Border Grid.Column="0" Background="Transparent" CornerRadius="8" Padding="16">
                                 <StackPanel Spacing="12" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <Border Width="32" Height="32" CornerRadius="16"
@@ -150,7 +150,7 @@
                             </Border>
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
-                            <Grid Grid.Column="1" MinHeight="200">
+                            <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
                                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
@@ -185,7 +185,7 @@
                             </Grid.ColumnDefinitions>
 
                             <!-- 文字 - 序号和文字同行 -->
-                            <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" Padding="16">
+                            <Border Grid.Column="0" Background="Transparent" CornerRadius="8" Padding="16">
                                 <StackPanel Spacing="12" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <Border Width="32" Height="32" CornerRadius="16"
@@ -205,7 +205,7 @@
                             </Border>
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
-                            <Grid Grid.Column="1" MinHeight="200">
+                            <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
                                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
@@ -240,7 +240,7 @@
                             </Grid.ColumnDefinitions>
 
                             <!-- 文字 - 序号和文字同行 -->
-                            <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" Padding="16">
+                            <Border Grid.Column="0" Background="Transparent" CornerRadius="8" Padding="16">
                                 <StackPanel Spacing="12" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <Border Width="32" Height="32" CornerRadius="16"
@@ -260,7 +260,7 @@
                             </Border>
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
-                            <Grid Grid.Column="1" MinHeight="200">
+                            <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
                                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
@@ -338,7 +338,7 @@
                             </Grid.ColumnDefinitions>
 
                             <!-- 文字 - 序号和文字同行 -->
-                            <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" Padding="16">
+                            <Border Grid.Column="0" Background="Transparent" CornerRadius="8" Padding="16">
                                 <StackPanel Spacing="12" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <Border Width="32" Height="32" CornerRadius="16"
@@ -358,7 +358,7 @@
                             </Border>
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
-                            <Grid Grid.Column="1" MinHeight="200">
+                            <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
                                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
@@ -393,7 +393,7 @@
                             </Grid.ColumnDefinitions>
 
                             <!-- 文字 - 序号和文字同行 -->
-                            <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" Padding="16">
+                            <Border Grid.Column="0" Background="Transparent" CornerRadius="8" Padding="16">
                                 <StackPanel Spacing="12" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <Border Width="32" Height="32" CornerRadius="16"
@@ -413,7 +413,7 @@
                             </Border>
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
-                            <Grid Grid.Column="1" MinHeight="200">
+                            <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
                                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
@@ -448,7 +448,7 @@
                             </Grid.ColumnDefinitions>
 
                             <!-- 文字 - 序号和文字同行 -->
-                            <Border Grid.Column="0" Background="{ThemeResource LayerFillColorDefaultBrush}" CornerRadius="8" Padding="16">
+                            <Border Grid.Column="0" Background="Transparent" CornerRadius="8" Padding="16">
                                 <StackPanel Spacing="12" VerticalAlignment="Center">
                                     <StackPanel Orientation="Horizontal" Spacing="12">
                                         <Border Width="32" Height="32" CornerRadius="16"
@@ -468,7 +468,7 @@
                             </Border>
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
-                            <Grid Grid.Column="1" MinHeight="200">
+                            <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
                                 <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
@@ -516,44 +516,230 @@
                     </StackPanel>
                 </Border>
 
-                <!-- 实况照片显示修复 -->
-                <Border x:Name="RepairTutorialBorder" CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
-                    Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <FontIcon Glyph="&#xE7C5;" FontSize="32" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,2,20,0"/>
-                        <StackPanel Grid.Column="1" Spacing="12">
-                            <Grid Margin="0,0,0,4">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Uid="HomePage_RepairTitle" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" VerticalAlignment="Center"/>
-                                <Button x:Uid="HomePage_TryRepairDemo" Style="{ThemeResource AccentButtonStyle}" Click="TryRepairDemo_Click" Grid.Column="1" VerticalAlignment="Center"/>
-                            </Grid>
+                <!-- 实况照片显示修复教程 -->
+                <Border x:Name="RepairTutorialBorder" CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                    Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
+                    <StackPanel Spacing="24">
+                        <!-- 教程标题 + 按钮 -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                <FontIcon Glyph="&#xE7C5;" FontSize="24" Foreground="{ThemeResource SystemAccentColor}"/>
+                                <StackPanel>
+                                    <TextBlock x:Uid="HomePage_RepairTitle" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                                    <TextBlock x:Uid="HomePage_RepairSubtitle" FontSize="13" Foreground="{ThemeResource TextFillColorTertiaryBrush}" FontFamily="Microsoft YaHei UI" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                            <Button x:Uid="HomePage_TryRepairDemo" x:Name="TryRepairDemoButton" Style="{ThemeResource AccentButtonStyle}"
+                                    Click="TryRepairDemo_Click" Grid.Column="2" VerticalAlignment="Center"/>
+                        </Grid>
 
+                        <!-- 步骤一：它能修复什么？- 左字右图 -->
+                        <Grid ColumnSpacing="20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="5*"/>
+                                <ColumnDefinition Width="6*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Background="Transparent" CornerRadius="8" Padding="16">
+                                <StackPanel Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <Border Width="32" Height="32" CornerRadius="16"
+                                                Background="{ThemeResource SystemAccentColor}"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="1" FontSize="16" FontWeight="Bold"
+                                                       Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock x:Uid="HomePage_RepairTutorial_Step1_Title"
+                                                   FontSize="16" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock x:Uid="HomePage_RepairTutorial_Step1_Desc"
+                                               TextWrapping="Wrap" LineHeight="22" FontFamily="Microsoft YaHei UI"
+                                               FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
+                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Padding="8"
+                                        PointerEntered="TutorialImageBorder_PointerEntered"
+                                        PointerExited="TutorialImageBorder_PointerExited">
+                                    <Image x:Name="TutorialImage8" Source="ms-appx:///Assets/Tutorials/repair-01.png"
+                                           Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
+                                </Border>
+                                <Border x:Name="TutorialImage8Placeholder" CornerRadius="12"
+                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Visibility="Collapsed">
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
+                                        <FontIcon Glyph="&#xEB9F;" FontSize="36" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                        <TextBlock x:Uid="HomePage_Tutorial_ImagePlaceholder" Margin="0,8,0,0"
+                                                   HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                   FontFamily="Microsoft YaHei UI" FontSize="12"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Grid>
+
+                        <!-- 分隔线 -->
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                        <!-- 步骤二：扫描并查看诊断 - 左字右图 -->
+                        <Grid ColumnSpacing="20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="5*"/>
+                                <ColumnDefinition Width="6*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Background="Transparent" CornerRadius="8" Padding="16">
+                                <StackPanel Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <Border Width="32" Height="32" CornerRadius="16"
+                                                Background="{ThemeResource SystemAccentColor}"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="2" FontSize="16" FontWeight="Bold"
+                                                       Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock x:Uid="HomePage_RepairTutorial_Step2_Title"
+                                                   FontSize="16" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock x:Uid="HomePage_RepairTutorial_Step2_Desc"
+                                               TextWrapping="Wrap" LineHeight="22" FontFamily="Microsoft YaHei UI"
+                                               FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
+                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Padding="8"
+                                        PointerEntered="TutorialImageBorder_PointerEntered"
+                                        PointerExited="TutorialImageBorder_PointerExited">
+                                    <Image x:Name="TutorialImage9" Source="ms-appx:///Assets/Tutorials/repair-02.png"
+                                           Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
+                                </Border>
+                                <Border x:Name="TutorialImage9Placeholder" CornerRadius="12"
+                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Visibility="Collapsed">
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
+                                        <FontIcon Glyph="&#xEB9F;" FontSize="36" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                        <TextBlock x:Uid="HomePage_Tutorial_ImagePlaceholder" Margin="0,8,0,0"
+                                                   HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                   FontFamily="Microsoft YaHei UI" FontSize="12"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Grid>
+
+                        <!-- 分隔线 -->
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                        <!-- 步骤三：选择输出模式并开始修复 - 左字右图 -->
+                        <Grid ColumnSpacing="20">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="5*"/>
+                                <ColumnDefinition Width="6*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Border Grid.Column="0" Background="Transparent" CornerRadius="8" Padding="16">
+                                <StackPanel Spacing="12" VerticalAlignment="Center">
+                                    <StackPanel Orientation="Horizontal" Spacing="12">
+                                        <Border Width="32" Height="32" CornerRadius="16"
+                                                Background="{ThemeResource SystemAccentColor}"
+                                                VerticalAlignment="Center">
+                                            <TextBlock Text="3" FontSize="16" FontWeight="Bold"
+                                                       Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                        <TextBlock x:Uid="HomePage_RepairTutorial_Step3_Title"
+                                                   FontSize="16" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"
+                                                   VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <TextBlock x:Uid="HomePage_RepairTutorial_Step3_Desc"
+                                               TextWrapping="Wrap" LineHeight="22" FontFamily="Microsoft YaHei UI"
+                                               FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
+                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Padding="8"
+                                        PointerEntered="TutorialImageBorder_PointerEntered"
+                                        PointerExited="TutorialImageBorder_PointerExited">
+                                    <Image x:Name="TutorialImage10" Source="ms-appx:///Assets/Tutorials/repair-03.png"
+                                           Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
+                                </Border>
+                                <Border x:Name="TutorialImage10Placeholder" CornerRadius="12"
+                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Visibility="Collapsed">
+                                    <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
+                                        <FontIcon Glyph="&#xEB9F;" FontSize="36" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                        <TextBlock x:Uid="HomePage_Tutorial_ImagePlaceholder" Margin="0,8,0,0"
+                                                   HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                   FontFamily="Microsoft YaHei UI" FontSize="12"/>
+                                    </StackPanel>
+                                </Border>
+                            </Grid>
+                        </Grid>
+
+                        <!-- 安心提示 -->
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                        <Border Background="Transparent" CornerRadius="8" Padding="16">
                             <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock x:Uid="HomePage_FeatureIntroLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
-                                <TextBlock x:Uid="HomePage_RepairDesc" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
+                                <Grid Grid.Column="0" VerticalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon Glyph="&#xE946;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}" VerticalAlignment="Top" Margin="0,3,12,0"/>
+                                    <TextBlock Grid.Column="1" x:Uid="HomePage_RepairTutorial_Reassurance"
+                                               TextWrapping="Wrap" LineHeight="22" FontFamily="Microsoft YaHei UI"
+                                               FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </Grid>
+                                <Button x:Uid="HomePage_GoToSettingsStrictScan" Grid.Column="1"
+                                        VerticalAlignment="Center" Margin="16,0,0,0"
+                                        Click="GoToSettingsStrictScan_Click"/>
                             </Grid>
+                        </Border>
 
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock x:Uid="HomePage_HowToUseLabel" FontWeight="Bold" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
-                                <TextBlock x:Uid="HomePage_RepairUsage" Grid.Column="1" Margin="8,0,0,0" TextWrapping="Wrap" LineHeight="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Top"/>
-                            </Grid>
-                        </StackPanel>
-                    </Grid>
+                        <!-- 教程结尾按钮 -->
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,-8,0,8"
+                                x:Name="RepairTutorialReadyDivider" />
+                        <Grid x:Name="RepairTutorialReadySection">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Spacing="4">
+                                <TextBlock x:Uid="HomePage_Tutorial_Ready_Title"
+                                           FontSize="15" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                <TextBlock x:Uid="HomePage_RepairTutorial_Ready_Subtitle"
+                                           FontSize="13" FontFamily="Microsoft YaHei UI"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <Button x:Uid="HomePage_TryRepairDemo" x:Name="TutorialLoadRepairSampleButton"
+                                    Style="{ThemeResource AccentButtonStyle}"
+                                    Click="TryRepairDemo_Click"
+                                    Grid.Column="1" VerticalAlignment="Center"/>
+                        </Grid>
+                    </StackPanel>
                 </Border>
 
                 <!-- 主图切换 -->

@@ -1,14 +1,19 @@
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Navigation;
 using LivePhotoBox.Models;
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
+using Windows.UI;
 
 namespace LivePhotoBox.Views
 {
@@ -54,6 +59,105 @@ namespace LivePhotoBox.Views
                     Bindings.Update();
                 }
             };
+        }
+
+        private RoutedEventHandler? _scrollLoadedHandler;
+
+        /// <summary>
+        /// 接收来自其他页面的导航参数，自动滚动到指定设置区域。
+        /// 分类标题使用顶部对齐，具体卡片使用居中对齐。
+        /// 滚动完成后会有短暂高亮闪烁，提示用户目标位置。
+        /// Loaded 处理器会在执行后自动移除，防止页面缓存导致重复触发。
+        /// </summary>
+        protected override void OnNavigatedTo(NavigationEventArgs e)
+        {
+            base.OnNavigatedTo(e);
+
+            // 清理上一次的滚动处理器，防止缓存页切回时重复滚动
+            if (_scrollLoadedHandler != null)
+            {
+                Loaded -= _scrollLoadedHandler;
+                _scrollLoadedHandler = null;
+            }
+
+            if (e.Parameter is not string target)
+                return;
+
+            UIElement? scrollTarget = null;
+            double alignment = 0.0;
+            Border? highlightBorder = null;
+
+            switch (target)
+            {
+                case "StrictLivePhotoScan":
+                    scrollTarget = StrictLivePhotoScanRoot;
+                    alignment = 0.5;
+                    highlightBorder = StrictLivePhotoScanHighlight;
+                    break;
+                case "Merge":
+                    scrollTarget = MergeSettingsHeader;
+                    break;
+                case "Split":
+                    scrollTarget = SplitSettingsHeader;
+                    break;
+                case "Repair":
+                    scrollTarget = RepairSettingsHeader;
+                    break;
+                default:
+                    return;
+            }
+
+            _scrollLoadedHandler = (_, _) =>
+            {
+                // 一次性执行，用完即弃
+                Loaded -= _scrollLoadedHandler;
+                _scrollLoadedHandler = null;
+                scrollTarget.StartBringIntoView(new BringIntoViewOptions
+                {
+                    AnimationDesired = true,
+                    VerticalAlignmentRatio = alignment
+                });
+                _ = HighlightTargetAsync(highlightBorder);
+            };
+            Loaded += _scrollLoadedHandler;
+        }
+
+        /// <summary>
+        /// 滚动到位后短暂高亮目标区域。
+        /// highlightBorder 为 null 时仅滚动不闪烁（适用于分类标题跳转）。
+        /// </summary>
+        private async Task HighlightTargetAsync(Border? highlightBorder)
+        {
+            if (highlightBorder == null) return;
+
+            try
+            {
+                await Task.Delay(550);
+
+                var accentColor = (Color)Application.Current.Resources["SystemAccentColor"];
+                var highlightFrom = Color.FromArgb(35, accentColor.R, accentColor.G, accentColor.B);
+
+                highlightBorder.Background = new SolidColorBrush(highlightFrom);
+
+                await Task.Delay(400);
+
+                var storyboard = new Storyboard();
+                var animation = new ColorAnimation
+                {
+                    From = highlightFrom,
+                    To = Microsoft.UI.Colors.Transparent,
+                    Duration = new Duration(TimeSpan.FromMilliseconds(800)),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                };
+                Storyboard.SetTarget(animation, highlightBorder);
+                Storyboard.SetTargetProperty(animation, "(Border.Background).(SolidColorBrush.Color)");
+                storyboard.Children.Add(animation);
+                storyboard.Begin();
+            }
+            catch (Exception ex)
+            {
+                LogService.Debug($"HighlightTarget animation failed: {ex.Message}", LogSource.UI);
+            }
         }
 
         /// <summary>
@@ -159,6 +263,12 @@ namespace LivePhotoBox.Views
 
         private void PrevBanner_Click(object sender, RoutedEventArgs e) => ViewModel.PrevBanner();
         private void NextBanner_Click(object sender, RoutedEventArgs e) => ViewModel.NextBanner();
+
+        private void OpenHistoryPage_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow is MainWindow mainWin)
+                mainWin.SwitchToPageByTag("History");
+        }
 
         /// <summary>
         /// Resets the banner to the first (default) preset and turns off random mode.

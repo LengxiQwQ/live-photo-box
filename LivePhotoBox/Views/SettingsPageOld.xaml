@@ -244,7 +244,7 @@
                 <StackPanel Spacing="16">
                     <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
                         <FontIcon Glyph="&#xE8B1;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
-                        <TextBlock x:Uid="SettingsPage_Combo_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                        <TextBlock x:Uid="SettingsPage_Merge_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
                     <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
@@ -254,24 +254,24 @@
                                            VerticalAlignment="Center">
                             <!-- HEIC 解码器选择 -->
                             <StackPanel Spacing="4">
-                                <TextBlock x:Uid="SettingsPage_Combo_HeicDecoder"
+                                <TextBlock x:Uid="SettingsPage_Merge_HeicDecoder"
                                            Style="{ThemeResource BodyStrongTextBlockStyle}"
                                            FontFamily="Microsoft YaHei UI"/>
                                 <ComboBox SelectedIndex="{x:Bind ViewModel.HeicDecoderIndex, Mode=TwoWay}"
                                           Loaded="AppearanceComboBox_Loaded">
-                                    <ComboBoxItem x:Uid="SettingsPage_Combo_HeicDecoder_MagickNET"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Combo_HeicDecoder_BitmapDecoder"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Merge_HeicDecoder_MagickNET"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Merge_HeicDecoder_BitmapDecoder"/>
                                 </ComboBox>
                                 <StackPanel Spacing="2">
-                                    <TextBlock x:Uid="SettingsPage_Combo_HeicDecoder_Desc"
+                                    <TextBlock x:Uid="SettingsPage_Merge_HeicDecoder_Desc"
                                                FontSize="12"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                                     <StackPanel Orientation="Horizontal" Spacing="20">
-                                        <HyperlinkButton x:Uid="SettingsPage_Combo_HeicDecoder_HeifLink"
+                                        <HyperlinkButton x:Uid="SettingsPage_Merge_HeicDecoder_HeifLink"
                                                          FontSize="12"
                                                          Padding="0"
                                                          Click="OpenHeifStoreLink_Click"/>
-                                        <HyperlinkButton x:Uid="SettingsPage_Combo_HeicDecoder_HevcLink"
+                                        <HyperlinkButton x:Uid="SettingsPage_Merge_HeicDecoder_HevcLink"
                                                          FontSize="12"
                                                          Padding="0"
                                                          Click="OpenHevcStoreLink_Click"/>
@@ -281,7 +281,7 @@
 
                             <!-- 任务并行数 -->
                             <StackPanel Spacing="4">
-                                <TextBlock x:Uid="SettingsPage_Combo_ThreadCount"
+                                <TextBlock x:Uid="SettingsPage_Merge_ThreadCount"
                                            Style="{ThemeResource BodyStrongTextBlockStyle}"
                                            FontFamily="Microsoft YaHei UI"/>
                                 <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -299,12 +299,12 @@
                                         <RepeatButton Grid.Column="0"
                                                       Width="30" Height="32" Padding="0"
                                                       Background="Transparent" BorderThickness="0"
-                                                      Command="{x:Bind ViewModel.DecreaseComboThreadCountCommand, Mode=OneWay}">
+                                                      Command="{x:Bind ViewModel.DecreaseMergeThreadCountCommand, Mode=OneWay}">
                                             <FontIcon Glyph="&#xE96E;" FontSize="12"/>
                                         </RepeatButton>
 
                                         <TextBlock Grid.Column="1"
-                                                   Text="{x:Bind ViewModel.ComboThreadCount, Mode=OneWay}"
+                                                   Text="{x:Bind ViewModel.MergeThreadCount, Mode=OneWay}"
                                                    TextAlignment="Center"
                                                    FontSize="14"
                                                    VerticalAlignment="Center"/>
@@ -312,41 +312,41 @@
                                         <RepeatButton Grid.Column="2"
                                                       Width="30" Height="32" Padding="0"
                                                       Background="Transparent" BorderThickness="0"
-                                                      Command="{x:Bind ViewModel.IncreaseComboThreadCountCommand, Mode=OneWay}">
+                                                      Command="{x:Bind ViewModel.IncreaseMergeThreadCountCommand, Mode=OneWay}">
                                             <FontIcon Glyph="&#xE96D;" FontSize="12"/>
                                         </RepeatButton>
                                     </Grid>
                                 </Border>
-                                <TextBlock x:Uid="SettingsPage_Combo_ThreadCount_Desc"
+                                <TextBlock x:Uid="SettingsPage_Merge_ThreadCount_Desc"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
 
-                            <!-- 谷歌协议强制转 MP4 -->
+                            <!-- Google协议强制转 MP4 -->
                             <StackPanel Spacing="4">
-                                <TextBlock x:Uid="SettingsPage_Combo_GoogleForceMp4"
+                                <TextBlock x:Uid="SettingsPage_Merge_GoogleForceMp4"
                                            Style="{ThemeResource BodyStrongTextBlockStyle}"
                                            FontFamily="Microsoft YaHei UI"/>
                                 <ToggleSwitch IsOn="{x:Bind ViewModel.IsGoogleProtocolForceMp4, Mode=TwoWay}"
                                               x:Uid="Toggle_OnOff"/>
-                                <TextBlock x:Uid="SettingsPage_Combo_GoogleForceMp4_Desc"
+                                <TextBlock x:Uid="SettingsPage_Merge_GoogleForceMp4_Desc"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>
 
                             <!-- 照片与视频配对方式 -->
                             <StackPanel Spacing="4">
-                                <TextBlock x:Uid="SettingsPage_Combo_MetadataMatchingLabel"
+                                <TextBlock x:Uid="SettingsPage_Merge_MetadataMatchingLabel"
                                            Style="{ThemeResource BodyStrongTextBlockStyle}"
                                            FontFamily="Microsoft YaHei UI"/>
                                 <ComboBox SelectedIndex="{x:Bind ViewModel.MetadataMatchingModeIndex, Mode=TwoWay}"
                                           MinWidth="200">
-                                    <ComboBoxItem x:Uid="SettingsPage_Combo_MetadataMatching_Both"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Combo_MetadataMatching_BothWithDate"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Combo_MetadataMatching_Filename"/>
-                                    <ComboBoxItem x:Uid="SettingsPage_Combo_MetadataMatching_Metadata"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_Both"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_BothWithDate"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_Filename"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_Metadata"/>
                                 </ComboBox>
-                                <TextBlock x:Uid="SettingsPage_Combo_MetadataMatchingDesc"
+                                <TextBlock x:Uid="SettingsPage_Merge_MetadataMatchingDesc"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                             </StackPanel>

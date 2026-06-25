@@ -249,9 +249,9 @@ namespace LivePhotoBox.Services
 
         // ── Module-specific shortcuts ──
 
-        public static void Combo(string message, LogLevel level = LogLevel.Info, Exception? ex = null,
+        public static void Merge(string message, LogLevel level = LogLevel.Info, Exception? ex = null,
             [CallerMemberName] string? m = null, [CallerFilePath] string? f = null, [CallerLineNumber] int l = 0)
-            => Log(LogSource.Combo, level, message, exception: ex, filePath: $"{f}:{l}", memberName: m);
+            => Log(LogSource.Merge, level, message, exception: ex, filePath: $"{f}:{l}", memberName: m);
 
         public static void Split(string message, LogLevel level = LogLevel.Info, Exception? ex = null,
             [CallerMemberName] string? m = null, [CallerFilePath] string? f = null, [CallerLineNumber] int l = 0)
@@ -268,6 +268,10 @@ namespace LivePhotoBox.Services
         public static void FileOp(string message, LogLevel level = LogLevel.Info, Exception? ex = null,
             [CallerMemberName] string? m = null, [CallerFilePath] string? f = null, [CallerLineNumber] int l = 0)
             => Log(LogSource.File, level, message, exception: ex, filePath: $"{f}:{l}", memberName: m);
+
+        public static void History(string message, LogLevel level = LogLevel.Info, Exception? ex = null,
+            [CallerMemberName] string? m = null, [CallerFilePath] string? f = null, [CallerLineNumber] int l = 0)
+            => Log(LogSource.History, level, message, exception: ex, filePath: $"{f}:{l}", memberName: m);
 
         #endregion
 

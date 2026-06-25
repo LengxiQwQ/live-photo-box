@@ -385,5 +385,11 @@ namespace LivePhotoBox.Views
             menuItem.MinWidth = minWidth;
             menuItem.Icon = isSelected ? CreateCheckedIcon() : null;
         }
+
+        private void GoToRepairSettings_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow is MainWindow mainWindow)
+                mainWindow.NavigateToSettings("Repair");
+        }
     }
 }

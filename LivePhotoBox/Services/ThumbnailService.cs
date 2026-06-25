@@ -357,7 +357,7 @@ namespace LivePhotoBox.Services
                         }
                         catch (Exception ex)
                         {
-                            LogService.Combo($"HEIC thumbnail load error: {ex.Message}", LogLevel.Warning, ex);
+                            LogService.Merge($"HEIC thumbnail load error: {ex.Message}", LogLevel.Warning, ex);
                             tcs.TrySetResult(null);
                         }
                     }))
@@ -374,7 +374,7 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                LogService.Combo($"HEIC thumbnail decode error: {ex.Message}", LogLevel.Warning, ex);
+                LogService.Merge($"HEIC thumbnail decode error: {ex.Message}", LogLevel.Warning, ex);
                 return null;
             }
         }

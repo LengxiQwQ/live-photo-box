@@ -126,11 +126,14 @@
   <data name="Nav_About.Content" xml:space="preserve">
     <value>关于</value>
   </data>
-  <data name="Nav_Combo.Content" xml:space="preserve">
+  <data name="Nav_Merge.Content" xml:space="preserve">
     <value>实况照片合成</value>
   </data>
   <data name="Nav_KeyPhoto.Content" xml:space="preserve">
     <value>实况照片主图更换</value>
+  </data>
+  <data name="Nav_PhotoClassify.Content" xml:space="preserve">
+    <value>照片自动分类</value>
   </data>
   <data name="Nav_Home.Content" xml:space="preserve">
     <value>主页 &amp; 教程</value>
@@ -216,7 +219,7 @@
   <data name="SettingsPage_Theme_Desc.Text" xml:space="preserve">
     <value>调整应用整体视觉配色</value>
   </data>
-  <data name="SettingsPage_Combo_Header.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_Header.Text" xml:space="preserve">
     <value>实况照片合成</value>
   </data>
   <data name="SettingsPage_Protocol_Header.Header" xml:space="preserve">
@@ -253,7 +256,13 @@
     <value>实况照片主图更换暂未开放</value>
   </data>
   <data name="KeyPhotoPage_PlaceholderDescription.Text" xml:space="preserve">
-    <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
+    <value>自由更换实况照片的封面主图。通过解析实况照片的底层数据结构，从动态视频帧中选取你最满意的一刻，无损替换为新的静态封面，让每一张实况照片都能定格在最完美的瞬间。</value>
+  </data>
+  <data name="PhotoClassifyPage_PlaceholderTitle.Text" xml:space="preserve">
+    <value>照片自动分类暂未开放</value>
+  </data>
+  <data name="PhotoClassifyPage_PlaceholderDescription.Text" xml:space="preserve">
+    <value>通过读取照片中的元数据信息，智能识别实况照片、人像模式、连拍等拍摄类型，自动归类整理相册文件夹。首批适配 Apple 设备拍摄的照片，后续将逐步覆盖主流安卓厂商的私有格式，打造真正跨平台的一站式照片管理方案。</value>
   </data>
   <data name="RepairPage_PlaceholderDescription.Text" xml:space="preserve">
     <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
@@ -327,67 +336,67 @@
   <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
     <value>拆分执行逻辑将在下一步接入，当前已完成界面准备</value>
   </data>
-  <data name="ComboPage_ConfigHeader.Text" xml:space="preserve">
+  <data name="MergePage_ConfigHeader.Text" xml:space="preserve">
     <value>实况照片合成配置</value>
   </data>
-  <data name="ComboPage_InputLabel.Text" xml:space="preserve">
+  <data name="MergePage_InputLabel.Text" xml:space="preserve">
     <value>输入目录:</value>
   </data>
-  <data name="ComboPage_InputBox.PlaceholderText" xml:space="preserve">
+  <data name="MergePage_InputBox.PlaceholderText" xml:space="preserve">
     <value>请选择包含照片和视频的源文件夹</value>
   </data>
-  <data name="ComboPage_BrowseBtn1.Content" xml:space="preserve">
+  <data name="MergePage_BrowseBtn1.Content" xml:space="preserve">
     <value>浏览...</value>
   </data>
-  <data name="ComboPage_OutputLabel.Text" xml:space="preserve">
+  <data name="MergePage_OutputLabel.Text" xml:space="preserve">
     <value>输出目录:</value>
   </data>
-  <data name="ComboPage_OutputBox.PlaceholderText" xml:space="preserve">
+  <data name="MergePage_OutputBox.PlaceholderText" xml:space="preserve">
     <value>请选择生成后的实况照片保存路径</value>
   </data>
-  <data name="ComboPage_BrowseBtn2.Content" xml:space="preserve">
+  <data name="MergePage_BrowseBtn2.Content" xml:space="preserve">
     <value>浏览...</value>
   </data>
-  <data name="ComboPage_StatPaired.Text" xml:space="preserve">
+  <data name="MergePage_StatPaired.Text" xml:space="preserve">
     <value>配对成功 :</value>
   </data>
-  <data name="ComboPage_StatImg.Text" xml:space="preserve">
+  <data name="MergePage_StatImg.Text" xml:space="preserve">
     <value>单独照片 :</value>
   </data>
-  <data name="ComboPage_StatVid.Text" xml:space="preserve">
+  <data name="MergePage_StatVid.Text" xml:space="preserve">
     <value>单独视频 :</value>
   </data>
-  <data name="ComboPage_ProtocolLabel.Text" xml:space="preserve">
+  <data name="MergePage_ProtocolLabel.Text" xml:space="preserve">
     <value>协议版本：</value>
   </data>
-  <data name="ComboPage_ScanBtn.Content" xml:space="preserve">
+  <data name="MergePage_ScanBtn.Content" xml:space="preserve">
     <value>扫描文件</value>
   </data>
-  <data name="ComboPage_DynamicScanText" xml:space="preserve">
+  <data name="MergePage_DynamicScanText" xml:space="preserve">
     <value>扫描文件</value>
   </data>
-  <data name="ComboPage_DynamicCancelText" xml:space="preserve">
+  <data name="MergePage_DynamicCancelText" xml:space="preserve">
     <value>取消扫描</value>
   </data>
-  <data name="ComboPage_QueueProgress.Text" xml:space="preserve">
+  <data name="MergePage_QueueProgress.Text" xml:space="preserve">
     <value>当前队列进度：</value>
   </data>
-  <data name="ComboPage_ColSeq.Text" xml:space="preserve">
+  <data name="MergePage_ColSeq.Text" xml:space="preserve">
     <value>序号</value>
   </data>
-  <data name="ComboPage_ColFile.Text" xml:space="preserve">
+  <data name="MergePage_ColFile.Text" xml:space="preserve">
     <value>源文件组</value>
   </data>
-  <data name="ComboPage_ColSize.Text" xml:space="preserve">
+  <data name="MergePage_ColSize.Text" xml:space="preserve">
     <value>大小</value>
   </data>
-  <data name="ComboPage_ColStatus.Text" xml:space="preserve">
+  <data name="MergePage_ColStatus.Text" xml:space="preserve">
     <value>状态</value>
   </data>
-  <data name="ComboPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="MergePage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
     <value>在文件夹中查看</value>
   </data>
-  <data name="ComboPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="MergePage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
     <value>全屏预览</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
@@ -399,7 +408,7 @@
   <data name="StatusBar_Scanning_Split" xml:space="preserve">
     <value>正在扫描实况照片 {0}/{1}</value>
   </data>
-  <data name="StatusBar_Scanning_Combo" xml:space="preserve">
+  <data name="StatusBar_Scanning_Merge" xml:space="preserve">
     <value>正在扫描文件 {0}/{1}</value>
   </data>
   <data name="StatusBar_Scanning_Repair" xml:space="preserve">
@@ -504,7 +513,7 @@
   <data name="Status_Done" xml:space="preserve">
     <value>处理完成，用时 {0:F1} 秒</value>
   </data>
-  <data name="Status_ComboCompletedSummary" xml:space="preserve">
+  <data name="Status_MergeCompletedSummary" xml:space="preserve">
     <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个</value>
   </data>
   <data name="Status_SplitCompletedSummary" xml:space="preserve">
@@ -513,7 +522,7 @@
   <data name="Status_RepairCompletedSummary" xml:space="preserve">
     <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，跳过 {3} 个，失败 {4} 个</value>
   </data>
-  <data name="Status_ComboStoppedSummary" xml:space="preserve">
+  <data name="Status_MergeStoppedSummary" xml:space="preserve">
     <value>任务已停止！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个，未处理 {4} 个</value>
   </data>
   <data name="Status_SplitStoppedSummary" xml:space="preserve">
@@ -522,7 +531,7 @@
   <data name="Status_RepairStoppedSummary" xml:space="preserve">
     <value>修复已停止！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，跳过 {3} 个，失败 {4} 个，未处理 {5} 个</value>
   </data>
-  <data name="Btn_StartCombo" xml:space="preserve">
+  <data name="Btn_StartMerge" xml:space="preserve">
     <value>开始合成</value>
   </data>
   <data name="Btn_StartSplit" xml:space="preserve">
@@ -564,10 +573,10 @@
   <data name="Msg_ProcessingNotAllowed" xml:space="preserve">
     <value>扫描未完成，无法开始修复</value>
   </data>
-  <data name="Msg_ComboAlreadyStopped" xml:space="preserve">
+  <data name="Msg_MergeAlreadyStopped" xml:space="preserve">
     <value>合成已停止，请清空列表后重新开始</value>
   </data>
-  <data name="Msg_ComboAlreadyDone" xml:space="preserve">
+  <data name="Msg_MergeAlreadyDone" xml:space="preserve">
     <value>合成已完成，请清空列表后重新开始</value>
   </data>
   <data name="Msg_RepairCompletedTitle" xml:space="preserve">
@@ -579,19 +588,19 @@
   <data name="Msg_RepairCompletedSummary" xml:space="preserve">
     <value>共 {0} 个任务，成功 {1} 个，跳过 {2} 个，失败 {3} 个</value>
   </data>
-  <data name="Msg_ComboCompletedTitle" xml:space="preserve">
+  <data name="Msg_MergeCompletedTitle" xml:space="preserve">
     <value>任务已完成</value>
   </data>
-  <data name="Msg_ComboCompletedDescription" xml:space="preserve">
+  <data name="Msg_MergeCompletedDescription" xml:space="preserve">
     <value>你可以点击打开输出文件夹，或清空列表后重新开始。</value>
   </data>
-  <data name="Msg_ComboCompletedSummary" xml:space="preserve">
+  <data name="Msg_MergeCompletedSummary" xml:space="preserve">
     <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个</value>
   </data>
   <data name="Msg_TaskCancelledTitle" xml:space="preserve">
     <value>任务已取消</value>
   </data>
-  <data name="Msg_ComboCancelledSummary" xml:space="preserve">
+  <data name="Msg_MergeCancelledSummary" xml:space="preserve">
     <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个，未处理 {3} 个</value>
   </data>
   <data name="Msg_SplitCancelledSummary" xml:space="preserve">
@@ -618,10 +627,10 @@
   <data name="Msg_SplitCompletedSummary" xml:space="preserve">
     <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个</value>
   </data>
-  <data name="Btn_ComboStopped" xml:space="preserve">
+  <data name="Btn_MergeStopped" xml:space="preserve">
     <value>已停止</value>
   </data>
-  <data name="Btn_ComboDone" xml:space="preserve">
+  <data name="Btn_MergeDone" xml:space="preserve">
     <value>合成完成</value>
   </data>
   <data name="Btn_SplitStopped" xml:space="preserve">
@@ -727,7 +736,7 @@
     <value>这是一款专业且易用的实况照片处理工具，旨在帮你轻松打破 iOS 与 Android 之间的设备生态壁垒。它能将 iPhone 拍摄的 Live Photo 无损转换为 Google 相册原生支持的格式，在完美锁定原始视频画质和动态帧率的同时，让你的生动回忆在任何平台上都能完美呈现。</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
-    <value>除了实况照片的适配，我还发现苹果一个巨大的包袱，苹果为优化前置拍摄性能，实况照片中，视频部分的物理像素使用横向存储，并使用内置的 Rotation 标签来判断照片方向。但 Windows 等系统缩略图会忽略标签而直接渲染原始像素，导致画面旋转。大约在 iOS17.3 之前还有一个缩略图会被拉伸的问题，中间苹果尝试加入额外的低像素缩略图来保证正确显示，但是都无用。实况照片显示修复功能因此诞生，通过底层物理级矫正，实现无损像素级重构，彻底解决在非苹果设备上的缩略图兼容性顽疾。</value>
+    <value>除了实况照片的适配，我还发现 Apple 一个巨大的包袱，Apple 为优化前置拍摄性能，实况照片中，视频部分的物理像素使用横向存储，并使用内置的 Rotation 标签来判断照片方向。但 Windows 等系统缩略图会忽略标签而直接渲染原始像素，导致画面旋转。大约在 iOS17.3 之前还有一个缩略图会被拉伸的问题，中间 Apple 尝试加入额外的低像素缩略图来保证正确显示，但是都无用。实况照片显示修复功能因此诞生，通过底层物理级矫正，实现无损像素级重构，彻底解决在非 Apple 设备上的缩略图兼容性顽疾。</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>友情提示 :</value>
@@ -834,7 +843,7 @@
   <data name="RepairPage_Status_Ready" xml:space="preserve">
     <value>就绪，请选择要修复的文件夹</value>
   </data>
-  <data name="ComboPage_ThumbnailLoadingText.Text" xml:space="preserve">
+  <data name="MergePage_ThumbnailLoadingText.Text" xml:space="preserve">
     <value>加载中...</value>
   </data>
   <data name="SplitPage_Status_Scanning" xml:space="preserve">
@@ -1116,7 +1125,7 @@
     <value>实况照片合成</value>
   </data>
   <data name="HomePage_MergeDesc.Text" xml:space="preserve">
-    <value>将苹果实况照片转换为单文件，使用各家安卓协议，使其可在 Windows 等设备上查看。目前仅支持 (照片JPG + MOV/MP4视频)，暂不支持 (照片HEIC/HEIF + MOV/MP4视频) 的实况照片，后续会加入对 HEIC/HEIF 格式的支持, 以及封装为 HEIF 的实况照片。</value>
+    <value>将 Apple 实况照片转换为单文件，使用各家安卓协议，使其可在 Windows 等设备上查看。目前仅支持 (照片JPG + MOV/MP4视频)，暂不支持 (照片HEIC/HEIF + MOV/MP4视频) 的实况照片，后续会加入对 HEIC/HEIF 格式的支持, 以及封装为 HEIF 的实况照片。</value>
   </data>
   <data name="HomePage_MergeUsage.Text" xml:space="preserve">
     <value>将准备好的 (照片JPG + MOV/MP4视频) 放在同一文件夹，点击“开始合成”即可。</value>
@@ -1133,8 +1142,61 @@
   <data name="HomePage_RepairTitle.Text" xml:space="preserve">
     <value>实况照片显示修复</value>
   </data>
-  <data name="HomePage_RepairDesc.Text" xml:space="preserve">
-    <value>这可是个重头戏，修复上述简介中，苹果照片缩略图前置会旋转，iOS17.3 之前会拉伸的问题，如果有其他新的问题，请在关于或设置页面反馈。</value>
+  <data name="HomePage_RepairSubtitle.Text" xml:space="preserve">
+    <value>修复 Apple 实况照片在 Windows 上的旋转、拉伸与缩略图异常</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step1_Title.Text" xml:space="preserve">
+    <value>它能修复什么？</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step1_Desc.Text" xml:space="preserve">
+    <value>将 iPhone 实况照片导出后，常见的显示异常包括：
+
+多余缩略图及横向拉伸（iOS 17.3 之前）：
+Apple 曾嵌入低分辨率缩略图来改善兼容性，但该缩略图带有方向标签，Windows 误将其当作横图处理，导致缩略图被异常拉宽或压扁。
+iOS 17.3 起已不再内嵌。通过 jpegtran 无损旋转并剥离残留缩略图即可修复。
+
+视频画面旋转：
+iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正确显示角度，但 Windows 并不识别此标签。通过 jpegtran 无损旋转或 FFmpeg 重编码即可修正。</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step2_Title.Text" xml:space="preserve">
+    <value>扫描并查看诊断</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step2_Desc.Text" xml:space="preserve">
+    <value>点击「浏览」选择照片文件夹，然后点击「扫描目录」开始自动分析。
+
+扫描完成后，上方统计面板展示当前文件夹的整体情况：
+· 总照片数 / 实况照片数 — 当前文件夹的概况
+· 正常 — 无需修复，照片完全健康
+· 异常 — 检测到旋转、拉伸或多余缩略图，需要修复
+· 单独照片 / 单独视频 — 未被配对为实况照片的文件
+
+每张照片右侧的「诊断结果」列标明具体问题类型，点击异常项可查看详细描述。使用顶部的筛选器可快速按「文件类型」或「修复状态」定位问题文件。</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step3_Title.Text" xml:space="preserve">
+    <value>选择输出模式并开始修复</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Step3_Desc.Text" xml:space="preserve">
+    <value>确认无误后，选择输出模式：
+
+· 输出到目录 — 修复结果保存到指定文件夹，原文件不受影响（推荐首次使用）
+· 替换原文件 — 直接在原文件上修复，建议提前做好备份
+
+点击「开始修复」，程序全自动处理：
+· JPEG → jpegtran 无损旋转 + 剥离多余缩略图
+· HEIC → 修正错误的 Orientation 标签
+· 视频 → FFmpeg 重编码消除旋转矩阵
+
+完成后打开输出文件夹，照片已经恢复正常啦 ~</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Reassurance.Text" xml:space="preserve">
+    <value>非 iPhone 拍摄的照片一般无需修复，扫描和修复也不会对正常照片造成任何影响，请放心使用。
+如果只想扫描 iPhone 拍摄的实况照片，可开启「更严格的实况照片扫描」选项。</value>
+  </data>
+  <data name="HomePage_GoToSettingsStrictScan.Content" xml:space="preserve">
+    <value>前往设置</value>
+  </data>
+  <data name="HomePage_RepairTutorial_Ready_Subtitle.Text" xml:space="preserve">
+    <value>点击右侧按钮，即可体验内置预设，直观了解完整修复流程</value>
   </data>
   <data name="HomePage_RepairUsage.Text" xml:space="preserve">
     <value>选择要修复的图片文件夹，程序会自动识别缩略图错误的图片并无损修复。</value>
@@ -1155,7 +1217,7 @@
     <value>开发初衷</value>
   </data>
   <data name="AboutPage_MotivationContent.Text" xml:space="preserve">
-    <value>因为作者习惯把照片备份到电脑，因为手机存储空间紧张。但苹果的实况照片在 Windows 上会变成为独立的图片和视频，浏览体验极差。一气之下就开发了这款工具。让作者这强迫症患者得到解放 []~(￣▽￣)~*</value>
+    <value>因为作者习惯把照片备份到电脑，因为手机存储空间紧张。但 Apple 的实况照片在 Windows 上会变成为独立的图片和视频，浏览体验极差。一气之下就开发了这款工具。让作者这强迫症患者得到解放 []~(￣▽￣)~*</value>
   </data>
   <data name="AboutPage_CreditsTitle.Text" xml:space="preserve">
     <value>开源致谢</value>
@@ -1205,10 +1267,10 @@
   <data name="HomePage_GuideButton_Tooltip.Text" xml:space="preserve">
     <value>新手操作指南</value>
   </data>
-  <data name="ComboPage_HelpButton.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="MergePage_HelpButton.ToolTipService.ToolTip" xml:space="preserve">
     <value>查看教程</value>
   </data>
-  <data name="ComboPage_HelpBtnText.Text" xml:space="preserve">
+  <data name="MergePage_HelpBtnText.Text" xml:space="preserve">
     <value>帮助 &amp; 教程</value>
   </data>
   <data name="SplitPage_HelpBtnText.Text" xml:space="preserve">
@@ -1217,7 +1279,7 @@
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
     <value>帮助 &amp; 教程</value>
   </data>
-  <data name="ComboPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="MergePage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>前往主页查看教程</value>
   </data>
   <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
@@ -1226,10 +1288,10 @@
   <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>前往主页查看教程</value>
   </data>
-  <data name="ComboPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
+  <data name="MergePage_Msg_NoInputDirectoryTitle" xml:space="preserve">
     <value>尚未选择输入文件夹</value>
   </data>
-  <data name="ComboPage_Msg_NoInputDirectory" xml:space="preserve">
+  <data name="MergePage_Msg_NoInputDirectory" xml:space="preserve">
     <value>请先选择包含待合成文件的文件夹。文件夹内需要准备好静态照片（目前支持 JPG）以及同名的动态视频（MOV 或 MP4 格式）。程序会自动扫描目录并将它们配对合并。</value>
   </data>
   <data name="SplitPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
@@ -1244,10 +1306,10 @@
   <data name="RepairPage_Msg_NoInputDirectory" xml:space="preserve">
     <value>请先选择需要修复的图片文件夹。程序会自动扫描目录，识别出因设备兼容性导致在 Windows 上出现缩略图旋转或拉伸问题的图片，并进行无损修复。</value>
   </data>
-  <data name="ComboPage_OpenInputBtn.Content" xml:space="preserve">
+  <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
     <value>打开输入目录</value>
   </data>
-  <data name="ComboPage_OpenOutputBtn.Content" xml:space="preserve">
+  <data name="MergePage_OpenOutputBtn.Content" xml:space="preserve">
     <value>打开输出目录</value>
   </data>
   <data name="SplitPage_OpenInputBtn.Content" xml:space="preserve">
@@ -1326,7 +1388,7 @@
     <value>HEIC/HEIF 文件 "{0}" 转换失败：{1}</value>
   </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
-    <value>将 iPhone 实况照片转换为 Windows 可查看的单文件格式</value>
+    <value>将 iPhone 实况照片转换为 Windows 和 Android 均可查看的单文件格式</value>
   </data>
   <data name="HomePage_Tutorial_ImagePlaceholder.Text" xml:space="preserve">
     <value>教程图片待添加</value>
@@ -1364,35 +1426,35 @@
   <data name="HomePage_SplitTutorial_Ready_Subtitle.Text" xml:space="preserve">
     <value>点击右侧按钮，即可体验内置预设，直观了解完整拆分流程</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder.Text" xml:space="preserve">
     <value>HEIC/HEIF 解码器</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder_MagickNET.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder_MagickNET.Content" xml:space="preserve">
     <value>Magick.NET（ImageMagick + libheif）</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder_BitmapDecoder.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder_BitmapDecoder.Content" xml:space="preserve">
     <value>BitmapDecoder（Windows 系统内置）</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder_Desc.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder_Desc.Text" xml:space="preserve">
     <value>Magick.NET 方案软件已自带；BitmapDecoder 方案更快，但依赖系统的 HEIC/HEIF 扩展（Win11 已内置，Win10 需安装以下两个扩展）</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder_HeifLink.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder_HeifLink.Content" xml:space="preserve">
     <value>安装 HEIF 图像扩展 →</value>
   </data>
-  <data name="SettingsPage_Combo_HeicDecoder_HevcLink.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_HeicDecoder_HevcLink.Content" xml:space="preserve">
     <value>安装 HEVC 视频扩展 →</value>
   </data>
-  <data name="SettingsPage_Combo_ThreadCount.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_ThreadCount.Text" xml:space="preserve">
     <value>HEIC/HEIF 任务并行数</value>
   </data>
-  <data name="SettingsPage_Combo_ThreadCount_Desc.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_ThreadCount_Desc.Text" xml:space="preserve">
     <value>HEIC/HEIF 照片转码时的并行处理任务数。注意：JPG 格式照片无需转码，因此不受限制，会自动使用最高 20 路并发以加速合成</value>
   </data>
-  <data name="SettingsPage_Combo_GoogleForceMp4.Text" xml:space="preserve">
-    <value>谷歌协议始终转换成 MP4</value>
+  <data name="SettingsPage_Merge_GoogleForceMp4.Text" xml:space="preserve">
+    <value>Google 协议始终转换成 MP4</value>
   </data>
-  <data name="SettingsPage_Combo_GoogleForceMp4_Desc.Text" xml:space="preserve">
-    <value>开启后，使用谷歌 V1/V2 协议合成实况照片时，自动将 MOV 视频转为兼容性更广的 MP4 格式。默认关闭，保留视频原始封装格式，如果导入设备不支持浏览实况照片，可以尝试打开</value>
+  <data name="SettingsPage_Merge_GoogleForceMp4_Desc.Text" xml:space="preserve">
+    <value>开启后，使用 Google V1/V2 协议合成实况照片时，自动将 MOV 视频转为兼容性更广的 MP4 格式。默认关闭，保留视频原始封装格式，如果导入设备不支持浏览实况照片，可以尝试打开</value>
   </data>
   <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
     <value>恢复默认设置</value>
@@ -1425,22 +1487,31 @@
     <value>在「实况照片合成」页面，点击「浏览」按钮，选择你刚才准备好的文件夹。输出目录会自动设置，如需自定义可手动修改。</value>
   </data>
   <data name="HomePage_Tutorial_Step3_Desc.Text" xml:space="preserve">
-    <value>程序会自动识别文件夹中的配对文件。查看统计信息确认无误：
- • 配对成功：可合成的实况照片组数
- • 单独图片：没有对应视频的图片
- • 单独视频：没有对应图片的视频
+    <value>扫描完成后，在「协议版本」选择适合你的封装协议：
 
-确认后，点击「开始合成」即可。</value>
+🔹 仅需在 Windows 上查看？
+任意协议均可，推荐 Google - Motion Photo (V2)。
+
+🔹 要导入 Android 设备？
+根据手机品牌选择最匹配的协议即可。
+
+⚠️ 暂不支持以下设备：
+· VIVO / iQOO —— 采用分离式文件格式，暂不支持
+· 三星 / 华为 / 荣耀 —— 未经测试，暂不支持
+
+选定协议后，点击「开始合成」即可。</value>
   </data>
   <data name="HomePage_Tutorial_Step4_Desc.Text" xml:space="preserve">
     <value>合成过程会自动处理，无需额外操作。完成后，输出文件夹中即为合并好的实况照片！
 
-用 Windows 照片应用即可直接查看播放 ~</value>
+转换后的单文件格式可在 Windows 和 Android 设备上直接查看和播放 ~</value>
   </data>
   <data name="HomePage_SplitTutorial_Step1_Desc.Text" xml:space="preserve">
     <value>需要导入单文件格式的实况照片 JPG 格式，一个文件同时包含静态照片和动态视频，可以是：
+
  • 本软件转换生成的实况照片
- • 安卓手机直接拍摄的实况照片
+ • Android 手机直接拍摄的实况照片
+（单文件格式，不包括 VIVO）
 
 将以上任意文件放入同一文件夹即可。</value>
   </data>
@@ -1484,7 +1555,7 @@
     <value>已禁用</value>
   </data>
   <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
-    <value>启用后将对 HEIC/HEIF 照片进行方向标签修复和缩略图剥离。HEIC/HEIF 的旋转标签通常是正确的显示指令，若无特殊需求，保持默认即可</value>
+    <value>启用后将对 HEIC/HEIF 照片进行方向标签修复和缩略图剥离。HEIC/HEIF 的旋转标签通常是正确的显示指令，若无特殊需求，无需开启</value>
   </data>
   <data name="Status_HeicRepairDisabled" xml:space="preserve">
     <value>[HEIC/HEIF修复已关闭]</value>
@@ -1499,7 +1570,7 @@
     <value>已禁用</value>
   </data>
   <data name="SettingsPage_Repair_VideoDesc.Text" xml:space="preserve">
-    <value>启用后将对带有旋转矩阵的视频进行重编码以修正方向。视频修复耗时较长且涉及重编码。</value>
+    <value>启用后将对带有旋转矩阵的视频进行重编码以修正方向。视频修复耗时较长且涉及重编码</value>
   </data>
   <data name="Status_VideoRepairDisabled" xml:space="preserve">
     <value>[视频修复已关闭]</value>
@@ -1634,7 +1705,7 @@
     <value>更严格的实况照片扫描</value>
   </data>
   <data name="SettingsPage_StrictLivePhotoScanDesc.Text" xml:space="preserve">
-    <value>通过 Apple ContentIdentifier (UUID) 匹配实况照片。开启后仅识别苹果设备的实况照片，关闭后使用文件名匹配所有照片</value>
+    <value>开启后仅识别 Apple 设备拍摄的原始实况照片，通过 ContentIdentifier (UUID) 精确匹配，其余普通照片和视频将被跳过。关闭后使用文件名匹配所有文件</value>
   </data>
   <data name="SettingsPage_StrictLivePhotoScanToggle.OnContent" xml:space="preserve">
     <value>开</value>
@@ -1738,22 +1809,142 @@
     <value>修复示例</value>
     <comment>修复页示例子文件夹名</comment>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatchingLabel.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatchingLabel.Text" xml:space="preserve">
     <value>实况照片配对方式</value>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatchingDesc.Text" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatchingDesc.Text" xml:space="preserve">
     <value>默认通过文件名称和 ContentIdentifier (UUID) 匹配；元数据配对仅支持未修改的 MOV 视频，MP4 格式不支持。「拍摄日期」为兜底选项，可能匹配出错，谨慎开启</value>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatching_Both.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatching_Both.Content" xml:space="preserve">
     <value>文件名 + 元数据</value>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatching_Filename.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatching_Filename.Content" xml:space="preserve">
     <value>仅文件名</value>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatching_Metadata.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatching_Metadata.Content" xml:space="preserve">
     <value>仅元数据</value>
   </data>
-  <data name="SettingsPage_Combo_MetadataMatching_BothWithDate.Content" xml:space="preserve">
+  <data name="SettingsPage_Merge_MetadataMatching_BothWithDate.Content" xml:space="preserve">
     <value>文件名 + 元数据 + 拍摄日期</value>
+  </data>
+  <data name="Nav_History.Content" xml:space="preserve">
+    <value>照片历史 (开发中)</value>
+  </data>
+  <data name="HistoryPage_Title.Text" xml:space="preserve">
+    <value>照片操作历史</value>
+  </data>
+  <data name="HistoryPage_Subtitle.Text" xml:space="preserve">
+    <value>查看 LivePhotoBox 处理过的照片操作记录</value>
+  </data>
+  <data name="History_SelectFolder.Text" xml:space="preserve">
+    <value>选择文件夹</value>
+  </data>
+  <data name="History_NoFolderSelected.Text" xml:space="preserve">
+    <value>尚未选择文件夹</value>
+  </data>
+  <data name="History_ScanButton.Text" xml:space="preserve">
+    <value>开始扫描</value>
+  </data>
+  <data name="History_EmptyTitle.Text" xml:space="preserve">
+    <value>选择一个文件夹开始查看</value>
+  </data>
+  <data name="History_EmptyDesc.Text" xml:space="preserve">
+    <value>选择一个包含照片的文件夹，扫描后将显示所有实况照片的处理记录</value>
+  </data>
+  <data name="History_NoEntries.Text" xml:space="preserve">
+    <value>暂无操作记录</value>
+  </data>
+  <data name="History_EntryCount" xml:space="preserve">
+    <value>处理过 {0} 次</value>
+  </data>
+  <data name="History_Action_Merge" xml:space="preserve">
+    <value>合成</value>
+  </data>
+  <data name="History_Action_Split" xml:space="preserve">
+    <value>拆分</value>
+  </data>
+  <data name="History_Action_Repair" xml:space="preserve">
+    <value>修复</value>
+  </data>
+  <data name="History_MergeDesc" xml:space="preserve">
+    <value>协议: {0}</value>
+  </data>
+  <data name="History_FormatDesc" xml:space="preserve">
+    <value>输出 {0}</value>
+  </data>
+  <data name="History_FixDesc" xml:space="preserve">
+    <value>修复 {0}</value>
+  </data>
+  <data name="History_Protocol_MotionPhotoV2" xml:space="preserve">
+    <value>Motion Photo V2</value>
+  </data>
+  <data name="History_Protocol_MicroVideoV1" xml:space="preserve">
+    <value>MicroVideo V1</value>
+  </data>
+  <data name="History_Protocol_OPPO" xml:space="preserve">
+    <value>OPPO Live Photo</value>
+  </data>
+  <data name="History_Summary_Generated" xml:space="preserve">
+    <value>处理过 {0} 次</value>
+  </data>
+  <data name="History_Summary_MergeOnly" xml:space="preserve">
+    <value>已合成</value>
+  </data>
+  <data name="History_Summary_LivePhoto" xml:space="preserve">
+    <value>实况照片</value>
+  </data>
+  <data name="History_TotalLabel" xml:space="preserve">
+    <value>文件:</value>
+  </data>
+  <data name="History_LivePhotoLabel" xml:space="preserve">
+    <value>实况照片:</value>
+  </data>
+  <data name="History_MarkedLabel" xml:space="preserve">
+    <value>已标记:</value>
+  </data>
+  <data name="History_Scanning" xml:space="preserve">
+    <value>正在扫描...</value>
+  </data>
+  <data name="History_ScanProgress" xml:space="preserve">
+    <value>正在扫描 {0}/{1}</value>
+  </data>
+  <data name="History_ScanComplete" xml:space="preserve">
+    <value>找到 {0} 个文件（{1} 个实况照片，{2} 个带标记）</value>
+  </data>
+  <data name="History_NoImages" xml:space="preserve">
+    <value>文件夹中没有支持的图片文件</value>
+  </data>
+  <data name="History_NoLivePhotos" xml:space="preserve">
+    <value>未找到实况照片</value>
+  </data>
+  <data name="SettingsPage_Debug_PhotoHistoryHeader.Text" xml:space="preserve">
+    <value>照片历史页面</value>
+  </data>
+  <data name="SettingsPage_Debug_PhotoHistoryDesc.Text" xml:space="preserve">
+    <value>在导航栏显示「照片历史」页面，用于查看 LivePhotoBox 处理过的照片操作记录</value>
+  </data>
+  <data name="SettingsPage_Debug_OpenHistoryBtn.Text" xml:space="preserve">
+    <value>打开</value>
+  </data>
+  <data name="SettingsPage_Debug_WriteHistoryHeader.Text" xml:space="preserve">
+    <value>写入照片操作记录</value>
+  </data>
+  <data name="SettingsPage_Debug_WriteHistoryDesc.Text" xml:space="preserve">
+    <value>打开后会记录本软件对照片所做的合成、拆分、修复等操作历史（如修复旋转、缩略图等），可在照片历史页面中查看完整处理内容</value>
+  </data>
+  <data name="SettingsPage_Merge_HeicDecoder_HeifLinkText.Text" xml:space="preserve">
+    <value>安装 HEIF 图像扩展</value>
+  </data>
+  <data name="SettingsPage_Merge_HeicDecoder_HevcLinkText.Text" xml:space="preserve">
+    <value>安装 HEVC 视频扩展</value>
+  </data>
+  <data name="MergePage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>前往设置查看高级选项</value>
+  </data>
+  <data name="SplitPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>前往设置查看高级选项</value>
+  </data>
+  <data name="RepairPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>前往设置查看高级选项</value>
   </data>
 </root>

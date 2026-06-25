@@ -22,6 +22,7 @@ namespace LivePhotoBox.Views
         private double _origImgH;
         private readonly PointerEventHandler _scrollViewerMovedHandler;
         private readonly Dictionary<string, (double Width, double Height)> _imageSizes = new();
+        private RoutedEventHandler? _scrollToFeatureHandler;
 
         public HomePage()
         {
@@ -57,6 +58,10 @@ namespace LivePhotoBox.Views
                 splitDivider.Visibility = Visibility.Collapsed;
             if (this.FindName("SplitTutorialReadySection") is UIElement splitSection)
                 splitSection.Visibility = Visibility.Collapsed;
+            if (this.FindName("RepairTutorialReadyDivider") is UIElement repairDivider)
+                repairDivider.Visibility = Visibility.Collapsed;
+            if (this.FindName("RepairTutorialReadySection") is UIElement repairSection)
+                repairSection.Visibility = Visibility.Collapsed;
         }
 
         private void TutorialImage_Opened(object sender, RoutedEventArgs e)
@@ -226,7 +231,7 @@ namespace LivePhotoBox.Views
                 // localizedSubFolder 是用户可见的输出子文件夹名（跟随界面语言）
                 string localizedSubFolder = pageTag switch
                 {
-                    "Combo" => ResourceService.GetString("HomePage_DemoSubFolder_Merge"),
+                    "Merge" => ResourceService.GetString("HomePage_DemoSubFolder_Merge"),
                     "Split" => ResourceService.GetString("HomePage_DemoSubFolder_Split"),
                     "Repair" => ResourceService.GetString("HomePage_DemoSubFolder_Repair"),
                     _ => subFolder
@@ -250,13 +255,13 @@ namespace LivePhotoBox.Views
 
                 switch (pageTag)
                 {
-                    case "Combo":
-                        AppViewModel.Instance.Combo.InputDirectory = tempInputPath;
-                        AppViewModel.Instance.Combo.OutputDirectory = desktopOutputPath;
-                        AppViewModel.Instance.Combo.IsDirectoryPanelOpen = true;
-                        if (AppViewModel.Instance.Combo.ScanDirectoryCommand.CanExecute(null))
+                    case "Merge":
+                        AppViewModel.Instance.Merge.InputDirectory = tempInputPath;
+                        AppViewModel.Instance.Merge.OutputDirectory = desktopOutputPath;
+                        AppViewModel.Instance.Merge.IsDirectoryPanelOpen = true;
+                        if (AppViewModel.Instance.Merge.ScanDirectoryCommand.CanExecute(null))
                         {
-                            AppViewModel.Instance.Combo.ScanDirectoryCommand.Execute(null);
+                            AppViewModel.Instance.Merge.ScanDirectoryCommand.Execute(null);
                         }
                         break;
                     case "Split":
@@ -315,10 +320,18 @@ namespace LivePhotoBox.Views
             }
         }
 
+        private void GoToSettingsStrictScan_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow is MainWindow mainWindow)
+            {
+                mainWindow.NavigateToSettings("StrictLivePhotoScan");
+            }
+        }
+
         private void TryMergeDemo_Click(object sender, RoutedEventArgs e)
         {
-            LogService.Info("Demo: loading Merge sample & navigating to Combo page.", LogSource.UI);
-            SetupAndNavigateDemo("Merge", "Combo", typeof(ComboPage));
+            LogService.Info("Demo: loading Merge sample & navigating to Merge page.", LogSource.UI);
+            SetupAndNavigateDemo("Merge", "Merge", typeof(MergePage));
         }
 
         private void TrySplitDemo_Click(object sender, RoutedEventArgs e)
@@ -350,9 +363,24 @@ namespace LivePhotoBox.Views
         protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
+
+            // 清理上一次的滚动处理器，防止缓存页切回时重复滚动
+            if (_scrollToFeatureHandler != null)
+            {
+                Loaded -= _scrollToFeatureHandler;
+                _scrollToFeatureHandler = null;
+            }
+
             if (e.Parameter is string feature)
             {
-                this.Loaded += (s, args) => ScrollToFeature(feature);
+                _scrollToFeatureHandler = (_, _) =>
+                {
+                    // 一次性执行，用完即弃
+                    Loaded -= _scrollToFeatureHandler;
+                    _scrollToFeatureHandler = null;
+                    ScrollToFeature(feature);
+                };
+                Loaded += _scrollToFeatureHandler;
             }
         }
 
@@ -362,7 +390,7 @@ namespace LivePhotoBox.Views
             {
                 string targetName = feature switch
                 {
-                    "Combo" => "CoreFeaturesTitle",
+                    "Merge" => "CoreFeaturesTitle",
                     "Split" => "SplitTutorialBorder",
                     "Repair" => "RepairTutorialBorder",
                     _ => "CoreFeaturesTitle"

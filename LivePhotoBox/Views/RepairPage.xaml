@@ -143,6 +143,20 @@
                             <ToggleSwitch x:Uid="RepairPage_OutputSwitch"
                                           IsOn="{x:Bind ViewModel.IsOutputToDirectory, Mode=TwoWay}"
                                           FontSize="14"/>
+                            <Button x:Uid="RepairPage_HelpBtn" Height="34" Width="34" Padding="0"
+                                    Background="Transparent" BorderBrush="Transparent"
+                                    Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Repair">
+                                <FontIcon Glyph="&#xE9CE;" FontSize="16"
+                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
+                            <Button x:Uid="RepairPage_SettingsBtn" Height="34" Width="34" Padding="0"
+                                    Background="Transparent" BorderBrush="Transparent"
+                                    Click="GoToRepairSettings_Click">
+                                <FontIcon Glyph="&#xE90F;" FontSize="16"
+                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Button>
                             <Button Command="{x:Bind ViewModel.ScanDirectoryCommand}"
                                     Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
                                     Style="{x:Bind ViewModel.ScanButtonStyle, Mode=OneWay}"
@@ -227,13 +241,6 @@
                     <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="12"
                                 VerticalAlignment="Center" HorizontalAlignment="Right">
 
-                        <Button x:Uid="RepairPage_HelpBtn" Height="34" Width="34" Padding="0"
-                                Background="Transparent" BorderBrush="Transparent"
-                                Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Repair">
-                            <FontIcon Glyph="&#xE9CE;" FontSize="16"
-                                      Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Button>
 
                         <Button Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}"
                                 Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}"

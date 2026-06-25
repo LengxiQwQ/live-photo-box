@@ -63,7 +63,7 @@ namespace LivePhotoBox.Services
             // 一次读取，避免多次调 AppSettingsService
             int decoderIndex = DecoderIndex;
             var decoderName = decoderIndex == 1 ? "BitmapDecoder" : "Magick.NET";
-            LogService.Combo($"Converting HEIC to JPEG ({decoderName}): {heicPath}");
+            LogService.Merge($"Converting HEIC to JPEG ({decoderName}): {heicPath}");
 
             try
             {
@@ -78,7 +78,7 @@ namespace LivePhotoBox.Services
 
                 await CopyTagsSafeAsync(heicPath, outputPath, token).ConfigureAwait(false);
 
-                LogService.Combo($"HEIC conversion successful: {outputPath}");
+                LogService.Merge($"HEIC conversion successful: {outputPath}");
                 return outputPath;
             }
             catch (OperationCanceledException)
@@ -88,7 +88,7 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                LogService.Combo($"HEIC conversion failed ({decoderName}): {ex.Message}", LogLevel.Error, ex);
+                LogService.Merge($"HEIC conversion failed ({decoderName}): {ex.Message}", LogLevel.Error, ex);
                 TryDelete(outputPath);
                 throw NewHeicError(heicPath, ex.Message);
             }
@@ -163,7 +163,7 @@ namespace LivePhotoBox.Services
             try { await CopyTagsAsync(sourcePath, targetPath, token).ConfigureAwait(false); }
             catch (Exception ex)
             {
-                LogService.Combo($"Copy metadata from HEIC failed: {ex.Message}", LogLevel.Warning, ex);
+                LogService.Merge($"Copy metadata from HEIC failed: {ex.Message}", LogLevel.Warning, ex);
             }
         }
 

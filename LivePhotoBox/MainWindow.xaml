@@ -32,7 +32,7 @@
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
 
-                <NavigationViewItem x:Uid="Nav_Combo" Tag="Combo">
+                <NavigationViewItem x:Uid="Nav_Merge" Tag="Merge">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8B1;"/>
                     </NavigationViewItem.Icon>
@@ -48,9 +48,19 @@
                         <FontIcon Glyph="&#xE7C5;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
+                <NavigationViewItem x:Name="NavHistory" x:Uid="Nav_History" Tag="History">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE81C;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
                 <NavigationViewItem x:Uid="Nav_KeyPhoto" Tag="KeyPhoto">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE895;"/>
+                        <FontIcon Glyph="&#xEDAB;"/>
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Uid="Nav_PhotoClassify" Tag="PhotoClassify">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xED43;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>

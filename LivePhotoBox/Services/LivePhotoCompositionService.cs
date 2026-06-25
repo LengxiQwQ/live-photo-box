@@ -24,7 +24,7 @@ namespace LivePhotoBox.Services
             CancellationToken token)
         {
             // Delegate to the shared implementation — same logic, same protocol support.
-            await LivePhotoComboService.WriteLivePhotoAsync(
+            await LivePhotoMergeService.WriteLivePhotoAsync(
                 sourceImg, sourceVid, targetPath, selectedModeIndex, token);
         }
     }

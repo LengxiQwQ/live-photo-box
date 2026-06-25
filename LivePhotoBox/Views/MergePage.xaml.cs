@@ -10,25 +10,25 @@ using System.Linq;
 
 namespace LivePhotoBox.Views
 {
-    public sealed partial class ComboPage : Page
+    public sealed partial class MergePage : Page
     {
         private readonly TaskListAutoScroller _scroller;
         private bool _eventsHooked;
 
-        public ComboViewModel ViewModel => AppViewModel.Instance.Combo;
+        public MergeViewModel ViewModel => AppViewModel.Instance.Merge;
 
-        public ComboPage()
+        public MergePage()
         {
             InitializeComponent();
 
             _scroller = new TaskListAutoScroller(
-                "Combo",
+                "Merge",
                 isActive: () => ViewModel.IsProcessing || ViewModel.IsScanning,
                 getTaskCount: () => ViewModel.Tasks.Count,
                 getTaskAt: idx => ViewModel.Tasks[idx]);
 
-            Loaded += ComboPage_Loaded;
-            Unloaded += ComboPage_Unloaded;
+            Loaded += MergePage_Loaded;
+            Unloaded += MergePage_Unloaded;
         }
 
         private void ProtocolComboBox_Loaded(object sender, RoutedEventArgs e)
@@ -37,9 +37,9 @@ namespace LivePhotoBox.Views
                 ComboBoxHelper.AutoFitWidth(comboBox);
         }
 
-        private void ComboPage_Loaded(object sender, RoutedEventArgs e)
+        private void MergePage_Loaded(object sender, RoutedEventArgs e)
         {
-            _scroller.Attach(ComboTaskListView);
+            _scroller.Attach(MergeTaskListView);
 
             if (_eventsHooked) return;
 
@@ -49,7 +49,7 @@ namespace LivePhotoBox.Views
             _eventsHooked = true;
         }
 
-        private void ComboPage_Unloaded(object sender, RoutedEventArgs e)
+        private void MergePage_Unloaded(object sender, RoutedEventArgs e)
         {
             _scroller.NotifyPageUnloading();
             _scroller.Detach();
@@ -62,7 +62,7 @@ namespace LivePhotoBox.Views
             _eventsHooked = false;
         }
 
-        private void OnTaskStarted(object? sender, ComboTask task) =>
+        private void OnTaskStarted(object? sender, MergeTask task) =>
             _scroller.NotifyTaskStarted(task.Index - 1);
 
         private void OnAllCompleted(object? sender, EventArgs e) =>
@@ -110,17 +110,17 @@ namespace LivePhotoBox.Views
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
             try { FilePickerService.RevealInExplorer(path); }
-            catch (Exception ex) { LogService.Debug($"ComboPage reveal in explorer failed: {ex.Message}", LogSource.UI); }
+            catch (Exception ex) { LogService.Debug($"MergePage reveal in explorer failed: {ex.Message}", LogSource.UI); }
         }
 
         private void FileGroupButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
             try { FilePickerService.RevealInExplorer(path); }
-            catch (Exception ex) { LogService.Debug($"ComboPage reveal in explorer failed: {ex.Message}", LogSource.UI); }
+            catch (Exception ex) { LogService.Debug($"MergePage reveal in explorer failed: {ex.Message}", LogSource.UI); }
         }
 
-        private void ComboTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args) { }
+        private void MergeTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args) { }
 
         // ── 全屏预览 ──────────────────────────────────
 
@@ -138,7 +138,7 @@ namespace LivePhotoBox.Views
         private void StatusTextBlock_Tapped(object sender, TappedRoutedEventArgs e)
         {
             if (sender is not FrameworkElement element) return;
-            if (element.DataContext is not ComboTask task) return;
+            if (element.DataContext is not MergeTask task) return;
             if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details)) return;
 
             if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element) { ErrorDetailTip.IsOpen = false; return; }
@@ -149,5 +149,11 @@ namespace LivePhotoBox.Views
 
         private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args) =>
             ErrorDetailTip.Target = null;
+
+        private void GoToMergeSettings_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow is MainWindow mainWindow)
+                mainWindow.NavigateToSettings("Merge");
+        }
     }
 }

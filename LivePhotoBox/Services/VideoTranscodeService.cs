@@ -192,7 +192,7 @@ namespace LivePhotoBox.Services
 
                 // Remux 参数说明:
                 // -c copy: 无损拷贝
-                // -map 0:V:0 -> 【神级参数】大写 V 表示提取第1个"真正的视频轨"，完美避开苹果的 128x96 缩略图轨和安卓的 MJPEG 封面轨
+                // -map 0:V:0 -> 【神级参数】大写 V 表示提取第1个"真正的视频轨"，完美避开Apple的 128x96 缩略图轨和安卓的 MJPEG 封面轨
                 // -map 0:a:0? -> 提取第1个音频轨（问号表示如果没有音频也不报错，防止静音视频闪退）
                 // -map_metadata 0: 保留源文件时间、GPS等元数据
                 string arguments = string.IsNullOrEmpty(movflags)
@@ -327,19 +327,19 @@ namespace LivePhotoBox.Services
             // MOV files are compatible with Live Photo protocols — skip transcode.
             if (!forceMp4 && DetectContainerFormat(inputPath) == "mov")
             {
-                LogService.Combo(
+                LogService.Merge(
                     $"Skipping MP4 conversion (forceMp4=off): '{Path.GetFileName(inputPath)}'",
                     LogLevel.Debug);
                 return (inputPath, false);
             }
 
-            LogService.Combo(
+            LogService.Merge(
                 $"Auto-transcoding to MP4: '{Path.GetFileName(inputPath)}'",
                 LogLevel.Debug);
 
             string tempPath = Path.Combine(
                 workDir,
-                $"{Path.GetFileNameWithoutExtension(inputPath)}_combo_trans.mp4");
+                $"{Path.GetFileNameWithoutExtension(inputPath)}_merge_trans.mp4");
 
             if (File.Exists(tempPath))
                 try { File.Delete(tempPath); } catch { }
@@ -349,14 +349,14 @@ namespace LivePhotoBox.Services
             if (!result.Success)
             {
                 string msg = result.ErrorMessage ?? "Unknown error";
-                LogService.Combo(
+                LogService.Merge(
                     $"Transcode failed: {msg}", LogLevel.Error);
                 throw new InvalidOperationException(
                     $"Failed to transcode video to MP4: {msg}");
             }
 
             string label = result.WasRemux ? "remuxed" : "transcoded";
-            LogService.Combo(
+            LogService.Merge(
                 $"Video {label} ({result.Duration.TotalSeconds:F1}s): " +
                 $"{Path.GetFileName(inputPath)} → {Path.GetFileName(tempPath)}",
                 LogLevel.Debug);
