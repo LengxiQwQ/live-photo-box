@@ -180,6 +180,12 @@ namespace LivePhotoBox.Services
                 // 4. 将源文件的关键元数据写回视频输出（供后续元数据匹配使用）
                 await CopyMetadataToVideoAsync(sourcePath, videoOutputPath, token);
 
+                // 5. 给图片和视频打上 LivePhotoBox 标记（标识经本软件拆分过）
+                await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
+                    imageOutputPath, "Split", "", token);
+                await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
+                    videoOutputPath, "Split", "", token);
+
                 return new LivePhotoSplitResult
                 {
                     ImageOutputPath = imageOutputPath,
@@ -488,11 +494,11 @@ namespace LivePhotoBox.Services
         
 
         /// <summary>
-        /// 检测 APP 段是否包含本应用 Combo 页面生成的实况照片元数据。
-        /// 必须同时满足两个条件才判定为"需要剥离"：
-        ///   1. 包含 LivePhotoBox:generated 标记（本应用 Combo 合成时写入的注释）
-        ///   2. 包含 Google / OPPO 实况照片命名空间
-        /// 原始相机拍的照片（如 Pixel 原生 XMP）不含 LivePhotoBox 标记，不会被误删。
+        /// 检测 APP1 段是否包含实况照片元数据，判断是否为需要剥离的元数据。
+        ///
+        /// 检测顺序：
+        ///   1. 先看是否包含本应用的 LivePhotoBox 命名空间标记（最精确）
+        ///   2. 如果没有，再回退到通用实况照片命名空间检测（兼容早期没有标记的旧文件）
         /// </summary>
         private static bool ContainsLivePhotoMarker(byte[] buffer, int length)
         {
@@ -501,14 +507,14 @@ namespace LivePhotoBox.Services
             if (data.Length < xmpHeader.Length) return false;
             if (!data[..xmpHeader.Length].SequenceEqual(xmpHeader)) return false;
 
-            // 必须是本应用 Combo 页面生成的元数据（而非原始相机 XMP）
-            if (data.IndexOf("<!-- LivePhotoBox:generated -->"u8) < 0)
-                return false;
+            // 精确检测：本应用的 LivePhotoBox 标记（Combo 合成时注入的）
+            if (data.IndexOf("xmlns:LivePhotoBox=\"http://ns.livephotobox.app/1.0/\""u8) >= 0) return true;
 
-            // Google V1 / V2 / OPPO 三个协议的命名空间声明
+            // 回退检测：通用实况照片命名空间（兼容旧版本应用合成的文件）
             if (data.IndexOf("xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\""u8) >= 0) return true;
             if (data.IndexOf("xmlns:Container=\"http://ns.google.com/photos/1.0/container/\""u8) >= 0) return true;
             if (data.IndexOf("xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\""u8) >= 0) return true;
+            if (data.IndexOf("xmlns:MiCamera=\"http://ns.xiaomi.com/photos/1.0/camera/\""u8) >= 0) return true;
             return false;
         }
 

@@ -24,6 +24,6 @@ namespace LivePhotoBox.Services.Protocols
             " GCamera:MicroVideoPresentationTimestampUs=\"0\"/>";
 
         public override byte[] BuildXmpMetadata(long videoSize)
-            => WrapXmp(string.Format(RdfTemplate, videoSize));
+            => WrapXmp(string.Format(RdfTemplate, videoSize), Key);
     }
 }

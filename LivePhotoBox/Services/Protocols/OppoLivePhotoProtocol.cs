@@ -67,7 +67,7 @@ namespace LivePhotoBox.Services.Protocols
             "</rdf:Description>";
 
         public override byte[] BuildXmpMetadata(long videoSize)
-            => WrapXmp(RdfTemplate(videoSize));
+            => WrapXmp(RdfTemplate(videoSize), Key);
 
         /// <summary>
         /// Pre-process: inject <c>oplus_10485792</c> into the EXIF UserComment

@@ -630,6 +630,13 @@ namespace LivePhotoBox.Services
                     Directory.CreateDirectory(targetDir);
                 File.Move(tempWorkFile, targetPath);
 
+                // 打上 LivePhotoBox 修复标记（记录实际修复了哪些内容）
+                var fixes = new System.Collections.Generic.List<string>();
+                if (needsRotation) fixes.Add("Rotation");
+                if (hasThumbnail) fixes.Add("Thumbnail");
+                await TryWriteLivePhotoBoxMarkerAsync(targetPath, "Repair",
+                    fixes.Count > 0 ? $"Fix={string.Join("+", fixes)}" : "", token);
+
                 WriteDebugLog("INFO", "Repair", ResourceService.Format("Log_RepairSuccess", Path.GetFileName(sourcePath)));
                 return (true, ResourceService.GetString("Status_RepairSuccess"));
             }
@@ -749,6 +756,8 @@ namespace LivePhotoBox.Services
                         File.Delete(targetPath);
                     }
                     File.Move(tempOutput, targetPath);
+                    await TryWriteLivePhotoBoxMarkerAsync(
+                        targetPath, "Repair", "Fix=Rotation", token);
                     WriteDebugLog("INFO", "RepairVideo", $"Video repair succeeded: {Path.GetFileName(sourcePath)} (in-place={isInPlace})");
                     return (true, ResourceService.GetString("Status_RepairSuccess"));
                 }
@@ -1099,6 +1108,61 @@ namespace LivePhotoBox.Services
                 try { process.Kill(); } catch { }
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Append a LivePhotoBox tracking entry to the XMP <c>dc:subject</c> array.
+        /// Each entry records what action was performed, when, and by which app version.
+        /// Entries are never overwritten — they accumulate as a chronological history.
+        ///
+        /// The standard XMP <c>dc:subject</c> field is safe to use across all file types
+        /// (JPEG, HEIC, MP4, MOV) and does NOT affect live-photo detection on any platform.
+        ///
+        /// Entry format:
+        ///   <c>LivePhotoBox:{action}@{timestamp}@v{version}@{details}</c>
+        ///
+        /// Best-effort — failures are silently swallowed so the caller never breaks.
+        /// </summary>
+        /// <param name="filePath">JPEG, HEIC, MP4, or MOV path.</param>
+        /// <param name="action">Operation name: "Combo", "Split", "Repair".</param>
+        /// <param name="details">Action-specific key=value pairs, e.g. "Fix=Rotation+Thumbnail".</param>
+        public static async Task TryWriteLivePhotoBoxMarkerAsync(
+            string filePath, string action, string details, CancellationToken token)
+        {
+            if (string.IsNullOrEmpty(ExternalToolLocator.FindExifTool()))
+                return;
+
+            try
+            {
+                string timestamp = DateTimeOffset.Now.ToString("yyyy-MM-ddTHH:mm:sszzz");
+                string version = GetAppVersion();
+                string entry = $"LivePhotoBox:{action}@{timestamp}@v{version}@{details}";
+
+                await RunExifToolAsync(token,
+                    "-overwrite_original",
+                    $"-XMP-dc:Subject+={entry}",
+                    filePath);
+            }
+            catch
+            {
+                // Best-effort — marker is non-essential metadata.
+            }
+        }
+
+        /// <summary>
+        /// Read the application version from the entry assembly.
+        /// Falls back to "0.0.0" if unavailable.
+        /// </summary>
+        private static string GetAppVersion()
+        {
+            try
+            {
+                var ver = System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version;
+                if (ver != null)
+                    return $"{ver.Major}.{ver.Minor}.{ver.Build}";
+            }
+            catch { }
+            return "0.0.0";
         }
     }
 }
