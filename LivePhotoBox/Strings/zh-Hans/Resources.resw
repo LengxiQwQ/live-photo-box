@@ -837,15 +837,6 @@
   <data name="RepairPage_Task_NoRepair" xml:space="preserve">
     <value>无需修复</value>
   </data>
-  <data name="SettingsPage_General_Header.Text" xml:space="preserve">
-    <value>通用</value>
-  </data>
-  <data name="SettingsPage_General_RecursiveScan.Text" xml:space="preserve">
-    <value>扫描子文件夹</value>
-  </data>
-  <data name="SettingsPage_General_RecursiveScan_Desc.Text" xml:space="preserve">
-    <value>在执行扫描文件的时候，会同时扫描子文件夹中的文件</value>
-  </data>
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
     <value>© 2026 LengxiQwQ · 基于 GPL-3.0 开源协议发布</value>
   </data>
@@ -1095,7 +1086,7 @@
     <value>像素纵向拉伸</value>
   </data>
   <data name="Tag_RotationLabel" xml:space="preserve">
-    <value>带 {0}° 旋转标签</value>
+    <value>{0}° 旋转标签</value>
   </data>
   <data name="Tag_MissingRotationLabel" xml:space="preserve">
     <value>缺失旋转标签</value>
@@ -1546,7 +1537,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>(by Matthias Wandel) — JPEG 无损自动旋转，通过 jpegtran 在物理层面修正照片方向</value>
   </data>
   <data name="Tag_OrientationMirror" xml:space="preserve">
-    <value>EXIF方向含镜像</value>
+    <value>EXIF 镜像标签</value>
   </data>
   <data name="Tag_OrientationAngleMismatch" xml:space="preserve">
     <value>方向标签角度不一致</value>
@@ -1585,7 +1576,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>[视频修复已关闭]</value>
   </data>
   <data name="Tag_VideoRotation" xml:space="preserve">
-    <value>视频旋转 {0}°</value>
+    <value>{0}° 旋转标签</value>
+  </data>
+  <data name="Tag_FlipVertical" xml:space="preserve">
+    <value>上下翻转矩阵</value>
+  </data>
+  <data name="Tag_FlipHorizontal" xml:space="preserve">
+    <value>左右翻转矩阵</value>
   </data>
   <data name="SettingsPage_Transcode_Header.Text" xml:space="preserve">
     <value>视频转码</value>
@@ -1955,5 +1952,29 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="RepairPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>前往设置查看高级选项</value>
+  </data>
+  <data name="SettingsPage_General_Header.Text" xml:space="preserve">
+    <value>通用</value>
+  </data>
+  <data name="SettingsPage_General_RecursiveScan.Text" xml:space="preserve">
+    <value>扫描子文件夹</value>
+  </data>
+  <data name="SettingsPage_General_RecursiveScan_Desc.Text" xml:space="preserve">
+    <value>在执行扫描文件的时候，会同时扫描子文件夹中的文件</value>
+  </data>
+  <data name="RepairPage_Task_Copied" xml:space="preserve">
+    <value>已复制</value>
+  </data>
+  <data name="SettingsPage_Repair_CopyPerfectLabel.Text" xml:space="preserve">
+    <value>同时输出无需修复的文件</value>
+  </data>
+  <data name="SettingsPage_Repair_CopyPerfectDesc.Text" xml:space="preserve">
+    <value>仅在 "修复到单独目录" 模式下生效。开启后，无需修复的文件也会一并复制到输出目录，确保输出目录包含完整的文件集合</value>
+  </data>
+  <data name="SettingsPage_General_OutputPreserveSubfolder.Text" xml:space="preserve">
+    <value>输出目录按照子文件夹结构</value>
+  </data>
+  <data name="SettingsPage_General_OutputPreserveSubfolder_Desc.Text" xml:space="preserve">
+    <value>开启后，输出的文件将保留原始子文件夹的层级结构，不会全部平铺到输出目录根下</value>
   </data>
 </root>

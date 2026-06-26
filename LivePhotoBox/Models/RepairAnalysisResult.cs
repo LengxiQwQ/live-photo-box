@@ -28,6 +28,10 @@ namespace LivePhotoBox.Models
         public bool IsVideo { get; set; } = false;
         // Video rotation angle from QuickTime Rotation tag (0/90/180/270).
         public int VideoRotationAngle { get; set; } = 0;
+        // Video track transformation: "flip_vertical", "flip_horizontal", or "" if none.
+        // Front-facing iPhone cameras encode the selfie mirror as a vertical flip matrix
+        // in the track header, which exiftool's composite Rotation tag doesn't report.
+        public string VideoTrackTransform { get; set; } = string.Empty;
         // Video codec identifier from exiftool CompressorID (e.g. "hvc1"=HEVC, "avc1"=H.264).
         public string VideoCodec { get; set; } = string.Empty;
         // Original video bitrate in bps, parsed from exiftool AvgBitrate (e.g. "12.2 Mbps" → 12200000).

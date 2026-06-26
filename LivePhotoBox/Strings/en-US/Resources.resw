@@ -835,6 +835,9 @@ Do you want to restart now?</value>
   <data name="RepairPage_Task_Skipped" xml:space="preserve">
     <value>Skipped</value>
   </data>
+  <data name="RepairPage_Task_Copied" xml:space="preserve">
+    <value>Copied</value>
+  </data>
   <data name="RepairPage_Task_NoRepair" xml:space="preserve">
     <value>No repair needed</value>
   </data>
@@ -1087,7 +1090,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Vertically stretched</value>
   </data>
   <data name="Tag_RotationLabel" xml:space="preserve">
-    <value>With {0}° rotation label</value>
+    <value>{0}° rotation tag</value>
   </data>
   <data name="Tag_MissingRotationLabel" xml:space="preserve">
     <value>Missing rotation label</value>
@@ -1573,11 +1576,23 @@ Place any of these files into the same folder.</value>
   <data name="SettingsPage_Repair_VideoDesc.Text" xml:space="preserve">
     <value>When enabled, videos with rotation matrices will be re-encoded to correct orientation. Video repair is time-consuming and involves re-encoding.</value>
   </data>
+  <data name="SettingsPage_Repair_CopyPerfectLabel.Text" xml:space="preserve">
+    <value>Copy files that don't need repair</value>
+  </data>
+  <data name="SettingsPage_Repair_CopyPerfectDesc.Text" xml:space="preserve">
+    <value>Only effective in "output to directory" mode. When enabled, files that don't require repair are also copied to the output directory, ensuring a complete collection.</value>
+  </data>
   <data name="Status_VideoRepairDisabled" xml:space="preserve">
     <value>[Video repair off]</value>
   </data>
   <data name="Tag_VideoRotation" xml:space="preserve">
-    <value>Video rotation {0}°</value>
+    <value>{0}° rotation tag</value>
+  </data>
+  <data name="Tag_FlipVertical" xml:space="preserve">
+    <value>Vertical flip matrix</value>
+  </data>
+  <data name="Tag_FlipHorizontal" xml:space="preserve">
+    <value>Horizontal flip matrix</value>
   </data>
   <data name="SettingsPage_Transcode_Header.Text" xml:space="preserve">
     <value>Video Transcoding</value>
@@ -1956,5 +1971,11 @@ Are you sure you want to switch?</value>
   </data>
   <data name="SettingsPage_General_RecursiveScan_Desc.Text" xml:space="preserve">
     <value>When scanning files, also scan files in subfolders</value>
+  </data>
+  <data name="SettingsPage_General_OutputPreserveSubfolder.Text" xml:space="preserve">
+    <value>Preserve subfolder structure in output</value>
+  </data>
+  <data name="SettingsPage_General_OutputPreserveSubfolder_Desc.Text" xml:space="preserve">
+    <value>When enabled, output files retain the original subfolder hierarchy instead of being flattened into the output root directory</value>
   </data>
 </root>

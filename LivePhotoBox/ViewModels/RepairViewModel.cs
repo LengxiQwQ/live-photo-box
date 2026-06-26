@@ -46,7 +46,6 @@ namespace LivePhotoBox.ViewModels
             {
                 if (ScanDirectoryCommand.CanExecute(null) && !IsScanning)
                 {
-                    if (Tasks.Count > 0) ClearState();
                     ScanDirectoryCommand.Execute(null);
                 }
             }
@@ -400,8 +399,11 @@ namespace LivePhotoBox.ViewModels
 
             // 进度按 Entry（文件）算，不是按 Task（格子）算 — 配对格子里的两个文件各算一个
             _completedEntriesCount = 0;
+            bool copyPerfect = IsOutputToDirectory && AppSettingsService.GetValue("IsCopyPerfectToOutput", false);
             var allRepairEntries = Tasks.SelectMany(t => t.Entries)
-                .Where(e => e.NeedsRepair && e.Status != ProcessStatus.Success).ToList();
+                .Where(e => e.Status != ProcessStatus.Success)
+                .Where(e => e.NeedsRepair || (copyPerfect && e.AnalysisResult?.IssueType == RepairIssueType.Perfect))
+                .ToList();
             _totalRepairEntries = allRepairEntries.Count;
 
             Progress = 0;
@@ -665,6 +667,7 @@ namespace LivePhotoBox.ViewModels
             IsDirectoryPanelOpen = false;
 
             Tasks.ReplaceRange([]);
+            FilteredTasks.ReplaceRange([]);
             TotalPhotosCount = 0;
             ThumbCorrectCount = 0;
             ThumbErrorCount = 0;
@@ -820,21 +823,36 @@ namespace LivePhotoBox.ViewModels
 
                 await Task.Run(async () =>
                 {
-                    using var persistentExifTool = hasExifTool
-                        ? new PersistentExifTool(exifToolPath) : null;
-
-                    // 订阅 exiftool 崩溃自动重启事件 → 状态栏通知用户
-                    if (persistentExifTool != null)
+                    // ── 创建 exiftool 并行实例池 ──
+                    // 多个独立 PersistentExifTool 实例可绕过单实例 SemaphoreSlim(1) 的串行化瓶颈，
+                    // 实现真正并行的文件分析。每对实况照片消耗 2 个实例（照片+视频并行），
+                    // 独立文件各消耗 1 个实例。默认 4 个实例，可由用户通过设置调整。
+                    int exifToolParallelCount = AppSettingsService.GetValue("ExifToolParallelCount", 4);
+                    exifToolParallelCount = Math.Clamp(exifToolParallelCount, 1, 8);
+                    var exifToolPool = new List<PersistentExifTool>(exifToolParallelCount);
+                    if (hasExifTool)
                     {
-                        persistentExifTool.OnRestarted += (msg) =>
+                        for (int i = 0; i < exifToolParallelCount; i++)
                         {
-                            App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                            var tool = new PersistentExifTool(exifToolPath);
+                            int toolIndex = i; // 捕获用于日志
+                            tool.OnRestarted += (msg) =>
                             {
-                                AppendDirectStatus(msg);
-                            });
-                        };
+                                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                                {
+                                    AppendDirectStatus($"[exiftool#{toolIndex}] {msg}");
+                                });
+                            };
+                            exifToolPool.Add(tool);
+                        }
                     }
 
+                    // 从池中按索引取实例（轮转分配，避免单实例过载）
+                    PersistentExifTool? GetExifTool(int index) =>
+                        exifToolPool.Count > 0 ? exifToolPool[index % exifToolPool.Count] : null;
+
+                    try
+                    {
                     var itemBuffer = new List<RepairTask>();
                     long lastFlushMs = Environment.TickCount64;
                     const long flushIntervalMs = 120;
@@ -873,31 +891,50 @@ namespace LivePhotoBox.ViewModels
                     var pendingStandaloneImages = new List<(string baseName, RepairFileEntry entry, int analysisEntryIndex)>();
                     var pendingStandaloneVideos = new List<(string baseName, RepairFileEntry entry, int analysisEntryIndex)>();
 
-                    // ── 第一遍：处理文件名配对的项 ──
-                    for (int wi = 0; wi < pairedWorkItems.Count; wi++)
+                    // ── 第一遍：批量并行处理文件名配对的项 ──
+                    // 每批处理 exifToolPool.Count/2 对（每对消耗 2 个 exiftool 实例），
+                    // 批内所有照片+视频分析完全并行，充分利用多实例池的吞吐能力
+                    int pairBatchSize = Math.Max(1, exifToolPool.Count / 2);
+                    for (int batchStart = 0; batchStart < pairedWorkItems.Count; batchStart += pairBatchSize)
                     {
                         if (token.IsCancellationRequested) break;
 
-                        var (imagePath, videoPath, baseName, isPaired) = pairedWorkItems[wi];
+                        int batchEnd = Math.Min(batchStart + pairBatchSize, pairedWorkItems.Count);
+                        int batchCount = batchEnd - batchStart;
 
-                        taskGridIndex = wi + 1;
+                        // ── 启动批次内所有分析任务（照片+视频各用独立的池实例并行执行）──
+                        var batchTasks = new (int wi, string? imagePath, string? videoPath, string baseName,
+                            Task<RepairFileEntry?> imageTask, Task<RepairFileEntry?> videoTask)[batchCount];
 
-                        RepairFileEntry? imageEntry = null;
-                        RepairFileEntry? videoEntry = null;
-
-                        // 分析照片（如果有）
-                        if (imagePath != null)
+                        for (int bi = 0; bi < batchCount; bi++)
                         {
-                            imageEntry = await AnalyzeFileAndCreateEntry(
-                                imagePath, persistentExifTool, heicRepairEnabled, token);
-                            if (imageEntry != null) { entryIndex++; processedCount++; }
+                            int wi = batchStart + bi;
+                            var (imagePath, videoPath, baseName, _) = pairedWorkItems[wi];
+
+                            var imgTool = GetExifTool(bi * 2);
+                            var vidTool = GetExifTool(bi * 2 + 1);
+
+                            var imageTask = AnalyzeFileAndCreateEntry(imagePath!, imgTool, heicRepairEnabled, token);
+                            var videoTask = AnalyzeFileAndCreateEntry(videoPath!, vidTool, heicRepairEnabled, token);
+
+                            batchTasks[bi] = (wi, imagePath, videoPath, baseName, imageTask, videoTask);
                         }
 
-                        // 分析视频（如果有）
-                        if (videoPath != null)
+                        // ── 按原始顺序等待结果并创建 RepairTask（保证 entryIndex 连续一致）──
+                        for (int bi = 0; bi < batchCount; bi++)
                         {
-                            videoEntry = await AnalyzeFileAndCreateEntry(
-                                videoPath, persistentExifTool, heicRepairEnabled, token);
+                            var (wi, imagePath, videoPath, baseName, imageTask, videoTask) = batchTasks[bi];
+
+                            RepairFileEntry? imageEntry = null, videoEntry = null;
+                            try { imageEntry = await imageTask; } catch (OperationCanceledException) { }
+                            try { videoEntry = await videoTask; } catch (OperationCanceledException) { }
+
+                            if (token.IsCancellationRequested) break;
+                            if (imageEntry == null && videoEntry == null) continue;
+
+                            taskGridIndex = wi + 1;
+
+                            if (imageEntry != null) { entryIndex++; processedCount++; }
                             if (videoEntry != null) { entryIndex++; processedCount++; }
 
                             // 未启用"修复非实况照片视频" → 时长 > 3.5s 的非实况视频直接标为已跳过
@@ -908,65 +945,61 @@ namespace LivePhotoBox.ViewModels
                                 videoEntry.NeedsRepair = false;
                                 videoEntry.Details = ResourceService.GetString("RepairPage_Task_SkippedNonLivePhoto");
                             }
-                        }
 
-                        // 如果两个都被取消了，直接退出
-                        if (token.IsCancellationRequested) break;
+                            // 检查视频时长：> 3.5s 不是实况照片，已配对的拆开
+                            bool isLivePhotoVideo = videoEntry != null
+                                && (videoEntry.AnalysisResult?.VideoDurationSeconds ?? 0) <= LivePhotoConstants.MaxLivePhotoVideoDurationSeconds;
+                            bool effectivePaired = isLivePhotoVideo;
 
-                        if (imageEntry == null && videoEntry == null) continue;
-
-                        // 检查视频时长：> 3.5s 不是实况照片，已配对的拆开
-                        bool isLivePhotoVideo = videoEntry != null
-                            && (videoEntry.AnalysisResult?.VideoDurationSeconds ?? 0) <= LivePhotoConstants.MaxLivePhotoVideoDurationSeconds;
-                        bool effectivePaired = isLivePhotoVideo;
-
-                        // ── 更严格的实况照片扫描：通过 ContentIdentifier UUID 验证配对 ──
-                        bool strictScan = AppSettingsService.GetValue("IsStrictLivePhotoScanEnabled", false);
-                        if (strictScan && effectivePaired && imageEntry != null && videoEntry != null)
-                        {
-                            string? imgCid = imageEntry.AnalysisResult?.ContentIdentifier;
-                            string? vidCid = videoEntry.AnalysisResult?.ContentIdentifier;
-                            bool bothHaveCid = !string.IsNullOrWhiteSpace(imgCid) && !string.IsNullOrWhiteSpace(vidCid);
-                            bool cidsMatch = bothHaveCid && string.Equals(imgCid, vidCid, StringComparison.OrdinalIgnoreCase);
-                            if (!cidsMatch)
+                            // ── 更严格的实况照片扫描：通过 ContentIdentifier UUID 验证配对 ──
+                            bool strictScan = AppSettingsService.GetValue("IsStrictLivePhotoScanEnabled", false);
+                            if (strictScan && effectivePaired && imageEntry != null && videoEntry != null)
                             {
-                                effectivePaired = false;
-                                LogService.Repair($"Strict scan: unpaired '{baseName}' — ContentIdentifier mismatch (img={imgCid ?? "none"}, vid={vidCid ?? "none"})");
+                                string? imgCid = imageEntry.AnalysisResult?.ContentIdentifier;
+                                string? vidCid = videoEntry.AnalysisResult?.ContentIdentifier;
+                                bool bothHaveCid = !string.IsNullOrWhiteSpace(imgCid) && !string.IsNullOrWhiteSpace(vidCid);
+                                bool cidsMatch = bothHaveCid && string.Equals(imgCid, vidCid, StringComparison.OrdinalIgnoreCase);
+                                if (!cidsMatch)
+                                {
+                                    effectivePaired = false;
+                                    LogService.Repair($"Strict scan: unpaired '{baseName}' — ContentIdentifier mismatch (img={imgCid ?? "none"}, vid={vidCid ?? "none"})");
+                                }
                             }
-                        }
 
-                        if (!effectivePaired)
-                        {
-                            // 文件名配对被 strict scan / 时长检查拆开 → 直接创建独立 Task
-                            if (imageEntry != null)
+                            if (!effectivePaired)
                             {
-                                int imgIdx = entryIndex - (videoEntry != null ? 1 : 0);
-                                var imgTask = new RepairTask(imgIdx, 0, baseName, false, imageEntry, null);
-                                imgTask.Index = taskGridIndex;
-                                itemBuffer.Add(imgTask);
+                                // 文件名配对被 strict scan / 时长检查拆开 → 直接创建独立 Task
+                                if (imageEntry != null)
+                                {
+                                    int imgIdx = entryIndex - (videoEntry != null ? 1 : 0);
+                                    var imgTask = new RepairTask(imgIdx, 0, baseName, false, imageEntry, null);
+                                    imgTask.Index = taskGridIndex;
+                                    itemBuffer.Add(imgTask);
+                                }
+                                if (videoEntry != null)
+                                {
+                                    var vidTask = new RepairTask(entryIndex, 0, baseName, false, videoEntry, null);
+                                    vidTask.Index = taskGridIndex + 1;
+                                    itemBuffer.Add(vidTask);
+                                }
                             }
-                            if (videoEntry != null)
+                            else
                             {
-                                var vidTask = new RepairTask(entryIndex, 0, baseName, false, videoEntry, null);
-                                vidTask.Index = taskGridIndex + 1;
-                                itemBuffer.Add(vidTask);
+                                // 有效的实况照片配对
+                                var file1 = imageEntry ?? videoEntry!;
+                                var file2 = (imageEntry != null ? videoEntry : imageEntry);
+                                int file1Idx = imageEntry != null ? entryIndex - 1 : entryIndex;
+                                int file2Idx = entryIndex;
+
+                                var repairTask = new RepairTask(file1Idx, file2Idx, baseName, true, file1, file2);
+                                repairTask.Index = taskGridIndex;
+                                itemBuffer.Add(repairTask);
                             }
-                        }
-                        else
-                        {
-                            // 有效的实况照片配对
-                            var file1 = imageEntry ?? videoEntry!;
-                            var file2 = (imageEntry != null ? videoEntry : imageEntry);
-                            int file1Idx = imageEntry != null ? entryIndex - 1 : entryIndex;
-                            int file2Idx = entryIndex;
 
-                            var repairTask = new RepairTask(file1Idx, file2Idx, baseName, true, file1, file2);
-                            repairTask.Index = taskGridIndex;
-                            itemBuffer.Add(repairTask);
+                            scanProgress.Report(new WorkProgressSnapshot(totalFiles, processedCount));
                         }
 
-                        scanProgress.Report(new WorkProgressSnapshot(totalFiles, processedCount));
-
+                        // 批次完成后刷新 UI 缓冲区
                         if (Environment.TickCount64 - lastFlushMs >= flushIntervalMs)
                         {
                             FlushBuffer(processedCount);
@@ -986,7 +1019,7 @@ namespace LivePhotoBox.ViewModels
                         if (imagePath != null)
                         {
                             imageEntry = await AnalyzeFileAndCreateEntry(
-                                imagePath, persistentExifTool, heicRepairEnabled, token);
+                                imagePath, GetExifTool(0), heicRepairEnabled, token);
                             if (imageEntry != null)
                             {
                                 entryIndex++; processedCount++;
@@ -1000,17 +1033,29 @@ namespace LivePhotoBox.ViewModels
                                 }
 
                                 pendingStandaloneImages.Add((baseName, imageEntry, entryIndex));
+
+                                // 创建临时独立 Task 以支持渐进式 UI 显示（元数据匹配后可能重组为配对 Task）
+                                taskGridIndex++;
+                                var provisionalTask = new RepairTask(entryIndex, 0, baseName, false, imageEntry);
+                                provisionalTask.Index = taskGridIndex;
+                                itemBuffer.Add(provisionalTask);
                             }
                         }
 
                         if (videoPath != null)
                         {
                             videoEntry = await AnalyzeFileAndCreateEntry(
-                                videoPath, persistentExifTool, heicRepairEnabled, token);
+                                videoPath, GetExifTool(1), heicRepairEnabled, token);
                             if (videoEntry != null)
                             {
                                 entryIndex++; processedCount++;
                                 pendingStandaloneVideos.Add((baseName, videoEntry, entryIndex));
+
+                                // 创建临时独立 Task 以支持渐进式 UI 显示（元数据匹配后可能重组为配对 Task）
+                                taskGridIndex++;
+                                var provisionalVidTask = new RepairTask(entryIndex, 0, baseName, false, videoEntry);
+                                provisionalVidTask.Index = taskGridIndex;
+                                itemBuffer.Add(provisionalVidTask);
 
                                 bool repairNonLivePhoto = AppSettingsService.GetValue("IsNonLivePhotoVideoRepairEnabled", false);
                                 if (!repairNonLivePhoto && videoEntry.AnalysisResult != null
@@ -1033,6 +1078,10 @@ namespace LivePhotoBox.ViewModels
                     }
 
                     // ── 元数据匹配：尝试将独立文件重新配对 ──
+                    // 收集元数据匹配后的最终独立文件 Task 列表
+                    // （第二遍循环中已通过临时独立 Task 逐步显示到 UI，元数据匹配后可能需要重组）
+                    var finalStandaloneTasks = new List<RepairTask>();
+                    bool metadataMatchesFound = false;
                     bool enableDate = matchingMode == (int)MetadataMatchingMode.BothWithDate;
                     if (matchingMode != (int)MetadataMatchingMode.FilenameOnly
                         && pendingStandaloneImages.Count > 0 && pendingStandaloneVideos.Count > 0
@@ -1053,7 +1102,12 @@ namespace LivePhotoBox.ViewModels
                             {
                                 var matchOutput = LivePhotoMetadataMatcher.MatchFromAnalysis(imgAnalysisList, vidAnalysisList, enableDate);
 
-                                // 元数据匹配成功 → 创建配对 RepairTask
+                                if (matchOutput.Pairs.Count > 0)
+                                {
+                                    metadataMatchesFound = true;
+                                }
+
+                                // 元数据匹配成功 → 创建配对 RepairTask（加入最终列表）
                                 var matchedImgPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                                 var matchedVidPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -1072,7 +1126,7 @@ namespace LivePhotoBox.ViewModels
                                         vidData.analysisEntryIndex,
                                         pairBaseName, true, imgData.entry, vidData.entry);
                                     pairedTask.Index = taskGridIndex;
-                                    itemBuffer.Add(pairedTask);
+                                    finalStandaloneTasks.Add(pairedTask);
 
                                     LogService.Repair($"Metadata matching: paired '{pairBaseName}' via {pair.Source}");
                                 }
@@ -1092,28 +1146,83 @@ namespace LivePhotoBox.ViewModels
                         }
                     }
 
-                    // ── 为剩余未匹配的独立文件创建独立 RepairTask ──
-                    foreach (var (bn, entry, entryIdx) in pendingStandaloneImages)
-                    {
-                        taskGridIndex++;
-                        var standalone = new RepairTask(entryIdx, 0, bn, false, entry);
-                        standalone.Index = taskGridIndex;
-                        itemBuffer.Add(standalone);
-                    }
-                    foreach (var (bn, entry, entryIdx) in pendingStandaloneVideos)
-                    {
-                        taskGridIndex++;
-                        var standalone = new RepairTask(entryIdx, 0, bn, false, entry);
-                        standalone.Index = taskGridIndex;
-                        itemBuffer.Add(standalone);
-                    }
-
-                    // 正常扫描完成才报告 100%
+                    // ── 正常扫描完成才报告 100% ──
                     if (!token.IsCancellationRequested)
                     {
                         scanProgress.Report(new WorkProgressSnapshot(totalFiles, totalFiles));
                     }
-                    FlushBuffer(processedCount);
+
+                    if (metadataMatchesFound)
+                    {
+                        // ── 元数据匹配找到了新配对 → 创建剩余独立 Task 并在 UI 线程重建列表 ──
+                        foreach (var (bn, entry, entryIdx) in pendingStandaloneImages)
+                        {
+                            taskGridIndex++;
+                            var standalone = new RepairTask(entryIdx, 0, bn, false, entry);
+                            standalone.Index = taskGridIndex;
+                            finalStandaloneTasks.Add(standalone);
+                        }
+                        foreach (var (bn, entry, entryIdx) in pendingStandaloneVideos)
+                        {
+                            taskGridIndex++;
+                            var standalone = new RepairTask(entryIdx, 0, bn, false, entry);
+                            standalone.Index = taskGridIndex;
+                            finalStandaloneTasks.Add(standalone);
+                        }
+
+                        // 清空 itemBuffer（第二遍循环中的临时独立 Task 已逐步 Flush 到 UI，这里不再需要）
+                        itemBuffer.Clear();
+
+                        // 在 UI 线程上重建整个任务列表：
+                        // 第一遍的文件名配对 Task 保持不变，独立文件部分用元数据匹配后的最终列表替换
+                        var capturedFinalStandalone = finalStandaloneTasks;
+                        var capturedTotalFiles = totalFiles;
+                        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                        {
+                            // 保留第一遍的文件名配对 Task（它们不受元数据匹配影响）
+                            int pairedCount = 0;
+                            foreach (var t in Tasks)
+                            {
+                                if (t.IsPaired) pairedCount++;
+                                else break;
+                            }
+
+                            var rebuilt = new List<RepairTask>();
+                            for (int i = 0; i < pairedCount; i++)
+                                rebuilt.Add(Tasks[i]);
+
+                            int gridIdx = pairedCount;
+                            foreach (var task in capturedFinalStandalone)
+                            {
+                                gridIdx++;
+                                task.Index = gridIdx;
+                                rebuilt.Add(task);
+                            }
+
+                            Tasks.ReplaceRange(rebuilt);
+                            FilteredTasks.ReplaceRange(rebuilt);
+
+                            // 同步更新计数器
+                            ThumbCorrectCount = rebuilt.Sum(t => t.Entries.Count(e => !e.NeedsRepair));
+                            ThumbErrorCount = rebuilt.Sum(t => t.Entries.Count(e => e.NeedsRepair));
+                            Progress = capturedTotalFiles == 0 ? 0 : 100;
+                            ProgressText = $"{capturedTotalFiles}/{capturedTotalFiles}";
+                            ScanItemsFlushed?.Invoke(this, EventArgs.Empty);
+                        });
+                    }
+                    else
+                    {
+                        // ── 没有元数据匹配 → 第二遍循环中已逐步显示的临时独立 Task 就是最终结果 ──
+                        // 只需确保 itemBuffer 中的剩余项（如果有）被 Flush
+                        FlushBuffer(processedCount);
+                    }
+                    }
+                    finally
+                    {
+                        // 释放所有常驻 exiftool 实例（替代旧代码的 using var 自动释放）
+                        foreach (var tool in exifToolPool)
+                            tool.Dispose();
+                    }
                 }, token);
 
                 FlushPendingScanProgress();
@@ -1299,22 +1408,27 @@ namespace LivePhotoBox.ViewModels
 
             try
             {
-                // 扁平化：从所有 Task 中提取需要修复的 Entry，配对格子里的两个文件分别处理
+                // 扁平化：从所有 Task 中提取需要处理的 Entry，配对格子里的两个文件分别处理
                 bool repairNonLivePhoto = AppSettingsService.GetValue("IsNonLivePhotoVideoRepairEnabled", false);
+                bool copyPerfectToOutput = IsOutputToDirectory && AppSettingsService.GetValue("IsCopyPerfectToOutput", false);
                 var repairEntries = Tasks.SelectMany(t => t.Entries)
-                    .Where(e => e.NeedsRepair && e.Status != ProcessStatus.Success)
+                    .Where(e => e.Status != ProcessStatus.Success)
                     .Where(e =>
                     {
+                        // 输出目录模式 + 启用"同时输出无需修复的文件"：包含完美文件（仅复制）
+                        if (copyPerfectToOutput && e.AnalysisResult?.IssueType == RepairIssueType.Perfect)
+                            return true;
+                        // 需要修复的文件
+                        if (!e.NeedsRepair) return false;
                         // 未启用"修复非实况照片视频"：跳过时长 > 3.5s 的普通长视频
-                        if (repairNonLivePhoto) return true;
-                        if (!e.IsImage && (e.AnalysisResult?.VideoDurationSeconds ?? 0) > LivePhotoConstants.MaxLivePhotoVideoDurationSeconds)
+                        if (!repairNonLivePhoto && !e.IsImage && (e.AnalysisResult?.VideoDurationSeconds ?? 0) > LivePhotoConstants.MaxLivePhotoVideoDurationSeconds)
                             return false;
                         return true;
                     }).ToList();
 
                 await Task.Run(async () =>
                 {
-                    int userThreads = AppSettingsService.GetValue("SplitThreadCount", Environment.ProcessorCount);
+                    int userThreads = AppSettingsService.GetValue("SplitThreadCount", 4);
                     var pending = new List<Task>();
 
                     async Task ProcessOneAsync(RepairFileEntry entry)
@@ -1335,30 +1449,61 @@ namespace LivePhotoBox.ViewModels
                                 App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateEntryStarted(entry, parentTask));
                             }
 
-                            string targetPath = IsOutputToDirectory
-                                ? PathHelper.GetUniqueFilePath(OutputDirectory, entry.FileName)
-                                : entry.FilePath;
+                            string targetPath;
+                            if (IsOutputToDirectory)
+                            {
+                                string? subDir = null;
+                                if (AppSettingsService.GetValue("IsOutputPreserveSubfolderStructure", false))
+                                    subDir = PathHelper.GetRelativeSubDirectory(InputDirectory, entry.FilePath);
+                                targetPath = PathHelper.GetUniqueFilePath(OutputDirectory, entry.FileName, subDir);
+                            }
+                            else
+                            {
+                                targetPath = entry.FilePath;
+                            }
 
                             bool isSuccess = false;
                             string detailMessage = string.Empty;
                             bool isCanceled = false;
 
-                            try
+                            // 无需修复的完美文件：直接复制到输出目录（不调用 RepairAsync）
+                            if (entry.AnalysisResult?.IssueType == RepairIssueType.Perfect)
                             {
-                                var result = await LivePhotoRepairService.RepairAsync(entry.FilePath, targetPath, entry.AnalysisResult!, token);
-                                isSuccess = result.Success;
-                                detailMessage = result.Message;
+                                try
+                                {
+                                    string? outDir = Path.GetDirectoryName(targetPath);
+                                    if (!string.IsNullOrEmpty(outDir))
+                                        Directory.CreateDirectory(outDir);
+                                    File.Copy(entry.FilePath, targetPath, overwrite: true);
+                                    isSuccess = true;
+                                    detailMessage = ResourceService.GetString("RepairPage_Task_Copied") ?? "已复制";
+                                }
+                                catch (Exception ex)
+                                {
+                                    isSuccess = false;
+                                    detailMessage = ex.Message;
+                                    LogService.Repair($"Copy perfect file failed for {entry.FilePath}: {ex.Message}", LogLevel.Error, ex);
+                                }
                             }
-                            catch (OperationCanceledException)
+                            else
                             {
-                                isCanceled = true;
-                                detailMessage = ResourceService.GetString("Status_Aborted") ?? "???";
-                            }
-                            catch (Exception ex)
-                            {
-                                isSuccess = false;
-                                detailMessage = ex.Message;
-                                LogService.Repair($"Repair failed for {entry.FilePath}: {ex.Message}", LogLevel.Error, ex);
+                                try
+                                {
+                                    var result = await LivePhotoRepairService.RepairAsync(entry.FilePath, targetPath, entry.AnalysisResult!, token);
+                                    isSuccess = result.Success;
+                                    detailMessage = result.Message;
+                                }
+                                catch (OperationCanceledException)
+                                {
+                                    isCanceled = true;
+                                    detailMessage = ResourceService.GetString("Status_Aborted") ?? "???";
+                                }
+                                catch (Exception ex)
+                                {
+                                    isSuccess = false;
+                                    detailMessage = ex.Message;
+                                    LogService.Repair($"Repair failed for {entry.FilePath}: {ex.Message}", LogLevel.Error, ex);
+                                }
                             }
 
                             if (!isCanceled)

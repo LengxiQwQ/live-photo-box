@@ -21,6 +21,7 @@ using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -120,11 +121,15 @@ namespace LivePhotoBox.Views
         }
 
         // 鼠标进入教程图片区域时，显示悬浮大图预览
+        // 全屏模式下不触发（窗口本来就很大，不需要额外预览）
         private void TutorialImageBorder_PointerEntered(object sender, PointerRoutedEventArgs e)
         {
             try
             {
                 if (_isHoverActive) return;
+                // 窗口全屏或最大化时，不需要额外预览
+                if (App.MainWindow?.AppWindow?.Presenter is FullScreenPresenter) return;
+                if (App.MainWindow?.AppWindow?.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized }) return;
                 if (sender is not Border border) return;
 
                 Image? sourceImage = border.Child as Image;
@@ -196,6 +201,16 @@ namespace LivePhotoBox.Views
             try
             {
                 if (!_isHoverActive || HoverImage.Source == null) return;
+                // 若窗口在全屏或最大化状态下，关闭预览
+                if (App.MainWindow?.AppWindow?.Presenter is FullScreenPresenter ||
+                    App.MainWindow?.AppWindow?.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized })
+                {
+                    _isHoverActive = false;
+                    HoverOverlay.Visibility = Visibility.Collapsed;
+                    HoverImage.Source = null;
+                    RootScrollViewer.RemoveHandler(PointerMovedEvent, _scrollViewerMovedHandler);
+                    return;
+                }
 
                 var posInPage = e.GetCurrentPoint(this).Position;
                 double winW = this.XamlRoot.Size.Width;
@@ -293,27 +308,25 @@ namespace LivePhotoBox.Views
                         AppViewModel.Instance.Merge.InputDirectory = tempInputPath;
                         AppViewModel.Instance.Merge.OutputDirectory = desktopOutputPath;
                         AppViewModel.Instance.Merge.IsDirectoryPanelOpen = true;
+                        // OnInputDirectoryChanged 自动触发扫描（若值未变，显式调用兜底）。
+                        // TryGuardScanClick 200ms 防抖阻止与自动触发重复执行。
                         if (AppViewModel.Instance.Merge.ScanDirectoryCommand.CanExecute(null))
-                        {
                             AppViewModel.Instance.Merge.ScanDirectoryCommand.Execute(null);
-                        }
                         break;
                     case "Split":
                         AppViewModel.Instance.Split.InputDirectory = tempInputPath;
                         AppViewModel.Instance.Split.OutputDirectory = desktopOutputPath;
                         AppViewModel.Instance.Split.IsDirectoryPanelOpen = true;
                         if (AppViewModel.Instance.Split.ScanDirectoryCommand.CanExecute(null))
-                        {
                             AppViewModel.Instance.Split.ScanDirectoryCommand.Execute(null);
-                        }
                         break;
                     case "Repair":
                         AppViewModel.Instance.Repair.InputDirectory = tempInputPath;
+                        AppViewModel.Instance.Repair.OutputDirectory = desktopOutputPath;
+                        AppViewModel.Instance.Repair.IsOutputToDirectory = true;
                         AppViewModel.Instance.Repair.IsDirectoryPanelOpen = true;
                         if (AppViewModel.Instance.Repair.ScanDirectoryCommand.CanExecute(null))
-                        {
                             AppViewModel.Instance.Repair.ScanDirectoryCommand.Execute(null);
-                        }
                         break;
                 }
 

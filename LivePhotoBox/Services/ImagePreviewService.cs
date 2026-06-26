@@ -34,7 +34,7 @@ namespace LivePhotoBox.Services
         {
             get
             {
-                int setting = AppSettingsService.GetValue("HeicConcurrency", 8);
+                int setting = AppSettingsService.GetValue("HeicConcurrency", 4);
                 if (setting != Volatile.Read(ref _heicConcurrencyCache))
                 {
                     var newSem = new SemaphoreSlim(setting, setting);
