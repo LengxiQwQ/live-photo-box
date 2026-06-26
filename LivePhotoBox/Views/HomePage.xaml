@@ -23,28 +23,35 @@
                        CacheMode="BitmapCache" />
                 </Grid>
 
-                <TextBlock x:Uid="HomePage_HeroSubtitle"
-                       FontSize="16" 
+                <!-- 暂时隐藏标语 -->
+                <!-- <TextBlock x:Uid="HomePage_HeroSubtitle"
+                       FontSize="16"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                        FontFamily="Microsoft YaHei UI"
                        HorizontalAlignment="Center"
                        TextAlignment="Center"
                        FontWeight="Light"
-                       Margin="0,0,0,8"/>
+                       Margin="0,0,0,8"/> -->
 
-                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                <!-- 主标题：左对齐，带图标 -->
+                <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,8,0,12">
+                    <FontIcon Glyph="&#xE916;" FontSize="24" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock x:Uid="HomePage_WelcomeTitle" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <StackPanel Spacing="24">
-                        <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                            <FontIcon Glyph="&#xE916;" FontSize="24" Foreground="{ThemeResource SystemAccentColor}"/>
-                            <TextBlock x:Uid="HomePage_WelcomeTitle" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
-                        </StackPanel>
+                    <StackPanel Spacing="16">
                         <TextBlock x:Uid="HomePage_Intro1" TextWrapping="Wrap" LineHeight="26" FontFamily="Microsoft YaHei UI" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         <TextBlock x:Uid="HomePage_Intro2" TextWrapping="Wrap" LineHeight="26" FontFamily="Microsoft YaHei UI" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
                 </Border>
 
-                <TextBlock x:Name="CoreFeaturesTitle" x:Uid="HomePage_CoreFeaturesTitle" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" Margin="0,16,0,-8"/>
+                <!-- 核心功能教程标题，带书本图标 -->
+                <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,16,0,-8">
+                    <FontIcon Glyph="&#xE736;" FontSize="20" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock x:Name="CoreFeaturesTitle" x:Uid="HomePage_CoreFeaturesTitle" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" VerticalAlignment="Center"/>
+                </StackPanel>
 
                 <!-- 实况照片合成教程 - 左图右字布局 -->
                 <Border x:Name="MergeTutorialBorder" CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 

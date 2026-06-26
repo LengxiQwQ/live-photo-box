@@ -506,7 +506,7 @@ namespace LivePhotoBox.ViewModels
             IsBannerRandomEnabled = AppSettingsService.GetValue(nameof(IsBannerRandomEnabled), false);
             ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 4);
             MaxThreadCount = Math.Min(Environment.ProcessorCount, 20);
-            HeicConcurrency = AppSettingsService.GetValue("HeicConcurrency", 4);
+            HeicConcurrency = AppSettingsService.GetValue("HeicConcurrency", 8);
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             IsGoogleProtocolForceMp4 = AppSettingsService.GetValue(nameof(IsGoogleProtocolForceMp4), false);
             MergeThreadCount = AppSettingsService.GetValue("MergeThreadCount", 4);
