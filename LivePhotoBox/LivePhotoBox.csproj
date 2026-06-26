@@ -179,7 +179,7 @@
 		<AppxPackageSigningEnabled Condition="!Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">False</AppxPackageSigningEnabled>
 		<AppxPackageSigningTimestampDigestAlgorithm>SHA256</AppxPackageSigningTimestampDigestAlgorithm>
 		<AppxAutoIncrementPackageRevision>False</AppxAutoIncrementPackageRevision>
-		<AppxBundlePlatforms>x64</AppxBundlePlatforms>
+		<AppxBundlePlatforms>$(Platform)</AppxBundlePlatforms>
 		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
         <PackageCertificateKeyFile Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">LivePhotoBox_TemporaryKey.pfx</PackageCertificateKeyFile>
 		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-studio</AppInstallerUri>
