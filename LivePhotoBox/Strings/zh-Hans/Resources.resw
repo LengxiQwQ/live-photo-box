@@ -733,10 +733,11 @@
     <value>欢迎使用 Live Photo Box</value>
   </data>
   <data name="HomePage_Intro1.Text" xml:space="preserve">
-    <value>这是一款专业且易用的实况照片处理工具，旨在帮你轻松打破 iOS 与 Android 之间的设备生态壁垒。它能将 iPhone 拍摄的 Live Photo 无损转换为 Google 相册原生支持的格式，在完美锁定原始视频画质和动态帧率的同时，让你的生动回忆在任何平台上都能完美呈现。</value>
+    <value>你好呀！Live Photo Box 是一款专为 Windows 打造的实况照片工具箱。如果你是一位 Apple 用户，用 iPhone 拍了很多实况照片，换到 Windows 或是 Android 手机后却发现它们再也动不起来了——别担心，你来对地方了。我想让每一段鲜活的回忆，无论在哪台设备上，都能原汁原味地呈现。</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
-    <value>除了实况照片的适配，我还发现 Apple 一个巨大的包袱，Apple 为优化前置拍摄性能，实况照片中，视频部分的物理像素使用横向存储，并使用内置的 Rotation 标签来判断照片方向。但 Windows 等系统缩略图会忽略标签而直接渲染原始像素，导致画面旋转。大约在 iOS17.3 之前还有一个缩略图会被拉伸的问题，中间 Apple 尝试加入额外的低像素缩略图来保证正确显示，但是都无用。实况照片显示修复功能因此诞生，通过底层物理级矫正，实现无损像素级重构，彻底解决在非 Apple 设备上的缩略图兼容性顽疾。</value>
+    <value>在这里，你可以自由地合成、拆分和修复实况照片。Apple 为优化前置拍摄性能，将实况视频的物理像素横向存储，依赖内置 Rotation 标签来判断画面方向——但 Windows 系统会忽略这个标签直接渲染原始像素，导致画面旋转；iOS 17.3 之前还存在缩略图拉伸的问题。Live Photo Box 通过底层物理级矫正，彻底根治这些跨平台兼容性顽疾。
+合成与拆分也同样拿手：任意图片 + 视频 → 标准实况照片，适配 Google、OPPO、小米等 Android 实况协议；无损提取原始素材，完整保留 EXIF 与拍摄参数。此外，封面更换功能即将上线，照片自动分类等更多智能特性也在规划中，敬请期待。</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>友情提示 :</value>
@@ -833,6 +834,9 @@
   </data>
   <data name="RepairPage_Task_Skipped" xml:space="preserve">
     <value>已跳过</value>
+  </data>
+  <data name="RepairPage_Task_Copied" xml:space="preserve">
+    <value>已复制</value>
   </data>
   <data name="RepairPage_Task_NoRepair" xml:space="preserve">
     <value>无需修复</value>
@@ -1572,6 +1576,12 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_Repair_VideoDesc.Text" xml:space="preserve">
     <value>启用后将对带有旋转矩阵的视频进行重编码以修正方向。视频修复耗时较长且涉及重编码</value>
   </data>
+  <data name="SettingsPage_Repair_CopyPerfectLabel.Text" xml:space="preserve">
+    <value>同时输出无需修复的文件</value>
+  </data>
+  <data name="SettingsPage_Repair_CopyPerfectDesc.Text" xml:space="preserve">
+    <value>仅在 "修复到单独目录" 模式下生效。开启后，无需修复的文件也会一并复制到输出目录，确保输出目录包含完整的文件集合</value>
+  </data>
   <data name="Status_VideoRepairDisabled" xml:space="preserve">
     <value>[视频修复已关闭]</value>
   </data>
@@ -1961,15 +1971,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="SettingsPage_General_RecursiveScan_Desc.Text" xml:space="preserve">
     <value>在执行扫描文件的时候，会同时扫描子文件夹中的文件</value>
-  </data>
-  <data name="RepairPage_Task_Copied" xml:space="preserve">
-    <value>已复制</value>
-  </data>
-  <data name="SettingsPage_Repair_CopyPerfectLabel.Text" xml:space="preserve">
-    <value>同时输出无需修复的文件</value>
-  </data>
-  <data name="SettingsPage_Repair_CopyPerfectDesc.Text" xml:space="preserve">
-    <value>仅在 "修复到单独目录" 模式下生效。开启后，无需修复的文件也会一并复制到输出目录，确保输出目录包含完整的文件集合</value>
   </data>
   <data name="SettingsPage_General_OutputPreserveSubfolder.Text" xml:space="preserve">
     <value>输出目录按照子文件夹结构</value>
