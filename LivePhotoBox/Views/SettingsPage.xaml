@@ -289,6 +289,22 @@
                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsRecursiveScanEnabled, Mode=TwoWay}"
                                   x:Uid="Toggle_OnOff"/>
                 </controls:SettingsCard>
+
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI"
+                                       Visibility="{x:Bind ViewModel.OutputPreserveSubfolderVisibility, Mode=OneWay}">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_General_OutputPreserveSubfolder" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_General_OutputPreserveSubfolder_Desc" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE8B7;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.IsOutputPreserveSubfolderStructure, Mode=TwoWay}"
+                                  x:Uid="Toggle_OnOff"/>
+                </controls:SettingsCard>
             </StackPanel>
 
             <!-- ====================================================================== -->
@@ -560,6 +576,20 @@
                         <ic:SymbolIcon Symbol="VideoSettings" />
                     </controls:SettingsCard.HeaderIcon>
                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsNonLivePhotoVideoRepairEnabled, Mode=TwoWay}"
+                                  x:Uid="Toggle_OnOff"/>
+                </controls:SettingsCard>
+
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_Repair_CopyPerfectLabel" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_Repair_CopyPerfectDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <ic:SymbolIcon Symbol="Copy" />
+                    </controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.IsCopyPerfectToOutput, Mode=TwoWay}"
                                   x:Uid="Toggle_OnOff"/>
                 </controls:SettingsCard>
             </StackPanel>

@@ -71,7 +71,6 @@ namespace LivePhotoBox.ViewModels
             {
                 if (ScanDirectoryCommand.CanExecute(null) && !IsScanning)
                 {
-                    if (Tasks.Count > 0) ClearState();
                     ScanDirectoryCommand.Execute(null);
                 }
             }
@@ -792,7 +791,10 @@ namespace LivePhotoBox.ViewModels
 
                             var protocol = LivePhotoProtocol.FromIndex(modeIndex);
                             string outputName = LivePhotoMergeService.CreateOutputFileName(task.BaseName, modeIndex);
-                            string finalPath = PathHelper.GetUniqueFilePath(outputDir, outputName);
+                            string? mergeSubDir = null;
+                            if (AppSettingsService.GetValue("IsOutputPreserveSubfolderStructure", false))
+                                mergeSubDir = PathHelper.GetRelativeSubDirectory(InputDirectory, task.ImagePath);
+                            string finalPath = PathHelper.GetUniqueFilePath(outputDir, outputName, mergeSubDir);
                             string workingImagePath = task.ImagePath;
                             string workingVideoPath = task.VideoPath;
                             var tempFiles = new System.Collections.Generic.List<string>();

@@ -360,8 +360,9 @@ public static class LivePhotoRepairService
                 string output;
                 string error = "";
 
-                // Read Rotation, dimensions, codec ID, average bitrate, ContentIdentifier, and capture dates — all in one exiftool call
-                string[] exifArgs = { "-j", "-Rotation", "-ImageWidth", "-ImageHeight", "-AvgBitrate", "-CompressorID", "-MediaDuration", "-ContentIdentifier", "-DateTimeOriginal", "-CreateDate", filePath };
+                // Read Rotation, dimensions, codec ID, average bitrate, ContentIdentifier, capture dates, and track-level MatrixStructure
+                // — all in one exiftool call. MatrixStructure 通过常驻 exiftool 直接读取，无需 -v2 额外进程。
+                string[] exifArgs = { "-j", "-Rotation", "-ImageWidth", "-ImageHeight", "-AvgBitrate", "-CompressorID", "-MediaDuration", "-ContentIdentifier", "-DateTimeOriginal", "-CreateDate", "-MatrixStructure", filePath };
 
                 if (persistentExifTool != null)
                 {
@@ -419,9 +420,60 @@ public static class LivePhotoRepairService
                 string contentId = GetJsonValueAsString(root, "ContentIdentifier");
                 string dateTimeOriginal = GetJsonValueAsString(root, "DateTimeOriginal");
                 string createDate = GetJsonValueAsString(root, "CreateDate");
+                // MatrixStructure 标签：直接从常驻 exiftool 的 JSON 输出中读取轨道级变换矩阵，
+                // 无需启动 -v2 额外进程。仅在标签不可用时回退到 GetVideoTrackMatrixAsync。
+                string matrixStructure = GetJsonValueAsString(root, "MatrixStructure");
 
                 if (angle == 0)
                 {
+                    // Rotation 标签为 0 但视频仍可能有轨道级翻转矩阵。
+                    // 实测：前摄左旋转 (iOS 26.5) → Rotation=0, 矩阵 [1 0; 0 -1] = flip_vertical。
+                    // 注意：这里只打标记 (NeedsRebuild + VideoTrackTransform)，
+                    // BuildVideoTransformFilter 决定不对 flip 类型应用滤镜，
+                    // 因为 Rotation=0 意味着像素方向是正确的，矩阵只是播放器合成元数据。
+                    // 详见 BuildVideoTransformFilter 头部的长注释。
+
+                    string trackMatrix;
+                    if (!string.IsNullOrEmpty(matrixStructure))
+                    {
+                        // 快速路径：MatrixStructure 标签在常驻 exiftool 的同一命令中已获取，
+                        // 无需启动独立 exiftool -v2 进程（省去每次 ~200-400ms 的 Perl 启动开销）
+                        trackMatrix = matrixStructure;
+                    }
+                    else
+                    {
+                        // 回退路径：MatrixStructure 标签不可用（旧版 exiftool 或特殊情况），
+                        // 仍通过 -v2 独立进程获取
+                        trackMatrix = await GetVideoTrackMatrixAsync(filePath, persistentExifTool, token);
+                    }
+
+                    var (transform, matrixAngle) = ParseQuickTimeMatrix(trackMatrix);
+
+                    if (!string.IsNullOrEmpty(transform))
+                    {
+                        string transformTag = transform switch
+                        {
+                            "flip_vertical" => ResourceService.GetString("Tag_FlipVertical"),
+                            "flip_horizontal" => ResourceService.GetString("Tag_FlipHorizontal"),
+                            _ => transform
+                        };
+                        WriteDebugLog("INFO", "AnalyzeVideo", $"{Path.GetFileName(filePath)}: Rotation=0 but track matrix detected — {trackMatrix} → {transform}");
+                        return new RepairAnalysisResult
+                        {
+                            IssueType = RepairIssueType.NeedsRebuild,
+                            IssueDescription = $"[{transformTag}]",
+                            IsVideo = true,
+                            VideoRotationAngle = matrixAngle,
+                            VideoTrackTransform = transform,
+                            VideoCodec = compressorId,
+                            VideoBitrateBps = bitrateBps,
+                            VideoDurationSeconds = duration,
+                            ContentIdentifier = contentId,
+                            DateTimeOriginal = dateTimeOriginal,
+                            CreateDate = createDate
+                        };
+                    }
+
                     return new RepairAnalysisResult
                     {
                         IssueType = RepairIssueType.Perfect,
@@ -462,6 +514,231 @@ public static class LivePhotoRepairService
                     IssueDescription = $"{ResourceService.GetString("Error_InternalCheckLog")}\n{ex.GetType().Name}: {ex.Message}"
                 };
             }
+        }
+
+        // 获取视频轨道级别的变换矩阵（TrackHeader MatrixStructure）。
+        // 前摄自拍视频用翻转矩阵编码镜像效果，exiftool 的 Rotation 复合标签不检测这种变换。
+        // 输出: "1 0 0 0 -1 0 0 1440 16384" (9个空格分隔的数值，最后一个16384=1.0 fixed-point)
+        private static async Task<string> GetVideoTrackMatrixAsync(
+            string filePath, PersistentExifTool? persistentExifTool, CancellationToken token)
+        {
+            try
+            {
+                // 使用新进程获取 verbose 输出（持久化 exiftool 不支持 -v2）
+                string tempDir = Path.GetTempPath();
+                string toolDir = Path.GetDirectoryName(ExifToolPath) ?? AppContext.BaseDirectory;
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = ExifToolPath,
+                    WorkingDirectory = toolDir,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    StandardOutputEncoding = System.Text.Encoding.UTF8
+                };
+
+                psi.Environment["TEMP"] = tempDir;
+                psi.Environment["TMP"] = tempDir;
+                psi.Environment["PAR_GLOBAL_TMPDIR"] = tempDir;
+
+                psi.ArgumentList.Add("-charset");
+                psi.ArgumentList.Add("filename=utf8");
+                psi.ArgumentList.Add("-v2");
+                // 只请求 MatrixStructure，减少处理开销
+                psi.ArgumentList.Add("-MatrixStructure");
+                psi.ArgumentList.Add(filePath);
+
+                using var process = Process.Start(psi);
+                if (process == null) return string.Empty;
+
+                var outputTask = process.StandardOutput.ReadToEndAsync();
+                var errorTask = process.StandardError.ReadToEndAsync();
+                try { await process.WaitForExitAsync(token).ConfigureAwait(false); }
+                catch (OperationCanceledException) { process.Kill(); throw; }
+                await Task.WhenAll(outputTask, errorTask);
+
+                // 通过 stdout 解析轨道级矩阵
+                string matrix = ParseTrackMatrixFromVerbose(outputTask.Result);
+                WriteDebugLog("INFO", "GetTrackMatrix", $"{Path.GetFileName(filePath)}: {matrix}");
+                return matrix;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                WriteDebugLog("WARN", "GetTrackMatrix", $"Failed for {Path.GetFileName(filePath)}: {ex.Message}");
+                return string.Empty;
+            }
+        }
+
+        // 从 exiftool -v2 的 stdout 中提取第一个轨道级 MatrixStructure。
+        // 输入格式：
+        //   ...
+        //   | | TrackID = 1
+        //   | | | MatrixStructure = 1 0 0 0 -1 0 0 1440 16384
+        //   ...
+        private static string ParseTrackMatrixFromVerbose(string verboseOutput)
+        {
+            if (string.IsNullOrWhiteSpace(verboseOutput)) return string.Empty;
+
+            var lines = verboseOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            bool foundTrack1 = false;
+            foreach (var line in lines)
+            {
+                if (line.Contains("TrackID = 1"))
+                {
+                    foundTrack1 = true;
+                    continue;
+                }
+                if (foundTrack1 && line.Contains("MatrixStructure ="))
+                {
+                    int idx = line.IndexOf("= ", StringComparison.Ordinal);
+                    if (idx >= 0)
+                        return line.Substring(idx + 2).Trim();
+                    return string.Empty;
+                }
+            }
+            return string.Empty;
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // BuildVideoTransformFilter — 根据诊断结果构建 ffmpeg 视频变换滤镜链
+        // ═══════════════════════════════════════════════════════════════════
+        //
+        // 背景：iPhone 实况照片的视频部分（.MOV）在 QuickTime 容器里有两个独立的
+        // 方向信息源，二者职责不同：
+        //
+        //   A. Composite Rotation 标签 — exiftool 从多个原始标签综合计算出的旋转角
+        //      （0/90/180/270）。这是"权威答案"，ffmpeg 默认 autorotate 自动应用。
+        //
+        //   B. 轨道矩阵 (Track Matrix) — QuickTime tkhd 里的 3×3 变换矩阵，
+        //      描述轨道像素 → 显示画面的映射。包含了旋转 + 翻转（前摄自拍镜像）。
+        //
+        // ═══════════════════════════════════════════════════════════════════
+        // 实测数据（iOS 26.5 前摄实况照片 4 方向，2026-06-26）：
+        // ═══════════════════════════════════════════════════════════════════
+        //
+        //   方向       Rotation    轨道矩阵          实际含义
+        //   ────────  ──────────   ────────────────  ─────────────────
+        //   正拍       90°         [0  1; 1  0]      90°旋转矩阵
+        //   倒着拍     270°        [0 -1; -1 0]      270°旋转矩阵
+        //   右旋转     180°        [-1 0; 0  1]      水平翻转矩阵
+        //   左旋转      0°         [1  0; 0 -1]      垂直翻转矩阵 ← 问题来源
+        //
+        //   核心发现：
+        //   - 前 3 个 Rotation ≠ 0 → ffmpeg autorotate 一步到位 ✅
+        //   - 左旋转 Rotation = 0 但轨道矩阵是 [1 0; 0 -1] (垂直翻转)
+        //     → 旧代码只看 Rotation 标签 → 误判为"完美无缺" ❌
+        //     → 新代码追加轨道矩阵检测 → 发现 flip_vertical ✅
+        //
+        //   关键结论：
+        //   Rotation 标签已经是综合了翻转和旋转的"最终答案"。
+        //   Rotation = 0 意味着"这个视频方向没问题，不需要任何修正"。
+        //   轨道矩阵里的翻转此时只是播放器合成元数据（QuickTime composition
+        //   hint），不是像素缺陷。
+        //   如果强行给 Rotation=0 的视频加 vflip/hflip 滤镜，反而会把正确的
+        //   像素搞坏。因此 flip 类型的矩阵不产生任何滤镜。
+        //
+        // ═══════════════════════════════════════════════════════════════════
+        private static string BuildVideoTransformFilter(RepairAnalysisResult analysis)
+        {
+            var filters = new System.Collections.Generic.List<string>();
+
+            // 轨道矩阵检测到的变换。注意：
+            // - flip_vertical / flip_horizontal → 不应用滤镜（原因见上方长注释）
+            // - rotate_* 只在 Rotation=0 时才会走进来（正常情况下 Rotation ≠ 0
+            //   时不会检查轨道矩阵），属于异常保护
+            switch (analysis.VideoTrackTransform)
+            {
+                case "flip_vertical":
+                case "flip_horizontal":
+                    // 矩阵是播放器合成指令，像素本身方向正确 → 不做任何修正
+                    break;
+                case "rotate_90":       filters.Add("transpose=2"); break;   // 90° CCW
+                case "rotate_180":      filters.Add("hflip"); filters.Add("vflip"); break;
+                case "rotate_270":      filters.Add("transpose=1"); break;   // 90° CW
+            }
+
+            return string.Join(",", filters);
+        }
+
+        // ═══════════════════════════════════════════════════════════════════
+        // ParseQuickTimeMatrix — 解析轨道 tkhd 的 3×3 变换矩阵
+        // ═══════════════════════════════════════════════════════════════════
+        //
+        // 矩阵格式：exiftool -v2 输出的 9 个空格分隔整数
+        //   "a b u  c d v  x y w"
+        //
+        // 显示变换公式（QuickTime 规范）：
+        //   x_display = (a * x_track + c * y_track + x) / w
+        //   y_display = (b * x_track + d * y_track + y) / w
+        //
+        // 值域说明：
+        //   a/b/c/d 可能是 16.16 定点数（16384 = 1.0, 65536 = 1.0）
+        //   也可能是已归一化的整数（1 = 1.0）
+        //   两种都兼容
+        //
+        // ═══════════════════════════════════════════════════════════════════
+        // 实测覆盖的矩阵模式（前摄实况照片 4 方向 + 已知变体）：
+        // ═══════════════════════════════════════════════════════════════════
+        //
+        //   矩阵              a   b   d   e   返回 transform    对应 Rotation
+        //   ────────────────  ──  ──  ──  ──  ──────────────  ────────────
+        //   [1  0; 0  1]     1   0   0   1   (空 = 无变换)    — (identity)
+        //   [1  0; 0 -1]     1   0   0  -1   flip_vertical    0  (左旋转)
+        //   [-1 0; 0  1]    -1   0   0   1   flip_horizontal  180 (右旋转)
+        //   [0  1; -1 0]     0   1  -1   0   rotate_90        90 (正拍)
+        //   [0  1; 1  0]     0   1   1   0   rotate_90        90 (variant)
+        //   [-1 0; 0 -1]    -1   0   0  -1   rotate_180       180
+        //   [0 -1; 1  0]     0  -1   1   0   rotate_270       270 (倒着拍)
+        //   [0 -1; -1 0]     0  -1  -1   0   rotate_270       270 (variant)
+        //
+        // ═══════════════════════════════════════════════════════════════════
+        private static (string transform, int angle) ParseQuickTimeMatrix(string matrixStr)
+        {
+            if (string.IsNullOrWhiteSpace(matrixStr)) return (string.Empty, 0);
+
+            var parts = matrixStr.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 9) return (string.Empty, 0);
+
+            if (!int.TryParse(parts[0], out int a)) return (string.Empty, 0);
+            if (!int.TryParse(parts[1], out int b)) return (string.Empty, 0);
+            if (!int.TryParse(parts[3], out int d)) return (string.Empty, 0);
+            if (!int.TryParse(parts[4], out int e)) return (string.Empty, 0);
+
+            // identity: a=±1, b=0, d=0, e=±1 (兼容 16.16 定点数: 16384/65536 = 1.0)
+            bool isIdentity = (a == 1 || a == 16384 || a == 65536) && b == 0
+                           && d == 0 && (e == 1 || e == 16384 || e == 65536);
+            if (isIdentity) return (string.Empty, 0);
+
+            // flip_vertical  [1 0; 0 -1] — 前摄左旋转 (Rotation=0)
+            if ((a == 1 || a == 16384) && b == 0 && d == 0 && (e == -1 || e == -16384))
+                return ("flip_vertical", 0);
+
+            // flip_horizontal [-1 0; 0 1] — 前摄右旋转 (Rotation=180)
+            if ((a == -1 || a == -16384) && b == 0 && d == 0 && (e == 1 || e == 16384))
+                return ("flip_horizontal", 0);
+
+            // rotate_90  [0 1; -1 0] — 正拍 (Rotation=90)
+            if (a == 0 && b == 1 && d == -1 && e == 0)
+                return ("rotate_90", 90);
+            // rotate_90 variant [0 1; 1 0]
+            if (a == 0 && b == 1 && d == 1 && e == 0)
+                return ("rotate_90", 90);
+
+            // rotate_270  [0 -1; 1 0] — 倒着拍 (Rotation=270)
+            if (a == 0 && b == -1 && d == 1 && e == 0)
+                return ("rotate_270", 270);
+            // rotate_270 variant [0 -1; -1 0] — 倒着拍变体
+            if (a == 0 && b == -1 && d == -1 && e == 0)
+                return ("rotate_270", 270);
+
+            // rotate_180  [-1 0; 0 -1]
+            if ((a == -1 || a == -16384) && b == 0 && d == 0 && (e == -1 || e == -16384))
+                return ("rotate_180", 180);
+
+            return (string.Empty, 0);
         }
 
         // Parse exiftool AvgBitrate string (e.g. "12.2 Mbps") to bps (12200000).
@@ -531,12 +808,11 @@ public static class LivePhotoRepairService
             bool needsRotation = analysis.IssueType == RepairIssueType.NeedsRebuild;
             bool hasThumbnail = analysis.HasThumbnail;
 
-            // 临时文件放在目标文件同目录的 Temp 子文件夹，保证 File.Move 是同盘原子操作
+            // 临时文件放在系统 %TEMP% 下独立子文件夹（GUID 命名），避免中文路径编码问题，
+            // 且每个修复操作互不干扰——并发修复时不会因共享 Temp 目录导致文件被意外删除。
             string ext = Path.GetExtension(sourcePath);
             if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
-            string imgRepairTempDir = Path.Combine(
-                Path.GetDirectoryName(Path.GetFullPath(targetPath)) ?? Path.GetTempPath(),
-                "Temp");
+            string imgRepairTempDir = Path.Combine(Path.GetTempPath(), $"lpb_repair_{Guid.NewGuid():N}");
             Directory.CreateDirectory(imgRepairTempDir);
             string tempWorkFile = Path.Combine(imgRepairTempDir, $"repair_{Guid.NewGuid():N}{ext}");
 
@@ -637,8 +913,9 @@ public static class LivePhotoRepairService
             }
             finally
             {
-                // 清理临时文件
+                // 清理临时文件及 Temp 目录
                 try { if (File.Exists(tempWorkFile)) File.Delete(tempWorkFile); } catch { }
+                try { if (Directory.Exists(imgRepairTempDir)) Directory.Delete(imgRepairTempDir, recursive: true); } catch { }
             }
         }
 
@@ -677,8 +954,9 @@ public static class LivePhotoRepairService
                 Path.GetFullPath(targetPath),
                 StringComparison.OrdinalIgnoreCase);
 
-            // 临时文件放在目标目录的 Temp 子文件夹，保证 File.Move 是同盘原子操作
-            string videoTempDir = Path.Combine(targetDir ?? Path.GetTempPath(), "Temp");
+            // 临时文件放在系统 %TEMP% 下独立子文件夹（GUID 命名），避免中文路径编码问题，
+            // 且每个修复操作互不干扰——并发修复时不会因共享 Temp 目录导致文件被意外删除。
+            string videoTempDir = Path.Combine(Path.GetTempPath(), $"lpb_repair_{Guid.NewGuid():N}");
             Directory.CreateDirectory(videoTempDir);
             string tempOutput = Path.Combine(videoTempDir, $"repair_{Guid.NewGuid():N}{Path.GetExtension(targetPath)}");
 
@@ -717,7 +995,13 @@ public static class LivePhotoRepairService
                     videoParams = sw.encoderParams;
                 }
 
-                var (ok, errMsg) = await RunRepairFFmpegAsync(sourcePath, tempOutput, videoEncoder, videoParams, isHevc, codecKey, sourceIsMp4, token);
+                // 构建视频变换滤镜链。
+                // QuickTime 轨道矩阵描述的是"编码像素 → 显示画面"的映射。
+                // 前摄自拍中: flip_vertical 代表自拍镜像（像素上下倒置存储, 播放器翻转后显示）。
+                // 修复时需要把像素翻转回来, 这样输出文件无需矩阵就能正确显示。
+                string extraVideoFilter = BuildVideoTransformFilter(analysis);
+
+                var (ok, errMsg) = await RunRepairFFmpegAsync(sourcePath, tempOutput, videoEncoder, videoParams, isHevc, codecKey, sourceIsMp4, token, extraVideoFilter);
 
                 bool isHardware = EncoderHelper.IsHardwareEncoder(videoEncoder);
 
@@ -727,7 +1011,7 @@ public static class LivePhotoRepairService
                     // 清理硬件尝试可能残留的临时文件
                     try { if (File.Exists(tempOutput)) File.Delete(tempOutput); } catch { }
                     var (swEncoder, swParams) = EncoderHelper.GetSoftwareEncoder(codecKey, codecKey == "hevc" ? 14 : 13);
-                    (ok, errMsg) = await RunRepairFFmpegAsync(sourcePath, tempOutput, swEncoder, swParams, isHevc, codecKey, sourceIsMp4, token);
+                    (ok, errMsg) = await RunRepairFFmpegAsync(sourcePath, tempOutput, swEncoder, swParams, isHevc, codecKey, sourceIsMp4, token, extraVideoFilter);
                 }
 
                 if (ok)
@@ -762,8 +1046,9 @@ public static class LivePhotoRepairService
             }
             finally
             {
-                // 清理临时文件
+                // 清理临时文件及 Temp 目录
                 try { if (File.Exists(tempOutput)) File.Delete(tempOutput); } catch { }
+                try { if (Directory.Exists(videoTempDir)) Directory.Delete(videoTempDir, recursive: true); } catch { }
             }
         }
 
@@ -780,10 +1065,16 @@ public static class LivePhotoRepairService
             string sourcePath, string targetPath,
             string videoEncoder, string videoParams,
             bool isHevc, string codecKey, bool sourceIsMp4,
-            CancellationToken token)
+            CancellationToken token,
+            string extraVideoFilter = "")
         {
             bool isHardware = videoEncoder.Contains("nvenc") || videoEncoder.Contains("qsv")
                            || videoEncoder.Contains("amf") || videoEncoder.Contains("vaapi");
+
+            // 构建视频滤镜：先应用翻转/旋转变换（如果有），再设置 SAR
+            string videoFilter = string.IsNullOrEmpty(extraVideoFilter)
+                ? "setsar=1"
+                : $"{extraVideoFilter},setsar=1";
 
             var args = new List<string>
             {
@@ -794,7 +1085,7 @@ public static class LivePhotoRepairService
                 "-map", "0:a:0?",
                 "-map_metadata", "0",
                 "-threads", EncoderHelper.GetThreadCount(videoEncoder, maxSoftwareThreads: 6).ToString(),
-                "-vf", "setsar=1",
+                "-vf", videoFilter,
                 "-c:v", videoEncoder
             };
 
@@ -880,6 +1171,10 @@ public static class LivePhotoRepairService
                 WriteDebugLog("ERROR", "FFmpeg", "FFmpeg process failed to start", $"Path: {FFmpegPath}");
                 return (false, "FFmpeg process failed to start");
             }
+
+            // 将 ffmpeg 进程优先级设为低于标准，避免大量并发编码时
+            // ffmpeg 与 UI 线程争抢 CPU 时间片导致系统操作卡顿
+            try { process.PriorityClass = ProcessPriorityClass.BelowNormal; } catch { }
 
             var outputTask = process.StandardOutput.ReadToEndAsync();
             var errorTask = process.StandardError.ReadToEndAsync();

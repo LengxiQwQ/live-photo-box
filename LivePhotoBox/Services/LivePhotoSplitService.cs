@@ -83,7 +83,7 @@ namespace LivePhotoBox.Services
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline,
             TimeSpan.FromSeconds(2));
 
-        public static async Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int selectedSplitFormatIndex, CancellationToken token)
+        public static async Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int selectedSplitFormatIndex, CancellationToken token, string? inputDirectory = null)
         {
             Directory.CreateDirectory(outputDirectory);
 
@@ -105,7 +105,7 @@ namespace LivePhotoBox.Services
             }
 
             string targetExtension = await ResolveVideoExtensionAsync(sourceStream, imageLength, metadataText, selectedSplitFormatIndex, token);
-            (string imageOutputPath, string videoOutputPath) = BuildOutputPaths(sourcePath, outputDirectory, targetExtension);
+            (string imageOutputPath, string videoOutputPath) = BuildOutputPaths(sourcePath, outputDirectory, targetExtension, inputDirectory);
 
             // 1. 提取图片部分（同时剥离实况照片相关的 XMP / APP 段，避免拆分出的"图片"仍被识别为实况照片）
             sourceStream.Position = 0;
@@ -302,7 +302,7 @@ namespace LivePhotoBox.Services
         // outputDirectory: 输出目录。
         // videoExtension: 视频扩展名（.mp4 / .mov）。
         // è¿å: (图片输出路径, 视频输出路径)
-        private static (string ImageOutputPath, string VideoOutputPath) BuildOutputPaths(string sourcePath, string outputDirectory, string videoExtension)
+        private static (string ImageOutputPath, string VideoOutputPath) BuildOutputPaths(string sourcePath, string outputDirectory, string videoExtension, string? inputDirectory = null)
         {
             string sourceFileNameWithoutExtension = Path.GetFileNameWithoutExtension(sourcePath);
             string imageExtension = Path.GetExtension(sourcePath);
@@ -312,8 +312,15 @@ namespace LivePhotoBox.Services
                 imageExtension = ".jpg";
             }
 
-            string imageOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{sourceFileNameWithoutExtension}{imageExtension}");
-            string videoOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{sourceFileNameWithoutExtension}{videoExtension}");
+            string? subDir = null;
+            if (!string.IsNullOrEmpty(inputDirectory)
+                && AppSettingsService.GetValue("IsOutputPreserveSubfolderStructure", false))
+            {
+                subDir = PathHelper.GetRelativeSubDirectory(inputDirectory, sourcePath);
+            }
+
+            string imageOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{sourceFileNameWithoutExtension}{imageExtension}", subDir);
+            string videoOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{sourceFileNameWithoutExtension}{videoExtension}", subDir);
             string sourceFullPath = Path.GetFullPath(sourcePath);
 
             // 防止输出文件覆盖掉正在读取的源文件

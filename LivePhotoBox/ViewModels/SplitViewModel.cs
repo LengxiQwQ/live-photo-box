@@ -46,7 +46,6 @@ namespace LivePhotoBox.ViewModels
             {
                 if (ScanDirectoryCommand.CanExecute(null) && !IsScanning)
                 {
-                    if (Tasks.Count > 0) ClearState();
                     ScanDirectoryCommand.Execute(null);
                 }
             }
@@ -613,7 +612,7 @@ namespace LivePhotoBox.ViewModels
                 await Task.Run(async () =>
                 {
                     var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
-                    int maxParallel = AppSettingsService.GetValue("SplitThreadCount", Environment.ProcessorCount);
+                    int maxParallel = AppSettingsService.GetValue("SplitThreadCount", 4);
 
                     var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
                     var pendingTasks = new List<Task>();
@@ -643,7 +642,7 @@ namespace LivePhotoBox.ViewModels
 
                             try
                             {
-                                await LivePhotoSplitService.SplitAsync(task.SourcePath, outputDir, formatIndex, token);
+                                await LivePhotoSplitService.SplitAsync(task.SourcePath, outputDir, formatIndex, token, InputDirectory);
                                 isSuccess = true;
                                 detailMessage = ResourceService.GetString("SplitPage_Task_Success") ?? "Success";
                             }

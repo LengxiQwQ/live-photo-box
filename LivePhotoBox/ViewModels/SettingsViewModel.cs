@@ -364,6 +364,17 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Repair non-live-photo video setting: {(value ? "ON" : "OFF")}", LogSource.Settings);
         }
 
+        // 输出目录模式下同时复制无需修复的文件 — 开启后完美文件也会复制到输出目录
+        [ObservableProperty]
+        private bool _isCopyPerfectToOutput;
+
+        partial void OnIsCopyPerfectToOutputChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsCopyPerfectToOutput), value);
+            LogService.Info($"Copy perfect files to output: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
         #endregion
 
         #region History / Inspector Settings
@@ -391,7 +402,23 @@ namespace LivePhotoBox.ViewModels
             if (_isInitializing) return;
             AppSettingsService.SetValue(nameof(IsRecursiveScanEnabled), value);
             LogService.Info($"Recursive scan: {(value ? "ON" : "OFF")}", LogSource.Settings);
+            OnPropertyChanged(nameof(OutputPreserveSubfolderVisibility));
         }
+
+        // 输出目录按照子文件夹结构 — 仅在递归扫描开启时可见
+        [ObservableProperty]
+        private bool _isOutputPreserveSubfolderStructure;
+
+        partial void OnIsOutputPreserveSubfolderStructureChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsOutputPreserveSubfolderStructure), value);
+            LogService.Info($"Output preserve subfolder structure: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
+        // "输出目录按照子文件夹结构"仅在递归扫描开启时可见
+        public Visibility OutputPreserveSubfolderVisibility =>
+            IsRecursiveScanEnabled ? Visibility.Visible : Visibility.Collapsed;
 
         #endregion
 
@@ -477,22 +504,24 @@ namespace LivePhotoBox.ViewModels
             AcrylicTintOpacity = AppSettingsService.GetValue(nameof(AcrylicTintOpacity), 0.2);
             BannerPresetIndex = AppSettingsService.GetValue(nameof(BannerPresetIndex), 0);
             IsBannerRandomEnabled = AppSettingsService.GetValue(nameof(IsBannerRandomEnabled), false);
-            ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 8);
+            ThreadCount = AppSettingsService.GetValue("SplitThreadCount", 4);
             MaxThreadCount = Math.Min(Environment.ProcessorCount, 20);
-            HeicConcurrency = AppSettingsService.GetValue("HeicConcurrency", 8);
+            HeicConcurrency = AppSettingsService.GetValue("HeicConcurrency", 4);
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             IsGoogleProtocolForceMp4 = AppSettingsService.GetValue(nameof(IsGoogleProtocolForceMp4), false);
-            MergeThreadCount = AppSettingsService.GetValue("MergeThreadCount", 5);
+            MergeThreadCount = AppSettingsService.GetValue("MergeThreadCount", 4);
             MetadataMatchingModeIndex = AppSettingsService.GetValue(nameof(MetadataMatchingModeIndex), 0);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
             IsRepairScanLoadThumbnail = AppSettingsService.GetValue(nameof(IsRepairScanLoadThumbnail), false);
             IsStrictLivePhotoScanEnabled = AppSettingsService.GetValue(nameof(IsStrictLivePhotoScanEnabled), false);
             IsNonLivePhotoVideoRepairEnabled = AppSettingsService.GetValue(nameof(IsNonLivePhotoVideoRepairEnabled), false);
+            IsCopyPerfectToOutput = AppSettingsService.GetValue(nameof(IsCopyPerfectToOutput), false);
             SplitFormatIndex = AppSettingsService.GetValue("SelectedFormatIndex", 0);
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), false);
+            IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), false);
         }
 
         // 异步加载硬件编码信息（WMI + FFmpeg 检测），完成后设置 SelectedHardware。
