@@ -83,6 +83,19 @@ namespace LivePhotoBox.Services
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline,
             TimeSpan.FromSeconds(2));
 
+        // 厂商私有偏移量正则（rdf:Description 属性级，非 Container:Directory 结构）。
+        // 作为深度防御：即使 exiftool/修图软件剥离了 Container:Directory 段，
+        // 只要 rdf:Description 的属性还在，就能解析出视频长度。
+        private static readonly Regex OppoVideoLengthRegex = new(
+            "OpCamera:VideoLength=\"(?<value>\\d+)\"",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+            TimeSpan.FromSeconds(2));
+
+        private static readonly Regex MiCameraVideoLengthRegex = new(
+            "MiCamera:VideoLength=\"(?<value>\\d+)\"",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+            TimeSpan.FromSeconds(2));
+
         public static async Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int selectedSplitFormatIndex, CancellationToken token, string? inputDirectory = null)
         {
             Directory.CreateDirectory(outputDirectory);
@@ -221,7 +234,10 @@ namespace LivePhotoBox.Services
         }
 
         // 从 XMP 元数据文本中提取视频尾部长度。
-        // 依次尝试：MicroVideoOffset → MotionPhotoLength。
+        // 深度防御：依次尝试全部已知厂商的偏移量格式。
+        //   MicroVideo V1 → MotionPhoto V2 → OPPO O-Live → 小米
+        // 只要任一格式匹配成功即返回，多道 fallback 确保 XMP 被
+        // 修图软件/exiftool 部分修改后仍能解析。
         private static long GetAppendedVideoLength(string metadataText)
         {
             if (TryGetLong(MicroVideoOffsetRegex.Match(metadataText), out long microVideoOffset))
@@ -230,9 +246,42 @@ namespace LivePhotoBox.Services
             if (TryGetLong(MotionPhotoLengthRegex.Match(metadataText), out long motionPhotoLength))
                 return motionPhotoLength;
 
-            LogService.Split($"GetAppendedVideoLength: MicroVideoOffset match={MicroVideoOffsetRegex.Match(metadataText).Success}, MotionPhotoLength match={MotionPhotoLengthRegex.Match(metadataText).Success}", LogLevel.Debug);
+            if (TryGetLong(OppoVideoLengthRegex.Match(metadataText), out long oppoVideoLength))
+                return oppoVideoLength;
 
-            throw new InvalidDataException("No motion video length metadata was found in the file.");
+            if (TryGetLong(MiCameraVideoLengthRegex.Match(metadataText), out long miVideoLength))
+                return miVideoLength;
+
+            // 全部失败 → 构造含诊断信息的异常消息，用户可直接在错误弹窗看到
+            bool m1 = MicroVideoOffsetRegex.Match(metadataText).Success;
+            bool m2 = MotionPhotoLengthRegex.Match(metadataText).Success;
+            bool m3 = OppoVideoLengthRegex.Match(metadataText).Success;
+            bool m4 = MiCameraVideoLengthRegex.Match(metadataText).Success;
+
+            // 检查 XMP header 是否存在
+            bool hasXmpHeader = metadataText.Contains("http://ns.adobe.com/xap/1.0/");
+
+            // 截取前 2000 字符，把不可打印字符替换为 .
+            string snippet = metadataText.Length > 2000
+                ? metadataText[..2000]
+                : metadataText;
+            string readable = System.Text.RegularExpressions.Regex.Replace(
+                snippet, @"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]", m => ".");
+
+            string diag = $"hasXmpHeader={hasXmpHeader}, " +
+                          $"m1(MicroVideoOffset)={m1}, " +
+                          $"m2(MotionPhotoLength)={m2}, " +
+                          $"m3(OpCamera:VideoLength)={m3}, " +
+                          $"m4(MiCamera:VideoLength)={m4}";
+
+            LogService.Split($"GetAppendedVideoLength failed: {diag}", LogLevel.Debug);
+            LogService.Split($"Metadata preview:\n{readable}", LogLevel.Debug);
+
+            throw new InvalidDataException(
+                "No motion video length metadata was found in the file.\n" +
+                $"Diagnostics: {diag}\n" +
+                $"XMP header found: {hasXmpHeader}\n" +
+                "See debug log for metadata preview.");
         }
 
         private static async Task<string> ResolveVideoExtensionAsync(FileStream sourceStream, long videoStartOffset, string metadataText, int selectedSplitFormatIndex, CancellationToken token)
