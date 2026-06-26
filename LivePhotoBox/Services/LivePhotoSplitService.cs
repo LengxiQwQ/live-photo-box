@@ -67,6 +67,17 @@ namespace LivePhotoBox.Services
     {
         private const int MetadataProbeBytes = 1024 * 1024; // 探测前 1MB 的元数据
 
+        // 添加了 TimeSpan.FromSeconds(2) 作为超时保护，防止正则表达式遇到损坏文件陷入死循环
+        private static readonly Regex MicroVideoOffsetRegex = new(
+            "GCamera:MicroVideoOffset=\"(?<value>\\d+)\"",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+            TimeSpan.FromSeconds(2));
+
+        private static readonly Regex MotionPhotoLengthRegex = new(
+            "Item:Semantic=\"MotionPhoto\"[^>]*Item:Length=\"(?<value>\\d+)\"|Item:Length=\"(?<value>\\d+)\"[^>]*Item:Semantic=\"MotionPhoto\"",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline,
+            TimeSpan.FromSeconds(2));
+
         private static readonly Regex MotionPhotoMimeRegex = new(
             "Item:Semantic=\"MotionPhoto\"[^>]*Item:Mime=\"(?<value>[^\"]+)\"|Item:Mime=\"(?<value>[^\"]+)\"[^>]*Item:Semantic=\"MotionPhoto\"",
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase | RegexOptions.Singleline,
@@ -82,10 +93,8 @@ namespace LivePhotoBox.Services
                 throw new InvalidDataException("Source file is empty.");
             }
 
-            // 先读取原始字节缓冲区：用于字节级搜索偏移量（绕过 UTF-8 解码问题）
-            byte[] headBuffer = ReadHeadBytes(sourceStream);
-            string metadataText = Encoding.UTF8.GetString(headBuffer);
-            long videoLength = GetAppendedVideoLengthFromBytes(headBuffer, sourceStream.Length);
+            string metadataText = await ReadMetadataTextAsync(sourceStream, token);
+            long videoLength = GetAppendedVideoLength(metadataText);
             long imageLength = sourceStream.Length - videoLength;
 
             LogService.Split($"File={Path.GetFileName(sourcePath)}, TotalSize={sourceStream.Length}, VideoLength={videoLength}, ImageLength={imageLength}", LogLevel.Debug);
@@ -199,153 +208,31 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // 读取文件头部原始字节（前 1MB），用于字节级 XMP 元数据搜索。
-        // 使用同步读取避免异步分片问题，保证一次性拿到完整头部数据。
-        private static byte[] ReadHeadBytes(FileStream sourceStream)
+        // 从源文件流中读取前 <see cref="MetadataProbeBytes"/> 字节的文本内容，
+        // 用于提取实况照片的 XMP 元数据（MicroVideoOffset 等）。
+        private static async Task<string> ReadMetadataTextAsync(FileStream sourceStream, CancellationToken token)
         {
             sourceStream.Position = 0;
             int bufferLength = (int)Math.Min(sourceStream.Length, MetadataProbeBytes);
             byte[] buffer = new byte[bufferLength];
-            int totalRead = 0;
-            while (totalRead < bufferLength)
-            {
-                int read = sourceStream.Read(buffer, totalRead, bufferLength - totalRead);
-                if (read <= 0) break;
-                totalRead += read;
-            }
+            int bytesRead = await sourceStream.ReadAsync(buffer, token);
             sourceStream.Position = 0;
-            return buffer;
+            return Encoding.UTF8.GetString(buffer, 0, bytesRead);
         }
 
-        // 字节级搜索视频尾部长度（绕过 UTF-8 字符串编码问题）。
-        // 依次尝试：MicroVideo V1 → MotionPhoto V2 → OPPO O-Live → 小米。
-        // 直接在原始字节中按 ASCII 标记搜索并解析后续数字。
-        private static long GetAppendedVideoLengthFromBytes(byte[] headBuffer, long fileSize)
+        // 从 XMP 元数据文本中提取视频尾部长度。
+        // 依次尝试：MicroVideoOffset → MotionPhotoLength。
+        private static long GetAppendedVideoLength(string metadataText)
         {
-            var data = new ReadOnlySpan<byte>(headBuffer);
+            if (TryGetLong(MicroVideoOffsetRegex.Match(metadataText), out long microVideoOffset))
+                return microVideoOffset;
 
-            // ── 1. Google MicroVideo V1: MicroVideoOffset="SIZE" ──
-            long? v1 = TryParseValueAfterMarker(data, "MicroVideoOffset=\""u8);
-            if (v1.HasValue && IsVideoLengthPlausible(v1.Value, fileSize))
-            {
-                LogService.Split($"Detected MicroVideo V1: offset={v1.Value}", LogLevel.Debug);
-                return v1.Value;
-            }
+            if (TryGetLong(MotionPhotoLengthRegex.Match(metadataText), out long motionPhotoLength))
+                return motionPhotoLength;
 
-            // ── 2. Google MotionPhoto V2: Item:Semantic="MotionPhoto" + Item:Length="SIZE" ──
-            long? v2 = TryParseMotionPhotoV2Offset(data);
-            if (v2.HasValue && IsVideoLengthPlausible(v2.Value, fileSize))
-            {
-                LogService.Split($"Detected MotionPhoto V2: length={v2.Value}", LogLevel.Debug);
-                return v2.Value;
-            }
+            LogService.Split($"GetAppendedVideoLength: MicroVideoOffset match={MicroVideoOffsetRegex.Match(metadataText).Success}, MotionPhotoLength match={MotionPhotoLengthRegex.Match(metadataText).Success}", LogLevel.Debug);
 
-            // ── 3. OPPO O-Live: OpCamera:VideoLength="SIZE" ──
-            long? oppo = TryParseValueAfterMarker(data, "OpCamera:VideoLength=\""u8);
-            if (oppo.HasValue && IsVideoLengthPlausible(oppo.Value, fileSize))
-            {
-                LogService.Split($"Detected OPPO O-Live: videoLength={oppo.Value}", LogLevel.Debug);
-                return oppo.Value;
-            }
-
-            // ── 4. 小米 Mi Motion Photo: MiCamera:VideoLength="SIZE" ──
-            long? mi = TryParseValueAfterMarker(data, "MiCamera:VideoLength=\""u8);
-            if (mi.HasValue && IsVideoLengthPlausible(mi.Value, fileSize))
-            {
-                LogService.Split($"Detected Xiaomi Mi Motion Photo: videoLength={mi.Value}", LogLevel.Debug);
-                return mi.Value;
-            }
-
-            // 诊断日志：列出所有找到的相关标记位置
-            LogMissingVideoLengthDiagnostic(data);
             throw new InvalidDataException("No motion video length metadata was found in the file.");
-        }
-
-        // 搜索 marker（以 `="` 结尾）并解析其后跟随的 ASCII 数字。
-        // 例如 marker="MicroVideoOffset=\"" 可匹配 "...MicroVideoOffset="12345"..." 并提取 12345。
-        private static long? TryParseValueAfterMarker(ReadOnlySpan<byte> data, ReadOnlySpan<byte> marker)
-        {
-            int idx = data.IndexOf(marker);
-            if (idx < 0) return null;
-
-            // marker 以 =" 结尾，pos 直接指向引号内的第一个字符（数字）
-            int pos = idx + marker.Length;
-
-            long value = 0;
-            while (pos < data.Length && data[pos] >= (byte)'0' && data[pos] <= (byte)'9')
-            {
-                value = value * 10 + (data[pos] - (byte)'0');
-                pos++;
-            }
-
-            return value > 0 ? value : null;
-        }
-
-        // 搜索 MotionPhoto V2 的 Item:Length。
-        // V2 XMP 中 Container:Directory 包含多个 Item，其中 MotionPhoto item 的
-        // Item:Length 是视频长度（Primary item 为 0）。策略：搜索所有 "Item:Length=\""
-        // 出现位置，取最大值 — 因为 MotionPhoto item 的视频长度远大于 Primary 的 0。
-        private static long? TryParseMotionPhotoV2Offset(ReadOnlySpan<byte> data)
-        {
-            var marker = "Item:Length=\""u8;
-            long bestValue = 0;
-            int searchStart = 0;
-
-            while (true)
-            {
-                int idx = data[searchStart..].IndexOf(marker);
-                if (idx < 0) break;
-
-                int absIdx = searchStart + idx + marker.Length; // 指向引号内数字
-                searchStart = absIdx; // 下次从这之后继续搜索
-
-                long value = 0;
-                while (absIdx < data.Length && data[absIdx] >= (byte)'0' && data[absIdx] <= (byte)'9')
-                {
-                    value = value * 10 + (data[absIdx] - (byte)'0');
-                    absIdx++;
-                }
-
-                if (value > bestValue) bestValue = value;
-            }
-
-            return bestValue > 0 ? bestValue : null;
-        }
-
-        // 校验视频长度是否"合理"：必须 > 4KB，且不能超过文件本身。
-        private static bool IsVideoLengthPlausible(long videoLength, long fileSize)
-        {
-            return videoLength >= 4 * 1024 && videoLength < fileSize;
-        }
-
-        // 诊断日志：在字节缓冲区中搜索所有已知标记，帮助定位未知协议格式。
-        private static void LogMissingVideoLengthDiagnostic(ReadOnlySpan<byte> data)
-        {
-            var markers = new (string Name, byte[] Bytes)[]
-            {
-                ("MicroVideoOffset", "MicroVideoOffset"u8.ToArray()),
-                ("MicroVideo", "MicroVideo"u8.ToArray()),
-                ("MotionPhoto", "MotionPhoto"u8.ToArray()),
-                ("GCamera:", "GCamera:"u8.ToArray()),
-                ("Container:Directory", "Container:Directory"u8.ToArray()),
-                ("Item:Length", "Item:Length"u8.ToArray()),
-                ("OpCamera:VideoLength", "OpCamera:VideoLength"u8.ToArray()),
-                ("MiCamera:VideoLength", "MiCamera:VideoLength"u8.ToArray()),
-                ("LivePhotoBox", "LivePhotoBox"u8.ToArray()),
-            };
-
-            var hits = new List<string>();
-            foreach (var (name, bytes) in markers)
-            {
-                if (data.IndexOf(bytes) >= 0)
-                    hits.Add($"{name}=found");
-                else
-                    hits.Add($"{name}=none");
-            }
-
-            LogService.Split(
-                $"Video length extraction failed. Markers in file: [{string.Join(", ", hits)}]",
-                LogLevel.Debug);
         }
 
         private static async Task<string> ResolveVideoExtensionAsync(FileStream sourceStream, long videoStartOffset, string metadataText, int selectedSplitFormatIndex, CancellationToken token)
@@ -846,5 +733,12 @@ namespace LivePhotoBox.Services
             return "";
         }
 
+        // 从正则匹配的 "value" 命名组中安全解析 long 值。
+        private static bool TryGetLong(Match match, out long value)
+        {
+            value = 0;
+            string rawValue = match.Groups["value"].Value;
+            return !string.IsNullOrWhiteSpace(rawValue) && long.TryParse(rawValue, out value);
+        }
     }
 }
