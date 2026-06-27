@@ -13,20 +13,17 @@ namespace LivePhotoBox.Services
 // 实况照片修复服务。
 // 功能包括：
 // 1. 诊断（AnalyzeFileAsync）：通过 exiftool 扫描文件的方向标记、缩略图、ContentIdentifier 等
-// 2. 修复（RepairAsync）：修正 EXIF Orientation / 旋转角度（JPEG 用 jhead，HEIC 用 exiftool）、剥离多余缩略图
+// 2. 修复（RepairAsync）：exiftool 读取方向（分析阶段）→ jpegtran 无损旋转 → exiftool 重置方向标签 + 剥离多余缩略图（JPEG）；HEIC 仅修正 EXIF Orientation
 // 3. 视频修复（RepairVideoAsync）：FFmpeg 重编码 + auto-rotate，支持硬件加速与软件回退
 // 4. 标记（TryWriteLivePhotoBoxMarkerAsync）：在 XMP dc:subject 写入操作记录
-// 依赖的外部工具：exiftool, jhead, jpegtran, ffmpeg。
+// 依赖的外部工具：exiftool, jpegtran, ffmpeg。
 public static class LivePhotoRepairService
     {
         private static string? _exifToolPath;
         private static string ExifToolPath => _exifToolPath ??= ExternalToolLocator.FindExifTool() ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
 
-        private static string? _jheadPath;
-        private static string JheadPath => _jheadPath ??= ExternalToolLocator.FindJhead() ?? Path.Combine(AppContext.BaseDirectory, "Tools", "jhead.exe");
-
         private static string? _jpegTranPath;
-        private static string JpegTranPath => _jpegTranPath ??= Path.Combine(AppContext.BaseDirectory, "Tools", "jpegtran.exe");
+        private static string JpegTranPath => _jpegTranPath ??= ExternalToolLocator.FindJpegTran() ?? Path.Combine(AppContext.BaseDirectory, "Tools", "jpegtran.exe");
 
         private static string? _ffmpegPath;
         private static string FFmpegPath => _ffmpegPath ??= ExternalToolLocator.FindFFmpeg() ?? Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg.exe");
@@ -58,7 +55,7 @@ public static class LivePhotoRepairService
         // 可传入常驻 exiftool 进程避免重复启动开销。
         public static async Task<RepairAnalysisResult> AnalyzeFileAsync(string filePath, PersistentExifTool? persistentExifTool = null, CancellationToken token = default)
         {
-            // Video files use a separate analysis path (ffprobe + exiftool Rotation)
+            // Video files use a separate analysis path (exiftool Rotation)
             if (IsVideoFile(filePath))
                 return await AnalyzeVideoAsync(filePath, persistentExifTool, token);
 
@@ -70,19 +67,13 @@ public static class LivePhotoRepairService
                 return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_ExifToolMissing") };
             }
 
-            // jhead / jpegtran 只用于 JPEG 修复，HEIC 不需要
+            // jpegtran 只用于 JPEG 修复，HEIC 不需要
             if (!isHeic)
             {
-                if (!File.Exists(JheadPath))
-                {
-                    WriteDebugLog("ERROR", "Analyze", ResourceService.GetString("Log_MissingDependency"), $"File not found: {JheadPath}");
-                    return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "jhead.exe not found" };
-                }
-
                 if (!File.Exists(JpegTranPath))
                 {
                     WriteDebugLog("ERROR", "Analyze", ResourceService.GetString("Log_MissingDependency"), $"File not found: {JpegTranPath}");
-                    return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = "jpegtran.exe not found (required by jhead)" };
+                    return new RepairAnalysisResult { IssueType = RepairIssueType.Error, IssueDescription = ResourceService.GetString("Error_JpegTranMissing") ?? "jpegtran.exe not found" };
                 }
             }
 
@@ -230,7 +221,8 @@ public static class LivePhotoRepairService
             };
         }
 
-        // 解析 exiftool 的 JSON 输出，生成 RepairAnalysisResult
+        // ── 解析 exiftool 输出，生成 RepairAnalysisResult ──
+        // JPEG 的旋转角度通过 jpegRotationAngle 变量在方法内追踪，最终写入 Result.RotationAngle。
         private static RepairAnalysisResult ParseExifToolOutput(string output, string error, string filePath)
         {
             if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
@@ -258,11 +250,12 @@ public static class LivePhotoRepairService
 
             var tags = new List<string>();
             bool needsOrientationFix = false;
+            int jpegRotationAngle = 0; // JPEG 旋转角度，修复阶段直接用于 jpegtran
 
             if (isHeic)
             {
                 // ── HEIC 分析：Rotation 是 QuickTime 标签，用于告诉查看器如何旋转显示 ──
-                // HEIC 像素数据无法无损旋转（无 jpegtran 等效工具），因此 Rotation 是
+                // HEIC 像素数据无法无损旋转，因此 Rotation 是
                 // 正确的元数据，不是问题。只检测以下两种真正的问题：
                 //   1. Orientation 含有镜像/翻转标记（mirror/flip）— 几乎总是误写入
                 //   2. Orientation 的旋转角度与 Rotation 不一致 — 会导致显示冲突
@@ -285,7 +278,7 @@ public static class LivePhotoRepairService
             }
             else
             {
-                // ── JPEG 分析：维持原有逻辑，jhead -autorot 可以无损旋转像素 ──
+                // ── JPEG 分析：exiftool 读取方向标签，角度存入 RotationAngle 供修复阶段 jpegtran 使用 ──
                 bool hasRotation = (!string.IsNullOrWhiteSpace(rotation)
                     && !rotation.Equals("Horizontal (normal)", StringComparison.OrdinalIgnoreCase)
                     && !rotation.Equals("0", StringComparison.Ordinal))
@@ -301,6 +294,7 @@ public static class LivePhotoRepairService
                     if (rotSource.Contains("90", StringComparison.OrdinalIgnoreCase)) angle = 90;
                     else if (rotSource.Contains("180", StringComparison.OrdinalIgnoreCase)) angle = 180;
                     else if (rotSource.Contains("270", StringComparison.OrdinalIgnoreCase)) angle = 270;
+                    jpegRotationAngle = angle;
                     tags.Add($"[{ResourceService.Format("Tag_RotationLabel", angle)}]");
                 }
 
@@ -314,7 +308,7 @@ public static class LivePhotoRepairService
                 {
                     IssueType = RepairIssueType.Perfect,
                     IssueDescription = $"[{ResourceService.GetString("Status_Perfect")}]",
-                    RotationAngle = 0,
+                    RotationAngle = jpegRotationAngle,
                     HasThumbnail = false,
                     ContentIdentifier = contentIdentifier,
                     DateTimeOriginal = dateTimeOriginal,
@@ -334,7 +328,7 @@ public static class LivePhotoRepairService
             {
                 IssueType = type,
                 IssueDescription = finalDescription,
-                RotationAngle = 0,
+                RotationAngle = jpegRotationAngle,
                 HasThumbnail = hasThumb,
                 HeicOriginalRotation = isHeic ? rotation : string.Empty,
                 ContentIdentifier = contentIdentifier,
@@ -797,7 +791,7 @@ public static class LivePhotoRepairService
             return 0;
         }
 
-        // 2. 修复文件：jhead 自动旋转 + exiftool 剥离缩略图
+        // 2. 修复文件：analysis.RotationAngle → jpegtran 无损旋转 → exiftool 合并重置方向 + 剥离缩略图
         public static async Task<(bool Success, string Message)> RepairAsync(string sourcePath, string targetPath, RepairAnalysisResult analysis, CancellationToken token)
         {
             // Video repair uses FFmpeg re-encode with autorotate
@@ -826,7 +820,7 @@ public static class LivePhotoRepairService
                 if (isHeic)
                 {
                     // ── HEIC 修复：仅修正 EXIF Orientation，保留 QuickTime:Rotation ──
-                    // HEIC 像素数据无法无损旋转（无 jpegtran 等效工具），Rotation
+                    // HEIC 像素数据无法无损旋转，Rotation
                     // 标签是查看器正确显示照片的关键元数据，绝对不能清除。
                     // 只修复两类真问题：
                     //   1. Orientation 含镜像/翻转 → 用 Rotation 推导正确 Orientation
@@ -865,20 +859,52 @@ public static class LivePhotoRepairService
                 }
                 else
                 {
-                    // ── JPEG 修复：jhead 旋转 + exiftool 剥离缩略图 ──
+                    // ── JPEG 修复：jpegtran 无损旋转 → exiftool 合并重置方向 + 剥离缩略图 ──
+                    // 旋转角度来自 AnalyzeFileAsync 的 exiftool 诊断结果（analysis.RotationAngle），
+                    // 无需 Magick.NET 读取——避免原生库在进程退出时触发 Access Violation (0xc0000005)。
                     if (needsRotation)
                     {
-                        await RunJheadWithRetryAsync("-autorot", tempWorkFile, token);
+                        int rotationAngle = analysis.RotationAngle;
+
+                        if (rotationAngle > 0)
+                        {
+                            // jpegtran 无损旋转（DCT 系数域操作，不重编码）
+                            string rotatedFile = Path.Combine(imgRepairTempDir, $"rotated_{Guid.NewGuid():N}{ext}");
+                            var jpegArgs = new List<string>
+                            {
+                                "-rotate", rotationAngle.ToString(),
+                                "-copy", "all",
+                                "-optimize",
+                                "-outfile", rotatedFile,
+                                tempWorkFile
+                            };
+
+                            await RunJpegTranWithRetryAsync(jpegArgs.ToArray(), token);
+
+                            File.Delete(tempWorkFile);
+                            tempWorkFile = rotatedFile;
+                        }
+                        // 如果 rotationAngle == 0（分析未识别出旋转角度），跳过 jpegtran
                         token.ThrowIfCancellationRequested();
                     }
 
+                    // 合并 exiftool 调用：重置方向标签（如果需要）+ 选择性剥离缩略图（如果需要）
+                    var cleanArgs = new List<string>();
+                    if (needsRotation)
+                        cleanArgs.Add("-Orientation=Horizontal (normal)");
                     if (hasThumbnail)
                     {
-                        // 用 -o 输出到新文件，避免 -overwrite_original 在某些文件上
-                        // 内部创建备份时出错（报 "File not found" 假象）。
+                        cleanArgs.Add("-ThumbnailImage=");
+                        cleanArgs.Add("-PreviewImage=");
+                    }
+
+                    if (cleanArgs.Count > 0)
+                    {
                         string cleanedFile = Path.Combine(imgRepairTempDir, $"cleaned_{Guid.NewGuid():N}{ext}");
-                        await RunExifToolAsync("-ThumbnailImage=", "-o", cleanedFile, tempWorkFile);
-                        // 替换原临时文件
+                        cleanArgs.Add("-o");
+                        cleanArgs.Add(cleanedFile);
+                        cleanArgs.Add(tempWorkFile);
+                        await RunExifToolAsync(cleanArgs.ToArray());
                         File.Delete(tempWorkFile);
                         tempWorkFile = cleanedFile;
                     }
@@ -1218,18 +1244,20 @@ public static class LivePhotoRepairService
             return (true, string.Empty);
         }
 
-        // 带重试的 jhead 调用：处理 Windows Defender 等安全软件在文件创建后短暂锁定的偶发问题。
-        // "Could not open file for write" 时最多重试 3 次，每次间隔 200ms。
-        private static async Task RunJheadWithRetryAsync(string arg1, string arg2, CancellationToken token, int maxRetries = 3)
+        // 带重试的 jpegtran 调用：处理 Windows Defender 等安全软件在文件创建后短暂锁定的偶发问题。
+        // "Could not open file" / "Access is denied" 时最多重试 3 次，每次间隔 200ms。
+        private static async Task RunJpegTranWithRetryAsync(string[] args, CancellationToken token, int maxRetries = 3)
         {
             for (int attempt = 0; attempt < maxRetries; attempt++)
             {
                 try
                 {
-                    await RunJheadAsync(arg1, arg2);
+                    await RunJpegTranAsync(args);
                     return; // 成功
                 }
-                catch (Exception ex) when (ex.Message.Contains("Could not open file", StringComparison.OrdinalIgnoreCase))
+                catch (Exception ex) when (
+                    ex.Message.Contains("Could not open file", StringComparison.OrdinalIgnoreCase) ||
+                    ex.Message.Contains("Access is denied", StringComparison.OrdinalIgnoreCase))
                 {
                     if (attempt == maxRetries - 1) throw; // 最后一次仍失败，抛出
                     await Task.Delay(200, token);
@@ -1237,15 +1265,14 @@ public static class LivePhotoRepairService
             }
         }
 
-        // 运行 jhead（jhead 需要 jpegtran 在同目录或 PATH 中，设置 WorkingDirectory 为 Tools 目录）
-        private static async Task RunJheadAsync(params string[] args)
+        // 运行 jpegtran（自包含 DCT 域无损变换工具，无子进程依赖）。
+        // jpegtran 直接由 .NET Process.Start 调用，一跳直达，避免 jhead 的孙子进程
+        // 在 MSIX AppContainer 沙箱中被拦截的问题。
+        private static async Task RunJpegTranAsync(params string[] args)
         {
-            string toolDir = Path.GetDirectoryName(JheadPath) ?? AppContext.BaseDirectory;
-
             var psi = new ProcessStartInfo
             {
-                FileName = JheadPath,
-                WorkingDirectory = toolDir, // 确保 jhead 能找到同目录下的 jpegtran.exe
+                FileName = JpegTranPath,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -1256,8 +1283,8 @@ public static class LivePhotoRepairService
             using var process = Process.Start(psi);
             if (process == null)
             {
-                WriteDebugLog("ERROR", "Jhead", "jhead process failed to start", $"Path: {JheadPath}");
-                throw new Exception("Cannot start jhead.exe");
+                WriteDebugLog("ERROR", "JpegTran", ResourceService.GetString("Log_JpegTranStartFailed") ?? "jpegtran process failed to start", $"Path: {JpegTranPath}");
+                throw new Exception(ResourceService.GetString("Error_CannotStartJpegTran") ?? "Cannot start jpegtran.exe");
             }
 
             // 并行读取 stdout/stderr 避免缓冲区死锁
@@ -1269,13 +1296,13 @@ public static class LivePhotoRepairService
 
             if (process.ExitCode != 0)
             {
-                WriteDebugLog("ERROR", "Jhead", $"jhead failed (ExitCode: {process.ExitCode})", $"Args: jhead {string.Join(" ", args)}\n\nOutput:\n{output}\n\nError:\n{error}");
-                throw new Exception($"jhead: {error.TrimEnd()}".TrimEnd());
+                WriteDebugLog("ERROR", "JpegTran", $"jpegtran failed (ExitCode: {process.ExitCode})", $"Args: jpegtran {string.Join(" ", args)}\n\nOutput:\n{output}\n\nError:\n{error}");
+                throw new Exception($"jpegtran: {error.TrimEnd()}".TrimEnd());
             }
 
             if (!string.IsNullOrWhiteSpace(error))
             {
-                WriteDebugLog("WARN", "Jhead", "jhead warning", $"Args: jhead {string.Join(" ", args)}\n\nOutput:\n{error}");
+                WriteDebugLog("WARN", "JpegTran", "jpegtran warning", $"Args: jpegtran {string.Join(" ", args)}\n\nOutput:\n{error}");
             }
         }
 

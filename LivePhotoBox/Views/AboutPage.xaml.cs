@@ -57,9 +57,6 @@ namespace LivePhotoBox.Views
         // 打开 ExifTool 官网
         private async void ExifTool_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://exiftool.org/"));
 
-        // 打开 JHead 工具官网
-        private async void JHead_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://www.sentex.ca/~mwandel/jhead/"));
-
         // 打开 JPEGTran 工具官网
         private async void JpegTran_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://www.ijg.org/"));
 

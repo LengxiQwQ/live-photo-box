@@ -1538,9 +1538,7 @@ Place any of these files into the same folder.</value>
   <data name="SettingsPage_HardwareRefresh_Button.ToolTipService.ToolTip" xml:space="preserve">
     <value>Refresh hardware detection</value>
   </data>
-  <data name="AboutPage_JHeadSuffix.Text" xml:space="preserve">
-    <value>(by Matthias Wandel) — Lossless auto-rotation of JPEG files, correcting orientation at the physical level via jpegtran</value>
-  </data>
+
   <data name="Tag_OrientationMirror" xml:space="preserve">
     <value>EXIF mirror flag</value>
   </data>

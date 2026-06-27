@@ -154,8 +154,8 @@
                             <ColumnDefinition Width="96"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <ic:FluentIcon Grid.Column="0" Icon="PersonDesktop"
-                                       VerticalAlignment="Center"/>
+                        <FontIcon Grid.Column="0" Glyph="&#xE77B;" FontSize="15"
+          VerticalAlignment="Center"/>
                         <TextBlock Grid.Column="1"
                                    x:Uid="AboutPage_DeveloperLabel"
                                    FontWeight="SemiBold"
@@ -262,23 +262,6 @@
                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                         </Button>
                         <TextBlock Grid.Column="1" x:Uid="AboutPage_ExifToolSuffix"
-                                   Style="{StaticResource ContentTextStyle}"
-                                   VerticalAlignment="Center"/>
-                    </Grid>
-
-                    <!-- JHead -->
-                    <Grid ColumnSpacing="6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-                        <Button Grid.Column="0" Click="JHead_Click"
-                                Style="{StaticResource AboutLinkButtonStyle}" Padding="0">
-                            <TextBlock Text="JHead" Style="{StaticResource ContentTextStyle}"
-                                       FontWeight="SemiBold"
-                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                        </Button>
-                        <TextBlock Grid.Column="1" x:Uid="AboutPage_JHeadSuffix"
                                    Style="{StaticResource ContentTextStyle}"
                                    VerticalAlignment="Center"/>
                     </Grid>

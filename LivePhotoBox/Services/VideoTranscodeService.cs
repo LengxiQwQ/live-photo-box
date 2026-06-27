@@ -1050,7 +1050,7 @@ namespace LivePhotoBox.Services
                     if (File.Exists(candidate)) return candidate;
 
                     // 修复：局部 Try-Catch 处理 PATH 变量带来的隐患
-                    if (candidate == "ffmpeg" || candidate == "ffprobe")
+                    if (candidate == "ffmpeg")
                     {
                         var pathEnv = Environment.GetEnvironmentVariable("PATH");
                         if (!string.IsNullOrEmpty(pathEnv))
