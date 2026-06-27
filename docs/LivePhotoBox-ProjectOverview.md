@@ -73,7 +73,7 @@ live-photo-box/
 │
 ├── docs/                              # 📁 项目文档目录
 │   ├── LivePhotoBox-历史记录标识规范.md   # XMP 历史标记规范
-│   ├── LivePhotoBox-项目总览.md          # 👈 本文件
+│   ├── LivePhotoBox-ProjectOverview.md      # 👈 本文件
 │   ├── 小米实况照片协议分析报告.md        # 小米协议逆向分析
 │   ├── 小米实况照片协议开发记录.md        # 小米协议开发全过程
 │   └── 苹果的矩阵幻象.md                # Display Matrix 镜头判定
@@ -478,7 +478,7 @@ LivePhotoProtocol (抽象基类)
 
 | 文件 | 说明 |
 |------|------|
-| `LivePhotoBox-项目总览.md` | 👈 **本文件** — 项目完整总结 |
+| `LivePhotoBox-ProjectOverview.md` | 👈 **本文件** — 项目完整总结 |
 | `LivePhotoBox-历史记录标识规范.md` | XMP 元数据追踪标记规范：Combo/Split/Repair 三种操作如何注入 XMP 标记 |
 | `小米实况照片协议分析报告.md` | 小米实况照片协议逆向分析：HyperOS 3+ 已切换到 MotionPhoto V2；旧版 12S Ultra 使用 MicroVideo V1 |
 | `小米实况照片协议开发记录.md` | 新增小米协议的全过程开发记录，含失败尝试和根因分析 |

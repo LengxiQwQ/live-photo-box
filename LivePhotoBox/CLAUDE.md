@@ -2,7 +2,7 @@
 
 WinUI 3 (WinAppSDK 1.8 + .NET 9) 桌面应用，用于处理 iPhone 实况照片。
 
-> 📖 **完整项目文档**: `docs/LivePhotoBox-项目总览.md` — 包含完整目录树、每个文件说明、技术栈详情、架构图等。
+> 📖 **完整项目文档**: `docs/LivePhotoBox-ProjectOverview.md` — 包含完整目录树、每个文件说明、技术栈详情、架构图等。
 
 ## 项目结构
 
