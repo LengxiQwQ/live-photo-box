@@ -24,6 +24,7 @@
 		<AppxBundle>Never</AppxBundle>
 		<SelfContained>true</SelfContained>
 		<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+		<!-- 非打包 Bootstrap 见 Services/WindowsAppSdkBootstrap.cs（ModuleInitializer） -->
 	</PropertyGroup>
 	
 	<ItemGroup>
@@ -181,7 +182,7 @@
 		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
         <PackageCertificateKeyFile Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">LivePhotoBox_TemporaryKey.pfx</PackageCertificateKeyFile>
 		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-box</AppInstallerUri>
-		<GenerateTestArtifacts>False</GenerateTestArtifacts>
+		<GenerateTestArtifacts>True</GenerateTestArtifacts>
 	</PropertyGroup>
 
 	<!-- Strip unwanted WinUI/WinAppSDK locale satellite folders from output (keep only zh-Hans / en-US) -->
