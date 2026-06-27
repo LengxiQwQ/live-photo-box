@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg id="_图层_1" data-name="图层_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 161 44">
+<svg id="_图层_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 161 44">
   <!-- Generator: Adobe Illustrator 29.1.0, SVG Export Plug-In . SVG Version: 2.1.0 Build 142)  -->
   <defs>
     <style>
@@ -8,31 +8,39 @@
       }
 
       .st1 {
-        font-size: 16.3px;
+        font-size: 9.1px;
+      }
+
+      .st1, .st3, .st2 {
+        isolation: isolate;
       }
 
       .st1, .st2 {
-        font-family: MyriadPro-Regular, 'Myriad Pro';
+        font-family: ArialMT, Arial;
       }
 
-      .st3 {
-        fill: #202020;
+      .st2 {
+        font-size: 14.5px;
       }
 
       .st4 {
+        fill: #202020;
+      }
+
+      .st5 {
         fill: none;
         stroke: #000;
         stroke-opacity: .1;
       }
-
-      .st2 {
-        font-size: 9.1px;
-      }
     </style>
   </defs>
-  <rect class="st3" x="1" y="1" width="159" height="42" rx="4" ry="4"/>
-  <rect class="st4" x=".5" y=".5" width="160" height="43" rx="4.5" ry="4.5"/>
-  <path class="st0" d="M20.3,11.3c-6.1,0-11,4.9-11,11s3.2,9,7.5,10.4c.5.1.8-.2.8-.5s0-1,0-1.9c-3.1.7-3.7-1.5-3.7-1.5-.5-1.3-1.2-1.6-1.2-1.6-1-.7,0-.7,0-.7,1.1,0,1.7,1.1,1.7,1.1,1,1.7,2.6,1.2,3.2.9.1-.7.4-1.2.7-1.5-2.4-.3-5-1.2-5-5.4s.4-2.2,1.1-2.9c-.1-.3-.5-1.4.1-2.9,0,0,.9-.3,3,1.1.9,0,1.8,0,2.8.1.9,0,1.9.1,2.8.4,2.1-1.4,3-1.1,3-1.1.6,1.5.2,2.6.1,2.9.7.8,1.1,1.8,1.1,2.9,0,4.2-2.6,5.1-5,5.4.4.3.7,1,.7,2,0,1.5,0,2.6,0,3s.2.6.8.5c4.4-1.9,7.5-6,7.5-10.9s-4.9-11-11-11Z"/>
-  <text class="st2" transform="translate(40.4 16.7)"><tspan x="0" y="0">Git it from</tspan></text>
-  <text class="st1" transform="translate(39.8 33.3)"><tspan x="0" y="0">GitHub Releases</tspan></text>
+  <rect class="st4" x="1" y="1" width="159" height="42" rx="4" ry="4"/>
+  <rect class="st5" x=".5" y=".5" width="160" height="43" rx="4.5" ry="4.5"/>
+  <path class="st0" d="M20.3,11.3c-6.1,0-11,4.9-11,11s3.2,9,7.5,10.4c.5,0,.8-.2.8-.5v-1.9c-3.1.7-3.7-1.5-3.7-1.5-.5-1.3-1.2-1.6-1.2-1.6-1-.7,0-.7,0-.7,1.1,0,1.7,1.1,1.7,1.1,1,1.7,2.6,1.2,3.2.9.1-.7.4-1.2.7-1.5-2.4-.3-5-1.2-5-5.4s.4-2.2,1.1-2.9c-.1-.3-.5-1.4.1-2.9,0,0,.9-.3,3,1.1.9,0,1.8,0,2.8.1.9,0,1.9.1,2.8.4,2.1-1.4,3-1.1,3-1.1.6,1.5.2,2.6.1,2.9.7.8,1.1,1.8,1.1,2.9,0,4.2-2.6,5.1-5,5.4.4.3.7,1,.7,2v3c0,.4.2.6.8.5,4.4-1.9,7.5-6,7.5-10.9s-4.9-11-11-11v.2Z"/>
+  <g class="st3">
+    <text class="st1" transform="translate(40.9 16.7) scale(1.1 1)"><tspan x="0" y="0">Git it from</tspan></text>
+  </g>
+  <g class="st3">
+    <text class="st2" transform="translate(39.8 33.9)"><tspan x="0" y="0">GitHub Releases</tspan></text>
+  </g>
 </svg>
