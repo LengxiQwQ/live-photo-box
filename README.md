@@ -1,12 +1,12 @@
 <div align="center">
 
-<div align="center" style="display: flex; align-items: center; justify-content: center; gap: 16px;">
-  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="150" />
-  <div align="left">
-    <h1 style="margin: 0;">Live Photo Box</h1>
-    <p style="margin: 4px 0 0 0;"><em>实况照片工具箱 — 专为 Windows 打造的 Apple 实况照片管理与修复工具</em></p>
-  </div>
-</div>
+<table border="0"><tr>
+  <td><img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="150" /></td>
+  <td align="left">
+    <h1>Live Photo Box</h1>
+    <em>实况照片工具箱 — 专为 Windows 打造的 Apple 实况照片管理与修复工具</em>
+  </td>
+</tr></table>
 
 </div>
 
@@ -51,10 +51,6 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 ## ✨ 核心功能
 
-<table>
-<tr>
-<td width="50%">
-
 ### 🔗 实况合成（Combo）
 
 将任意静态图片 + 视频素材组合为标准实况照片。
@@ -64,9 +60,6 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - **黑科技配对引擎**：即使照片和视频文件名完全不同，也能通过 Apple 元数据中的 ContentIdentifier（UUID）精确匹配；无法匹配 UUID 时自动降级为拍摄日期 ±2 秒容差匹配，时区感知
 - **任何协议合成的实况照片均可在 Windows 上直接查看**
 
-</td>
-<td width="50%">
-
 ### 📸 实况分离（Split）
 
 将实况照片拆分为独立的静态图片（JPG/HEIC）和视频（MOV/MP4）。
@@ -74,11 +67,6 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - 智能剥离 Google XMP 元数据，防止拆分后的图片被再次误识别为实况照片
 - 按 JPEG 段结构逐段重建，不丢失 EXIF / ICC / GPS / 拍摄参数
 - 支持 MicroVideo V1、MotionPhoto V2、OPPO O-Live 三种格式
-
-</td>
-</tr>
-<tr>
-<td width="50%">
 
 ### 🛠️ 元数据修复（Repair）
 
@@ -90,9 +78,6 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - **ContentIdentifier 丢失**：自动修复照片-视频的 UUID 配对关系
 - 扫描后可查看每张照片的**诊断详情**（方向/缩略图/视频时长/编码格式等），按文件类型或修复状态快速筛选
 
-</td>
-<td width="50%">
-
 ### 🖼️ 封面修改（Key Photo）
 
 自由更换实况照片的封面帧。
@@ -101,22 +86,13 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - 支持上传自定义图片
 - 无损替换，保持实况属性完整
 
-<p align="center"><sub>🚧 功能开发中</sub></p>
-
-</td>
-</tr>
-<tr>
-<td colspan="2" align="center">
+> 🚧 功能开发中
 
 ### 📂 自动整理相册
 
 按拍摄设备、日期、实况照片类型自动扫描分类归档。
 
-<p align="center"><sub>🚧 功能开发中</sub></p>
-
-</td>
-</tr>
-</table>
+> 🚧 功能开发中
 
 ---
 
