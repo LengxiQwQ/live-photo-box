@@ -215,6 +215,9 @@ namespace LivePhotoBox.ViewModels
         protected override void OnCleanup()
         {
             _uiUpdateTimer.Stop();
+            _uiUpdateTimer.Tick -= UiUpdateTimer_Tick;
+            Tasks.ReplaceRange([]);
+            ThumbnailService.ClearCache();
         }
 
         protected override void OnScanningEnded()
@@ -767,9 +770,11 @@ namespace LivePhotoBox.ViewModels
                 LogService.Split($"Split processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{QueuedCount}");
                 SetStatus("Status_SplitStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                LogService.Split($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Split($"RunTasksAsync fatal error: {ex.Message}", LogLevel.Error, ex);
+                Environment.ExitCode = unchecked((int)0xE0000001);
+                throw;
             }
             finally
             {
@@ -780,13 +785,22 @@ namespace LivePhotoBox.ViewModels
                 // 所有任务结束后统一清理 Temp 目录（确保无残留）
                 CleanSplitTempDirectory(outputDir);
 
-                // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot
+                // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot。
+                // 多个队列同时完成时 WinUI 只允许一个 ContentDialog，
+                // 冲突会抛 COMException，这里吞掉即可（不影响处理结果）。
                 if (Tasks.Count > 0 && !_isCleaningUp)
                 {
-                    if (wasCancelled)
-                        await ShowSplitCancelledDialogAsync();
-                    else
-                        await ShowSplitAlreadyDoneDialogAsync();
+                    try
+                    {
+                        if (wasCancelled)
+                            await ShowSplitCancelledDialogAsync();
+                        else
+                            await ShowSplitAlreadyDoneDialogAsync();
+                    }
+                    catch (System.Runtime.InteropServices.COMException ex)
+                    {
+                        LogService.Debug($"Completion dialog skipped (another dialog already open): {ex.Message}", LogSource.UI);
+                    }
                 }
             }
         }

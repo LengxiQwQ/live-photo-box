@@ -528,7 +528,9 @@ namespace LivePhotoBox.ViewModels
             Repair.RequestNavigateToPage += (s, tag) => RequestNavigateToPage?.Invoke(this, tag);
         }
 
-        // 释放子 ViewModel 资源（停止计时器等）。
+        // 释放子 ViewModel 资源：停止 DispatcherTimer、解除 Tick 回调、
+        // 取消 CancellationToken、释放 ManualResetEventSlim、清空任务集合。
+        // 在窗口关闭时由 MainWindow.Closed 调用。
         public void Cleanup()
         {
             Merge.Cleanup();

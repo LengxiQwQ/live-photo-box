@@ -485,6 +485,10 @@ namespace LivePhotoBox.ViewModels
         protected override void OnCleanup()
         {
             _uiUpdateTimer.Stop();
+            _uiUpdateTimer.Tick -= UiUpdateTimer_Tick;
+            Tasks.ReplaceRange([]);
+            FilteredTasks.ReplaceRange([]);
+            ThumbnailService.ClearCache();
         }
 
         protected override void OnScanningEnded()
@@ -1558,9 +1562,15 @@ namespace LivePhotoBox.ViewModels
                     catch (OperationCanceledException) { }
                 }, token);
             }
+            catch (OperationCanceledException)
+            {
+                // 用户取消 — 正常退出路径，下面 finally 块会处理状态更新
+            }
             catch (Exception ex)
             {
-                LogService.Repair($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
+                LogService.Repair($"RunTasksAsync fatal error: {ex.Message}", LogLevel.Error, ex);
+                Environment.ExitCode = unchecked((int)0xE0000001);
+                throw;
             }
             finally
             {
@@ -1586,12 +1596,21 @@ namespace LivePhotoBox.ViewModels
                 // 修复结束：恢复筛选可用
                 UpdateFilterEnabled();
 
+                // 关闭中不弹对话框；多个队列同时完成时 WinUI 只允许一个 ContentDialog，
+                // 冲突的 COMException 吞掉即可（不影响处理结果）。
                 if (Tasks.Count > 0 && !_isCleaningUp)
                 {
-                    if (wasCancelled)
-                        await ShowRepairCancelledDialogAsync();
-                    else
-                        await ShowRepairAlreadyDoneDialogAsync();
+                    try
+                    {
+                        if (wasCancelled)
+                            await ShowRepairCancelledDialogAsync();
+                        else
+                            await ShowRepairAlreadyDoneDialogAsync();
+                    }
+                    catch (System.Runtime.InteropServices.COMException ex)
+                    {
+                        LogService.Debug($"Completion dialog skipped (another dialog already open): {ex.Message}", LogSource.UI);
+                    }
                 }
             }
         }
