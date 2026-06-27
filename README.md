@@ -1,12 +1,11 @@
 <div align="center">
 
-<table border="0"><tr>
-  <td><img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="150" /></td>
-  <td align="left">
-    <h1>Live Photo Box</h1>
-    <em>实况照片工具箱 — 专为 Windows 打造的 Apple 实况照片管理与修复工具</em>
-  </td>
-</tr></table>
+<h1>
+  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="120" style="vertical-align: middle; margin-right: 16px;" />
+  Live Photo Box
+</h1>
+
+<p><em>实况照片工具箱 — 专为 Windows 打造的 Apple 实况照片管理与修复工具</em></p>
 
 </div>
 
@@ -51,24 +50,24 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 ## ✨ 核心功能
 
-### 🔗 实况合成（Combo）
+### 🔗 实况照片合成
 
 将任意静态图片 + 视频素材组合为标准实况照片。
 
-- 支持 **Google MicroVideo V1 / MotionPhoto V2 / OPPO / 小米** 等多种协议
+- 支持 **Google Micro Video V1 / Motion Photo V2 / OPPO / 小米** 等多种协议
 - 自动写入完整 EXIF + QuickTime 元数据（ContentIdentifier UUID）
 - **黑科技配对引擎**：即使照片和视频文件名完全不同，也能通过 Apple 元数据中的 ContentIdentifier（UUID）精确匹配；无法匹配 UUID 时自动降级为拍摄日期 ±2 秒容差匹配，时区感知
-- **任何协议合成的实况照片均可在 Windows 上直接查看**
+- **目前任何协议合成的实况照片均可在 Windows 上直接查看**
 
-### 📸 实况分离（Split）
+### 📸 实况照片分离
 
 将实况照片拆分为独立的静态图片（JPG/HEIC）和视频（MOV/MP4）。
 
 - 智能剥离 Google XMP 元数据，防止拆分后的图片被再次误识别为实况照片
 - 按 JPEG 段结构逐段重建，不丢失 EXIF / ICC / GPS / 拍摄参数
-- 支持 MicroVideo V1、MotionPhoto V2、OPPO O-Live 三种格式
+- 支持 Micro Video V1、Motion Photo V2、OPPO O-Live 三种格式
 
-### 🛠️ 元数据修复（Repair）
+### 🛠️ 实况照片修复
 
 深度修复 iPhone 实况照片导出到 Windows 后的显示异常。
 
@@ -78,7 +77,7 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - **ContentIdentifier 丢失**：自动修复照片-视频的 UUID 配对关系
 - 扫描后可查看每张照片的**诊断详情**（方向/缩略图/视频时长/编码格式等），按文件类型或修复状态快速筛选
 
-### 🖼️ 封面修改（Key Photo）
+### 🖼️ 封面修改 🚧 功能开发中
 
 自由更换实况照片的封面帧。
 
@@ -86,25 +85,21 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - 支持上传自定义图片
 - 无损替换，保持实况属性完整
 
-> 🚧 功能开发中
-
-### 📂 自动整理相册
+### 📂 自动整理相册 🚧 功能开发中
 
 按拍摄设备、日期、实况照片类型自动扫描分类归档。
-
-> 🚧 功能开发中
 
 ---
 
 ## 📋 支持的实况照片协议
 
-| ID | 协议 | 来源 | 状态 | 说明 |
-|:--:|------|------|:----:|------|
-| 0 | **MicroVideo V1** | Google（已弃用） | ✅ | MP4 视频直接附加在 JPEG 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
-| 1 | **MotionPhoto V2** | Google | ✅ | 现代标准，`Container:Directory` XMP 结构。Google Pixel / Xiaomi HyperOS 3+ 使用 |
-| 2 | **O-Live Photo** | OPPO / OnePlus | ✅ | 扩展 MotionPhoto V2，增加 OpCamera 命名空间 + EXIF UserComment 标记。OPPO ColorOS / OnePlus OxygenOS 使用 |
+| 协议 | 来源 | 说明 |
+|------|------|------|
+| **Micro Video V1** | Google（已弃用） | MP4 视频直接附加在 JPEG 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
+| **Motion Photo V2** | Google | 现代标准，`Container:Directory` XMP 结构。Google Pixel / Xiaomi HyperOS 3+ 使用 |
+| **O-Live Photo** | OPPO / OnePlus | 扩展 Motion Photo V2，增加 OpCamera 命名空间 + EXIF UserComment 标记。OPPO ColorOS / OnePlus OxygenOS 使用 |
 
-> ⚡ **任何协议合成的实况照片，均可在 Windows 11 上直接查看动态效果。**
+> ⚡ **目前任何协议合成的实况照片，均可在 Windows 11 上直接查看动态效果。**
 
 ---
 
