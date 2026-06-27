@@ -66,13 +66,6 @@
                         <ComboBoxItem x:Uid="SettingsPage_Language_System"/>
                         <ComboBoxItem Content="English (en-US)"/>
                         <ComboBoxItem Content="中文(简体) (zh-Hans)"/>
-                        <ComboBoxItem Content="中文(繁體) (zh-Hant)"/>
-                        <ComboBoxItem Content="日本語 (ja) — 開発中"/>
-                        <ComboBoxItem Content="한국어 (ko) — 개발 중"/>
-                        <ComboBoxItem Content="Français (fr) — En développement"/>
-                        <ComboBoxItem Content="Deutsch (de) — In Entwicklung"/>
-                        <ComboBoxItem Content="Español (es) — En desarrollo"/>
-                        <ComboBoxItem Content="Русский (ru) — В разработке"/>
                     </ComboBox>
                 </controls:SettingsCard>
 

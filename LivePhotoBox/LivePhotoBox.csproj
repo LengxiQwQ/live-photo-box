@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<OutputType>WinExe</OutputType>
 		<TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
@@ -9,9 +9,11 @@
 
 		<RootNamespace>LivePhotoBox</RootNamespace>
 		<AssemblyName>LivePhotoBox</AssemblyName>
-		<ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+		<ApplicationIcon>Assets\Icons\AppIcon.ico</ApplicationIcon>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
 		<DefaultLanguage>zh-Hans</DefaultLanguage>
+		<SatelliteResourceLanguages>zh-Hans;en-US</SatelliteResourceLanguages>
+
 
 		<Platforms>x86;x64;ARM64</Platforms>
 		<RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
@@ -25,24 +27,24 @@
 	</PropertyGroup>
 	
 	<ItemGroup>
-	  <Content Remove="Assets\Square44x44Logo.altform-lightunplated_targetsize-16.png" />
-	  <Content Remove="Assets\Square44x44Logo.altform-lightunplated_targetsize-24.png" />
-	  <Content Remove="Assets\Square44x44Logo.altform-lightunplated_targetsize-256.png" />
-	  <Content Remove="Assets\Square44x44Logo.altform-lightunplated_targetsize-32.png" />
-	  <Content Remove="Assets\Square44x44Logo.altform-lightunplated_targetsize-48.png" />
-	  <Content Remove="Assets\Square44x44Logo.altform-unplated_targetsize-16.png" />
-	  <Content Remove="Assets\Square44x44Logo.altform-unplated_targetsize-256.png" />
-	  <Content Remove="Assets\Square44x44Logo.altform-unplated_targetsize-32.png" />
-	  <Content Remove="Assets\Square44x44Logo.altform-unplated_targetsize-48.png" />
-	  <Content Remove="Assets\Square44x44Logo.scale-100.png" />
-	  <Content Remove="Assets\Square44x44Logo.scale-125.png" />
-	  <Content Remove="Assets\Square44x44Logo.scale-150.png" />
-	  <Content Remove="Assets\Square44x44Logo.scale-400.png" />
-	  <Content Remove="Assets\Square44x44Logo.targetsize-16.png" />
-	  <Content Remove="Assets\Square44x44Logo.targetsize-24.png" />
-	  <Content Remove="Assets\Square44x44Logo.targetsize-256.png" />
-	  <Content Remove="Assets\Square44x44Logo.targetsize-32.png" />
-	  <Content Remove="Assets\Square44x44Logo.targetsize-48.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.altform-lightunplated_targetsize-16.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.altform-lightunplated_targetsize-24.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.altform-lightunplated_targetsize-256.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.altform-lightunplated_targetsize-32.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.altform-lightunplated_targetsize-48.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.altform-unplated_targetsize-16.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.altform-unplated_targetsize-256.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.altform-unplated_targetsize-32.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.altform-unplated_targetsize-48.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.scale-100.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.scale-125.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.scale-150.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.scale-400.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.targetsize-16.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.targetsize-24.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.targetsize-256.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.targetsize-32.png" />
+	  <Content Remove="Assets\Icons\Square44x44Logo.targetsize-48.png" />
 	</ItemGroup>
 
 	<ItemGroup>
@@ -165,7 +167,7 @@
 
 	<PropertyGroup>
 		<PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
-       <PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' == 'true'">True</PublishReadyToRun>
+       <PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' == 'true'">False</PublishReadyToRun>
 		<PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' != 'true'">False</PublishReadyToRun>
 		<PublishTrimmed>False</PublishTrimmed>
      <GenerateTemporaryStoreCertificate Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">True</GenerateTemporaryStoreCertificate>
@@ -181,4 +183,9 @@
 		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-studio</AppInstallerUri>
 		<GenerateTestArtifacts>False</GenerateTestArtifacts>
 	</PropertyGroup>
+
+	<!-- Strip unwanted WinUI/WinAppSDK locale satellite folders from output (keep only zh-Hans / en-US) -->
+	<Target Name="StripUnwantedLocales" AfterTargets="Build">
+		<Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(OutDir)' -Directory | Where-Object { $_.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $_.Name -notin @('en-US','en-us','zh-Hans','zh-CN') } | Remove-Item -Recurse -Force&quot;" />
+	</Target>
 </Project>
