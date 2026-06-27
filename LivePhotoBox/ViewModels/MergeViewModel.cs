@@ -306,6 +306,9 @@ namespace LivePhotoBox.ViewModels
         protected override void OnCleanup()
         {
             _uiUpdateTimer.Stop();
+            _uiUpdateTimer.Tick -= UiUpdateTimer_Tick;
+            Tasks.ReplaceRange([]);
+            ThumbnailService.ClearCache();
         }
 
         #endregion
@@ -958,9 +961,13 @@ namespace LivePhotoBox.ViewModels
                 LogService.Merge($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalPairsCount}");
                 SetStatus("Status_MergeStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                LogService.Merge($"RunTasksAsync error: {ex.Message}", LogLevel.Error, ex);
+                // 非取消类异常 = 程序缺陷或系统资源耗尽。
+                // 不能悄悄吞掉——否则进程退出码为 0，用户无法感知崩溃。
+                LogService.Merge($"RunTasksAsync fatal error: {ex.Message}", LogLevel.Error, ex);
+                Environment.ExitCode = unchecked((int)0xE0000001);
+                throw;
             }
             finally
             {
@@ -973,13 +980,22 @@ namespace LivePhotoBox.ViewModels
                 bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
 
-                // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot
+                // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot。
+                // 多个队列同时完成时 WinUI 只允许一个 ContentDialog，
+                // 冲突会抛 COMException，这里吞掉即可（不影响处理结果）。
                 if (Tasks.Count > 0 && !_isCleaningUp)
                 {
-                    if (wasCancelled)
-                        await ShowMergeCancelledDialogAsync();
-                    else
-                        await ShowMergeAlreadyDoneDialogAsync();
+                    try
+                    {
+                        if (wasCancelled)
+                            await ShowMergeCancelledDialogAsync();
+                        else
+                            await ShowMergeAlreadyDoneDialogAsync();
+                    }
+                    catch (System.Runtime.InteropServices.COMException ex)
+                    {
+                        LogService.Debug($"Completion dialog skipped (another dialog already open): {ex.Message}", LogSource.UI);
+                    }
                 }
             }
         }

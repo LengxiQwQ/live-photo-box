@@ -92,6 +92,10 @@ namespace LivePhotoBox.Services
 
         #region Exception Handlers
 
+        // 崩溃退出码。操作系统用非零值判断进程是否异常退出。
+        // 使用 0xE0000000 (E = Error) 避免与 OS 原生崩溃码（如 0xC0000005）混淆。
+        private const int CrashExitCode = unchecked((int)0xE0000001);
+
         private static void OnApplicationUnhandledException(object sender, XamlUnhandledExceptionEventArgs e)
         {
             var ex = e.Exception;
@@ -103,6 +107,10 @@ namespace LivePhotoBox.Services
             ]);
 
             LogService.ForceFlush();
+
+            // 不设置 e.Handled = true，让 WinUI 正常终止进程。
+            // 确保退出码非零。
+            Environment.ExitCode = CrashExitCode;
         }
 
         private static void OnCurrentDomainUnhandledException(object? sender, System.UnhandledExceptionEventArgs e)
@@ -116,6 +124,9 @@ namespace LivePhotoBox.Services
             ]);
 
             LogService.ForceFlush();
+
+            // AppDomain 未处理异常后 CLR 必然终止进程，确保退出码非零。
+            Environment.ExitCode = CrashExitCode;
         }
 
         private static void OnTaskSchedulerUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
@@ -129,7 +140,12 @@ namespace LivePhotoBox.Services
             ]);
 
             LogService.ForceFlush();
-            e.SetObserved();
+
+            // 不要调用 e.SetObserved()。
+            // .NET 6+ 默认行为：未观察的任务异常会终止进程。SetObserved() 会阻止这个行为，
+            // 导致异常被静默吞掉 → 进程看起来"正常退出"（ExitCode=0）→ 用户无法感知崩溃。
+            // 不调用 SetObserved() 让 CLR 走默认的进程终止路径，产生非零退出码。
+            Environment.ExitCode = CrashExitCode;
         }
 
         #endregion

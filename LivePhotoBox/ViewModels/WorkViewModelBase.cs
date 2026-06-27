@@ -311,11 +311,13 @@ namespace LivePhotoBox.ViewModels
             }
             else
             {
-                // 关闭流程：先 Set 再 Dispose，保证不会在 Dispose 后还被调用
+                // 关闭流程：先 Set 再 Dispose，保证不会在 Dispose 后还被调用。
+                // CleanupTokens() 可能已经在 UI 线程调用了 Dispose，
+                // 这里做防御性捕获。
                 PauseEvent.Set();
                 _cancellationTokenSource?.Dispose();
                 _cancellationTokenSource = null;
-                PauseEvent.Dispose();
+                try { PauseEvent.Dispose(); } catch (ObjectDisposedException) { }
             }
         }
 
@@ -353,7 +355,9 @@ namespace LivePhotoBox.ViewModels
             return _scanCancellationTokenSource.Token;
         }
 
-        // 清理所有 Token 和信号量（页面关闭时调用）。
+        // 清理所有 CancellationTokenSource 和暂停信号量（页面关闭时调用）。
+        // 注意：FinalizeRunState() 可能在另一个线程上并发执行（中途关闭场景），
+        // 因此 PauseEvent.Dispose() 两边都加 try-catch 防御 ObjectDisposedException。
         protected void CleanupTokens()
         {
             _isCleaningUp = true;
@@ -363,10 +367,11 @@ namespace LivePhotoBox.ViewModels
             _cancellationTokenSource?.Cancel();
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
-            // 不在这里 Dispose PauseEvent — FinalizeRunState() 的 finally 块
-            // 还没有执行，它还需要调用 PauseEvent.Set()。由 FinalizeRunState
-            // 检测到 _isCleaningUp 后负责释放。
             PauseEvent.Set();
+            // PauseEvent 包裹原生 WaitHandle。正常路径（处理已完成）FinalizeRunState
+            // 不负责释放它，由这里 Dispose；中途关闭路径 FinalizeRunState 也会尝试
+            // Dispose，两边都防御 ObjectDisposedException。
+            try { PauseEvent.Dispose(); } catch (ObjectDisposedException) { }
         }
 
         #endregion

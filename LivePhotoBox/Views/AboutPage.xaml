@@ -18,6 +18,7 @@
  *   - 自适应宽度：无 MaxWidth 限制，随窗口宽度自然伸展/收窄
  -->
 
+    
 <Page
     x:Class="LivePhotoBox.Views.AboutPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"

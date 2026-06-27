@@ -180,12 +180,12 @@
 		<AppxBundlePlatforms>$(Platform)</AppxBundlePlatforms>
 		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
         <PackageCertificateKeyFile Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">LivePhotoBox_TemporaryKey.pfx</PackageCertificateKeyFile>
-		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-studio</AppInstallerUri>
+		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-box</AppInstallerUri>
 		<GenerateTestArtifacts>False</GenerateTestArtifacts>
 	</PropertyGroup>
 
 	<!-- Strip unwanted WinUI/WinAppSDK locale satellite folders from output (keep only zh-Hans / en-US) -->
-	<Target Name="StripUnwantedLocales" AfterTargets="Build">
-		<Exec Command="powershell -NoProfile -Command &quot;Get-ChildItem '$(OutDir)' -Directory | Where-Object { $_.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $_.Name -notin @('en-US','en-us','zh-Hans','zh-CN') } | Remove-Item -Recurse -Force&quot;" />
+	<Target Name="StripUnwantedLocales" AfterTargets="Build" Condition="Exists('$(OutDir)')">
+		<Exec Command="powershell -NoProfile -NoLogo -Command &quot;Get-ChildItem '$(OutDir)' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $_.Name -notin @('en-US','en-us','zh-Hans','zh-CN') } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue&quot;" IgnoreExitCode="true" />
 	</Target>
 </Project>

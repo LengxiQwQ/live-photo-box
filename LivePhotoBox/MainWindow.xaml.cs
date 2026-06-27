@@ -77,13 +77,30 @@ namespace LivePhotoBox
             InitializeComponent();
             LogService.Info("MainWindow constructed.", LogSource.UI);
 
-            // 窗口关闭时清理资源和日志
+            // 窗口关闭。
+            // 行业标准做法：只做"不做就会崩"的事。OS 在进程退出时自动回收内存/句柄/子进程。
+            // WinUI 3 特有风险：
+            //   a) DesktopAcrylicController 是 DWM COM 接口，窗口句柄销毁后无法释放 → 崩
+            //   b) DispatcherTimer.Tick 在窗口销毁后可能被 DispatcherQueue 派发，
+            //      回调访问已释放的 XAML 元素 → 0xc0000005
+            // 除此之外的"资源释放"都是替 OS 干它本来就会干的事。
             Closed += (_, _) =>
             {
+                // 1. 离开当前页面 → 触发 Page.Unloaded → 停止页面级 DispatcherQueue 定时器
+                //    （如 RepairPage 的缩略图检查定时器）
+                try { MainFrame.Navigate(typeof(Microsoft.UI.Xaml.Controls.Page)); }
+                catch { /* 窗口已在销毁中，导航失败是预期的 */ }
+
+                // 2. 释放 Acrylic 控制器（DWM COM，必须在窗口句柄有效时做）
                 CleanupAcrylicController();
+
+                // 3. 停止所有 DispatcherTimer 并解除 Tick 回调
+                //    Merge / Split / Repair 各有一个 60ms UI 刷新定时器
+                ViewModel.Cleanup();
+
+                // Done. OS 接管：回收内存、关闭文件、杀掉 exiftool/ffmpeg 子进程。
                 LogService.Info("MainWindow closed.", LogSource.UI);
                 LogService.MarkCleanShutdown();
-                ViewModel.Cleanup();
             };
 
             // 启用自定义标题栏
@@ -294,10 +311,13 @@ namespace LivePhotoBox
             }
         }
 
-        // 清理 Acrylic Controller 资源，移除背景目标并释放对象
+        // 清理 Acrylic Controller 资源，移除背景目标并释放所有相关对象
         private void CleanupAcrylicController()
         {
             _acrylicDebounceCts?.Cancel();
+            _acrylicDebounceCts?.Dispose();
+            _acrylicDebounceCts = null;
+
             if (_acrylicController == null) return;
             if (_acrylicTarget != null) _acrylicController.RemoveSystemBackdropTarget(_acrylicTarget);
             _acrylicController.Dispose();
