@@ -131,28 +131,41 @@ namespace LivePhotoBox
         // 包括错误模式抑制、语言设置、日志系统、硬件检测和崩溃处理器注册。
         public App()
         {
+            System.Diagnostics.Debug.WriteLine("[LivePhotoBox] App constructor started.");
+
             // 禁止子进程崩溃时弹出 Windows 错误报告/JIT 调试器对话框。
             // exiftool / ffmpeg 等外部工具遇到损坏文件可能触发 Win32 异常，
             // 主程序有 try-catch 兜底，不需要 OS 弹窗干扰用户。
             SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 
+            System.Diagnostics.Debug.WriteLine("[LivePhotoBox] SetErrorMode done, applying language...");
             ApplyLanguageSetting();
+
+            System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Initializing log service...");
             LogService.Initialize();
 
             // 尽早检测硬件，使摘要信息在 UI 消息前出现在日志中
+            System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Detecting hardware...");
             try { HardwareService.GetAvailableHardware(); }
             catch (Exception ex) { LogService.Warn($"Hardware detection failed: {ex.Message}", source: LogSource.System); }
 
+            System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Initializing crash handler...");
             CrashHandler.Initialize(this);
+
+            System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Calling InitializeComponent()...");
             InitializeComponent();
+
             LogService.Info("Application initialized.", LogSource.App);
+            System.Diagnostics.Debug.WriteLine("[LivePhotoBox] App constructor completed successfully.");
         }
 
         // 从持久化设置中读取语言索引并应用语言覆盖
         private void ApplyLanguageSetting()
         {
             int languageIndex = AppSettingsService.GetValue("LanguageIndex", 0);
+            System.Diagnostics.Debug.WriteLine($"[LivePhotoBox] LanguageIndex={languageIndex}, applying override...");
             LanguageService.ApplyLanguageOverride(languageIndex);
+            System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Language override applied successfully.");
         }
 
         // 应用启动后触发，创建并激活主窗口
