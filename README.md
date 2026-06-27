@@ -1,7 +1,7 @@
 <div align="center">
 
 <h1>
-  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="120" align="middle" hspace="16" />
+  <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" alt="icon" width="120" align="middle" hspace="16" />
   Live Photo Box
 </h1>
 
@@ -39,7 +39,45 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 <p align="center">
   <a href="#"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="58" /></a>
   &nbsp;&nbsp;
-  <a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://img.shields.io/badge/⬇_Download-GitHub_Releases-181717?style=for-the-badge&logo=github&logoColor=white" alt="GitHub Releases" height="58" /></a>
+  <a href="https://github.com/lengxiqwq/live-photo-box/releases">
+    <svg id="_图层_1" data-name="图层_1" xmlns="http://www.w3.org/2000/svg" version="1.1" viewBox="0 0 161 44" height="58">
+      <!-- Generator: Adobe Illustrator 29.1.0, SVG Export Plug-In . SVG Version: 2.1.0 Build 142)  -->
+      <defs>
+        <style>
+          .st0, .st1, .st2 {
+            fill: #fff;
+          }
+
+          .st1 {
+            font-size: 16.3px;
+          }
+    
+          .st1, .st2 {
+            font-family: MyriadPro-Regular, 'Myriad Pro';
+          }
+    
+          .st3 {
+            fill: #202020;
+          }
+    
+          .st4 {
+            fill: none;
+            stroke: #000;
+            stroke-opacity: .1;
+          }
+    
+          .st2 {
+            font-size: 9.1px;
+          }
+        </style>
+      </defs>
+      <rect class="st3" x="1" y="1" width="159" height="42" rx="4" ry="4"/>
+      <rect class="st4" x=".5" y=".5" width="160" height="43" rx="4.5" ry="4.5"/>
+      <path class="st0" d="M20.3,11.3c-6.1,0-11,4.9-11,11s3.2,9,7.5,10.4c.5.1.8-.2.8-.5s0-1,0-1.9c-3.1.7-3.7-1.5-3.7-1.5-.5-1.3-1.2-1.6-1.2-1.6-1-.7,0-.7,0-.7,1.1,0,1.7,1.1,1.7,1.1,1,1.7,2.6,1.2,3.2.9.1-.7.4-1.2.7-1.5-2.4-.3-5-1.2-5-5.4s.4-2.2,1.1-2.9c-.1-.3-.5-1.4.1-2.9,0,0,.9-.3,3,1.1.9,0,1.8,0,2.8.1.9,0,1.9.1,2.8.4,2.1-1.4,3-1.1,3-1.1.6,1.5.2,2.6.1,2.9.7.8,1.1,1.8,1.1,2.9,0,4.2-2.6,5.1-5,5.4.4.3.7,1,.7,2,0,1.5,0,2.6,0,3s.2.6.8.5c4.4-1.9,7.5-6,7.5-10.9s-4.9-11-11-11Z"/>
+      <text class="st2" transform="translate(40.4 16.7)"><tspan x="0" y="0">Git it from</tspan></text>
+      <text class="st1" transform="translate(39.8 33.3)"><tspan x="0" y="0">GitHub Releases</tspan></text>
+    </svg>
+  </a>
 </p>
 
 <p align="center">
@@ -157,10 +195,10 @@ cd live-photo-box
 dotnet restore
 
 # 编译项目
-dotnet build LivePhotoBox/LivePhotoBox.csproj
+dotnet build Live Photo Box/LivePhotoBox.csproj
 
 # 启动运行
-dotnet run --project LivePhotoBox/LivePhotoBox.csproj
+dotnet run --project Live Photo Box/LivePhotoBox.csproj
 ```
 
 ---
@@ -169,7 +207,7 @@ dotnet run --project LivePhotoBox/LivePhotoBox.csproj
 
 ```
 live-photo-box/
-├── LivePhotoBox/              # 主项目（WinUI 3 MSIX 应用）
+├── Live Photo Box/              # 主项目（WinUI 3 MSIX 应用）
 │   ├── Assets/                # 图标、教程截图等静态资源
 │   ├── Controls/              # 自定义控件（全屏灯箱、底部状态栏）
 │   ├── Converters/            # XAML 值转换器

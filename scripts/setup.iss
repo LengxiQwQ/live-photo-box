@@ -8,7 +8,7 @@
 #define AppURL "https://github.com/LengxiQwQ/live-photo-box"
 #define AppExeName "Live Photo Box.exe"
 #define SourceDir "..\publish\portable_x64"
-#define IconFile "..\LivePhotoBox\Assets\Icons\AppIcon.ico"
+#define IconFile "..\Live Photo Box\Assets\Icons\AppIcon.ico"
 
 ; 版本号从 Package.appxmanifest 读取（命令行 /dVERSION=x.x.x.x 传入）
 #ifndef VERSION
