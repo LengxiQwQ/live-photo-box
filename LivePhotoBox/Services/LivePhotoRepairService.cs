@@ -206,8 +206,10 @@ public static class LivePhotoRepairService
             };
         }
 
-        // 安全地从 JsonElement 读取值（兼容 string 和 number 类型）。
+        // 安全地从 JsonElement 读取值（兼容 string、number 和 array 类型）。
         // exiftool 对 MOV 视频的 Rotation 输出为数字（如 90），对 JPEG/HEIC 为字符串（如 "Rotate 90 CW"）。
+        // MatrixStructure 在一些 exiftool 版本中输出为 JSON 数组（如 [1,0,0,0,-1,0,0,0,1]），
+        // 需要转换为空格分隔的字符串才能被 ParseQuickTimeMatrix 解析。
         private static string GetJsonValueAsString(JsonElement element, string propertyName)
         {
             if (!element.TryGetProperty(propertyName, out var prop))
@@ -217,6 +219,8 @@ public static class LivePhotoRepairService
             {
                 System.Text.Json.JsonValueKind.String => prop.GetString() ?? "",
                 System.Text.Json.JsonValueKind.Number => prop.GetRawText(),
+                // 兼容 JSON 数组格式：将数组元素用空格连接，方便下游解析
+                System.Text.Json.JsonValueKind.Array => string.Join(" ", prop.EnumerateArray().Select(x => x.GetRawText())),
                 _ => prop.ToString()
             };
         }
@@ -442,6 +446,16 @@ public static class LivePhotoRepairService
                     }
 
                     var (transform, matrixAngle) = ParseQuickTimeMatrix(trackMatrix);
+
+                    // 安全网：JSON 快速路径虽然拿到了 MatrixStructure 值但解析失败时
+                    // （例如旧版 exiftool 输出 JSON 数组格式导致 GetJsonValueAsString 转换异常，
+                    //  或矩阵值超出 ParseQuickTimeMatrix 已知模式的范围），
+                    // 回退到 -v2 详细模式重新获取矩阵，避免静默漏检。
+                    if (string.IsNullOrEmpty(transform) && !string.IsNullOrEmpty(matrixStructure))
+                    {
+                        trackMatrix = await GetVideoTrackMatrixAsync(filePath, persistentExifTool, token);
+                        (transform, matrixAngle) = ParseQuickTimeMatrix(trackMatrix);
+                    }
 
                     if (!string.IsNullOrEmpty(transform))
                     {
