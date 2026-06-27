@@ -71,7 +71,7 @@
                 <Border MaxWidth="220" MinWidth="220" Height="220" Padding="0" CornerRadius="30"
                         HorizontalAlignment="Center" Background="{ThemeResource CardBackgroundBrush}"
                         BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
-                    <Image Source="/Assets/AppIcon-full.png" Stretch="Uniform"/>
+                    <Image Source="/Assets/Icons/AppIcon-full.png" Stretch="Uniform"/>
                 </Border>
 
                 <!-- 应用名称 -->

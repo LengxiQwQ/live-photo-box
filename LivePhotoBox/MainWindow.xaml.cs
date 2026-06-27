@@ -97,7 +97,7 @@ namespace LivePhotoBox
 
             if (appWindow != null)
             {
-                string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+                string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Icons", "AppIcon.ico");
                 if (File.Exists(iconPath))
                 {
                     appWindow.SetIcon(iconPath);

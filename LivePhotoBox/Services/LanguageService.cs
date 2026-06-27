@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace LivePhotoBox.Services
 {
     // 多语言服务 — 管理应用界面语言的索引映射、语言覆盖切换以及切换后的重启提示。
-    // 支持系统跟随模式（自动检测 Windows 显示语言）和 9 种手动指定语言（中/英/日/韩/法/德/西/俄）。
+    // 支持系统跟随模式（自动检测 Windows 显示语言）和 2 种手动指定语言（简体中文/英语）。
     // 语言切换后通过 PrimaryLanguageOverride 持久化，并提示用户重启应用生效。
     public static class LanguageService
     {
@@ -33,8 +33,9 @@ namespace LivePhotoBox.Services
 
         // 将语言索引转换为 BCP-47 语言标签。
         // 索引 0 表示"跟随系统"，会遍历系统首选语言列表匹配支持的语种；
-        // 索引 1-9 映射到固定语言（en-US, zh-Hans, zh-Hant, ja, ko, fr, de, es, ru）。
-        // 系统语言匹配优先级：繁中 > 简中 > 英语 > 日语 > 韩语 > 法语 > 德语 > 西班牙语 > 俄语。
+        // 索引 1-2 映射到固定语言（en-US, zh-Hans）。
+        // 系统语言匹配优先级：简中 > 英语。
+        // index: 语言索引（0=跟随系统，1-2=固定语言）
         // index: 语言索引（0=跟随系统，1-9=固定语言）
         // è¿å: BCP-47 语言标签
         public static string GetEffectiveLanguage(int index)
@@ -46,16 +47,8 @@ namespace LivePhotoBox.Services
                 foreach (var lang in systemLangs)
                 {
                     var lowerLang = lang.ToLowerInvariant();
-                    if (lowerLang.StartsWith("zh-hant") || lowerLang.StartsWith("zh-tw") || lowerLang.StartsWith("zh-hk") || lowerLang.StartsWith("zh-mo"))
-                        return "zh-Hant";
                     if (lowerLang.StartsWith("zh")) return "zh-Hans";
                     if (lowerLang.StartsWith("en")) return "en-US";
-                    if (lowerLang.StartsWith("ja")) return "ja";
-                    if (lowerLang.StartsWith("ko")) return "ko";
-                    if (lowerLang.StartsWith("fr")) return "fr";
-                    if (lowerLang.StartsWith("de")) return "de";
-                    if (lowerLang.StartsWith("es")) return "es";
-                    if (lowerLang.StartsWith("ru")) return "ru";
                 }
                 return "en-US";
             }
@@ -64,13 +57,6 @@ namespace LivePhotoBox.Services
             {
                 1 => "en-US",
                 2 => "zh-Hans",
-                3 => "zh-Hant",
-                4 => "ja",
-                5 => "ko",
-                6 => "fr",
-                7 => "de",
-                8 => "es",
-                9 => "ru",
                 _ => "en-US",
             };
         }
