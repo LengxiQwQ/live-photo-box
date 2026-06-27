@@ -1,16 +1,11 @@
 <div align="center">
 
-<table border="0" frame="void" rules="none" cellpadding="0" cellspacing="0">
-<tr>
-  <td rowspan="2" valign="middle" style="padding-right: 20px;">
-    <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="120" />
-  </td>
-  <td><h1>Live Photo Box</h1></td>
-</tr>
-<tr>
-  <td><em>实况照片工具箱 — 专为 Windows 打造的 Apple 实况照片管理与修复工具</em></td>
-</tr>
-</table>
+<h1>
+  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="120" align="middle" hspace="16" />
+  Live Photo Box
+</h1>
+
+<p><em>实况照片工具箱 — 专为 Windows 打造的 Apple 实况照片管理与修复工具</em></p>
 
 </div>
 
