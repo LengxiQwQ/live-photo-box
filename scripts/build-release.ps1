@@ -4,7 +4,7 @@ Set-Location "D:\Projects\live-photo-box"
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 chcp 65001 > $null
 
-$manifest = Get-Content "LivePhotoBox\Package.appxmanifest" -Raw -Encoding UTF8
+$manifest = Get-Content "Live Photo Box\Package.appxmanifest" -Raw -Encoding UTF8
 $version = if ($manifest -match 'Identity.*Version\s*=\s*"([^"]+)"') { $Matches[1] } else { "0.0.0.0" }
 
 Write-Host "============================================" -ForegroundColor Cyan
@@ -17,7 +17,7 @@ New-Item -ItemType Directory publish | Out-Null
 
 Write-Host "[1/3] Building Release x64 (SelfContained)..." -ForegroundColor Yellow
 
-dotnet publish LivePhotoBox\LivePhotoBox.csproj `
+dotnet publish "Live Photo Box\Live Photo Box.csproj" `
     -c Release `
     -r win-x64 `
     --self-contained true `
