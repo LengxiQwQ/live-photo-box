@@ -8,8 +8,9 @@
 		<NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
 
 		<RootNamespace>LivePhotoBox</RootNamespace>
-		<AssemblyName>LivePhotoBox</AssemblyName>
+		<AssemblyName>Live Photo Box</AssemblyName>
 		<Version>1.14.10.0</Version>
+		<FileVersion>1.14.10.0</FileVersion>
 		<ApplicationIcon>Assets\Icons\AppIcon.ico</ApplicationIcon>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
 		<DefaultLanguage>zh-Hans</DefaultLanguage>
