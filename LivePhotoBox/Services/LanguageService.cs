@@ -43,12 +43,21 @@ namespace LivePhotoBox.Services
             // 0 = 跟随系统 (System Default)：遍历系统语言列表，找到第一个匹配的支持语种
             if (index == 0)
             {
-                var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
-                foreach (var lang in systemLangs)
+                try
                 {
-                    var lowerLang = lang.ToLowerInvariant();
-                    if (lowerLang.StartsWith("zh")) return "zh-Hans";
-                    if (lowerLang.StartsWith("en")) return "en-US";
+                    var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
+                    foreach (var lang in systemLangs)
+                    {
+                        var lowerLang = lang.ToLowerInvariant();
+                        if (lowerLang.StartsWith("zh")) return "zh-Hans";
+                        if (lowerLang.StartsWith("en")) return "en-US";
+                    }
+                }
+                catch (InvalidOperationException)
+                {
+                    // 非打包模式：GlobalizationPreferences 可能无法激活，回退到 en-US
+                    System.Diagnostics.Debug.WriteLine(
+                        "[LivePhotoBox] GetEffectiveLanguage: GlobalizationPreferences unavailable (unpackaged), defaulting to en-US.");
                 }
                 return "en-US";
             }
@@ -67,11 +76,20 @@ namespace LivePhotoBox.Services
         // è¿å: 当前语言 BCP-47 标签
         public static string GetCurrentLanguageTag()
         {
-            var primary = Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride;
-            if (!string.IsNullOrWhiteSpace(primary)) return primary;
+            try
+            {
+                var primary = Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride;
+                if (!string.IsNullOrWhiteSpace(primary)) return primary;
 
-            var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
-            if (systemLangs.Count > 0) return systemLangs[0];
+                var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
+                if (systemLangs.Count > 0) return systemLangs[0];
+            }
+            catch (InvalidOperationException)
+            {
+                // 非打包模式：WinRT 语言 API 不可用，回退到 en-US
+                System.Diagnostics.Debug.WriteLine(
+                    "[LivePhotoBox] GetCurrentLanguageTag: WinRT language APIs unavailable (unpackaged), defaulting to en-US.");
+            }
 
             return "en-US";
         }
@@ -88,7 +106,17 @@ namespace LivePhotoBox.Services
         // languageTag: BCP-47 语言标签
         public static void ApplyLanguageOverride(string languageTag)
         {
-            Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = languageTag;
+            try
+            {
+                Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = languageTag;
+            }
+            catch (InvalidOperationException)
+            {
+                // 非打包模式：WinRT ApplicationLanguages 可能无法激活，
+                // 此时应用使用默认语言，不影响正常功能。
+                System.Diagnostics.Debug.WriteLine(
+                    $"[LivePhotoBox] ApplyLanguageOverride failed (unpackaged mode), using default language.");
+            }
         }
 
         // 显示语言切换确认对话框，询问用户是否立即重启应用以使语言切换完全生效。

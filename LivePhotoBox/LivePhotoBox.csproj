@@ -24,6 +24,7 @@
 		<AppxBundle>Never</AppxBundle>
 		<SelfContained>true</SelfContained>
 		<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+		<WindowsAppSdkUndockedRegFreeWinRTInitialize>true</WindowsAppSdkUndockedRegFreeWinRTInitialize>
 		<!-- 非打包 Bootstrap 见 Services/WindowsAppSdkBootstrap.cs（ModuleInitializer） -->
 	</PropertyGroup>
 	
