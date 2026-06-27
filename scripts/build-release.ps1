@@ -25,7 +25,7 @@ dotnet publish LivePhotoBox\LivePhotoBox.csproj `
     -p:WindowsAppSDKSelfContained=true `
     -o publish\portable_x64
 
-if (-not (Test-Path "publish\portable_x64\LivePhotoBox.exe")) {
+if (-not (Test-Path "publish\portable_x64\Live Photo Box.exe")) {
     Write-Host "BUILD FAILED - exe not found" -ForegroundColor Red
     pause
     exit 1

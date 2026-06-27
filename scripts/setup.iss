@@ -3,10 +3,10 @@
 ; 配合 build-release.ps1 使用
 ; ============================================
 
-#define AppName "LivePhotoBox"
+#define AppName "Live Photo Box"
 #define AppPublisher "LengxiQwQ"
 #define AppURL "https://github.com/LengxiQwQ/live-photo-box"
-#define AppExeName "LivePhotoBox.exe"
+#define AppExeName "Live Photo Box.exe"
 #define SourceDir "..\publish\portable_x64"
 #define IconFile "..\LivePhotoBox\Assets\Icons\AppIcon.ico"
 

@@ -30,13 +30,13 @@ dotnet publish LivePhotoBox\LivePhotoBox.csproj `
 
 # dotnet publish 的 exit code 可能因为 MSIX 符号转换警告而非零
 # 实际编译产物不受影响，检查 exe 是否存在
-if (-not (Test-Path "publish\portable_x64\LivePhotoBox.exe")) {
+if (-not (Test-Path "publish\portable_x64\Live Photo Box.exe")) {
     Write-Host "BUILD FAILED — exe not found" -ForegroundColor Red
     pause; exit 1
 }
 
 Write-Host ""
 Write-Host "Output: publish\portable_x64\" -ForegroundColor Green
-Write-Host "Run  : publish\portable_x64\LivePhotoBox.exe" -ForegroundColor Green
+Write-Host "Run  : publish\portable_x64\Live Photo Box.exe" -ForegroundColor Green
 Write-Host ""
 pause
