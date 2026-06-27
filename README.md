@@ -21,7 +21,7 @@
 
 ## 💡 这是什么？
 
-iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段视频。问题在于——苹果用的格式和 Windows 不兼容：
+iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段视频。问题就是苹果用的格式和 Windows 不兼容：
 
 - 在 Windows 上**无法直接预览**实况照片的动态效果
 - 从 iPhone 导出到电脑后，文件管理器里看到的只是一个普通的静态图片
@@ -54,7 +54,7 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 将任意静态图片 + 视频素材组合为标准实况照片。
 
-- 支持 **Google `Micro Video V1` / `Motion Photo V2` / `OPPO` / 小米** 等多种协议
+- 支持 **Google `Micro Video V1` / `Motion Photo V2` / `OPPO` / `小米`** 等多种协议
 - 自动写入完整 `EXIF` + `QuickTime` 元数据（`ContentIdentifier` `UUID`）
 - **黑科技配对引擎**：即使照片和视频文件名完全不同，也能通过 Apple 元数据中的 `ContentIdentifier`（`UUID`）精确匹配；无法匹配 `UUID` 时自动降级为拍摄日期 ±2 秒容差匹配，时区感知
 - **目前任何协议合成的实况照片均可在 Windows 上直接查看**
@@ -65,7 +65,6 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 - 智能剥离 Google `XMP` 元数据，防止拆分后的图片被再次误识别为实况照片
 - 按 `JPEG` 段结构逐段重建，不丢失 `EXIF` / `ICC` / `GPS` / 拍摄参数
-- 支持 `Micro Video V1`、`Motion Photo V2`、`OPPO O-Live` 三种格式
 
 ### 🛠️ 实况照片修复
 
@@ -75,7 +74,7 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - **前置摄像头视频旋转**：iPhone 前置镜头纵向像素横向存储，依赖方向标签指示角度，Windows 不识别 → `FFmpeg` 重编码消除旋转矩阵
 - **HEIC 方向错误**：修正错误的 `Orientation` 标签
 - **ContentIdentifier 丢失**：自动修复照片-视频的 `UUID` 配对关系
-- 扫描后可查看每张照片的**诊断详情**（方向/缩略图/视频时长/编码格式等），按文件类型或修复状态快速筛选
+- 扫描后可查看每张照片的**诊断详情**，可以按文件类型或修复状态快速筛选
 
 ### 🖼️ 封面修改（功能开发中）
 
@@ -95,7 +94,7 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 | 协议 | 来源 | 说明 |
 |------|------|------|
-| Micro Video V1 | Google（已弃用） | `MP4` 视频附加在 `JPEG` 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
+| Micro Video V1 | Google（已弃用，但老设备等兼容性高） | `MP4` 视频附加在 `JPEG` 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
 | Motion Photo V2 | Google | 现代标准，`Container:Directory` `XMP` 结构。Google Pixel / Xiaomi HyperOS 3+ 使用 |
 | O-Live Photo | OPPO / OnePlus | 扩展 `Motion Photo V2`，增加 `OpCamera` 命名空间 + `EXIF` `UserComment`。OPPO ColorOS / OnePlus OxygenOS 使用 |
 

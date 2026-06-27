@@ -9,6 +9,7 @@
 
 		<RootNamespace>LivePhotoBox</RootNamespace>
 		<AssemblyName>LivePhotoBox</AssemblyName>
+		<Version>1.14.10.0</Version>
 		<ApplicationIcon>Assets\Icons\AppIcon.ico</ApplicationIcon>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
 		<DefaultLanguage>zh-Hans</DefaultLanguage>
@@ -172,6 +173,8 @@
        <PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' == 'true'">False</PublishReadyToRun>
 		<PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' != 'true'">False</PublishReadyToRun>
 		<PublishTrimmed>False</PublishTrimmed>
+		<!-- 跳过符号包生成，避免 mspdbcmf.exe 路径问题（GitHub Release 不需要 .appxsym） -->
+		<AppxPackageGenerateSymbolsPackage>false</AppxPackageGenerateSymbolsPackage>
      <GenerateTemporaryStoreCertificate Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">True</GenerateTemporaryStoreCertificate>
 		<GenerateTemporaryStoreCertificate Condition="!Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">False</GenerateTemporaryStoreCertificate>
 		<GenerateAppInstallerFile>False</GenerateAppInstallerFile>
