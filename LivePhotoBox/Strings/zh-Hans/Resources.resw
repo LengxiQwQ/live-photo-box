@@ -1537,9 +1537,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_HardwareRefresh_Button.ToolTipService.ToolTip" xml:space="preserve">
     <value>刷新硬件检测</value>
   </data>
-  <data name="AboutPage_JHeadSuffix.Text" xml:space="preserve">
-    <value>(by Matthias Wandel) — JPEG 无损自动旋转，通过 jpegtran 在物理层面修正照片方向</value>
-  </data>
+
   <data name="Tag_OrientationMirror" xml:space="preserve">
     <value>EXIF 镜像标签</value>
   </data>
