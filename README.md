@@ -1,7 +1,7 @@
 <div align="center">
 
 <h1>
-  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="120" style="vertical-align: middle; margin-right: 16px;" />
+  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="120" align="middle" hspace="16" />
   Live Photo Box
 </h1>
 
@@ -54,30 +54,30 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 将任意静态图片 + 视频素材组合为标准实况照片。
 
-- 支持 **Google Micro Video V1 / Motion Photo V2 / OPPO / 小米** 等多种协议
-- 自动写入完整 EXIF + QuickTime 元数据（ContentIdentifier UUID）
-- **黑科技配对引擎**：即使照片和视频文件名完全不同，也能通过 Apple 元数据中的 ContentIdentifier（UUID）精确匹配；无法匹配 UUID 时自动降级为拍摄日期 ±2 秒容差匹配，时区感知
+- 支持 **Google `Micro Video V1` / `Motion Photo V2` / `OPPO` / 小米** 等多种协议
+- 自动写入完整 `EXIF` + `QuickTime` 元数据（`ContentIdentifier` `UUID`）
+- **黑科技配对引擎**：即使照片和视频文件名完全不同，也能通过 Apple 元数据中的 `ContentIdentifier`（`UUID`）精确匹配；无法匹配 `UUID` 时自动降级为拍摄日期 ±2 秒容差匹配，时区感知
 - **目前任何协议合成的实况照片均可在 Windows 上直接查看**
 
-### 📸 实况照片分离
+### 📸 实况照片拆分
 
-将实况照片拆分为独立的静态图片（JPG/HEIC）和视频（MOV/MP4）。
+将实况照片拆分为独立的静态图片（`JPG` / `HEIC`）和视频（`MOV` / `MP4`）。
 
-- 智能剥离 Google XMP 元数据，防止拆分后的图片被再次误识别为实况照片
-- 按 JPEG 段结构逐段重建，不丢失 EXIF / ICC / GPS / 拍摄参数
-- 支持 Micro Video V1、Motion Photo V2、OPPO O-Live 三种格式
+- 智能剥离 Google `XMP` 元数据，防止拆分后的图片被再次误识别为实况照片
+- 按 `JPEG` 段结构逐段重建，不丢失 `EXIF` / `ICC` / `GPS` / 拍摄参数
+- 支持 `Micro Video V1`、`Motion Photo V2`、`OPPO O-Live` 三种格式
 
 ### 🛠️ 实况照片修复
 
 深度修复 iPhone 实况照片导出到 Windows 后的显示异常。
 
-- **多余缩略图及横向拉伸**（iOS 17.3 之前）：Apple 曾嵌入低分辨率缩略图但带有方向标签，Windows 误将其当横图处理导致拉宽或压扁 → jpegtran 无损旋转 + 剥离残留缩略图
-- **前置摄像头视频旋转**：iPhone 前置镜头纵向像素横向存储，依赖方向标签指示角度，Windows 不识别 → FFmpeg 重编码消除旋转矩阵
-- **HEIC 方向错误**：修正错误的 Orientation 标签
-- **ContentIdentifier 丢失**：自动修复照片-视频的 UUID 配对关系
+- **多余缩略图及横向拉伸**（iOS 17.3 之前）：Apple 曾嵌入低分辨率缩略图但带有方向标签，Windows 误将其当横图处理导致拉宽或压扁 → `jpegtran` 无损旋转 + 剥离残留缩略图
+- **前置摄像头视频旋转**：iPhone 前置镜头纵向像素横向存储，依赖方向标签指示角度，Windows 不识别 → `FFmpeg` 重编码消除旋转矩阵
+- **`HEIC` 方向错误**：修正错误的 `Orientation` 标签
+- **`ContentIdentifier` 丢失**：自动修复照片-视频的 `UUID` 配对关系
 - 扫描后可查看每张照片的**诊断详情**（方向/缩略图/视频时长/编码格式等），按文件类型或修复状态快速筛选
 
-### 🖼️ 封面修改 🚧 功能开发中
+### 🖼️ 封面修改（功能开发中）
 
 自由更换实况照片的封面帧。
 
@@ -85,7 +85,7 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - 支持上传自定义图片
 - 无损替换，保持实况属性完整
 
-### 📂 自动整理相册 🚧 功能开发中
+### 📂 自动整理相册（功能开发中）
 
 按拍摄设备、日期、实况照片类型自动扫描分类归档。
 
@@ -95,9 +95,9 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 | 协议 | 来源 | 说明 |
 |------|------|------|
-| **Micro Video V1** | Google（已弃用） | MP4 视频直接附加在 JPEG 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
-| **Motion Photo V2** | Google | 现代标准，`Container:Directory` XMP 结构。Google Pixel / Xiaomi HyperOS 3+ 使用 |
-| **O-Live Photo** | OPPO / OnePlus | 扩展 Motion Photo V2，增加 OpCamera 命名空间 + EXIF UserComment 标记。OPPO ColorOS / OnePlus OxygenOS 使用 |
+| `Micro Video V1` | Google（已弃用） | `MP4` 视频直接附加在 `JPEG` 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
+| `Motion Photo V2` | Google | 现代标准，`Container:Directory` `XMP` 结构。Google Pixel / Xiaomi HyperOS 3+ 使用 |
+| `O-Live Photo` | OPPO / OnePlus | 扩展 `Motion Photo V2`，增加 `OpCamera` 命名空间 + `EXIF` `UserComment` 标记。OPPO ColorOS / OnePlus OxygenOS 使用 |
 
 > ⚡ **目前任何协议合成的实况照片，均可在 Windows 11 上直接查看动态效果。**
 
@@ -107,16 +107,16 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 <table align="center">
 <tr>
-  <td align="center"><b>🏠 主页</b><br><img src="screenshots/主页.png" alt="主页" width="100%" /></td>
-  <td align="center"><b>📸 实况分离</b><br><img src="screenshots/拆分页.png" alt="拆分" width="100%" /></td>
+  <td align="center"><b>🏠 主页与图文教程</b><br><img src="screenshots/主页.png" alt="主页" width="100%" /></td>
+  <td align="center"><b>📸 实况照片拆分</b><br><img src="screenshots/拆分页.png" alt="拆分" width="100%" /></td>
 </tr>
 <tr>
-  <td align="center"><b>🔗 实况合成</b><br><img src="screenshots/合成页.png" alt="合成" width="100%" /></td>
-  <td align="center"><b>🛠️ 元数据修复</b><br><img src="screenshots/修复页.png" alt="修复" width="100%" /></td>
+  <td align="center"><b>🔗 实况照片合成</b><br><img src="screenshots/合成页.png" alt="合成" width="100%" /></td>
+  <td align="center"><b>🛠️ 实况照片修复</b><br><img src="screenshots/修复页.png" alt="修复" width="100%" /></td>
 </tr>
 <tr>
   <td align="center"><b>⚙️ 设置面板</b><br><img src="screenshots/设置.png" alt="设置" width="100%" /></td>
-  <td align="center"><b>✨ Acrylic 半透明材质</b><br><img src="screenshots/acrylic_thin.png" alt="Acrylic效果" width="100%" /></td>
+  <td align="center"><b>✨ Acrylic 半透明材质效果</b><br><img src="screenshots/acrylic_thin.png" alt="Acrylic效果" width="100%" /></td>
 </tr>
 </table>
 
@@ -131,9 +131,9 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 | UI 框架 | Windows App SDK（WinUI 3） | 1.8 |
 | 架构 | MVVM（CommunityToolkit.Mvvm） | 8.4.2 |
 | 图像处理 | Magick.NET（ImageMagick）+ Win2D | 14.14.0 / 1.3.2 |
-| 元数据引擎 | ExifTool（常驻进程模式，v13.x） | — |
-| 视频处理 | FFmpeg（NVENC / QSV / AMF 硬件加速） | — |
-| JPEG 操作 | jpegtran（无损旋转、缩略图剥离） | — |
+| 元数据引擎 | `ExifTool`（常驻进程模式，v13.x） | — |
+| 视频处理 | `FFmpeg`（NVENC / QSV / AMF 硬件加速） | — |
+| JPEG 操作 | `jpegtran`（无损旋转、缩略图剥离） | — |
 | UI 扩展 | CommunityToolkit.WinUI + FluentIcons | — |
 | 打包 | MSIX 自包含（无需安装运行时） | — |
 
@@ -197,8 +197,7 @@ live-photo-box/
 
 欢迎提交 Issue 和 Pull Request！
 
-- 🐛 **Bug 报告** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
-- 💡 **功能建议** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
+- 🐛 **Bug 报告** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues) &nbsp;|&nbsp; 💡 **功能建议** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
 - 🔧 **代码贡献** → Fork → Feature Branch → Pull Request
 
 ### 规范
