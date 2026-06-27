@@ -1,11 +1,16 @@
 <div align="center">
 
-<h1>
-  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="120" align="middle" hspace="16" />
-  Live Photo Box
-</h1>
-
-<p><em>实况照片工具箱 — 专为 Windows 打造的 Apple 实况照片管理与修复工具</em></p>
+<table border="0" frame="void" rules="none" cellpadding="0" cellspacing="0">
+<tr>
+  <td rowspan="2" valign="middle" style="padding-right: 20px;">
+    <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" alt="icon" width="120" />
+  </td>
+  <td><h1>Live Photo Box</h1></td>
+</tr>
+<tr>
+  <td><em>实况照片工具箱 — 专为 Windows 打造的 Apple 实况照片管理与修复工具</em></td>
+</tr>
+</table>
 
 </div>
 
@@ -73,8 +78,8 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 - **多余缩略图及横向拉伸**（iOS 17.3 之前）：Apple 曾嵌入低分辨率缩略图但带有方向标签，Windows 误将其当横图处理导致拉宽或压扁 → `jpegtran` 无损旋转 + 剥离残留缩略图
 - **前置摄像头视频旋转**：iPhone 前置镜头纵向像素横向存储，依赖方向标签指示角度，Windows 不识别 → `FFmpeg` 重编码消除旋转矩阵
-- **`HEIC` 方向错误**：修正错误的 `Orientation` 标签
-- **`ContentIdentifier` 丢失**：自动修复照片-视频的 `UUID` 配对关系
+- **HEIC 方向错误**：修正错误的 `Orientation` 标签
+- **ContentIdentifier 丢失**：自动修复照片-视频的 `UUID` 配对关系
 - 扫描后可查看每张照片的**诊断详情**（方向/缩略图/视频时长/编码格式等），按文件类型或修复状态快速筛选
 
 ### 🖼️ 封面修改（功能开发中）
@@ -95,9 +100,9 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 | 协议 | 来源 | 说明 |
 |------|------|------|
-| `Micro Video V1` | Google（已弃用） | `MP4` 视频直接附加在 `JPEG` 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
-| `Motion Photo V2` | Google | 现代标准，`Container:Directory` `XMP` 结构。Google Pixel / Xiaomi HyperOS 3+ 使用 |
-| `O-Live Photo` | OPPO / OnePlus | 扩展 `Motion Photo V2`，增加 `OpCamera` 命名空间 + `EXIF` `UserComment` 标记。OPPO ColorOS / OnePlus OxygenOS 使用 |
+| Micro Video V1 | Google（已弃用） | `MP4` 视频附加在 `JPEG` 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
+| Motion Photo V2 | Google | 现代标准，`Container:Directory` `XMP` 结构。Google Pixel / Xiaomi HyperOS 3+ 使用 |
+| O-Live Photo | OPPO / OnePlus | 扩展 `Motion Photo V2`，增加 `OpCamera` 命名空间 + `EXIF` `UserComment`。OPPO ColorOS / OnePlus OxygenOS 使用 |
 
 > ⚡ **目前任何协议合成的实况照片，均可在 Windows 11 上直接查看动态效果。**
 
@@ -150,10 +155,17 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 ### 构建
 
 ```bash
+# 克隆仓库到本地
 git clone https://github.com/lengxiqwq/live-photo-box.git
 cd live-photo-box
+
+# 还原 NuGet 依赖包
 dotnet restore
+
+# 编译项目
 dotnet build LivePhotoBox/LivePhotoBox.csproj
+
+# 启动运行
 dotnet run --project LivePhotoBox/LivePhotoBox.csproj
 ```
 
@@ -197,7 +209,7 @@ live-photo-box/
 
 欢迎提交 Issue 和 Pull Request！
 
-- 🐛 **Bug 报告** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues) &nbsp;|&nbsp; 💡 **功能建议** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
+- 🐛 **Bug 报告** and 💡 **功能建议** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
 - 🔧 **代码贡献** → Fork → Feature Branch → Pull Request
 
 ### 规范
