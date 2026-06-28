@@ -19,8 +19,9 @@
 ---
 
 <p align="center">
-  🌐 语言：<strong>简体中文 (zh-cn)</strong> &nbsp;·&nbsp; <a href="README.md">English (en)</a>
+  🌐 语言：<strong>简体中文</strong> &nbsp;·&nbsp; <a href="README.md">English</a>
 </p>
+
 
 
 
