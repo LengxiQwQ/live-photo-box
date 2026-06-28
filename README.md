@@ -5,15 +5,6 @@
 </h1>
 <p><em>A toolbox for managing, repairing, and converting Apple Live Photos on Windows &amp; Android</em></p>
 
-
-
-<p align="center">
-  🌐 Language: &nbsp;<strong>English (en)  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文 (zh-cn)</a></strong>
-</p>
-
-
-</div>
-
 <p align="center">
   <a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7" alt="Release"></a>
   <a href="https://github.com/lengxiqwq/live-photo-box/actions"><img src="https://img.shields.io/github/actions/workflow/status/lengxiqwq/live-photo-box/build.yml?style=flat-square&logo=githubactions" alt="Build"></a>
@@ -21,10 +12,14 @@
   <img src="https://img.shields.io/badge/9.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 9" />
   <img src="https://img.shields.io/badge/C%23-13.0-239120?style=flat-square&logo=csharp" alt="C# 13" />
   <img src="https://img.shields.io/badge/WinUI%203-1.8-0078D7?style=flat-square&logo=windows" alt="WinUI 3" />
-  <img src="https://img.shields.io/github/downloads/lengxiqwq/live-photo-box/total?style=flat-square&color=0078D7" alt="Downloads">
 </p>
 
 ---
+
+<p align="center">
+  🌐 Language: &nbsp;<strong>English (en)  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文 (zh-cn)</a></strong>
+</p>
+</div>
 
 ## 💡 What Is This?
 
