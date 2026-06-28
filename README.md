@@ -36,13 +36,12 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 ## 🚀 下载
 
-<p align="center">
+<p align="center" style="display:flex; justify-content:center; gap:48px; align-items:center;">
   <a href="#">
     <img src="https://get.microsoft.com/images/en-us%20dark.svg"
          alt="Get it from Microsoft"
          height="52" />
   </a>
-  &nbsp;&nbsp;&nbsp;
   <a href="https://github.com/lengxiqwq/live-photo-box/releases">
     <img src="./screenshots/GitHub.svg"
          alt="GitHub Releases"
