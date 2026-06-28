@@ -37,7 +37,7 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 ## 🚀 下载
 
 <div align="center">
-  <a href="#"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="24" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" /></a>
+  <a href="#"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="24" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="24" /></a>
 </div>
 
 <p align="center">
