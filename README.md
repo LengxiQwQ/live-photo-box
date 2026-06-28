@@ -17,7 +17,7 @@
 ---
 
 <p align="center">
-  🌐 Language: &nbsp;<strong>English  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文)</a></strong>
+  🌐 Language: &nbsp;<strong>English  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文</a></strong>
 </p>
 </div>
 
