@@ -5,36 +5,42 @@
   Live Photo Box
 </h1>
 
-<p><em>实况照片工具箱 — 专为 Windows 打造的 Apple 实况照片管理与修复工具</em></p>
+<p><em>Display and process Apple Live Photos directly on Windows.</em></p>
+
+<p>
+  🌐 Language: <a href="README.zh-cn.md">简体中文 (zh-cn)</a> &nbsp;·&nbsp; <strong>English (en)</strong>
+</p>
 
 </div>
 
 <p align="center">
-  <a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=for-the-badge&color=0078D7" alt="Release"></a>
-  <a href="https://github.com/lengxiqwq/live-photo-box/actions"><img src="https://img.shields.io/github/actions/workflow/status/lengxiqwq/live-photo-box/build.yml?style=for-the-badge&logo=githubactions" alt="Build"></a>
-  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D7?style=for-the-badge&logo=windows11" alt="Platform">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL%203.0-blue?style=for-the-badge" alt="GPL 3.0"></a>
-  <a href="https://github.com/lengxiqwq/live-photo-box/stargazers"><img src="https://img.shields.io/github/stars/lengxiqwq/live-photo-box?style=for-the-badge&color=yellow" alt="Stars"></a>
+  <a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7" alt="Release"></a>
+  <a href="https://github.com/lengxiqwq/live-photo-box/actions"><img src="https://img.shields.io/github/actions/workflow/status/lengxiqwq/live-photo-box/build.yml?style=flat-square&logo=githubactions" alt="Build"></a>
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D7?style=flat-square&logo=windows11" alt="Platform">
+  <img src="https://img.shields.io/badge/9.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 9" />
+  <img src="https://img.shields.io/badge/C%23-13.0-239120?style=flat-square&logo=csharp" alt="C# 13" />
+  <img src="https://img.shields.io/badge/WinUI%203-1.8-0078D7?style=flat-square&logo=windows" alt="WinUI 3" />
+  <img src="https://img.shields.io/github/repo-size/lengxiqwq/live-photo-box?style=flat-square&color=0078D7" alt="Repo Size">
+  <img src="https://img.shields.io/github/downloads/lengxiqwq/live-photo-box/total?style=flat-square&color=0078D7" alt="Downloads">
 </p>
 
 ---
 
-## 💡 这是什么？
+## 💡 What Is This?
 
-iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段视频。问题就是苹果用的格式和 Windows 不兼容：
+iPhone Live Photos are essentially a still image + a short video clip. The problem is that Apple's format doesn't play well with Windows:
 
-- 在 Windows 上**无法直接预览**实况照片的动态效果
-- 从 iPhone 导出到电脑后，文件管理器里看到的只是一个普通的静态图片
-- 跨平台传输（比如从 iOS 传到 Android 再传回来）经常导致**元数据丢失、配对失效**，实况照片变成一张普通 JPEG
-- 前置摄像头拍的视频方向会**旋转、被异常拉伸**，Windows 完全识别不了
+- **No native preview** — Windows File Explorer only shows a static image
+- **Metadata loss & pairing corruption** after cross-platform transfers (e.g. iOS → Android → back), turning Live Photos into plain JPEGs
+- **Front-camera videos appear rotated or stretched** — Windows ignores the rotation metadata that iOS uses to correct orientation
 
-**Live Photo Box** 就是来解决这些问题的——让你在 Windows 上也能像 iPhone 一样查看、管理、修复实况照片。
+**Live Photo Box** solves all these problems — letting you view, manage, and repair Live Photos on Windows just like on an iPhone.
 
-基于 **WinUI 3（Windows App SDK 1.8）** 构建，原生适配 Windows 11 Fluent Design 设计规范，支持 Mica / Acrylic 材质、深色/浅色主题自动切换。
+Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent Design guidelines, with Mica / Acrylic materials and dark/light theme support.
 
 ---
 
-## 🚀 下载
+## 🚀 Download
 
 <div align="center">
   <a href="#"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="36" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="36" /></a>
@@ -42,199 +48,197 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 <p align="center">
   <sub>
-    支持架构：<b>x86_64</b>
+    Architecture: <b>x86_64</b>
     &nbsp;|&nbsp;
-    系统要求：<b>Windows 10 (1809+)</b> 或 <b>Windows 11</b>
+    System Requirements: <b>Windows 10 (1809+)</b> or <b>Windows 11</b>
     &nbsp;|&nbsp;
-    无需额外安装运行时（应用自包含 .NET 9 + WinAppSDK 1.8）
+    No runtime required (self-contained .NET 9 + WinAppSDK 1.8)
   </sub>
 </p>
 
 ---
 
-## ✨ 核心功能
+## ✨ Core Features
 
-### 🔗 实况照片合成
+### 🔗 Merge Live Photo
 
-将任意静态图片 + 视频素材组合为标准实况照片。
+Combine any still image + video clip into a standard Live Photo, compatible with multiple Android protocols.
 
-- 支持 **Google `Micro Video V1` / `Motion Photo V2` / `OPPO` / `小米`** 等多种协议
-- 自动写入完整 `EXIF` + `QuickTime` 元数据（`ContentIdentifier` `UUID`）
-- **黑科技配对引擎**：即使照片和视频文件名完全不同，也能通过 Apple 元数据中的 `ContentIdentifier`（`UUID`）精确匹配；无法匹配 `UUID` 时自动降级为拍摄日期 ±2 秒容差匹配，时区感知
-- **目前任何协议合成的实况照片均可在 Windows 上直接查看**
+- Supports **Google — Micro Video (V1) / Motion Photo (V2) / OPPO/OnePlus — O Live Photo** protocols
+- Automatically writes complete `EXIF` + `QuickTime` metadata (`ContentIdentifier` `UUID`)
+- **Smart pairing engine**: matches photo-video pairs by filename, Apple `ContentIdentifier` (`UUID`), falls back to capture-time tolerance when neither matches
+- **Live Photos merged via any supported protocol are fully viewable on Windows**
 
-### 📸 实况照片拆分
+### 📸 Split Live Photo
 
-将实况照片拆分为独立的静态图片（`JPG` / `HEIC`）和视频（`MOV` / `MP4`）。
+Split a single-file Live Photo back into independent still image (`JPG` / `HEIC`) and video (`MOV` / `MP4`).
 
-- 智能剥离 Google `XMP` 元数据，防止拆分后的图片被再次误识别为实况照片
-- 按 `JPEG` 段结构逐段重建，不丢失 `EXIF` / `ICC` / `GPS` / 拍摄参数
+- Smart removal of Google `XMP` metadata to prevent re-identification as a Live Photo after splitting
+- Rebuilds `JPEG` segment-by-segment, preserving `EXIF` / `ICC` / `GPS` / shooting parameters
 
-### 🛠️ 实况照片修复
+### 🛠️ Repair Live Photo
 
-深度修复 iPhone 实况照片导出到 Windows 后的显示异常。
+Deep repair of display issues on iPhone Live Photos exported to Windows.
 
-- **多余缩略图及横向拉伸**（iOS 17.3 之前）：Apple 曾嵌入低分辨率缩略图但带有方向标签，Windows 误将其当横图处理导致拉宽或压扁 → `jpegtran` 无损旋转 + 剥离残留缩略图
-- **前置摄像头视频旋转**：iPhone 前置镜头纵向像素横向存储，依赖方向标签指示角度，Windows 不识别 → `FFmpeg` 重编码消除旋转矩阵
-- **HEIC 方向错误**：修正错误的 `Orientation` 标签
-- **ContentIdentifier 丢失**：自动修复照片-视频的 `UUID` 配对关系
-- 扫描后可查看每张照片的**诊断详情**，可以按文件类型或修复状态快速筛选
+- **Excess thumbnail & horizontal stretch** (pre-iOS 17.3): lossless fix via `jpegtran` rotation + thumbnail stripping
+- **Front-camera video rotation**: re-encode via `FFmpeg` to bake the rotation matrix into pixels
+- **HEIC orientation fix**: corrects miswritten `Orientation` tags
+- **ContentIdentifier restoration**: auto-repair photo-video `UUID` pairing
+- Scan and view **diagnostic details** for each photo, filter by file type or repair status
 
-### 🖼️ 封面修改（功能开发中）
+### 🖼️ Replace Key Photo (In Development)
 
-自由更换实况照片的封面帧。
+Freely change the cover frame of a Live Photo — pick the perfect moment from the motion video and losslessly swap it in.
 
-- 从视频中提取任意帧作为新封面
-- 支持上传自定义图片
-- 无损替换，保持实况属性完整
+### 📂 Photo Organize (In Development)
 
-### 📂 自动整理相册（功能开发中）
-
-按拍摄设备、日期、实况照片类型自动扫描分类归档。
+Automatically scan, categorize, and archive by device, date, and Live Photo type.
 
 ---
 
-## 📋 支持的实况照片协议
+## 📋 Supported Live Photo Protocols
 
-| 协议 | 来源 | 说明 |
-|------|------|------|
-| Micro Video V1 | Google（已弃用，但老设备等兼容性高） | `MP4` 视频附加在 `JPEG` 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
-| Motion Photo V2 | Google | 现代标准，`Container:Directory` `XMP` 结构。Google Pixel / Xiaomi HyperOS 3+ 使用 |
-| O-Live Photo | OPPO / OnePlus | 扩展 `Motion Photo V2`，增加 `OpCamera` 命名空间 + `EXIF` `UserComment`。OPPO ColorOS / OnePlus OxygenOS 使用 |
+| Protocol | Source | Description |
+|----------|--------|-------------|
+| Google — Micro Video (V1) | Google (legacy) | `MP4` video appended to `JPEG` end, offset in `GCamera:MicroVideoOffset`. Used by older Xiaomi MIUI / Pixel devices |
+| Google — Motion Photo (V2) | Google | Modern standard, `Container:Directory` `XMP` structure. Used by Google Pixel / Xiaomi HyperOS 3+ |
+| OPPO/OnePlus — O Live Photo | OPPO / OnePlus | Extended `Motion Photo V2`, adds `OpCamera` namespace + `EXIF` `UserComment`. Used by OPPO ColorOS / OnePlus OxygenOS |
 
-> ⚡ **目前任何协议合成的实况照片，均可在 Windows 11 上直接查看动态效果。**
+> ⚡ **Live Photos merged via any supported protocol are fully viewable on Windows 11.**
 
 ---
 
-## 📸 应用截图
+## 📸 Screenshots
 
 <table align="center">
 <tr>
-  <td align="center"><b>🏠 主页与图文教程</b><br><img src="screenshots/主页.png" alt="主页" width="100%" /></td>
-  <td align="center"><b>📸 实况照片拆分</b><br><img src="screenshots/拆分页.png" alt="拆分" width="100%" /></td>
+  <td align="center"><b>🏠 Home & Tutorial</b><br><img src="screenshots/home.png" alt="Home" width="100%" /></td>
+  <td align="center"><b>📸 Split Live Photo</b><br><img src="screenshots/split.png" alt="Split" width="100%" /></td>
 </tr>
 <tr>
-  <td align="center"><b>🔗 实况照片合成</b><br><img src="screenshots/合成页.png" alt="合成" width="100%" /></td>
-  <td align="center"><b>🛠️ 实况照片修复</b><br><img src="screenshots/修复页.png" alt="修复" width="100%" /></td>
+  <td align="center"><b>🔗 Merge Live Photo</b><br><img src="screenshots/merge.png" alt="Merge" width="100%" /></td>
+  <td align="center"><b>🛠️ Repair Live Photo</b><br><img src="screenshots/repair.png" alt="Repair" width="100%" /></td>
 </tr>
 <tr>
-  <td align="center"><b>⚙️ 设置面板</b><br><img src="screenshots/设置.png" alt="设置" width="100%" /></td>
-  <td align="center"><b>✨ Acrylic 半透明材质效果</b><br><img src="screenshots/acrylic_thin.png" alt="Acrylic效果" width="100%" /></td>
+  <td align="center"><b>⚙️ Settings</b><br><img src="screenshots/settings.png" alt="Settings" width="100%" /></td>
+  <td align="center"><b>✨ Acrylic Semi-Transparent Effect</b><br><img src="screenshots/acrylic_thin.png" alt="Acrylic effect" width="100%" /></td>
 </tr>
 </table>
 
 ---
 
-## 🛠️ 技术栈
+## 🛠️ Tech Stack
 
-| 层级 | 技术 | 版本 |
-|------|------|------|
-| 语言 | C# | 13.0 |
-| 运行时 | .NET | 9.0 |
-| UI 框架 | Windows App SDK（WinUI 3） | 1.8 |
-| 架构 | MVVM（CommunityToolkit.Mvvm） | 8.4.2 |
-| 图像处理 | Magick.NET（ImageMagick）+ Win2D | 14.14.0 / 1.3.2 |
-| 元数据引擎 | `ExifTool`（常驻进程模式，v13.x） | — |
-| 视频处理 | `FFmpeg`（NVENC / QSV / AMF 硬件加速） | — |
-| JPEG 操作 | `jpegtran`（无损旋转、缩略图剥离） | — |
-| UI 扩展 | CommunityToolkit.WinUI + FluentIcons | — |
-| 打包 | MSIX 自包含（无需安装运行时） | — |
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Language | C# | 13.0 |
+| Runtime | .NET | 9.0 |
+| UI Framework | Windows App SDK (WinUI 3) | 1.8 |
+| Architecture | MVVM (CommunityToolkit.Mvvm) | 8.4.2 |
+| Image Processing | Magick.NET (ImageMagick) + Win2D | 14.14.0 / 1.3.2 |
+| Metadata Engine | `ExifTool` (daemon mode, v13.x) | — |
+| Video Processing | `FFmpeg` (NVENC / QSV / AMF hardware acceleration) | — |
+| JPEG Operations | `jpegtran` (lossless rotation, thumbnail stripping) | — |
+| UI Extensions | CommunityToolkit.WinUI + FluentIcons | — |
+| Packaging | MSIX self-contained (no runtime required) | — |
 
 ---
 
-## 💻 编译与开发
+## 💻 Build & Development
 
-### 环境
+### Prerequisites
 
-- [Visual Studio 2022](https://visualstudio.microsoft.com/) 及以上
-- 在 VS Installer 中勾选：**.NET 桌面开发** + **通用 Windows 平台开发**（含 Windows App SDK 组件）
+- [Visual Studio 2022](https://visualstudio.microsoft.com/) or later
+- In VS Installer, select: **.NET desktop development** + **Universal Windows Platform development** (includes Windows App SDK components)
 - [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
 
-### 构建
+### Build
 
 ```bash
-# 克隆仓库到本地
+# Clone the repository
 git clone https://github.com/lengxiqwq/live-photo-box.git
 cd live-photo-box
 
-# 还原 NuGet 依赖包
+# Restore NuGet packages
 dotnet restore
 
-# 编译项目
-dotnet build Live Photo Box/LivePhotoBox.csproj
+# Build the project
+dotnet build "Live Photo Box/Live Photo Box.csproj"
 
-# 启动运行
-dotnet run --project Live Photo Box/LivePhotoBox.csproj
+# Run
+dotnet run --project "Live Photo Box/Live Photo Box.csproj"
 ```
 
 ---
 
-## 📁 项目结构
+## 📁 Project Structure
 
 ```
 live-photo-box/
-├── Live Photo Box/              # 主项目（WinUI 3 MSIX 应用）
-│   ├── Assets/                # 图标、教程截图等静态资源
-│   ├── Controls/              # 自定义控件（全屏灯箱、底部状态栏）
-│   ├── Converters/            # XAML 值转换器
-│   ├── Helpers/               # 工具类（滚动、格式化、悬停预览等）
-│   ├── Models/                # 数据模型
-│   ├── Services/              # 业务逻辑层
-│   │   └── Protocols/         # 实况照片协议实现（3 种）
-│   ├── Strings/               # 多语言资源（中文 / 英文）
-│   ├── ViewModels/            # MVVM ViewModel 层
-│   └── Views/                 # XAML 页面
-├── docs/                      # 项目文档
+├── Live Photo Box/              # Main project (WinUI 3 MSIX app)
+│   ├── Assets/                # Icons, screenshots, static resources
+│   ├── Controls/              # Custom controls (fullscreen lightbox, status bar)
+│   ├── Converters/            # XAML value converters
+│   ├── Helpers/               # Utilities (scrolling, formatting, hover preview, etc.)
+│   ├── Models/                # Data models
+│   ├── Services/              # Business logic layer
+│   │   └── Protocols/         # Live Photo protocol implementations (3 types)
+│   ├── Strings/               # Multilingual resources (zh-Hans / en-US)
+│   ├── ViewModels/            # MVVM ViewModel layer
+│   └── Views/                 # XAML pages
+├── docs/                      # Project documentation
+├── changelogs/                # Release notes
+├── scripts/                   # Build & packaging scripts
 └── README.md
 ```
 
-> 📖 完整目录说明见 [`docs/LivePhotoBox-ProjectOverview.md`](docs/LivePhotoBox-ProjectOverview.md)
+> 📖 See [`docs/LivePhotoBox-ProjectOverview.md`](docs/LivePhotoBox-ProjectOverview.md) for the complete directory reference.
 
 ---
 
-## 🌍 本地化
+## 🌍 Localization
 
-| 语言 | 状态 |
-|------|:----:|
-| 中文（简体） | ✅ 完整 |
-| English | ✅ 完整 |
+| Language | Status |
+|----------|:------:|
+| 中文（简体）(zh-Hans) | ✅ Complete |
+| English (en) | ✅ Complete |
 
-支持系统语言自动跟随，也可在设置中手动切换。
-
----
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-- 🐛 **Bug 报告** and 💡 **功能建议** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
-- 🔧 **代码贡献** → Fork → Feature Branch → Pull Request
-
-### 规范
-
-- UI 文本使用 RESW 多语言资源文件，不硬编码字符串
-- 遵循项目 MVVM 分层惯例，保持代码整洁
-- 文件顶部添加多行注释描述文件用途
+Follows system language automatically; can also be switched manually in Settings.
 
 ---
 
-## 📄 许可证
+## 🤝 Contributing
 
-本项目基于 **GNU General Public License v3.0 (GPL 3.0)** 开源。详见 [LICENSE](LICENSE) 文件。
+Issues and Pull Requests are welcome!
+
+- 🐛 **Bug reports** and 💡 **Feature requests** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
+- 🔧 **Code contributions** → Fork → Feature Branch → Pull Request
+
+### Guidelines
+
+- UI text should use RESW resource files, not hardcoded strings
+- Follow the project's MVVM layering conventions
+- Add multi-line comments at the top of each file describing its purpose
 
 ---
 
-## 🙏 致谢
+## 📄 License
 
-| 工具/库 | 用途 | 许可 |
-|---------|------|------|
-| [ExifTool](https://exiftool.org/) | 图像/视频元数据读写 | Perl |
-| [FFmpeg](https://ffmpeg.org/) | 视频编解码 | LGPL/GPL |
-| [jpegtran](https://jpegclub.org/) | JPEG 无损变换 | 自由软件 |
-| [Magick.NET](https://github.com/dlemstra/Magick.NET) | HEIC 解码 | Apache 2.0 |
-| [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM 框架 | MIT |
-| [Win2D](https://github.com/microsoft/Win2D) | GPU 加速图形 | MIT |
-| [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent 图标集 | MIT |
+This project is open-source under the **GNU General Public License v3.0 (GPL 3.0)**. See the [LICENSE](LICENSE) file for details.
+
+---
+
+## 🙏 Credits
+
+| Tool / Library | Purpose | License |
+|---------------|---------|---------|
+| [ExifTool](https://exiftool.org/) by Phil Harvey | Global metadata parsing, injection, XMP reconstruction | Perl |
+| [FFmpeg](https://ffmpeg.org/) | Video transcoding and stream remuxing | LGPL/GPL |
+| [jpegtran](https://jpegclub.org/) | Lossless JPEG transforms (DCT coefficient space) | Free software |
+| [Magick.NET](https://github.com/dlemstra/Magick.NET) by dlemstra | HEIC/HEIF decoding via libheif | Apache 2.0 |
+| [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM framework | MIT |
+| [Win2D](https://github.com/microsoft/Win2D) | GPU-accelerated graphics | MIT |
+| [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent icon set | MIT |
 
 ---
 
