@@ -469,7 +469,8 @@ namespace LivePhotoBox.ViewModels
 
         // 进入设置页面时调用：预加载 Banner → 通知 UI。
         // 只执行一次（_preloadedBanners 非空则跳过）。
-        // 使用 SetSourceAsync 强制立即解码，避免 UriSource 懒加载导致切换闪烁。
+        // 使用 BitmapImage(UriSource) 在打包和未打包模式下均能正确加载，
+        // DecodePixelWidth 让系统尽早开始解码，减少切换时的解码延迟。
         public async Task EnsureBannersPreloadedAsync()
         {
             if (_preloadedBanners.Count > 0) return;  // 已加载，跳过
@@ -480,18 +481,22 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(Banner0Visible));
         }
 
-        // 用 SetSourceAsync 强制解码所有 Banner，返回时图片已在内存中
-        private async Task PreloadBannersAsync()
+        // 预加载所有 Banner，创建 BitmapImage 后立即设置 DecodePixelWidth 让系统开始解码。
+        // 使用 UriSource 直接加载（而非 StorageFile.GetFileFromApplicationUriAsync + SetSourceAsync），
+        // 因为 StorageFile API 在 unpackaged (F5) 模式下无法解析 ms-appx:/// URI，
+        // 而 BitmapImage(UriSource) 在打包和未打包模式下均能正确加载。
+        private Task PreloadBannersAsync()
         {
             foreach (var preset in BannerPresets)
             {
-                var file = await Windows.Storage.StorageFile.GetFileFromApplicationUriAsync(
-                    new Uri(preset.AssetPath));
-                using var stream = await file.OpenReadAsync();
-                var bitmap = new BitmapImage { DecodePixelWidth = 640 };
-                await bitmap.SetSourceAsync(stream);
+                var bitmap = new BitmapImage(new Uri(preset.AssetPath))
+                {
+                    DecodePixelWidth = 640,
+                    CreateOptions = BitmapCreateOptions.None
+                };
                 _preloadedBanners.Add(bitmap);
             }
+            return Task.CompletedTask;
         }
 
         // 从 AppSettingsService 加载所有设置项到 ViewModel 属性。
