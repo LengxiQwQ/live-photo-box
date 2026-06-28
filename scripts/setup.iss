@@ -21,6 +21,7 @@
 [Setup]
 AppId={{B3E8F5A2-9D4C-4F1A-A6E7-8B2C0D5F3A9E}}
 AppName={#AppName}
+AppVerName={#AppName}
 AppVersion={#VERSION}
 AppPublisher={#AppPublisher}
 AppPublisherURL={#AppURL}
@@ -32,9 +33,18 @@ LicenseFile=..\LICENSE
 OutputDir=..\publish
 OutputBaseFilename=Live-Photo-Box-v{#VERSION_SHORT}-x64-setup
 SetupIconFile={#IconFile}
+UninstallDisplayIcon={app}\{#AppExeName}
 Compression=lzma2
 SolidCompression=no
 WizardStyle=modern
+AppCopyright=Copyright (C) 2026 LengxiQwQ
+VersionInfoCompany={#AppPublisher}
+VersionInfoCopyright=Copyright (C) 2026 LengxiQwQ. Licensed under GPL v3.0
+VersionInfoDescription=Display & process Apple Live Photos on Windows
+VersionInfoProductName={#AppName}
+VersionInfoProductVersion={#VERSION}
+VersionInfoProductTextVersion={#VERSION_SHORT}
+VersionInfoVersion={#VERSION}
 ; 只支持 64 位系统
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible

@@ -11,11 +11,19 @@
 		<AssemblyName>Live Photo Box</AssemblyName>
 		<Version>1.14.10.0</Version>
 		<FileVersion>1.14.10.0</FileVersion>
+		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+		<Authors>LengxiQwQ</Authors>
+		<Company>LengxiQwQ</Company>
+		<Product>Live Photo Box</Product>
+		<AssemblyTitle>Display &amp; process Apple Live Photos on Windows</AssemblyTitle>
+		<Copyright>Copyright © 2026 LengxiQwQ. Licensed under GPL v3.0</Copyright>
 		<ApplicationIcon>Assets\Icons\AppIcon.ico</ApplicationIcon>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
 		<DefaultLanguage>zh-Hans</DefaultLanguage>
 		<SatelliteResourceLanguages>zh-Hans;en-US</SatelliteResourceLanguages>
-
+		
+		<!-- 原生 WinAppSDK 框架保留的语言文件夹（Windows 区域名称，分号分隔） -->
+		<AppSupportedNativeLocales>en-us;zh-CN</AppSupportedNativeLocales>
 
 		<Platforms>x86;x64;ARM64</Platforms>
 		<RuntimeIdentifiers>win-x86;win-x64;win-arm64</RuntimeIdentifiers>
@@ -27,6 +35,7 @@
 		<SelfContained>true</SelfContained>
 		<WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
 		<WindowsAppSdkUndockedRegFreeWinRTInitialize>true</WindowsAppSdkUndockedRegFreeWinRTInitialize>
+		
 		<!-- 非打包 Bootstrap 见 Services/WindowsAppSdkBootstrap.cs（ModuleInitializer） -->
 	</PropertyGroup>
 	
