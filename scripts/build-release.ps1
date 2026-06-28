@@ -5,7 +5,9 @@ Set-Location "D:\Projects\live-photo-box"
 chcp 65001 > $null
 
 $manifest = Get-Content "Live Photo Box\Package.appxmanifest" -Raw -Encoding UTF8
-$version = if ($manifest -match 'Identity.*Version\s*=\s*"([^"]+)"') { $Matches[1] } else { "0.0.0.0" }
+$versionFull = if ($manifest -match 'Identity.*Version\s*=\s*"([^"]+)"') { $Matches[1] } else { "0.0.0.0" }
+# 去掉末尾 .0，文件名用 3 段版本号
+$version = $versionFull -replace '\.0$', ''
 
 Write-Host "============================================" -ForegroundColor Cyan
 Write-Host "  LivePhotoBox Release Build v$version" -ForegroundColor Cyan
@@ -34,7 +36,7 @@ if (-not (Test-Path "publish\portable_x64\Live Photo Box.exe")) {
 Write-Host ""
 Write-Host "[2/3] Creating portable zip..." -ForegroundColor Yellow
 
-$zipName = "LivePhotoBox_v$($version)_portable_x64.zip"
+$zipName = "Live-Photo-Box-v$version-x64-portable.zip"
 $zipPath = "publish\$zipName"
 Compress-Archive -Path "publish\portable_x64\*" -DestinationPath $zipPath -Force
 $zipSize = "{0:N1} MB" -f ((Get-Item $zipPath).Length / 1MB)
@@ -45,9 +47,9 @@ Write-Host "[3/3] Creating installer..." -ForegroundColor Yellow
 
 $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if (Test-Path $iscc) {
-    & $iscc /Qp /dVERSION=$version "scripts\setup.iss"
+    & $iscc /Qp "/dVERSION=$versionFull" "/dVERSION_SHORT=$version" "scripts\setup.iss"
     if ($LASTEXITCODE -eq 0) {
-        $setupName = "LivePhotoBox_Setup_v$($version)_x64.exe"
+        $setupName = "Live-Photo-Box-v$version-x64-setup.exe"
         $setupPath = "publish\$setupName"
         $setupSize = "{0:N1} MB" -f ((Get-Item $setupPath).Length / 1MB)
         Write-Host "       $setupName  ($setupSize)" -ForegroundColor Green

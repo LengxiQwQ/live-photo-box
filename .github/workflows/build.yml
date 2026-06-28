@@ -1,46 +1,135 @@
-name: WinUI 3 构建与打包
+# build.yml — GitHub Actions 自动构建与发布
+#
+# 每次推送到 master → 自动编译验证
+# 每次推送 v* 标签  → 自动编译 + 打包 + 创建 Release
+#
+# 使用方式：
+#   git tag v1.14.11
+#   git push --tags
+#   → GitHub 自动编译、打包 zip/exe、创建 Release（草稿）
+#   → 去 Releases 页面检查 → 点 Publish 发布
 
+name: Build & Release
+
+# ── 触发条件 ──────────────────────────────────────────────────
 on:
   push:
-    branches: [ "main" ] # 当推送到 main 分支时触发
+    branches: [ master ]
+    tags: [ 'v*' ]           # v1.14.11, v1.14.12 ...
   pull_request:
-    branches: [ "main" ]
+    branches: [ master ]
+  workflow_dispatch:          # 手动触发（不创建 Release）
+
+# ── 权限 ──────────────────────────────────────────────────────
+permissions:
+  contents: write             # 允许创建 Release 和上传附件
 
 jobs:
   build:
-    # 关键：必须使用 Windows 运行器
-    runs-on: windows-latest 
+    runs-on: windows-latest
 
     steps:
-    - name: 检出代码
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      # ── 1. 拉取代码 ──────────────────────────────────────────
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: 安装 .NET SDK
-      uses: actions/setup-dotnet@v4
-      with:
-        dotnet-version: 8.0.x # 对应你项目使用的 .NET 8 稳定版
+      # ── 2. .NET 环境 ─────────────────────────────────────────
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
 
-    - name: 安装 MSBuild (用于 WinUI 3 打包)
-      uses: microsoft/setup-msbuild@v2
+      # ── 3. 从标签提取版本号 ──────────────────────────────────
+      - name: Extract version from tag
+        id: version
+        run: |
+          # 标签格式 v1.14.11 → version3=1.14.11, version4=1.14.11.0
+          if ("${{ github.ref_type }}" -eq "tag") {
+            $v = "${{ github.ref_name }}" -replace '^v', ''
+          } else {
+            $xml = [xml](Get-Content "Live Photo Box\Package.appxmanifest" -Raw)
+            $v = ($xml.Package.Identity.Version) -replace '\.0$', ''
+          }
+          echo "version3=$v" >> $env:GITHUB_OUTPUT
+          echo "version4=$v.0" >> $env:GITHUB_OUTPUT
+          echo "tag=v$v" >> $env:GITHUB_OUTPUT
+        shell: pwsh
 
-    - name: 还原 NuGet 包
-      run: dotnet restore
+      # ── 4. 编译 ──────────────────────────────────────────────
+      - name: Build & Publish (x64 Release)
+        run: |
+          dotnet publish "Live Photo Box\LivePhotoBox.csproj" `
+            -c Release `
+            -r win-x64 `
+            --self-contained true `
+            -p:Platform=x64 `
+            -p:WindowsAppSDKSelfContained=true `
+            -p:AppxPackageSigningEnabled=false `
+            -p:GenerateTemporaryStoreCertificate=false `
+            -o publish\portable_x64
+        shell: pwsh
 
-    - name: 构建并打包 (生成 MSIX)
-      # 这里的参数非常关键，它决定了是否生成可以直接分发的安装包
-      run: |
-        msbuild /p:Configuration=Release `
-                /p:Platform=x64 `
-                /p:UapAppxPackageBuildMode=SideloadOnly `
-                /p:AppxBundle=Always `
-                /p:AppxPackageSigningEnabled=false `
-                /p:GenerateAppxPackageOnBuild=true
-      # 注：目前先禁用签名(AppxPackageSigningEnabled=false)，等你有了证书再开启
+      # ── 5. 正确性检查 ───────────────────────────────────────
+      - name: Verify build output
+        run: |
+          if (-not (Test-Path "publish\portable_x64\Live Photo Box.exe")) {
+            Write-Host "::error::Build failed - Live Photo Box.exe not found"
+            exit 1
+          }
+        shell: pwsh
 
-    - name: 上传构建产物
-      uses: actions/upload-artifact@v4
-      with:
-        name: LivePhotoStudio-Binary
-        path: AppPackages/
+      # ── 6. 打包便携版 zip ────────────────────────────────────
+      - name: Package portable zip
+        run: |
+          $zip = "Live-Photo-Box-v${{ steps.version.outputs.version3 }}-x64-portable.zip"
+          Compress-Archive -Path "publish\portable_x64\*" -DestinationPath "publish\$zip" -Force
+          Write-Host "Created: $zip"
+        shell: pwsh
+
+      # ── 7. 打包安装版 exe ───────────────────────────────────
+      - name: Install Inno Setup
+        # Inno Setup 只在打 Release 时需要，但提前安装省得重复下载
+        run: choco install innosetup -y --no-progress --limit-output
+        shell: pwsh
+
+      - name: Build setup installer
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (Test-Path $iscc) {
+            & $iscc /Qp "/dVERSION=${{ steps.version.outputs.version4 }}" "/dVERSION_SHORT=${{ steps.version.outputs.version3 }}" "scripts\setup.iss"
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Installer created successfully"
+            } else {
+              Write-Host "::warning::Inno Setup exited with code $LASTEXITCODE"
+            }
+          } else {
+            Write-Host "::warning::Inno Setup not found at $iscc, skipping installer"
+          }
+        shell: pwsh
+
+      # ── 8. 上传构建产物（非标签构建） ─────────────────────
+      - name: Upload artifacts (non-release builds)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: LivePhotoBox-x64-Release
+          path: |
+            publish\*.zip
+            publish\*.exe
+          retention-days: 30
+
+      # ── 9. 创建 GitHub Release（标签构建） ─────────────────
+      - name: Create Release
+        if: ${{ startsWith(github.ref, 'refs/tags/') }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Live Photo Box ${{ steps.version.outputs.version3 }}
+          body_path: changelogs/release-${{ steps.version.outputs.version3 }}.md
+          draft: true
+          prerelease: false
+          make_latest: true
+          files: |
+            publish\*.zip
+            publish\*.exe
+          fail_on_unmatched_files: false

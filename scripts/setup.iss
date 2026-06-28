@@ -14,6 +14,9 @@
 #ifndef VERSION
   #define VERSION "1.0.0.0"
 #endif
+#ifndef VERSION_SHORT
+  #define VERSION_SHORT "1.0.0"
+#endif
 
 [Setup]
 AppId={{B3E8F5A2-9D4C-4F1A-A6E7-8B2C0D5F3A9E}}
@@ -27,7 +30,7 @@ DefaultGroupName={#AppName}
 AllowNoIcons=yes
 LicenseFile=..\LICENSE
 OutputDir=..\publish
-OutputBaseFilename=LivePhotoBox_Setup_v{#VERSION}_x64
+OutputBaseFilename=Live-Photo-Box-v{#VERSION_SHORT}-x64-setup
 SetupIconFile={#IconFile}
 Compression=lzma2
 SolidCompression=no
