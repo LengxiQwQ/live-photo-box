@@ -58,7 +58,7 @@ jobs:
       # ── 4. 编译 ──────────────────────────────────────────────
       - name: Build & Publish (x64 Release)
         run: |
-          dotnet publish "Live Photo Box\LivePhotoBox.csproj" `
+          dotnet publish "Live Photo Box\Live Photo Box.csproj" `
             -c Release `
             -r win-x64 `
             --self-contained true `
