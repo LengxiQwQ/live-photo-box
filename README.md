@@ -8,7 +8,7 @@
 <p><em>Display and process Apple Live Photos directly on Windows.</em></p>
 
 <p>
-  🌐 Language: <a href="README.zh-cn.md">简体中文 (zh-cn)</a> &nbsp;·&nbsp; <strong>English (en)</strong>
+  🌐 Language: &nbsp;<strong>English (en)  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文 (zh-cn)</a></strong>
 </p>
 
 </div>
@@ -43,7 +43,7 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
 ## 🚀 Download
 
 <div align="center">
-  <a href="#"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="36" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="36" /></a>
+  <a href="#"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="35" /></a>
 </div>
 
 <p align="center">
