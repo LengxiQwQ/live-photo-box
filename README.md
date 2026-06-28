@@ -51,7 +51,7 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 <p align="center">
   <sub>
-    支持架构：<b>x64</b>
+    支持架构：<b>x86_64</b>
     &nbsp;|&nbsp;
     系统要求：<b>Windows 10 (1809+)</b> 或 <b>Windows 11</b>
     &nbsp;|&nbsp;
