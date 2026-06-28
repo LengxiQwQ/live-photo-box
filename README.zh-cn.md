@@ -20,7 +20,6 @@
   <img src="https://img.shields.io/badge/9.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 9" />
   <img src="https://img.shields.io/badge/C%23-13.0-239120?style=flat-square&logo=csharp" alt="C# 13" />
   <img src="https://img.shields.io/badge/WinUI%203-1.8-0078D7?style=flat-square&logo=windows" alt="WinUI 3" />
-  <img src="https://img.shields.io/github/repo-size/lengxiqwq/live-photo-box?style=flat-square&color=0078D7" alt="Repo Size">
   <img src="https://img.shields.io/github/downloads/lengxiqwq/live-photo-box/total?style=flat-square&color=0078D7" alt="Downloads">
 </p>
 
