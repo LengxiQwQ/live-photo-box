@@ -12,7 +12,7 @@ $versionFull = if ($manifest -match 'Identity.*Version\s*=\s*"([^"]+)"') { $Matc
 $version = $versionFull -replace '\.0$', ''
 
 Write-Host '============================================' -ForegroundColor Cyan
-Write-Host "  LivePhotoBox Release Build v$version" -ForegroundColor Cyan
+Write-Host "  Live Photo Box Release Build v$version" -ForegroundColor Cyan
 Write-Host '============================================' -ForegroundColor Cyan
 Write-Host ''
 

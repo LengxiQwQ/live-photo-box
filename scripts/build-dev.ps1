@@ -11,7 +11,7 @@ $manifest = Get-Content 'Live Photo Box\Package.appxmanifest' -Raw -Encoding UTF
 $version = if ($manifest -match 'Identity.*Version\s*=\s*"([^"]+)"') { $Matches[1] } else { '0.0.0.0' }
 
 Write-Host '============================================' -ForegroundColor Cyan
-Write-Host "  LivePhotoBox Dev Build v$version" -ForegroundColor Cyan
+Write-Host "  Live Photo Box Dev Build v$version" -ForegroundColor Cyan
 Write-Host '============================================' -ForegroundColor Cyan
 Write-Host ''
 

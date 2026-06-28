@@ -17,8 +17,12 @@
 ---
 
 <p align="center">
-  🌐 Language: &nbsp;<strong>English  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文</a></strong>
+  📖 README Language: &nbsp;<strong>English  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文</a></strong>
 </p>
+<p align="center">
+  📋 CHANGELOG: &nbsp;<strong><a href="changelogs/CHANGELOG.md">English</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a></strong>
+</p>
+
 </div>
 
 ## 💡 What Is This?

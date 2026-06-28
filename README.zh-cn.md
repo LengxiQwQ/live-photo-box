@@ -19,7 +19,10 @@
 ---
 
 <p align="center">
-  🌐 语言：<strong>简体中文</strong> &nbsp;·&nbsp; <a href="README.md">English</a>
+  📖 README Language：<strong>简体中文</strong> &nbsp;·&nbsp; <a href="README.md">English</a>
+</p>
+<p align="center">
+  📋 CHANGELOG：<strong><a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.md">English</a></strong>
 </p>
 
 
