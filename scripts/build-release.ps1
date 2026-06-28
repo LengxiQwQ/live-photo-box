@@ -44,6 +44,46 @@ if (-not (Test-Path "$outDir\Live Photo Box.exe")) {
     exit 1
 }
 
+Write-Host ""
+Write-Host "[2/3] Cleaning unnecessary files..." -ForegroundColor Yellow
+
+$outDir = "publish\portable_x64"
+$keepLocales = @('zh-CN','en-us')
+
+# 1. 删除多余语言文件夹
+$count = 0
+foreach ($dir in (Get-ChildItem $outDir -Directory -ErrorAction SilentlyContinue)) {
+    if ($dir.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $dir.Name -notin $keepLocales) {
+        Remove-Item -Recurse -Force $dir.FullName -ErrorAction SilentlyContinue
+        $count++
+    }
+}
+Write-Host "       Removed $count locale folders (kept zh-CN, en-us)" -ForegroundColor Gray
+
+# 2. 删除 AI/ML 无用文件
+foreach ($f in @('DirectML.dll','onnxruntime.dll','onnxruntime_providers_shared.dll','Microsoft.ML.OnnxRuntime.dll')) {
+    $p = Join-Path $outDir $f
+    if (Test-Path $p) { Remove-Item -Force $p }
+}
+if (Test-Path "$outDir\NpuDetect") { Remove-Item -Recurse -Force "$outDir\NpuDetect" }
+
+# 3. 删除 Microsoft.Windows.AI.*
+Get-ChildItem $outDir -Filter 'Microsoft.Windows.AI*' -ErrorAction SilentlyContinue | Remove-Item -Force
+Get-ChildItem $outDir -Filter 'Microsoft.Windows.AI*' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+
+# 4. 删除 AI 负载配置和杂项
+Remove-Item -Force "$outDir\workloads.json" -ErrorAction SilentlyContinue
+Remove-Item -Force "$outDir\WindowsAppRuntime.png" -ErrorAction SilentlyContinue
+
+# 5. 删除调试符号 (发布版不需要)
+Remove-Item -Force "$outDir\Live Photo Box.pdb" -ErrorAction SilentlyContinue
+
+# 6. 删除 XML 文档
+Remove-Item -Force "$outDir\*.xml" -ErrorAction SilentlyContinue
+
+$kb = (Get-ChildItem $outDir -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1KB
+Write-Host "       Final size: $('{0:N0}' -f $kb) KB" -ForegroundColor Green
+
 Write-Host '       Build OK' -ForegroundColor Green
 
 # 从 csproj 读取要保留的原生语言列表（单一真相源）
