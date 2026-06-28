@@ -1,9 +1,10 @@
 <div align="center">
 <h1>
-  <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" alt="icon" width="140" align="left" hspace="16" />
+  <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" alt="icon" width="130" align="left" hspace="16" />
   Live Photo Box（实况照片工具箱）
 </h1>
 <p><em>A toolbox for managing, repairing, and converting Apple Live Photos on Windows &amp; Android</em></p>
+
 
 
 <p align="center">
