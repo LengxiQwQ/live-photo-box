@@ -4,8 +4,7 @@
   <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" alt="icon" width="120" align="middle" hspace="16" />
   Live Photo Box
 </h1>
-
-<p><em>实况照片工具箱 — 专为 Windows 打造的 Apple 实况照片管理与修复工具</em></p>
+<p><em>实况照片工具箱 — 专为 Windows 和 Android 打造的 Apple 实况照片管理与修复工具</em></p>
 
 <p>
   🌐 语言：<strong>简体中文 (zh-cn)</strong> &nbsp;·&nbsp; <a href="README.md">English (en)</a>

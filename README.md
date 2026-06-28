@@ -4,8 +4,7 @@
   <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" alt="icon" width="120" align="middle" hspace="16" />
   Live Photo Box
 </h1>
-
-<p><em>Display and process Apple Live Photos directly on Windows.</em></p>
+<p><em>Display and process Apple Live Photos directly on Windows &amp; android .</em></p>
 
 <p>
   🌐 Language: &nbsp;<strong>English (en)  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文 (zh-cn)</a></strong>
