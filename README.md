@@ -43,16 +43,16 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
 <div align="center">
   <a href="#"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="35" /></a>
 </div>
-
 <p align="center">
   <sub>
-    Architecture: <b>x86_64</b>
+    Architecture: <b>x64</b>
     &nbsp;|&nbsp;
     System Requirements: <b>Windows 10 (1809+)</b> or <b>Windows 11</b>
     &nbsp;|&nbsp;
     No runtime required (self-contained .NET 9 + WinAppSDK 1.8)
   </sub>
 </p>
+
 
 ---
 
