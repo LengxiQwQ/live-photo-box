@@ -54,18 +54,14 @@
 [⬇️ **Live-Photo-Box-v1.14.10-x64-portable.zip**](https://github.com/LengxiQwQ/live-photo-box/releases/download/v1.14.10/Live-Photo-Box-v1.14.10-x64-portable.zip)
 
 > 解压到任意文件夹 → 双击 `LivePhotoBox.exe` 即可运行。
->
 
 ### ⚙️ 安装版 / Installer
 
 [⬇️ **Live-Photo-Box-v1.14.10-x64-setup.exe**](https://github.com/LengxiQwQ/live-photo-box/releases/download/v1.14.10/Live-Photo-Box-v1.14.10-x64-setup.exe)
 > 双击运行安装程序，跟着指引下一步即可。
->
 
 ---
 
-> 📖 完整功能介绍、使用教程和应用截图见 [README](https://github.com/LengxiQwQ/live-photo-box#readme)
->
-> 🐛 反馈问题 → [Issues](https://github.com/LengxiQwQ/live-photo-box/issues)
->
+> 📖 完整功能介绍、使用教程和应用截图见 [README](https://github.com/lengxiqwq/live-photo-box#readme)  
+> 🐛 反馈问题 → [Issues](https://github.com/lengxiqwq/live-photo-box/issues)  
 > ⭐ 如果喜欢这个项目，欢迎点个 Star！
