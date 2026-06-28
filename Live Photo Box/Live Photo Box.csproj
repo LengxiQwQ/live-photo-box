@@ -200,7 +200,20 @@
 	</PropertyGroup>
 
 	<!-- Strip unwanted WinUI/WinAppSDK locale satellite folders from output (keep only zh-Hans / en-US) -->
-	<Target Name="StripUnwantedLocales" AfterTargets="Build" Condition="Exists('$(OutDir)')">
+	<!-- dotnet publish 不会自动复制 XAML 编译输出 (.xbf/.pri)，手动补上 -->
+		<Target Name="CopyXamlOutputsOnPublish" AfterTargets="Publish">
+			<ItemGroup>
+				<_XamlOutputs Include="$(OutDir)*.xbf" />
+				<_XamlOutputs Include="$(OutDir)*.pri" />
+				<_XamlOutputs Include="$(OutDir)appsettings.json" Condition="Exists('$(OutDir)appsettings.json')" />
+				<_XamlDirs Include="$(OutDir)Controls\**\*" />
+				<_XamlDirs Include="$(OutDir)Views\**\*" />
+			</ItemGroup>
+			<Copy SourceFiles="@(_XamlOutputs)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+			<Copy SourceFiles="@(_XamlDirs)" DestinationFolder="$(PublishDir)%(RecursiveDir)" SkipUnchangedFiles="true" />
+		</Target>
+
+		<Target Name="StripUnwantedLocales" AfterTargets="Build" Condition="Exists('$(OutDir)')">
 		<Exec Command="powershell -NoProfile -NoLogo -Command &quot;Get-ChildItem '$(OutDir)' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $_.Name -notin @('en-US','en-us','zh-Hans','zh-CN') } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue&quot;" IgnoreExitCode="true" />
 	</Target>
 </Project>
