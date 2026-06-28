@@ -4,7 +4,7 @@
   <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" alt="icon" width="120" align="middle" hspace="16" />
   Live Photo Box
 </h1>
-<p><em>Display and process Apple Live Photos directly on Windows &amp; android .</em></p>
+<p><em>A toolbox for managing, repairing, and converting Apple Live Photos on Windows &amp; Android</em></p>
 
 <p>
   🌐 Language: &nbsp;<strong>English (en)  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文 (zh-cn)</a></strong>
@@ -41,7 +41,7 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
 ## 🚀 Download
 
 <div align="center">
-  <a href="#"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="35" /></a>
+  <a href="#"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="35" /></a>
 </div>
 <p align="center">
   <sub>
@@ -60,37 +60,41 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
 
 ### 🔗 Merge Live Photo
 
-Combine any still image + video clip into a standard Live Photo, compatible with multiple Android protocols.
+Combine **Apple Live Photos** or any still image + video clip into a **standard Live Photo** (single-file format), viewable on Windows and Android devices.
 
 - Supports **Google — Micro Video (V1) / Motion Photo (V2) / OPPO/OnePlus — O Live Photo** protocols
-- Automatically writes complete `EXIF` + `QuickTime` metadata (`ContentIdentifier` `UUID`)
-- **Smart pairing engine**: matches photo-video pairs by filename, Apple `ContentIdentifier` (`UUID`), falls back to capture-time tolerance when neither matches
-- **Live Photos merged via any supported protocol are fully viewable on Windows**
+- Writes complete `EXIF` + `QuickTime` metadata (`ContentIdentifier` `UUID`) automatically
+- **Apple-native Live Photo pairing**: matches photos and videos by Apple `ContentIdentifier` (`UUID`) even when filenames are completely different; gracefully degrades to capture-time ±2 s tolerance when `UUID` is unavailable
+- **Live Photos merged via any supported protocol are fully viewable on Windows** (Motion Photo V2 recommended)
 
 ### 📸 Split Live Photo
 
-Split a single-file Live Photo back into independent still image (`JPG` / `HEIC`) and video (`MOV` / `MP4`).
+Split a **Live Photo** (single-file form) into an independent still image (`JPG` / `HEIC`) and video (`MP4` / `MOV`).
 
-- Smart removal of Google `XMP` metadata to prevent re-identification as a Live Photo after splitting
-- Rebuilds `JPEG` segment-by-segment, preserving `EXIF` / `ICC` / `GPS` / shooting parameters
+- Strips `XMP` metadata to prevent the split image from being erroneously re-identified as a Live Photo, while preserving all other metadata
+- Rebuilds `JPEG` segment-by-segment; `EXIF` / `ICC` / `GPS` / shooting parameters are retained
 
 ### 🛠️ Repair Live Photo
 
-Deep repair of display issues on iPhone Live Photos exported to Windows.
+Deeply repair the visual defects that occur when iPhone Live Photos are exported to Windows.
 
-- **Excess thumbnail & horizontal stretch** (pre-iOS 17.3): lossless fix via `jpegtran` rotation + thumbnail stripping
-- **Front-camera video rotation**: re-encode via `FFmpeg` to bake the rotation matrix into pixels
-- **HEIC orientation fix**: corrects miswritten `Orientation` tags
-- **ContentIdentifier restoration**: auto-repair photo-video `UUID` pairing
-- Scan and view **diagnostic details** for each photo, filter by file type or repair status
+- **Excess thumbnail & horizontal stretch** (pre-iOS 17.3): Apple once embedded low-resolution thumbnails tagged with orientation, which Windows misinterprets as landscape, causing stretching or squashing. Losslessly fixed via `jpegtran` rotation + stripping the extraneous thumbnail
+- **Front-camera video rotation**: the iPhone front camera stores vertical pixels horizontally and relies on an orientation tag — which Windows ignores. Fixed by `FFmpeg` re-encode to bake the rotation matrix into the pixel data
+- **HEIC orientation correction**: rectifies miswritten `Orientation` tags
+- **ContentIdentifier restoration**: auto-repairs photo-video `UUID` pairings
+- Scan and review **diagnostic details** per photo; filter by file type or repair status
 
 ### 🖼️ Replace Key Photo (In Development)
 
-Freely change the cover frame of a Live Photo — pick the perfect moment from the motion video and losslessly swap it in.
+Change the cover frame of a Live Photo freely.
+
+- Extract any frame from the video as the new key photo
+- Import a custom image
+- Lossless replacement — all Live Photo properties remain intact
 
 ### 📂 Photo Organize (In Development)
 
-Automatically scan, categorize, and archive by device, date, and Live Photo type.
+Automatically scan, categorize, and archive photos by device, date, and Live Photo type based on EXIF metadata. Initial support will target iPhone photos.
 
 ---
 
