@@ -42,7 +42,7 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
 ## 🚀 Download
 
 <div align="center">
-  <a href="https://apps.microsoft.com/store/detail/9N3D1QNRTVCH?cid=DevShareMCLPCS" target="_blank"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="35" /></a>
+  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="35" /></a>
 </div>
 <p align="center">
   <sub>
@@ -53,6 +53,7 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
     No runtime required (self-contained .NET 9 + WinAppSDK 1.8)
   </sub>
 </p>
+
 
 
 
