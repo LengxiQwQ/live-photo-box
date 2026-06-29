@@ -42,7 +42,7 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
 ## 🚀 Download
 
 <div align="center">
-  <a href="https://apps.microsoft.com/store/detail/9N3D1QNRTVCH?cid=DevShareMCLPCS"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="35" /></a>
+  <a href="https://apps.microsoft.com/store/detail/9N3D1QNRTVCH?cid=DevShareMCLPCS" target="_blank"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="35" /></a>
 </div>
 <p align="center">
   <sub>
