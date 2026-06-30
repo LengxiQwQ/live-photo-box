@@ -9,11 +9,14 @@ namespace LivePhotoBox.Services
     public static class ExternalToolLocator
     {
         private static readonly Lazy<string?> _cachedFFmpegPath = new(ResolveFFmpegPath);
+        private static readonly Lazy<string?> _cachedFFprobePath = new(ResolveFFprobePath);
         private static readonly Lazy<string?> _cachedExifToolPath = new(ResolveExifToolPath);
         private static readonly Lazy<string?> _cachedJpegTranPath = new(ResolveJpegTranPath);
 
         // 获取缓存的 FFmpeg 可执行文件路径，未找到时返回 null。
         public static string? FindFFmpeg() => _cachedFFmpegPath.Value;
+        // 获取缓存的 FFprobe 可执行文件路径，未找到时返回 null。
+        public static string? FindFFprobe() => _cachedFFprobePath.Value;
         // 获取缓存的 ExifTool 可执行文件路径，未找到时返回 null。
         public static string? FindExifTool() => _cachedExifToolPath.Value;
         // 获取缓存的 jpegtran 可执行文件路径，未找到时返回 null。
@@ -52,6 +55,51 @@ namespace LivePhotoBox.Services
                                     string clean = part.Trim(' ', '"');
                                     if (string.IsNullOrEmpty(clean)) continue;
                                     string fullPath = Path.Combine(clean, "ffmpeg.exe");
+                                    if (File.Exists(fullPath)) return fullPath;
+                                }
+                                catch { }
+                            }
+                        }
+                    }
+                }
+                catch { }
+            }
+
+            return null;
+        }
+
+        // 解析 ffprobe 路径，逻辑与 ffmpeg 一致（ffprobe 与 ffmpeg 通常在同一目录）。
+        private static string? ResolveFFprobePath()
+        {
+            string[] candidates =
+            {
+                Path.Combine(AppContext.BaseDirectory, "Tools", "ffprobe.exe"),
+                Path.Combine(AppContext.BaseDirectory, "Tools", "ffprobe"),
+                Path.Combine(AppContext.BaseDirectory, "ffprobe.exe"),
+                Path.Combine(AppContext.BaseDirectory, "ffprobe"),
+                Path.Combine(AppContext.BaseDirectory, "..", "Tools", "ffprobe.exe"),
+                "ffprobe"
+            };
+
+            foreach (var candidate in candidates)
+            {
+                try
+                {
+                    if (File.Exists(candidate))
+                        return candidate;
+
+                    if (candidate == "ffprobe")
+                    {
+                        string? pathEnv = Environment.GetEnvironmentVariable("PATH");
+                        if (!string.IsNullOrEmpty(pathEnv))
+                        {
+                            foreach (var part in pathEnv.Split(Path.PathSeparator))
+                            {
+                                try
+                                {
+                                    string clean = part.Trim(' ', '"');
+                                    if (string.IsNullOrEmpty(clean)) continue;
+                                    string fullPath = Path.Combine(clean, "ffprobe.exe");
                                     if (File.Exists(fullPath)) return fullPath;
                                 }
                                 catch { }

@@ -140,9 +140,9 @@
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <TextBlock x:Uid="MergePage_ProtocolLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             <ComboBox x:Name="ProtocolComboBox" SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}" Loaded="ProtocolComboBox_Loaded">
-                                <ComboBoxItem x:Uid="SettingsPage_Protocol_V1"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Protocol_V2"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Protocol_Oppo"/>
+                                <ComboBoxItem x:Uid="MergePage_Protocol_V1"/>
+                                <ComboBoxItem x:Uid="MergePage_Protocol_V2"/>
+                                <ComboBoxItem x:Uid="MergePage_Protocol_Oppo"/>
                             </ComboBox>
                             <Button x:Uid="MergePage_HelpBtn" Height="34" Width="34" Padding="0"
                                     Background="Transparent" BorderBrush="Transparent"

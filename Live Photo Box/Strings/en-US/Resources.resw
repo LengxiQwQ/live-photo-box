@@ -688,14 +688,23 @@ Do you want to restart now?</value>
   <data name="SettingsPage_Backdrop_Acrylic.Content" xml:space="preserve">
     <value>Desktop Acrylic</value>
   </data>
-  <data name="SettingsPage_Protocol_V1.Content" xml:space="preserve">
+  <data name="MergePage_Protocol_V1.Content" xml:space="preserve">
     <value>Google - Micro Video (V1)</value>
   </data>
-  <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
+  <data name="MergePage_Protocol_V2.Content" xml:space="preserve">
     <value>Google - Motion Photo (V2)</value>
   </data>
-  <data name="SettingsPage_Protocol_Oppo.Content" xml:space="preserve">
+  <data name="MergePage_Protocol_Oppo.Content" xml:space="preserve">
     <value>OPPO/OnePlus - O Live Photo</value>
+  </data>
+  <data name="MergePage_Protocol_V1_Hint" xml:space="preserve">
+    <value>Xiaomi (older MIUI)</value>
+  </data>
+  <data name="MergePage_Protocol_V2_Hint" xml:space="preserve">
+    <value>Pixel / Xiaomi / Redmi</value>
+  </data>
+  <data name="MergePage_Protocol_Oppo_Hint" xml:space="preserve">
+    <value>OPPO / OnePlus</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
@@ -1393,7 +1402,7 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>HEIC/HEIF file "{0}" conversion failed: {1}</value>
   </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
-    <value>Convert iPhone Live Photos into single files viewable on both Windows and Android</value>
+    <value>Combine Apple Live Photos or any image + video into standard Live Photos (single-file format), viewable on Windows and Android devices</value>
   </data>
   <data name="HomePage_Tutorial_ImagePlaceholder.Text" xml:space="preserve">
     <value>Tutorial image coming soon</value>
@@ -1495,14 +1504,18 @@ Supported video formats: MOV, MP4
     <value>After scanning, select the appropriate protocol from the "Protocol" dropdown:
 
 🔹 Only viewing on Windows?
-Any protocol works. Google - Motion Photo (V2) is recommended.
+Any protocol works. Motion Photo (V2) is recommended.
 
 🔹 Importing to an Android device?
 Choose the protocol that best matches your phone brand.
 
+· Micro Video (V1): Xiaomi (older MIUI)
+· Motion Photo (V2): Pixel / Xiaomi / Redmi
+· O-Live Photo: OPPO / OnePlus
+
 ⚠️ Currently not supported:
-· VIVO / iQOO — Uses separate file format, not supported
-· Samsung / Huawei / Honor — Not tested, currently not supported
+· iPhone / VIVO / iQOO — Uses separate photo/video format
+· Samsung / Huawei / Honor — Not tested
 
 Once selected, click "Start Merge".</value>
   </data>
@@ -1976,5 +1989,41 @@ Are you sure you want to switch?</value>
   </data>
   <data name="SettingsPage_General_OutputPreserveSubfolder_Desc.Text" xml:space="preserve">
     <value>When enabled, output files retain the original subfolder hierarchy instead of being flattened into the output root directory</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Button_Text.Text" xml:space="preserve">
+    <value>Check External Tools</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Dialog_Title" xml:space="preserve">
+    <value>External Tools Diagnostic</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Available" xml:space="preserve">
+    <value>Available</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Unavailable" xml:space="preserve">
+    <value>Unavailable</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Path" xml:space="preserve">
+    <value>Path</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Version" xml:space="preserve">
+    <value>Version</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Error" xml:space="preserve">
+    <value>Error</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Checking" xml:space="preserve">
+    <value>Checking external tools, please wait…</value>
+  </data>
+  <data name="SettingsPage_CheckTools_NotFound" xml:space="preserve">
+    <value>Executable not found</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Timeout" xml:space="preserve">
+    <value>Check timed out (5 seconds)</value>
+  </data>
+  <data name="SettingsPage_CheckTools_AllOk" xml:space="preserve">
+    <value>✅ All {0} external tools are available</value>
+  </data>
+  <data name="SettingsPage_CheckTools_SomeFailed" xml:space="preserve">
+    <value>⚠️ {0}/{1} tools available, check details below</value>
   </data>
 </root>

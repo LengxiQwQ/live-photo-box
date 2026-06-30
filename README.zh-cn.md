@@ -82,7 +82,7 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 将 **Apple 实况照片**或任意图片 + 视频组合为**标准实况照片**（单文件格式），方便在 Windows 及 Android 设备上查看。
 
-- 支持 **Google `Micro Video V1` / `Motion Photo V2` / `OPPO` / `小米`** 等多种协议
+- 支持 **`Google (V1 & V2)` / `OPPO` / `小米`** 等多种协议
 - 自动写入完整 `EXIF` + `QuickTime` 元数据（`ContentIdentifier` `UUID`）
 - **Apple 原生实况照片配对**：即使照片和视频文件名完全不同，也能通过 Apple 元数据中的 `ContentIdentifier`（`UUID`）精确匹配；无法匹配 `UUID` 时自动降级为拍摄日期 ±2 秒容差匹配兜底
 - **目前任何协议合成的实况照片均可在 Windows 上直接查看**（推荐 Google Motion Photo V2）

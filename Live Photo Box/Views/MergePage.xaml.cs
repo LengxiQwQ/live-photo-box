@@ -18,9 +18,11 @@ using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Linq;
 
@@ -52,11 +54,89 @@ namespace LivePhotoBox.Views
             Unloaded += MergePage_Unloaded;
         }
 
-        // 输出格式下拉框加载完成后自动适配宽度
+        // 输出格式下拉框加载完成后注入品牌说明副标题，并按最长协议名称固定宽度。
+        // 收起时只显示名称（单行），展开时显示名称 + 灰色品牌说明（双行，在 Popup 中不影响面板高度）。
         private void ProtocolComboBox_Loaded(object sender, RoutedEventArgs e)
         {
-            if (sender is ComboBox comboBox)
-                ComboBoxHelper.AutoFitWidth(comboBox);
+            if (sender is not ComboBox comboBox) return;
+
+            string[] names = new string[comboBox.Items.Count];
+            string[] hintKeys = ["MergePage_Protocol_V1_Hint", "MergePage_Protocol_V2_Hint", "MergePage_Protocol_Oppo_Hint"];
+
+            // 测量最长协议名称宽度，固定 ComboBox 宽度
+            double maxNameWidth = 0;
+            double fontSize = comboBox.FontSize > 0 && !double.IsNaN(comboBox.FontSize)
+                ? comboBox.FontSize : 14.0;
+
+            for (int i = 0; i < comboBox.Items.Count && i < hintKeys.Length; i++)
+            {
+                if (comboBox.Items[i] is ComboBoxItem item)
+                {
+                    // x:Uid 已解析，Content = 本地化名称；收起状态只显示名称
+                    names[i] = (item.Content as string) ?? "";
+
+                    // 测量名称文本宽度
+                    var measureBlock = new TextBlock
+                    {
+                        Text = names[i],
+                        FontSize = fontSize,
+                        TextWrapping = TextWrapping.NoWrap
+                    };
+                    measureBlock.Measure(new Windows.Foundation.Size(
+                        double.PositiveInfinity, double.PositiveInfinity));
+                    maxNameWidth = Math.Max(maxNameWidth, measureBlock.DesiredSize.Width);
+                }
+            }
+
+            if (maxNameWidth > 0)
+                comboBox.Width = maxNameWidth + 64;
+
+            // 展开 → 显示名称加粗 + 品牌说明灰色小字（双行，仅在下拉 Popup 内）
+            comboBox.DropDownOpened += (_, _) =>
+            {
+                for (int i = 0; i < comboBox.Items.Count && i < hintKeys.Length; i++)
+                {
+                    if (comboBox.Items[i] is ComboBoxItem item && !string.IsNullOrEmpty(names[i]))
+                    {
+                        string hint = ResourceService.GetString(hintKeys[i]);
+                        item.Content = BuildRichItem(names[i], hint);
+                    }
+                }
+            };
+
+            // 收起 → 恢复只显示名称（单行，不影响面板高度）
+            comboBox.DropDownClosed += (_, _) =>
+            {
+                for (int i = 0; i < comboBox.Items.Count && i < names.Length; i++)
+                {
+                    if (comboBox.Items[i] is ComboBoxItem item && !string.IsNullOrEmpty(names[i]))
+                        item.Content = names[i];
+                }
+            };
+        }
+
+        // 构建双行选项：名称加粗 + 灰色品牌说明
+        private static StackPanel BuildRichItem(string name, string hint)
+        {
+            return new StackPanel
+            {
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = name,
+                        FontWeight = FontWeights.SemiBold,
+                        FontSize = 13
+                    },
+                    new TextBlock
+                    {
+                        Text = hint,
+                        FontSize = 11,
+                        Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                        Margin = new Thickness(0, 1, 0, 0)
+                    }
+                }
+            };
         }
 
         // 页面加载完成后附加自动滚动器，绑定 ViewModel 事件

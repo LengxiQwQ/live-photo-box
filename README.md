@@ -81,7 +81,7 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
 
 Combine **Apple Live Photos** or any still image + video clip into a **standard Live Photo** (single-file format), viewable on Windows and Android devices.
 
-- Supports **Google — Micro Video (V1) / Motion Photo (V2) / OPPO/OnePlus — O Live Photo** protocols
+- Supports **`Google (V1 & V2)` /` OPPO` / `Xiaomi`** protocols
 - Writes complete `EXIF` + `QuickTime` metadata (`ContentIdentifier` `UUID`) automatically
 - **Apple-native Live Photo pairing**: matches photos and videos by Apple `ContentIdentifier` (`UUID`) even when filenames are completely different; gracefully degrades to capture-time ±2 s tolerance when `UUID` is unavailable
 - **Live Photos merged via any supported protocol are fully viewable on Windows** (Motion Photo V2 recommended)
