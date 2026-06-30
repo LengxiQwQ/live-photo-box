@@ -18,9 +18,11 @@ using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
+using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Linq;
 
@@ -52,12 +54,110 @@ namespace LivePhotoBox.Views
             Unloaded += MergePage_Unloaded;
         }
 
-        // 输出格式下拉框加载完成后自动适配宽度
+        // 输出格式下拉框加载完成后注入品牌说明副标题，并按最长协议名称固定宽度。
+        // 收起时只显示名称（单行），展开时显示名称 + 灰色品牌说明（双行，在 Popup 中不影响面板高度）。
         private void ProtocolComboBox_Loaded(object sender, RoutedEventArgs e)
         {
-            if (sender is ComboBox comboBox)
-                ComboBoxHelper.AutoFitWidth(comboBox);
+            if (sender is not ComboBox comboBox) return;
+
+            string[] names = new string[comboBox.Items.Count];
+            string[] hintKeys = ["MergePage_Protocol_V1_Hint", "MergePage_Protocol_V2_Hint", "MergePage_Protocol_Oppo_Hint"];
+
+            double maxNameWidth = 0;
+            double fontSize = comboBox.FontSize > 0 && !double.IsNaN(comboBox.FontSize)
+                ? comboBox.FontSize : 14.0;
+
+            // 1. 强行锁定 ComboBox 外部框整体高度为标准 32px，防止任何由于内部元素变化引发的上下“抽搐”
+            if (double.IsNaN(comboBox.Height))
+            {
+                comboBox.Height = 32;
+            }
+
+            // 2. 初始化：为每一项永久绑定一个固定结构的 StackPanel 容器
+            for (int i = 0; i < comboBox.Items.Count && i < hintKeys.Length; i++)
+            {
+                if (comboBox.Items[i] is ComboBoxItem item)
+                {
+                    names[i] = (item.Content as string) ?? "";
+
+                    // 测量最长文本宽度以固定控件总宽
+                    var measureBlock = new TextBlock { Text = names[i], FontSize = fontSize, TextWrapping = TextWrapping.NoWrap };
+                    measureBlock.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+                    maxNameWidth = Math.Max(maxNameWidth, measureBlock.DesiredSize.Width);
+
+                    // 主标题：拿掉了之前坑爹的 Height=32 物理限制，恢复自然高，绝不发扁
+                    var nameBlock = new TextBlock
+                    {
+                        Text = names[i],
+                        FontSize = fontSize,
+                        FontWeight = FontWeights.Normal // 初始默认不加粗
+                    };
+
+                    // 副标题：限制宽度并允许换行（防止撑宽面板），同时保留你最原始的 1px 上边距
+                    string hint = ResourceService.GetString(hintKeys[i]);
+                    var hintBlock = new TextBlock
+                    {
+                        Text = hint,
+                        FontSize = 11,
+                        Foreground = (Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                        Margin = new Thickness(0, 1, 0, 0),
+                        TextWrapping = TextWrapping.Wrap,   // 允许长文本自动换行
+                        MaxWidth = 200,                     // 限制最大宽度，防止横向撑爆下拉框
+                        Visibility = Visibility.Collapsed   // 初始默认隐藏
+                    };
+
+                    // 堆叠容器：用 Spacing 控制两行紧凑字距，用 VerticalAlignment 让单行文本收起时在 32px 框里完美上下居中
+                    var panel = new StackPanel
+                    {
+                        Spacing = 2,                                  // 两行字之间的呼吸间距
+                        VerticalAlignment = VerticalAlignment.Center, // 确保收起时单行文字绝对居中
+                        Children = { nameBlock, hintBlock }
+                    };
+
+                    item.Content = panel;
+
+                    // 利用元组将内部控件的引用存进 Tag，方便事件中直接提取并秒刷属性
+                    item.Tag = (nameBlock, hintBlock);
+                }
+            }
+
+            if (maxNameWidth > 0)
+                comboBox.Width = maxNameWidth + 64;
+
+            // 3. 展开时：一键将所有项切为“展开态”（主标题加粗 + 显示副标题）
+            comboBox.DropDownOpened += (_, _) =>
+            {
+                foreach (var obj in comboBox.Items)
+                {
+                    if (obj is ComboBoxItem item && item.Tag is (TextBlock nameBlock, TextBlock hintBlock))
+                    {
+                        nameBlock.FontWeight = FontWeights.SemiBold;
+                        hintBlock.Visibility = Visibility.Visible;
+                    }
+                }
+            };
+
+            // 统一的重置状态方法：将所有项切回“收起态”（主标题恢复常规细体 + 隐藏副标题）
+            void ResetToCollapsedState()
+            {
+                foreach (var obj in comboBox.Items)
+                {
+                    if (obj is ComboBoxItem item && item.Tag is (TextBlock nameBlock, TextBlock hintBlock))
+                    {
+                        nameBlock.FontWeight = FontWeights.Normal;
+                        hintBlock.Visibility = Visibility.Collapsed;
+                    }
+                }
+            }
+
+            // 4. 收起时（无论是正常选中收起，还是点击旁边空白处直接返回）：强制恢复常规细体
+            // 此时外部显示框由于和内部共享同一个 panel 对象引用，属性一变，外部字体会瞬间同步变细！
+            comboBox.DropDownClosed += (_, _) => ResetToCollapsedState();
+
+            // 5. 选择项改变时也同步重置，双重保险
+            comboBox.SelectionChanged += (_, _) => ResetToCollapsedState();
         }
+
 
         // 页面加载完成后附加自动滚动器，绑定 ViewModel 事件
         private void MergePage_Loaded(object sender, RoutedEventArgs e)

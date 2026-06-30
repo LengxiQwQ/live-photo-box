@@ -7,7 +7,9 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 using LogSource = LivePhotoBox.Models.LogSource;
@@ -698,5 +700,192 @@ namespace LivePhotoBox.ViewModels
 
             LogService.Split("All settings restored to defaults via ClearAll+LoadSettings.", LogLevel.Info);
         }
+
+        #region External Tool Check
+
+        // 单个外部工具的检测结果。
+        public class ToolCheckResult
+        {
+            // 工具显示名称（如 "ExifTool"、"FFmpeg"）。
+            public string DisplayName { get; init; } = "";
+            // 是否找到可执行文件。
+            public bool Found { get; init; }
+            // 可执行文件完整路径（未找到时为 null）。
+            public string? Path { get; init; }
+            // 版本字符串（运行成功时获取，失败或超时时为 null）。
+            public string? Version { get; init; }
+            // 运行失败或超时的错误信息（成功时为 null）。
+            public string? Error { get; init; }
+        }
+
+        // 检测所有外部工具（exiftool / ffmpeg / ffprobe / jpegtran）是否可用。
+        // 对每个工具依次：定位路径 → 尝试运行获取版本 → 返回结构化结果列表。
+        // 单个工具检测超时 5 秒，超时或异常不影响其他工具的检测。
+        public static async Task<List<ToolCheckResult>> CheckAllExternalToolsAsync()
+        {
+            var results = new List<ToolCheckResult>();
+
+            // ExifTool
+            results.Add(await CheckSingleToolAsync(
+                "ExifTool",
+                () => ExternalToolLocator.FindExifTool(),
+                "-ver"));
+
+            // FFmpeg
+            results.Add(await CheckSingleToolAsync(
+                "FFmpeg",
+                () => ExternalToolLocator.FindFFmpeg(),
+                "-version"));
+
+            // jpegtran 不支持 -version，不带参数直接运行即可验证可执行性
+            //（会输出用法 + 版本号到 stdout，exit code 为 1 属于正常行为）
+            results.Add(await CheckSingleToolAsync(
+                "jpegtran",
+                () => ExternalToolLocator.FindJpegTran(),
+                ""));
+
+            return results;
+        }
+
+        // 检测单个工具：定位 → 实际执行 → 返回结果。
+        // 核心目标：验证工具不仅存在于磁盘，还能被当前进程环境成功调用
+        //（MSIX 打包 / 权限限制 / 依赖缺失 都可能导致找到文件但无法执行）。
+        // versionArg 为获取版本的参数（exiftool -ver / ffmpeg -version），
+        // jpegtran 传 "" 表示不带参数运行（会输出用法+版本到 stdout，exit 1 属正常）。
+        private static async Task<ToolCheckResult> CheckSingleToolAsync(
+            string displayName,
+            Func<string?> pathResolver,
+            string versionArg)
+        {
+            string? path;
+            try
+            {
+                path = pathResolver();
+            }
+            catch (Exception ex)
+            {
+                return new ToolCheckResult
+                {
+                    DisplayName = displayName,
+                    Found = false,
+                    Error = $"Path resolution error: {ex.Message}"
+                };
+            }
+
+            if (string.IsNullOrEmpty(path))
+            {
+                return new ToolCheckResult
+                {
+                    DisplayName = displayName,
+                    Found = false,
+                    Error = ResourceService.GetString("SettingsPage_CheckTools_NotFound")
+                };
+            }
+
+            // 实际执行工具 — 验证不仅能找到文件，还能被系统成功调用
+            try
+            {
+                using var process = new Process
+                {
+                    StartInfo = new ProcessStartInfo
+                    {
+                        FileName = path,
+                        Arguments = versionArg,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        StandardOutputEncoding = Encoding.UTF8
+                    },
+                    EnableRaisingEvents = true
+                };
+
+                var tcs = new TaskCompletionSource<(int exitCode, string output)>();
+                var outputBuilder = new StringBuilder();
+
+                process.OutputDataReceived += (_, e) =>
+                {
+                    if (e.Data != null)
+                    {
+                        if (outputBuilder.Length > 0) outputBuilder.Append('\n');
+                        outputBuilder.Append(e.Data);
+                    }
+                };
+                process.ErrorDataReceived += (_, e) =>
+                {
+                    if (e.Data != null)
+                    {
+                        if (outputBuilder.Length > 0) outputBuilder.Append('\n');
+                        outputBuilder.Append(e.Data);
+                    }
+                };
+
+                process.Exited += (_, _) =>
+                {
+                    tcs.TrySetResult((process.ExitCode, outputBuilder.ToString().Trim()));
+                };
+
+                process.Start();
+                process.BeginOutputReadLine();
+                process.BeginErrorReadLine();
+
+                // 5 秒超时 — 超时说明工具无法正常启动或卡死
+                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(5000));
+                if (completedTask != tcs.Task)
+                {
+                    try { process.Kill(entireProcessTree: true); } catch { }
+                    return new ToolCheckResult
+                    {
+                        DisplayName = displayName,
+                        Found = true,
+                        Path = path,
+                        Error = ResourceService.GetString("SettingsPage_CheckTools_Timeout")
+                    };
+                }
+
+                var (exitCode, output) = tcs.Task.Result;
+
+                // 工具成功运行（进程启动并正常退出，无论 exit code 是否为 0）
+                // jpegtran 不带参数 exit code = 1 但已证明可执行
+                string? version = null;
+                if (output.Length > 0)
+                {
+                    // 取第一行作为版本号
+                    version = output;
+                    int newlineIndex = version.IndexOf('\n');
+                    if (newlineIndex > 0) version = version.Substring(0, newlineIndex);
+                    if (version.Length > 120) version = version.Substring(0, 120) + "...";
+                }
+
+                // 额外诊断：exit code 非 0 时附注（jpegtran 除外，这是预期行为）
+                string? warning = null;
+                if (exitCode != 0 && displayName != "jpegtran")
+                {
+                    warning = $"Exit code: {exitCode}";
+                }
+
+                return new ToolCheckResult
+                {
+                    DisplayName = displayName,
+                    Found = true,
+                    Path = path,
+                    Version = version,
+                    Error = warning
+                };
+            }
+            catch (Exception ex)
+            {
+                // 无法启动进程 — 工具文件存在但无法执行（权限/打包限制/依赖缺失等）
+                return new ToolCheckResult
+                {
+                    DisplayName = displayName,
+                    Found = true,
+                    Path = path,
+                    Error = ex.Message
+                };
+            }
+        }
+
+        #endregion
     }
 }

@@ -687,14 +687,23 @@
   <data name="SettingsPage_Backdrop_Acrylic.Content" xml:space="preserve">
     <value>Desktop Acrylic</value>
   </data>
-  <data name="SettingsPage_Protocol_V1.Content" xml:space="preserve">
+  <data name="MergePage_Protocol_V1.Content" xml:space="preserve">
     <value>Google - Micro Video (V1)</value>
   </data>
-  <data name="SettingsPage_Protocol_V2.Content" xml:space="preserve">
+  <data name="MergePage_Protocol_V2.Content" xml:space="preserve">
     <value>Google - Motion Photo (V2)</value>
   </data>
-  <data name="SettingsPage_Protocol_Oppo.Content" xml:space="preserve">
-    <value>OPPO/OnePlus - O Live Photo</value>
+  <data name="MergePage_Protocol_Oppo.Content" xml:space="preserve">
+    <value>OPPO - O-Live Photo</value>
+  </data>
+  <data name="MergePage_Protocol_V1_Hint" xml:space="preserve">
+    <value>Windows / Pixel / 小米（旧版 MIUI）</value>
+  </data>
+  <data name="MergePage_Protocol_V2_Hint" xml:space="preserve">
+    <value>Windows / Pixel / 小米 / 红米</value>
+  </data>
+  <data name="MergePage_Protocol_Oppo_Hint" xml:space="preserve">
+    <value>Windows / OPPO / 一加</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
@@ -1392,7 +1401,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>HEIC/HEIF 文件 "{0}" 转换失败：{1}</value>
   </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
-    <value>将 iPhone 实况照片转换为 Windows 和 Android 均可查看的单文件格式</value>
+    <value>将 Apple 实况照片或任意图片 + 视频组合为标准实况照片（单文件格式），方便在 Windows 及 Android 设备上查看</value>
   </data>
   <data name="HomePage_Tutorial_ImagePlaceholder.Text" xml:space="preserve">
     <value>教程图片待添加</value>
@@ -1494,14 +1503,18 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>扫描完成后，在「协议版本」选择适合你的封装协议：
 
 🔹 仅需在 Windows 上查看？
-任意协议均可，推荐 Google - Motion Photo (V2)。
+任意协议均可，推荐 Motion Photo (V2)。
 
 🔹 要导入 Android 设备？
 根据手机品牌选择最匹配的协议即可。
 
+· Micro Video (V1): 小米（旧版MIUI）
+· Motion Photo (V2): Pixel / 小米 / 红米
+· O-Live Photo: OPPO / OnePlus
+
 ⚠️ 暂不支持以下设备：
-· VIVO / iQOO —— 采用分离式文件格式，暂不支持
-· 三星 / 华为 / 荣耀 —— 未经测试，暂不支持
+· iPhone / VIVO / iQOO —— 采用分离式实况照片
+· 三星 / 华为 / 荣耀 —— 未经测试
 
 选定协议后，点击「开始合成」即可。</value>
   </data>
@@ -1537,7 +1550,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_HardwareRefresh_Button.ToolTipService.ToolTip" xml:space="preserve">
     <value>刷新硬件检测</value>
   </data>
-
   <data name="Tag_OrientationMirror" xml:space="preserve">
     <value>EXIF 镜像标签</value>
   </data>
@@ -1975,5 +1987,41 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="SettingsPage_General_OutputPreserveSubfolder_Desc.Text" xml:space="preserve">
     <value>开启后，输出的文件将保留原始子文件夹的层级结构，不会全部平铺到输出目录根下</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Button_Text.Text" xml:space="preserve">
+    <value>检测外部工具</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Dialog_Title" xml:space="preserve">
+    <value>外部工具检测结果</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Available" xml:space="preserve">
+    <value>可用</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Unavailable" xml:space="preserve">
+    <value>不可用</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Path" xml:space="preserve">
+    <value>路径</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Version" xml:space="preserve">
+    <value>版本</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Error" xml:space="preserve">
+    <value>错误</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Checking" xml:space="preserve">
+    <value>正在检测外部工具，请稍候…</value>
+  </data>
+  <data name="SettingsPage_CheckTools_NotFound" xml:space="preserve">
+    <value>未找到可执行文件</value>
+  </data>
+  <data name="SettingsPage_CheckTools_Timeout" xml:space="preserve">
+    <value>检测超时（5 秒）</value>
+  </data>
+  <data name="SettingsPage_CheckTools_AllOk" xml:space="preserve">
+    <value>✅ 全部 {0} 个外部工具均可用</value>
+  </data>
+  <data name="SettingsPage_CheckTools_SomeFailed" xml:space="preserve">
+    <value>⚠️ {0}/{1} 个工具可用，请检查下方详情</value>
   </data>
 </root>

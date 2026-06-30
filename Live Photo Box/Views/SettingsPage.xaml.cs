@@ -24,6 +24,7 @@ using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 using LivePhotoBox.Models;
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
@@ -373,6 +374,138 @@ namespace LivePhotoBox.Views
             }
 
             Application.Current.Exit();
+        }
+
+        // 检测外部工具按钮点击：异步检测所有外部工具，以 ContentDialog 弹窗展示结果。
+        private async void CheckExternalTools_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow?.Content?.XamlRoot == null) return;
+
+            // 禁用按钮防止重复点击
+            if (sender is Button btn) btn.IsEnabled = false;
+
+            List<SettingsViewModel.ToolCheckResult> results;
+            try
+            {
+                results = await SettingsViewModel.CheckAllExternalToolsAsync();
+            }
+            finally
+            {
+                if (sender is Button btn2) btn2.IsEnabled = true;
+            }
+
+            // 构建结果内容
+            var resultPanel = new StackPanel { Spacing = 16 };
+
+            // 顶部汇总
+            int availableCount = 0;
+            foreach (var r in results)
+                if (r.Found && string.IsNullOrEmpty(r.Error))
+                    availableCount++;
+            string summaryKey = availableCount == results.Count
+                ? "SettingsPage_CheckTools_AllOk"
+                : "SettingsPage_CheckTools_SomeFailed";
+            string summaryText = string.Format(ResourceService.GetString(summaryKey), availableCount, results.Count);
+
+            resultPanel.Children.Add(new TextBlock
+            {
+                Text = summaryText,
+                FontSize = 14,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+                Margin = new Microsoft.UI.Xaml.Thickness(0, 0, 0, 4)
+            });
+
+            // 逐条工具结果
+            for (int i = 0; i < results.Count; i++)
+            {
+                var r = results[i];
+                bool isOk = r.Found && string.IsNullOrEmpty(r.Error);
+                string statusIcon = isOk ? "✅" : "❌";
+                string statusText = isOk
+                    ? ResourceService.GetString("SettingsPage_CheckTools_Available")
+                    : ResourceService.GetString("SettingsPage_CheckTools_Unavailable");
+
+                var headerText = new TextBlock
+                {
+                    Text = $"{statusIcon}  {r.DisplayName}  —  {statusText}",
+                    FontSize = 14,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap,
+                    IsTextSelectionEnabled = true
+                };
+
+                var detailStack = new StackPanel { Spacing = 2, Margin = new Microsoft.UI.Xaml.Thickness(24, 2, 0, 0) };
+
+                if (r.Path != null)
+                {
+                    detailStack.Children.Add(new TextBlock
+                    {
+                        Text = $"{ResourceService.GetString("SettingsPage_CheckTools_Path")}: {r.Path}",
+                        FontSize = 11,
+                        Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                        TextWrapping = TextWrapping.Wrap,
+                        IsTextSelectionEnabled = true
+                    });
+                }
+
+                if (r.Version != null)
+                {
+                    detailStack.Children.Add(new TextBlock
+                    {
+                        Text = $"{ResourceService.GetString("SettingsPage_CheckTools_Version")}: {r.Version}",
+                        FontSize = 11,
+                        Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                        TextWrapping = TextWrapping.Wrap,
+                        IsTextSelectionEnabled = true
+                    });
+                }
+
+                if (r.Error != null)
+                {
+                    detailStack.Children.Add(new TextBlock
+                    {
+                        Text = $"{ResourceService.GetString("SettingsPage_CheckTools_Error")}: {r.Error}",
+                        FontSize = 11,
+                        Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemErrorTextColor"],
+                        TextWrapping = TextWrapping.Wrap,
+                        IsTextSelectionEnabled = true
+                    });
+                }
+
+                var toolCard = new StackPanel { Spacing = 4 };
+                toolCard.Children.Add(headerText);
+                toolCard.Children.Add(detailStack);
+                resultPanel.Children.Add(toolCard);
+
+                // 分隔线（最后一项不加）
+                if (i < results.Count - 1)
+                {
+                    resultPanel.Children.Add(new Microsoft.UI.Xaml.Controls.Border
+                    {
+                        Height = 1,
+                        Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"]
+                    });
+                }
+            }
+
+            // 显示结果弹窗
+            var resultDialog = new ContentDialog
+            {
+                Title = ResourceService.GetString("SettingsPage_CheckTools_Dialog_Title"),
+                Content = new ScrollViewer
+                {
+                    MaxHeight = 450,
+                    Content = resultPanel,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                },
+                CloseButtonText = ResourceService.GetString("Msg_Confirm"),
+                XamlRoot = App.MainWindow.Content.XamlRoot,
+                RequestedTheme = App.CurrentTheme
+            };
+
+            await resultDialog.ShowAsync();
         }
     }
 }
