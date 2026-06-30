@@ -720,7 +720,7 @@ namespace LivePhotoBox.Services
             {
                 LaunchPortableBat(preparedPath);
             }
-            }
+        }
 
         /// <param name="restartAfterUpdate">更新完成后是否重启应用（关闭时更新=false，立即重启=true）</param>
         public static void LaunchInstaller(string downloadedPath, bool isSetup, bool restartAfterUpdate = true)
@@ -772,17 +772,14 @@ namespace LivePhotoBox.Services
             string tempDir = Path.GetDirectoryName(zipPath)!;
             string extractDir = Path.Combine(tempDir, "extracted");
 
-            // 清理上次的残留（如果有的话）
             if (Directory.Exists(extractDir))
             {
                 try { Directory.Delete(extractDir, true); }
                 catch { /* 残留清理失败不影响 */ }
             }
 
-            // 解压新版文件
             try
             {
-                LogService.Info($"UpdateService: Extracting {zipPath} → {extractDir}...", LogSource.System);
                 ZipFile.ExtractToDirectory(zipPath, extractDir);
                 LogService.Info("UpdateService: Portable zip extracted for deferred update.", LogSource.System);
             }
@@ -795,11 +792,6 @@ namespace LivePhotoBox.Services
             string appDir = AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             string batPath = Path.Combine(tempDir, "update.bat");
 
-            // 生成更新脚本。流程：
-            //   a) 等待 Live Photo Box.exe 进程退出
-            //   b) 用 robocopy 将新版文件覆盖到应用目录
-            //   c) 启动新版本
-            //   d) 清理临时文件
             string batContent = "@echo off\r\n" +
                 "title Live Photo Box Update\r\n" +
                 "echo ============================================\r\n" +
@@ -831,12 +823,10 @@ namespace LivePhotoBox.Services
                 $"rmdir /S /Q \"{tempDir}\"\r\n" +
                 "exit\r\n";
 
-            try
-            {
-                File.WriteAllText(batPath, batContent, Encoding.UTF8);
+            File.WriteAllText(batPath, batContent, Encoding.UTF8);
             LogService.Info($"UpdateService: Portable update prepared → {batPath}", LogSource.System);
             return batPath;
-            }
+        }
 
         /// <summary>
         /// 启动已生成好的便携版 .bat 脚本（仅 Process.Start，无耗时操作）。
