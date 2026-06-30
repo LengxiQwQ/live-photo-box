@@ -79,8 +79,16 @@ namespace LivePhotoBox.Services
                 AppDomain.CurrentDomain.UnhandledException += OnCurrentDomainUnhandledException;
                 TaskScheduler.UnobservedTaskException += OnTaskSchedulerUnobservedTaskException;
 
-                // Register WER local dump (for native crashes only)
-                TryRegisterAppLocalDump("Logs\\Dumps");
+                // Register WER local dump (for native crashes only).
+                // WerRegisterAppLocalDump 接受相对 %LOCALAPPDATA% 的路径，
+                // 需要根据 LogDirectory 计算出正确的相对路径，确保 .dmp 文件
+                // 写入与 LogService.CleanupOldDumpFiles() 清理的目录一致。
+                string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                string dumpDir = Path.Combine(LogService.LogDirectory, "Dumps");
+                string werDumpRelativePath = dumpDir.StartsWith(localAppData, StringComparison.OrdinalIgnoreCase)
+                    ? dumpDir.Substring(localAppData.Length).TrimStart(Path.DirectorySeparatorChar)
+                    : "Logs\\Dumps"; // fallback — shouldn't happen on normal installs
+                TryRegisterAppLocalDump(werDumpRelativePath);
 
                 _initialized = true;
             }

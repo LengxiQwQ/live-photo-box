@@ -55,18 +55,16 @@ namespace LivePhotoBox.Services
 
         static UpdateService()
         {
-            // 检测打包模式：与 App.AppVersion 使用相同的方式
-            try
-            {
-                _ = Windows.ApplicationModel.Package.Current;
-                IsPackagedMode = true;
-                LogService.Info("UpdateService: Running in PACKAGED mode (MSIX). Auto-update DISABLED.", LogSource.System);
-            }
-            catch
-            {
-                IsPackagedMode = false;
-                LogService.Info("UpdateService: Running in UNPACKAGED mode. Auto-update ENABLED.", LogSource.System);
-            }
+            // 打包模式判断：统一通过 App.IsPackaged（引用 App.xaml.cs 单一来源）。
+            // 避免各处重复 try Package.Current 的写法。
+            IsPackagedMode = App.IsPackaged;
+
+            // 日志仅用于启动时告知用户当前更新策略，不影响其他逻辑。
+            LogService.Info(
+                IsPackagedMode
+                    ? "UpdateService: Running in PACKAGED mode (MSIX). Auto-update DISABLED."
+                    : "UpdateService: Running in UNPACKAGED mode. Auto-update ENABLED.",
+                LogSource.System);
 
             // 初始化 API 客户端（必须设置 User-Agent 和 API Accept 头）
             _httpClient = new HttpClient();

@@ -675,19 +675,30 @@ namespace LivePhotoBox.Services
 
         private static string ResolveLogDirectory()
         {
-            try
+            // ── 打包模式（商店版本）──────────────────────────────────────────
+            // 使用 ApplicationData 的标准隔离路径，位于：
+            //   %LOCALAPPDATA%\Packages\<PackageFamily>\LocalState\Logs
+            // ────────────────────────────────────────────────────────────────
+            if (App.IsPackaged)
             {
                 return Path.Combine(
                     Windows.Storage.ApplicationData.Current.LocalFolder.Path,
                     "Logs");
             }
-            catch
-            {
-                return Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "LivePhotoBox",
-                    "Logs");
-            }
+
+            // ── 非打包模式（便携版/安装版）────────────────────────────────────
+            // 使用固定的 %LOCALAPPDATA%\LivePhotoBox\Logs。
+            //
+            // 注意：WinAppSDK 1.5+ 在非打包模式下 ApplicationData.Current
+            // 也能成功调用，但返回的是一个合成包标识路径
+            // （%LOCALAPPDATA%\<合成Hash>\LocalState），它会随 WinAppSDK
+            // 版本或部署状态变化，导致同一应用在不同系统上日志路径不一致。
+            // 这里统一用固定路径，确保所有非打包版本的日志位置一致可预测。
+            // ────────────────────────────────────────────────────────────────
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "LivePhotoBox",
+                "Logs");
         }
 
         #endregion

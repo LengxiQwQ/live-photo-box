@@ -985,7 +985,7 @@
     <value>让你的 Apple 实况照片也可以在 Windows 上直接显示与处理。</value>
   </data>
   <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
-    <value>实况照片显示修复配置</value>
+    <value>iPhone 实况照片显示修复配置</value>
   </data>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>输入目录：</value>
@@ -2058,7 +2058,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>已是最新版本</value>
   </data>
   <data name="Update_NoNewVersion_Message" xml:space="preserve">
-    <value>您正在使用最新版本 ({0})。</value>
+    <value>您正在使用最新版本 {0}</value>
   </data>
   <data name="Update_CheckFailed_Title" xml:space="preserve">
     <value>检查更新失败</value>
@@ -2101,5 +2101,17 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="Update_PackagedMode_Disabled" xml:space="preserve">
     <value>您当前使用的是 MSIX 打包版本，由 Windows 应用商店提供自动更新。如需使用内置更新功能，请前往 GitHub 下载便携版或安装版。</value>
+  </data>
+  <data name="Update_Btn_ManualDownload" xml:space="preserve">
+    <value>手动下载</value>
+  </data>
+  <data name="AboutPage_Mode_Store" xml:space="preserve">
+    <value>商店版</value>
+  </data>
+  <data name="AboutPage_Mode_Installer" xml:space="preserve">
+    <value>安装版</value>
+  </data>
+  <data name="AboutPage_Mode_Portable" xml:space="preserve">
+    <value>便携版</value>
   </data>
 </root>

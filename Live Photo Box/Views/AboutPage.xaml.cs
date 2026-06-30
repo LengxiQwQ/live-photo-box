@@ -35,11 +35,15 @@ namespace LivePhotoBox.Views
         // 关联的 AboutViewModel
         public AboutViewModel ViewModel => AppViewModel.Instance.About;
 
-        // 构造函数：初始化组件并显示应用版本号
+        // 构造函数：初始化组件并显示应用版本号及部署模式
         public AboutPage()
         {
             InitializeComponent();
-            VersionTextBlock.Text = ResourceService.Format("AboutPage_Version_Format", App.AppVersion);
+
+            // 版本号 + 部署模式（商店版 / 安装版 / 便携版）
+            string versionText = ResourceService.Format("AboutPage_Version_Format", App.AppVersion);
+            string modeLabel = ResourceService.GetString(App.DeploymentModeResourceKey);
+            VersionTextBlock.Text = $"{versionText} · {modeLabel}";
         }
 
         // 打开开发者 GitHub 链接

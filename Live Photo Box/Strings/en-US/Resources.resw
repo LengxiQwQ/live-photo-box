@@ -150,6 +150,15 @@
   <data name="AboutPage_Version_Format" xml:space="preserve">
     <value>Version {0}</value>
   </data>
+  <data name="AboutPage_Mode_Store" xml:space="preserve">
+    <value>Store</value>
+  </data>
+  <data name="AboutPage_Mode_Installer" xml:space="preserve">
+    <value>Installer</value>
+  </data>
+  <data name="AboutPage_Mode_Portable" xml:space="preserve">
+    <value>Portable</value>
+  </data>
   <data name="RestartDialog_CloseButton" xml:space="preserve">
     <value>Later</value>
   </data>
@@ -986,7 +995,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Display and process Apple Live Photos directly on Windows.</value>
   </data>
   <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
-    <value>Live Photo Display Repair Settings</value>
+    <value>iPhone Live Photo Display Repair Settings</value>
   </data>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>Input Dir:</value>
@@ -2059,7 +2068,7 @@ Are you sure you want to switch?</value>
     <value>Up to Date</value>
   </data>
   <data name="Update_NoNewVersion_Message" xml:space="preserve">
-    <value>You are using the latest version ({0}).</value>
+    <value>You are using the latest version {0}</value>
   </data>
   <data name="Update_CheckFailed_Title" xml:space="preserve">
     <value>Update Check Failed</value>
@@ -2090,6 +2099,9 @@ Are you sure you want to switch?</value>
   </data>
   <data name="Update_Btn_Close" xml:space="preserve">
     <value>Close</value>
+  </data>
+  <data name="Update_Btn_ManualDownload" xml:space="preserve">
+    <value>Go to GitHub Releases</value>
   </data>
   <data name="Update_ReleaseNotes" xml:space="preserve">
     <value>📋 Release Notes</value>

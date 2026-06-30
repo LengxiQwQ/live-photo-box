@@ -441,26 +441,45 @@ namespace LivePhotoBox.Views
             {
                 // 区分"没网"和"GitHub API 不可用"，给用户精准提示
                 bool hasInternet = await UpdateService.CheckInternetConnectivityAsync();
+                string titleKey, messageKey;
                 if (!hasInternet)
                 {
                     LogService.Warn("Update UI: No internet connectivity — showing network error dialog.",
                         source: LogSource.System);
-                    await ShowInfoDialogAsync(
-                        xamlRoot,
-                        ResourceService.GetString("Update_NetworkError_Title"),
-                        ResourceService.GetString("Update_NetworkError_Message"),
-                        ResourceService.GetString("Msg_GotIt"));
+                    titleKey = "Update_NetworkError_Title";
+                    messageKey = "Update_NetworkError_Message";
                 }
                 else
                 {
                     LogService.Warn("Update UI: Internet OK but GitHub API failed — showing retry dialog.",
                         source: LogSource.System);
-                    await ShowInfoDialogAsync(
-                        xamlRoot,
-                        ResourceService.GetString("Update_CheckFailed_Title"),
-                        ResourceService.GetString("Update_CheckFailed_Message"),
-                        ResourceService.GetString("Msg_GotIt"));
+                    titleKey = "Update_CheckFailed_Title";
+                    messageKey = "Update_CheckFailed_Message";
                 }
+
+                // 错误弹窗：显示错误信息 + 关闭按钮 + 前往 GitHub 手动下载按钮
+                var errorDialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString(titleKey),
+                    Content = new TextBlock
+                    {
+                        Text = ResourceService.GetString(messageKey),
+                        FontSize = 14,
+                        TextWrapping = TextWrapping.Wrap,
+                        FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Microsoft YaHei UI")
+                    },
+                    PrimaryButtonText = ResourceService.GetString("Update_Btn_ManualDownload"),
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    DefaultButton = ContentDialogButton.Primary,
+                    XamlRoot = xamlRoot,
+                    RequestedTheme = App.CurrentTheme
+                };
+                errorDialog.PrimaryButtonClick += (_, _) =>
+                {
+                    _ = FilePickerService.OpenUriAsync(
+                        new Uri("https://github.com/LengxiQwQ/live-photo-box/releases"));
+                };
+                await errorDialog.ShowAsync();
                 return;
             }
 

@@ -35,6 +35,39 @@ namespace LivePhotoBox
         // 当前首页横幅缓存的 BitmapImage，避免跨页面导航时重复加载
         public static BitmapImage? CachedBannerImage { get; set; }
 
+        // 检测当前是否运行在 MSIX 打包模式下（商店版本）。
+        // 商店版（打包）返回 true，便携版和安装版（非打包）返回 false。
+        // 单一来源，所有需要判断打包模式的地方统一引用此属性。
+        public static bool IsPackaged
+        {
+            get
+            {
+                try { _ = Windows.ApplicationModel.Package.Current; return true; }
+                catch { return false; }
+            }
+        }
+
+        // 获取当前部署模式的本地化资源键值。
+        // 商店版 → "AboutPage_Mode_Store"
+        // 安装版 → "AboutPage_Mode_Installer"（Inno Setup 会在应用目录生成 unins000.exe）
+        // 便携版 → "AboutPage_Mode_Portable"
+        public static string DeploymentModeResourceKey
+        {
+            get
+            {
+                if (IsPackaged) return "AboutPage_Mode_Store";
+
+                // Inno Setup 安装版必定在应用目录下生成 unins000.exe + unins000.dat，
+                // 便携版（zip 直接解压）没有这两个文件，以此区分两种非打包模式。
+                string appDir = AppContext.BaseDirectory;
+                if (System.IO.File.Exists(System.IO.Path.Combine(appDir, "unins000.exe")) ||
+                    System.IO.File.Exists(System.IO.Path.Combine(appDir, "unins000.dat")))
+                    return "AboutPage_Mode_Installer";
+
+                return "AboutPage_Mode_Portable";
+            }
+        }
+
         // 应用版本号（单一来源）。
         // 优先读取 MSIX 包清单中的版本（随发布/更新同步），
         // 未打包运行时回退到入口程序集版本。
