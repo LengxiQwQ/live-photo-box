@@ -1,8 +1,9 @@
 ## 🎉 **首个公开发布版本** / First Public Release
 
 <p>
-  📋 更新日志 / changelog：<strong><a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.md">English</a></strong>
+  📋 更新日志 / changelog：<strong><a href="CHANGELOG.zh-CN.md">简体中文</a> &nbsp;·&nbsp; <a href="CHANGELOG.md">English</a></strong>
 </p>
+
 
 ### 🧩 实况照片合成 / Merge Live Photo
 

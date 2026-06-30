@@ -2024,4 +2024,82 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_CheckTools_SomeFailed" xml:space="preserve">
     <value>⚠️ {0}/{1} 个工具可用，请检查下方详情</value>
   </data>
+  <data name="SettingsPage_CheckUpdate_Button_Text.Text" xml:space="preserve">
+    <value>检查更新</value>
+  </data>
+  <data name="Update_NewVersion_Title" xml:space="preserve">
+    <value>发现新版本！</value>
+  </data>
+  <data name="Update_NewVersion_Message" xml:space="preserve">
+    <value>Live Photo Box {0} 现已发布，当前版本 {1}，要下载并安装更新吗？</value>
+  </data>
+  <data name="Update_Downloading_Title" xml:space="preserve">
+    <value>正在下载更新...</value>
+  </data>
+  <data name="Update_Downloading_Message" xml:space="preserve">
+    <value>正在下载更新，请稍候...</value>
+  </data>
+  <data name="Update_DownloadComplete_Title" xml:space="preserve">
+    <value>更新下载完成</value>
+  </data>
+  <data name="Update_DownloadComplete_Setup_Message" xml:space="preserve">
+    <value>安装程序即将启动，应用将自动关闭并完成安装。</value>
+  </data>
+  <data name="Update_DownloadComplete_Portable_Message" xml:space="preserve">
+    <value>更新脚本即将运行，应用将自动关闭并替换文件后重新启动。</value>
+  </data>
+  <data name="Update_DownloadFailed_Title" xml:space="preserve">
+    <value>下载失败</value>
+  </data>
+  <data name="Update_DownloadFailed_Message" xml:space="preserve">
+    <value>无法下载更新：{0}</value>
+  </data>
+  <data name="Update_NoNewVersion_Title" xml:space="preserve">
+    <value>已是最新版本</value>
+  </data>
+  <data name="Update_NoNewVersion_Message" xml:space="preserve">
+    <value>您正在使用最新版本 ({0})。</value>
+  </data>
+  <data name="Update_CheckFailed_Title" xml:space="preserve">
+    <value>检查更新失败</value>
+  </data>
+  <data name="Update_CheckFailed_Message" xml:space="preserve">
+    <value>无法连接到 GitHub 服务器，请稍后再试。</value>
+  </data>
+  <data name="Update_NetworkError_Title" xml:space="preserve">
+    <value>网络连接失败</value>
+  </data>
+  <data name="Update_NetworkError_Message" xml:space="preserve">
+    <value>无法连接互联网，请检查网络连接后重试。</value>
+  </data>
+  <data name="Update_Btn_DownloadInstall" xml:space="preserve">
+    <value>下载并安装</value>
+  </data>
+  <data name="Update_Btn_SkipVersion" xml:space="preserve">
+    <value>忽略此版本</value>
+  </data>
+  <data name="Update_Btn_Later" xml:space="preserve">
+    <value>下次再说</value>
+  </data>
+  <data name="Update_Btn_RestartNow" xml:space="preserve">
+    <value>立即重启并更新</value>
+  </data>
+  <data name="Update_Btn_UpdateOnClose" xml:space="preserve">
+    <value>关闭时更新</value>
+  </data>
+  <data name="Update_Btn_Close" xml:space="preserve">
+    <value>关闭</value>
+  </data>
+  <data name="Update_ReleaseNotes" xml:space="preserve">
+    <value>📋 更新日志</value>
+  </data>
+  <data name="Update_DiskSpace_Insufficient" xml:space="preserve">
+    <value>磁盘空间不足，无法下载更新。请清理磁盘后重试。</value>
+  </data>
+  <data name="Update_NoAssetAvailable" xml:space="preserve">
+    <value>未找到适用于当前安装类型的更新包，请前往 GitHub 手动下载。</value>
+  </data>
+  <data name="Update_PackagedMode_Disabled" xml:space="preserve">
+    <value>您当前使用的是 MSIX 打包版本，由 Windows 应用商店提供自动更新。如需使用内置更新功能，请前往 GitHub 下载便携版或安装版。</value>
+  </data>
 </root>
