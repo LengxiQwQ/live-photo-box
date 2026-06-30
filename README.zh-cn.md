@@ -18,15 +18,28 @@
 
 ---
 
+
 <p align="center">
   📖 README Language：<strong>简体中文</strong> &nbsp;·&nbsp; <a href="README.md">English</a>
 </p>
 <p align="center">
   📋 CHANGELOG：<strong><a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.md">English</a></strong>
 </p>
+## 🚀 下载
 
-
-
+<div align="center">
+  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="35" /></a>
+</div>
+<p align="center">
+  <sub>
+    支持架构：<b>x64</b>
+    &nbsp;|&nbsp;
+    系统要求：<b>Windows 10 (1809+)</b> 或 <b>Windows 11</b>
+    &nbsp;|&nbsp;
+    无需额外安装运行时（应用自包含 .NET 9 + WinAppSDK 1.8）
+  </sub>
+</p>
+---
 
 ## 💡 这是什么？
 
@@ -43,25 +56,6 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 ---
 
-## 🚀 下载
-
-<div align="center">
-  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank"><img src="./screenshots/Microsoft.svg" alt="Get it from Microsoft" height="52" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" hspace="35" /></a>
-</div>
-<p align="center">
-  <sub>
-    支持架构：<b>x64</b>
-    &nbsp;|&nbsp;
-    系统要求：<b>Windows 10 (1809+)</b> 或 <b>Windows 11</b>
-    &nbsp;|&nbsp;
-    无需额外安装运行时（应用自包含 .NET 9 + WinAppSDK 1.8）
-  </sub>
-</p>
-
-
-
-
----
 
 ## ✨ 核心功能
 

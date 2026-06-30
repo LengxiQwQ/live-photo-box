@@ -25,20 +25,6 @@
 
 </div>
 
-## 💡 What Is This?
-
-iPhone Live Photos are essentially a still image + a short video clip. The problem is that Apple's format doesn't play well with Windows:
-
-- **No native preview** — Windows File Explorer only shows a static image
-- **Metadata loss & pairing corruption** after cross-platform transfers (e.g. iOS → Android → back), turning Live Photos into plain JPEGs
-- **Front-camera videos appear rotated or stretched** — Windows ignores the rotation metadata that iOS uses to correct orientation
-
-**Live Photo Box** solves all these problems — letting you view, manage, and repair Live Photos on Windows just like on an iPhone.
-
-Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent Design guidelines, with Mica / Acrylic materials and dark/light theme support.
-
----
-
 ## 🚀 Download
 
 <div align="center">
@@ -54,10 +40,22 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
   </sub>
 </p>
 
+---
 
+## 💡 What Is This?
 
+iPhone Live Photos are essentially a still image + a short video clip. The problem is that Apple's format doesn't play well with Windows:
+
+- **No native preview** — Windows File Explorer only shows a static image
+- **Metadata loss & pairing corruption** after cross-platform transfers (e.g. iOS → Android → back), turning Live Photos into plain JPEGs
+- **Front-camera videos appear rotated or stretched** — Windows ignores the rotation metadata that iOS uses to correct orientation
+
+**Live Photo Box** solves all these problems — letting you view, manage, and repair Live Photos on Windows just like on an iPhone.
+
+Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent Design guidelines, with Mica / Acrylic materials and dark/light theme support.
 
 ---
+
 
 ## ✨ Core Features
 
