@@ -13,11 +13,9 @@
   <img src="https://img.shields.io/badge/WinUI%203-1.8-0078D7?style=flat-square&logo=windows" alt="WinUI 3" />
 
 </p>
-
 </div>
 
 ---
-
 
 <p align="center">
   📖 README Language：<strong>简体中文</strong> &nbsp;·&nbsp; <a href="README.md">English</a>
@@ -25,6 +23,7 @@
 <p align="center">
   📋 CHANGELOG：<strong><a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.md">English</a></strong>
 </p>
+
 ## 🚀 下载
 
 <div align="center">
@@ -39,6 +38,7 @@
     无需额外安装运行时（应用自包含 .NET 9 + WinAppSDK 1.8）
   </sub>
 </p>
+
 ---
 
 ## 💡 这是什么？
@@ -53,6 +53,25 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 **Live Photo Box** 就是来解决这些问题的——让你在 Windows 上也能像 iPhone 一样查看、管理、修复实况照片。
 
 基于 **WinUI 3（Windows App SDK 1.8）** 构建，原生适配 Windows 11 Fluent Design 设计规范，支持 Mica / Acrylic 材质、深色/浅色主题自动切换。
+
+---
+
+## 📸 应用截图
+
+<table align="center">
+<tr>
+  <td align="center"><b>🏠 主页与图文教程</b><br><img src="screenshots/主页.png" alt="主页" width="100%" /></td>
+  <td align="center"><b>📸 实况照片拆分</b><br><img src="screenshots/拆分页.png" alt="拆分" width="100%" /></td>
+</tr>
+<tr>
+  <td align="center"><b>🔗 实况照片合成</b><br><img src="screenshots/合成页.png" alt="合成" width="100%" /></td>
+  <td align="center"><b>🛠️ 实况照片修复</b><br><img src="screenshots/修复页.png" alt="修复" width="100%" /></td>
+</tr>
+<tr>
+  <td align="center"><b>⚙️ 设置面板</b><br><img src="screenshots/设置.png" alt="设置" width="100%" /></td>
+  <td align="center"><b>✨ Acrylic 半透明材质效果</b><br><img src="screenshots/acrylic_thin.png" alt="Acrylic效果" width="100%" /></td>
+</tr>
+</table>
 
 ---
 
@@ -111,24 +130,6 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 ---
 
-## 📸 应用截图
-
-<table align="center">
-<tr>
-  <td align="center"><b>🏠 主页与图文教程</b><br><img src="screenshots/主页.png" alt="主页" width="100%" /></td>
-  <td align="center"><b>📸 实况照片拆分</b><br><img src="screenshots/拆分页.png" alt="拆分" width="100%" /></td>
-</tr>
-<tr>
-  <td align="center"><b>🔗 实况照片合成</b><br><img src="screenshots/合成页.png" alt="合成" width="100%" /></td>
-  <td align="center"><b>🛠️ 实况照片修复</b><br><img src="screenshots/修复页.png" alt="修复" width="100%" /></td>
-</tr>
-<tr>
-  <td align="center"><b>⚙️ 设置面板</b><br><img src="screenshots/设置.png" alt="设置" width="100%" /></td>
-  <td align="center"><b>✨ Acrylic 半透明材质效果</b><br><img src="screenshots/acrylic_thin.png" alt="Acrylic效果" width="100%" /></td>
-</tr>
-</table>
-
----
 
 ## 🛠️ 技术栈
 

@@ -56,6 +56,24 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
 
 ---
 
+## 📸 Screenshots
+
+<table align="center">
+<tr>
+  <td align="center"><b>🏠 Home & Tutorial</b><br><img src="screenshots/home.png" alt="Home" width="100%" /></td>
+  <td align="center"><b>📸 Split Live Photo</b><br><img src="screenshots/split.png" alt="Split" width="100%" /></td>
+</tr>
+<tr>
+  <td align="center"><b>🔗 Merge Live Photo</b><br><img src="screenshots/merge.png" alt="Merge" width="100%" /></td>
+  <td align="center"><b>🛠️ Repair Live Photo</b><br><img src="screenshots/repair.png" alt="Repair" width="100%" /></td>
+</tr>
+<tr>
+  <td align="center"><b>⚙️ Settings</b><br><img src="screenshots/settings.png" alt="Settings" width="100%" /></td>
+  <td align="center"><b>✨ Acrylic Semi-Transparent Effect</b><br><img src="screenshots/acrylic_thin.png" alt="Acrylic effect" width="100%" /></td>
+</tr>
+</table>
+
+---
 
 ## ✨ Core Features
 
@@ -108,25 +126,6 @@ Automatically scan, categorize, and archive photos by device, date, and Live Pho
 | OPPO/OnePlus — O Live Photo | OPPO / OnePlus | Extended `Motion Photo V2`, adds `OpCamera` namespace + `EXIF` `UserComment`. Used by OPPO ColorOS / OnePlus OxygenOS |
 
 > ⚡ **Live Photos merged via any supported protocol are fully viewable on Windows 11.**
-
----
-
-## 📸 Screenshots
-
-<table align="center">
-<tr>
-  <td align="center"><b>🏠 Home & Tutorial</b><br><img src="screenshots/home.png" alt="Home" width="100%" /></td>
-  <td align="center"><b>📸 Split Live Photo</b><br><img src="screenshots/split.png" alt="Split" width="100%" /></td>
-</tr>
-<tr>
-  <td align="center"><b>🔗 Merge Live Photo</b><br><img src="screenshots/merge.png" alt="Merge" width="100%" /></td>
-  <td align="center"><b>🛠️ Repair Live Photo</b><br><img src="screenshots/repair.png" alt="Repair" width="100%" /></td>
-</tr>
-<tr>
-  <td align="center"><b>⚙️ Settings</b><br><img src="screenshots/settings.png" alt="Settings" width="100%" /></td>
-  <td align="center"><b>✨ Acrylic Semi-Transparent Effect</b><br><img src="screenshots/acrylic_thin.png" alt="Acrylic effect" width="100%" /></td>
-</tr>
-</table>
 
 ---
 
