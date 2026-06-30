@@ -16,18 +16,19 @@
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
+using LivePhotoBox.Models;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
-using LivePhotoBox.Models;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Windows.UI;
 
@@ -374,6 +375,482 @@ namespace LivePhotoBox.Views
             }
 
             Application.Current.Exit();
+        }
+
+        // ── 自动更新 ────────────────────────────────────────────────
+
+        /// <summary>
+        /// 检查更新按钮点击：手动触发版本检测并展示更新对话框。
+        /// 独立于 App.xaml.cs 中的启动检查，用户可在设置页面主动触发。
+        /// </summary>
+        private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+        {
+            if (XamlRoot == null) return;
+
+            // 禁用按钮防止重复点击
+            if (sender is Button btn) btn.IsEnabled = false;
+
+            try
+            {
+                await PerformUpdateCheckAndShowDialogAsync(XamlRoot);
+            }
+            finally
+            {
+                if (sender is Button btn2) btn2.IsEnabled = true;
+            }
+        }
+
+        /// <summary>
+        /// 执行版本检查并弹出对应的对话框。抽出为内部方法，方便 App.xaml.cs 启动检查调用。
+        /// 流程：请求 API → 无新版弹提示 / 有新版弹选择 → 下载 → 安装。
+        /// </summary>
+        internal static async Task PerformUpdateCheckAndShowDialogAsync(Microsoft.UI.Xaml.XamlRoot xamlRoot)
+        {
+            LogService.Info("Update UI: Manual check triggered by user.", LogSource.System);
+
+            // 打包模式（MSIX）由 Windows Store 负责更新，自动更新功能不可用
+            if (!UpdateService.IsUpdateEnabled)
+            {
+                LogService.Info("Update UI: Packaged mode detected — showing disabled message.", LogSource.System);
+                await ShowInfoDialogAsync(
+                    xamlRoot,
+                    ResourceService.GetString("Update_CheckFailed_Title"),
+                    ResourceService.GetString("Update_PackagedMode_Disabled"),
+                    ResourceService.GetString("Msg_GotIt"));
+                return;
+            }
+
+            // 1. 调用 GitHub API
+            var release = await Task.Run(() => UpdateService.FetchLatestReleaseAsync());
+            UpdateService.RecordCheckTime();
+
+            if (release == null)
+            {
+                LogService.Warn("Update UI: FetchLatestReleaseAsync returned null — showing 'check failed' dialog.",
+                    source: LogSource.System);
+                await ShowInfoDialogAsync(
+                    xamlRoot,
+                    ResourceService.GetString("Update_CheckFailed_Title"),
+                    ResourceService.GetString("Update_CheckFailed_Message"),
+                    ResourceService.GetString("Msg_GotIt"));
+                return;
+            }
+
+            // 2. 检查是否有新版本
+            if (!UpdateService.IsNewerVersion(release))
+            {
+                LogService.Info(
+                    $"Update UI: No new version. Current={App.AppVersion}, Latest={release.TagName}",
+                    LogSource.System);
+                var currentVersionFull = App.AppVersion;
+                var msg = string.Format(
+                    ResourceService.GetString("Update_NoNewVersion_Message"), currentVersionFull);
+                await ShowInfoDialogAsync(
+                    xamlRoot,
+                    ResourceService.GetString("Update_NoNewVersion_Title"),
+                    msg,
+                    ResourceService.GetString("Msg_GotIt"));
+                return;
+            }
+
+            // 3. 手动检查时清除之前的跳过记录（用户主动检查=不再忽略）
+            if (UpdateService.IsVersionSkipped(release.TagName))
+            {
+                LogService.Info($"Update UI: Manually checking — clearing previous skip for {release.TagName}.", LogSource.System);
+                UpdateService.ClearSkippedVersion();
+            }
+
+            // 4. 弹出版本选择对话框
+            LogService.Info(
+                $"Update UI: New version detected! Showing update choice dialog. " +
+                $"Latest={release.TagName}, Current={App.AppVersion}",
+                LogSource.System);
+            await ShowUpdateChoiceDialogAsync(xamlRoot, release);
+        }
+
+        /// <summary>
+        /// 弹出「发现新版本」三按钮选择对话框。
+        /// 按钮：下载并安装(主按钮) / 忽略此版本 / 下次再说(关闭按钮)。
+        /// </summary>
+        private static async Task ShowUpdateChoiceDialogAsync(
+            Microsoft.UI.Xaml.XamlRoot xamlRoot,
+            GitHubReleaseResponse release)
+        {
+            // 格式化版本号显示：去掉 tag 前缀 v
+            var latestVersion = release.TagName.TrimStart('v', 'V');
+            var currentVersion = App.AppVersion;
+
+            // 构建内容：新版本号 + 当前版本号 + 更新日志
+            var contentStack = new StackPanel { Spacing = 12 };
+
+            contentStack.Children.Add(new TextBlock
+            {
+                Text = ResourceService.GetString("Update_NewVersion_Message")
+                    .Replace("\\n", Environment.NewLine)   // resw 中的 \n 是字面文本，需转为实际换行
+                    .Replace("{0}", latestVersion)
+                    .Replace("{1}", currentVersion),
+                FontSize = 14,
+                TextWrapping = TextWrapping.Wrap,
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Microsoft YaHei UI")
+            });
+
+            // 显示 Release 正文（截取前 2000 字符，避免弹窗过长）
+            if (!string.IsNullOrWhiteSpace(release.Body))
+            {
+                var notesTitle = new TextBlock
+                {
+                    Text = ResourceService.GetString("Update_ReleaseNotes"),
+                    FontSize = 13,
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    Margin = new Microsoft.UI.Xaml.Thickness(0, 4, 0, 0)
+                };
+                contentStack.Children.Add(notesTitle);
+
+                // 使用 WebView2 渲染 Markdown（Markdig 转 HTML + CSS 样式）
+                // 补上 base URL，让相对链接（如 changelogs/xxx.md）能正确跳转到 GitHub
+                bool isDark = App.CurrentTheme == ElementTheme.Dark;
+                var tag = release.TagName.TrimStart('v', 'V');
+                var baseUrl = $"https://github.com/LengxiQwQ/live-photo-box/blob/v{tag}/";
+                var html = MarkdownRenderService.RenderToHtml(release.Body, isDark, baseUrl);
+
+                var webView = new Microsoft.UI.Xaml.Controls.WebView2
+                {
+                    Height = 260,
+                    HorizontalAlignment = HorizontalAlignment.Stretch
+                };
+
+                // 异步初始化 WebView2 完成后注入 HTML，并拦截链接跳转到外部浏览器
+                webView.Loaded += async (_, _) =>
+                {
+                    try
+                    {
+                        await webView.EnsureCoreWebView2Async();
+
+                        // 禁用右键菜单/开发者工具（普通用户不需要）
+                        webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+
+                        // 用标志位放行 NavigateToString 的首屏加载，只拦截用户点击的链接
+                        var isInitialLoad = true;
+                        webView.CoreWebView2.NavigationStarting += (_, args) =>
+                        {
+                            if (isInitialLoad)
+                            {
+                                isInitialLoad = false;
+                                return;
+                            }
+                            // 用户点击了链接 → 取消内部跳转，只用默认浏览器打开 http/https 链接
+                            args.Cancel = true;
+                            if (args.Uri != null &&
+                                (args.Uri.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                                 args.Uri.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
+                            {
+#pragma warning disable CS4014
+                                FilePickerService.OpenUriAsync(new Uri(args.Uri));
+#pragma warning restore CS4014
+                            }
+                        };
+
+                        webView.NavigateToString(html);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Warn($"WebView2 init failed in update dialog: {ex.Message}",
+                            source: LogSource.System);
+                        // 降级：用纯文本显示（去掉 markdown 标记）
+                        webView.NavigateToString(
+                            MarkdownRenderService.RenderToHtml(
+                                $"```\n{MarkdownToPlainText(release.Body)}\n```", isDark));
+                    }
+                };
+
+                contentStack.Children.Add(webView);
+            }
+
+            var dialog = new ContentDialog
+            {
+                Title = ResourceService.GetString("Update_NewVersion_Title"),
+                Content = contentStack,
+                PrimaryButtonText = ResourceService.GetString("Update_Btn_DownloadInstall"),
+                SecondaryButtonText = ResourceService.GetString("Update_Btn_SkipVersion"),
+                CloseButtonText = ResourceService.GetString("Update_Btn_Later"),
+                DefaultButton = ContentDialogButton.Primary,
+                Width = 750,
+                XamlRoot = xamlRoot,
+                RequestedTheme = App.CurrentTheme
+            };
+
+            // 确保 ContentDialog Popup 能继承主窗口强调色，防止 PrimaryButton 按下变白
+            // ContentDialog 使用 Popup 承载，部分主题资源不会自动继承，需手动复制
+            if (Application.Current.Resources.TryGetValue("SystemAccentColor", out var accent))
+                dialog.Resources["SystemAccentColor"] = accent;
+            if (Application.Current.Resources.TryGetValue("SystemControlHighlightAccentBrush", out var highlightBrush))
+                dialog.Resources["SystemControlHighlightAccentBrush"] = highlightBrush;
+
+
+            var result = await dialog.ShowAsync();
+
+            switch (result)
+            {
+                case ContentDialogResult.Primary:
+                    // 下载并安装
+                    LogService.Info($"Update UI: User chose 'Download & Install' for {release.TagName}", LogSource.System);
+                    await DownloadAndInstallUpdateAsync(xamlRoot, release);
+                    break;
+
+                case ContentDialogResult.Secondary:
+                    // 忽略此版本
+                    LogService.Info($"Update UI: User chose 'Skip' for {release.TagName}", LogSource.System);
+                    UpdateService.SkipVersion(release.TagName);
+                    break;
+
+                default:
+                    // 下次再说 / 关闭 → 什么都不做
+                    LogService.Info("Update UI: User chose 'Remind Me Later' — dialog dismissed.", LogSource.System);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// 下载更新文件并启动安装流程。
+        /// 先弹出下载进度对话框 → 下载 → 完成/失败提示 → 启动安装 → 退出应用。
+        /// </summary>
+        private static async Task DownloadAndInstallUpdateAsync(
+            Microsoft.UI.Xaml.XamlRoot xamlRoot,
+            GitHubReleaseResponse release)
+        {
+            // 构建下载进度对话框内容
+            var progressBar = new ProgressBar
+            {
+                Minimum = 0,
+                Maximum = 100,
+                Value = 0,
+                IsIndeterminate = false,
+                Height = 6,
+                Margin = new Microsoft.UI.Xaml.Thickness(0, 8, 0, 0)
+            };
+
+            var statusText = new TextBlock
+            {
+                Text = ResourceService.GetString("Update_Downloading_Message"),
+                FontSize = 14,
+                TextWrapping = TextWrapping.Wrap,
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Microsoft YaHei UI"),
+                Margin = new Microsoft.UI.Xaml.Thickness(0, 0, 0, 4)
+            };
+
+            var progressText = new TextBlock
+            {
+                Text = "0%",
+                FontSize = 16,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Microsoft.UI.Xaml.Thickness(0, 0, 0, 8)
+            };
+
+            var downloadContent = new StackPanel { Spacing = 4 };
+            downloadContent.Children.Add(statusText);
+            downloadContent.Children.Add(progressBar);
+            downloadContent.Children.Add(progressText);
+
+            var downloadDialog = new ContentDialog
+            {
+                Title = ResourceService.GetString("Update_Downloading_Title"),
+                Content = downloadContent,
+                SecondaryButtonText = ResourceService.GetString("Msg_Cancel"),
+                DefaultButton = ContentDialogButton.Secondary,
+                XamlRoot = xamlRoot,
+                RequestedTheme = App.CurrentTheme
+            };
+
+            // 进度报告器（UI 线程更新进度条和百分比文字）
+            var progress = new Progress<double>(p =>
+            {
+                if (App.MainWindow?.DispatcherQueue != null)
+                {
+                    App.MainWindow.DispatcherQueue.TryEnqueue(() =>
+                    {
+                        progressBar.Value = p;
+                        progressText.Text = $"{p:F0}%";
+                    });
+                }
+            });
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+
+            string? downloadedPath = null;
+            Exception? downloadError = null;
+
+            // 后台线程执行下载
+            var downloadTask = Task.Run(async () =>
+            {
+                try
+                {
+                    downloadedPath = await UpdateService.DownloadAssetAsync(release, progress, cts.Token);
+                }
+                catch (Exception ex)
+                {
+                    downloadError = ex;
+                }
+                finally
+                {
+                    // 下载完成后，从 UI 线程关闭对话框（触发 ShowAsync 返回）
+                    if (App.MainWindow?.DispatcherQueue != null)
+                    {
+                        App.MainWindow.DispatcherQueue.TryEnqueue(() =>
+                        {
+                            try { downloadDialog.Hide(); }
+                            catch { /* 对话框可能已被用户取消 */ }
+                        });
+                    }
+                }
+            });
+
+            // 显示下载进度对话框（阻塞 UI 线程，直到 Hide() 被调用）
+            var dialogResult = await downloadDialog.ShowAsync();
+
+            // 用户点击了取消按钮
+            if (dialogResult == ContentDialogResult.Secondary)
+            {
+                cts.Cancel();
+                LogService.Info("Update UI: User cancelled download.", LogSource.System);
+                return;
+            }
+
+            // 等下载任务完全结束（Hide 只是关对话框，下载可能还在收尾）
+            try { await downloadTask; }
+            catch { /* 异常已记录到 downloadError */ }
+
+            if (downloadedPath == null)
+            {
+                string errorMsg = downloadError?.Message ?? ResourceService.GetString("Update_CheckFailed_Message");
+                LogService.Error(
+                    $"Update UI: Download FAILED! Error: {errorMsg}",
+                    exception: downloadError,
+                    source: LogSource.System);
+                await ShowInfoDialogAsync(
+                    xamlRoot,
+                    ResourceService.GetString("Update_DownloadFailed_Title"),
+                    string.Format(ResourceService.GetString("Update_DownloadFailed_Message"), errorMsg),
+                    ResourceService.GetString("Msg_GotIt"));
+                return;
+            }
+
+            // 下载完成，提示即将安装
+            bool isSetup = UpdateService.IsInnoSetupInstall();
+            LogService.Info(
+                $"Update UI: Download succeeded → {downloadedPath}. Install type: {(isSetup ? "Inno Setup" : "Portable")}",
+                LogSource.System);
+            var completeMsg = isSetup
+                ? ResourceService.GetString("Update_DownloadComplete_Setup_Message")
+                : ResourceService.GetString("Update_DownloadComplete_Portable_Message");
+
+            var completeDialog = new ContentDialog
+            {
+                Title = ResourceService.GetString("Update_DownloadComplete_Title"),
+                Content = new TextBlock
+                {
+                    Text = completeMsg,
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Microsoft YaHei UI")
+                },
+                PrimaryButtonText = ResourceService.GetString("Msg_Confirm"),
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = xamlRoot,
+                RequestedTheme = App.CurrentTheme
+            };
+
+            await completeDialog.ShowAsync();
+
+            // 启动安装器
+            UpdateService.LaunchInstaller(downloadedPath, isSetup);
+
+            // 退出应用（给安装/替换脚本让路）
+            LogService.MarkCleanShutdown();
+            Application.Current.Exit();
+        }
+
+        /// <summary>
+        /// 将 GitHub Release 的 Markdown 正文转为可读纯文本。
+        /// 去掉 ##、**、`、-、[url] 等标记，保留段落结构和链接文字。
+        /// 这只是一个轻量级"预览"转换，不追求完美的 Markdown 渲染。
+        /// </summary>
+        private static string MarkdownToPlainText(string markdown)
+        {
+            if (string.IsNullOrWhiteSpace(markdown))
+                return markdown;
+
+            var text = markdown;
+
+            // 1. 去掉 Markdown 链接 → 只保留文字 [text](url) → text
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"\[([^\]]*)\]\([^)]*\)", "$1");
+
+            // 2. 图片 → 去掉 ![alt](url)
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"!\[[^\]]*\]\([^)]*\)", "");
+
+            // 3. 去掉加粗/斜体标记 **text** → text, *text* → text
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"\*\*(.+?)\*\*", "$1");
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"(?<!\*)\*([^*\n]+?)\*(?!\*)", "$1");
+
+            // 4. 去掉行内代码 `code` → code
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"`([^`]+)`", "$1");
+
+            // 5. 将 ## 标题转为带冒号的独立行 "Heading:"（保留换行）
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"^#{1,3}\s+(.+)$", "$1：", System.Text.RegularExpressions.RegexOptions.Multiline);
+
+            // 6. 无序列表 - item 或 * item → • item
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"^[\-\*]\s+", "• ", System.Text.RegularExpressions.RegexOptions.Multiline);
+
+            // 7. 有序列表 1. item → 1) item
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"^(\d+)\.\s+", "$1) ", System.Text.RegularExpressions.RegexOptions.Multiline);
+
+            // 8. 合并连续空白行（保留单个空行作为段落分隔）
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"(\r?\n){3,}", "\n\n");
+
+            // 9. 去掉 Markdown 水平线 --- ***
+            text = System.Text.RegularExpressions.Regex.Replace(
+                text, @"^[\-\*_]{3,}\s*$", "", System.Text.RegularExpressions.RegexOptions.Multiline);
+
+            // 10. 去掉 HTML 标签（如有）
+            text = System.Text.RegularExpressions.Regex.Replace(text, @"<[^>]+>", "");
+
+            // 11. 去除首尾多余的空白行
+            text = text.Trim();
+
+            return text;
+        }
+
+        /// <summary>
+        /// 显示仅带一个确认按钮的信息对话框。
+        /// </summary>
+        private static async Task ShowInfoDialogAsync(
+            Microsoft.UI.Xaml.XamlRoot xamlRoot,
+            string title,
+            string message,
+            string closeButtonText)
+        {
+            var dialog = new ContentDialog
+            {
+                Title = title,
+                Content = new TextBlock
+                {
+                    Text = message,
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Microsoft YaHei UI")
+                },
+                CloseButtonText = closeButtonText,
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = xamlRoot,
+                RequestedTheme = App.CurrentTheme
+            };
+
+            await dialog.ShowAsync();
         }
 
         // 检测外部工具按钮点击：异步检测所有外部工具，以 ContentDialog 弹窗展示结果。

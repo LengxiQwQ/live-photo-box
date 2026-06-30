@@ -18,6 +18,7 @@
 
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using LivePhotoBox.Views;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
@@ -175,6 +176,94 @@ namespace LivePhotoBox
             MainWindow = new MainWindow();
             MainWindow.Activate();
             LogService.Info("Main window activated.", LogSource.UI);
+
+            // 非打包模式下，启动时后台静默检查更新（fire-and-forget，不阻塞 UI）
+            // 仅在距上次检查 >= 3 天时触发，有新版且未被跳过时弹窗提示
+            _ = StartUpdateCheckOnLaunchAsync();
+        }
+
+        /// <summary>
+        /// 启动时后台更新检查。仅在非打包模式下生效，按 3 天间隔检查。
+        /// 网络错误或 API 异常静默处理，不影响用户正常使用。
+        /// 窗口可能需要一点时间完成渲染，延迟 2 秒再弹出更新对话框以优化体验。
+        /// </summary>
+        private static async Task StartUpdateCheckOnLaunchAsync()
+        {
+            try
+            {
+                // 仅非打包模式、且距上次检查 >= 3 天
+                if (!UpdateService.IsUpdateEnabled)
+                {
+                    LogService.Debug("Startup update check: DISABLED (packaged/MSIX mode).", LogSource.App);
+                    return;
+                }
+                if (!UpdateService.ShouldCheckForUpdate())
+                {
+                    LogService.Debug("Startup update check: SKIPPED (within 3-day interval).", LogSource.App);
+                    return;
+                }
+
+                LogService.Info("Startup update check: Checking for updates...", LogSource.App);
+
+                // 后台线程查询 GitHub API
+                var release = await Task.Run(() => UpdateService.FetchLatestReleaseAsync());
+                UpdateService.RecordCheckTime();
+
+                if (release == null)
+                {
+                    LogService.Warn("Startup update check: API returned null — silent exit.", source: LogSource.App);
+                    return;
+                }
+
+                if (!UpdateService.IsNewerVersion(release))
+                {
+                    LogService.Info(
+                        $"Startup update check: No new version. Current={App.AppVersion}, Latest={release.TagName}",
+                        LogSource.App);
+                    return;
+                }
+
+                if (UpdateService.IsVersionSkipped(release.TagName))
+                {
+                    LogService.Info($"Startup update check: Version {release.TagName} was skipped — silent exit.", LogSource.App);
+                    return;
+                }
+
+                LogService.Info(
+                    $"Startup update check: NEW VERSION {release.TagName}! Scheduling dialog...",
+                    LogSource.App);
+
+                // UI 线程弹出对话框。延迟 2 秒等主窗口完全渲染好
+                if (MainWindow?.DispatcherQueue != null)
+                {
+                    MainWindow.DispatcherQueue.TryEnqueue(async () =>
+                    {
+                        try
+                        {
+                            await Task.Delay(2000);
+                            if (MainWindow?.Content?.XamlRoot != null)
+                            {
+                                LogService.Info("Startup update check: Showing update dialog now.", LogSource.App);
+                                await SettingsPage.PerformUpdateCheckAndShowDialogAsync(
+                                    MainWindow.Content.XamlRoot);
+                            }
+                            else
+                            {
+                                LogService.Warn("Startup update check: XamlRoot is null — cannot show dialog.",
+                                    source: LogSource.App);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Debug($"Startup update dialog error (non-fatal): {ex.Message}", LogSource.App);
+                        }
+                    });
+                }
+            }
+            catch
+            {
+                // 静默处理：更新检查失败不影响应用正常使用
+            }
         }
     }
 }

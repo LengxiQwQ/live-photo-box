@@ -2025,4 +2025,73 @@ Are you sure you want to switch?</value>
   <data name="SettingsPage_CheckTools_SomeFailed" xml:space="preserve">
     <value>⚠️ {0}/{1} tools available, check details below</value>
   </data>
+  <!-- ====================================================== -->
+  <!--  Auto Update                                          -->
+  <!-- ====================================================== -->
+  <data name="SettingsPage_CheckUpdate_Button_Text.Text" xml:space="preserve">
+    <value>Check for Updates</value>
+  </data>
+  <data name="Update_NewVersion_Title" xml:space="preserve">
+    <value>New Version Available!</value>
+  </data>
+  <data name="Update_NewVersion_Message" xml:space="preserve">
+    <value>Live Photo Box {0} is now available.\nCurrent version: {1}.\nDownload and install now?</value>
+  </data>
+  <data name="Update_Downloading_Title" xml:space="preserve">
+    <value>Downloading Update...</value>
+  </data>
+  <data name="Update_Downloading_Message" xml:space="preserve">
+    <value>Downloading update, please wait...</value>
+  </data>
+  <data name="Update_DownloadComplete_Title" xml:space="preserve">
+    <value>Download Complete</value>
+  </data>
+  <data name="Update_DownloadComplete_Setup_Message" xml:space="preserve">
+    <value>Update downloaded. The installer will now launch and the app will close to complete the installation.</value>
+  </data>
+  <data name="Update_DownloadComplete_Portable_Message" xml:space="preserve">
+    <value>Update downloaded. The update script will replace files and restart the app automatically.</value>
+  </data>
+  <data name="Update_DownloadFailed_Title" xml:space="preserve">
+    <value>Download Failed</value>
+  </data>
+  <data name="Update_DownloadFailed_Message" xml:space="preserve">
+    <value>Unable to download update: {0}</value>
+  </data>
+  <data name="Update_NoNewVersion_Title" xml:space="preserve">
+    <value>Up to Date</value>
+  </data>
+  <data name="Update_NoNewVersion_Message" xml:space="preserve">
+    <value>You are using the latest version ({0}).</value>
+  </data>
+  <data name="Update_CheckFailed_Title" xml:space="preserve">
+    <value>Update Check Failed</value>
+  </data>
+  <data name="Update_CheckFailed_Message" xml:space="preserve">
+    <value>Unable to connect to GitHub for update check. Please check your network and try again.</value>
+  </data>
+  <data name="Update_Btn_DownloadInstall" xml:space="preserve">
+    <value>Download &amp; Install</value>
+  </data>
+  <data name="Update_Btn_SkipVersion" xml:space="preserve">
+    <value>Skip This Version</value>
+  </data>
+  <data name="Update_Btn_Later" xml:space="preserve">
+    <value>Remind Me Later</value>
+  </data>
+  <data name="Update_Btn_Close" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="Update_ReleaseNotes" xml:space="preserve">
+    <value>📋 Release Notes</value>
+  </data>
+  <data name="Update_DiskSpace_Insufficient" xml:space="preserve">
+    <value>Insufficient disk space to download the update. Please free up space and try again.</value>
+  </data>
+  <data name="Update_NoAssetAvailable" xml:space="preserve">
+    <value>No update package found for your installation type. Please visit GitHub to download manually.</value>
+  </data>
+  <data name="Update_PackagedMode_Disabled" xml:space="preserve">
+    <value>You are running the MSIX packaged version. The Microsoft Store provides automatic updates. To use built-in updates, please visit GitHub to download the portable or installer version.</value>
+  </data>
 </root>
