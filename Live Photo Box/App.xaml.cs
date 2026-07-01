@@ -172,6 +172,22 @@ namespace LivePhotoBox
             // 主程序有 try-catch 兜底，不需要 OS 弹窗干扰用户。
             SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
 
+            // WebView2 默认把 UserDataFolder 放在 EXE 所在目录的 <exe>.WebView2\ 下。
+            // Inno Setup 安装到 Program Files 后该目录只读，导致 EnsureCoreWebView2Async()
+            // 初始化失败，更新日志 (markdown) 无法渲染。
+            // 通过 WEBVIEW2_USER_DATA_FOLDER 环境变量重定向到 %LocalAppData%，
+            // 便携版和安装版均可用，且必须在首次创建 WebView2 之前设置。
+            try
+            {
+                string wv2Path = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "LivePhotoBox", "WebView2");
+                System.IO.Directory.CreateDirectory(wv2Path);
+                Environment.SetEnvironmentVariable("WEBVIEW2_USER_DATA_FOLDER", wv2Path);
+                System.Diagnostics.Debug.WriteLine($"[LivePhotoBox] WebView2 UDF set to: {wv2Path}");
+            }
+            catch { /* 设置失败不影响应用启动，WebView2 会走降级方案 */ }
+
             System.Diagnostics.Debug.WriteLine("[LivePhotoBox] SetErrorMode done, applying language...");
             ApplyLanguageSetting();
 
@@ -239,17 +255,17 @@ namespace LivePhotoBox
                     return;
                 }
 
-                LogService.Info("Startup update check: Checking for updates...", LogSource.App);
+                LogService.Info($"Startup update check: Checking for updates... (token: {(UpdateService.HasApiToken ? "yes" : "no")})", LogSource.App);
 
-                // 后台线程查询 GitHub API
-                var release = await Task.Run(() => UpdateService.FetchLatestReleaseAsync());
-                UpdateService.RecordCheckTime();
+                var release = await UpdateService.FetchLatestReleaseAsync();
 
                 if (release == null)
                 {
                     LogService.Warn("Startup update check: API returned null — silent exit.", source: LogSource.App);
-                    return;
+                    return; // API 失败不记录时间，下次启动可重试
                 }
+
+                UpdateService.RecordCheckTime();
 
                 if (!UpdateService.IsNewerVersion(release))
                 {
@@ -298,9 +314,9 @@ namespace LivePhotoBox
                     });
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // 静默处理：更新检查失败不影响应用正常使用
+                LogService.Warn($"Startup update check failed: {ex.GetType().Name}: {ex.Message}", source: LogSource.App);
             }
         }
     }

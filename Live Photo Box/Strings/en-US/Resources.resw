@@ -2045,13 +2045,13 @@ Are you sure you want to switch?</value>
     <value>New Version Available!</value>
   </data>
   <data name="Update_NewVersion_Message" xml:space="preserve">
-    <value>Live Photo Box {0} is now available. Current version: {1}. Download and install now?</value>
+    <value>Live Photo Box {1} → {0}. Download and install now?</value>
   </data>
   <data name="Update_Downloading_Title" xml:space="preserve">
     <value>Downloading Update...</value>
   </data>
   <data name="Update_Downloading_Message" xml:space="preserve">
-    <value>Downloading update, please wait...</value>
+    <value>Downloading from GitHub, please wait...</value>
   </data>
   <data name="Update_DownloadComplete_Title" xml:space="preserve">
     <value>Download Complete</value>
@@ -2127,5 +2127,35 @@ Are you sure you want to switch?</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_Cid.Content" xml:space="preserve">
     <value>Identifier Only</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenHeader.Text" xml:space="preserve">
+    <value>GitHub API Token</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenDesc.Text" xml:space="preserve">
+    <value>For update testing only. Bypass unauthenticated API rate limits (60 req/h → 5000 req/h). Token stored locally, never uploaded. No scopes needed — just click "Generate token" at the bottom of the page.</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenGuideLink.Text" xml:space="preserve">
+    <value>Open token page</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenBox_Placeholder" xml:space="preserve">
+    <value>Enter GitHub Token (ghp_...)</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenSaveBtn.Content" xml:space="preserve">
+    <value>Save</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenNotSet" xml:space="preserve">
+    <value>Not set (unauthenticated API, 60 req/h)</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenSet" xml:space="preserve">
+    <value>Set: {0} (5000 req/h)</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenClearBtn.Content" xml:space="preserve">
+    <value>Clear Token</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenEmpty" xml:space="preserve">
+    <value>Token cannot be empty</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenInvalidFormat" xml:space="preserve">
+    <value>Invalid token format</value>
   </data>
 </root>

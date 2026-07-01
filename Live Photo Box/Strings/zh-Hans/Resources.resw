@@ -1748,6 +1748,15 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_StrictLivePhotoScanToggle.OffContent" xml:space="preserve">
     <value>关</value>
   </data>
+  <data name="SettingsPage_AppleOnlyScanLabel.Text" xml:space="preserve">
+    <value>仅修复 Apple 设备拍摄的照片</value>
+  </data>
+  <data name="SettingsPage_AppleOnlyScanDesc.Text" xml:space="preserve">
+    <value>开启后仅扫描 Apple 设备（iPhone/iPad）拍摄的照片和视频。通过检测元数据中的制造商、设备型号、iOS 版本、标识符和实况照片标记来识别，任一满足即可。非 Apple 设备的文件将在诊断结果中显示跳过</value>
+  </data>
+  <data name="RepairPage_Diagnosis_NonApple" xml:space="preserve">
+    <value>非 Apple 照片</value>
+  </data>
   <data name="RepairPage_LivePhotoVideoMissing" xml:space="preserve">
     <value>实况照片（视频缺失）</value>
   </data>
@@ -2034,13 +2043,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>发现新版本！</value>
   </data>
   <data name="Update_NewVersion_Message" xml:space="preserve">
-    <value>Live Photo Box {0} 现已发布，当前版本 {1}，要下载并安装更新吗？</value>
+    <value>实况照片工具箱 {1} → {0}，要下载并安装更新吗？</value>
   </data>
   <data name="Update_Downloading_Title" xml:space="preserve">
     <value>正在下载更新...</value>
   </data>
   <data name="Update_Downloading_Message" xml:space="preserve">
-    <value>正在下载更新，请稍候...</value>
+    <value>正在从 GitHub 下载，请稍候...</value>
   </data>
   <data name="Update_DownloadComplete_Title" xml:space="preserve">
     <value>更新下载完成</value>
@@ -2117,13 +2126,34 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_Merge_MetadataMatching_Cid.Content" xml:space="preserve">
     <value>仅标识符</value>
   </data>
-  <data name="SettingsPage_AppleOnlyScanLabel.Text" xml:space="preserve">
-    <value>仅修复 Apple 设备拍摄的照片</value>
+  <data name="SettingsPage_Debug_GitHubTokenHeader.Text" xml:space="preserve">
+    <value>GitHub API Token</value>
   </data>
-  <data name="SettingsPage_AppleOnlyScanDesc.Text" xml:space="preserve">
-    <value>开启后仅扫描 Apple 设备（iPhone/iPad）拍摄的照片和视频。通过检测元数据中的制造商、设备型号、iOS 版本、标识符和实况照片标记来识别，任一满足即可。非 Apple 设备的文件将在诊断结果中显示跳过</value>
+  <data name="SettingsPage_Debug_GitHubTokenDesc.Text" xml:space="preserve">
+    <value>仅用于更新测试用；绕过未认证 API 限流（60次/小时 → 5000次/小时），Token 仅本地存储。打开页面后无需勾选任何权限，直接点底部「Generate token」生成即可</value>
   </data>
-  <data name="RepairPage_Diagnosis_NonApple" xml:space="preserve">
-    <value>非 Apple 照片</value>
+  <data name="SettingsPage_Debug_GitHubTokenGuideLink.Text" xml:space="preserve">
+    <value>前往生成 GitHub Token</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenBox_Placeholder" xml:space="preserve">
+    <value>输入 GitHub Token（ghp_...）</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenSaveBtn.Content" xml:space="preserve">
+    <value>保存</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenNotSet" xml:space="preserve">
+    <value>未设置（使用未认证 API，60 次/小时）</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenSet" xml:space="preserve">
+    <value>已设置：{0}（5000 次/小时）</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenClearBtn.Content" xml:space="preserve">
+    <value>清除 Token</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenEmpty" xml:space="preserve">
+    <value>Token 不能为空</value>
+  </data>
+  <data name="SettingsPage_Debug_GitHubTokenInvalidFormat" xml:space="preserve">
+    <value>Token 格式不正确</value>
   </data>
 </root>

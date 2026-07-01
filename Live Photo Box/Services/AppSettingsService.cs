@@ -54,16 +54,21 @@ namespace LivePhotoBox.Services
                     return _localSettings;
 
                 _localSettingsTried = true;
+
+                // 非打包模式统一走 JSON 文件，不用 LocalSettings。
+                // WinAppSDK 1.5+ 虽可在非打包模式下使用 LocalSettings，
+                // 但数据存在 %LocalAppData%\<hash>\ 下，卸载后残留，重装不清。
+                if (!App.IsPackaged)
+                {
+                    _localSettings = null;
+                    return null;
+                }
+
                 try
                 {
                     _localSettings = ApplicationData.Current.LocalSettings;
                 }
-                catch (InvalidOperationException)
-                {
-                    // 非打包模式：无包标识，ApplicationData.Current 不可用
-                    _localSettings = null;
-                }
-                catch (Exception)
+                catch
                 {
                     _localSettings = null;
                 }
@@ -85,15 +90,23 @@ namespace LivePhotoBox.Services
             }
 
             // 非打包模式：从 JSON 文件读取
-            if (_jsonStore.TryGetValue(key, out var jsonValue) && jsonValue is JsonElement je)
+            if (_jsonStore.TryGetValue(key, out var jsonValue))
             {
-                try
+                // 情况 1：值已经是目标类型 T（来自 SetValue 直接写入，非 JSON 反序列化）
+                if (jsonValue is T directValue)
+                    return directValue;
+
+                // 情况 2：值是 JsonElement（来自 JSON 文件反序列化），需要转换
+                if (jsonValue is JsonElement je)
                 {
-                    return JsonSerializer.Deserialize<T>(je.GetRawText()) ?? defaultValue;
-                }
-                catch
-                {
-                    return defaultValue;
+                    try
+                    {
+                        return JsonSerializer.Deserialize<T>(je.GetRawText()) ?? defaultValue;
+                    }
+                    catch
+                    {
+                        return defaultValue;
+                    }
                 }
             }
 

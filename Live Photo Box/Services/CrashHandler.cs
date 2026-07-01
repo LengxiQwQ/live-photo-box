@@ -241,44 +241,40 @@ namespace LivePhotoBox.Services
                 openLogLink.IsEnabled = false;
             }
 
-            var dialog = new ContentDialog
+            var crashContent = new StackPanel
             {
-                Title = ResourceService.GetString("CrashDialog_Title"),
-                Content = new StackPanel
+                Spacing = 16,
+                Children =
                 {
-                    Spacing = 16,
-                    Children =
+                    new TextBlock
                     {
-                        new TextBlock
+                        Text = ResourceService.GetString("CrashDialog_Content"),
+                        TextWrapping = TextWrapping.Wrap
+                    },
+                    new StackPanel
+                    {
+                        Orientation = Orientation.Horizontal,
+                        Spacing = 4,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Children =
                         {
-                            Text = ResourceService.GetString("CrashDialog_Content"),
-                            TextWrapping = TextWrapping.Wrap
-                        },
-                        new StackPanel
-                        {
-                            Orientation = Orientation.Horizontal,
-                            Spacing = 4,
-                            VerticalAlignment = VerticalAlignment.Center,
-                            Children =
+                            new TextBlock
                             {
-                                new TextBlock
-                                {
-                                    Text = ResourceService.GetString("CrashDialog_LogFileLabel"),
-                                    VerticalAlignment = VerticalAlignment.Center
-                                },
-                                openLogLink
-                            }
-                        },
-                        new StackPanel { Spacing = 12, Children = { openFolderBtn, exportBtn, reportBtn } }
-                    }
-                },
-                CloseButtonText = ResourceService.GetString("CrashDialog_CloseButton"),
-                DefaultButton = ContentDialogButton.Close,
-                XamlRoot = xamlRoot,
-                RequestedTheme = App.CurrentTheme
+                                Text = ResourceService.GetString("CrashDialog_LogFileLabel"),
+                                VerticalAlignment = VerticalAlignment.Center
+                            },
+                            openLogLink
+                        }
+                    },
+                    new StackPanel { Spacing = 12, Children = { openFolderBtn, exportBtn, reportBtn } }
+                }
             };
 
-            await dialog.ShowAsync();
+            await DialogService.ShowSingleAsync(
+                xamlRoot,
+                ResourceService.GetString("CrashDialog_Title"),
+                crashContent,
+                ResourceService.GetString("CrashDialog_CloseButton"));
         }
 
         #endregion

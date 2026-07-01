@@ -40,25 +40,33 @@ namespace LivePhotoBox.Services
         // è¿å: BCP-47 语言标签
         public static string GetEffectiveLanguage(int index)
         {
-            // 0 = 跟随系统 (System Default)：遍历系统语言列表，找到第一个匹配的支持语种
+            // 0 = 跟随系统 (System Default)：检测当前系统 UI 语言，匹配支持语种。
             if (index == 0)
             {
-                try
+                string systemLang;
+
+                // 打包模式：走 WinRT GlobalizationPreferences（优先级列表，更精准）
+                // 非打包：走 .NET CultureInfo.CurrentUICulture（无 WinRT 依赖）
+                if (App.IsPackaged)
                 {
-                    var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
-                    foreach (var lang in systemLangs)
+                    try
                     {
-                        var lowerLang = lang.ToLowerInvariant();
-                        if (lowerLang.StartsWith("zh")) return "zh-Hans";
-                        if (lowerLang.StartsWith("en")) return "en-US";
+                        var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
+                        systemLang = systemLangs.Count > 0 ? systemLangs[0] : "en-US";
+                    }
+                    catch
+                    {
+                        systemLang = "en-US";
                     }
                 }
-                catch (InvalidOperationException)
+                else
                 {
-                    // 非打包模式：GlobalizationPreferences 可能无法激活，回退到 en-US
-                    System.Diagnostics.Debug.WriteLine(
-                        "[LivePhotoBox] GetEffectiveLanguage: GlobalizationPreferences unavailable (unpackaged), defaulting to en-US.");
+                    systemLang = System.Globalization.CultureInfo.CurrentUICulture.Name;
                 }
+
+                var lowerLang = systemLang.ToLowerInvariant();
+                if (lowerLang.StartsWith("zh")) return "zh-Hans";
+                if (lowerLang.StartsWith("en")) return "en-US";
                 return "en-US";
             }
 
@@ -74,26 +82,6 @@ namespace LivePhotoBox.Services
         // 优先返回 PrimaryLanguageOverride（用户手动设置），
         // 未设置时回退到系统首选语言的第一个条目，最后兜底为 en-US。
         // è¿å: 当前语言 BCP-47 标签
-        public static string GetCurrentLanguageTag()
-        {
-            try
-            {
-                var primary = Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride;
-                if (!string.IsNullOrWhiteSpace(primary)) return primary;
-
-                var systemLangs = Windows.System.UserProfile.GlobalizationPreferences.Languages;
-                if (systemLangs.Count > 0) return systemLangs[0];
-            }
-            catch (InvalidOperationException)
-            {
-                // 非打包模式：WinRT 语言 API 不可用，回退到 en-US
-                System.Diagnostics.Debug.WriteLine(
-                    "[LivePhotoBox] GetCurrentLanguageTag: WinRT language APIs unavailable (unpackaged), defaulting to en-US.");
-            }
-
-            return "en-US";
-        }
-
         // 通过语言索引设置语言覆盖。内部转换为标签后调用 <see cref="ApplyLanguageOverride(string)"/>。
         // languageIndex: 语言索引
         public static void ApplyLanguageOverride(int languageIndex)
@@ -102,21 +90,20 @@ namespace LivePhotoBox.Services
         }
 
         // 通过语言标签设置 PrimaryLanguageOverride，写入后立即生效于资源加载。
-        // 注意：部分 UI 元素需要重启应用才能完全切换语言。
+        // 非打包模式下此 API 不可用，语言切换需重启应用才能完全生效。
         // languageTag: BCP-47 语言标签
         public static void ApplyLanguageOverride(string languageTag)
         {
-            try
+            if (App.IsPackaged)
             {
-                Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = languageTag;
+                try
+                {
+                    Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = languageTag;
+                }
+                catch { /* 极端情况 */ }
             }
-            catch (InvalidOperationException)
-            {
-                // 非打包模式：WinRT ApplicationLanguages 可能无法激活，
-                // 此时应用使用默认语言，不影响正常功能。
-                System.Diagnostics.Debug.WriteLine(
-                    $"[LivePhotoBox] ApplyLanguageOverride failed (unpackaged mode), using default language.");
-            }
+            // 非打包模式：PrimaryLanguageOverride 不可用，跳过。
+            // 语言切换效果需依赖资源系统的默认行为或重启应用生效。
         }
 
         // 显示语言切换确认对话框，询问用户是否立即重启应用以使语言切换完全生效。
@@ -147,19 +134,18 @@ namespace LivePhotoBox.Services
                     var resourceContext = resourceManager.CreateResourceContext();
                     resourceContext.QualifierValues["Language"] = targetLang;
 
-                    var dialog = new ContentDialog
-                    {
-                        Title = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_Title", resourceContext).ValueAsString,
-                        Content = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_Content", resourceContext).ValueAsString,
-                        PrimaryButtonText = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_CloseButton", resourceContext).ValueAsString,
-                        SecondaryButtonText = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_PrimaryButton", resourceContext).ValueAsString,
-                        DefaultButton = ContentDialogButton.Secondary,
-                        XamlRoot = App.MainWindow.Content.XamlRoot,
-                        RequestedTheme = App.CurrentTheme
-                    };
+                    var title = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_Title", resourceContext).ValueAsString;
+                    var content = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_Content", resourceContext).ValueAsString;
+                    var restartText = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_PrimaryButton", resourceContext).ValueAsString;
+                    var closeText = resourceManager.MainResourceMap.GetValue("Resources/RestartDialog_CloseButton", resourceContext).ValueAsString;
 
-                    var result = await dialog.ShowAsync();
-                    if (result == ContentDialogResult.Secondary)
+                    bool restart = await DialogService.ShowDualAsync(
+                        App.MainWindow.Content.XamlRoot,
+                        title,
+                        content,
+                        primaryText: restartText,
+                        closeText: closeText);
+                    if (restart)
                     {
                         LogService.Info("Application restart requested after language change.", LogSource.Settings);
                         LogService.MarkCleanShutdown();

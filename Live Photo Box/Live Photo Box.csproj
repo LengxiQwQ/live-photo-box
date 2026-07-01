@@ -9,8 +9,8 @@
 
 		<RootNamespace>LivePhotoBox</RootNamespace>
 		<AssemblyName>Live Photo Box</AssemblyName>
-		<Version>1.15.0.0</Version>
-		<FileVersion>1.15.0.0</FileVersion>
+		<Version>1.14.12.0</Version>
+		<FileVersion>1.14.12.0</FileVersion>
 		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 		<Authors>LengxiQwQ</Authors>
 		<Company>LengxiQwQ</Company>
@@ -206,7 +206,7 @@
 			<ItemGroup>
 				<_XamlOutputs Include="$(OutDir)*.xbf" />
 				<_XamlOutputs Include="$(OutDir)*.pri" />
-				<_XamlOutputs Include="$(OutDir)appsettings.json" Condition="Exists('$(OutDir)appsettings.json')" />
+				<!-- appsettings.json 是运行时生成，不随构建发布 -->
 				<_XamlDirs Include="$(OutDir)Controls\**\*" />
 				<_XamlDirs Include="$(OutDir)Views\**\*" />
 			</ItemGroup>

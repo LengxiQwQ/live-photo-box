@@ -60,7 +60,11 @@ foreach ($dir in (Get-ChildItem $outDir -Directory -ErrorAction SilentlyContinue
 }
 Write-Host "       Removed $count locale folders (kept zh-CN, en-us)" -ForegroundColor Gray
 
-# 2. 删除 AI/ML 无用文件
+# 2. 删除运行时生成的配置文件（开发机残留）
+$appSettings = Join-Path $outDir 'appsettings.json'
+if (Test-Path $appSettings) { Remove-Item -Force $appSettings; Write-Host '       Removed appsettings.json' -ForegroundColor Gray }
+
+# 3. 删除 AI/ML 无用文件
 foreach ($f in @('DirectML.dll','onnxruntime.dll','onnxruntime_providers_shared.dll','Microsoft.ML.OnnxRuntime.dll')) {
     $p = Join-Path $outDir $f
     if (Test-Path $p) { Remove-Item -Force $p }

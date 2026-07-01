@@ -674,21 +674,14 @@ namespace LivePhotoBox.ViewModels
                     Opacity = 0.85
                 });
 
-                var dialog = new ContentDialog
-                {
-                    Content = stack,
-                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-
-                var result = await dialog.ShowAsync();
-                if (result == ContentDialogResult.Primary)
-                {
+                var chosenPrimary = await DialogService.ShowDualAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    title: null,
+                    content: stack,
+                    primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
+                    closeText: ResourceService.GetString("Msg_GotIt"));
+                if (chosenPrimary)
                     await OpenMergeOutputFolderAsync();
-                }
             }
         }
 
@@ -732,21 +725,14 @@ namespace LivePhotoBox.ViewModels
                     Opacity = 0.85
                 });
 
-                var dialog = new ContentDialog
-                {
-                    Content = stack,
-                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-
-                var result = await dialog.ShowAsync();
-                if (result == ContentDialogResult.Primary)
-                {
+                var chosenPrimary = await DialogService.ShowDualAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    title: null,
+                    content: stack,
+                    primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
+                    closeText: ResourceService.GetString("Msg_GotIt"));
+                if (chosenPrimary)
                     await OpenMergeOutputFolderAsync();
-                }
             }
         }
 

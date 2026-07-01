@@ -562,22 +562,14 @@ namespace LivePhotoBox.ViewModels
                     Opacity = 0.85
                 });
 
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_TaskCancelledTitle"),
-                    Content = stack,
-                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-
-                var result = await dialog.ShowAsync();
-                if (result == ContentDialogResult.Primary)
-                {
+                var chosenPrimary = await DialogService.ShowDualAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    ResourceService.GetString("Msg_TaskCancelledTitle"),
+                    stack,
+                    primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
+                    closeText: ResourceService.GetString("Msg_GotIt"));
+                if (chosenPrimary)
                     OpenRepairOutputFolder();
-                }
             }
         }
 
@@ -610,22 +602,14 @@ namespace LivePhotoBox.ViewModels
                     Opacity = 0.85
                 });
 
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_RepairCompletedTitle"),
-                    Content = stack,
-                    PrimaryButtonText = ResourceService.GetString("Msg_OpenOutputFolder"),
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-
-                var result = await dialog.ShowAsync();
-                if (result == ContentDialogResult.Primary)
-                {
+                var chosenPrimary = await DialogService.ShowDualAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    ResourceService.GetString("Msg_RepairCompletedTitle"),
+                    stack,
+                    primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
+                    closeText: ResourceService.GetString("Msg_GotIt"));
+                if (chosenPrimary)
                     OpenRepairOutputFolder();
-                }
             }
         }
 

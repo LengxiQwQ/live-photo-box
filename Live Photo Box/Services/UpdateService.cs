@@ -39,6 +39,7 @@ namespace LivePhotoBox.Services
         private const string GitHubApiUrl = "https://api.github.com/repos/LengxiQwQ/live-photo-box/releases/latest";
         private const string LastCheckKey = "UpdateLastCheckTime";
         private const string SkippedVersionKey = "UpdateSkippedVersion";
+        private const string GitHubTokenKey = "GitHubApiToken";
         private const int CheckIntervalDays = 3;
 
         // ── 静态字段 ──────────────────────────────────────────────────
@@ -50,6 +51,17 @@ namespace LivePhotoBox.Services
 
         /// <summary>是否启用自动更新（仅非打包模式）。</summary>
         public static bool IsUpdateEnabled => !IsPackagedMode;
+
+        /// <summary>是否已设置 GitHub API Token（绕过未认证限流 60次/小时）。</summary>
+        public static bool HasApiToken => !string.IsNullOrWhiteSpace(_gitHubToken);
+
+        /// <summary>当前使用的 GitHub API Token 前缀（仅显示前 6 位，避免完整泄露）。</summary>
+        public static string TokenDisplayText =>
+            string.IsNullOrWhiteSpace(_gitHubToken) ? string.Empty
+            : _gitHubToken.Length <= 6 ? _gitHubToken
+            : _gitHubToken.Substring(0, 6) + "…";
+
+        private static string? _gitHubToken;
 
         // ── 静态构造函数 ──────────────────────────────────────────────
 
@@ -77,8 +89,50 @@ namespace LivePhotoBox.Services
             _downloadClient.DefaultRequestHeaders.UserAgent.ParseAdd("LivePhotoBox-Update/1.0");
             _downloadClient.Timeout = TimeSpan.FromMinutes(15);
 
-            LogService.Debug($"UpdateService initialized. API URL: {GitHubApiUrl}, Check interval: {CheckIntervalDays} days",
+            // 尝试加载之前保存的 GitHub API Token（调试工具区可设置）
+            _gitHubToken = AppSettingsService.GetValue(GitHubTokenKey, "");
+            ApplyToken();
+
+            LogService.Debug($"UpdateService initialized. API URL: {GitHubApiUrl}, Check interval: {CheckIntervalDays} days" +
+                (HasApiToken ? $", API token: {TokenDisplayText}" : ", no API token (unauthenticated)"),
                 LogSource.System);
+        }
+
+        // ── GitHub API Token 管理（调试用，绕过 60次/小时限流）─────
+
+        /// <summary>
+        /// 设置 GitHub Personal Access Token，用于 API 认证（5000 次/小时）。
+        /// 传入 null 或空字符串可清除已设置的 Token。
+        /// Token 会持久化到 AppSettings，下次启动自动加载。
+        /// </summary>
+        public static void SetApiToken(string? token)
+        {
+            // 去掉常见的复制粘贴误触（如开头结尾的空格、换行）
+            var trimmed = token?.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed))
+                trimmed = null;
+
+            _gitHubToken = trimmed;
+            AppSettingsService.SetValue(GitHubTokenKey, trimmed ?? "");
+            ApplyToken();
+
+            if (trimmed != null)
+                LogService.Info($"UpdateService: GitHub API token set → {TokenDisplayText}", LogSource.System);
+            else
+                LogService.Info("UpdateService: GitHub API token cleared.", LogSource.System);
+        }
+
+        /// <summary>
+        /// 将当前 Token 应用到 _httpClient 的 Authorization 头。
+        /// 无 Token 时移除 Authorization 头，恢复未认证模式。
+        /// </summary>
+        private static void ApplyToken()
+        {
+            _httpClient.DefaultRequestHeaders.Remove("Authorization");
+            if (!string.IsNullOrWhiteSpace(_gitHubToken))
+            {
+                _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {_gitHubToken}");
+            }
         }
 
         // ── 安装类型检测 ──────────────────────────────────────────────
@@ -720,35 +774,28 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <param name="restartAfterUpdate">更新完成后是否重启应用（关闭时更新=false，立即重启=true）</param>
-        public static void LaunchInstaller(string downloadedPath, bool isSetup, bool restartAfterUpdate = true)
-        {
-            var prepared = PrepareInstaller(downloadedPath, isSetup, restartAfterUpdate);
-            if (prepared != null)
-                ExecutePreparedInstaller(prepared, isSetup);
-        }
-
         /// <summary>
-        /// 启动 Inno Setup 安装包。参数：
-        ///   /VERYSILENT — 完全静默，不显示任何窗口
-        ///   /SUPPRESSMSGBOXES — 抑制消息框
-        ///   /CLOSEAPPLICATIONS — 自动关闭正在运行的应用再安装
-        ///   /NORESTART — 不自动重启系统
+        /// 启动 Inno Setup 安装包，安装完成后自动启动新版本。
+        /// 使用 cmd /c 串联：先静默安装，完了 start 启动应用。
         /// </summary>
         private static void LaunchSetupInstaller(string setupPath)
         {
-            var args = "/VERYSILENT /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS /NORESTART";
+            var appExe = Path.Combine(AppContext.BaseDirectory, "Live Photo Box.exe");
+            var args = $"/c \"\"{setupPath}\" /SILENT /SUPPRESSMSGBOXES /CLOSEAPPLICATIONS /NORESTART && start \"\" \"{appExe}\"\"";
+
             LogService.Info(
-                $"UpdateService: Starting Inno Setup → \"{setupPath}\" {args}",
+                $"UpdateService: Starting Inno Setup → cmd /c ... {setupPath}",
                 LogSource.System);
 
             try
             {
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = setupPath,
+                    FileName = "cmd.exe",
                     Arguments = args,
-                    UseShellExecute = true
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
                 });
                 LogService.Info("UpdateService: Inno Setup installer launched successfully.", LogSource.System);
             }
@@ -759,6 +806,14 @@ namespace LivePhotoBox.Services
                     exception: ex,
                     source: LogSource.System);
             }
+        }
+
+        /// <param name="restartAfterUpdate">更新完成后是否重启应用（关闭时更新=false，立即重启=true）</param>
+        public static void LaunchInstaller(string downloadedPath, bool isSetup, bool restartAfterUpdate = true)
+        {
+            var prepared = PrepareInstaller(downloadedPath, isSetup, restartAfterUpdate);
+            if (prepared != null)
+                ExecutePreparedInstaller(prepared, isSetup);
         }
 
         /// <summary>

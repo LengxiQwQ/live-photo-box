@@ -75,6 +75,13 @@ namespace LivePhotoBox.Views
                 // 后台预加载 Banner，不阻塞页面打开（fire-and-forget）
                 _ = ViewModel.EnsureBannersPreloadedAsync();
 
+                // GitHub API Token 卡片：仅非打包模式显示（商店版不需要手动设置 Token）
+                GitHubTokenCard.Visibility = App.IsPackaged ? Visibility.Collapsed : Visibility.Visible;
+
+                // 刷新 GitHub API Token 状态显示
+                GitHubTokenBox.PlaceholderText = ResourceService.GetString("SettingsPage_Debug_GitHubTokenBox_Placeholder");
+                RefreshGitHubTokenStatus();
+
                 // 如果上一次非正常退出，自动展开日志与调试工具区
                 if (LogService.LastSessionCrashed && !_isTestToolsVisible)
                 {
@@ -210,24 +217,13 @@ namespace LivePhotoBox.Views
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;
 
-            var dialog = new ContentDialog
-            {
-                Title = ResourceService.GetString("SettingsPage_Restart_Confirm_Title"),
-                Content = new TextBlock
-                {
-                    Text = ResourceService.GetString("SettingsPage_Restart_Confirm_Message"),
-                    FontSize = 14,
-                    TextWrapping = TextWrapping.Wrap
-                },
-                PrimaryButtonText = ResourceService.GetString("Msg_Cancel"),
-                SecondaryButtonText = ResourceService.GetString("Msg_Confirm"),
-                DefaultButton = ContentDialogButton.Secondary,
-                XamlRoot = App.MainWindow.Content.XamlRoot,
-                RequestedTheme = App.CurrentTheme
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result != ContentDialogResult.Secondary) return;
+            bool confirmed = await DialogService.ShowDualAsync(
+                App.MainWindow.Content.XamlRoot,
+                ResourceService.GetString("SettingsPage_Restart_Confirm_Title"),
+                ResourceService.GetString("SettingsPage_Restart_Confirm_Message"),
+                primaryText: ResourceService.GetString("Msg_Confirm"),
+                closeText: ResourceService.GetString("Msg_Cancel"));
+            if (!confirmed) return;
 
             string? processPath = Environment.ProcessPath;
             if (!string.IsNullOrWhiteSpace(processPath))
@@ -308,24 +304,13 @@ namespace LivePhotoBox.Views
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;
 
-            var dialog = new ContentDialog
-            {
-                Title = ResourceService.GetString("SettingsPage_Restore_Confirm_Title"),
-                Content = new TextBlock
-                {
-                    Text = ResourceService.GetString("SettingsPage_Restore_Confirm_Message"),
-                    FontSize = 14,
-                    TextWrapping = TextWrapping.Wrap
-                },
-                PrimaryButtonText = ResourceService.GetString("Msg_Cancel"),
-                SecondaryButtonText = ResourceService.GetString("Msg_Confirm"),
-                DefaultButton = ContentDialogButton.Secondary,
-                XamlRoot = App.MainWindow.Content.XamlRoot,
-                RequestedTheme = App.CurrentTheme
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Secondary)
+            bool confirmed = await DialogService.ShowDualAsync(
+                App.MainWindow.Content.XamlRoot,
+                ResourceService.GetString("SettingsPage_Restore_Confirm_Title"),
+                ResourceService.GetString("SettingsPage_Restore_Confirm_Message"),
+                primaryText: ResourceService.GetString("Msg_Confirm"),
+                closeText: ResourceService.GetString("Msg_Cancel"));
+            if (confirmed)
             {
                 ViewModel.RestoreDefaultSettingsCommand.Execute(null);
                 PageScrollViewer.ChangeView(null, 0, null, true);
@@ -337,24 +322,13 @@ namespace LivePhotoBox.Views
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;
 
-            var dialog = new ContentDialog
-            {
-                Title = ResourceService.GetString("SettingsPage_SwitchToClassic_Confirm_Title"),
-                Content = new TextBlock
-                {
-                    Text = ResourceService.GetString("SettingsPage_SwitchToClassic_Confirm_Message"),
-                    FontSize = 14,
-                    TextWrapping = TextWrapping.Wrap
-                },
-                PrimaryButtonText = ResourceService.GetString("Msg_Cancel"),
-                SecondaryButtonText = ResourceService.GetString("Msg_Confirm"),
-                DefaultButton = ContentDialogButton.Secondary,
-                XamlRoot = App.MainWindow.Content.XamlRoot,
-                RequestedTheme = App.CurrentTheme
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result != ContentDialogResult.Secondary) return;
+            bool confirmed = await DialogService.ShowDualAsync(
+                App.MainWindow.Content.XamlRoot,
+                ResourceService.GetString("SettingsPage_SwitchToClassic_Confirm_Title"),
+                ResourceService.GetString("SettingsPage_SwitchToClassic_Confirm_Message"),
+                primaryText: ResourceService.GetString("Msg_Confirm"),
+                closeText: ResourceService.GetString("Msg_Cancel"));
+            if (!confirmed) return;
 
             // Save preference: switch back to classic
             AppSettingsService.SetValue("UseClassicSettingsPage", true);
@@ -400,6 +374,84 @@ namespace LivePhotoBox.Views
             }
         }
 
+        // ── GitHub API Token 管理 ────────────────────────────────────
+
+        /// <summary>
+        /// 清空 Token 输入框内容。
+        /// </summary>
+        private void ClearTokenBox_Click(object sender, RoutedEventArgs e)
+        {
+            GitHubTokenBox.Password = "";
+        }
+
+        /// <summary>
+        /// 打开 GitHub Personal Access Token 生成页面（默认浏览器）。
+        /// </summary>
+        private async void OpenGitHubTokenGuide_Click(object sender, RoutedEventArgs e)
+        {
+            await FilePickerService.OpenUriAsync(
+                new Uri("https://github.com/settings/tokens/new?description=LivePhotoBox&scopes="));
+        }
+
+        /// <summary>
+        /// 保存用户输入的 GitHub API Token。
+        /// 空的 Token 会被忽略，提示用户输入。
+        /// </summary>
+        private void SaveGitHubToken_Click(object sender, RoutedEventArgs e)
+        {
+            var token = GitHubTokenBox.Password?.Trim();
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                GitHubTokenStatus.Text = ResourceService.GetString("SettingsPage_Debug_GitHubTokenEmpty");
+                return;
+            }
+
+            // 基本校验：GitHub PAT 以 ghp_ / github_pat_ / gho_ 开头
+            if (!token.StartsWith("ghp_") && !token.StartsWith("github_pat_") && !token.StartsWith("gho_"))
+            {
+                GitHubTokenStatus.Text = ResourceService.GetString("SettingsPage_Debug_GitHubTokenInvalidFormat");
+                return;
+            }
+
+            UpdateService.SetApiToken(token);
+            GitHubTokenBox.Password = "";
+            RefreshGitHubTokenStatus();
+            LogService.Info("Settings: GitHub API token saved by user.", LogSource.Settings);
+        }
+
+        /// <summary>
+        /// 清除已保存的 GitHub API Token，恢复未认证模式（60次/小时限流）。
+        /// </summary>
+        private void ClearGitHubToken_Click(object sender, RoutedEventArgs e)
+        {
+            UpdateService.SetApiToken(null);
+            RefreshGitHubTokenStatus();
+            LogService.Info("Settings: GitHub API token cleared by user.", LogSource.Settings);
+        }
+
+        /// <summary>
+        /// 刷新 GitHub API Token 的状态显示和按钮可见性。
+        /// Token 已设置时显示前缀（如 "ghp_ab…"）和清除按钮；
+        /// 未设置时显示 "未设置" 提示，隐藏清除按钮。
+        /// </summary>
+        private void RefreshGitHubTokenStatus()
+        {
+            if (UpdateService.HasApiToken)
+            {
+                GitHubTokenStatus.Text = string.Format(
+                    ResourceService.GetString("SettingsPage_Debug_GitHubTokenSet"),
+                    UpdateService.TokenDisplayText);
+                ClearGitHubTokenBtn.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                GitHubTokenStatus.Text = ResourceService.GetString("SettingsPage_Debug_GitHubTokenNotSet");
+                ClearGitHubTokenBtn.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        // ── 自动更新 ────────────────────────────────────────────────
+
         /// <summary>
         /// 执行版本检查并弹出对应的对话框。手动检查入口（调用 GitHub API）。
         /// 流程：请求 API → 无新版弹提示 / 有新版弹选择 → 下载 → 安装。
@@ -422,7 +474,7 @@ namespace LivePhotoBox.Views
 
             // 调用 GitHub API（仅此一次）
             var release = await Task.Run(() => UpdateService.FetchLatestReleaseAsync());
-            UpdateService.RecordCheckTime();
+            // 注意：手动检查不记录 CheckTime，避免阻塞启动自动检查的 3 天间隔
 
             await HandleUpdateCheckResultAsync(xamlRoot, release, isManualCheck: true);
         }
@@ -458,28 +510,15 @@ namespace LivePhotoBox.Views
                 }
 
                 // 错误弹窗：显示错误信息 + 关闭按钮 + 前往 GitHub 手动下载按钮
-                var errorDialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString(titleKey),
-                    Content = new TextBlock
-                    {
-                        Text = ResourceService.GetString(messageKey),
-                        FontSize = 14,
-                        TextWrapping = TextWrapping.Wrap,
-                        FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Microsoft YaHei UI")
-                    },
-                    PrimaryButtonText = ResourceService.GetString("Update_Btn_ManualDownload"),
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = xamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-                errorDialog.PrimaryButtonClick += (_, _) =>
-                {
-                    _ = FilePickerService.OpenUriAsync(
-                        new Uri("https://github.com/LengxiQwQ/live-photo-box/releases"));
-                };
-                await errorDialog.ShowAsync();
+                var releasesUrl = "https://github.com/LengxiQwQ/live-photo-box/releases";
+                bool clickedDownload = await DialogService.ShowDualAsync(
+                    xamlRoot,
+                    ResourceService.GetString(titleKey),
+                    ResourceService.GetString(messageKey),
+                    primaryText: ResourceService.GetString("Update_Btn_ManualDownload"),
+                    closeText: ResourceService.GetString("Msg_GotIt"));
+                if (clickedDownload)
+                    await FilePickerService.OpenUriAsync(new Uri(releasesUrl));
                 return;
             }
 
@@ -541,19 +580,9 @@ namespace LivePhotoBox.Views
                 FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Microsoft YaHei UI")
             });
 
-            // 显示 Release 正文（截取前 2000 字符，避免弹窗过长）
+            // 显示 Release 正文（Markdown 渲染）
             if (!string.IsNullOrWhiteSpace(release.Body))
             {
-                var notesTitle = new TextBlock
-                {
-                    Text = ResourceService.GetString("Update_ReleaseNotes"),
-                    FontSize = 13,
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    Margin = new Microsoft.UI.Xaml.Thickness(0, 4, 0, 0)
-                };
-                contentStack.Children.Add(notesTitle);
-
-                // 使用 WebView2 渲染 Markdown（Markdig 转 HTML + CSS 样式）
                 // 补上 base URL，让相对链接（如 changelogs/xxx.md）能正确跳转到 GitHub
                 bool isDark = App.CurrentTheme == ElementTheme.Dark;
                 var tag = release.TagName.TrimStart('v', 'V');
@@ -562,8 +591,27 @@ namespace LivePhotoBox.Views
 
                 var webView = new Microsoft.UI.Xaml.Controls.WebView2
                 {
-                    Height = 260,
+                    Height = 300,
                     HorizontalAlignment = HorizontalAlignment.Stretch
+                };
+
+                // WebView2 初始化失败的降级方案：纯文本 ScrollViewer。
+                // 注意：不能对未初始化的 WebView2 调用 NavigateToString（同样会失败）。
+                var fallbackTextBlock = new TextBlock
+                {
+                    Text = MarkdownToPlainText(release.Body),
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap,
+                    IsTextSelectionEnabled = true,
+                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas, Microsoft YaHei UI"),
+                    MaxHeight = 260
+                };
+                var fallbackScrollViewer = new ScrollViewer
+                {
+                    Content = fallbackTextBlock,
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    MaxHeight = 300,
+                    Visibility = Visibility.Collapsed
                 };
 
                 // 异步初始化 WebView2 完成后注入 HTML，并拦截链接跳转到外部浏览器
@@ -604,14 +652,15 @@ namespace LivePhotoBox.Views
                     {
                         LogService.Warn($"WebView2 init failed in update dialog: {ex.Message}",
                             source: LogSource.System);
-                        // 降级：用纯文本显示（去掉 markdown 标记）
-                        webView.NavigateToString(
-                            MarkdownRenderService.RenderToHtml(
-                                $"```\n{MarkdownToPlainText(release.Body)}\n```", isDark));
+                        // 降级：隐藏 WebView2，改为纯文本 ScrollViewer 显示。
+                        // 不能用 NavigateToString，因为 WebView2 还没初始化成功。
+                        webView.Visibility = Visibility.Collapsed;
+                        fallbackScrollViewer.Visibility = Visibility.Visible;
                     }
                 };
 
                 contentStack.Children.Add(webView);
+                contentStack.Children.Add(fallbackScrollViewer);
             }
 
             var dialog = new ContentDialog
@@ -941,23 +990,7 @@ namespace LivePhotoBox.Views
             string message,
             string closeButtonText)
         {
-            var dialog = new ContentDialog
-            {
-                Title = title,
-                Content = new TextBlock
-                {
-                    Text = message,
-                    FontSize = 14,
-                    TextWrapping = TextWrapping.Wrap,
-                    FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Microsoft YaHei UI")
-                },
-                CloseButtonText = closeButtonText,
-                DefaultButton = ContentDialogButton.Close,
-                XamlRoot = xamlRoot,
-                RequestedTheme = App.CurrentTheme
-            };
-
-            await dialog.ShowAsync();
+            await DialogService.ShowSingleAsync(xamlRoot, title, message, closeButtonText);
         }
 
         // 检测外部工具按钮点击：异步检测所有外部工具，以 ContentDialog 弹窗展示结果。
@@ -1075,21 +1108,16 @@ namespace LivePhotoBox.Views
             }
 
             // 显示结果弹窗
-            var resultDialog = new ContentDialog
-            {
-                Title = ResourceService.GetString("SettingsPage_CheckTools_Dialog_Title"),
-                Content = new ScrollViewer
+            await DialogService.ShowSingleAsync(
+                App.MainWindow.Content.XamlRoot,
+                ResourceService.GetString("SettingsPage_CheckTools_Dialog_Title"),
+                new ScrollViewer
                 {
                     MaxHeight = 450,
                     Content = resultPanel,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto
                 },
-                CloseButtonText = ResourceService.GetString("Msg_Confirm"),
-                XamlRoot = App.MainWindow.Content.XamlRoot,
-                RequestedTheme = App.CurrentTheme
-            };
-
-            await resultDialog.ShowAsync();
+                ResourceService.GetString("Msg_Confirm"));
         }
     }
 }

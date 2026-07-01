@@ -38,7 +38,10 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnLanguageIndexChanged(int value)
         {
-            string previousLanguage = LanguageService.GetCurrentLanguageTag();
+            // 用上一次保存的 LanguageIndex 推算切换前的有效语言，
+            // 不依赖 WinRT 的 GetCurrentLanguageTag()（非打包模式下不可用，永远返回 "en-US"）。
+            int previousIndex = AppSettingsService.GetValue(nameof(LanguageIndex), 0);
+            string previousLanguage = LanguageService.GetEffectiveLanguage(previousIndex);
             string targetLanguage = LanguageService.GetEffectiveLanguage(value);
 
             AppSettingsService.SetValue(nameof(LanguageIndex), value);

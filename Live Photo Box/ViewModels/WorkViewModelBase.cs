@@ -422,20 +422,15 @@ namespace LivePhotoBox.ViewModels
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
             {
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_EmptyQueueTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_EmptyQueue"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
-                    PrimaryButtonText = ResourceService.GetString("Msg_GoToTutorial"),
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Primary,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-                if (await dialog.ShowAsync() == ContentDialogResult.Primary)
-                {
+                var xamlRoot = App.MainWindow.Content.XamlRoot;
+                var chosenPrimary = await DialogService.ShowDualAsync(
+                    xamlRoot,
+                    ResourceService.GetString("Msg_EmptyQueueTitle"),
+                    ResourceService.GetString("Msg_EmptyQueue"),
+                    primaryText: ResourceService.GetString("Msg_GoToTutorial"),
+                    closeText: ResourceService.GetString("Msg_GotIt"));
+                if (chosenPrimary)
                     RequestNavigateToPage?.Invoke(this, $"Home_{targetFeature}");
-                }
             }
         }
 
@@ -444,16 +439,11 @@ namespace LivePhotoBox.ViewModels
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
             {
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString($"{targetFeature}Page_Msg_NoInputDirectoryTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString($"{targetFeature}Page_Msg_NoInputDirectory"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-                await dialog.ShowAsync();
+                await DialogService.ShowSingleAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    ResourceService.GetString($"{targetFeature}Page_Msg_NoInputDirectoryTitle"),
+                    ResourceService.GetString($"{targetFeature}Page_Msg_NoInputDirectory"),
+                    ResourceService.GetString("Msg_GotIt"));
             }
         }
 
@@ -462,16 +452,11 @@ namespace LivePhotoBox.ViewModels
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
             {
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_InvalidInputDirectoryTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_InvalidInputDirectory"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-                await dialog.ShowAsync();
+                await DialogService.ShowSingleAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    ResourceService.GetString("Msg_InvalidInputDirectoryTitle"),
+                    ResourceService.GetString("Msg_InvalidInputDirectory"),
+                    ResourceService.GetString("Msg_GotIt"));
             }
         }
 
@@ -480,16 +465,11 @@ namespace LivePhotoBox.ViewModels
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
             {
-                var dialog = new ContentDialog
-                {
-                    Title = ResourceService.GetString("Msg_QueueNotEmptyTitle"),
-                    Content = new TextBlock { Text = ResourceService.GetString("Msg_QueueNotEmpty"), FontSize = 16, TextWrapping = TextWrapping.Wrap },
-                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
-                    DefaultButton = ContentDialogButton.Close,
-                    XamlRoot = App.MainWindow.Content.XamlRoot,
-                    RequestedTheme = App.CurrentTheme
-                };
-                await dialog.ShowAsync();
+                await DialogService.ShowSingleAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    ResourceService.GetString("Msg_QueueNotEmptyTitle"),
+                    ResourceService.GetString("Msg_QueueNotEmpty"),
+                    ResourceService.GetString("Msg_GotIt"));
             }
         }
 

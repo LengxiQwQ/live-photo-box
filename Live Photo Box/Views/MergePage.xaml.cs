@@ -60,6 +60,10 @@ namespace LivePhotoBox.Views
         {
             if (sender is not ComboBox comboBox) return;
 
+            // 防止 NavigationCacheMode="Required" 导致页面缓存后 Loaded 事件重复触发，
+            // 再次执行会导致 item.Content 已从 string 变为 StackPanel，读取为空字符串而破坏显示。
+            comboBox.Loaded -= ProtocolComboBox_Loaded;
+
             string[] names = new string[comboBox.Items.Count];
             string[] hintKeys = ["MergePage_Protocol_V1_Hint", "MergePage_Protocol_V2_Hint", "MergePage_Protocol_Oppo_Hint"];
 

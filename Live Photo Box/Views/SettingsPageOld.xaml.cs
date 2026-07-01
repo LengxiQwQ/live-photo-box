@@ -131,24 +131,13 @@ namespace LivePhotoBox.Views
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;
 
-            var dialog = new ContentDialog
-            {
-                Title = ResourceService.GetString("SettingsPage_Restart_Confirm_Title"),
-                Content = new TextBlock
-                {
-                    Text = ResourceService.GetString("SettingsPage_Restart_Confirm_Message"),
-                    FontSize = 14,
-                    TextWrapping = TextWrapping.Wrap
-                },
-                PrimaryButtonText = ResourceService.GetString("Msg_Cancel"),
-                SecondaryButtonText = ResourceService.GetString("Msg_Confirm"),
-                DefaultButton = ContentDialogButton.Secondary,
-                XamlRoot = App.MainWindow.Content.XamlRoot,
-                RequestedTheme = App.CurrentTheme
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result != ContentDialogResult.Secondary) return;
+            bool confirmed = await DialogService.ShowDualAsync(
+                App.MainWindow.Content.XamlRoot,
+                ResourceService.GetString("SettingsPage_Restart_Confirm_Title"),
+                ResourceService.GetString("SettingsPage_Restart_Confirm_Message"),
+                primaryText: ResourceService.GetString("Msg_Confirm"),
+                closeText: ResourceService.GetString("Msg_Cancel"));
+            if (!confirmed) return;
 
             // 启动新实例后关闭当前应用
             string? processPath = Environment.ProcessPath;
@@ -223,24 +212,13 @@ namespace LivePhotoBox.Views
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;
 
-            var dialog = new ContentDialog
-            {
-                Title = ResourceService.GetString("SettingsPage_Restore_Confirm_Title"),
-                Content = new TextBlock
-                {
-                    Text = ResourceService.GetString("SettingsPage_Restore_Confirm_Message"),
-                    FontSize = 14,
-                    TextWrapping = TextWrapping.Wrap
-                },
-                PrimaryButtonText = ResourceService.GetString("Msg_Cancel"),
-                SecondaryButtonText = ResourceService.GetString("Msg_Confirm"),
-                DefaultButton = ContentDialogButton.Secondary,
-                XamlRoot = App.MainWindow.Content.XamlRoot,
-                RequestedTheme = App.CurrentTheme
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result == ContentDialogResult.Secondary)
+            bool confirmed = await DialogService.ShowDualAsync(
+                App.MainWindow.Content.XamlRoot,
+                ResourceService.GetString("SettingsPage_Restore_Confirm_Title"),
+                ResourceService.GetString("SettingsPage_Restore_Confirm_Message"),
+                primaryText: ResourceService.GetString("Msg_Confirm"),
+                closeText: ResourceService.GetString("Msg_Cancel"));
+            if (confirmed)
             {
                 ViewModel.RestoreDefaultSettingsCommand.Execute(null);
                 // 立即跳到顶部（无动画），让用户感知已重置
@@ -253,24 +231,13 @@ namespace LivePhotoBox.Views
         {
             if (App.MainWindow?.Content?.XamlRoot == null) return;
 
-            var dialog = new ContentDialog
-            {
-                Title = ResourceService.GetString("SettingsPage_SwitchToModern_Confirm_Title"),
-                Content = new TextBlock
-                {
-                    Text = ResourceService.GetString("SettingsPage_SwitchToModern_Confirm_Message"),
-                    FontSize = 14,
-                    TextWrapping = TextWrapping.Wrap
-                },
-                PrimaryButtonText = ResourceService.GetString("Msg_Cancel"),
-                SecondaryButtonText = ResourceService.GetString("Msg_Confirm"),
-                DefaultButton = ContentDialogButton.Secondary,
-                XamlRoot = App.MainWindow.Content.XamlRoot,
-                RequestedTheme = App.CurrentTheme
-            };
-
-            var result = await dialog.ShowAsync();
-            if (result != ContentDialogResult.Secondary) return;
+            bool confirmed = await DialogService.ShowDualAsync(
+                App.MainWindow.Content.XamlRoot,
+                ResourceService.GetString("SettingsPage_SwitchToModern_Confirm_Title"),
+                ResourceService.GetString("SettingsPage_SwitchToModern_Confirm_Message"),
+                primaryText: ResourceService.GetString("Msg_Confirm"),
+                closeText: ResourceService.GetString("Msg_Cancel"));
+            if (!confirmed) return;
 
             // Save preference: switch to modern
             AppSettingsService.SetValue("UseClassicSettingsPage", false);
