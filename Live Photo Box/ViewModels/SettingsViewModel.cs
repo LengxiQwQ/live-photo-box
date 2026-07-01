@@ -448,6 +448,17 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Strict Live Photo scan: {(value ? "ON" : "OFF")}", LogSource.Settings);
         }
 
+        // 仅扫描 Apple 实况照片 — 开启后仅在元数据中检测到 Apple 设备特征的文件才参与扫描
+        [ObservableProperty]
+        private bool _isAppleOnlyScanEnabled;
+
+        partial void OnIsAppleOnlyScanEnabledChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsAppleOnlyScanEnabled), value);
+            LogService.Info($"Apple-only scan: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
         // 详细操作记录开关（默认关闭）
         // 关闭后仅标记经本软件处理过（合成/拆分/修复），不通过 dc:subject 写入具体更改内容
         [ObservableProperty]
@@ -517,18 +528,23 @@ namespace LivePhotoBox.ViewModels
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             IsGoogleProtocolForceMp4 = AppSettingsService.GetValue(nameof(IsGoogleProtocolForceMp4), false);
             MergeThreadCount = AppSettingsService.GetValue("MergeThreadCount", 4);
-            MetadataMatchingModeIndex = AppSettingsService.GetValue(nameof(MetadataMatchingModeIndex), 0);
+            // 迁移旧匹配模式值（旧版 4 选项 → 新版 5 选项，值可直接映射）
+            // 旧: 0=Both, 1=BothWithDate, 2=FilenameOnly, 3=MetadataOnly
+            // 新: 0=FilenameAndCid, 1=FilenameCidAndMetadata, 2=FilenameOnly, 3=CidOnly, 4=MetadataOnly
+            int oldMode = AppSettingsService.GetValue(nameof(MetadataMatchingModeIndex), 0);
+            MetadataMatchingModeIndex = oldMode;  // 直接映射，0→0, 1→1, 2→2, 3→3
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
             IsRepairScanLoadThumbnail = AppSettingsService.GetValue(nameof(IsRepairScanLoadThumbnail), false);
             IsStrictLivePhotoScanEnabled = AppSettingsService.GetValue(nameof(IsStrictLivePhotoScanEnabled), false);
+            IsAppleOnlyScanEnabled = AppSettingsService.GetValue(nameof(IsAppleOnlyScanEnabled), true);
             IsNonLivePhotoVideoRepairEnabled = AppSettingsService.GetValue(nameof(IsNonLivePhotoVideoRepairEnabled), false);
             IsCopyPerfectToOutput = AppSettingsService.GetValue(nameof(IsCopyPerfectToOutput), false);
             SplitFormatIndex = AppSettingsService.GetValue("SelectedFormatIndex", 0);
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
-            IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), false);
-            IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), false);
+            IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), true);
+            IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), true);
         }
 
         // 异步加载硬件编码信息（WMI + FFmpeg 检测），完成后设置 SelectedHardware。

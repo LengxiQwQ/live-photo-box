@@ -32,7 +32,11 @@
          ═══════════════════════════════════════════════════════════════════════ -->
 
     <!-- 布局：第0行固定标题，第1行可滚动内容 -->
-    <Grid RowDefinitions="Auto,*">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
         <!-- 固定标题 -->
         <TextBlock Grid.Row="0"
                    x:Uid="SettingsPage_Title" FontSize="32" FontWeight="Bold"
@@ -293,7 +297,7 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xE8B7;" FontSize="16"/>
+                            <FontIcon Glyph="&#xE8A4;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsOutputPreserveSubfolderStructure, Mode=TwoWay}"
                                   x:Uid="Toggle_OnOff"/>
@@ -392,9 +396,10 @@
                     </controls:SettingsCard.HeaderIcon>
                     <ComboBox SelectedIndex="{x:Bind ViewModel.MetadataMatchingModeIndex, Mode=TwoWay}"
                               Loaded="AppearanceComboBox_Loaded" MinWidth="200">
-                        <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_Both"/>
-                        <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_BothWithDate"/>
+                        <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_FilenameAndCid"/>
+                        <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_FilenameCidAndMetadata"/>
                         <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_Filename"/>
+                        <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_Cid"/>
                         <ComboBoxItem x:Uid="SettingsPage_Merge_MetadataMatching_Metadata"/>
                     </ComboBox>
                 </controls:SettingsCard>
@@ -525,24 +530,20 @@
                     <TextBlock x:Uid="SettingsPage_Repair_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                 </StackPanel>
 
-                <!-- 更严格的实况照片扫描 -->
-                <Grid x:Name="StrictLivePhotoScanRoot">
-                    <controls:SettingsCard x:Name="StrictLivePhotoScanCard" FontFamily="Microsoft YaHei UI">
-                        <controls:SettingsCard.Header>
-                            <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanLabel" FontFamily="Microsoft YaHei UI"/>
-                        </controls:SettingsCard.Header>
-                        <controls:SettingsCard.Description>
-                            <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                        </controls:SettingsCard.Description>
-                        <controls:SettingsCard.HeaderIcon>
-                            <ic:SymbolIcon Symbol="FolderSearch" />
-                        </controls:SettingsCard.HeaderIcon>
-                        <ToggleSwitch IsOn="{x:Bind ViewModel.IsStrictLivePhotoScanEnabled, Mode=TwoWay}"
-                                      x:Uid="Toggle_OnOff"/>
-                    </controls:SettingsCard>
-                    <Border x:Name="StrictLivePhotoScanHighlight" IsHitTestVisible="False"
-                            Background="Transparent" CornerRadius="4"/>
-                </Grid>
+                <!-- 仅修复 Apple 设备拍摄的照片 -->
+                <controls:SettingsCard x:Name="AppleOnlyScanCard" FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_AppleOnlyScanLabel" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_AppleOnlyScanDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE90F;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.IsAppleOnlyScanEnabled, Mode=TwoWay}"
+                                  x:Uid="Toggle_OnOff"/>
+                </controls:SettingsCard>
 
                 <controls:SettingsCard FontFamily="Microsoft YaHei UI">
                     <controls:SettingsCard.Header>
@@ -572,6 +573,25 @@
                                   x:Uid="Toggle_OnOff"/>
                 </controls:SettingsCard>
 
+                <!-- 更严格的实况照片扫描 -->
+                <Grid x:Name="StrictLivePhotoScanRoot">
+                    <controls:SettingsCard x:Name="StrictLivePhotoScanCard" FontFamily="Microsoft YaHei UI">
+                        <controls:SettingsCard.Header>
+                            <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanLabel" FontFamily="Microsoft YaHei UI"/>
+                        </controls:SettingsCard.Header>
+                        <controls:SettingsCard.Description>
+                            <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                        </controls:SettingsCard.Description>
+                        <controls:SettingsCard.HeaderIcon>
+                            <ic:SymbolIcon Symbol="FolderSearch" />
+                        </controls:SettingsCard.HeaderIcon>
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IsStrictLivePhotoScanEnabled, Mode=TwoWay}"
+                                      x:Uid="Toggle_OnOff"/>
+                    </controls:SettingsCard>
+                    <Border x:Name="StrictLivePhotoScanHighlight" IsHitTestVisible="False"
+                            Background="Transparent" CornerRadius="4"/>
+                </Grid>
+
                 <controls:SettingsCard FontFamily="Microsoft YaHei UI">
                     <controls:SettingsCard.Header>
                         <TextBlock x:Uid="SettingsPage_Repair_CopyPerfectLabel" FontFamily="Microsoft YaHei UI"/>
@@ -580,7 +600,7 @@
                         <TextBlock x:Uid="SettingsPage_Repair_CopyPerfectDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <ic:SymbolIcon Symbol="Copy" />
+                        <ic:SymbolIcon Symbol="ImageArrowForward" />
                     </controls:SettingsCard.HeaderIcon>
                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsCopyPerfectToOutput, Mode=TwoWay}"
                                   x:Uid="Toggle_OnOff"/>

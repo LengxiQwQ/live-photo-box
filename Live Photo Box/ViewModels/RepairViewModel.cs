@@ -788,9 +788,11 @@ namespace LivePhotoBox.ViewModels
                 foreach (var (vid, name) in standaloneVidList)
                     standaloneWorkItems.Add((null, vid, name, false));
 
-                // MetadataOnly 模式：将所有文件都放入独立列表，跳过文件名匹配
+                // CidOnly / MetadataOnly 模式：跳过文件名匹配，全部放入独立列表走元数据匹配
                 int matchingMode = AppSettingsService.GetValue("MetadataMatchingModeIndex", 0);
-                if (matchingMode == (int)MetadataMatchingMode.MetadataOnly)
+                bool skipFilenameMatch = matchingMode == (int)MetadataMatchingMode.CidOnly
+                                      || matchingMode == (int)MetadataMatchingMode.MetadataOnly;
+                if (skipFilenameMatch)
                 {
                     foreach (var item in pairedWorkItems)
                     {
@@ -801,6 +803,45 @@ namespace LivePhotoBox.ViewModels
                     }
                     pairedWorkItems.Clear();
                 }
+
+                // ── Apple 设备预检测：收集 Apple 文件路径集，不跳过文件 ──
+                bool appleOnlyScan = AppSettingsService.GetValue("IsAppleOnlyScanEnabled", true);
+                HashSet<string>? appleFiles = null;
+                if (appleOnlyScan)
+                {
+                    string appleFilterExifTool = ExternalToolLocator.FindExifTool()
+                        ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
+                    if (File.Exists(appleFilterExifTool))
+                    {
+                        var allFilePaths = new List<string>();
+                        foreach (var item in pairedWorkItems)
+                        {
+                            if (item.imagePath != null) allFilePaths.Add(item.imagePath);
+                            if (item.videoPath != null) allFilePaths.Add(item.videoPath);
+                        }
+                        foreach (var item in standaloneWorkItems)
+                        {
+                            if (item.imagePath != null) allFilePaths.Add(item.imagePath);
+                            if (item.videoPath != null) allFilePaths.Add(item.videoPath);
+                        }
+
+                        using (var checkTool = new PersistentExifTool(appleFilterExifTool))
+                        {
+                            appleFiles = await LivePhotoMetadataMatcher.FilterAppleDevicesAsync(
+                                allFilePaths, checkTool, token);
+                        }
+
+                        LogService.Repair(
+                            $"Apple-only scan: {appleFiles.Count}/{allFilePaths.Count} Apple files detected, " +
+                            $"non-Apple files will be marked as skipped");
+                    }
+                    else
+                    {
+                        LogService.Repair("Apple-only scan: exiftool not found, skipping detection", LogLevel.Warning);
+                    }
+                }
+
+                // 计算统计
 
                 // 计算统计
                 int pairCount = pairedWorkItems.Count;
@@ -918,8 +959,8 @@ namespace LivePhotoBox.ViewModels
                             var imgTool = GetExifTool(bi * 2);
                             var vidTool = GetExifTool(bi * 2 + 1);
 
-                            var imageTask = AnalyzeFileAndCreateEntry(imagePath!, imgTool, heicRepairEnabled, token);
-                            var videoTask = AnalyzeFileAndCreateEntry(videoPath!, vidTool, heicRepairEnabled, token);
+                            var imageTask = AnalyzeFileAndCreateEntry(imagePath!, imgTool, heicRepairEnabled, token, appleFiles);
+                            var videoTask = AnalyzeFileAndCreateEntry(videoPath!, vidTool, heicRepairEnabled, token, appleFiles);
 
                             batchTasks[bi] = (wi, imagePath, videoPath, baseName, imageTask, videoTask);
                         }
@@ -1023,7 +1064,7 @@ namespace LivePhotoBox.ViewModels
                         if (imagePath != null)
                         {
                             imageEntry = await AnalyzeFileAndCreateEntry(
-                                imagePath, GetExifTool(0), heicRepairEnabled, token);
+                                imagePath, GetExifTool(0), heicRepairEnabled, token, appleFiles);
                             if (imageEntry != null)
                             {
                                 entryIndex++; processedCount++;
@@ -1049,7 +1090,7 @@ namespace LivePhotoBox.ViewModels
                         if (videoPath != null)
                         {
                             videoEntry = await AnalyzeFileAndCreateEntry(
-                                videoPath, GetExifTool(1), heicRepairEnabled, token);
+                                videoPath, GetExifTool(1), heicRepairEnabled, token, appleFiles);
                             if (videoEntry != null)
                             {
                                 entryIndex++; processedCount++;
@@ -1086,7 +1127,11 @@ namespace LivePhotoBox.ViewModels
                     // （第二遍循环中已通过临时独立 Task 逐步显示到 UI，元数据匹配后可能需要重组）
                     var finalStandaloneTasks = new List<RepairTask>();
                     bool metadataMatchesFound = false;
-                    bool enableDate = matchingMode == (int)MetadataMatchingMode.BothWithDate;
+                    // 组合匹配：FilenameCidAndMetadata 或 MetadataOnly 模式时启用
+                    // 注：Repair 页面 GPS/设备暂未支持 (Phase 2)，仅日期匹配生效
+                    bool runCombined = matchingMode == (int)MetadataMatchingMode.FilenameCidAndMetadata
+                                    || matchingMode == (int)MetadataMatchingMode.MetadataOnly;
+                    bool runCid = matchingMode != (int)MetadataMatchingMode.MetadataOnly;
                     if (matchingMode != (int)MetadataMatchingMode.FilenameOnly
                         && pendingStandaloneImages.Count > 0 && pendingStandaloneVideos.Count > 0
                         && !token.IsCancellationRequested)
@@ -1104,7 +1149,7 @@ namespace LivePhotoBox.ViewModels
 
                             if (imgAnalysisList.Count > 0 && vidAnalysisList.Count > 0)
                             {
-                                var matchOutput = LivePhotoMetadataMatcher.MatchFromAnalysis(imgAnalysisList, vidAnalysisList, enableDate);
+                                var matchOutput = LivePhotoMetadataMatcher.MatchFromAnalysis(imgAnalysisList, vidAnalysisList, runCombined, runCid);
 
                                 if (matchOutput.Pairs.Count > 0)
                                 {
@@ -1301,7 +1346,8 @@ namespace LivePhotoBox.ViewModels
         // 分析单个文件并创建 RepairFileEntry。返回 null 表示被取消。
         private async Task<RepairFileEntry?> AnalyzeFileAndCreateEntry(
             string filePath, PersistentExifTool? persistentExifTool,
-            bool heicRepairEnabled, CancellationToken token)
+            bool heicRepairEnabled, CancellationToken token,
+            HashSet<string>? appleFiles = null)
         {
             bool isImage = !(filePath.EndsWith(".mov", StringComparison.OrdinalIgnoreCase)
                           || filePath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase));
@@ -1325,6 +1371,13 @@ namespace LivePhotoBox.ViewModels
             {
                 analysis.IssueType = RepairIssueType.Perfect;
                 analysis.IssueDescription = ResourceService.GetString("Status_HeicRepairDisabled");
+            }
+
+            // Apple 设备检测：开启后非 Apple 文件标记为跳过
+            if (appleFiles != null && !appleFiles.Contains(filePath))
+            {
+                analysis.IssueType = RepairIssueType.NonApple;
+                analysis.IssueDescription = ResourceService.GetString("RepairPage_Diagnosis_NonApple");
             }
 
             return new RepairFileEntry

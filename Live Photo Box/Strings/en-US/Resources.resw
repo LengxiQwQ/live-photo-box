@@ -1459,7 +1459,8 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Windows BitmapDecoder (system built-in)</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_Desc.Text" xml:space="preserve">
-    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC/HEIF extensions (built-in on Win11, Win10 requires both extensions below)</value>
+    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC/HEIF extensions.
+(built-in on Win11, Win10 requires both extensions below)</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_HeifLink.Content" xml:space="preserve">
     <value>Install HEIF Image Extensions →</value>
@@ -1749,6 +1750,15 @@ Place any of these files into the same folder.</value>
   <data name="SettingsPage_StrictLivePhotoScanToggle.OffContent" xml:space="preserve">
     <value>Off</value>
   </data>
+  <data name="SettingsPage_AppleOnlyScanLabel.Text" xml:space="preserve">
+    <value>Only Scan Apple Live Photos</value>
+  </data>
+  <data name="SettingsPage_AppleOnlyScanDesc.Text" xml:space="preserve">
+    <value>Only scan photos and videos taken by Apple devices (iPhone/iPad). Detection uses metadata: device make, model, iOS version, ContentIdentifier, and LivePhotoAuto marker — any one condition is sufficient. Non-Apple files show as skipped in the diagnosis results.</value>
+  </data>
+  <data name="RepairPage_Diagnosis_NonApple" xml:space="preserve">
+    <value>Non-Apple Photo</value>
+  </data>
   <data name="RepairPage_LivePhotoVideoMissing" xml:space="preserve">
     <value>Live Photo (video missing)</value>
   </data>
@@ -1849,19 +1859,13 @@ Are you sure you want to switch?</value>
     <value>Live Photo Matching</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatchingDesc.Text" xml:space="preserve">
-    <value>Metadata matching only works with MOV videos, not MP4. Default uses filename and ContentIdentifier (UUID). "Capture Date" is a fallback option — may be inaccurate due to timezone or editing, generally not recommended.</value>
-  </data>
-  <data name="SettingsPage_Merge_MetadataMatching_Both.Content" xml:space="preserve">
-    <value>Filename + Metadata</value>
+    <value>Choose how photos and videos are paired. Identifier = Apple ContentIdentifier (UUID) for exact matching; Metadata uses capture date, GPS location, device model, and iOS version (at least 2 criteria must match)</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_Filename.Content" xml:space="preserve">
     <value>Filename Only</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_Metadata.Content" xml:space="preserve">
-    <value>Metadata Only</value>
-  </data>
-  <data name="SettingsPage_Merge_MetadataMatching_BothWithDate.Content" xml:space="preserve">
-    <value>Filename + Metadata + Capture Date</value>
+    <value>Metadata Only (edge case)</value>
   </data>
   <data name="Nav_History.Content" xml:space="preserve">
     <value>Photo History (In Development)</value>
@@ -2114,5 +2118,14 @@ Are you sure you want to switch?</value>
   </data>
   <data name="Update_PackagedMode_Disabled" xml:space="preserve">
     <value>You are running the MSIX packaged version. The Microsoft Store provides automatic updates. To use built-in updates, please visit GitHub to download the portable or installer version.</value>
+  </data>
+  <data name="SettingsPage_Merge_MetadataMatching_FilenameAndCid.Content" xml:space="preserve">
+    <value>Filename + Identifier</value>
+  </data>
+  <data name="SettingsPage_Merge_MetadataMatching_FilenameCidAndMetadata.Content" xml:space="preserve">
+    <value>Filename + Identifier + Metadata</value>
+  </data>
+  <data name="SettingsPage_Merge_MetadataMatching_Cid.Content" xml:space="preserve">
+    <value>Identifier Only</value>
   </data>
 </root>

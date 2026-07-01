@@ -1,10 +1,14 @@
 # Live Photo Box Changelog
 
-> Current version: **v1.14.10**
+> Current version: **v1.15.0**
 > Project started: 2026-03-27
 > Tech stack: WinUI 3 + .NET 9 + C# 13
 
 ---
+
+## v1.15.x — Auto Update & Pairing Enhancement
+
+> **v1.15.0** (2026-07-01) **[Release]** Auto-update (GitHub Releases + silent install/replace script), combined metadata matching (GPS+device+iOS version), Apple-only repair filter, external tool checker; fixed unpackaged-mode log path inconsistency
 
 ## v1.14.x — Release Fixes
 

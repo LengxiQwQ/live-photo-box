@@ -377,7 +377,7 @@ namespace LivePhotoBox.ViewModels
 
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
 
-                // ── 元数据匹配：根据设置模式决定是否补充 / 替换文件名匹配结果 ──
+                // ── 元数据匹配：根据设置模式决定匹配策略 ──
                 int matchingMode = AppSettingsService.GetValue("MetadataMatchingModeIndex", 0);
                 int pairsFromFilename = scanResult.Pairs.Count;
                 int standaloneImg = scanResult.StandaloneImagesCount;
@@ -385,6 +385,7 @@ namespace LivePhotoBox.ViewModels
                 var allPairs = new List<LivePhotoFilePairInfo>(scanResult.Pairs);
                 var metadataPairs = new List<MetadataPair>();
 
+                // 仅文件名：跳过所有元数据匹配
                 if (matchingMode != (int)MetadataMatchingMode.FilenameOnly)
                 {
                     string exifToolPath = ExternalToolLocator.FindExifTool()
@@ -394,16 +395,37 @@ namespace LivePhotoBox.ViewModels
                     {
                         try
                         {
-                            bool enableDate = matchingMode == (int)MetadataMatchingMode.BothWithDate;
+                            // 每种模式独立定义行为
+                            bool useAllFiles;     // true=全部文件送匹配, false=只送文件名没配上的
+                            bool runCid;          // 运行 ContentIdentifier 匹配
+                            bool runCombined;     // 运行元数据组合匹配（日期+GPS+设备+iOS）
+                            bool keepFilename;    // 保留文件名匹配结果
 
-                            // MetadataOnly: 所有文件都走元数据匹配，丢弃文件名匹配结果
-                            // Both / BothWithDate: 只对文件名匹配剩余的文件做元数据匹配
-                            var imgList = matchingMode == (int)MetadataMatchingMode.MetadataOnly
+                            switch (matchingMode)
+                            {
+                                case 0: // 文件名 + 标识符（默认）
+                                    useAllFiles = false; runCid = true; runCombined = false; keepFilename = true;
+                                    break;
+                                case 1: // 文件名 + 标识符 + 元数据
+                                    useAllFiles = false; runCid = true; runCombined = true; keepFilename = true;
+                                    break;
+                                case 3: // 仅标识符（ContentIdentifier UUID）
+                                    useAllFiles = true; runCid = true; runCombined = false; keepFilename = false;
+                                    break;
+                                case 4: // 仅元数据（日期+GPS+设备+iOS）
+                                    useAllFiles = true; runCid = false; runCombined = true; keepFilename = false;
+                                    break;
+                                default:
+                                    useAllFiles = false; runCid = true; runCombined = false; keepFilename = true;
+                                    break;
+                            }
+
+                            var imgList = useAllFiles
                                 ? scanResult.Pairs.Select(p => p.ImagePath)
                                     .Concat(scanResult.StandaloneImagePaths).ToList()
                                 : scanResult.StandaloneImagePaths.ToList();
 
-                            var vidList = matchingMode == (int)MetadataMatchingMode.MetadataOnly
+                            var vidList = useAllFiles
                                 ? scanResult.Pairs.Select(p => p.VideoPath)
                                     .Concat(scanResult.StandaloneVideoPaths).ToList()
                                 : scanResult.StandaloneVideoPaths.ToList();
@@ -411,7 +433,7 @@ namespace LivePhotoBox.ViewModels
                             if (imgList.Count > 0 && vidList.Count > 0)
                             {
                                 var matchOutput = await Task.Run(
-                                    () => LivePhotoMetadataMatcher.MatchAsync(imgList, vidList, exifToolPath, token, enableDate),
+                                    () => LivePhotoMetadataMatcher.MatchAsync(imgList, vidList, exifToolPath, token, runCombined, runCid),
                                     token);
 
                                 metadataPairs.AddRange(matchOutput.Pairs);
@@ -419,12 +441,11 @@ namespace LivePhotoBox.ViewModels
                                 standaloneVid = matchOutput.RemainingVideos;
 
                                 LogService.Merge($"Metadata matching: found {matchOutput.Pairs.Count} additional pairs " +
-                                    $"(mode={matchingMode}, dateEnabled={enableDate}, filenamePairs={pairsFromFilename})");
+                                    $"(mode={matchingMode}, cid={runCid}, combined={runCombined}, filenamePairs={pairsFromFilename})");
                             }
 
-                            if (matchingMode == (int)MetadataMatchingMode.MetadataOnly)
+                            if (!keepFilename)
                             {
-                                // 元数据优先模式：丢弃文件名匹配结果，只用元数据配对
                                 allPairs.Clear();
                                 pairsFromFilename = 0;
                             }
@@ -433,7 +454,6 @@ namespace LivePhotoBox.ViewModels
                         catch (Exception ex)
                         {
                             LogService.Merge($"Metadata matching failed, falling back to filename-only: {ex.Message}", LogLevel.Warning);
-                            // 出错时退回纯文件名匹配结果
                             standaloneImg = scanResult.StandaloneImagesCount;
                             standaloneVid = scanResult.StandaloneVideosCount;
                             metadataPairs.Clear();

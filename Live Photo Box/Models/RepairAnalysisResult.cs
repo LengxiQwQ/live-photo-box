@@ -6,7 +6,8 @@ namespace LivePhotoBox.Models
         Perfect,       // 状况C：原生竖向且没有缩图（完美跳过）
         NeedsStrip,    // 状况B：底层正的，藏了缩略图（需要瘦身）
         NeedsRebuild,  // 状况A：底层歪了（需要重构并剥离）
-        Error          // 读取出错
+        Error,         // 读取出错
+        NonApple       // 非 Apple 设备文件，跳过修复
     }
 
     // 单张照片/视频的诊断分析结果。包含问题类型、旋转角度、缩略图信息及实况照片元数据。

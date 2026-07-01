@@ -26,8 +26,8 @@ namespace LivePhotoBox.Services
     {
         // 通过 Apple ContentIdentifier UUID 精确匹配。
         ContentIdentifier,
-        // 通过拍摄日期 ±2 秒容差匹配。
-        CreateDate
+        // 通过元数据组合（日期 + GPS + 设备 + iOS 版本全部满足）匹配。
+        MetadataCombined
     }
 
     // 元数据匹配器的完整输出。
@@ -53,6 +53,20 @@ namespace LivePhotoBox.Services
         // 日期匹配的容差（秒）。Apple 实况照片的照片和视频在秒级一致，±2 秒足以覆盖微小偏差。
         private const double DateMatchToleranceSeconds = 2.0;
 
+        // GPS 坐标匹配的容差（度）。5 组真实样本偏差 3~6 米，0.0001° ≈ 11m 可覆盖且有安全余量。
+        private const double GpsMatchToleranceDegrees = 0.0001;
+
+        // 设备信息匹配的分隔符，用于组合 Make + Model + Software 为匹配键。
+        private const string DeviceKeySeparator = "||";
+
+        // Apple 设备检测：至少需要满足的条件数（1 = 满足任一即可，2 = 至少两个）。
+        public const int AppleDeviceMinConditions = 1;
+
+        // Apple 设备元数据特征值。
+        private const string AppleMake = "Apple";
+        private const string AppleModelPrefix = "iPhone";
+        private const string AppleModelPrefixIpad = "iPad";
+
         // ──────────────────────────────────────────────
         //  Merge 页面路径：内部运行 exiftool 提取元数据
         // ──────────────────────────────────────────────
@@ -69,7 +83,8 @@ namespace LivePhotoBox.Services
             IReadOnlyList<string> unmatchedVideoPaths,
             string exifToolPath,
             CancellationToken token,
-            bool enableDateMatching = false)
+            bool enableCombinedMatching = false,
+            bool runContentIdentifier = true)
         {
             if (unmatchedImagePaths.Count == 0 || unmatchedVideoPaths.Count == 0)
             {
@@ -89,6 +104,8 @@ namespace LivePhotoBox.Services
             // 构建文件路径 → 元数据的映射
             var contentIdMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             var dateMap = new Dictionary<string, DateTime>(StringComparer.OrdinalIgnoreCase);
+            var gpsMap = new Dictionary<string, (double lat, double lon)>(StringComparer.OrdinalIgnoreCase);
+            var deviceMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             // 快速判断是否为图片文件（用于日期解析时区分 EXIF 本地时间 vs QuickTime UTC）
             var imagePathSet = new HashSet<string>(unmatchedImagePaths, StringComparer.OrdinalIgnoreCase);
@@ -99,37 +116,102 @@ namespace LivePhotoBox.Services
                 token.ThrowIfCancellationRequested();
                 try
                 {
-                    // 查询 ContentIdentifier、日期、以及 EXIF 时区偏移（仅对图片有效）
-                    string output = await exifTool.SendCommandAsync(token,
-                        "-j", "-ContentIdentifier", "-DateTimeOriginal", "-CreateDate",
-                        "-OffsetTimeOriginal", "-OffsetTimeDigitized", filePath);
+                    // 基础查询：ContentIdentifier + 日期（所有模式都需要）
+                    var args = new List<string> { "-j", "-ContentIdentifier",
+                        "-DateTimeOriginal", "-CreateDate", "-CreationDate",
+                        "-OffsetTimeOriginal", "-OffsetTimeDigitized" };
+
+                    // 组合匹配时额外查询 GPS + 设备信息
+                    if (enableCombinedMatching)
+                    {
+                        args.Add("-GPSLatitude");
+                        args.Add("-GPSLongitude");
+                        args.Add("-GPSLatitudeRef");
+                        args.Add("-GPSLongitudeRef");
+                        args.Add("-Make");
+                        args.Add("-Model");
+                        args.Add("-Software");
+                    }
+
+                    args.Add(filePath);
+                    string output = await exifTool.SendCommandAsync(token, args.ToArray());
                     if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
                         continue;
 
                     using var doc = System.Text.Json.JsonDocument.Parse(output);
                     var root = doc.RootElement[0];
 
+                    // ── ContentIdentifier ──
                     string cid = GetJsonValueAsString(root, "ContentIdentifier");
                     if (!string.IsNullOrWhiteSpace(cid))
                         contentIdMap[filePath] = cid;
 
-                    // 优先用 DateTimeOriginal，其次 CreateDate
+                    // ── 日期提取 ──
+                    // 对于 MOV 文件：优先用 CreationDate（带时区，偏差 <1s），
+                    //   QuickTime:CreateDate 可能偏差 3s+（Bug 修复）
+                    // 对于 JPG 文件：优先用 DateTimeOriginal + OffsetTimeOriginal
                     string dtoStr = GetJsonValueAsString(root, "DateTimeOriginal");
                     string cdStr = GetJsonValueAsString(root, "CreateDate");
-                    string dateStr = !string.IsNullOrWhiteSpace(dtoStr) ? dtoStr : cdStr;
+                    string creationDateStr = GetJsonValueAsString(root, "CreationDate");
+
+                    string? dateStr = null;
+                    string? offsetStr = null;
+                    bool isImage = imagePathSet.Contains(filePath);
+
+                    if (!string.IsNullOrWhiteSpace(creationDateStr))
+                    {
+                        // CreationDate 已自带时区偏移（如 "2025:12:19 18:14:56+07:00"）
+                        dateStr = creationDateStr;
+                        // 不需要额外 offsetStr，CreationDate 自带偏移
+                    }
+                    else if (isImage && !string.IsNullOrWhiteSpace(dtoStr))
+                    {
+                        dateStr = dtoStr;
+                        offsetStr = GetJsonValueAsString(root, "OffsetTimeOriginal");
+                        if (string.IsNullOrWhiteSpace(offsetStr))
+                            offsetStr = GetJsonValueAsString(root, "OffsetTimeDigitized");
+                    }
+                    else if (!string.IsNullOrWhiteSpace(cdStr))
+                    {
+                        // 回退：JPG CreateDate 或无 CreationDate 的 MOV
+                        dateStr = cdStr;
+                        if (isImage)
+                        {
+                            offsetStr = GetJsonValueAsString(root, "OffsetTimeOriginal");
+                            if (string.IsNullOrWhiteSpace(offsetStr))
+                                offsetStr = GetJsonValueAsString(root, "OffsetTimeDigitized");
+                        }
+                    }
 
                     if (!string.IsNullOrWhiteSpace(dateStr))
                     {
-                        string? offsetStr = imagePathSet.Contains(filePath)
-                            ? GetJsonValueAsString(root, "OffsetTimeOriginal")
-                            : null;
-                        if (string.IsNullOrWhiteSpace(offsetStr))
-                            offsetStr = imagePathSet.Contains(filePath)
-                                ? GetJsonValueAsString(root, "OffsetTimeDigitized") : null;
-
                         DateTime? utcDate = ParseExifDateToUtc(dateStr, offsetStr);
                         if (utcDate.HasValue)
                             dateMap[filePath] = utcDate.Value;
+                    }
+
+                    // ── GPS 坐标提取 ──
+                    if (enableCombinedMatching)
+                    {
+                        string? gpsLatStr = GetJsonValueAsString(root, "GPSLatitude");
+                        string? gpsLonStr = GetJsonValueAsString(root, "GPSLongitude");
+                        if (!string.IsNullOrWhiteSpace(gpsLatStr) && !string.IsNullOrWhiteSpace(gpsLonStr))
+                        {
+                            string gpsLatRef = GetJsonValueAsString(root, "GPSLatitudeRef");
+                            string gpsLonRef = GetJsonValueAsString(root, "GPSLongitudeRef");
+                            double? lat = ParseDmsToDecimalDegrees(gpsLatStr, gpsLatRef);
+                            double? lon = ParseDmsToDecimalDegrees(gpsLonStr, gpsLonRef);
+                            if (lat.HasValue && lon.HasValue)
+                                gpsMap[filePath] = (lat.Value, lon.Value);
+                        }
+
+                        // ── 设备信息提取 ──
+                        string make = GetJsonValueAsString(root, "Make")?.Trim() ?? "";
+                        string model = GetJsonValueAsString(root, "Model")?.Trim() ?? "";
+                        string software = GetJsonValueAsString(root, "Software")?.Trim() ?? "";
+                        string deviceKey = BuildDeviceKey(make, model, software);
+                        if (!string.IsNullOrWhiteSpace(deviceKey))
+                            deviceMap[filePath] = deviceKey;
                     }
                 }
                 catch (OperationCanceledException) { throw; }
@@ -139,7 +221,8 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            return MatchFromMaps(unmatchedImagePaths, unmatchedVideoPaths, contentIdMap, dateMap, enableDateMatching);
+            return MatchFromMaps(unmatchedImagePaths, unmatchedVideoPaths,
+                contentIdMap, dateMap, gpsMap, deviceMap, enableCombinedMatching, runContentIdentifier);
         }
 
         // ──────────────────────────────────────────────
@@ -154,7 +237,8 @@ namespace LivePhotoBox.Services
         public static MetadataMatchOutput MatchFromAnalysis(
             IReadOnlyList<(string path, RepairAnalysisResult analysis)> images,
             IReadOnlyList<(string path, RepairAnalysisResult analysis)> videos,
-            bool enableDateMatching = false)
+            bool enableCombinedMatching = false,
+            bool runContentIdentifier = true)
         {
             // 构建 ContentIdentifier 和日期映射
             var contentIdMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -186,7 +270,11 @@ namespace LivePhotoBox.Services
 
             var imagePaths = images.Select(x => x.path).ToList();
             var videoPaths = videos.Select(x => x.path).ToList();
-            return MatchFromMaps(imagePaths, videoPaths, contentIdMap, dateMap, enableDateMatching);
+            // Repair 页面暂不支持 GPS/设备匹配（Phase 2），传空映射
+            return MatchFromMaps(imagePaths, videoPaths, contentIdMap, dateMap,
+                new Dictionary<string, (double lat, double lon)>(),
+                new Dictionary<string, string>(),
+                enableCombinedMatching, runContentIdentifier);
         }
 
         // ──────────────────────────────────────────────
@@ -201,20 +289,23 @@ namespace LivePhotoBox.Services
             IReadOnlyList<string> videoPaths,
             Dictionary<string, string> contentIdMap,
             Dictionary<string, DateTime> dateMap,
-            bool enableDateMatching)
+            Dictionary<string, (double lat, double lon)> gpsMap,
+            Dictionary<string, string> deviceMap,
+            bool enableCombinedMatching,
+            bool runContentIdentifier)
         {
             var pairs = new List<MetadataPair>();
             var remainingImages = new HashSet<string>(imagePaths, StringComparer.OrdinalIgnoreCase);
             var remainingVideos = new HashSet<string>(videoPaths, StringComparer.OrdinalIgnoreCase);
 
             // ── Pass 1: ContentIdentifier 精确匹配 ──
-            // 构建 ContentIdentifier → 照片路径 的索引（只纳入有 UUID 的照片）
+            if (runContentIdentifier)
+            {
             var cidToImage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (var imgPath in remainingImages.ToList())
             {
                 if (contentIdMap.TryGetValue(imgPath, out var cid) && !string.IsNullOrWhiteSpace(cid))
                 {
-                    // 同一 UUID 若有多张照片，只保留第一张
                     if (!cidToImage.ContainsKey(cid))
                         cidToImage[cid] = imgPath;
                 }
@@ -240,42 +331,88 @@ namespace LivePhotoBox.Services
                         $"{Path.GetFileName(matchedImgPath)} ↔ {Path.GetFileName(vidPath)} (CID={vidCid})");
                 }
             }
+            } // end if runContentIdentifier
 
-            // ── Pass 2: 拍摄日期 ±2 秒容差匹配（仅在开启时执行）──
-            if (enableDateMatching)
+            // ── 以下 Pass 仅在启用组合匹配时执行 ──
+            if (!enableCombinedMatching)
             {
-            var imgDateEntries = remainingImages
-                .Where(p => dateMap.ContainsKey(p))
-                .Select(p => (path: p, date: dateMap[p]))
-                .OrderBy(x => x.date)
-                .ToList();
+                return new MetadataMatchOutput
+                {
+                    Pairs = pairs,
+                    RemainingImages = remainingImages.Count,
+                    RemainingVideos = remainingVideos.Count
+                };
+            }
 
-            var vidDateEntries = remainingVideos
-                .Where(p => dateMap.ContainsKey(p))
-                .Select(p => (path: p, date: dateMap[p]))
-                .OrderBy(x => x.date)
-                .ToList();
-
+            // ── Pass 2: 元数据组合匹配（全部条件同时满足才算通过）──
+            // 日期 ±2s 且 GPS ±0.0001° 且 设备型号 且 iOS 版本
+            {
             var matchedVidPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var (imgPath, imgDate) in imgDateEntries)
+            foreach (var imgPath in remainingImages.ToList())
             {
                 if (!remainingImages.Contains(imgPath)) continue;
 
-                // 在视频中找日期最接近且 ±2 秒内的匹配
-                string? bestVidPath = null;
-                double bestDiff = double.MaxValue;
+                bool imgHasDate = dateMap.TryGetValue(imgPath, out var imgDate);
+                bool imgHasGps = gpsMap.TryGetValue(imgPath, out var imgCoord);
+                bool imgHasDevice = deviceMap.TryGetValue(imgPath, out var imgDevKey);
 
-                foreach (var (vidPath, vidDate) in vidDateEntries)
+                string? bestVidPath = null;
+                double bestScore = double.MaxValue;
+                int bestPassed = 0, bestTotal = 0;
+
+                foreach (var vidPath in remainingVideos)
                 {
                     if (matchedVidPaths.Contains(vidPath)) continue;
-                    if (!remainingVideos.Contains(vidPath)) continue;
 
-                    double diff = Math.Abs((imgDate - vidDate).TotalSeconds);
-                    if (diff <= DateMatchToleranceSeconds && diff < bestDiff)
+                    // ── 逐项检查，全部满足才算通过 ──
+                    int passed = 0;
+                    int total = 0;
+                    double score = 0;
+
+                    // 1) 拍摄日期
+                    bool vidHasDate = dateMap.TryGetValue(vidPath, out var vidDate);
+                    if (imgHasDate && vidHasDate)
                     {
-                        bestDiff = diff;
+                        total++;
+                        double diff = Math.Abs((imgDate - vidDate).TotalSeconds);
+                        if (diff <= DateMatchToleranceSeconds)
+                        {
+                            passed++;
+                            score += diff;  // 越小越好
+                        }
+                    }
+
+                    // 2) GPS 坐标
+                    bool vidHasGps = gpsMap.TryGetValue(vidPath, out var vidCoord);
+                    if (imgHasGps && vidHasGps)
+                    {
+                        total++;
+                        double dLat = Math.Abs(imgCoord.lat - vidCoord.lat);
+                        double dLon = Math.Abs(imgCoord.lon - vidCoord.lon);
+                        if (dLat <= GpsMatchToleranceDegrees && dLon <= GpsMatchToleranceDegrees)
+                        {
+                            passed++;
+                            score += Math.Sqrt(dLat * dLat + dLon * dLon) * 111320;  // 转为米
+                        }
+                    }
+
+                    // 3) 设备信息（Make + Model + Software）
+                    bool vidHasDevice = deviceMap.TryGetValue(vidPath, out var vidDevKey);
+                    if (imgHasDevice && vidHasDevice)
+                    {
+                        total++;
+                        if (string.Equals(imgDevKey, vidDevKey, StringComparison.OrdinalIgnoreCase))
+                            passed++;
+                    }
+
+                    // 全部可用条件都通过，且至少要有 2 个条件参与判断（防误配）
+                    if (total >= 2 && passed == total && score < bestScore)
+                    {
+                        bestScore = score;
                         bestVidPath = vidPath;
+                        bestPassed = passed;
+                        bestTotal = total;
                     }
                 }
 
@@ -285,18 +422,17 @@ namespace LivePhotoBox.Services
                     {
                         ImagePath = imgPath,
                         VideoPath = bestVidPath,
-                        Source = MatchSource.CreateDate
+                        Source = MatchSource.MetadataCombined
                     });
                     remainingImages.Remove(imgPath);
                     remainingVideos.Remove(bestVidPath);
                     matchedVidPaths.Add(bestVidPath);
 
-                    LogService.Scan($"MetadataMatch: paired by CreateDate ({bestDiff:F1}s diff) — " +
-                        $"{Path.GetFileName(imgPath)} ↔ {Path.GetFileName(bestVidPath)} " +
-                        $"(img={imgDate:O}, vid={dateMap[bestVidPath]:O})");
+                    LogService.Scan($"MetadataMatch: paired by Combined ({bestPassed}/{bestTotal} criteria) — " +
+                        $"{Path.GetFileName(imgPath)} ↔ {Path.GetFileName(bestVidPath)}");
                 }
             }
-            } // end if enableDateMatching
+            } // end Pass 2 (Combined Metadata)
 
             return new MetadataMatchOutput
             {
@@ -304,6 +440,188 @@ namespace LivePhotoBox.Services
                 RemainingImages = remainingImages.Count,
                 RemainingVideos = remainingVideos.Count
             };
+        }
+
+        // ──────────────────────────────────────────────
+        //  GPS 坐标解析工具
+        // ──────────────────────────────────────────────
+
+        // 解析 exiftool DMS 格式坐标字符串为十进制角度。
+        // 支持的格式：
+        //   "13 deg 44' 56.81\" N"  — exiftool Composite 格式（含方向）
+        //   "13 deg 44' 56.81\""    — EXIF 原始格式（无方向，需 refStr）
+        //   "13.749114"             — 已是十进制
+        // dmsStr: 度分秒坐标字符串
+        // refStr: 方向参考（"N"/"S"/"E"/"W"），dmsStr 不含方向时使用
+        private static double? ParseDmsToDecimalDegrees(string dmsStr, string refStr)
+        {
+            if (string.IsNullOrWhiteSpace(dmsStr))
+                return null;
+
+            dmsStr = dmsStr.Trim();
+
+            // 尝试直接解析为小数（已是十进制）
+            if (double.TryParse(dmsStr, NumberStyles.Float, CultureInfo.InvariantCulture, out double decimalDegrees))
+            {
+                // 应用方向符号
+                if (!string.IsNullOrWhiteSpace(refStr))
+                {
+                    refStr = refStr.Trim().ToUpperInvariant();
+                    if (refStr == "S" || refStr == "W")
+                        decimalDegrees = -decimalDegrees;
+                }
+                return decimalDegrees;
+            }
+
+            try
+            {
+                // 匹配 DMS 格式："DD deg MM' SS.SS\" 方向"
+                // 例如 "13 deg 44' 56.81\" N" 或 "13 deg 44' 56.81\""
+                var match = System.Text.RegularExpressions.Regex.Match(dmsStr,
+                    @"(\d+)\s*deg\s+(\d+)\s*'\s*([\d.]+)\s*""\s*([NSEWnsew]?)",
+                    System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+                if (match.Success)
+                {
+                    double degrees = double.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+                    double minutes = double.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture);
+                    double seconds = double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
+
+                    double result = degrees + minutes / 60.0 + seconds / 3600.0;
+
+                    // 确定方向：优先用 dmsStr 中的方向字母，其次用 refStr
+                    string direction = match.Groups[4].Value;
+                    if (string.IsNullOrWhiteSpace(direction))
+                        direction = refStr?.Trim() ?? "";
+
+                    direction = direction.ToUpperInvariant();
+                    if (direction == "S" || direction == "W")
+                        result = -result;
+
+                    return result;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Scan($"GPS parse failed for '{dmsStr}': {ex.Message}", LogLevel.Warning);
+            }
+
+            return null;
+        }
+
+        // 构建设备匹配键：Make + Model + Software 组合。
+        // 返回标准化后的键字符串，若全部为空则返回空字符串。
+        private static string BuildDeviceKey(string make, string model, string software)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(make))
+                parts.Add(make.Trim());
+            if (!string.IsNullOrWhiteSpace(model))
+                parts.Add(model.Trim());
+            // Software（iOS 版本）作为可选的第三级区分
+            // 注意：不在 matches 中对 software 做过多依赖，因为同一设备可能有不同 iOS 版本
+            if (!string.IsNullOrWhiteSpace(software))
+                parts.Add(software.Trim());
+
+            return parts.Count > 0 ? string.Join(DeviceKeySeparator, parts) : "";
+        }
+
+        // ──────────────────────────────────────────────
+        //  Apple 设备检测
+        // ──────────────────────────────────────────────
+
+        // 判断文件元数据是否来自 Apple 设备（iPhone/iPad）。
+        // 五个独立条件，任一满足即判定为 Apple 设备：
+        //   1. Make == "Apple"
+        //   2. Model 以 "iPhone" 或 "iPad" 开头
+        //   3. Software 匹配 iOS 版本格式（如 "18.3.1"）
+        //   4. ContentIdentifier 存在（Apple 实况照片特有 UUID）
+        //   5. LivePhotoAuto 标记存在（QuickTime 实况照片标记）
+        public static bool IsAppleDevice(string? make, string? model, string? software, string? contentIdentifier, string? livePhotoAuto)
+        {
+            int conditionsMet = 0;
+
+            // 条件 1：Make == "Apple"
+            if (!string.IsNullOrWhiteSpace(make) &&
+                string.Equals(make.Trim(), AppleMake, StringComparison.OrdinalIgnoreCase))
+            {
+                conditionsMet++;
+            }
+
+            // 条件 2：Model 以 "iPhone" 或 "iPad" 开头
+            if (!string.IsNullOrWhiteSpace(model))
+            {
+                string m = model.Trim();
+                if (m.StartsWith(AppleModelPrefix, StringComparison.OrdinalIgnoreCase) ||
+                    m.StartsWith(AppleModelPrefixIpad, StringComparison.OrdinalIgnoreCase))
+                {
+                    conditionsMet++;
+                }
+            }
+
+            // 条件 3：Software 匹配 iOS 版本格式（如 "18.3.1"）
+            if (!string.IsNullOrWhiteSpace(software))
+            {
+                if (IosVersionRegex().IsMatch(software.Trim()))
+                    conditionsMet++;
+            }
+
+            // 条件 4：ContentIdentifier 存在（Apple 实况照片标识符）
+            if (!string.IsNullOrWhiteSpace(contentIdentifier))
+            {
+                conditionsMet++;
+            }
+
+            // 条件 5：LivePhotoAuto 标记存在（QuickTime 实况照片标记）
+            if (!string.IsNullOrWhiteSpace(livePhotoAuto))
+            {
+                conditionsMet++;
+            }
+
+            return conditionsMet >= AppleDeviceMinConditions;
+        }
+
+        // 匹配 iOS 版本字符串：可选的 "iOS " 前缀 + 数字.数字(.数字)?
+        [System.Text.RegularExpressions.GeneratedRegex(@"^(iOS\s*)?\d+\.\d+(\.\d+)?$",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant)]
+        private static partial Regex IosVersionRegex();
+
+        // 批量查询文件是否为 Apple 设备（通过 exiftool 查询 Make/Model/Software/ContentIdentifier）。
+        // 返回 Apple 设备的文件路径集合。
+        public static async Task<HashSet<string>> FilterAppleDevicesAsync(
+            IReadOnlyList<string> filePaths,
+            PersistentExifTool exifTool,
+            CancellationToken token)
+        {
+            var appleFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var filePath in filePaths)
+            {
+                token.ThrowIfCancellationRequested();
+                try
+                {
+                    string output = await exifTool.SendCommandAsync(token,
+                        "-j", "-Make", "-Model", "-Software", "-ContentIdentifier", "-LivePhotoAuto", filePath);
+                    if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
+                        continue;
+
+                    using var doc = System.Text.Json.JsonDocument.Parse(output);
+                    var root = doc.RootElement[0];
+
+                    string make = GetJsonValueAsString(root, "Make");
+                    string model = GetJsonValueAsString(root, "Model");
+                    string software = GetJsonValueAsString(root, "Software");
+                    string cid = GetJsonValueAsString(root, "ContentIdentifier");
+                    string lpa = GetJsonValueAsString(root, "LivePhotoAuto");
+
+                    if (IsAppleDevice(make, model, software, cid, lpa))
+                        appleFiles.Add(filePath);
+                }
+                catch (OperationCanceledException) { throw; }
+                catch { /* 单个文件查询失败不影响整体 */ }
+            }
+
+            return appleFiles;
         }
 
         // ──────────────────────────────────────────────

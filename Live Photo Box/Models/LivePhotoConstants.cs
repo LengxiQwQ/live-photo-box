@@ -6,14 +6,16 @@ namespace LivePhotoBox.Models
     // 实况照片配对方式。
     public enum MetadataMatchingMode
     {
-        // 先文件名匹配，剩余用 ContentIdentifier 匹配（默认，不含拍摄日期）。
-        Both = 0,
-        // 先文件名匹配，再用 ContentIdentifier + 拍摄日期兜底。
-        BothWithDate = 1,
-        // 仅按文件名匹配（和现有行为一致）。
+        // 文件名 + ContentIdentifier 标识符匹配（默认）。
+        FilenameAndCid = 0,
+        // 文件名 + 标识符 + 元数据组合（日期 + GPS + 设备 + iOS 版本）。
+        FilenameCidAndMetadata = 1,
+        // 仅按文件名匹配。
         FilenameOnly = 2,
-        // 仅按 ContentIdentifier 匹配，忽略文件名（不含拍摄日期）。
-        MetadataOnly = 3
+        // 仅按 ContentIdentifier 标识符匹配。
+        CidOnly = 3,
+        // 仅按元数据组合匹配（日期 + GPS + 设备 + iOS 版本）。
+        MetadataOnly = 4
     }
 
     // Shared constants for Live Photo detection / splitting.

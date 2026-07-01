@@ -150,6 +150,15 @@
   <data name="AboutPage_Version_Format" xml:space="preserve">
     <value>版本 {0}</value>
   </data>
+  <data name="AboutPage_Mode_Store" xml:space="preserve">
+    <value>商店版</value>
+  </data>
+  <data name="AboutPage_Mode_Installer" xml:space="preserve">
+    <value>安装版</value>
+  </data>
+  <data name="AboutPage_Mode_Portable" xml:space="preserve">
+    <value>便携版</value>
+  </data>
   <data name="RestartDialog_CloseButton" xml:space="preserve">
     <value>稍后</value>
   </data>
@@ -1731,7 +1740,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>更严格的实况照片扫描</value>
   </data>
   <data name="SettingsPage_StrictLivePhotoScanDesc.Text" xml:space="preserve">
-    <value>开启后仅识别 Apple 设备拍摄的原始实况照片，通过 ContentIdentifier (UUID) 精确匹配，其余普通照片和视频将被跳过。关闭后使用文件名匹配所有文件</value>
+    <value>开启后仅通过标识符精确匹配实况照片的图片与视频，方便筛选查看。此选项仅影响扫描时的配对方式，与修复功能无关</value>
   </data>
   <data name="SettingsPage_StrictLivePhotoScanToggle.OnContent" xml:space="preserve">
     <value>开</value>
@@ -1839,19 +1848,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>实况照片配对方式</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatchingDesc.Text" xml:space="preserve">
-    <value>默认通过文件名称和 ContentIdentifier (UUID) 匹配；元数据配对仅支持未修改的 MOV 视频，MP4 格式不支持。「拍摄日期」为兜底选项，可能匹配出错，谨慎开启</value>
-  </data>
-  <data name="SettingsPage_Merge_MetadataMatching_Both.Content" xml:space="preserve">
-    <value>文件名 + 元数据</value>
+    <value>选择照片与视频的配对方式。标识符即 Apple ContentIdentifier (UUID)，零歧义精确配对；元数据通过拍摄日期、GPS 位置、相机型号和 iOS 版本辅助配对（需至少两个条件同时满足）</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_Filename.Content" xml:space="preserve">
     <value>仅文件名</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_Metadata.Content" xml:space="preserve">
-    <value>仅元数据</value>
-  </data>
-  <data name="SettingsPage_Merge_MetadataMatching_BothWithDate.Content" xml:space="preserve">
-    <value>文件名 + 元数据 + 拍摄日期</value>
+    <value>仅元数据（极端情况）</value>
   </data>
   <data name="Nav_History.Content" xml:space="preserve">
     <value>照片历史 (开发中)</value>
@@ -2090,6 +2093,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="Update_Btn_Close" xml:space="preserve">
     <value>关闭</value>
   </data>
+  <data name="Update_Btn_ManualDownload" xml:space="preserve">
+    <value>手动下载</value>
+  </data>
   <data name="Update_ReleaseNotes" xml:space="preserve">
     <value>📋 更新日志</value>
   </data>
@@ -2102,16 +2108,22 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="Update_PackagedMode_Disabled" xml:space="preserve">
     <value>您当前使用的是 MSIX 打包版本，由 Windows 应用商店提供自动更新。如需使用内置更新功能，请前往 GitHub 下载便携版或安装版。</value>
   </data>
-  <data name="Update_Btn_ManualDownload" xml:space="preserve">
-    <value>手动下载</value>
+  <data name="SettingsPage_Merge_MetadataMatching_FilenameAndCid.Content" xml:space="preserve">
+    <value>文件名 + 标识符</value>
   </data>
-  <data name="AboutPage_Mode_Store" xml:space="preserve">
-    <value>商店版</value>
+  <data name="SettingsPage_Merge_MetadataMatching_FilenameCidAndMetadata.Content" xml:space="preserve">
+    <value>文件名 + 标识符 + 元数据</value>
   </data>
-  <data name="AboutPage_Mode_Installer" xml:space="preserve">
-    <value>安装版</value>
+  <data name="SettingsPage_Merge_MetadataMatching_Cid.Content" xml:space="preserve">
+    <value>仅标识符</value>
   </data>
-  <data name="AboutPage_Mode_Portable" xml:space="preserve">
-    <value>便携版</value>
+  <data name="SettingsPage_AppleOnlyScanLabel.Text" xml:space="preserve">
+    <value>仅修复 Apple 设备拍摄的照片</value>
+  </data>
+  <data name="SettingsPage_AppleOnlyScanDesc.Text" xml:space="preserve">
+    <value>开启后仅扫描 Apple 设备（iPhone/iPad）拍摄的照片和视频。通过检测元数据中的制造商、设备型号、iOS 版本、标识符和实况照片标记来识别，任一满足即可。非 Apple 设备的文件将在诊断结果中显示跳过</value>
+  </data>
+  <data name="RepairPage_Diagnosis_NonApple" xml:space="preserve">
+    <value>非 Apple 照片</value>
   </data>
 </root>
