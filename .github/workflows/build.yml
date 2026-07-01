@@ -78,6 +78,32 @@ jobs:
           }
         shell: pwsh
 
+      # ── 5.5 清理多余语言包（仅保留 zh-CN / en-us）─────────
+      - name: Strip unused locale folders
+        run: |
+          $keepLocales = @('zh-CN','en-us')
+          $count = 0
+          Get-ChildItem -Path "publish\portable_x64" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $_.Name -notin $keepLocales) {
+              Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue
+              $count++
+            }
+          }
+          Write-Host "Removed $count locale folders (kept $($keepLocales -join ', '))"
+          Get-ChildItem -Path "publish\portable_x64" -Recurse -Filter '*.mui' -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.Directory.Name -notin $keepLocales) {
+              Remove-Item -Recurse -Force $_.Directory.FullName -ErrorAction SilentlyContinue
+              $count++
+            }
+          }
+          Write-Host "Total locale dirs stripped: $count"
+          # 删除开发机残留的运行时配置文件
+          if (Test-Path "publish\portable_x64\appsettings.json") {
+            Remove-Item -Force "publish\portable_x64\appsettings.json"
+            Write-Host "Removed appsettings.json"
+          }
+        shell: pwsh
+
       # ── 6. 打包便携版 zip ────────────────────────────────────
       - name: Package portable zip
         run: |
