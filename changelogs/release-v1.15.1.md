@@ -1,3 +1,8 @@
+## 性能优化 / Performance
+
+- **⚡ 启动速度大幅提升** — 硬件检测（WMI + FFmpeg 编码器扫描）从主线程移到后台异步执行，应用启动时间从 4-5 秒缩短至 1-2 秒；加双检锁防止并发重复检测浪费资源  
+  > Startup time dramatically reduced: hardware detection (WMI + FFmpeg encoder scan) moved off the UI thread to background, cutting startup from ~4-5s to ~1-2s; double-check locking prevents redundant concurrent detection.
+
 ## 修复 / Bug Fixes
 
 - **非打包模式多处修复** — 修复安装版/便携版下合成协议选择回弹、语言切换误判、设置读写类型不匹配、WebView2 权限导致更新日志白屏等一批仅在非 MSIX 模式触发的底层问题  

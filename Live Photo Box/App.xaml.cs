@@ -194,9 +194,10 @@ namespace LivePhotoBox
             System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Initializing log service...");
             LogService.Initialize();
 
-            // 尽早检测硬件，使摘要信息在 UI 消息前出现在日志中
-            System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Detecting hardware...");
-            try { HardwareService.GetAvailableHardware(); }
+            // 尽早检测硬件（后台线程，不阻塞 UI）。
+            // 硬件信息被缓存后所有页面均可用；SettingsViewModel 侧也有独立的异步加载逻辑。
+            System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Detecting hardware (background)...");
+            try { _ = Task.Run(() => HardwareService.GetAvailableHardware()); }
             catch (Exception ex) { LogService.Warn($"Hardware detection failed: {ex.Message}", source: LogSource.System); }
 
             System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Initializing crash handler...");

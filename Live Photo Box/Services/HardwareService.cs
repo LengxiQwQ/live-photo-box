@@ -32,6 +32,7 @@ namespace LivePhotoBox.Services
         private static DateTime _encoderCacheTime = DateTime.MinValue;
         private static readonly TimeSpan EncoderCacheDuration = TimeSpan.FromMinutes(5);
         private static List<HardwareInfo>? _cachedHardwareList;
+        private static readonly object _hwLock = new();
 
         // 异步获取所有可用的硬件加速器（不阻塞 UI 线程）
         public static Task<List<HardwareInfo>> GetAvailableHardwareAsync()
@@ -39,40 +40,48 @@ namespace LivePhotoBox.Services
             return Task.Run(() => GetAvailableHardware());
         }
 
-        // 获取所有可用的硬件加速器
+        // 获取所有可用的硬件加速器（线程安全，带缓存）。
+        // 首次调用执行 WMI + FFmpeg 检测（约 1-3 秒），后续调用直接返回缓存。
+        // 使用双检锁确保多个并发调用者不会重复执行检测。
         public static List<HardwareInfo> GetAvailableHardware()
         {
             if (_cachedHardwareList != null)
                 return _cachedHardwareList;
 
-            var hardware = new List<HardwareInfo>();
-
-            // 检测 CPU
-            var cpuInfo = DetectCpu();
-            if (cpuInfo != null)
+            lock (_hwLock)
             {
-                hardware.Add(cpuInfo);
+                if (_cachedHardwareList != null)
+                    return _cachedHardwareList;
+
+                var hardware = new List<HardwareInfo>();
+
+                // 检测 CPU
+                var cpuInfo = DetectCpu();
+                if (cpuInfo != null)
+                {
+                    hardware.Add(cpuInfo);
+                }
+
+                // 检测 GPU（按性能排序：NVIDIA > AMD > Intel > 其他）
+                // 先通过 WMI 获取 GPU 列表，再用 FFmpeg 验证编码器是否真正可用
+                var gpus = DetectGpus();
+                gpus = gpus.OrderByDescending(g => GetGpuPerformanceScore(g.Name)).ToList();
+                hardware.AddRange(gpus);
+
+                // 单行紧凑汇总 — 包含 CPU 名称/核心数、GPU 名称/编码器
+                var cpuName = hardware.FirstOrDefault(h => h.Type == HardwareType.Cpu)?.Name ?? "Unknown";
+                var gpuParts = hardware.Where(h => h.Type == HardwareType.Gpu).Select(g =>
+                {
+                    var enc = g.IsHardwareEncodingSupported && !string.IsNullOrEmpty(g.FfmpegEncoder)
+                        ? $" ({g.FfmpegEncoder})" : "";
+                    return $"{g.Name}{enc}";
+                });
+                var gpuSection = gpuParts.Any() ? $"; GPU(s): {string.Join(", ", gpuParts)}" : "";
+                LogService.Info($"Hardware: {cpuName} ({Environment.ProcessorCount} cores){gpuSection}", LogSource.System);
+
+                _cachedHardwareList = hardware;
+                return hardware;
             }
-
-            // 检测 GPU（按性能排序：NVIDIA > AMD > Intel > 其他）
-            // 先通过 WMI 获取 GPU 列表，再用 FFmpeg 验证编码器是否真正可用
-            var gpus = DetectGpus();
-            gpus = gpus.OrderByDescending(g => GetGpuPerformanceScore(g.Name)).ToList();
-            hardware.AddRange(gpus);
-
-            // 单行紧凑汇总 — 包含 CPU 名称/核心数、GPU 名称/编码器
-            var cpuName = hardware.FirstOrDefault(h => h.Type == HardwareType.Cpu)?.Name ?? "Unknown";
-            var gpuParts = hardware.Where(h => h.Type == HardwareType.Gpu).Select(g =>
-            {
-                var enc = g.IsHardwareEncodingSupported && !string.IsNullOrEmpty(g.FfmpegEncoder)
-                    ? $" ({g.FfmpegEncoder})" : "";
-                return $"{g.Name}{enc}";
-            });
-            var gpuSection = gpuParts.Any() ? $"; GPU(s): {string.Join(", ", gpuParts)}" : "";
-            LogService.Info($"Hardware: {cpuName} ({Environment.ProcessorCount} cores){gpuSection}", LogSource.System);
-
-            _cachedHardwareList = hardware;
-            return hardware;
         }
 
         // 根据 GPU 名称估算性能分数，用于排序（分数越高越优先推荐）。
@@ -533,9 +542,13 @@ namespace LivePhotoBox.Services
         }
 
         // 清除硬件检测结果和编码器缓存，强制重新检测。
+        // 加锁防止并发清除时与正在进行的检测产生竞态。
         public static void ClearHardwareCache()
         {
-            _cachedHardwareList = null;
+            lock (_hwLock)
+            {
+                _cachedHardwareList = null;
+            }
             ClearEncoderCache();
         }
 
