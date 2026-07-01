@@ -9,8 +9,9 @@
 
 		<RootNamespace>LivePhotoBox</RootNamespace>
 		<AssemblyName>Live Photo Box</AssemblyName>
-		<Version>1.14.12.0</Version>
-		<FileVersion>1.14.12.0</FileVersion>
+		<!-- 版本号从 Package.appxmanifest 自动同步，无需手动修改此处 -->
+		<Version>1.15.1.0</Version>
+		<FileVersion>1.15.1.0</FileVersion>
 		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 		<Authors>LengxiQwQ</Authors>
 		<Company>LengxiQwQ</Company>
@@ -199,6 +200,21 @@
 		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-box</AppInstallerUri>
 		<GenerateTestArtifacts>True</GenerateTestArtifacts>
 	</PropertyGroup>
+
+	<!-- 编译时从 Package.appxmanifest 自动同步版本号到程序集，确保单一版本来源 -->
+	<Target Name="SyncVersionFromManifest" BeforeTargets="BeforeBuild">
+		<XmlPeek XmlInputPath="Package.appxmanifest"
+		         Query="/x:Package/x:Identity/@Version"
+		         Namespaces="&lt;Namespace Prefix='x' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10'/&gt;">
+			<Output TaskParameter="Result" PropertyName="_ManifestVersion" />
+		</XmlPeek>
+		<PropertyGroup Condition="$(_ManifestVersion) != ''">
+			<Version>$(_ManifestVersion)</Version>
+			<FileVersion>$(_ManifestVersion)</FileVersion>
+		</PropertyGroup>
+		<Message Importance="high" Text="Version synced from Package.appxmanifest: $(_ManifestVersion)"
+		         Condition="$(_ManifestVersion) != ''" />
+	</Target>
 
 	<!-- Strip unwanted WinUI/WinAppSDK locale satellite folders from output (keep only zh-Hans / en-US) -->
 	<!-- dotnet publish 不会自动复制 XAML 编译输出 (.xbf/.pri)，手动补上 -->
