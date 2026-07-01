@@ -124,8 +124,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: Live Photo Box ${{ steps.version.outputs.version3 }}
-          body_path: changelogs/release-${{ steps.version.outputs.version3 }}.md
+          name: Live Photo Box v${{ steps.version.outputs.version3 }}
+          body_path: changelogs/release-v${{ steps.version.outputs.version3 }}.md
           draft: true
           prerelease: false
           make_latest: true
