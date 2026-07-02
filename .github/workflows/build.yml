@@ -138,7 +138,7 @@ jobs:
           Write-Host "Final publish size: $('{0:N0}' -f $kb) KB"
         shell: pwsh
 
-      # ── 6. 打包便携版 zip 文件 ────────────────────────────────────
+      # ── 6. 打包便携版 zip ────────────────────────────────────
       - name: Package portable zip
         run: |
           $zip = "Live-Photo-Box-v${{ steps.version.outputs.version3 }}-x64-portable.zip"
@@ -146,7 +146,7 @@ jobs:
           Write-Host "Created: $zip"
         shell: pwsh
 
-      # ── 7. 打包安装版 exe 文件 ───────────────────────────────────
+      # ── 7. 打包安装版 exe ───────────────────────────────────
       - name: Install Inno Setup
         # Inno Setup 只在打 Release 时需要，但提前安装省得重复下载
         run: choco install innosetup -y --no-progress --limit-output

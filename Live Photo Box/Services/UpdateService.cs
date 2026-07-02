@@ -883,6 +883,7 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// 启动已生成好的便携版 .bat 脚本（仅 Process.Start，无耗时操作）。
+        /// 通过 cmd /c 启动 .bat 并以隐藏窗口运行，与安装版保持一致的静默体验。
         /// </summary>
         private static void LaunchPortableBat(string batPath)
         {
@@ -890,12 +891,13 @@ namespace LivePhotoBox.Services
             {
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = batPath,
-                    UseShellExecute = true,
-                    CreateNoWindow = false,
-                    WindowStyle = ProcessWindowStyle.Normal
+                    FileName = "cmd.exe",
+                    Arguments = $"/c \"\"{batPath}\"\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
                 });
-                LogService.Info("UpdateService: Portable .bat launched.", LogSource.System);
+                LogService.Info("UpdateService: Portable .bat launched (hidden window).", LogSource.System);
             }
             catch (Exception ex)
             {
