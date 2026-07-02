@@ -4,7 +4,6 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -13,7 +12,7 @@ using System.Threading.Tasks;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 using LogSource = LivePhotoBox.Models.LogSource;
 
-// For Package.Current.Id.Version — matches AboutPage's version display
+// 版本号统一通过 App.AppVersion 读取
 using Windows.ApplicationModel;
 
 // =======================================================================================
@@ -572,15 +571,8 @@ namespace LivePhotoBox.Services
 
         private static string GetAppVersion()
         {
-            try
-            {
-                var v = Package.Current.Id.Version;
-                return $"{v.Major}.{v.Minor}.{v.Build}.{v.Revision}";
-            }
-            catch
-            {
-                return Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "1.0.0.0";
-            }
+            // 统一走 App.AppVersion，来源为 Package.appxmanifest
+            return App.AppVersion ?? "1.0.0.0";
         }
 
         // Logs system information (OS, runtime, CPU, memory, app path, culture) at startup,
