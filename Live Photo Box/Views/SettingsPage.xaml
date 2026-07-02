@@ -617,14 +617,14 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <Button Grid.Column="0"
-                            HorizontalAlignment="Left"
-                            Click="ToggleTestToolsButton_Click">
+                    <ToggleButton Grid.Column="0"
+                                  IsChecked="{x:Bind IsTestToolsVisible, Mode=TwoWay}"
+                                  HorizontalAlignment="Left">
                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                             <FontIcon Glyph="&#xEC7A;" FontSize="14"/>
                             <TextBlock Text="{x:Bind TestToolsToggleButtonText, Mode=OneWay}" FontSize="13" VerticalAlignment="Center"/>
                         </StackPanel>
-                    </Button>
+                    </ToggleButton>
 
                     <Button Grid.Column="1"
                             Click="RestoreDefaultSettings_Click"

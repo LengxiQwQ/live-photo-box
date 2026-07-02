@@ -10,11 +10,18 @@ namespace LivePhotoBox.Services
     /// 应用设置服务 — 持久化用户偏好的键值存储。
     ///
     /// 打包模式（MSIX）：使用 ApplicationData.LocalSettings（系统 API）。
-    /// 非打包模式：ApplicationData.Current 需要包标识会抛异常，
-    /// 回退到本地 JSON 文件存储（位于 AppContext.BaseDirectory）。
+    /// 非打包模式：回退到本地 JSON 文件存储，位于用户数据目录
+    /// (%LOCALAPPDATA%\LivePhotoBox\appsettings.json)，保证可写。
     /// </summary>
     public static class AppSettingsService
     {
+        /// <summary>
+        /// 非打包模式下 JSON 文件的存放目录（用户数据目录，保证可写）。
+        /// </summary>
+        private static readonly string JsonDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "LivePhotoBox");
+
         private static readonly string? _jsonFilePath;
         private static readonly Dictionary<string, object?> _jsonStore;
 
@@ -25,7 +32,7 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                _jsonFilePath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
+                _jsonFilePath = Path.Combine(JsonDirectory, "appsettings.json");
                 if (File.Exists(_jsonFilePath))
                 {
                     var json = File.ReadAllText(_jsonFilePath);
@@ -152,6 +159,8 @@ namespace LivePhotoBox.Services
             {
                 if (_jsonFilePath != null)
                 {
+                    // 确保用户数据目录存在
+                    Directory.CreateDirectory(JsonDirectory);
                     var json = JsonSerializer.Serialize(_jsonStore);
                     File.WriteAllText(_jsonFilePath, json);
                 }

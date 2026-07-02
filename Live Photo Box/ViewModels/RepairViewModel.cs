@@ -517,6 +517,11 @@ namespace LivePhotoBox.ViewModels
         // 待修复的 Entry 总数（按文件计数，配对格子里两个文件各算一个）。
         private int _totalRepairEntries;
 
+        /// <summary>
+        /// 当前修复选项（用户在启动对话框中选择），默认全部开启。
+        /// </summary>
+        public RepairOptions RepairOptions { get; set; } = new();
+
         public override string ActionBtnText
         {
             get
@@ -526,7 +531,7 @@ namespace LivePhotoBox.ViewModels
                     if (_cancelledByUser) return ResourceService.GetString("Btn_Stopping");
                     return ResourceService.GetString("Btn_Stop");
                 }
-                return ResourceService.GetString("Btn_StartRepair");
+                return ResourceService.GetString("Btn_ViewOptionsAndRepair");
             }
         }
 
@@ -1395,7 +1400,142 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 切换处理状态：运行时点击停止，停止后（已取消或已完成）点击弹出结果对话框，空闲时启动修复。
+        // 弹出修复选项对话框，让用户选择需要修复哪些内容。
+        // 选项会根据当前任务列表自动启用/禁用：若列表中没有需要该项修复的文件，
+        // 对应复选框会变灰，提示用户无需选择。
+        // 用户勾选后点击"开始修复"返回 true，点击"取消"返回 false。
+        private async Task<bool> ShowRepairOptionsDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot == null)
+                return true; // 没有窗口时直接开始（兜底）
+
+            // ── 遍历任务列表，统计每种修复各有多少文件需要 ──
+            int jpegRotationCount = 0;   // 非 HEIC 图片需要旋转修正
+            int thumbCount = 0;           // 有文件含多余缩略图
+            int heicCount = 0;            // HEIC/HEIF 需要方向修正
+            int videoCount = 0;           // 视频需要旋转修正
+
+            foreach (var task in Tasks)
+            {
+                foreach (var entry in task.Entries)
+                {
+                    var ar = entry.AnalysisResult;
+                    if (ar == null) continue;
+
+                    string ext = Path.GetExtension(entry.FilePath)?.ToLowerInvariant() ?? "";
+                    bool isHeic = ext == ".heic" || ext == ".heif";
+                    bool isVideo = ar.IsVideo;
+
+                    if (ar.IssueType == RepairIssueType.NeedsRebuild)
+                    {
+                        if (isVideo) videoCount++;
+                        else if (isHeic) heicCount++;
+                        else jpegRotationCount++;
+                    }
+                    if (ar.HasThumbnail)
+                        thumbCount++;
+                }
+            }
+
+            string countFmt = ResourceService.GetString("RepairOptions_CountFormat");
+
+            // ── 图片修复选项 ──
+            var imgHeader = new TextBlock
+            {
+                Text = "🖼️ " + ResourceService.GetString("RepairOptions_ImageSection"),
+                FontSize = 15,
+                FontWeight = new Windows.UI.Text.FontWeight { Weight = 600 },
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            var cbRotation = new CheckBox
+            {
+                Content = ResourceService.GetString("RepairOptions_FixImageRotation") + string.Format(countFmt, jpegRotationCount),
+                IsChecked = RepairOptions.FixImageRotation,
+                IsEnabled = jpegRotationCount > 0,
+                Margin = new Thickness(16, 0, 0, 0)
+            };
+            var cbThumbnail = new CheckBox
+            {
+                Content = ResourceService.GetString("RepairOptions_StripImageThumbnail") + string.Format(countFmt, thumbCount),
+                IsChecked = RepairOptions.StripImageThumbnail,
+                IsEnabled = thumbCount > 0,
+                Margin = new Thickness(16, 0, 0, 0)
+            };
+            var cbHeic = new CheckBox
+            {
+                Content = ResourceService.GetString("RepairOptions_FixHeicOrientation") + string.Format(countFmt, heicCount),
+                IsChecked = RepairOptions.FixHeicOrientation,
+                IsEnabled = heicCount > 0,
+                Margin = new Thickness(16, 0, 0, 0)
+            };
+
+            // ── 视频修复选项 ──
+            var videoHeader = new TextBlock
+            {
+                Text = "🎬 " + ResourceService.GetString("RepairOptions_VideoSection"),
+                FontSize = 15,
+                FontWeight = new Windows.UI.Text.FontWeight { Weight = 600 },
+                Margin = new Thickness(0, 8, 0, 4)
+            };
+            var cbVideoRotation = new CheckBox
+            {
+                Content = ResourceService.GetString("RepairOptions_FixVideoRotation") + string.Format(countFmt, videoCount),
+                IsChecked = RepairOptions.FixVideoRotation,
+                IsEnabled = videoCount > 0,
+                Margin = new Thickness(16, 0, 0, 0)
+            };
+
+            // ── 构建对话框内容 ──
+            var panel = new StackPanel { Spacing = 4 };
+            panel.Children.Add(imgHeader);
+            panel.Children.Add(cbRotation);
+            panel.Children.Add(cbThumbnail);
+            panel.Children.Add(cbHeic);
+            panel.Children.Add(videoHeader);
+            panel.Children.Add(cbVideoRotation);
+
+            var dialog = new ContentDialog
+            {
+                Title = ResourceService.GetString("RepairOptions_Title"),
+                Content = panel,
+                PrimaryButtonText = ResourceService.GetString("Btn_StartRepair"),
+                CloseButtonText = ResourceService.GetString("Msg_Cancel"),
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = App.MainWindow.Content.XamlRoot,
+                RequestedTheme = App.CurrentTheme
+            };
+
+            var result = await dialog.ShowAsync();
+            if (result != ContentDialogResult.Primary)
+                return false;
+
+            // 读取用户选择（禁用的选项保持默认值 true）
+            RepairOptions.FixImageRotation = cbRotation.IsChecked ?? true;
+            RepairOptions.StripImageThumbnail = cbThumbnail.IsChecked ?? true;
+            RepairOptions.FixHeicOrientation = cbHeic.IsChecked ?? true;
+            RepairOptions.FixVideoRotation = cbVideoRotation.IsChecked ?? true;
+
+            // 如果什么都没勾选，提示并返回 false
+            if (!RepairOptions.FixImageRotation && !RepairOptions.StripImageThumbnail
+                && !RepairOptions.FixHeicOrientation && !RepairOptions.FixVideoRotation)
+            {
+                var warnDialog = new ContentDialog
+                {
+                    Title = ResourceService.GetString("Msg_Warning"),
+                    Content = ResourceService.GetString("RepairOptions_NoneSelected"),
+                    CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                    XamlRoot = App.MainWindow.Content.XamlRoot,
+                    RequestedTheme = App.CurrentTheme
+                };
+                await warnDialog.ShowAsync();
+                return false;
+            }
+
+            return true;
+        }
+
+        // 切换处理状态：运行时点击停止，停止后点击弹出结果，
+        // 空闲时弹出修复选项对话框让用户选择后再启动修复。
         [RelayCommand(AllowConcurrentExecutions = true)]
         public async Task ToggleProcessAsync()
         {
@@ -1423,6 +1563,10 @@ namespace LivePhotoBox.ViewModels
                 await ShowEmptyQueueDialogAsync("Repair");
                 return;
             }
+
+            // 弹出修复选项对话框，用户选择后点击"开始修复"才继续
+            bool confirmed = await ShowRepairOptionsDialogAsync();
+            if (!confirmed) return;
 
             if (IsOutputToDirectory)
             {
@@ -1530,7 +1674,7 @@ namespace LivePhotoBox.ViewModels
                             {
                                 try
                                 {
-                                    var result = await LivePhotoRepairService.RepairAsync(entry.FilePath, targetPath, entry.AnalysisResult!, token);
+                                    var result = await LivePhotoRepairService.RepairAsync(entry.FilePath, targetPath, entry.AnalysisResult!, token, RepairOptions);
                                     isSuccess = result.Success;
                                     detailMessage = result.Message;
                                 }

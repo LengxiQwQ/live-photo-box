@@ -806,15 +806,48 @@ public static class LivePhotoRepairService
         }
 
         // 2. 修复文件：analysis.RotationAngle → jpegtran 无损旋转 → exiftool 合并重置方向 + 剥离缩略图
-        public static async Task<(bool Success, string Message)> RepairAsync(string sourcePath, string targetPath, RepairAnalysisResult analysis, CancellationToken token)
+        public static async Task<(bool Success, string Message)> RepairAsync(string sourcePath, string targetPath, RepairAnalysisResult analysis, CancellationToken token, RepairOptions? options = null)
         {
+            // 默认全部开启
+            options ??= new RepairOptions();
+
             // Video repair uses FFmpeg re-encode with autorotate
             if (IsVideoFile(sourcePath))
+            {
+                if (!options.FixVideoRotation)
+                {
+                    // 用户未勾选视频修复：跳过（直接复制文件）
+                    if (sourcePath != targetPath)
+                    {
+                        string? outDir = Path.GetDirectoryName(targetPath);
+                        if (!string.IsNullOrEmpty(outDir) && !Directory.Exists(outDir))
+                            Directory.CreateDirectory(outDir);
+                        File.Copy(sourcePath, targetPath, overwrite: true);
+                    }
+                    return (true, ResourceService.GetString("Status_Skipped") ?? "Skipped");
+                }
                 return await RepairVideoAsync(sourcePath, targetPath, analysis, token);
+            }
 
             bool isHeic = IsHeicFile(sourcePath);
-            bool needsRotation = analysis.IssueType == RepairIssueType.NeedsRebuild;
-            bool hasThumbnail = analysis.HasThumbnail;
+
+            // 根据选项和文件分析结果，判断实际要执行哪些操作
+            bool doJpegRotation = !isHeic && options.FixImageRotation && analysis.IssueType == RepairIssueType.NeedsRebuild;
+            bool doThumbnailStrip = options.StripImageThumbnail && analysis.HasThumbnail;
+            bool doHeicOrientFix = isHeic && options.FixHeicOrientation && analysis.IssueType == RepairIssueType.NeedsRebuild;
+
+            // 如果用户取消勾选了所有适用于此文件的选项，则跳过修复
+            if (!doJpegRotation && !doThumbnailStrip && !doHeicOrientFix)
+            {
+                if (sourcePath != targetPath)
+                {
+                    string? outDir = Path.GetDirectoryName(targetPath);
+                    if (!string.IsNullOrEmpty(outDir) && !Directory.Exists(outDir))
+                        Directory.CreateDirectory(outDir);
+                    File.Copy(sourcePath, targetPath, overwrite: true);
+                }
+                return (true, ResourceService.GetString("Status_Skipped") ?? "Skipped");
+            }
 
             // 临时文件放在系统 %TEMP% 下独立子文件夹（GUID 命名），避免中文路径编码问题，
             // 且每个修复操作互不干扰——并发修复时不会因共享 Temp 目录导致文件被意外删除。
@@ -839,8 +872,8 @@ public static class LivePhotoRepairService
                     // 只修复两类真问题：
                     //   1. Orientation 含镜像/翻转 → 用 Rotation 推导正确 Orientation
                     //   2. Orientation 角度与 Rotation 不一致 → 以 Rotation 为准
-                    bool needsOrientFix = needsRotation; // analysis.IssueType == NeedsRebuild（HEIC 下即 Orientation 异常）
-                    bool needsThumbStrip = hasThumbnail;
+                    bool needsOrientFix = doHeicOrientFix;
+                    bool needsThumbStrip = doThumbnailStrip;
 
                     if (needsOrientFix || needsThumbStrip)
                     {
@@ -876,7 +909,7 @@ public static class LivePhotoRepairService
                     // ── JPEG 修复：jpegtran 无损旋转 → exiftool 合并重置方向 + 剥离缩略图 ──
                     // 旋转角度来自 AnalyzeFileAsync 的 exiftool 诊断结果（analysis.RotationAngle），
                     // 无需 Magick.NET 读取——避免原生库在进程退出时触发 Access Violation (0xc0000005)。
-                    if (needsRotation)
+                    if (doJpegRotation)
                     {
                         int rotationAngle = analysis.RotationAngle;
 
@@ -904,9 +937,9 @@ public static class LivePhotoRepairService
 
                     // 合并 exiftool 调用：重置方向标签（如果需要）+ 选择性剥离缩略图（如果需要）
                     var cleanArgs = new List<string>();
-                    if (needsRotation)
+                    if (doJpegRotation)
                         cleanArgs.Add("-Orientation=Horizontal (normal)");
-                    if (hasThumbnail)
+                    if (doThumbnailStrip)
                     {
                         cleanArgs.Add("-ThumbnailImage=");
                         cleanArgs.Add("-PreviewImage=");
@@ -933,8 +966,8 @@ public static class LivePhotoRepairService
 
                 // 打上 LivePhotoBox 修复标记（记录实际修复了哪些内容）
                 var fixes = new System.Collections.Generic.List<string>();
-                if (needsRotation) fixes.Add("Rotation");
-                if (hasThumbnail) fixes.Add("Thumbnail");
+                if (doJpegRotation || doHeicOrientFix) fixes.Add("Rotation");
+                if (doThumbnailStrip) fixes.Add("Thumbnail");
                 await TryWriteLivePhotoBoxMarkerAsync(targetPath, "Repair",
                     fixes.Count > 0 ? $"Fix={string.Join("+", fixes)}" : "", token);
 

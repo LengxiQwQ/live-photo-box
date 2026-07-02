@@ -50,19 +50,41 @@ namespace LivePhotoBox.Views
         public AboutViewModel AboutViewModel => AppViewModel.Instance.About;
 
         // 调试工具区域的可见性
-        public Visibility TestToolsVisibility => _isTestToolsVisible ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility TestToolsVisibility => IsTestToolsVisible ? Visibility.Visible : Visibility.Collapsed;
 
         // 崩溃通知横幅的可见性
-        public Visibility CrashNoticeVisibility => _isTestToolsVisible && LogService.LastSessionCrashed
+        public Visibility CrashNoticeVisibility => IsTestToolsVisible && LogService.LastSessionCrashed
             ? Visibility.Visible : Visibility.Collapsed;
 
         // 崩溃通知文本
         public string CrashNoticeText => ResourceService.GetString("SettingsPage_CrashNotice_Text");
 
         // 调试工具开关按钮文本
-        public string TestToolsToggleButtonText => ResourceService.GetString(_isTestToolsVisible
+        public string TestToolsToggleButtonText => ResourceService.GetString(IsTestToolsVisible
             ? "SettingsPage_TestHide_Button_Text"
             : "SettingsPage_TestShow_Button_Text");
+
+        /// <summary>
+        /// 调试工具区展开/折叠状态，绑定到 ToggleButton.IsChecked。
+        /// ToggleButton 自带 Checked/Unchecked 视觉状态切换，自动变换颜色。
+        /// </summary>
+        public bool IsTestToolsVisible
+        {
+            get => _isTestToolsVisible;
+            set
+            {
+                if (_isTestToolsVisible != value)
+                {
+                    _isTestToolsVisible = value;
+                    AboutViewModel.RefreshCrashLogs();
+                    NotifyPropertyChanged(nameof(TestToolsVisibility));
+                    NotifyPropertyChanged(nameof(CrashNoticeVisibility));
+                    NotifyPropertyChanged(nameof(IsTestToolsVisible));
+                    NotifyPropertyChanged(nameof(TestToolsToggleButtonText));
+                    Bindings.Update();
+                }
+            }
+        }
 
         private bool _isTestToolsVisible;
 
@@ -83,11 +105,9 @@ namespace LivePhotoBox.Views
                 RefreshGitHubTokenStatus();
 
                 // 如果上一次非正常退出，自动展开日志与调试工具区
-                if (LogService.LastSessionCrashed && !_isTestToolsVisible)
+                if (LogService.LastSessionCrashed && !IsTestToolsVisible)
                 {
-                    _isTestToolsVisible = true;
-                    AboutViewModel.RefreshCrashLogs();
-                    Bindings.Update();
+                    IsTestToolsVisible = true;
                 }
             };
         }
@@ -199,17 +219,6 @@ namespace LivePhotoBox.Views
         {
             if (sender is ComboBox comboBox)
                 ComboBoxHelper.AutoFitWidthAsync(comboBox, ViewModel.AvailableHardware);
-        }
-
-        // 切换调试工具区域的显示/隐藏
-        private void ToggleTestToolsButton_Click(object sender, RoutedEventArgs e)
-        {
-            _isTestToolsVisible = !_isTestToolsVisible;
-            AboutViewModel.RefreshCrashLogs();
-            NotifyPropertyChanged(nameof(TestToolsVisibility));
-            NotifyPropertyChanged(nameof(CrashNoticeVisibility));
-            NotifyPropertyChanged(nameof(TestToolsToggleButtonText));
-            Bindings.Update();
         }
 
         // 重启应用按钮点击：弹出确认对话框，确认后启动新进程并关闭当前应用

@@ -2158,4 +2158,37 @@ Are you sure you want to switch?</value>
   <data name="SettingsPage_Debug_GitHubTokenInvalidFormat" xml:space="preserve">
     <value>Invalid token format</value>
   </data>
+  <data name="Btn_ViewOptionsAndRepair" xml:space="preserve">
+    <value>View Options &amp; Repair</value>
+  </data>
+  <data name="Msg_Warning" xml:space="preserve">
+    <value>Warning</value>
+  </data>
+  <data name="RepairOptions_Title" xml:space="preserve">
+    <value>Repair Options</value>
+  </data>
+  <data name="RepairOptions_ImageSection" xml:space="preserve">
+    <value>Image Repair</value>
+  </data>
+  <data name="RepairOptions_FixImageRotation" xml:space="preserve">
+    <value>Rotation Fix</value>
+  </data>
+  <data name="RepairOptions_StripImageThumbnail" xml:space="preserve">
+    <value>Strip Thumbnail</value>
+  </data>
+  <data name="RepairOptions_FixHeicOrientation" xml:space="preserve">
+    <value>HEIC/HEIF Orientation Fix</value>
+  </data>
+  <data name="RepairOptions_VideoSection" xml:space="preserve">
+    <value>Video Repair</value>
+  </data>
+  <data name="RepairOptions_FixVideoRotation" xml:space="preserve">
+    <value>Remove Rotation Tag</value>
+  </data>
+  <data name="RepairOptions_NoneSelected" xml:space="preserve">
+    <value>Please select at least one repair option</value>
+  </data>
+  <data name="RepairOptions_CountFormat" xml:space="preserve">
+    <value> ({0})</value>
+  </data>
 </root>
