@@ -3,8 +3,8 @@
 - **📋 修复选项对话框** — 点击"查看选项并修复"弹出对话框，按图片/视频分类展示可修复项并附数量统计，支持勾选需要的修复内容，默认全选；当前列表无对应项的自动变灰  
   > Repair options dialog: choose which fixes to apply with per-category counts, auto-disables irrelevant options.
 
-- **🔴 灯箱实况照片预览 (LIVE)** — 灯箱新增 Live Photo 识别与播放能力，左上角显示 LIVE 按钮，点击播放配对/内嵌视频，播完自动恢复照片  
-  > Lightbox Live Photo preview: LIVE button plays paired/embedded video then restores still image.
+- **🔴 灯箱全面升级** — Live Photo 识别与播放（LIVE 按钮 + 弹簧动画）；图片智能淡入翻页（缓存命中瞬切）；视频播放控制栏（进度条拖动/点击跳转、暂停、音量、时间显示）；点击画面任意位置关闭灯箱；打开即显无迟滞  
+  > Lightbox overhaul: Live Photo playback with spring-animated LIVE button; smart fade-in transitions (instant for cached images); custom video transport bar (drag/click to seek, play/pause, volume, time); tap anywhere to close; instant open with zero delay
 
 ## 修复 / Bug Fixes
 

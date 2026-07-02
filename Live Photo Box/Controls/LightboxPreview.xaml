@@ -4,73 +4,196 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:media="using:Microsoft.UI.Xaml.Media"
     mc:Ignorable="d"
     IsTabStop="False">
 
     <Grid>
+        <Grid.Resources>
+            <!-- 图片翻页淡入（仅慢加载时触发） -->
+            <Storyboard x:Name="ImageFadeInSb">
+                <DoubleAnimation Storyboard.TargetName="LightboxImage"
+                                 Storyboard.TargetProperty="Opacity"
+                                 From="0.0" To="1.0" Duration="0:0:0.1"/>
+            </Storyboard>
+            <!-- LIVE 按钮脉冲呼吸动画 -->
+            <Storyboard x:Name="LivePulseSb" AutoReverse="True" RepeatBehavior="Forever">
+                <DoubleAnimation Storyboard.TargetName="LiveIconTransform"
+                                 Storyboard.TargetProperty="ScaleX"
+                                 From="1.0" To="1.25" Duration="0:0:0.8"/>
+                <DoubleAnimation Storyboard.TargetName="LiveIconTransform"
+                                 Storyboard.TargetProperty="ScaleY"
+                                 From="1.0" To="1.25" Duration="0:0:0.8"/>
+            </Storyboard>
+        </Grid.Resources>
+
+        <!-- 全屏覆盖层 -->
         <Grid x:Name="LightboxOverlay" Visibility="Collapsed"
-              Background="#000000"
-              PointerWheelChanged="LightboxOverlay_PointerWheelChanged">
+              PointerWheelChanged="LightboxOverlay_PointerWheelChanged"
+              PointerMoved="LightboxOverlay_PointerMoved">
+            <Grid.Background>
+                <SolidColorBrush Color="Black" />
+            </Grid.Background>
+
+            <!-- 点击空白区域关闭（最底层，被图片/视频覆盖时不会响应） -->
             <Border Background="Transparent" Tapped="LightboxBackdrop_Tapped"/>
 
+            <!-- LIVE 按钮（升级版 — Acrylic 底板 + 脉冲动画） -->
             <Border x:Name="LivePhotoButton" Visibility="Collapsed"
                     Canvas.ZIndex="100"
                     HorizontalAlignment="Left" VerticalAlignment="Top"
-                    Margin="16" Padding="12,6" CornerRadius="14"
-                    Background="#CC000000" Tapped="LivePhotoButton_Tapped">
+                    Margin="16" Padding="14,7" CornerRadius="16"
+                    Tapped="LivePhotoButton_Tapped"
+                    PointerEntered="LivePhotoButton_PointerEntered"
+                    PointerExited="LivePhotoButton_PointerExited">
+                <Border.Background>
+                    <media:AcrylicBrush TintColor="#333333" TintOpacity="0.55"
+                                        FallbackColor="#CC000000" />
+                </Border.Background>
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                    <FontIcon Glyph="&#xE768;" FontSize="14" Foreground="White"/>
-                    <TextBlock Text="LIVE" Foreground="White" FontSize="13" FontWeight="SemiBold"
-                               VerticalAlignment="Center"/>
+                    <FontIcon x:Name="LiveIcon" Glyph="&#xE768;" FontSize="14"
+                              Foreground="White" RenderTransformOrigin="0.5,0.5">
+                        <FontIcon.RenderTransform>
+                            <CompositeTransform x:Name="LiveIconTransform" ScaleX="1" ScaleY="1"/>
+                        </FontIcon.RenderTransform>
+                    </FontIcon>
+                    <TextBlock Text="LIVE" Foreground="White" FontSize="13"
+                               FontWeight="SemiBold" VerticalAlignment="Center"/>
                 </StackPanel>
             </Border>
 
-            <Button x:Name="LightboxCloseButton"
-                    Canvas.ZIndex="100"
-                    HorizontalAlignment="Right" VerticalAlignment="Top"
-                    Margin="16" Width="40" Height="40" CornerRadius="20"
-                    Background="#44000000" BorderThickness="0"
-                    Click="LightboxCloseButton_Click">
-                <FontIcon Glyph="&#xE711;" FontSize="16" Foreground="White"/>
-            </Button>
-
+            <!-- 图片显示 -->
             <Image x:Name="LightboxImage" Stretch="Uniform"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                   Opacity="1.0"
                    IsTapEnabled="True" Tapped="LightboxBackdrop_Tapped"/>
 
+            <!-- 双槽位视频播放器 -->
             <MediaPlayerElement x:Name="LightboxVideo0"
                    Visibility="Collapsed"
                    AutoPlay="True"
                    AreTransportControlsEnabled="False"
+                   CornerRadius="8"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    IsTapEnabled="True" Tapped="LightboxBackdrop_Tapped"/>
-
             <MediaPlayerElement x:Name="LightboxVideo1"
                    Visibility="Collapsed"
                    AutoPlay="True"
                    AreTransportControlsEnabled="False"
+                   CornerRadius="8"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    IsTapEnabled="True" Tapped="LightboxBackdrop_Tapped"/>
 
+            <!-- 加载指示器 -->
             <ProgressRing x:Name="LightboxSpinner"
                    Visibility="Collapsed"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    Width="48" Height="48"
                    Foreground="White"/>
 
-            <Grid x:Name="VideoProgressBar" Visibility="Collapsed"
-                  VerticalAlignment="Bottom" Height="3"
-                  HorizontalAlignment="Stretch">
-                <Border Background="#33FFFFFF" HorizontalAlignment="Stretch"/>
-                <Border x:Name="VideoProgressFill" Background="#FFFFFF"
-                        HorizontalAlignment="Left" Width="0"/>
+            <!-- 视频播放控制栏 -->
+            <Grid x:Name="VideoTransportBar" Visibility="Collapsed"
+                  VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
+                  Height="48"
+                  Background="#CC000000">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- 播放/暂停 -->
+                <Button x:Name="TransportPlayPauseBtn" Grid.Column="0"
+                        Width="40" Height="40" Margin="4,0"
+                        Background="Transparent" BorderThickness="0"
+                        Click="TransportPlayPause_Click">
+                    <FontIcon x:Name="TransportPlayPauseIcon" Glyph="&#xE769;"
+                              FontSize="16" Foreground="White"/>
+                </Button>
+
+                <!-- 当前时间 -->
+                <TextBlock x:Name="TransportCurrentTime" Grid.Column="1"
+                           Text="0:00" Foreground="#CCFFFFFF" FontSize="12"
+                           VerticalAlignment="Center" Margin="4,0"/>
+
+                <!-- 自定义进度条（Border 轨道 + 白圆滑块 + hover 放大） -->
+                <Grid x:Name="TransportSeekBar" Grid.Column="2"
+                      Height="20" Margin="4,0" VerticalAlignment="Center"
+                      Background="Transparent"
+                      PointerPressed="TransportSeekBar_PointerPressed"
+                      PointerMoved="TransportSeekBar_PointerMoved"
+                      PointerReleased="TransportSeekBar_PointerReleased"
+                      PointerCaptureLost="TransportSeekBar_PointerReleased">
+                    <!-- 未播放轨道 -->
+                    <Border Height="4" VerticalAlignment="Center"
+                            Background="#33FFFFFF" CornerRadius="2"/>
+                    <!-- 已播放填充 -->
+                    <Border x:Name="TransportSeekFill" Height="4"
+                            VerticalAlignment="Center" HorizontalAlignment="Left"
+                            Background="White" CornerRadius="2" Width="0"/>
+                    <!-- 位置圆点 -->
+                    <Border x:Name="TransportSeekThumb"
+                            Width="14" Height="14" CornerRadius="7"
+                            VerticalAlignment="Center" HorizontalAlignment="Left"
+                            Background="White"
+                            RenderTransformOrigin="0.5,0.5"
+                            PointerEntered="TransportSeekThumb_PointerEntered"
+                            PointerExited="TransportSeekThumb_PointerExited">
+                        <Border.RenderTransform>
+                            <CompositeTransform x:Name="ThumbTransform" ScaleX="1" ScaleY="1"/>
+                        </Border.RenderTransform>
+                    </Border>
+                </Grid>
+
+                <!-- 总时长 -->
+                <TextBlock x:Name="TransportTotalTime" Grid.Column="3"
+                           Text="0:00" Foreground="#CCFFFFFF" FontSize="12"
+                           VerticalAlignment="Center" Margin="4,0"/>
+
+                <!-- 音量切换 -->
+                <Button x:Name="TransportVolumeBtn" Grid.Column="4"
+                        Width="40" Height="40" Margin="4,0"
+                        Background="Transparent" BorderThickness="0"
+                        Click="TransportVolume_Click">
+                    <FontIcon x:Name="TransportVolumeIcon" Glyph="&#xE767;"
+                              FontSize="16" Foreground="White"/>
+                </Button>
             </Grid>
-            <TextBlock x:Name="VideoTimeLabel" Visibility="Collapsed"
-                       HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                       Margin="0,0,0,6" Foreground="#99FFFFFF" FontSize="12"/>
+
+            <!-- 页码计数器 -->
             <TextBlock x:Name="LightboxCounter"
                        HorizontalAlignment="Center" VerticalAlignment="Bottom"
-                       Margin="0,0,0,22" Foreground="#CCFFFFFF" FontSize="13"/>
+                       Margin="0,0,0,54" Foreground="#CCFFFFFF" FontSize="13"/>
+
+            <!-- 底部缩略图导航条 -->
+            <ListView x:Name="ThumbnailStrip"
+                      Visibility="Collapsed"
+                      VerticalAlignment="Bottom" HorizontalAlignment="Stretch"
+                      Height="76"
+                      Background="#AA000000"
+                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                      ScrollViewer.HorizontalScrollMode="Enabled"
+                      SelectionChanged="ThumbnailStrip_SelectionChanged"
+                      ContainerContentChanging="ThumbnailStrip_ContainerContentChanging">
+                <ListView.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <ItemsStackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ListView.ItemsPanel>
+                <ListView.ItemTemplate>
+                    <DataTemplate>
+                        <Border Width="56" Height="56" Margin="3" CornerRadius="4"
+                                Background="#333333"
+                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <Image x:Name="ThumbImage" Stretch="UniformToFill"
+                                   VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        </Border>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
         </Grid>
     </Grid>
 </UserControl>
