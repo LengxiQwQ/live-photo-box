@@ -1,12 +1,15 @@
 ## 新增功能 / New Features
 
-- **📋 修复选项对话框** — 点击"查看选项并修复"后弹出对话框，按图片/视频分类展示可修复项（附数量统计），支持勾选需要修复的内容，默认全选；不需要的修复项自动变灰  
-  > Repair options dialog: choose which fixes to apply (image/video categories with counts), auto-disables irrelevant options.
+- **📋 修复选项对话框** — 点击"查看选项并修复"弹出对话框，按图片/视频分类展示可修复项并附数量统计，支持勾选需要的修复内容，默认全选；当前列表无对应项的自动变灰  
+  > Repair options dialog: choose which fixes to apply with per-category counts, auto-disables irrelevant options.
+
+- **🔴 灯箱实况照片预览 (LIVE)** — 灯箱新增 Live Photo 识别与播放能力，左上角显示 LIVE 按钮，点击播放配对/内嵌视频，播完自动恢复照片  
+  > Lightbox Live Photo preview: LIVE button plays paired/embedded video then restores still image.
 
 ## 修复 / Bug Fixes
 
-- **🔑 GitHub Token 保存路径修复** — 非打包模式下 `appsettings.json` 从安装目录（只读）迁移到用户数据目录 `%LOCALAPPDATA%\LivePhotoBox\`，Token 保存后重启不再丢失  
-  > Fixed GitHub Token persistence in unpackaged mode: moved `appsettings.json` from the read-only install directory to `%LOCALAPPDATA%\LivePhotoBox\` — token now survives app restarts.
+- **🔑 GitHub Token 保存路径** — 非打包模式下 `appsettings.json` 从安装目录迁移到 `%LOCALAPPDATA%\LivePhotoBox\`，Token 重启不再丢失  
+  > Fixed GitHub Token persistence in unpackaged mode.
 
 ---
 

@@ -373,7 +373,8 @@ namespace LivePhotoBox.ViewModels
                         FileSize = FileSizeFormatter.Format(file.FileSizeBytes),
                         ProgressText = "0%",
                         Status = ProcessStatus.Pending,
-                        Details = pendingText
+                        Details = pendingText,
+                        AppendedVideoLength = file.AppendedVideoLength  // 扫描时已解析，灯箱直接读
                     };
 
                     lock (bufferLock) { itemBuffer.Add(task); }

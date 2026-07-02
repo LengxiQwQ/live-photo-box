@@ -8,7 +8,7 @@
 
 ## v1.15.x — Auto Update & Pairing Enhancement
 
-> **v1.15.2** (2026-07-02) **[New + Fix]** Repair options dialog with per-category checkboxes and counts; fixed GitHub Token not persisting in unpackaged mode
+> **v1.15.2** (2026-07-02) **[New + Fix]** Repair options dialog; lightbox Live Photo preview; fixed GitHub Token persistence in unpackaged mode
 >
 > **v1.15.1** (2026-07-02) **[Fix + Perf]** Fixed multiple unpackaged-mode bugs (ComboBox, language switch, settings, WebView2), auto-update UX (post-install restart, check interval, error retry), uninstall cleanup, locale stripping in CI; **startup time reduced from ~4-5s to ~1-2s** (async hardware detection + double-check locking)
 >

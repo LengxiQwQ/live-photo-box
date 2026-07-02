@@ -243,6 +243,18 @@ namespace LivePhotoBox.Services
             return await ReadMetadataTextAsync(fs, CancellationToken.None);
         }
 
+        /// <summary>
+        /// 同步版本：供扫描阶段在同步循环中直接调用，避免 async 开销。
+        /// </summary>
+        public static string ReadMetadataTextSync(string filePath)
+        {
+            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            int bufferLength = (int)Math.Min(fs.Length, MetadataProbeBytes);
+            byte[] buffer = new byte[bufferLength];
+            int bytesRead = fs.Read(buffer, 0, bufferLength);
+            return Encoding.UTF8.GetString(buffer, 0, bytesRead);
+        }
+
         // 从 XMP 元数据文本中提取视频尾部长度。
         // 深度防御：依次尝试全部已知厂商的偏移量格式。
         //   MicroVideo V1 → MotionPhoto V2 → OPPO O-Live → 小米

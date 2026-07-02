@@ -17,6 +17,8 @@ namespace LivePhotoBox.Services
         public required string SourcePath { get; init; }
         // 文件字节大小。
         public required long FileSizeBytes { get; init; }
+        // 追加在 JPEG 尾部的 MP4 视频段字节数（0 = 未解析或无视频）。
+        public long AppendedVideoLength { get; init; }
     }
 
     // 拆分扫描结果。
@@ -182,7 +184,21 @@ namespace LivePhotoBox.Services
                 var fileInfo = new FileInfo(path);
                 if (IsLikelyLivePhoto(path, fileInfo.Length))
                 {
-                    var info = new LivePhotoSplitFileInfo { SourcePath = path, FileSizeBytes = fileInfo.Length };
+                    // 顺便解析视频段长度，存入扫描结果，避免灯箱重复读取
+                    long videoLen = 0;
+                    try
+                    {
+                        var metadataText = LivePhotoSplitService.ReadMetadataTextSync(path);
+                        videoLen = LivePhotoSplitService.GetAppendedVideoLength(metadataText);
+                    }
+                    catch { videoLen = 0; }
+
+                    var info = new LivePhotoSplitFileInfo
+                    {
+                        SourcePath = path,
+                        FileSizeBytes = fileInfo.Length,
+                        AppendedVideoLength = videoLen > 0 ? videoLen : 0
+                    };
                     files.Add(info);
                     itemProgress?.Report(info);
                     recognizedCount++;

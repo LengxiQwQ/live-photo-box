@@ -127,11 +127,15 @@ namespace LivePhotoBox.Controls
         // 显示指定索引的文件。根据文件类型（图片/视频）采用不同的加载策略：
         // - 视频：在隐藏播放器中预加载首帧，再切换显示
         // - 图片：通过 ImagePreviewService 异步解码并显示
+        // 显示指定索引的文件。根据文件类型（图片/视频）采用不同的加载策略
         private async Task ShowItemAsync(int index, int direction)
         {
             _currentIndex = index;
             _lastDirection = direction;
             string path = _paths[index];
+
+            // ✅ 修复点：刚进方法就立刻刷新 LIVE 按钮状态，不要等图片转圈加载完！
+            UpdateLiveButton(index);
 
             if (IsVideoFile(path))
             {
@@ -141,6 +145,8 @@ namespace LivePhotoBox.Controls
                 var nextPlayer = InactiveVideo;
                 int nextSlot = _activeVideoSlot == 0 ? 1 : 0;
                 nextPlayer.MediaPlayer.IsLoopingEnabled = true;
+                nextPlayer.MediaPlayer.IsMuted = false;
+                nextPlayer.MediaPlayer.Volume = 1.0;
                 nextPlayer.MediaPlayer.MediaOpened += OnVideoOpened;
                 try
                 {
@@ -185,9 +191,6 @@ namespace LivePhotoBox.Controls
             }
 
             LightboxCounter.Text = $"{index + 1} / {_paths.Count}";
-
-            // 更新 LIVE 按钮显隐
-            UpdateLiveButton(index);
         }
 
         // 根据当前索引更新 LIVE 按钮的可见性
@@ -358,6 +361,8 @@ namespace LivePhotoBox.Controls
             var player = InactiveVideo;
             int slot = _activeVideoSlot == 0 ? 1 : 0;
             player.MediaPlayer.IsLoopingEnabled = false;
+            player.MediaPlayer.IsMuted = false;
+            player.MediaPlayer.Volume = 1.0;
 
             // 注册一次性 MediaEnded 回调，播完恢复照片
             void OnEnded(MediaPlayer sender, object args)

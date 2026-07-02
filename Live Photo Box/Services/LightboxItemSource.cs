@@ -5,14 +5,16 @@
  * 自动填充 Live Photo 视频源信息，供 LightboxPreview 使用。
  *
  * 两种来源模式：
- *   - FromMergeTasks：配对文件，直接用 MergeTask.VideoPath
- *   - FromSplitTasks：单文件实况，解析 XMP 获取追加视频段长度
- *   - FromPaths：通用回退，自动探测目录内配对视频 + 单文件 XMP
+ * - FromMergeTasks：配对文件，直接用 MergeTask.VideoPath
+ * - FromSplitTasks：单文件实况，解析 XMP 获取追加视频段长度，以及支持同名配对视频
+ * - FromPaths：通用回退，自动探测目录内配对视频 + 单文件 XMP
  */
 
 using LivePhotoBox.Models;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
@@ -27,53 +29,75 @@ namespace LivePhotoBox.Services
         /// 从 MergeTask 列表构造 LightboxItem（模式 A — 配对文件）。
         /// 直接使用 MergeTask 中已有的 VideoPath——扫描阶段已确认配对。
         /// </summary>
-        public static List<LightboxItem> FromMergeTasks(IReadOnlyList<MergeTask> tasks)
+        public static List<LightboxItem> FromMergeTasks(IEnumerable<MergeTask> tasks)
+        {
+            return tasks.Select(t => new LightboxItem
+            {
+                ImagePath = t.ImagePath,
+
+                // ✅ 修复点：必须严格处理 VideoPath。如果是空的，必须传 null！
+                // 否则灯箱底层的 IsLivePhoto 属性会判断失误
+                VideoPath = string.IsNullOrWhiteSpace(t.VideoPath) ? null : t.VideoPath,
+
+                AppendedVideoLength = 0
+            }).ToList();
+        }
+
+        /// <summary>
+        /// 从 RepairTask 列表构造 LightboxItem。
+        /// 配对任务直接复用扫描阶段的 File1+File2 配对信息，零 I/O。
+        /// </summary>
+        public static List<LightboxItem> FromRepairTasks(IReadOnlyList<RepairTask> tasks)
         {
             var items = new List<LightboxItem>(tasks.Count);
             foreach (var t in tasks)
             {
-                bool hasVideo = !string.IsNullOrWhiteSpace(t.VideoPath);
-                bool videoExists = hasVideo && File.Exists(t.VideoPath);
+                // 跳过分组标题
+                if (t.IsGroupHeader) continue;
 
-                // 每次必输出：确认此方法被执行，且显示每个 Task 的视频状态
-                LogService.Info(
-                    $"Lightbox: MergeTask[{t.Index}] Img='{Path.GetFileName(t.ImagePath)}' " +
-                    $"Vid='{(hasVideo ? Path.GetFileName(t.VideoPath!) : "NULL")}' " +
-                    $"Exists={videoExists} → LIVE={(videoExists ? "YES" : "NO")}",
-                    LogSource.Scan);
+                string imagePath = t.File1Path;
+                string? videoPath = null;
+
+                if (t.IsPaired)
+                {
+                    // 配对任务：照片=ImagePath，对应的另一个=VideoPath
+                    var e1 = t.File1Entry;
+                    var e2 = t.File2Entry;
+                    if (e1 != null && e2 != null)
+                    {
+                        imagePath = e1.IsImage ? e1.FilePath : e2.FilePath;
+                        videoPath = e1.IsImage ? e2.FilePath : e1.FilePath;
+                    }
+                }
 
                 items.Add(new LightboxItem
                 {
-                    ImagePath = t.ImagePath,
-                    VideoPath = videoExists ? t.VideoPath : null
+                    ImagePath = imagePath,
+                    VideoPath = videoPath
                 });
             }
             return items;
         }
 
         /// <summary>
-        /// 从 SplitTask 列表构造 LightboxItem（模式 B — 单文件实况）。
-        /// 使用 LivePhotoSplitService 的成熟元数据读取逻辑，确保与拆分流程一致。
+        /// 从 SplitTask 列表构造 LightboxItem（模式 B — 单文件实况 + 模式 A 苹果配对兜底）。
+        /// 视频长度直接从 SplitTask.AppendedVideoLength 读取，扫描阶段已解析，零 I/O。
         /// </summary>
-        public static async Task<List<LightboxItem>> FromSplitTasksAsync(IReadOnlyList<SplitTask> tasks)
+        public static List<LightboxItem> FromSplitTasks(IReadOnlyList<SplitTask> tasks)
         {
             var items = new List<LightboxItem>(tasks.Count);
             foreach (var t in tasks)
             {
-                long videoLen = 0;
-                try
-                {
-                    if (File.Exists(t.SourcePath))
-                    {
-                        string meta = await LivePhotoSplitService.ReadMetadataFromFileAsync(t.SourcePath);
-                        videoLen = LivePhotoSplitService.GetAppendedVideoLength(meta);
-                    }
-                }
-                catch { videoLen = 0; }
+                // 优先用扫描时已解析的视频段长度（零 I/O）
+                long videoLen = t.AppendedVideoLength;
+
+                // 兜底：苹果格式同名配对视频（仅当不是单文件实况时才查）
+                string? videoPath = videoLen > 0 ? null : FindPairedVideo(t.SourcePath);
 
                 items.Add(new LightboxItem
                 {
                     ImagePath = t.SourcePath,
+                    VideoPath = videoPath,
                     AppendedVideoLength = videoLen > 0 ? videoLen : 0
                 });
             }
@@ -82,48 +106,56 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// 从文件路径列表构造 LightboxItem（通用回退）。
-        /// 自动探测同目录配对视频 + 单文件实况 XMP 解析。
-        /// 用于 RepairPage 等没有现成 Task 信息的场景。
+        /// ✨ 修复：同样引入高并发机制，防止在多选文件时卡死 UI。
         /// </summary>
         public static async Task<List<LightboxItem>> FromPathsAsync(IReadOnlyList<string> paths)
         {
             if (paths.Count == 0) return new List<LightboxItem>();
 
-            var items = new List<LightboxItem>(paths.Count);
-            foreach (var path in paths)
+            var items = new LightboxItem[paths.Count];
+            using var semaphore = new SemaphoreSlim(System.Environment.ProcessorCount * 2);
+
+            var loadTasks = paths.Select(async (path, index) =>
             {
-                string? videoPath = null;
-                long videoLen = 0;
-
-                if (File.Exists(path))
+                await semaphore.WaitAsync();
+                try
                 {
-                    // 1. 先尝试同目录配对视频
-                    videoPath = FindPairedVideo(path);
+                    string? videoPath = null;
+                    long videoLen = 0;
 
-                    // 2. 无配对视频 → 尝试单文件实况解析（仅 JPEG）
-                    if (videoPath == null)
+                    if (File.Exists(path))
                     {
-                        string ext = Path.GetExtension(path)?.ToLowerInvariant() ?? "";
-                        if (ext == ".jpg" || ext == ".jpeg")
+                        videoPath = FindPairedVideo(path);
+                        if (videoPath == null)
                         {
-                            try
+                            string ext = Path.GetExtension(path)?.ToLowerInvariant() ?? "";
+                            if (ext == ".jpg" || ext == ".jpeg" || ext == ".heic")
                             {
-                                string meta = await LivePhotoSplitService.ReadMetadataFromFileAsync(path);
-                                videoLen = LivePhotoSplitService.GetAppendedVideoLength(meta);
+                                try
+                                {
+                                    string meta = await LivePhotoSplitService.ReadMetadataFromFileAsync(path);
+                                    videoLen = LivePhotoSplitService.GetAppendedVideoLength(meta);
+                                }
+                                catch { videoLen = 0; }
                             }
-                            catch { videoLen = 0; }
                         }
                     }
-                }
 
-                items.Add(new LightboxItem
+                    items[index] = new LightboxItem
+                    {
+                        ImagePath = path,
+                        VideoPath = videoPath,
+                        AppendedVideoLength = videoLen > 0 ? videoLen : 0
+                    };
+                }
+                finally
                 {
-                    ImagePath = path,
-                    VideoPath = videoPath,
-                    AppendedVideoLength = videoLen > 0 ? videoLen : 0
-                });
-            }
-            return items;
+                    semaphore.Release();
+                }
+            });
+
+            await Task.WhenAll(loadTasks);
+            return new List<LightboxItem>(items);
         }
 
         /// <summary>

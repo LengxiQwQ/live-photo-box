@@ -150,15 +150,27 @@ namespace LivePhotoBox.Views
             catch (Exception ex) { LogService.Debug($"SplitPage reveal in explorer failed: {ex.Message}", LogSource.UI); }
         }
 
-        // 缩略图按钮点击：在 Lightbox 中全屏预览文件（含单文件实况视频播放）
-        private async void ThumbnailButton_Click(object sender, RoutedEventArgs e)
+        // 加一把简单的状态锁，防止用户在短暂加载时疯狂狂点导致灾难
+        private bool _isOpeningLightbox = false;
+
+        // 缩略图按钮点击：在 Lightbox 中全屏预览文件（扫描时已解析视频信息，零 I/O）
+        private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
+            if (_isOpeningLightbox) return;
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            var items = await LightboxItemSource.FromSplitTasksAsync(ViewModel.Tasks);
-            var paths = items.Select(i => i.ImagePath).ToList();
-            int idx = paths.IndexOf(path);
-            if (idx < 0) return;
-            _ = ((MainWindow)App.MainWindow!).Lightbox.ShowAsync(items, idx);
+
+            _isOpeningLightbox = true;
+            try
+            {
+                var items = LightboxItemSource.FromSplitTasks(ViewModel.Tasks);
+                int idx = items.FindIndex(i => i.ImagePath == path);
+                if (idx >= 0)
+                    _ = ((MainWindow)App.MainWindow!).Lightbox.ShowAsync(items, idx);
+            }
+            finally
+            {
+                _isOpeningLightbox = false;
+            }
         }
 
         private void SplitTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args) { }

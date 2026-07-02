@@ -32,6 +32,9 @@ namespace LivePhotoBox.Models
         // 任务失败且有错误详情时返回 true
         public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
 
+        // 追加视频段长度（扫描时填入，灯箱直接读取，避免二次 IO）
+        public long AppendedVideoLength { get; set; }
+
         #endregion
 
         #region Thumbnail

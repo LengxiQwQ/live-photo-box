@@ -1,4 +1,3 @@
-<!-- LightboxPreview.xaml — 全屏灯箱控件：半透明遮罩中预览图片/视频，支持双播放器无缝切换 -->
 <UserControl
     x:Class="LivePhotoBox.Controls.LightboxPreview"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -9,13 +8,13 @@
     IsTabStop="False">
 
     <Grid>
-        <!-- 全屏灯箱 -->
         <Grid x:Name="LightboxOverlay" Visibility="Collapsed"
               Background="#000000"
               PointerWheelChanged="LightboxOverlay_PointerWheelChanged">
             <Border Background="Transparent" Tapped="LightboxBackdrop_Tapped"/>
-            <!-- LIVE 按钮：仅当当前文件为实况照片时显示 -->
+
             <Border x:Name="LivePhotoButton" Visibility="Collapsed"
+                    Canvas.ZIndex="100"
                     HorizontalAlignment="Left" VerticalAlignment="Top"
                     Margin="16" Padding="12,6" CornerRadius="14"
                     Background="#CC000000" Tapped="LivePhotoButton_Tapped">
@@ -25,23 +24,27 @@
                                VerticalAlignment="Center"/>
                 </StackPanel>
             </Border>
+
             <Button x:Name="LightboxCloseButton"
+                    Canvas.ZIndex="100"
                     HorizontalAlignment="Right" VerticalAlignment="Top"
                     Margin="16" Width="40" Height="40" CornerRadius="20"
                     Background="#44000000" BorderThickness="0"
                     Click="LightboxCloseButton_Click">
                 <FontIcon Glyph="&#xE711;" FontSize="16" Foreground="White"/>
             </Button>
+
             <Image x:Name="LightboxImage" Stretch="Uniform"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    IsTapEnabled="True" Tapped="LightboxBackdrop_Tapped"/>
-            <!-- 双播放器交替切源：永远在隐藏的播放器里设源，可见的从不动源 -->
+
             <MediaPlayerElement x:Name="LightboxVideo0"
                    Visibility="Collapsed"
                    AutoPlay="True"
                    AreTransportControlsEnabled="False"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    IsTapEnabled="True" Tapped="LightboxBackdrop_Tapped"/>
+
             <MediaPlayerElement x:Name="LightboxVideo1"
                    Visibility="Collapsed"
                    AutoPlay="True"
@@ -54,6 +57,7 @@
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    Width="48" Height="48"
                    Foreground="White"/>
+
             <Grid x:Name="VideoProgressBar" Visibility="Collapsed"
                   VerticalAlignment="Bottom" Height="3"
                   HorizontalAlignment="Stretch">
