@@ -191,7 +191,7 @@
 		</PropertyGroup>
 		<Message Importance="high" Text="Version synced from Package.appxmanifest: $(_ManifestVersion)" Condition="$(_ManifestVersion) != ''" />
 		<!-- Write version back to .csproj so git can track it -->
-		<Exec Command="powershell -NoProfile -Command &quot;$xml = [xml](Get-Content 'Live Photo Box.csproj' -Raw); $xml.Project.PropertyGroup.Version = '$(_ManifestVersion)'; $xml.Project.PropertyGroup.FileVersion = '$(_ManifestVersion)'; $xml.Save('Live Photo Box.csproj')&quot;" Condition="$(_ManifestVersion) != ''" />
+<Exec Command="powershell -NoProfile -Command &quot;(Get-Content 'Live Photo Box.csproj' -Raw) -replace '&lt;Version&gt;[\d.]+&lt;/Version&gt;', '&lt;Version&gt;$(_ManifestVersion)&lt;/Version&gt;' -replace '&lt;FileVersion&gt;[\d.]+&lt;/FileVersion&gt;', '&lt;FileVersion&gt;$(_ManifestVersion)&lt;/FileVersion&gt;' | Set-Content 'Live Photo Box.csproj' -NoNewline&quot;" Condition="$(_ManifestVersion) != ''" />
 	</Target>
 
 	<!-- Strip unwanted WinUI/WinAppSDK locale satellite folders from output (keep only zh-Hans / en-US) -->
