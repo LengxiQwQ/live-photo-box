@@ -678,6 +678,24 @@
   <data name="Msg_EmptyQueue" xml:space="preserve">
     <value>当前没有可处理的文件。请先设置输入目录。</value>
   </data>
+  <data name="MergePage_EmptyQueueTitle.Text" xml:space="preserve">
+    <value>队列为空</value>
+  </data>
+  <data name="MergePage_EmptyQueueDesc.Text" xml:space="preserve">
+    <value>请将图片（HEIC/HEIF/JPG/JPEG）与视频（MOV/MP4）放入同一文件夹，点击扫描自动配对合成。</value>
+  </data>
+  <data name="SplitPage_EmptyQueueTitle.Text" xml:space="preserve">
+    <value>队列为空</value>
+  </data>
+  <data name="SplitPage_EmptyQueueDesc.Text" xml:space="preserve">
+    <value>请导入 JPG 格式的单文件实况照片，点击扫描自动识别并拆分出图片和视频。</value>
+  </data>
+  <data name="RepairPage_EmptyQueueTitle.Text" xml:space="preserve">
+    <value>队列为空</value>
+  </data>
+  <data name="RepairPage_EmptyQueueDesc.Text" xml:space="preserve">
+    <value>将 iPhone 拍摄的实况照片导入文件夹，点击扫描自动诊断 Windows 端常见的旋转、拉伸与缩略图异常，一键无损修复。</value>
+  </data>
   <data name="Msg_GoToTutorial" xml:space="preserve">
     <value>查看操作教程</value>
   </data>
@@ -1150,10 +1168,10 @@
     <value>实况照片合成</value>
   </data>
   <data name="HomePage_MergeDesc.Text" xml:space="preserve">
-    <value>将 Apple 实况照片转换为单文件，使用各家安卓协议，使其可在 Windows 等设备上查看。目前仅支持 (照片JPG + MOV/MP4视频)，暂不支持 (照片HEIC/HEIF + MOV/MP4视频) 的实况照片，后续会加入对 HEIC/HEIF 格式的支持, 以及封装为 HEIF 的实况照片。</value>
+    <value>将 Apple 实况照片转换为单文件，使用各家安卓协议，使其可在 Windows 等设备上查看。支持图片（HEIC/HEIF/JPG/JPEG）与视频（MOV/MP4）合成，以及封装为 HEIF 的实况照片。</value>
   </data>
   <data name="HomePage_MergeUsage.Text" xml:space="preserve">
-    <value>将准备好的 (照片JPG + MOV/MP4视频) 放在同一文件夹，点击“开始合成”即可。</value>
+    <value>将准备好的 (照片 JPG/HEIC + MOV/MP4 视频) 放在同一文件夹，点击“开始合成”即可。</value>
   </data>
   <data name="HomePage_SplitTitle.Text" xml:space="preserve">
     <value>实况照片拆分</value>
@@ -1317,7 +1335,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>尚未选择输入文件夹</value>
   </data>
   <data name="MergePage_Msg_NoInputDirectory" xml:space="preserve">
-    <value>请先选择包含待合成文件的文件夹。文件夹内需要准备好静态照片（目前支持 JPG）以及同名的动态视频（MOV 或 MP4 格式）。程序会自动扫描目录并将它们配对合并。</value>
+    <value>请先选择包含待合成文件的文件夹。文件夹内需要准备好静态照片（HEIC/HEIF/JPG/JPEG）与同名视频（MOV/MP4）放入同一目录。程序会自动扫描目录并将它们配对合并。</value>
   </data>
   <data name="SplitPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
     <value>尚未选择输入文件夹</value>

@@ -10,8 +10,8 @@
 		<RootNamespace>LivePhotoBox</RootNamespace>
 		<AssemblyName>Live Photo Box</AssemblyName>
 		<!-- 版本号从 Package.appxmanifest 自动同步，无需手动修改此处 -->
-		<Version>1.15.1.0</Version>
-		<FileVersion>1.15.1.0</FileVersion>
+		<Version>1.15.2.0</Version>
+		<FileVersion>1.15.2.0</FileVersion>
 		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 		<Authors>LengxiQwQ</Authors>
 		<Company>LengxiQwQ</Company>
@@ -190,6 +190,9 @@
 			<FileVersion>$(_ManifestVersion)</FileVersion>
 		</PropertyGroup>
 		<Message Importance="high" Text="Version synced from Package.appxmanifest: $(_ManifestVersion)" Condition="$(_ManifestVersion) != ''" />
+		<!-- Write version back to .csproj so git can track it -->
+		<XmlPoke XmlInputPath="Live Photo Box.csproj" Query="/x:Project/x:PropertyGroup/x:Version" Value="$(_ManifestVersion)" Namespaces="&lt;Namespace Prefix='x' Uri='http://schemas.microsoft.com/developer/msbuild/2003'&gt;" Condition="$(_ManifestVersion) != ''" />
+		<XmlPoke XmlInputPath="Live Photo Box.csproj" Query="/x:Project/x:PropertyGroup/x:FileVersion" Value="$(_ManifestVersion)" Namespaces="&lt;Namespace Prefix='x' Uri='http://schemas.microsoft.com/developer/msbuild/2003'&gt;" Condition="$(_ManifestVersion) != ''" />
 	</Target>
 
 	<!-- Strip unwanted WinUI/WinAppSDK locale satellite folders from output (keep only zh-Hans / en-US) -->

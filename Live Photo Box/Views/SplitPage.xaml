@@ -222,6 +222,22 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
+                    <!-- 队列为空占位提示 -->
+                    <StackPanel Grid.Row="1"
+                                Visibility="{x:Bind ViewModel.EmptyQueueVisibility, Mode=OneWay}"
+                                VerticalAlignment="Center" HorizontalAlignment="Center"
+                                Spacing="14" Margin="0,0,0,60">
+                        <TextBlock x:Uid="SplitPage_EmptyQueueTitle"
+                                   FontSize="20" FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock x:Uid="SplitPage_EmptyQueueDesc"
+                                   FontSize="14"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   HorizontalAlignment="Center" TextWrapping="WrapWholeWords"
+                                   MaxWidth="520" TextAlignment="Center"/>
+                    </StackPanel>
+
                     <!-- 回到顶部悬浮按钮 — 滚动超过 200px 后出现 -->
                     <Button x:Name="ScrollToTopButton"
                             Grid.Row="1"

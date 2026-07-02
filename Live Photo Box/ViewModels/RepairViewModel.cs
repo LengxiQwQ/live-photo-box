@@ -461,6 +461,7 @@ namespace LivePhotoBox.ViewModels
         {
             Tasks.ReplaceRange([]);
             FilteredTasks.ReplaceRange([]);
+            UpdateIsQueueEmpty(0);
             TotalPhotosCount = 0;
             ThumbCorrectCount = 0;
             ThumbErrorCount = 0;
@@ -1239,6 +1240,7 @@ namespace LivePhotoBox.ViewModels
 
                             Tasks.ReplaceRange(rebuilt);
                             FilteredTasks.ReplaceRange(rebuilt);
+                            UpdateIsQueueEmpty(rebuilt.Count);
 
                             // 同步更新计数器
                             ThumbCorrectCount = rebuilt.Sum(t => t.Entries.Count(e => !e.NeedsRepair));

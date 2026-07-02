@@ -195,6 +195,7 @@ namespace LivePhotoBox.ViewModels
         protected override void OnClearState()
         {
             Tasks.ReplaceRange([]);
+            UpdateIsQueueEmpty(0);
             ThumbnailService.ClearCache();
             QueuedCount = 0;
             RecognizedCount = 0;
@@ -356,6 +357,7 @@ namespace LivePhotoBox.ViewModels
                         App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                         {
                             foreach (var t in batch) Tasks.Add(t);
+                            UpdateIsQueueEmpty(Tasks.Count);
                             QueuedCount = Tasks.Count;
                             ScanItemsFlushed?.Invoke(this, EventArgs.Empty);
                         });

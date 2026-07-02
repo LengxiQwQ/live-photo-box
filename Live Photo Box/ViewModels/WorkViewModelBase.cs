@@ -95,6 +95,22 @@ namespace LivePhotoBox.ViewModels
         // 是否不在扫描中（取反）。
         public bool IsNotScanning => !IsScanning;
 
+        // 队列是否为空（用于显示空状态占位提示）。
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(EmptyQueueVisibility))]
+        private bool _isQueueEmpty = true;
+
+        // 空队列占位可见性：队列为空时 Visible，否则 Collapsed。
+        public Visibility EmptyQueueVisibility => IsQueueEmpty ? Visibility.Visible : Visibility.Collapsed;
+
+        /// <summary>
+        /// 由子类在 Tasks 集合变更后调用，同步更新空队列状态。
+        /// </summary>
+        protected void UpdateIsQueueEmpty(int taskCount)
+        {
+            IsQueueEmpty = taskCount == 0;
+        }
+
         // 输入配置是否可编辑（处理中和扫描中不可编辑）。
         public bool CanEditInputConfiguration => !IsProcessing && !IsScanning;
         // 输出配置是否可编辑（处理中不可编辑）。

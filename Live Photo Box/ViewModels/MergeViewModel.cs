@@ -285,6 +285,7 @@ namespace LivePhotoBox.ViewModels
         protected override void OnClearState()
         {
             Tasks.ReplaceRange([]);
+            UpdateIsQueueEmpty(0);
             ThumbnailService.ClearCache();
             TotalPairsCount = 0;
             StandaloneImagesCount = 0;
@@ -514,6 +515,7 @@ namespace LivePhotoBox.ViewModels
 
                 int totalPairs = tempTasks.Count;
                 Tasks.ReplaceRange(tempTasks);
+                UpdateIsQueueEmpty(tempTasks.Count);
                 TotalPairsCount = totalPairs;
                 StandaloneImagesCount = standaloneImg;
                 StandaloneVideosCount = standaloneVid;
