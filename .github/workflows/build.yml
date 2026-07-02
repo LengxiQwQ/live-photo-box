@@ -78,30 +78,64 @@ jobs:
           }
         shell: pwsh
 
-      # ── 5.5 清理多余语言包（仅保留 zh-CN / en-us）─────────
-      - name: Strip unused locale folders
+      # ── 5.5 清理无用文件（参照 scripts/build-release.ps1）──
+      - name: Strip unused files
         run: |
+          $outDir = "publish\portable_x64"
+          $removed = 0
+
+          # ── 1. 清理多余语言文件夹（顶层，正则匹配）────────
           $keepLocales = @('zh-CN','en-us')
-          $count = 0
-          Get-ChildItem -Path "publish\portable_x64" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+          Get-ChildItem -Path $outDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
             if ($_.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $_.Name -notin $keepLocales) {
               Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue
-              $count++
+              $removed++
             }
           }
-          Write-Host "Removed $count locale folders (kept $($keepLocales -join ', '))"
-          Get-ChildItem -Path "publish\portable_x64" -Recurse -Filter '*.mui' -ErrorAction SilentlyContinue | ForEach-Object {
-            if ($_.Directory.Name -notin $keepLocales) {
-              Remove-Item -Recurse -Force $_.Directory.FullName -ErrorAction SilentlyContinue
-              $count++
-            }
-          }
-          Write-Host "Total locale dirs stripped: $count"
-          # 删除开发机残留的运行时配置文件
-          if (Test-Path "publish\portable_x64\appsettings.json") {
-            Remove-Item -Force "publish\portable_x64\appsettings.json"
+          Write-Host "Removed $removed top-level locale folders (kept $($keepLocales -join ', '))"
+
+          # ── 2. 删除运行时生成的配置文件（开发机残留）─────
+          if (Test-Path "$outDir\appsettings.json") {
+            Remove-Item -Force "$outDir\appsettings.json"
             Write-Host "Removed appsettings.json"
           }
+
+          # ── 3. 删除 AI/ML 无用文件 ────────────────────────
+          foreach ($f in @('DirectML.dll','onnxruntime.dll','onnxruntime_providers_shared.dll','Microsoft.ML.OnnxRuntime.dll')) {
+            $p = Join-Path $outDir $f
+            if (Test-Path $p) { Remove-Item -Force $p; Write-Host "Removed $f" }
+          }
+          if (Test-Path "$outDir\NpuDetect") { Remove-Item -Recurse -Force "$outDir\NpuDetect"; Write-Host "Removed NpuDetect/" }
+          Get-ChildItem $outDir -Filter 'Microsoft.Windows.AI*' -ErrorAction SilentlyContinue | Remove-Item -Force
+          Get-ChildItem $outDir -Filter 'Microsoft.Windows.AI*' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+
+          # ── 4. 删除 AI 负载配置和杂项 ─────────────────────
+          Remove-Item -Force "$outDir\workloads.json" -ErrorAction SilentlyContinue
+          Remove-Item -Force "$outDir\WindowsAppRuntime.png" -ErrorAction SilentlyContinue
+
+          # ── 5. 删除调试符号（发布版不需要）────────────────
+          Remove-Item -Force "$outDir\Live Photo Box.pdb" -ErrorAction SilentlyContinue
+
+          # ── 6. 删除 XML 文档 ──────────────────────────────
+          Remove-Item -Force "$outDir\*.xml" -ErrorAction SilentlyContinue
+
+          # ── 7. 递归清理 .mui 原生语言资源 ─────────────────
+          # 从 csproj 读取 AppSupportedNativeLocales（单一真相源）
+          [xml]$csprojXml = Get-Content 'Live Photo Box\Live Photo Box.csproj'
+          $nativeLocales = ($csprojXml.Project.PropertyGroup.AppSupportedNativeLocales | Where-Object { $_ }) -split ';'
+          Write-Host "AppSupportedNativeLocales from csproj: $($nativeLocales -join ', ')"
+          $muiRemoved = 0
+          Get-ChildItem -Path $outDir -Recurse -Filter '*.mui' -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.Directory.Name -notin $nativeLocales) {
+              Remove-Item -Recurse -Force $_.Directory.FullName -ErrorAction SilentlyContinue
+              $muiRemoved++
+            }
+          }
+          Write-Host "Removed $muiRemoved .mui resource dirs"
+
+          # ── 8. 最终大小 ────────────────────────────────────
+          $kb = (Get-ChildItem $outDir -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1KB
+          Write-Host "Final publish size: $('{0:N0}' -f $kb) KB"
         shell: pwsh
 
       # ── 6. 打包便携版 zip ────────────────────────────────────
