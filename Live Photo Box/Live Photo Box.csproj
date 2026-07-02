@@ -191,8 +191,7 @@
 		</PropertyGroup>
 		<Message Importance="high" Text="Version synced from Package.appxmanifest: $(_ManifestVersion)" Condition="$(_ManifestVersion) != ''" />
 		<!-- Write version back to .csproj so git can track it -->
-		<XmlPoke XmlInputPath="Live Photo Box.csproj" Query="/x:Project/x:PropertyGroup/x:Version" Value="$(_ManifestVersion)" Namespaces="&lt;Namespace Prefix='x' Uri='http://schemas.microsoft.com/developer/msbuild/2003'&gt;" Condition="$(_ManifestVersion) != ''" />
-		<XmlPoke XmlInputPath="Live Photo Box.csproj" Query="/x:Project/x:PropertyGroup/x:FileVersion" Value="$(_ManifestVersion)" Namespaces="&lt;Namespace Prefix='x' Uri='http://schemas.microsoft.com/developer/msbuild/2003'&gt;" Condition="$(_ManifestVersion) != ''" />
+		<Exec Command="powershell -NoProfile -Command &quot;$xml = [xml](Get-Content 'Live Photo Box.csproj' -Raw); $xml.Project.PropertyGroup.Version = '$(_ManifestVersion)'; $xml.Project.PropertyGroup.FileVersion = '$(_ManifestVersion)'; $xml.Save('Live Photo Box.csproj')&quot;" Condition="$(_ManifestVersion) != ''" />
 	</Target>
 
 	<!-- Strip unwanted WinUI/WinAppSDK locale satellite folders from output (keep only zh-Hans / en-US) -->
