@@ -62,45 +62,24 @@
 	</ItemGroup>
 
 	<ItemGroup>
-       <None Remove="Tools\exiftool.exe" />
-		<None Remove="Tools\exiftool_files\exiftool.pl" />
-		<None Remove="Tools\exiftool_files\libgcc_s_seh-1.dll" />
-		<None Remove="Tools\exiftool_files\liblzma-5__.dll" />
-		<None Remove="Tools\exiftool_files\libstdc++-6.dll" />
-		<None Remove="Tools\exiftool_files\libwinpthread-1.dll" />
-		<None Remove="Tools\exiftool_files\LICENSE" />
-		<None Remove="Tools\exiftool_files\Licenses_Strawberry_Perl.zip" />
-		<None Remove="Tools\exiftool_files\perl.exe" />
-		<None Remove="Tools\exiftool_files\perl532.dll" />
-		<None Remove="Tools\exiftool_files\readme_windows.txt" />
-		<None Remove="Tools\exiftool_files\windows_exiftool.txt" />
-       <None Remove="Tools\jpegtran.exe" />
 		<None Remove="Views\AboutPage.xaml" />
 		<None Remove="Views\MergePage.xaml" />
 		<None Remove="Views\HomePage.xaml" />
         <!-- Remove any residual font assets that were deleted from disk but still referenced by the project -->
 		<Content Remove="Assets\Fonts\**\*.*" />
 		<None Remove="Assets\Fonts\**\*.*" />
+		<None Remove="Tools\**" />
 	</ItemGroup>
 
 	<ItemGroup>
         <Content Include="Assets\**\*.*">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
+        <Compile Remove="Tools\**" />
+        <EmbeddedResource Remove="Tools\**" />
+        <Page Remove="Tools\**" />
 		<!-- Include exiftool executable and any files under exiftool_files if present. Using wildcard avoids MSBuild errors when files are absent. -->
-     <Content Include="Tools\exiftool.exe">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-		<Content Include="Tools\exiftool_files\**\*.*">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-     <Content Include="Tools\jpegtran.exe">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
      <!-- FFmpeg for video transcoding -->
-     <Content Include="Tools\ffmpeg.exe" Condition="Exists('Tools\ffmpeg.exe')">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
      <Content Include="Tools\ffprobe.exe" Condition="Exists('Tools\ffprobe.exe')">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
@@ -203,17 +182,14 @@
 
 	<!-- 编译时从 Package.appxmanifest 自动同步版本号到程序集，确保单一版本来源 -->
 	<Target Name="SyncVersionFromManifest" BeforeTargets="BeforeBuild">
-		<XmlPeek XmlInputPath="Package.appxmanifest"
-		         Query="/x:Package/x:Identity/@Version"
-		         Namespaces="&lt;Namespace Prefix='x' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10'/&gt;">
+		<XmlPeek XmlInputPath="Package.appxmanifest" Query="/x:Package/x:Identity/@Version" Namespaces="&lt;Namespace Prefix='x' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10'/&gt;">
 			<Output TaskParameter="Result" PropertyName="_ManifestVersion" />
 		</XmlPeek>
 		<PropertyGroup Condition="$(_ManifestVersion) != ''">
 			<Version>$(_ManifestVersion)</Version>
 			<FileVersion>$(_ManifestVersion)</FileVersion>
 		</PropertyGroup>
-		<Message Importance="high" Text="Version synced from Package.appxmanifest: $(_ManifestVersion)"
-		         Condition="$(_ManifestVersion) != ''" />
+		<Message Importance="high" Text="Version synced from Package.appxmanifest: $(_ManifestVersion)" Condition="$(_ManifestVersion) != ''" />
 	</Target>
 
 	<!-- Strip unwanted WinUI/WinAppSDK locale satellite folders from output (keep only zh-Hans / en-US) -->
@@ -233,4 +209,8 @@
 		<Target Name="StripUnwantedLocales" AfterTargets="Build" Condition="Exists('$(OutDir)')">
 		<Exec Command="powershell -NoProfile -NoLogo -Command &quot;Get-ChildItem '$(OutDir)' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $_.Name -notin @('en-US','en-us','zh-Hans','zh-CN') } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue&quot;" IgnoreExitCode="true" />
 	</Target>
+
+		<ItemGroup>
+		  <PRIResource Remove="Tools\**" />
+		</ItemGroup>
 </Project>

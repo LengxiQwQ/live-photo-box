@@ -260,14 +260,15 @@ namespace LivePhotoBox.Views
 
         // ── 全屏预览 ──────────────────────────────────
 
-        // 缩略图按钮点击：在 Lightbox 中全屏预览文件
+        // 缩略图按钮点击：在 Lightbox 中全屏预览文件（含 Live Photo 配对视频播放）
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            var paths = ViewModel.Tasks.Select(t => t.ImagePath).ToList();
+            var items = LightboxItemSource.FromMergeTasks(ViewModel.Tasks);
+            var paths = items.Select(i => i.ImagePath).ToList();
             int idx = paths.IndexOf(path);
             if (idx < 0) return;
-            _ = ((MainWindow)App.MainWindow!).Lightbox.ShowAsync(paths, idx);
+            _ = ((MainWindow)App.MainWindow!).Lightbox.ShowAsync(items, idx);
         }
 
         // ── 错误详情提示 ──────────────────────────────────
