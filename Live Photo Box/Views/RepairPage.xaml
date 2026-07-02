@@ -378,6 +378,37 @@
                         </DataTemplate>
                     </ListView.ItemTemplate>
                 </ListView>
+
+                    <!-- 回到顶部悬浮按钮 — 滚动超过 200px 后出现 -->
+                    <Button x:Name="ScrollToTopButton"
+                            Grid.Row="1"
+                            Canvas.ZIndex="100"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Bottom"
+                            Width="32" Height="32"
+                            Margin="0,0,12,12"
+                            CornerRadius="16"
+                            Visibility="Collapsed"
+                            IsTabStop="False"
+                            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            Padding="0"
+                            ToolTipService.ToolTip="回到顶部">
+                        <Button.Resources>
+                            <SolidColorBrush x:Key="ButtonBackgroundPointerOver"
+                                             Color="{ThemeResource SolidBackgroundFillColorSecondary}"/>
+                            <SolidColorBrush x:Key="ButtonBackgroundPressed"
+                                             Color="{ThemeResource SolidBackgroundFillColorTertiary}"/>
+                        </Button.Resources>
+                        <Button.Transitions>
+                            <TransitionCollection>
+                                <EntranceThemeTransition FromVerticalOffset="8"/>
+                            </TransitionCollection>
+                        </Button.Transitions>
+                        <FontIcon Glyph="&#xE70E;" FontSize="14"
+                                  Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </Button>
                 </Grid>
             </Border>
 

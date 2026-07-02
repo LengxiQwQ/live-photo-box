@@ -36,6 +36,9 @@ namespace LivePhotoBox.Views
         // 任务列表自动滚动器，在处理/扫描过程中保持当前任务可见
         private readonly TaskListAutoScroller _scroller;
 
+        // 回到顶部悬浮按钮辅助类
+        private ScrollToTopButtonHelper? _scrollToTopHelper;
+
         // 是否已绑定 ViewModel 事件
         private bool _eventsHooked;
 
@@ -70,6 +73,10 @@ namespace LivePhotoBox.Views
         private void RepairPage_Loaded(object sender, RoutedEventArgs e)
         {
             _scroller.Attach(RepairTaskListView);
+
+            // 回到顶部悬浮按钮
+            _scrollToTopHelper ??= new ScrollToTopButtonHelper(RepairTaskListView, ScrollToTopButton);
+            _scrollToTopHelper.Attach();
 
             // 查找 ListView 内部的 ScrollViewer 并注册 ViewChanged 事件
             if (!_scrollViewerHooked)
@@ -107,6 +114,8 @@ namespace LivePhotoBox.Views
         // 页面卸载时分离自动滚动器、移除滚动事件、停止定时器、解绑 ViewModel 事件
         private void RepairPage_Unloaded(object sender, RoutedEventArgs e)
         {
+            _scrollToTopHelper?.Detach();
+
             _scroller.NotifyPageUnloading();
             _scroller.Detach();
 

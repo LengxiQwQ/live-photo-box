@@ -853,6 +853,9 @@
   <data name="RepairPage_Task_Skipped" xml:space="preserve">
     <value>已跳过</value>
   </data>
+  <data name="RepairPage_Task_SkippedNoIssue" xml:space="preserve">
+    <value>已跳过（无需处理）</value>
+  </data>
   <data name="RepairPage_Task_Copied" xml:space="preserve">
     <value>已复制</value>
   </data>
@@ -1726,6 +1729,15 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="SettingsPage_Repair_LivePhotoVideoDesc.Text" xml:space="preserve">
     <value>启用后将同时修复时长超过 3.5 秒的普通长视频，长视频一般不用修复</value>
+  </data>
+  <data name="RepairPage_Task_SkippedHeic" xml:space="preserve">
+    <value>已跳过（HEIC/HEIF）</value>
+  </data>
+  <data name="RepairPage_Task_SkippedNonApple" xml:space="preserve">
+    <value>已跳过（非Apple照片）</value>
+  </data>
+  <data name="RepairPage_Task_SkippedDuration" xml:space="preserve">
+    <value>已跳过（时长超过3.5秒）</value>
   </data>
   <data name="RepairPage_Task_SkippedNonLivePhoto" xml:space="preserve">
     <value>已跳过（非实况照片）</value>

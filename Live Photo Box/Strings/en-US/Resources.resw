@@ -854,6 +854,9 @@ It's just as capable at combining and splitting: any image + video → a standar
   <data name="RepairPage_Task_Skipped" xml:space="preserve">
     <value>Skipped</value>
   </data>
+  <data name="RepairPage_Task_SkippedNoIssue" xml:space="preserve">
+    <value>Skipped (no issue)</value>
+  </data>
   <data name="RepairPage_Task_Copied" xml:space="preserve">
     <value>Copied</value>
   </data>
@@ -1728,6 +1731,15 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="SettingsPage_Repair_LivePhotoVideoDesc.Text" xml:space="preserve">
     <value>When enabled, long videos (over 3.5 seconds) will also be repaired. Disable to repair only Live Photo videos.</value>
+  </data>
+  <data name="RepairPage_Task_SkippedHeic" xml:space="preserve">
+    <value>Skipped (HEIC/HEIF)</value>
+  </data>
+  <data name="RepairPage_Task_SkippedNonApple" xml:space="preserve">
+    <value>Skipped (non-Apple)</value>
+  </data>
+  <data name="RepairPage_Task_SkippedDuration" xml:space="preserve">
+    <value>Skipped (duration > 3.5s)</value>
   </data>
   <data name="RepairPage_Task_SkippedNonLivePhoto" xml:space="preserve">
     <value>Skipped (non-live-photo)</value>

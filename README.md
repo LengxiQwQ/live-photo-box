@@ -177,7 +177,7 @@ dotnet run --project "Live Photo Box/Live Photo Box.csproj"
 
 ```
 live-photo-box/
-├── Live Photo Box/              # Main project (WinUI 3 MSIX app)
+├── Live Photo Box/            # Main project (WinUI 3 MSIX app)
 │   ├── Assets/                # Icons, screenshots, static resources
 │   ├── Controls/              # Custom controls (fullscreen lightbox, status bar)
 │   ├── Converters/            # XAML value converters

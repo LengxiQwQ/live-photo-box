@@ -2,21 +2,14 @@
  * LightboxPreview.xaml.cs
  *
  * 全屏预览控件（Lightbox）。继承 UserControl，提供沉浸式图片/视频浏览：
- *   - 图片交叉淡入淡出翻页 + 缩放手势（ScrollViewer ZoomMode）
- *   - 双播放器槽位实现视频无缝切换（TCS 事件驱动，无忙等轮询）
- *   - 视频播放控制栏（暂停/进度/时间/音量，3 秒无操作自动隐藏）
- *   - 底部缩略图导航条（虚拟化按需加载）
- *   - LIVE 按钮脉冲动画 + Acrylic 玻璃底板
- *   - 关闭按钮悬浮缩放动画
- *   - 实况照片播放（单次播放，播完自动恢复照片）
- *   - Acrylic 半透明磨砂背景
- *
- * 对应 ViewModel：无（由调用方传入文件列表）
- *
- * 生命周期：
- *   - ShowAsync(items, startIndex) → 打开预览，构建缩略图
- *   - 键盘/鼠标/缩略图条导航 → 翻页 → 交叉淡入淡出
- *   - Close() → 关闭并清理资源（含临时视频文件）
+ * - 图片交叉淡入淡出翻页 + 缩放手势（ScrollViewer ZoomMode）
+ * - 双播放器槽位实现视频无缝切换（TCS 事件驱动，无忙等轮询）
+ * - 视频播放控制栏（暂停/进度/时间/音量，3 秒无操作自动隐藏）
+ * - 底部缩略图导航条（虚拟化按需加载）
+ * - LIVE 按钮脉冲动画 + Acrylic 玻璃底板
+ * - 关闭按钮悬浮缩放动画
+ * - 实况照片播放（单次播放，播完自动恢复照片）
+ * - Acrylic 半透明磨砂背景
  */
 
 using LivePhotoBox.Models;
@@ -58,7 +51,6 @@ namespace LivePhotoBox.Controls
         private IReadOnlyList<LightboxItem> _items = Array.Empty<LightboxItem>();
         private int _currentIndex = -1;
         private int _lastDirection = 1;
-        private bool _isNavigating;
         private int _activeVideoSlot = -1;
         private Microsoft.UI.Dispatching.DispatcherQueueTimer? _transportUpdateTimer;
         private KeyEventHandler? _pageKeyDownHandler;
@@ -67,38 +59,42 @@ namespace LivePhotoBox.Controls
         private bool _isUserSeeking;
         private bool _isThumbnailNavigating;
         private Microsoft.UI.Dispatching.DispatcherQueueTimer? _transportAutoHideTimer;
-
-        // ── 属性 ──────────────────────────────────────
+        private DateTime _lastSeekTime = DateTime.MinValue;
+        private FrameworkElement? _currentVisual;
+        private int _transitionId = 0;
+        private CancellationTokenSource? _loadCts;
 
         public bool IsOpen => LightboxOverlay.Visibility == Visibility.Visible;
-
-        /// <summary>缩略图导航条数据源（x:Bind 绑定）。</summary>
         public ObservableCollection<ThumbnailStripItem> ThumbnailItems { get; } = new();
 
-        // ── 字段（续）─────────────────────────────────
-
-        private Brush? _liveButtonDefaultBg; // 保存 XAML 原始 AcrylicBrush
+        private Brush? _liveButtonDefaultBg;
 
         // ── 构造函数 ──────────────────────────────────
 
         public LightboxPreview()
         {
             InitializeComponent();
+
+            // 🔴 修复 1：允许灯箱自身获取焦点，否则全局按键无法捕获
+            this.IsTabStop = true;
+
             _pageKeyDownHandler = new KeyEventHandler(OnKeyDown);
             AddHandler(UIElement.KeyDownEvent, _pageKeyDownHandler, true);
-            _liveButtonDefaultBg = LivePhotoButton.Background; // 保存原始 Acrylic
+            _liveButtonDefaultBg = LivePhotoButton.Background;
+
+            // 🔴 修复 2：XAML 中可能只绑定了 Tapped。我们在这里强行补上 Click 事件。
+            // 这样一来，当焦点在实况按钮上时，按空格键就会正确触发播放了！
+            LivePhotoButton.Tapped += (s, e) => { _ = TriggerLivePhotoPlaybackAsync(); };
         }
 
         // ── 公开 API ──────────────────────────────────
 
-        /// <summary>向后兼容重载：从文件路径列表打开灯箱。</summary>
         public async Task ShowAsync(IReadOnlyList<string> paths, int startIndex)
         {
             var items = await LightboxItemSource.FromPathsAsync(paths);
             await ShowAsync(items, startIndex);
         }
 
-        /// <summary>从 LightboxItem 列表打开灯箱，构建缩略图条。</summary>
         public async Task ShowAsync(IReadOnlyList<LightboxItem> items, int startIndex)
         {
             if (items == null || items.Count == 0) return;
@@ -106,7 +102,6 @@ namespace LivePhotoBox.Controls
             _items = items;
             _paths = items.Select(i => i.ImagePath).ToList();
 
-            // 构建缩略图条数据（不加载图片，延迟到滚动可见时）
             ThumbnailItems.Clear();
             for (int i = 0; i < items.Count; i++)
             {
@@ -117,33 +112,13 @@ namespace LivePhotoBox.Controls
                 });
             }
 
-            // 先显示灯箱外壳（spinner），再异步加载内容 — 点击即开，无迟滞
             LightboxOverlay.Visibility = Visibility.Visible;
             LightboxSpinner.Visibility = Visibility.Visible;
 
+            // 🔴 修复 3：打开灯箱的瞬间，强行把键盘焦点从主页面抢夺过来！
+            this.Focus(FocusState.Programmatic);
+
             await ShowItemAsync(startIndex, 1);
-        }
-
-        /// <summary>关闭灯箱，清理所有资源。</summary>
-        public void Close()
-        {
-            StopLiveVideo();
-            StopTransportTimer();
-            StopTransportAutoHide();
-            HideAllVideos();
-            LightboxImage.Source = null;
-            LightboxSpinner.Visibility = Visibility.Collapsed;
-            LightboxOverlay.Visibility = Visibility.Collapsed;
-            _currentIndex = -1;
-            LivePhotoButton.Visibility = Visibility.Collapsed;
-            LivePulseSb.Stop();
-            ThumbnailItems.Clear();
-
-            if (_extractedVideoPath != null)
-            {
-                try { File.Delete(_extractedVideoPath); } catch { }
-                _extractedVideoPath = null;
-            }
         }
 
         // ── 视频槽位 ──────────────────────────────────
@@ -171,63 +146,50 @@ namespace LivePhotoBox.Controls
 
         private async Task ShowItemAsync(int index, int direction)
         {
+            _loadCts?.Cancel();
+            _loadCts = new CancellationTokenSource();
+            var token = _loadCts.Token;
+
             _currentIndex = index;
             _lastDirection = direction;
             string path = _paths[index];
 
             UpdateLiveButton(index);
+            LightboxCounter.Text = $"{index + 1} / {_paths.Count}";
+            ScrollThumbnailIntoView(index);
 
             if (IsVideoFile(path))
             {
-                await ShowVideoAsync(path);
+                await ShowVideoAsync(path, token);
                 _previewService.PreloadNeighbors(_paths, index, direction);
             }
             else
             {
-                await ShowImageAsync(path);
+                await ShowImageAsync(path, token);
                 _previewService.PreloadNeighbors(_paths, index, direction);
             }
-
-            LightboxCounter.Text = $"{index + 1} / {_paths.Count}";
-            ScrollThumbnailIntoView(index);
         }
 
-        // ── 图片显示（旧内容保持直到新图就绪，避免空档闪烁）─
-
-        private async Task ShowImageAsync(string path)
+        private async Task ShowImageAsync(string path, CancellationToken token)
         {
             StopTransportTimer();
             StopTransportAutoHide();
+            VideoTransportBar.Visibility = Visibility.Collapsed;
 
-            // 保持当前内容可见，先加载新图
-            var sw = System.Diagnostics.Stopwatch.StartNew();
             LightboxSpinner.Visibility = Visibility.Visible;
-            var newImage = await _previewService.LoadCurrentAsync(path);
-            long elapsed = sw.ElapsedMilliseconds;
+            var newImage = await _previewService.LoadCurrentAsync(path, token);
 
-            // 新图就绪了，现在一次性切换：隐藏旧内容 → 显示新图
-            LightboxImage.Opacity = 0.0;           // 透明换源，防闪烁
-            LightboxImage.Source = newImage;
-            LightboxImage.Visibility = Visibility.Visible;
-            HideAllVideos();                        // 此时才隐藏视频（新图已就绪）
+            if (token.IsCancellationRequested) return;
+
             LightboxSpinner.Visibility = Visibility.Collapsed;
+            LightboxImage.Opacity = 1.0;
+            LightboxImage.Source = newImage;
 
-            if (elapsed < 80)
-            {
-                // 缓存命中 → 瞬间恢复
-                LightboxImage.Opacity = 1.0;
-            }
-            else
-            {
-                // 慢加载 → 100ms 快速淡入
-                ImageFadeInSb.Children[0].Duration = TimeSpan.FromMilliseconds(100);
-                await RunStoryboardAsync(ImageFadeInSb);
-            }
+            _activeVideoSlot = -1;
+            await TransitionToVisualAsync(LightboxImage);
         }
 
-        // ── 视频显示（TCS 事件驱动，无忙等轮询）───────
-
-        private async Task ShowVideoAsync(string path)
+        private async Task ShowVideoAsync(string path, CancellationToken token)
         {
             StopTransportTimer();
             StopTransportAutoHide();
@@ -239,30 +201,120 @@ namespace LivePhotoBox.Controls
             nextPlayer.MediaPlayer.Volume = 1.0;
 
             LightboxSpinner.Visibility = Visibility.Visible;
-            var source = MediaSource.CreateFromUri(new Uri(path));
-            bool opened = await WaitForMediaOpenedAsync(nextPlayer, source);
-            LightboxSpinner.Visibility = Visibility.Collapsed;
-            if (!opened) return;
 
-            if (_activeVideoSlot >= 0)
+            MediaSource source;
+            try
             {
-                ActiveVideo.MediaPlayer.Pause();
-                ActiveVideo.Visibility = Visibility.Collapsed;
+                var file = await StorageFile.GetFileFromPathAsync(path);
+                source = MediaSource.CreateFromStorageFile(file);
             }
-            nextPlayer.Visibility = Visibility.Visible;
+            catch
+            {
+                source = MediaSource.CreateFromUri(new Uri(path));
+            }
+
+            bool opened = await WaitForMediaOpenedAsync(nextPlayer, source, token);
+
+            if (token.IsCancellationRequested) return;
+
+            if (!opened)
+            {
+                LightboxSpinner.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            LightboxSpinner.Visibility = Visibility.Collapsed;
             _activeVideoSlot = nextSlot;
-            LightboxImage.Visibility = Visibility.Collapsed;
+
+            await TransitionToVisualAsync(nextPlayer);
 
             ShowVideoTransport();
             StartTransportTimer();
         }
 
-        // ── 视频加载器（TCS 替代忙等轮询）─────────────
+        private async Task PlayLiveVideoAsync(string videoPath)
+        {
+            _isLiveVideoPlaying = true;
+            ResetLiveButtonState();
+            LivePhotoButton.Visibility = Visibility.Collapsed;
+            LivePulseSb.Stop();
+            StopTransportTimer();
+
+            var player = InactiveVideo;
+            int slot = _activeVideoSlot == 0 ? 1 : 0;
+            player.MediaPlayer.IsLoopingEnabled = false;
+            player.MediaPlayer.IsMuted = false;
+            player.MediaPlayer.Volume = 1.0;
+
+            void OnEnded(MediaPlayer sender, object args)
+            {
+                sender.MediaEnded -= OnEnded;
+                _ = DispatcherQueue.TryEnqueue(RestorePhotoAfterLiveVideo);
+            }
+            player.MediaPlayer.MediaEnded += OnEnded;
+
+            var source = MediaSource.CreateFromUri(new Uri(videoPath));
+            bool opened = await WaitForMediaOpenedAsync(player, source, CancellationToken.None);
+            if (!opened || !_isLiveVideoPlaying) return;
+
+            _activeVideoSlot = slot;
+            await TransitionToVisualAsync(player);
+
+            ShowVideoTransport();
+            StartTransportTimer();
+        }
+
+        private void RestorePhotoAfterLiveVideo()
+        {
+            _isLiveVideoPlaying = false;
+            StopTransportTimer();
+            StopTransportAutoHide();
+
+            // 实况视频播完退回图片模式时，必须明确隐藏播控栏
+            VideoTransportBar.Visibility = Visibility.Collapsed;
+
+            _activeVideoSlot = -1;
+            _ = TransitionToVisualAsync(LightboxImage);
+
+            UpdateLiveButton(_currentIndex);
+        }
+
+        public void Close()
+        {
+            _isLiveVideoPlaying = false;
+            System.Threading.Interlocked.Increment(ref _transitionId);
+            _loadCts?.Cancel();
+
+            StopTransportTimer();
+            StopTransportAutoHide();
+            HideAllVideos();
+
+            LightboxImage.Source = null;
+            LightboxImage.Visibility = Visibility.Collapsed;
+            LightboxSpinner.Visibility = Visibility.Collapsed;
+            LightboxOverlay.Visibility = Visibility.Collapsed;
+
+            _currentIndex = -1;
+            _currentVisual = null;
+            _activeVideoSlot = -1;
+
+            LivePhotoButton.Visibility = Visibility.Collapsed;
+            LivePulseSb.Stop();
+            ThumbnailItems.Clear();
+
+            if (_extractedVideoPath != null)
+            {
+                try { File.Delete(_extractedVideoPath); } catch { }
+                _extractedVideoPath = null;
+            }
+        }
 
         private static async Task<bool> WaitForMediaOpenedAsync(MediaPlayerElement player,
-            MediaSource source, int timeoutMs = 5000)
+            MediaSource source, CancellationToken token, int timeoutMs = 5000)
         {
             var tcs = new TaskCompletionSource<bool>();
+            using var registration = token.Register(() => tcs.TrySetResult(false));
+
             TypedEventHandler<MediaPlayer, object> onOpened = (s, a) => tcs.TrySetResult(true);
             TypedEventHandler<MediaPlayer, MediaPlayerFailedEventArgs> onFailed = (s, a) => tcs.TrySetResult(false);
 
@@ -271,8 +323,12 @@ namespace LivePhotoBox.Controls
             try
             {
                 player.Source = source;
-                var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs));
-                return completed == tcs.Task && tcs.Task.Result;
+                var completed = await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs, token));
+                return completed == tcs.Task && tcs.Task.Result && !token.IsCancellationRequested;
+            }
+            catch (TaskCanceledException)
+            {
+                return false;
             }
             finally
             {
@@ -320,15 +376,20 @@ namespace LivePhotoBox.Controls
         {
             if (_activeVideoSlot < 0) return;
             var player = ActiveVideo.MediaPlayer;
+
             if (player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
+            {
+                TransportPlayPauseIcon.Glyph = "\uE768";
                 player.Pause();
+            }
             else
+            {
+                TransportPlayPauseIcon.Glyph = "\uE769";
                 player.Play();
-            UpdateTransportPlayPauseIcon();
+            }
+
             StartTransportAutoHide();
         }
-
-        // ── 自定义进度条交互（纯 Border，无 Slider 视觉状态）──
 
         private void TransportSeekBar_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
@@ -336,7 +397,8 @@ namespace LivePhotoBox.Controls
             _isUserSeeking = true;
             ThumbTransform.ScaleX = 1.5;
             ThumbTransform.ScaleY = 1.5;
-            SeekToPointer(e);
+
+            SeekToPointer(e, isFinalCommit: true);
             TransportSeekBar.CapturePointer(e.Pointer);
             e.Handled = true;
         }
@@ -344,11 +406,14 @@ namespace LivePhotoBox.Controls
         private void TransportSeekBar_PointerMoved(object sender, PointerRoutedEventArgs e)
         {
             if (!_isUserSeeking) return;
-            SeekToPointer(e);
+            SeekToPointer(e, isFinalCommit: false);
         }
 
         private void TransportSeekBar_PointerReleased(object sender, PointerRoutedEventArgs e)
         {
+            if (_activeVideoSlot < 0) return;
+            SeekToPointer(e, isFinalCommit: true);
+
             _isUserSeeking = false;
             ThumbTransform.ScaleX = 1.0;
             ThumbTransform.ScaleY = 1.0;
@@ -356,17 +421,33 @@ namespace LivePhotoBox.Controls
             StartTransportAutoHide();
         }
 
-        private void SeekToPointer(PointerRoutedEventArgs e)
+        private void SeekToPointer(PointerRoutedEventArgs e, bool isFinalCommit = false)
         {
+            if (_activeVideoSlot < 0 || ActiveVideo == null) return;
+
             var pt = e.GetCurrentPoint(TransportSeekBar);
             double ratio = Math.Clamp(pt.Position.X / Math.Max(1, TransportSeekBar.ActualWidth), 0, 1);
-            var session = ActiveVideo.MediaPlayer.PlaybackSession;
+            var session = ActiveVideo.MediaPlayer?.PlaybackSession;
             if (session == null || session.NaturalDuration.TotalSeconds <= 0) return;
+
             var newPos = TimeSpan.FromSeconds(ratio * session.NaturalDuration.TotalSeconds);
-            ActiveVideo.MediaPlayer.PlaybackSession.Position = newPos;
+
             TransportCurrentTime.Text = FormatTime(newPos);
             TransportSeekFill.Width = ratio * TransportSeekBar.ActualWidth;
             PositionSeekThumb(ratio);
+
+            if (isFinalCommit)
+            {
+                session.Position = newPos;
+            }
+            else
+            {
+                if ((DateTime.Now - _lastSeekTime).TotalMilliseconds > 100)
+                {
+                    session.Position = newPos;
+                    _lastSeekTime = DateTime.Now;
+                }
+            }
         }
 
         private void TransportVolume_Click(object sender, RoutedEventArgs e)
@@ -393,8 +474,15 @@ namespace LivePhotoBox.Controls
 
             TransportSeekFill.Width = ratio * TransportSeekBar.ActualWidth;
             PositionSeekThumb(ratio);
-            TransportCurrentTime.Text = FormatTime(pos);
-            TransportTotalTime.Text = FormatTime(dur);
+
+            string newCurrentTime = FormatTime(pos);
+            if (TransportCurrentTime.Text != newCurrentTime)
+                TransportCurrentTime.Text = newCurrentTime;
+
+            string newTotalTime = FormatTime(dur);
+            if (TransportTotalTime.Text != newTotalTime)
+                TransportTotalTime.Text = newTotalTime;
+
             UpdateTransportPlayPauseIcon();
         }
 
@@ -402,7 +490,7 @@ namespace LivePhotoBox.Controls
         {
             double barW = TransportSeekBar.ActualWidth;
             if (barW <= 0) return;
-            double left = Math.Clamp(ratio * barW - 7, -7, barW - 7); // 7 = thumb half-width
+            double left = Math.Clamp(ratio * barW - 7, -7, barW - 7);
             TransportSeekThumb.Margin = new Thickness(left, 0, 0, 0);
         }
 
@@ -418,13 +506,11 @@ namespace LivePhotoBox.Controls
             TransportVolumeIcon.Glyph = isMuted ? "" : "";
         }
 
-        // ── 播控栏进度定时器 ──────────────────────────
-
         private void StartTransportTimer()
         {
             StopTransportTimer();
             _transportUpdateTimer = DispatcherQueue.CreateTimer();
-            _transportUpdateTimer.Interval = TimeSpan.FromMilliseconds(33); // ~30 FPS
+            _transportUpdateTimer.Interval = TimeSpan.FromMilliseconds(33);
             _transportUpdateTimer.Tick += (s, e) => UpdateTransportUI();
             _transportUpdateTimer.Start();
         }
@@ -438,8 +524,6 @@ namespace LivePhotoBox.Controls
             }
         }
 
-        // ── 进度条圆点 hover 动画 ─────────────────────
-
         private void TransportSeekThumb_PointerEntered(object sender, PointerRoutedEventArgs e)
         {
             ThumbTransform.ScaleX = 1.5;
@@ -451,8 +535,6 @@ namespace LivePhotoBox.Controls
             ThumbTransform.ScaleX = 1.0;
             ThumbTransform.ScaleY = 1.0;
         }
-
-        // ── 指针移动 → 显示播控栏 ─────────────────────
 
         private void LightboxOverlay_PointerMoved(object sender, PointerRoutedEventArgs e)
         {
@@ -470,7 +552,6 @@ namespace LivePhotoBox.Controls
 
         // ── LIVE 按钮 ──────────────────────────────────
 
-        /// <summary>强制重置 LIVE 按钮到正常状态（背景 + 缩放）。</summary>
         private void ResetLiveButtonState()
         {
             LivePhotoButton.Background = _liveButtonDefaultBg!;
@@ -505,7 +586,13 @@ namespace LivePhotoBox.Controls
             }
         }
 
-        private async void LivePhotoButton_Tapped(object sender, TappedRoutedEventArgs e)
+        // XAML 中如果继续保留 Tapped 事件也没关系，这层逻辑依然完美工作
+        private void LivePhotoButton_Tapped(object sender, TappedRoutedEventArgs e)
+        {
+            _ = TriggerLivePhotoPlaybackAsync();
+        }
+
+        private async Task TriggerLivePhotoPlaybackAsync()
         {
             if (_isLiveVideoPlaying) return;
             if (_currentIndex < 0 || _currentIndex >= _items.Count) return;
@@ -557,62 +644,12 @@ namespace LivePhotoBox.Controls
             return tempPath;
         }
 
-        private async Task PlayLiveVideoAsync(string videoPath)
-        {
-            StopLiveVideo();
-            _isLiveVideoPlaying = true;
-            ResetLiveButtonState(); // 防止 hover 状态"冻"住
-            LivePhotoButton.Visibility = Visibility.Collapsed;
-            LivePulseSb.Stop();
-            StopTransportTimer();
-            HideAllVideos();
-
-            var player = InactiveVideo;
-            int slot = _activeVideoSlot == 0 ? 1 : 0;
-            player.MediaPlayer.IsLoopingEnabled = false;
-            player.MediaPlayer.IsMuted = false;
-            player.MediaPlayer.Volume = 1.0;
-
-            void OnEnded(MediaPlayer sender, object args)
-            {
-                sender.MediaEnded -= OnEnded;
-                _ = DispatcherQueue.TryEnqueue(RestorePhotoAfterLiveVideo);
-            }
-            player.MediaPlayer.MediaEnded += OnEnded;
-
-            var source = MediaSource.CreateFromUri(new Uri(videoPath));
-            bool opened = await WaitForMediaOpenedAsync(player, source);
-            if (!opened || !_isLiveVideoPlaying) return;
-
-            if (_activeVideoSlot >= 0)
-            {
-                ActiveVideo.MediaPlayer.Pause();
-                ActiveVideo.Visibility = Visibility.Collapsed;
-            }
-            player.Visibility = Visibility.Visible;
-            _activeVideoSlot = slot;
-            LightboxImage.Visibility = Visibility.Collapsed;
-
-            ShowVideoTransport();
-            StartTransportTimer();
-        }
-
         private void StopLiveVideo()
         {
             if (!_isLiveVideoPlaying) return;
             _isLiveVideoPlaying = false;
             HideAllVideos();
             RestorePhotoAfterLiveVideo();
-        }
-
-        private void RestorePhotoAfterLiveVideo()
-        {
-            _isLiveVideoPlaying = false;
-            StopTransportTimer();
-            StopTransportAutoHide();
-            HideAllVideos();
-            LightboxImage.Visibility = Visibility.Visible;
-            UpdateLiveButton(_currentIndex);
         }
 
         // ── 缩略图导航条 ──────────────────────────────
@@ -643,7 +680,6 @@ namespace LivePhotoBox.Controls
 
             if (args.Phase == 0)
             {
-                // 占位：清除旧图
                 if (args.ItemContainer.ContentTemplateRoot is Border border)
                 {
                     var img = border.FindName("ThumbImage") as Image;
@@ -693,7 +729,7 @@ namespace LivePhotoBox.Controls
             }
         }
 
-        // ── LIVE 按钮弹簧动画 + 颜色变浅 ───────────────
+        // ── LIVE 按钮弹簧动画 ──────────────────────────
 
         private void LivePhotoButton_PointerEntered(object sender, PointerRoutedEventArgs e)
         {
@@ -707,7 +743,6 @@ namespace LivePhotoBox.Controls
             spring.FinalValue = new Vector3(1.08f);
             visual.StartAnimation("Scale", spring);
 
-            // 换浅色 Acrylic 磨砂底板
             LivePhotoButton.Background = new AcrylicBrush
             {
                 TintColor = Windows.UI.Color.FromArgb(0xFF, 0x88, 0x88, 0x88),
@@ -728,7 +763,6 @@ namespace LivePhotoBox.Controls
             spring.FinalValue = new Vector3(1.0f);
             visual.StartAnimation("Scale", spring);
 
-            // 恢复 XAML 原始 Acrylic 磨砂底板
             LivePhotoButton.Background = _liveButtonDefaultBg!;
         }
 
@@ -736,8 +770,6 @@ namespace LivePhotoBox.Controls
 
         private async void Navigate(int direction)
         {
-            if (_isNavigating) return;
-            _isNavigating = true;
             try
             {
                 int newIdx = _currentIndex + direction;
@@ -749,31 +781,16 @@ namespace LivePhotoBox.Controls
             {
                 LogService.Debug($"LightboxPreview navigate failed: {ex.Message}", LogSource.UI);
             }
-            finally
-            {
-                _isNavigating = false;
-            }
         }
 
         private static bool IsVideoFile(string path) =>
             path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase) ||
             path.EndsWith(".mov", StringComparison.OrdinalIgnoreCase);
 
-        // ── 辅助 ──────────────────────────────────────
-
         private static string FormatTime(TimeSpan t) =>
             t.TotalHours >= 1
                 ? $"{(int)t.TotalHours}:{t.Minutes:D2}:{t.Seconds:D2}"
                 : $"{t.Minutes}:{t.Seconds:D2}";
-
-        private static Task RunStoryboardAsync(Storyboard sb)
-        {
-            var tcs = new TaskCompletionSource<bool>();
-            void OnDone(object? s, object e) { sb.Completed -= OnDone; tcs.TrySetResult(true); }
-            sb.Completed += OnDone;
-            sb.Begin();
-            return tcs.Task;
-        }
 
         // ── 事件处理 ──────────────────────────────────
 
@@ -784,6 +801,52 @@ namespace LivePhotoBox.Controls
             var delta = e.GetCurrentPoint(null).Properties.MouseWheelDelta;
             Navigate(delta < 0 ? 1 : -1);
             e.Handled = true;
+        }
+
+        private async Task TransitionToVisualAsync(FrameworkElement newVisual)
+        {
+            int currentId = System.Threading.Interlocked.Increment(ref _transitionId);
+
+            Canvas.SetZIndex(newVisual, 10);
+            newVisual.Visibility = Visibility.Visible;
+
+            if (_currentVisual == newVisual)
+            {
+                Canvas.SetZIndex(newVisual, 0);
+                return;
+            }
+
+            await Task.Delay(80);
+
+            if (currentId != _transitionId)
+            {
+                Canvas.SetZIndex(newVisual, 0);
+                return;
+            }
+
+            if (_currentVisual != null && _currentVisual != newVisual)
+            {
+                _currentVisual.Visibility = Visibility.Collapsed;
+                if (_currentVisual is MediaPlayerElement oldPlayer)
+                {
+                    oldPlayer.MediaPlayer.Pause();
+                }
+            }
+
+            if (newVisual != LightboxImage) LightboxImage.Visibility = Visibility.Collapsed;
+            if (newVisual != LightboxVideo0)
+            {
+                LightboxVideo0.Visibility = Visibility.Collapsed;
+                LightboxVideo0.MediaPlayer.Pause();
+            }
+            if (newVisual != LightboxVideo1)
+            {
+                LightboxVideo1.Visibility = Visibility.Collapsed;
+                LightboxVideo1.MediaPlayer.Pause();
+            }
+
+            Canvas.SetZIndex(newVisual, 0);
+            _currentVisual = newVisual;
         }
 
         private void OnKeyDown(object sender, KeyRoutedEventArgs e)
@@ -798,17 +861,40 @@ namespace LivePhotoBox.Controls
                 case VirtualKey.GamepadDPadRight:
                     Navigate(1); e.Handled = true; break;
                 case VirtualKey.Space:
+                    // 🔴 智能焦点判断机制，解决各种键盘冲突！
+                    var focusedElement = FocusManager.GetFocusedElement(this.XamlRoot) as FrameworkElement;
+
+                    // 如果焦点现在正巧停留在某个原生按钮上（比如你刚点过的“关闭”键或者“实况”键）
+                    // 那么原生的空格操作会自动去触发这个按钮，我们此时绝对不能介入，否则会引发严重冲突！
+                    if (focusedElement is ButtonBase)
+                    {
+                        return; // 默默退下，让原生的按钮逻辑去执行
+                    }
+
+                    // 如果焦点没在任何按钮上，我们就把空格键当做全局强行播放/暂停！
+                    // 不用管底层的 ScrollViewer 有没有把按键事件吞掉（屏蔽掉 e.Handled 拦截逻辑）
                     if (_activeVideoSlot >= 0)
                     {
                         var player = ActiveVideo.MediaPlayer;
                         if (player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
+                        {
+                            TransportPlayPauseIcon.Glyph = "\uE768";
                             player.Pause();
+                        }
                         else
+                        {
+                            TransportPlayPauseIcon.Glyph = "\uE769";
                             player.Play();
-                        UpdateTransportPlayPauseIcon();
+                        }
                         ShowVideoTransport();
                     }
-                    e.Handled = true; break;
+                    else
+                    {
+                        _ = TriggerLivePhotoPlaybackAsync();
+                    }
+
+                    e.Handled = true; // 我们处理完了，阻止画面往下滚
+                    break;
                 case VirtualKey.Escape:
                     Close(); e.Handled = true; break;
             }

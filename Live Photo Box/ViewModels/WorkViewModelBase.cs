@@ -598,11 +598,13 @@ namespace LivePhotoBox.ViewModels
         // 子类清理资源的钩子（在此停止定时器等）。
         protected virtual void OnCleanup() { }
 
-        // 页面关闭时调用，清理所有资源（Token、定时器等）。
+        // 页面关闭时调用，清理所有资源。
+        // 必须先取消 Token 停止后台任务，再清集合、停定时器，
+        // 否则后台任务在清理期间仍可能访问已被清空的集合。
         public void Cleanup()
         {
-            OnCleanup();
             CleanupTokens();
+            OnCleanup();
         }
     }
 }

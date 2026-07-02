@@ -12,7 +12,7 @@ using Windows.Storage;
 namespace LivePhotoBox.Services
 {
     // 统一图片预览服务 — 所有预览样式共用同一套优化加载逻辑。
-    // 特性：LRU 内存缓存 + DecodePixelWidth 解码限制 + 相邻预加载。
+    // 特性：LRU 内存缓存 + DecodePixelWidth 解码限制 + 相邻预加载 + 令牌取消防拥堵。
     public sealed class ImagePreviewService
     {
         private readonly int _maxCacheSize;
@@ -23,13 +23,12 @@ namespace LivePhotoBox.Services
         private readonly LinkedList<string> _lruOrder = new();
         private readonly object _cacheLock = new();
 
-        // HEIC 解码信号量：并发数从设置读取（默认 8），可动态调整
+        // 🔴 新增：用于随时掐断旧的预加载任务，防止后台拥堵
+        private CancellationTokenSource? _preloadCts;
+
         private static int _heicConcurrencyCache;
         private static SemaphoreSlim _heicSemaphore = new(8, 8);
 
-        // HEIC 解码并发信号量 — 从设置中读取最大并发数（默认 8），
-        // 当设置变更时无锁替换信号量实例（Interlocked.Exchange），
-        // 旧信号量会在等待中的操作完成后自然释放。
         private static SemaphoreSlim HeicSemaphore
         {
             get
@@ -45,16 +44,10 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // 优先槽信号量（容量 1）— 当前正在查看的图片走此通道，
-        // 不参与预加载信号量的排队竞争，保证当前图片优先解码显示。
         private static readonly SemaphoreSlim _prioritySemaphore = new(1, 1);
 
         private record CachedEntry(ImageSource Image);
 
-        // maxCacheSize: LRU 缓存最大条目数
-        // decodePixelWidth: 解码时限制的最大像素宽度（0 表示不限制）
-        // preloadForward: 预加载前方图片数
-        // preloadBackward: 预加载后方图片数
         public ImagePreviewService(int maxCacheSize = 20, int decodePixelWidth = 1920,
             int preloadForward = 6, int preloadBackward = 2)
         {
@@ -64,13 +57,14 @@ namespace LivePhotoBox.Services
             _preloadBackward = preloadBackward;
         }
 
-        // 加载一张图片（预加载用，可能排队等信号量）。
-        public Task<ImageSource?> LoadAsync(string filePath) => LoadInternalAsync(filePath, usePriority: false);
+        // 🔴 增加了 CancellationToken 参数
+        public Task<ImageSource?> LoadAsync(string filePath, CancellationToken token = default)
+            => LoadInternalAsync(filePath, false, token);
 
-        // 加载当前正在看的图片（走优先通道，不和预加载抢槽位）。
-        public Task<ImageSource?> LoadCurrentAsync(string filePath) => LoadInternalAsync(filePath, usePriority: true);
+        public Task<ImageSource?> LoadCurrentAsync(string filePath, CancellationToken token = default)
+            => LoadInternalAsync(filePath, true, token);
 
-        private async Task<ImageSource?> LoadInternalAsync(string filePath, bool usePriority)
+        private async Task<ImageSource?> LoadInternalAsync(string filePath, bool usePriority, CancellationToken token)
         {
             if (string.IsNullOrWhiteSpace(filePath)) return null;
 
@@ -93,20 +87,27 @@ namespace LivePhotoBox.Services
 
                 if (IsHeicFile(filePath))
                 {
-                    image = await LoadHeicPreviewAsync(filePath, usePriority);
+                    image = await LoadHeicPreviewAsync(filePath, usePriority, token);
                 }
                 else
                 {
-                    var file = await StorageFile.GetFileFromPathAsync(filePath);
+                    // 标准图片加载，加入对 token 的敏感响应
+                    var file = await StorageFile.GetFileFromPathAsync(filePath).AsTask(token);
+                    if (token.IsCancellationRequested) return null;
+
                     var bitmap = new BitmapImage();
                     if (_decodePixelWidth > 0)
                         bitmap.DecodePixelWidth = _decodePixelWidth;
-                    using (var stream = await file.OpenReadAsync())
+
+                    using (var stream = await file.OpenReadAsync().AsTask(token))
+                    {
+                        if (token.IsCancellationRequested) return null;
                         await bitmap.SetSourceAsync(stream);
+                    }
                     image = bitmap;
                 }
 
-                if (image == null) return null;
+                if (image == null || token.IsCancellationRequested) return null;
 
                 lock (_cacheLock)
                 {
@@ -124,6 +125,11 @@ namespace LivePhotoBox.Services
                 LogService.Debug($"ImagePreviewService loaded: {Path.GetFileName(filePath)} (cache={_cache.Count})", LogSource.UI);
                 return image;
             }
+            catch (OperationCanceledException)
+            {
+                // 🔴 任务被成功打断，静默退出
+                return null;
+            }
             catch (Exception ex)
             {
                 LogService.Debug($"ImagePreviewService load failed: {ex.Message}", LogSource.UI);
@@ -131,28 +137,32 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // HEIC 文件判断
         private static bool IsHeicFile(string path) =>
             path.EndsWith(".heic", StringComparison.OrdinalIgnoreCase) ||
             path.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
 
-        // HEIC 预览：后台解码为临时 JPEG → BitmapImage 加载 → 删临时文件。
-        // usePriority=true 走优先槽（当前图专享），false 走预加载槽。
-        private async Task<ImageSource?> LoadHeicPreviewAsync(string filePath, bool usePriority = false)
+        private async Task<ImageSource?> LoadHeicPreviewAsync(string filePath, bool usePriority, CancellationToken token)
         {
             var semaphore = usePriority ? _prioritySemaphore : HeicSemaphore;
-            await semaphore.WaitAsync();
+
+            // 🔴 核心奥义：如果在排队等候通道期间，用户划走了，这里会瞬间抛出异常离开队伍，绝不干占茅坑！
+            await semaphore.WaitAsync(token);
             try
             {
-                // 后台：打开文件 → 解码 HEIC + 缩放 → 编码为临时 JPEG
                 string? tempJpegPath = null;
                 try
                 {
                     tempJpegPath = await Task.Run(async () =>
                     {
-                        var file = await StorageFile.GetFileFromPathAsync(filePath);
-                        using var inputStream = await file.OpenReadAsync();
+                        // 任务开始前检查一次
+                        if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
+
+                        var file = await StorageFile.GetFileFromPathAsync(filePath).AsTask(token);
+                        using var inputStream = await file.OpenReadAsync().AsTask(token);
                         var decoder = await BitmapDecoder.CreateAsync(inputStream);
+
+                        // 耗时操作前检查一次
+                        if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
 
                         var transform = new BitmapTransform
                         {
@@ -173,6 +183,9 @@ namespace LivePhotoBox.Services
                             ExifOrientationMode.RespectExifOrientation,
                             ColorManagementMode.ColorManageToSRgb);
 
+                        // 写入文件前检查一次
+                        if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
+
                         string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_prev_{Guid.NewGuid():N}.jpg");
                         using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
                         {
@@ -183,9 +196,10 @@ namespace LivePhotoBox.Services
                         }
 
                         return tempPath;
-                    });
+                    }, token); // 传入 token 供后台 Task 调度器使用
 
-                    // UI 线程：从临时 JPEG 加载 BitmapImage
+                    if (token.IsCancellationRequested) return null;
+
                     var bitmap = new BitmapImage();
                     using (var fileStream = new FileStream(tempJpegPath, FileMode.Open, FileAccess.Read))
                     {
@@ -208,10 +222,14 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // 后台预加载相邻图片（fire-and-forget）。
-        // 按滚动方向预加载：前进时前多后少，后退时前少后多
         public void PreloadNeighbors(IReadOnlyList<string> allPaths, int centerIndex, int direction)
         {
+            // 🔴 核心优化：每次预加载前，直接掐断上一次没完成的预加载。
+            // 保证你快速滚动时，那些被错过的甜点区图片立马停止下载/解码，为新图片让出算力
+            _preloadCts?.Cancel();
+            _preloadCts = new CancellationTokenSource();
+            var token = _preloadCts.Token;
+
             int forward = direction > 0 ? _preloadForward : _preloadBackward;
             int backward = direction > 0 ? _preloadBackward : _preloadForward;
 
@@ -226,13 +244,13 @@ namespace LivePhotoBox.Services
                 bool shouldLoad;
                 lock (_cacheLock) { shouldLoad = !_cache.ContainsKey(path); }
                 if (shouldLoad)
-                    _ = LoadAsync(path);
+                    _ = LoadAsync(path, token); // 把预加载专属令牌传进去
             }
         }
 
-        // 清空缓存
         public void Clear()
         {
+            _preloadCts?.Cancel();
             _cache.Clear();
             _lruOrder.Clear();
         }

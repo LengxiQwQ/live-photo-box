@@ -179,7 +179,7 @@ dotnet run --project Live Photo Box/LivePhotoBox.csproj
 
 ```
 live-photo-box/
-├── Live Photo Box/              # 主项目（WinUI 3 MSIX 应用）
+├── Live Photo Box/            # 主项目（WinUI 3 MSIX 应用）
 │   ├── Assets/                # 图标、教程截图等静态资源
 │   ├── Controls/              # 自定义控件（全屏灯箱、底部状态栏）
 │   ├── Converters/            # XAML 值转换器

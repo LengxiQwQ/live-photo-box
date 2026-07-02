@@ -971,13 +971,13 @@ namespace LivePhotoBox.ViewModels
                             if (imageEntry != null) { entryIndex++; processedCount++; }
                             if (videoEntry != null) { entryIndex++; processedCount++; }
 
-                            // 未启用"修复非实况照片视频" → 时长 > 3.5s 的非实况视频直接标为已跳过
+                            // 未启用"修复非实况照片视频" → 时长 > 3.5s 的视频直接标为已跳过
                             bool repairNonLivePhoto = AppSettingsService.GetValue("IsNonLivePhotoVideoRepairEnabled", false);
                             if (!repairNonLivePhoto && videoEntry?.AnalysisResult != null
                                 && videoEntry.AnalysisResult.VideoDurationSeconds > LivePhotoConstants.MaxLivePhotoVideoDurationSeconds)
                             {
                                 videoEntry.NeedsRepair = false;
-                                videoEntry.Details = ResourceService.GetString("RepairPage_Task_SkippedNonLivePhoto");
+                                videoEntry.Details = ResourceService.GetString("RepairPage_Task_SkippedDuration");
                             }
 
                             // 检查视频时长：> 3.5s 不是实况照片，已配对的拆开
@@ -1096,7 +1096,7 @@ namespace LivePhotoBox.ViewModels
                                     && videoEntry.AnalysisResult.VideoDurationSeconds > LivePhotoConstants.MaxLivePhotoVideoDurationSeconds)
                                 {
                                     videoEntry.NeedsRepair = false;
-                                    videoEntry.Details = ResourceService.GetString("RepairPage_Task_SkippedNonLivePhoto");
+                                    videoEntry.Details = ResourceService.GetString("RepairPage_Task_SkippedDuration");
                                 }
                             }
                         }
@@ -1355,18 +1355,46 @@ namespace LivePhotoBox.ViewModels
                 return null;
             }
 
-            // HEIC 修复关闭时：诊断结果保留（ContentIdentifier 用于匹配），但不修复
-            if (isHeicFile && !heicRepairEnabled && analysis.NeedsRepair)
+            // HEIC 修复关闭时：标记跳过但保留原始诊断文本，让用户知道照片有什么问题
+            bool isSkippedHeic = isHeicFile && !heicRepairEnabled && analysis.NeedsRepair;
+            if (isSkippedHeic)
             {
                 analysis.IssueType = RepairIssueType.Perfect;
-                analysis.IssueDescription = ResourceService.GetString("Status_HeicRepairDisabled");
+                // 不覆盖 IssueDescription — 保留原始诊断（旋转角度、缩略图等）
             }
 
-            // Apple 设备检测：开启后非 Apple 文件标记为跳过
-            if (appleFiles != null && !appleFiles.Contains(filePath))
+            // Apple 设备检测：开启后非 Apple 文件标记跳过，保留原始诊断
+            bool isSkippedNonApple = appleFiles != null && !appleFiles.Contains(filePath);
+            if (isSkippedNonApple)
             {
                 analysis.IssueType = RepairIssueType.NonApple;
-                analysis.IssueDescription = ResourceService.GetString("RepairPage_Diagnosis_NonApple");
+                // 不覆盖 IssueDescription — 保留原始诊断
+            }
+
+            // 根据分析结果确定队列状态详情文本：需修复显示"等待修复"，跳过则写明原因
+            string details;
+            if (isSkippedNonApple)
+            {
+                // 非 Apple 设备文件 → 已跳过（非Apple照片）
+                details = ResourceService.GetString("RepairPage_Task_SkippedNonApple");
+            }
+            else if (isSkippedHeic)
+            {
+                // HEIC/HEIF 修复在设置中已关闭 → 已跳过（HEIC/HEIF）
+                details = ResourceService.GetString("RepairPage_Task_SkippedHeic");
+            }
+            else if (analysis.NeedsRepair)
+            {
+                details = ResourceService.GetString("RepairPage_Task_WaitingRepair");
+            }
+            else if (analysis.IssueType == RepairIssueType.Perfect)
+            {
+                // 完美文件，没有任何问题 → 已跳过（无需处理）
+                details = ResourceService.GetString("RepairPage_Task_SkippedNoIssue");
+            }
+            else
+            {
+                details = ResourceService.GetString("RepairPage_Task_Skipped");
             }
 
             return new RepairFileEntry
@@ -1377,9 +1405,7 @@ namespace LivePhotoBox.ViewModels
                 IssueDescription = analysis.IssueDescription,
                 NeedsRepair = analysis.NeedsRepair,
                 Status = ProcessStatus.Pending,
-                Details = analysis.NeedsRepair
-                    ? ResourceService.GetString("RepairPage_Task_WaitingRepair")
-                    : ResourceService.GetString("RepairPage_Task_Skipped"),
+                Details = details,
                 AnalysisResult = analysis
             };
         }
@@ -1410,6 +1436,7 @@ namespace LivePhotoBox.ViewModels
                 return true; // 没有窗口时直接开始（兜底）
 
             // ── 遍历任务列表，统计每种修复各有多少文件需要 ──
+            // 只统计实际会修复的文件：已跳过的（非Apple、HEIC关闭、时长>3.5s 等）不纳入统计
             int jpegRotationCount = 0;   // 非 HEIC 图片需要旋转修正
             int thumbCount = 0;           // 有文件含多余缩略图
             int heicCount = 0;            // HEIC/HEIF 需要方向修正
@@ -1421,6 +1448,9 @@ namespace LivePhotoBox.ViewModels
                 {
                     var ar = entry.AnalysisResult;
                     if (ar == null) continue;
+
+                    // 已跳过的文件不统计，与实际修复时的过滤逻辑保持一致
+                    if (!entry.NeedsRepair) continue;
 
                     string ext = Path.GetExtension(entry.FilePath)?.ToLowerInvariant() ?? "";
                     bool isHeic = ext == ".heic" || ext == ".heif";
