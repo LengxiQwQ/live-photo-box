@@ -309,6 +309,7 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer.Stop();
             _uiUpdateTimer.Tick -= UiUpdateTimer_Tick;
             Tasks.ReplaceRange([]);
+            UpdateIsQueueEmpty(0);
             ThumbnailService.ClearCache();
         }
 
@@ -545,6 +546,7 @@ namespace LivePhotoBox.ViewModels
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {
                     Tasks.ReplaceRange([]);
+                    UpdateIsQueueEmpty(0);
                     ThumbnailService.ClearCache();
                     TotalPairsCount = 0;
                     StandaloneImagesCount = 0;

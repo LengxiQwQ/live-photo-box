@@ -30,6 +30,7 @@ using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.Foundation;
 using Windows.UI;
 
 namespace LivePhotoBox.Views
@@ -112,35 +113,23 @@ namespace LivePhotoBox.Views
             };
         }
 
-        private RoutedEventHandler? _scrollLoadedHandler;
-
         // 接收来自其他页面的导航参数，自动滚动到指定设置区域。
         // 分类标题使用顶部对齐，具体卡片使用居中对齐。
         // 滚动完成后会有短暂高亮闪烁，提示用户目标位置。
-        // Loaded 处理器会在执行后自动移除，防止页面缓存导致重复触发。
         protected override void OnNavigatedTo(NavigationEventArgs e)
         {
             base.OnNavigatedTo(e);
-
-            // 清理上一次的滚动处理器，防止缓存页切回时重复滚动
-            if (_scrollLoadedHandler != null)
-            {
-                Loaded -= _scrollLoadedHandler;
-                _scrollLoadedHandler = null;
-            }
 
             if (e.Parameter is not string target)
                 return;
 
             UIElement? scrollTarget = null;
-            double alignment = 0.0;
             Border? highlightBorder = null;
 
             switch (target)
             {
                 case "StrictLivePhotoScan":
                     scrollTarget = StrictLivePhotoScanRoot;
-                    alignment = 0.5;
                     highlightBorder = StrictLivePhotoScanHighlight;
                     break;
                 case "Merge":
@@ -156,19 +145,23 @@ namespace LivePhotoBox.Views
                     return;
             }
 
-            _scrollLoadedHandler = (_, _) =>
+            // 等待布局完成，然后滚动到目标位置
+            _ = DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, async () =>
             {
-                // 一次性执行，用完即弃
-                Loaded -= _scrollLoadedHandler;
-                _scrollLoadedHandler = null;
-                scrollTarget.StartBringIntoView(new BringIntoViewOptions
+                try
                 {
-                    AnimationDesired = true,
-                    VerticalAlignmentRatio = alignment
-                });
-                _ = HighlightTargetAsync(highlightBorder);
-            };
-            Loaded += _scrollLoadedHandler;
+                    // 强制布局更新，确保 TransformToVisual 结果准确
+                    ContentPanel.UpdateLayout();
+                    await Task.Delay(30);
+
+                    GeneralTransform transform = scrollTarget.TransformToVisual(ContentPanel);
+                    double targetY = Math.Max(0, transform.TransformPoint(new Point(0, 0)).Y);
+                    PageScrollViewer.ChangeView(null, targetY, null, true);
+                }
+                catch { /* 页面已销毁时静默忽略 */ }
+            });
+
+            _ = HighlightTargetAsync(highlightBorder);
         }
 
         // 滚动到位后短暂高亮目标区域。

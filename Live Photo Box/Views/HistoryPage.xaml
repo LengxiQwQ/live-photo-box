@@ -6,6 +6,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoBox.Models"
     xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:ui="using:Windows.UI"
     mc:Ignorable="d"
     Background="Transparent"
     NavigationCacheMode="Required">
@@ -13,9 +14,9 @@
     <!-- 文件历史分析页：扫描文件夹并展示实况照片文件的操作历史 -->
     <Page.Resources>
         <!-- 时间线圆点颜色 -->
-        <Color x:Key="MergeColor">#4CAF50</Color>
-        <Color x:Key="SplitColor">#2196F3</Color>
-        <Color x:Key="RepairColor">#FF9800</Color>
+        <ui:Color x:Key="MergeColor">#4CAF50</ui:Color>
+        <ui:Color x:Key="SplitColor">#2196F3</ui:Color>
+        <ui:Color x:Key="RepairColor">#FF9800</ui:Color>
 
         <Style x:Key="CardBorderStyle" TargetType="Border">
             <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>

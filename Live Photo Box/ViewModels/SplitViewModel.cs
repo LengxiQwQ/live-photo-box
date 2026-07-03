@@ -218,6 +218,7 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer.Stop();
             _uiUpdateTimer.Tick -= UiUpdateTimer_Tick;
             Tasks.ReplaceRange([]);
+            UpdateIsQueueEmpty(0);
             ThumbnailService.ClearCache();
         }
 
@@ -327,6 +328,7 @@ namespace LivePhotoBox.ViewModels
             {
                 ThumbnailService.ClearCache();
                 Tasks.ReplaceRange([]);
+                UpdateIsQueueEmpty(0);
                 QueuedCount = 0;
                 var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
                 var scanProgress = CreateScanProgressReporter();
@@ -426,6 +428,7 @@ namespace LivePhotoBox.ViewModels
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {
                     Tasks.ReplaceRange([]);
+                    UpdateIsQueueEmpty(0);
                     ThumbnailService.ClearCache();
                     QueuedCount = 0;
                     RecognizedCount = 0;

@@ -18,6 +18,7 @@
 
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI;
 using Microsoft.UI.Composition;
 using Microsoft.UI.Composition.SystemBackdrops;
@@ -64,6 +65,9 @@ namespace LivePhotoBox
         private SystemBackdropConfiguration? _acrylicConfig;
         private ICompositionSupportsSystemBackdrop? _acrylicTarget;
         private CancellationTokenSource? _acrylicDebounceCts;
+
+        // 首次导航标记：抑制 NavigationView 初始化触发的选中动画
+        private bool _isFirstNavigation = true;
 
         // 全局 AppViewModel 单例
         public AppViewModel ViewModel => AppViewModel.Instance;
@@ -179,8 +183,8 @@ namespace LivePhotoBox
                 ApplyWindowOpacity();
             }
 
-            // 默认导航到首页
-            NavigateToPage(typeof(Views.HomePage), null);
+            // 默认导航到首页（抑制动画，NavigationView 首次选中也会被 _isFirstNavigation 抑制）
+            NavigateToPage(typeof(Views.HomePage), null, new SuppressNavigationTransitionInfo());
         }
 
         // 响应 AppViewModel 属性变更：状态栏可见性
@@ -407,10 +411,16 @@ namespace LivePhotoBox
         // NavigationView 选中项变更时，根据 Tag 或 Settings 项导航到对应页面
         private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
         {
+            // NavigationView 初始化时选中 Home 项会触发一次选中事件，
+            // 首次抑制动画避免启动闪动
+            NavigationTransitionInfo? transitionInfo = _isFirstNavigation
+                ? new SuppressNavigationTransitionInfo() : null;
+            _isFirstNavigation = false;
+
             if (args.IsSettingsSelected)
             {
                 bool useClassic = AppSettingsService.GetValue("UseClassicSettingsPage", false);
-                NavigateToPage(useClassic ? typeof(Views.SettingsPageOld) : typeof(Views.SettingsPage), null);
+                NavigateToPage(useClassic ? typeof(Views.SettingsPageOld) : typeof(Views.SettingsPage), null, transitionInfo);
                 return;
             }
 
@@ -421,23 +431,27 @@ namespace LivePhotoBox
 
             switch (tag)
             {
-                case "Home": NavigateToPage(typeof(Views.HomePage), null); break;
-                case "Merge": NavigateToPage(typeof(Views.MergePage), "Merge"); break;
-                case "Split": NavigateToPage(typeof(Views.SplitPage), "Split"); break;
-                case "History": NavigateToPage(typeof(Views.HistoryPage), null); break;
-                case "KeyPhoto": NavigateToPage(typeof(Views.KeyPhotoPage), null); break;
-                case "PhotoClassify": NavigateToPage(typeof(Views.PhotoClassifyPage), null); break;
-                case "Repair": NavigateToPage(typeof(Views.RepairPage), "Repair"); break;
-                case "About": NavigateToPage(typeof(Views.AboutPage), null); break;
+                case "Home": NavigateToPage(typeof(Views.HomePage), null, transitionInfo); break;
+                case "Merge": NavigateToPage(typeof(Views.MergePage), "Merge", transitionInfo); break;
+                case "Split": NavigateToPage(typeof(Views.SplitPage), "Split", transitionInfo); break;
+                case "History": NavigateToPage(typeof(Views.HistoryPage), null, transitionInfo); break;
+                case "KeyPhoto": NavigateToPage(typeof(Views.KeyPhotoPage), null, transitionInfo); break;
+                case "PhotoClassify": NavigateToPage(typeof(Views.PhotoClassifyPage), null, transitionInfo); break;
+                case "Repair": NavigateToPage(typeof(Views.RepairPage), "Repair", transitionInfo); break;
+                case "About": NavigateToPage(typeof(Views.AboutPage), null, transitionInfo); break;
             }
         }
 
         // 执行 Frame 导航并设置当前状态页标签
-        private void NavigateToPage(Type pageType, string? statusPageTag)
+        // transitionInfo 为 null 时使用默认动画
+        private void NavigateToPage(Type pageType, string? statusPageTag, NavigationTransitionInfo? transitionInfo = null)
         {
             LogService.Info($"NavigateToPage: {pageType.Name}, StatusTag={statusPageTag ?? "(null)"}", LogSource.UI);
             ViewModel.SetCurrentStatusPage(statusPageTag);
-            MainFrame.Navigate(pageType);
+            if (transitionInfo != null)
+                MainFrame.Navigate(pageType, null, transitionInfo);
+            else
+                MainFrame.Navigate(pageType);
         }
 
         // 根据 Tag 字符串切换 NavigationView 的选中项（不触发导航）

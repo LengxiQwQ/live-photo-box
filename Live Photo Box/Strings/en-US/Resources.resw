@@ -685,17 +685,44 @@ Do you want to restart now?</value>
   <data name="MergePage_EmptyQueueDesc.Text" xml:space="preserve">
     <value>Place images (HEIC/HEIF/JPG/JPEG) and videos (MOV/MP4) in the same folder, then click Scan to auto-pair and merge.</value>
   </data>
+  <data name="MergePage_EmptyQueueHint_Part1.Text" xml:space="preserve">
+    <value>Click </value>
+  </data>
+  <data name="MergePage_EmptyQueueHint_Part2.Text" xml:space="preserve">
+    <value> for tutorials, or click </value>
+  </data>
+  <data name="MergePage_EmptyQueueHint_Part3.Text" xml:space="preserve">
+    <value> for advanced settings.</value>
+  </data>
   <data name="SplitPage_EmptyQueueTitle.Text" xml:space="preserve">
     <value>Queue Empty</value>
   </data>
   <data name="SplitPage_EmptyQueueDesc.Text" xml:space="preserve">
     <value>Import single-file JPG Live Photos, then click Scan to auto-detect and split into photo + video.</value>
   </data>
+  <data name="SplitPage_EmptyQueueHint_Part1.Text" xml:space="preserve">
+    <value>Click </value>
+  </data>
+  <data name="SplitPage_EmptyQueueHint_Part2.Text" xml:space="preserve">
+    <value> for tutorials, or click </value>
+  </data>
+  <data name="SplitPage_EmptyQueueHint_Part3.Text" xml:space="preserve">
+    <value> for advanced settings.</value>
+  </data>
   <data name="RepairPage_EmptyQueueTitle.Text" xml:space="preserve">
     <value>Queue Empty</value>
   </data>
   <data name="RepairPage_EmptyQueueDesc.Text" xml:space="preserve">
     <value>Import iPhone Live Photos into a folder, then click Scan to auto-diagnose common Windows display issues (rotation, stretching, thumbnail anomalies) and fix them losslessly.</value>
+  </data>
+  <data name="RepairPage_EmptyQueueHint_Part1.Text" xml:space="preserve">
+    <value>Click </value>
+  </data>
+  <data name="RepairPage_EmptyQueueHint_Part2.Text" xml:space="preserve">
+    <value> for tutorials, or click </value>
+  </data>
+  <data name="RepairPage_EmptyQueueHint_Part3.Text" xml:space="preserve">
+    <value> for advanced settings.</value>
   </data>
   <data name="Msg_GoToTutorial" xml:space="preserve">
     <value>View Tutorial</value>

@@ -916,6 +916,7 @@ namespace LivePhotoBox.ViewModels
                             ThumbErrorCount += thumbError;
                             Progress = totalFiles == 0 ? 0 : (entryCountSnapshot * 100.0) / totalFiles;
                             ProgressText = $"{entryCountSnapshot}/{totalFiles}";
+                            UpdateIsQueueEmpty(Tasks.Count);
                             ScanItemsFlushed?.Invoke(this, EventArgs.Empty);
                         });
                     }
@@ -1283,6 +1284,7 @@ namespace LivePhotoBox.ViewModels
                         StandaloneVideosCount = 0;
                         Progress = 0;
                         ProgressText = "0/0";
+                        UpdateIsQueueEmpty(0);
                     });
 
                     AppViewModel.Instance.ResetFooterScanCounters();
@@ -1291,6 +1293,7 @@ namespace LivePhotoBox.ViewModels
                 {
                     CompleteScanSnapshot();
                     SetStatus("RepairPage_Status_ScanDone", ThumbCorrectCount, ThumbErrorCount);
+                    App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateIsQueueEmpty(Tasks.Count));
                     LogService.Repair($"Scan completed: {totalFiles} entries, {pairCount} pairs, {standaloneImg} imgs, {standaloneVid} vids — {ThumbCorrectCount} healthy, {ThumbErrorCount} need repair");
                 }
                 else

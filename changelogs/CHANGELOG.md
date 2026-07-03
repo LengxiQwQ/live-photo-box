@@ -8,6 +8,8 @@
 
 ## v1.15.x — Auto Update & Pairing Enhancement
 
+> **v1.15.3** (2026-07-03) **[Fix + Optimize]** Fixed empty-queue hint not disappearing after scan (6 missing `UpdateIsQueueEmpty` calls across 3 ViewModels); **Settings page scroll-to-section fix** — replaced `BringIntoView` + `Loaded` with `ChangeView`, now reliable on cached pages; **Startup page transition removed** (sidebar navigation transitions preserved); Empty queue hint now shows icon guides (? tutorials, ? settings); Empty queue area vertically centered; Fixed Color type warnings in HistoryPage.xaml
+>
 > **v1.15.2** (2026-07-03) **[New + Fix + Optimize]** Repair options dialog; lightbox overhaul (Live Photo playback, smart fade transitions, video transport bar); fixed GitHub Token persistence in unpackaged mode; **Installer size slashed by 80% — FFmpeg custom-built from 97 MB down to 5.8 MB** (keeps only needed features: x264/x265/AMF/NVENC/QSV, thumbnails, video repair rotation — thousands of unused components removed); **"Skipped" detailed with specific reasons** (non-Apple / HEIC/HEIF / duration>3.5s / no issue); **Diagnosis column no longer overwritten by skip markers**; **Repair dialog counts exclude skipped files**; **Fixed access violation crash on window close**; **Scroll-to-top floating button on all queue pages**
 >
 > **v1.15.1** (2026-07-02) **[Fix + Perf]** Fixed multiple unpackaged-mode bugs (ComboBox, language switch, settings, WebView2), auto-update UX (post-install restart, check interval, error retry), uninstall cleanup, locale stripping in CI; **startup time reduced from ~4-5s to ~1-2s** (async hardware detection + double-check locking)
