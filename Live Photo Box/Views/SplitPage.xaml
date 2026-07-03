@@ -90,14 +90,16 @@
                         </StackPanel>
 
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <!-- 格式选择已移至设置页面 → 视频转码面板
-                            <TextBlock x:Uid="SplitPage_FormatLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <ComboBox x:Name="FormatComboBox" SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditSelectedFormat, Mode=OneWay}" Loaded="FormatComboBox_Loaded">
-                                <ComboBoxItem x:Uid="SettingsPage_SplitFormat_ImageDefault"/>
-                                <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
-                                <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
-                            </ComboBox>
-                            -->
+                            <!-- 视频输出格式 — 从设置页移至此处，方便快速切换 -->
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                <TextBlock x:Uid="SplitPage_FormatLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <ComboBox SelectedIndex="{x:Bind ViewModel.SelectedFormatIndex, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditSelectedFormat, Mode=OneWay}" Loaded="FormatComboBox_Loaded">
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_ImageDefault"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
+                                    <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
+                                </ComboBox>
+                            </StackPanel>
+
                             <Button x:Uid="SplitPage_HelpBtn" Height="34" Width="34" Padding="0"
                                     Background="Transparent" BorderBrush="Transparent"
                                     Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Split">
@@ -105,6 +107,7 @@
                                           Foreground="{ThemeResource AccentFillColorDefaultBrush}"
                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Button>
+                            <!-- 拆分设置已全部移至本页，暂时隐藏设置入口
                             <Button x:Uid="SplitPage_SettingsBtn" Height="34" Width="34" Padding="0"
                                     Background="Transparent" BorderBrush="Transparent"
                                     Click="GoToSplitSettings_Click">
@@ -112,6 +115,7 @@
                                           Foreground="{ThemeResource AccentFillColorDefaultBrush}"
                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Button>
+                            -->
                             <Button
                                 Command="{x:Bind ViewModel.ScanDirectoryCommand}"
                                 Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"

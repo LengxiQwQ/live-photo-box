@@ -135,9 +135,10 @@ namespace LivePhotoBox.Views
                 case "Merge":
                     scrollTarget = MergeSettingsHeader;
                     break;
-                case "Split":
-                    scrollTarget = SplitSettingsHeader;
-                    break;
+                // Split 设置已移至 SplitPage 页面本身，设置页中的对应区域已注释
+                // case "Split":
+                //     scrollTarget = SplitSettingsHeader;
+                //     break;
                 case "Repair":
                     scrollTarget = RepairSettingsHeader;
                     break;
