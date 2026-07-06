@@ -16,6 +16,10 @@
     NavigationCacheMode="Required">
 
     <Page.Resources>
+        <!-- 轻量级样式：强制滚动条保持粗状态，不收缩为细条 -->
+        <x:Double x:Key="SmallScrollThumbScale">1</x:Double>
+        <x:Double x:Key="SmallScrollThumbOffset">0</x:Double>
+
         <Style x:Key="CardBorderStyle" TargetType="Border">
             <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
             <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
@@ -88,25 +92,6 @@
                 <AppBarButton.Icon><FontIcon Glyph="&#xE9D2;" FontSize="14"/></AppBarButton.Icon>
             </AppBarButton>
 
-            <CommandBar.Content>
-                <Grid ColumnSpacing="6" VerticalAlignment="Center" Margin="0,0,8,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="260"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBox Grid.Column="0" x:Uid="KeyPhotoPage_CurrentDirBox"
-                             Text="{x:Bind ViewModel.CurrentDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             PlaceholderText="当前目录..."
-                             FontSize="12" Height="28" Padding="10,1,10,1"
-                             VerticalAlignment="Center" IsReadOnly="False"/>
-                    <Button Grid.Column="1" x:Uid="KeyPhotoPage_BrowseFolderBtn"
-                            Width="28" Height="28" Padding="0" VerticalAlignment="Center"
-                            Click="BrowseFolder_Click" ToolTipService.ToolTip="浏览文件夹">
-                        <FontIcon Glyph="&#xE838;" FontSize="12"
-                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </Button>
-                </Grid>
-            </CommandBar.Content>
         </CommandBar>
 
         <!-- ============================================================ -->
@@ -126,51 +111,90 @@
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
-                    <StackPanel Grid.Row="0" Padding="10,8,10,6" Spacing="4">
-                        <AutoSuggestBox x:Uid="KeyPhotoPage_SearchBox"
-                                        Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                        PlaceholderText="搜索文件..."
-                                        FontSize="12" Height="28"
-                                        VerticalAlignment="Center" QueryIcon="Find"/>
-                        <Grid ColumnSpacing="4">
+                    <StackPanel Grid.Row="0" Margin="10,8,10,6" Spacing="4">
+                        <!-- ── 文件夹路径 ── -->
+                        <Grid ColumnSpacing="6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBox Grid.Column="0" x:Uid="KeyPhotoPage_CurrentDirBox"
+                                     Text="{x:Bind ViewModel.CurrentDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     PlaceholderText="当前目录..."
+                                     FontSize="12" MinHeight="26" Height="28" Padding="10,5,32,5"
+                                     VerticalContentAlignment="Center" VerticalAlignment="Center" IsReadOnly="False">
+                                <TextBox.Resources>
+                                    <x:Double x:Key="TextControlThemeMinHeight">28</x:Double>
+                                </TextBox.Resources>
+                            </TextBox>
+                            <Button Grid.Column="1" x:Uid="KeyPhotoPage_BrowseFolderBtn"
+                                    Width="26" Height="26" Padding="0" CornerRadius="5"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                    Click="BrowseFolder_Click" ToolTipService.ToolTip="浏览文件夹">
+                                <FontIcon Glyph="&#xE838;" FontSize="12"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </Button>
+                        </Grid>
+                        <!-- ── 搜索 + 排序 ── -->
+                        <Grid ColumnSpacing="6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <ComboBox Grid.Column="0"
+                            <AutoSuggestBox Grid.Column="0" x:Uid="KeyPhotoPage_SearchBox"
+                                            Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                            PlaceholderText="搜索文件..."
+                                            FontSize="12" Height="28" MinHeight="28" Padding="10,0,30,0"
+                                            VerticalContentAlignment="Center" VerticalAlignment="Center" QueryIcon="Find">
+                                <AutoSuggestBox.Resources>
+                                    <x:Double x:Key="TextControlThemeMinHeight">28</x:Double>
+                                </AutoSuggestBox.Resources>
+                            </AutoSuggestBox>
+                            <ComboBox Grid.Column="1" x:Name="SortComboBox"
                                       SelectedIndex="{x:Bind ViewModel.SelectedSortIndex, Mode=TwoWay}"
-                                      FontSize="12" Height="28" Padding="10,1,6,1"
+                                      FontSize="12" MinHeight="26" Height="28" Padding="10,3,6,3"
                                       VerticalAlignment="Center">
                                 <ComboBoxItem x:Uid="KeyPhotoPage_Sort_Name" Content="名称"/>
                                 <ComboBoxItem x:Uid="KeyPhotoPage_Sort_Date" Content="日期"/>
                                 <ComboBoxItem x:Uid="KeyPhotoPage_Sort_Size" Content="大小"/>
                             </ComboBox>
-                            <ToggleButton Grid.Column="1" x:Uid="KeyPhotoPage_ViewModeToggle"
-                                          Width="26" Height="26" Padding="0" VerticalAlignment="Center"
-                                          Background="Transparent" BorderBrush="Transparent"
-                                          ToolTipService.ToolTip="筛选" IsChecked="True">
-                                <FontIcon Glyph="&#xE16F;" FontSize="12"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </ToggleButton>
                             <Button Grid.Column="2" x:Uid="KeyPhotoPage_SortDirectionBtn"
-                                    Width="26" Height="26" Padding="0" VerticalAlignment="Center"
-                                    Background="Transparent" BorderBrush="Transparent"
+                                    Width="26" Height="26" Padding="0" CornerRadius="5"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     ToolTipService.ToolTip="排序方向">
                                 <FontIcon Glyph="&#xE8CB;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
                         </Grid>
                     </StackPanel>
-                    <Border Grid.Row="0" Height="1"
-                            Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                            VerticalAlignment="Bottom" Margin="8,0"/>
-                    <ListView x:Name="FileItemListView" Grid.Row="1"
+                    <!-- ── 文件统计 ── -->
+                    <TextBlock Grid.Row="1"
+                               FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                               Padding="10,2,10,4">
+                        <Run Text="共 "/>
+                        <Run Text="{x:Bind ViewModel.FileItems.Count}"/>
+                        <Run Text=" 张照片"/>
+                    </TextBlock>
+                    <ListView x:Name="FileItemListView" Grid.Row="2"
                               ItemsSource="{x:Bind ViewModel.FileItems}"
                               SelectionMode="Single" ShowsScrollingPlaceholders="False"
-                              Padding="0,0,14,0" Margin="3,5,3,0">
+                              Padding="0,0,14,0" Margin="3,5,3,0"
+                              SelectionChanged="FileItemListView_SelectionChanged">
+                        <ListView.Resources>
+                            <!-- 选中背景：系统强调色 12% 透明度 -->
+                            <SolidColorBrush x:Key="SystemControlHighlightListAccentLowBrush"
+                                             Color="{ThemeResource SystemAccentColor}" Opacity="0.12"/>
+                            <SolidColorBrush x:Key="SystemControlHighlightListAccentMediumBrush"
+                                             Color="{ThemeResource SystemAccentColor}" Opacity="0.18"/>
+                        </ListView.Resources>
                         <ListView.ItemsPanel>
                             <ItemsPanelTemplate>
                                 <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="8"/>
@@ -179,45 +203,41 @@
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                <Setter Property="Margin" Value="0,0,0,4"/>
-                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="Margin" Value="0"/>
+                                <Setter Property="Padding" Value="10,10,10,10"/>
                                 <Setter Property="MinHeight" Value="0"/>
                             </Style>
                         </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="models:KeyPhotoFileItem">
-                                <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                        BorderThickness="1" CornerRadius="7" Padding="9,8">
-                                    <Grid ColumnSpacing="10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="48"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <Border Grid.Column="0" Width="48" Height="48" CornerRadius="5"
-                                                Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
-                                                VerticalAlignment="Center">
-                                            <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{x:Bind FileName}"
-                                                       FontSize="12" FontWeight="Bold"
-                                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                                       TextTrimming="CharacterEllipsis" MaxLines="1"/>
-                                            <TextBlock FontSize="11"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                       TextTrimming="CharacterEllipsis" MaxLines="1">
-                                                <Run Text="{x:Bind Resolution}"/>
-                                                <Run Text=" │ " Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
-                                                <Run Text="{x:Bind FileSize}"/>
-                                            </TextBlock>
-                                            <TextBlock Text="{x:Bind DateTaken}" FontSize="11"
-                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}" MaxLines="1"/>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
+                                <Grid ColumnSpacing="10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="48"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Border Grid.Column="0" Width="48" Height="48" CornerRadius="5"
+                                            Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
+                                            VerticalAlignment="Center">
+                                        <FontIcon Glyph="&#xE722;" FontSize="18"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
+                                        <TextBlock Text="{x:Bind FileName}"
+                                                   FontSize="12" FontWeight="Bold"
+                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                   TextTrimming="CharacterEllipsis" MaxLines="1"/>
+                                        <TextBlock FontSize="11"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   TextTrimming="CharacterEllipsis" MaxLines="1">
+                                            <Run Text="{x:Bind Resolution}"/>
+                                            <Run Text=" │ " Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
+                                            <Run Text="{x:Bind FileSize}"/>
+                                        </TextBlock>
+                                        <TextBlock Text="{x:Bind DateTaken}" FontSize="11"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" MaxLines="1"/>
+                                    </StackPanel>
+                                </Grid>
                             </DataTemplate>
                         </ListView.ItemTemplate>
                     </ListView>

@@ -21,7 +21,7 @@ namespace LivePhotoBox.Models
         /// <summary>文件大小格式化文本，如 "6.3 MB"</summary>
         public string FileSize { get; set; } = string.Empty;
 
-        /// <summary>分辨率文本，如 "4032 × 3024"</summary>
+        /// <summary>分辨率文本，如 "4032 × 3042"</summary>
         public string Resolution { get; set; } = string.Empty;
 
         /// <summary>拍摄日期，如 "2024/12/15 14:32"</summary>

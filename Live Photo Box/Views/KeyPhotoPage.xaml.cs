@@ -2,9 +2,10 @@
  * KeyPhotoPage.xaml.cs
  *
  * 实况照片主图更换页面的代码后置。
- * 处理 UI 事件 + 时间轴滚轮左右滚动 + 滚动条强制粗壮兜底。
+ * 处理 UI 事件 + 时间轴滚轮左右滚动 + 选中边框管理。
  */
 
+using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI.Xaml;
@@ -20,10 +21,14 @@ namespace LivePhotoBox.Views
     {
         public KeyPhotoViewModel ViewModel => AppViewModel.Instance.KeyPhoto;
 
+        private object? _lastSelectedItem;
+        private bool _isRestoringSelection;
+
         public KeyPhotoPage()
         {
             InitializeComponent();
             Loaded += KeyPhotoPage_Loaded;
+            FileItemListView.ContainerContentChanging += OnContainerContentChanging;
         }
 
         private void KeyPhotoPage_Loaded(object sender, RoutedEventArgs e)
@@ -35,13 +40,12 @@ namespace LivePhotoBox.Views
                 items.Add(i);
             TimelineThumbnailsControl.ItemsSource = items;
 
-            // 兜底：延迟一帧再强制执行，确保模板已加载
+            LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(SortComboBox);
+
             DispatcherQueue.TryEnqueue(() => ForceScrollBarsAlwaysThick());
+            DispatcherQueue.TryEnqueue(() => RefreshSelectedItemBorder());
         }
 
-        /// <summary>
-        /// 时间轴鼠标滚轮 → 水平滚动。
-        /// </summary>
         private void TimelineScrollViewer_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
         {
             var delta = e.GetCurrentPoint(null).Properties.MouseWheelDelta;
@@ -50,12 +54,8 @@ namespace LivePhotoBox.Views
             e.Handled = true;
         }
 
-        /// <summary>
-        /// 遍历所有 ScrollBar 强制设为 TouchIndicator 模式（配合 XAML 隐式 Style 双重保障）。
-        /// </summary>
         private void ForceScrollBarsAlwaysThick()
         {
-            // ListView 内部 ScrollViewer 垂直滚动条设为始终可见
             var listViewSv = FindVisualChild<ScrollViewer>(FileItemListView);
             if (listViewSv != null)
             {
@@ -65,12 +65,10 @@ namespace LivePhotoBox.Views
                     vBar.IndicatorMode = ScrollingIndicatorMode.TouchIndicator;
             }
 
-            // 时间轴水平滚动条
             var hBar = TimelineScrollViewer.FindName("HorizontalScrollBar") as ScrollBar;
             if (hBar != null)
                 hBar.IndicatorMode = ScrollingIndicatorMode.TouchIndicator;
 
-            // 递归兜底：遍历页面内所有 ScrollBar
             SetAllScrollBarsIndicatorMode(this);
         }
 
@@ -107,6 +105,88 @@ namespace LivePhotoBox.Views
             var folder = await FilePickerService.PickFolderAsync();
             if (folder != null)
                 ViewModel.CurrentDirectory = folder.Path;
+        }
+
+        // ──────────────── 选中项边框管理 ────────────────
+
+        private void FileItemListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isRestoringSelection) return;
+
+            if (FileItemListView.SelectedItem == null && _lastSelectedItem != null)
+            {
+                _isRestoringSelection = true;
+                FileItemListView.SelectedItem = _lastSelectedItem;
+                _isRestoringSelection = false;
+                return;
+            }
+
+            _lastSelectedItem = FileItemListView.SelectedItem;
+
+            // 清除旧选中项边框
+            foreach (var item in e.RemovedItems)
+            {
+                if (FileItemListView.ContainerFromItem(item) is ListViewItem c)
+                    ClearSelectedBorder(c);
+            }
+
+            // 新选中项设置边框
+            foreach (var item in e.AddedItems)
+            {
+                if (FileItemListView.ContainerFromItem(item) is ListViewItem c)
+                    ApplySelectedBorder(c);
+            }
+        }
+
+        /// <summary>
+        /// 虚拟化回收/重建容器时同步边框状态。
+        /// </summary>
+        private void OnContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
+        {
+            if (args.InRecycleQueue)
+            {
+                ClearSelectedBorder(args.ItemContainer as ListViewItem);
+                return;
+            }
+
+            // 容器展示新内容时，如果是当前选中项则恢复边框
+            if (args.Item == FileItemListView.SelectedItem && args.ItemContainer is ListViewItem container)
+            {
+                container.Loaded += OnSelectedContainerReLoaded;
+            }
+        }
+
+        private void OnSelectedContainerReLoaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is ListViewItem container)
+            {
+                container.Loaded -= OnSelectedContainerReLoaded;
+                ApplySelectedBorder(container);
+            }
+        }
+
+        private void RefreshSelectedItemBorder()
+        {
+            if (FileItemListView.SelectedItem != null &&
+                FileItemListView.ContainerFromItem(FileItemListView.SelectedItem) is ListViewItem container)
+            {
+                ApplySelectedBorder(container);
+            }
+        }
+
+        private static void ApplySelectedBorder(ListViewItem container)
+        {
+            if (container == null) return;
+            var accentColor = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+            container.BorderBrush = new SolidColorBrush(accentColor) { Opacity = 0.88 };
+            container.BorderThickness = new Thickness(2);
+        }
+
+        private static void ClearSelectedBorder(ListViewItem? container)
+        {
+            if (container == null) return;
+            container.BorderBrush = null;
+            container.BorderThickness = new Thickness(0);
         }
     }
 }
