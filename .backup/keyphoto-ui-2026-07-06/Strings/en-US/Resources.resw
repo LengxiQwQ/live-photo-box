@@ -124,613 +124,614 @@
     <value>Live Photo Box</value>
   </data>
   <data name="Nav_About.Content" xml:space="preserve">
-    <value>关于</value>
+    <value>About</value>
   </data>
   <data name="Nav_Merge.Content" xml:space="preserve">
-    <value>实况照片合成</value>
+    <value>Merge Live Photo</value>
   </data>
   <data name="Nav_KeyPhoto.Content" xml:space="preserve">
-    <value>实况照片主图更换</value>
+    <value>Replace Key Photo</value>
   </data>
   <data name="Nav_PhotoClassify.Content" xml:space="preserve">
-    <value>照片自动分类</value>
+    <value>Photo Organize</value>
   </data>
   <data name="Nav_Home.Content" xml:space="preserve">
-    <value>主页 &amp; 教程</value>
+    <value>Home &amp; Tutorial</value>
   </data>
   <data name="Nav_Repair.Content" xml:space="preserve">
-    <value>实况照片显示修复</value>
+    <value>Repair Live Photo</value>
   </data>
   <data name="Nav_Settings" xml:space="preserve">
-    <value>设置</value>
+    <value>Settings</value>
   </data>
   <data name="Nav_Split.Content" xml:space="preserve">
-    <value>实况照片拆分</value>
+    <value>Split Live Photo</value>
   </data>
   <data name="AboutPage_Version_Format" xml:space="preserve">
-    <value>版本 {0}</value>
+    <value>Version {0}</value>
   </data>
   <data name="AboutPage_Mode_Store" xml:space="preserve">
-    <value>商店版</value>
+    <value>Store</value>
   </data>
   <data name="AboutPage_Mode_Installer" xml:space="preserve">
-    <value>安装版</value>
+    <value>Installer</value>
   </data>
   <data name="AboutPage_Mode_Portable" xml:space="preserve">
-    <value>便携版</value>
+    <value>Portable</value>
   </data>
   <data name="RestartDialog_CloseButton" xml:space="preserve">
-    <value>稍后</value>
+    <value>Later</value>
   </data>
   <data name="RestartDialog_Content" xml:space="preserve">
-    <value>更改语言需要重启应用才能完全生效。是否立即重启？</value>
+    <value>Changing the language requires restarting the app to take full effect.
+Do you want to restart now?</value>
   </data>
   <data name="RestartDialog_PrimaryButton" xml:space="preserve">
-    <value>立即重启</value>
+    <value>Restart Now</value>
   </data>
   <data name="RestartDialog_Title" xml:space="preserve">
-    <value>更改语言</value>
+    <value>Language Changed</value>
   </data>
   <data name="CrashDialog_ReportIssueButton" xml:space="preserve">
-    <value>前往 GitHub 反馈</value>
+    <value>Report on GitHub</value>
   </data>
   <data name="SettingsPage_Title.Text" xml:space="preserve">
-    <value>设置</value>
+    <value>Settings</value>
   </data>
   <data name="SettingsPage_Appearance_Header.Text" xml:space="preserve">
-    <value>外观与个性化</value>
+    <value>Appearance &amp; Personalization</value>
   </data>
   <data name="SettingsPage_Language_Desc.Text" xml:space="preserve">
-    <value>需重启应用生效</value>
+    <value>Requires app restart</value>
   </data>
   <data name="SettingsPage_Language_System.Content" xml:space="preserve">
-    <value>跟随系统 (System Default)</value>
+    <value>System Default</value>
   </data>
   <data name="SettingsPage_Backdrop_Header.Text" xml:space="preserve">
-    <value>窗口材质</value>
+    <value>Window Backdrop</value>
   </data>
   <data name="SettingsPage_Backdrop_Desc.Text" xml:space="preserve">
-    <value>选择 Windows 11 沉浸式背景（Aritic Thin 材质更加沉浸）</value>
+    <value>Choose Windows 11 immersive background (Aritic Thin material offers the best experience)</value>
   </data>
   <data name="SettingsPage_AcrylicOpacity_Header.Text" xml:space="preserve">
-    <value>Acrylic 材质浓度</value>
+    <value>Acrylic Tint Opacity</value>
   </data>
   <data name="SettingsPage_AcrylicOpacity_Desc.Text" xml:space="preserve">
-    <value>调整毛玻璃效果的着色透明度</value>
+    <value>Adjust the frosted glass tint opacity</value>
   </data>
   <data name="SettingsPage_WindowOpacity_Header.Text" xml:space="preserve">
-    <value>窗口整体透明度</value>
+    <value>Window Opacity</value>
   </data>
   <data name="SettingsPage_WindowOpacity_Desc.Text" xml:space="preserve">
-    <value>调整整个应用窗口的透明度</value>
+    <value>Adjust overall application window transparency</value>
   </data>
   <data name="SettingsPage_Banner_Header.Text" xml:space="preserve">
-    <value>主页背景</value>
+    <value>Home Background</value>
   </data>
   <data name="SettingsPage_Backdrop_AcrylicLight.Content" xml:space="preserve">
     <value>Acrylic Thin</value>
   </data>
   <data name="SettingsPage_Backdrop_None.Content" xml:space="preserve">
-    <value>无</value>
+    <value>None</value>
   </data>
   <data name="SettingsPage_Theme_Header.Text" xml:space="preserve">
-    <value>应用主题</value>
+    <value>Theme</value>
   </data>
   <data name="SettingsPage_Theme_System.Content" xml:space="preserve">
-    <value>跟随系统</value>
+    <value>System Default</value>
   </data>
   <data name="SettingsPage_Theme_Light.Content" xml:space="preserve">
-    <value>浅色模式</value>
+    <value>Light</value>
   </data>
   <data name="SettingsPage_Theme_Dark.Content" xml:space="preserve">
-    <value>深色模式</value>
+    <value>Dark</value>
   </data>
   <data name="SettingsPage_Theme_Desc.Text" xml:space="preserve">
-    <value>调整应用整体视觉配色</value>
+    <value>Adjust the overall visual color scheme</value>
   </data>
   <data name="SettingsPage_Merge_Header.Text" xml:space="preserve">
-    <value>实况照片合成</value>
+    <value>Live Photo Merge</value>
   </data>
   <data name="SettingsPage_Protocol_Header.Header" xml:space="preserve">
-    <value>转换协议</value>
+    <value>Conversion Protocol</value>
   </data>
   <data name="SettingsPage_Protocol_Desc.Text" xml:space="preserve">
-    <value>选择合适的安卓实况封装协议</value>
+    <value>Choose the appropriate Android Live Photo packaging protocol</value>
   </data>
   <data name="SettingsPage_Keep_Header.Header" xml:space="preserve">
-    <value>保留原始文件</value>
+    <value>Keep Original Files</value>
   </data>
   <data name="SettingsPage_Keep_Desc.Text" xml:space="preserve">
-    <value>处理完成后不清理源文件</value>
+    <value>Do not delete source files after processing</value>
   </data>
   <data name="SettingsPage_Split_Header.Text" xml:space="preserve">
-    <value>实况照片拆分</value>
+    <value>Live Photo Split</value>
   </data>
   <data name="SettingsPage_SplitFormat_Header.Header" xml:space="preserve">
-    <value>导出视频格式</value>
+    <value>Export Video Format</value>
   </data>
   <data name="SettingsPage_SplitFormat_Desc.Text" xml:space="preserve">
-    <value>选择拆分后视频的保存格式</value>
+    <value>Choose the format for the extracted video</value>
   </data>
   <data name="SettingsPage_Restore_Button.Content" xml:space="preserve">
-    <value>恢复默认设置</value>
+    <value>Restore Default Settings</value>
   </data>
   <data name="SettingsPage_Restore_Button_Text.Text" xml:space="preserve">
-    <value>恢复默认设置</value>
+    <value>Restore Default Settings</value>
   </data>
   <data name="SettingsPage_CrashIssue_Button_Text.Text" xml:space="preserve">
-    <value>前往 GitHub 反馈</value>
+    <value>Report on GitHub</value>
   </data>
   <data name="KeyPhotoPage_PlaceholderTitle.Text" xml:space="preserve">
-    <value>实况照片主图更换暂未开放</value>
+    <value>Replace key photo is not available yet</value>
   </data>
   <data name="KeyPhotoPage_PlaceholderDescription.Text" xml:space="preserve">
-    <value>自由更换实况照片的封面主图。通过解析实况照片的底层数据结构，从动态视频帧中选取你最满意的一刻，无损替换为新的静态封面，让每一张实况照片都能定格在最完美的瞬间。</value>
+    <value>Freely replace the key photo (cover image) of your Live Photos. By parsing the underlying data structure, pick your favorite frame from the motion video and losslessly swap it in as the new static cover — so every Live Photo freezes at its most perfect moment.</value>
   </data>
   <data name="PhotoClassifyPage_PlaceholderTitle.Text" xml:space="preserve">
-    <value>照片自动分类暂未开放</value>
+    <value>Photo Organize is not available yet</value>
   </data>
   <data name="PhotoClassifyPage_PlaceholderDescription.Text" xml:space="preserve">
-    <value>通过读取照片中的元数据信息，智能识别实况照片、人像模式、连拍等拍摄类型，自动归类整理相册文件夹。首批适配 Apple 设备拍摄的照片，后续将逐步覆盖主流安卓厂商的私有格式，打造真正跨平台的一站式照片管理方案。</value>
+    <value>Automatically reads photo metadata to intelligently identify Live Photos, Portrait mode, bursts, and other capture types, then organizes them into classified albums. Initial support for Apple-shot photos, with mainstream Android vendor formats to follow — building a truly cross-platform, one-stop photo management solution.</value>
   </data>
   <data name="RepairPage_PlaceholderDescription.Text" xml:space="preserve">
-    <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
+    <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
   </data>
   <data name="SplitPage_PlaceholderTitle.Text" xml:space="preserve">
-    <value>实况照片拆分页面暂未开放</value>
+    <value>Live Photo split page is not available yet</value>
   </data>
   <data name="SplitPage_PlaceholderDescription.Text" xml:space="preserve">
-    <value>此页面当前保留为扩展入口，后续需要时再接入实际内容。</value>
+    <value>This page is currently reserved as an extension entry and will be connected to actual content later if needed.</value>
   </data>
   <data name="SplitPage_Status_Ready" xml:space="preserve">
-    <value>就绪，请导入要拆分的实况照片（单文件形式）</value>
+    <value>Ready. Import the live photos you want to split (single-file format).</value>
   </data>
   <data name="SplitPage_ConfigHeader.Text" xml:space="preserve">
-    <value>实况照片拆分配置</value>
+    <value>Live Photo Split Settings</value>
   </data>
   <data name="SplitPage_InputLabel.Text" xml:space="preserve">
-    <value>输入目录:</value>
+    <value>Input Dir:</value>
   </data>
   <data name="SplitPage_InputBox.PlaceholderText" xml:space="preserve">
-    <value>请选择包含实况照片的源文件夹</value>
+    <value>Select the source folder that contains live photos</value>
   </data>
   <data name="SplitPage_BrowseBtn1.Content" xml:space="preserve">
-    <value>浏览...</value>
+    <value>Browse...</value>
   </data>
   <data name="SplitPage_OutputLabel.Text" xml:space="preserve">
-    <value>输出目录:</value>
+    <value>Output Dir:</value>
   </data>
   <data name="SplitPage_OutputBox.PlaceholderText" xml:space="preserve">
-    <value>请选择拆分后照片与视频的保存路径</value>
+    <value>Select where to save the extracted photo and video files</value>
   </data>
   <data name="SplitPage_BrowseBtn2.Content" xml:space="preserve">
-    <value>浏览...</value>
+    <value>Browse...</value>
   </data>
   <data name="SplitPage_StatQueued.Text" xml:space="preserve">
-    <value>队列任务 :</value>
+    <value>Queued :</value>
   </data>
   <data name="SplitPage_StatRecognized.Text" xml:space="preserve">
-    <value>实况照片 :</value>
+    <value>Live Photos :</value>
   </data>
   <data name="SplitPage_StatSkipped.Text" xml:space="preserve">
-    <value>非实况照片 :</value>
+    <value>Non-Live Photos :</value>
   </data>
   <data name="SplitPage_FormatLabel.Text" xml:space="preserve">
-    <value>视频导出格式：</value>
+    <value>Export Video Format</value>
   </data>
   <data name="SplitPage_ScanBtn.Content" xml:space="preserve">
-    <value>扫描实况照片</value>
+    <value>Scan Live Photos</value>
   </data>
   <data name="SplitPage_DynamicScanText" xml:space="preserve">
-    <value>扫描实况照片</value>
+    <value>Scan Live Photos</value>
   </data>
   <data name="SplitPage_DynamicCancelText" xml:space="preserve">
-    <value>取消扫描</value>
+    <value>Cancel Scan</value>
   </data>
   <data name="SplitPage_QueueProgress.Text" xml:space="preserve">
-    <value>当前队列进度：</value>
+    <value>Queue: </value>
   </data>
   <data name="SplitPage_ColSeq.Text" xml:space="preserve">
-    <value>序号</value>
+    <value>No.</value>
   </data>
   <data name="SplitPage_ColSize.Text" xml:space="preserve">
-    <value>大小</value>
+    <value>Size</value>
   </data>
   <data name="SplitPage_Status_InvalidInput" xml:space="preserve">
-    <value>输入目录无效，请检查路径</value>
+    <value>Invalid input directory. Please check the path.</value>
   </data>
   <data name="SplitPage_Status_Cleared" xml:space="preserve">
-    <value>列表已清空</value>
+    <value>List cleared</value>
   </data>
   <data name="SplitPage_Status_StartPlaceholder" xml:space="preserve">
-    <value>拆分执行逻辑将在下一步接入，当前已完成界面准备</value>
+    <value>Split execution logic will be connected next. The UI is now ready.</value>
   </data>
   <data name="MergePage_ConfigHeader.Text" xml:space="preserve">
-    <value>实况照片合成配置</value>
+    <value>Live Photo Merge Settings</value>
   </data>
   <data name="MergePage_InputLabel.Text" xml:space="preserve">
-    <value>输入目录:</value>
+    <value>Input Dir:</value>
   </data>
   <data name="MergePage_InputBox.PlaceholderText" xml:space="preserve">
-    <value>请选择包含照片和视频的源文件夹</value>
+    <value>Select source folder with photos &amp; videos</value>
   </data>
   <data name="MergePage_BrowseBtn1.Content" xml:space="preserve">
-    <value>浏览...</value>
+    <value>Browse...</value>
   </data>
   <data name="MergePage_OutputLabel.Text" xml:space="preserve">
-    <value>输出目录:</value>
+    <value>Output Dir:</value>
   </data>
   <data name="MergePage_OutputBox.PlaceholderText" xml:space="preserve">
-    <value>请选择生成后的实况照片保存路径</value>
+    <value>Select destination folder to save Live Photos</value>
   </data>
   <data name="MergePage_BrowseBtn2.Content" xml:space="preserve">
-    <value>浏览...</value>
+    <value>Browse...</value>
   </data>
   <data name="MergePage_StatPaired.Text" xml:space="preserve">
-    <value>配对成功 :</value>
+    <value>Paired :</value>
   </data>
   <data name="MergePage_StatImg.Text" xml:space="preserve">
-    <value>单独照片 :</value>
+    <value>Lone Img :</value>
   </data>
   <data name="MergePage_StatVid.Text" xml:space="preserve">
-    <value>单独视频 :</value>
+    <value>Lone Vid :</value>
   </data>
   <data name="MergePage_ProtocolLabel.Text" xml:space="preserve">
-    <value>协议版本：</value>
+    <value>Protocol:</value>
   </data>
   <data name="MergePage_ScanBtn.Content" xml:space="preserve">
-    <value>扫描文件</value>
+    <value>Scan Files</value>
   </data>
   <data name="MergePage_DynamicScanText" xml:space="preserve">
-    <value>扫描文件</value>
+    <value>Scan Files</value>
   </data>
   <data name="MergePage_DynamicCancelText" xml:space="preserve">
-    <value>取消扫描</value>
+    <value>Cancel Scan</value>
   </data>
   <data name="MergePage_QueueProgress.Text" xml:space="preserve">
-    <value>当前队列进度：</value>
+    <value>Queue: </value>
   </data>
   <data name="MergePage_ColSeq.Text" xml:space="preserve">
-    <value>序号</value>
+    <value>No.</value>
   </data>
   <data name="MergePage_ColFile.Text" xml:space="preserve">
-    <value>源文件组</value>
+    <value>Source File Group</value>
   </data>
   <data name="MergePage_ColSize.Text" xml:space="preserve">
-    <value>大小</value>
+    <value>Size</value>
   </data>
   <data name="MergePage_ColStatus.Text" xml:space="preserve">
-    <value>状态</value>
+    <value>Status</value>
   </data>
   <data name="MergePage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
-    <value>在文件夹中查看</value>
+    <value>Show in folder</value>
   </data>
   <data name="MergePage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>全屏预览</value>
+    <value>Fullscreen preview</value>
   </data>
   <data name="Status_Init" xml:space="preserve">
-    <value>就绪，请导入包含（照片和视频）的文件夹</value>
+    <value>Ready. Select a folder containing photos and videos.</value>
   </data>
   <data name="Status_InvalidInput" xml:space="preserve">
-    <value>输入目录无效，请检查路径</value>
+    <value>Invalid input directory. Please check the path.</value>
   </data>
   <data name="StatusBar_Scanning_Split" xml:space="preserve">
-    <value>正在扫描实况照片 {0}/{1}</value>
+    <value>Scanning live photos {0}/{1}</value>
   </data>
   <data name="StatusBar_Scanning_Merge" xml:space="preserve">
-    <value>正在扫描文件 {0}/{1}</value>
+    <value>Scanning files {0}/{1}</value>
   </data>
   <data name="StatusBar_Scanning_Repair" xml:space="preserve">
-    <value>正在扫描照片 {0}/{1}</value>
+    <value>Scanning photos {0}/{1}</value>
   </data>
   <data name="StatusBar_ScanProgressLabel" xml:space="preserve">
-    <value>扫描中：{0}%</value>
+    <value>Scanning: {0}%</value>
   </data>
   <data name="StatusBar_ScanProgressLabel_Lbl" xml:space="preserve">
-    <value>扫描中：</value>
+    <value>Scanning: </value>
   </data>
   <data name="StatusBar_ProcessProgressLabel" xml:space="preserve">
-    <value>处理中：{0}%</value>
+    <value>Processing: {0}%</value>
   </data>
   <data name="StatusBar_ProcessProgressLabel_Lbl" xml:space="preserve">
-    <value>处理中：</value>
+    <value>Processing: </value>
   </data>
   <data name="StatusBar_PausedLabel" xml:space="preserve">
-    <value>已暂停：{0}%</value>
+    <value>Paused: {0}%</value>
   </data>
   <data name="StatusBar_PausedLabel_Lbl" xml:space="preserve">
-    <value>已暂停：</value>
+    <value>Paused: </value>
   </data>
   <data name="StatusBar_StoppedLabel" xml:space="preserve">
-    <value>已取消：{0}%</value>
+    <value>Cancelled: {0}%</value>
   </data>
   <data name="StatusBar_StoppedLabel_Lbl" xml:space="preserve">
-    <value>已取消：</value>
+    <value>Cancelled: </value>
   </data>
   <data name="StatusBar_CompletedLabel" xml:space="preserve">
-    <value>已完成：{0}%</value>
+    <value>Completed: {0}%</value>
   </data>
   <data name="StatusBar_CompletedLabel_Lbl" xml:space="preserve">
-    <value>已完成：</value>
+    <value>Completed: </value>
   </data>
   <data name="StatusBar_ReadyLabel" xml:space="preserve">
-    <value>扫描完成：{0}%</value>
+    <value>Scan done: {0}%</value>
   </data>
   <data name="StatusBar_ReadyLabel_Lbl" xml:space="preserve">
-    <value>扫描完成：</value>
+    <value>Scan done: </value>
   </data>
   <data name="Status_ScanNoPairs" xml:space="preserve">
-    <value>扫描完成：未找到匹配的实况照片（零散图片 {0} 张，零散视频 {1} 个）</value>
+    <value>Scan complete: no matching live photos found (images: {0}, videos: {1})</value>
   </data>
   <data name="Status_Scanning" xml:space="preserve">
-    <value>正在扫描中...</value>
+    <value>Scanning...</value>
   </data>
   <data name="Status_ScanCancelling" xml:space="preserve">
-    <value>正在停止扫描...</value>
+    <value>Stopping scan...</value>
   </data>
   <data name="Status_ScanCancelled" xml:space="preserve">
-    <value>扫描已停止</value>
+    <value>Scan stopped</value>
   </data>
   <data name="Status_ScanDone" xml:space="preserve">
-    <value>扫描完成：已匹配 {0} 组实况照片</value>
+    <value>Scan complete: loaded {0} pairs</value>
   </data>
   <data name="RepairPage_Status_ScanDone" xml:space="preserve">
-    <value>扫描完成：{0} 张无需修复，{1} 张待修复</value>
+    <value>Scan complete: {0} healthy, {1} need repair</value>
   </data>
   <data name="RepairPage_Status_ScanNoFiles" xml:space="preserve">
-    <value>扫描完成：未找到可修复的照片</value>
+    <value>Scan complete: no photos found to repair</value>
   </data>
   <data name="RepairPage_Status_Cleared" xml:space="preserve">
-    <value>列表已清空</value>
+    <value>List cleared</value>
   </data>
   <data name="RepairPage_Status_Stopping" xml:space="preserve">
-    <value>正在停止修复...</value>
+    <value>Stopping repair...</value>
   </data>
   <data name="RepairPage_Status_Aborted" xml:space="preserve">
-    <value>修复已停止</value>
+    <value>Repair stopped</value>
   </data>
   <data name="RepairPage_Status_ScanCancelled" xml:space="preserve">
-    <value>扫描已停止</value>
+    <value>Scan stopped</value>
   </data>
   <data name="Status_Cleared" xml:space="preserve">
-    <value>列表已清空</value>
+    <value>List cleared</value>
   </data>
   <data name="Status_Resumed" xml:space="preserve">
-    <value>任务已恢复，继续处理中...</value>
+    <value>Task resumed. Continuing processing...</value>
   </data>
   <data name="Status_Paused" xml:space="preserve">
-    <value>任务已暂停</value>
+    <value>Task paused</value>
   </data>
   <data name="Status_Pausing" xml:space="preserve">
-    <value>正在暂停...</value>
+    <value>Pausing...</value>
   </data>
   <data name="Status_WarnOutput" xml:space="preserve">
-    <value>请先设置保存目录</value>
+    <value>Please set the save directory first</value>
   </data>
   <data name="Status_Running" xml:space="preserve">
-    <value>正在合成处理中...</value>
+    <value>Merging in progress...</value>
   </data>
   <data name="Status_Aborted" xml:space="preserve">
-    <value>任务已停止</value>
+    <value>Stopped</value>
   </data>
   <data name="Status_Stopping" xml:space="preserve">
-    <value>正在停止...</value>
+    <value>Stopping...</value>
   </data>
   <data name="Status_Error" xml:space="preserve">
-    <value>出错了：{0}</value>
+    <value>Error: {0}</value>
   </data>
   <data name="Status_Done" xml:space="preserve">
-    <value>处理完成，用时 {0:F1} 秒</value>
+    <value>Completed in {0:F1} seconds</value>
   </data>
   <data name="Status_MergeCompletedSummary" xml:space="preserve">
-    <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个</value>
+    <value>Completed. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} failed</value>
   </data>
   <data name="Status_SplitCompletedSummary" xml:space="preserve">
-    <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个</value>
+    <value>Completed. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} failed</value>
   </data>
   <data name="Status_RepairCompletedSummary" xml:space="preserve">
-    <value>处理完成！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，跳过 {3} 个，失败 {4} 个</value>
+    <value>Completed. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} skipped, {4} failed</value>
   </data>
   <data name="Status_MergeStoppedSummary" xml:space="preserve">
-    <value>任务已停止！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个，未处理 {4} 个</value>
+    <value>Task stopped. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} failed, {4} unprocessed</value>
   </data>
   <data name="Status_SplitStoppedSummary" xml:space="preserve">
-    <value>拆分已停止！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，失败 {3} 个，未处理 {4} 个</value>
+    <value>Split stopped. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} failed, {4} unprocessed</value>
   </data>
   <data name="Status_RepairStoppedSummary" xml:space="preserve">
-    <value>修复已停止！共 {0} 个任务，用时 {1:F1} 秒；成功 {2} 个，跳过 {3} 个，失败 {4} 个，未处理 {5} 个</value>
+    <value>Repair stopped. Total {0} tasks, {1:F1}s elapsed; {2} succeeded, {3} skipped, {4} failed, {5} unprocessed</value>
   </data>
   <data name="Btn_StartMerge" xml:space="preserve">
-    <value>开始合成</value>
+    <value>Start Merge</value>
   </data>
   <data name="Btn_StartSplit" xml:space="preserve">
-    <value>开始拆分</value>
+    <value>Start Split</value>
   </data>
   <data name="Btn_StopRun" xml:space="preserve">
-    <value>停止运行</value>
+    <value>Stop</value>
   </data>
   <data name="Btn_Stopping" xml:space="preserve">
-    <value>正在停止...</value>
+    <value>Stopping...</value>
   </data>
   <data name="Btn_ClearList" xml:space="preserve">
-    <value>清空列表</value>
+    <value>Clear List</value>
   </data>
   <data name="Btn_Pause" xml:space="preserve">
-    <value>暂停</value>
+    <value>Pause</value>
   </data>
   <data name="Btn_Resume" xml:space="preserve">
-    <value>继续</value>
+    <value>Resume</value>
   </data>
   <data name="Btn_Stop" xml:space="preserve">
-    <value>停止</value>
+    <value>Stop</value>
   </data>
   <data name="Btn_Pausing" xml:space="preserve">
-    <value>暂停中...</value>
+    <value>Pausing...</value>
   </data>
   <data name="Btn_RepairStopped" xml:space="preserve">
-    <value>已停止</value>
+    <value>Stopped</value>
   </data>
   <data name="Btn_RepairDone" xml:space="preserve">
-    <value>修复完成</value>
+    <value>Done</value>
   </data>
   <data name="Msg_RepairAlreadyStopped" xml:space="preserve">
-    <value>修复已停止，请清空列表后重新开始</value>
+    <value>Repair has been stopped. Please clear the list and rescan to restart.</value>
   </data>
   <data name="Msg_RepairAlreadyDone" xml:space="preserve">
-    <value>修复已完成，请清空列表后重新开始</value>
+    <value>Repair is already done. Please clear the list and rescan to restart.</value>
   </data>
   <data name="Msg_ProcessingNotAllowed" xml:space="preserve">
-    <value>扫描未完成，无法开始修复</value>
+    <value>Scan not complete, cannot start repair</value>
   </data>
   <data name="Msg_MergeAlreadyStopped" xml:space="preserve">
-    <value>合成已停止，请清空列表后重新开始</value>
+    <value>Merge has been stopped. Please clear the list and rescan to restart.</value>
   </data>
   <data name="Msg_MergeAlreadyDone" xml:space="preserve">
-    <value>合成已完成，请清空列表后重新开始</value>
+    <value>Merge is already done. Please clear the list and rescan to restart.</value>
   </data>
   <data name="Msg_RepairCompletedTitle" xml:space="preserve">
-    <value>任务已完成</value>
+    <value>Task Completed</value>
   </data>
   <data name="Msg_RepairCompletedDescription" xml:space="preserve">
-    <value>你可以前往输出文件夹，或清空列表后重新开始。</value>
+    <value>You can open the output folder to review the repaired results, or clear the list and start again.</value>
   </data>
   <data name="Msg_RepairCompletedSummary" xml:space="preserve">
-    <value>共 {0} 个任务，成功 {1} 个，跳过 {2} 个，失败 {3} 个</value>
+    <value>Total: {0} tasks. Succeeded: {1}, Skipped: {2}, Failed: {3}.</value>
   </data>
   <data name="Msg_MergeCompletedTitle" xml:space="preserve">
-    <value>任务已完成</value>
+    <value>Task Completed</value>
   </data>
   <data name="Msg_MergeCompletedDescription" xml:space="preserve">
-    <value>你可以点击打开输出文件夹，或清空列表后重新开始。</value>
+    <value>You can open the output folder, or clear the list and start again.</value>
   </data>
   <data name="Msg_MergeCompletedSummary" xml:space="preserve">
-    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个</value>
+    <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}.</value>
   </data>
   <data name="Msg_TaskCancelledTitle" xml:space="preserve">
-    <value>任务已取消</value>
+    <value>Task Cancelled</value>
   </data>
   <data name="Msg_MergeCancelledSummary" xml:space="preserve">
-    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个，未处理 {3} 个</value>
+    <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}, Unprocessed: {3}</value>
   </data>
   <data name="Msg_SplitCancelledSummary" xml:space="preserve">
-    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个，未处理 {3} 个</value>
+    <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}, Unprocessed: {3}</value>
   </data>
   <data name="Msg_RepairCancelledSummary" xml:space="preserve">
-    <value>共 {0} 个任务，成功 {1} 个，跳过 {2} 个，失败 {3} 个，未处理 {4} 个</value>
+    <value>Total: {0} tasks. Succeeded: {1}, Skipped: {2}, Failed: {3}, Unprocessed: {4}</value>
   </data>
   <data name="Msg_OpenOutputFolder" xml:space="preserve">
-    <value>打开输出目录</value>
+    <value>Open Output Folder</value>
   </data>
   <data name="Msg_SplitAlreadyStopped" xml:space="preserve">
-    <value>分离已停止，请清空列表后重新开始</value>
+    <value>Split has been stopped. Please clear the list and rescan to restart.</value>
   </data>
   <data name="Msg_SplitAlreadyDone" xml:space="preserve">
-    <value>分离已完成，请清空列表后重新开始</value>
+    <value>Split is already done. Please clear the list and rescan to restart.</value>
   </data>
   <data name="Msg_SplitCompletedTitle" xml:space="preserve">
-    <value>任务已完成</value>
+    <value>Task Completed</value>
   </data>
   <data name="Msg_SplitCompletedDescription" xml:space="preserve">
-    <value>你可以前往输出文件夹，或清空列表后重新开始。</value>
+    <value>You can open the output folder to review the generated results, or clear the list and start again.</value>
   </data>
   <data name="Msg_SplitCompletedSummary" xml:space="preserve">
-    <value>共 {0} 个任务，成功 {1} 个，失败 {2} 个</value>
+    <value>Total: {0} tasks. Succeeded: {1}, Failed: {2}.</value>
   </data>
   <data name="Btn_MergeStopped" xml:space="preserve">
-    <value>已停止</value>
+    <value>Stopped</value>
   </data>
   <data name="Btn_MergeDone" xml:space="preserve">
-    <value>合成完成</value>
+    <value>Done</value>
   </data>
   <data name="Btn_SplitStopped" xml:space="preserve">
-    <value>已停止</value>
+    <value>Stopped</value>
   </data>
   <data name="Btn_SplitDone" xml:space="preserve">
-    <value>分离完成</value>
+    <value>Done</value>
   </data>
   <data name="Task_Pending" xml:space="preserve">
-    <value>等待处理</value>
+    <value>Pending</value>
   </data>
   <data name="Task_Processing" xml:space="preserve">
-    <value>正在修复...</value>
+    <value>Repairing...</value>
   </data>
   <data name="Task_Success" xml:space="preserve">
-    <value>合成成功</value>
+    <value>Native merge succeeded</value>
   </data>
   <data name="Task_Recycled" xml:space="preserve">
-    <value> (已移至回收站)</value>
+    <value> (Moved to recycle bin)</value>
   </data>
   <data name="Task_CleanFail" xml:space="preserve">
-    <value> (清理失败: {0})</value>
+    <value> (Cleanup failed: {0})</value>
   </data>
   <data name="Task_Error" xml:space="preserve">
-    <value>错误: {0}</value>
+    <value>Error: {0}</value>
   </data>
   <data name="Msg_NoInputDirectoryTitle" xml:space="preserve">
-    <value>未设置输入目录</value>
+    <value>No Input Directory</value>
   </data>
   <data name="Msg_NoInputDirectory" xml:space="preserve">
-    <value>请先设置输入目录。</value>
+    <value>Please set an input directory first.</value>
   </data>
   <data name="Msg_EmptyQueueTitle" xml:space="preserve">
-    <value>队列为空</value>
+    <value>Queue Empty</value>
   </data>
   <data name="Msg_EmptyQueue" xml:space="preserve">
-    <value>当前没有可处理的文件。请先设置输入目录。</value>
+    <value>No files available to process. Please set an input directory first.</value>
   </data>
   <data name="MergePage_EmptyQueueTitle.Text" xml:space="preserve">
-    <value>队列为空</value>
+    <value>Queue Empty</value>
   </data>
   <data name="MergePage_EmptyQueueDesc.Text" xml:space="preserve">
-    <value>请将图片（HEIC/HEIF/JPG/JPEG）与视频（MOV/MP4）放入同一文件夹，点击扫描自动配对合成。</value>
+    <value>Place images (HEIC/HEIF/JPG/JPEG) and videos (MOV/MP4) in the same folder, then click Scan to auto-pair and merge.</value>
   </data>
   <data name="MergePage_EmptyQueueHint_Part1.Text" xml:space="preserve">
-    <value>您可以点击 </value>
+    <value>Click </value>
   </data>
   <data name="MergePage_EmptyQueueHint_Part2.Text" xml:space="preserve">
-    <value> 查看详细教程，或点击 </value>
+    <value> for tutorials, or click </value>
   </data>
   <data name="MergePage_EmptyQueueHint_Part3.Text" xml:space="preserve">
-    <value> 进入高级设置。</value>
+    <value> for advanced settings.</value>
   </data>
   <data name="SplitPage_EmptyQueueTitle.Text" xml:space="preserve">
-    <value>队列为空</value>
+    <value>Queue Empty</value>
   </data>
   <data name="SplitPage_EmptyQueueDesc.Text" xml:space="preserve">
-    <value>请导入 JPG 格式的单文件实况照片，点击扫描自动识别并拆分出图片和视频。</value>
+    <value>Import single-file JPG Live Photos, then click Scan to auto-detect and split into photo + video.</value>
   </data>
   <data name="SplitPage_EmptyQueueHint_Part1.Text" xml:space="preserve">
-    <value>您可以点击 </value>
+    <value>Click </value>
   </data>
   <data name="SplitPage_EmptyQueueHint_Part2.Text" xml:space="preserve">
-    <value> 查看详细教程</value>
+    <value> for tutorials, or click </value>
   </data>
   <data name="SplitPage_EmptyQueueHint_Part3.Text" xml:space="preserve">
-    <value> 进入高级设置。</value>
+    <value> for advanced settings.</value>
   </data>
   <data name="RepairPage_EmptyQueueTitle.Text" xml:space="preserve">
-    <value>队列为空</value>
+    <value>Queue Empty</value>
   </data>
   <data name="RepairPage_EmptyQueueDesc.Text" xml:space="preserve">
-    <value>将 iPhone 拍摄的实况照片导入文件夹，点击扫描自动诊断 Windows 端常见的旋转、拉伸与缩略图异常，一键无损修复。</value>
+    <value>Import iPhone Live Photos into a folder, then click Scan to auto-diagnose common Windows display issues (rotation, stretching, thumbnail anomalies) and fix them losslessly.</value>
   </data>
   <data name="RepairPage_EmptyQueueHint_Part1.Text" xml:space="preserve">
-    <value>您可以点击 </value>
+    <value>Click </value>
   </data>
   <data name="RepairPage_EmptyQueueHint_Part2.Text" xml:space="preserve">
-    <value> 查看详细教程，或点击 </value>
+    <value> for tutorials, or click </value>
   </data>
   <data name="RepairPage_EmptyQueueHint_Part3.Text" xml:space="preserve">
-    <value> 进入高级设置。</value>
+    <value> for advanced settings.</value>
   </data>
   <data name="Msg_GoToTutorial" xml:space="preserve">
-    <value>查看操作教程</value>
+    <value>View Tutorial</value>
   </data>
   <data name="Msg_GotIt" xml:space="preserve">
-    <value>我知道了</value>
+    <value>Got it</value>
   </data>
   <data name="SettingsPage_Language.Text" xml:space="preserve">
-    <value>界面语言 (Language)</value>
+    <value>Language</value>
   </data>
   <data name="SettingsPage_Backdrop_Mica.Content" xml:space="preserve">
     <value>Mica</value>
@@ -748,16 +749,16 @@
     <value>Google - Motion Photo (V2)</value>
   </data>
   <data name="MergePage_Protocol_Oppo.Content" xml:space="preserve">
-    <value>OPPO - O-Live Photo</value>
+    <value>OPPO/OnePlus - O Live Photo</value>
   </data>
   <data name="MergePage_Protocol_V1_Hint" xml:space="preserve">
-    <value>Windows / Pixel / 小米（旧版 MIUI）</value>
+    <value>Windows / Pixel / Xiaomi (older MIUI)</value>
   </data>
   <data name="MergePage_Protocol_V2_Hint" xml:space="preserve">
-    <value>Windows / Pixel / 小米 / 红米</value>
+    <value>Windows / Pixel / Xiaomi / Redmi</value>
   </data>
   <data name="MergePage_Protocol_Oppo_Hint" xml:space="preserve">
-    <value>Windows / OPPO / 一加</value>
+    <value>Windows / OPPO / OnePlus</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
@@ -766,1209 +767,1210 @@
     <value>MOV (H.265 &amp; AAC)</value>
   </data>
   <data name="SettingsPage_SplitFormat_ImageDefault.Content" xml:space="preserve">
-    <value>视频默认格式</value>
+    <value>Video Default Format</value>
   </data>
   <data name="SplitPage_Status_EmptyQueue" xml:space="preserve">
-    <value>当前没有可拆分的实况照片，请先扫描目录</value>
+    <value>There are currently no splittable live photos. Please scan the folder first.</value>
   </data>
   <data name="SplitPage_Status_WarnOutput" xml:space="preserve">
-    <value>请设置有效的输出目录</value>
+    <value>Please choose a valid output folder</value>
   </data>
   <data name="SplitPage_Status_Running" xml:space="preserve">
-    <value>正在拆分实况照片...</value>
+    <value>Splitting live photos...</value>
   </data>
   <data name="SplitPage_Status_Done" xml:space="preserve">
-    <value>处理完成，用时 {0:F1} 秒</value>
+    <value>Completed in {0:F1} seconds</value>
   </data>
   <data name="SplitPage_Status_Aborted" xml:space="preserve">
-    <value>任务已停止</value>
+    <value>Stopped</value>
   </data>
   <data name="Status_Ready" xml:space="preserve">
-    <value>就绪</value>
+    <value>Ready</value>
   </data>
   <data name="HomePage_HeroTitle.Text" xml:space="preserve">
     <value>Live Photo Box</value>
   </data>
   <data name="HomePage_HeroSubtitle.Text" xml:space="preserve">
-    <value>—— 让每一份回忆，都如动漫般灵动 (o・v・o)</value>
+    <value>— Make every memory feel alive like anime (o・v・o)</value>
   </data>
   <data name="HomePage_WelcomeTitle.Text" xml:space="preserve">
-    <value>欢迎使用 Live Photo Box</value>
+    <value>Welcome to Live Photo Box</value>
   </data>
   <data name="HomePage_Intro1.Text" xml:space="preserve">
-    <value>你好呀！Live Photo Box 是一款专为 Windows 打造的实况照片工具箱。如果你是一位 Apple 用户，用 iPhone 拍了很多实况照片，换到 Windows 或是 Android 手机后却发现它们再也动不起来了——别担心，你来对地方了。我想让每一段鲜活的回忆，无论在哪台设备上，都能原汁原味地呈现。</value>
+    <value>Hey there! Live Photo Box is a Live Photo toolbox built for Windows. If you're an Apple user who's taken tons of Live Photos on your iPhone, only to find them frozen into still images when you switch to Windows or an Android phone — don't worry, you've come to the right place. I want every vivid memory to stay just as alive, no matter which device you're viewing it on.</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
-    <value>在这里，你可以自由地合成、拆分和修复实况照片。Apple 为优化前置拍摄性能，将实况视频的物理像素横向存储，依赖内置 Rotation 标签来判断画面方向——但 Windows 系统会忽略这个标签直接渲染原始像素，导致画面旋转；iOS 17.3 之前还存在缩略图拉伸的问题。Live Photo Box 通过底层物理级矫正，彻底根治这些跨平台兼容性顽疾。
-合成与拆分也同样拿手：任意图片 + 视频 → 标准实况照片，适配 Google、OPPO、小米等 Android 实况协议；无损提取原始素材，完整保留 EXIF 与拍摄参数。此外，封面更换功能即将上线，照片自动分类等更多智能特性也在规划中，敬请期待。</value>
+    <value>Here, you can freely combine, split, and repair Live Photos. To optimize front-facing camera performance, Apple stores Live Photo video pixels horizontally, relying on a built-in Rotation tag to determine the correct orientation — but Windows ignores this tag and renders the raw pixels directly, causing the image to appear rotated. Prior to iOS 17.3, there was also a thumbnail stretching issue. Live Photo Box fixes these at the physical pixel level, thoroughly resolving these cross-platform compatibility problems. 
+It's just as capable at combining and splitting: any image + video → a standard Live Photo, compatible with Google, OPPO, Xiaomi, and other Android Live Photo protocols; losslessly extract the original photo and video, preserving all EXIF data and capture parameters. Additionally, the cover change feature is coming soon, with more intelligent features like auto photo categorization also on the roadmap. Stay tuned!</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
-    <value>友情提示 :</value>
+    <value>Tip :</value>
   </data>
   <data name="HomePage_TipText.Text" xml:space="preserve">
-    <value>在使用合成或拆分功能前，建议先确认你拥有原照片的备份，毕竟数据安全重于泰山。(^-^*)</value>
+    <value>Before using merge or split features, make sure you have backups of the original files. Data safety comes first.</value>
   </data>
   <data name="AboutPage_Title.Text" xml:space="preserve">
     <value>Live Photo Box</value>
   </data>
   <data name="AboutPage_Header.Text" xml:space="preserve">
-    <value>关于本应用</value>
+    <value>About This App</value>
   </data>
   <data name="AboutPage_Description.Text" xml:space="preserve">
-    <value>Live Photo Box 是一款开源的实况照片处理工具箱，致力于为用户提供便捷的 Android 与 iOS 实况照片制作等功能。目前支持最新的 Google 封装协议，后续将适配各家安卓厂商私有协议。</value>
+    <value>Live Photo Box is an open-source toolkit for creating live photos, designed to provide users with convenient features for creating live photos on Android and iOS. It currently supports the latest Google encapsulation protocol and will be adapted to the proprietary protocols of various Android manufacturers in the future.</value>
   </data>
   <data name="AboutPage_InfoHeader.Text" xml:space="preserve">
-    <value>项目信息</value>
+    <value>Project Information</value>
   </data>
   <data name="AboutPage_DeveloperLabel.Text" xml:space="preserve">
-    <value>开发者 :</value>
+    <value>Developer :</value>
   </data>
   <data name="AboutPage_DeveloperValue.Content" xml:space="preserve">
     <value>LengxiQwQ (冷汐OωO)</value>
   </data>
   <data name="AboutPage_SourceLabel.Text" xml:space="preserve">
-    <value>仓库地址 :</value>
+    <value>Repository :</value>
   </data>
   <data name="AboutPage_SourceLink.Content" xml:space="preserve">
-    <value>GitHub 仓库</value>
+    <value>GitHub Repository</value>
   </data>
   <data name="AboutPage_LicenseLabel.Text" xml:space="preserve">
-    <value>开源协议 :</value>
+    <value>License :</value>
   </data>
   <data name="AboutPage_LicenseValue.Content" xml:space="preserve">
     <value>GPL-3.0 license</value>
   </data>
   <data name="AboutPage_IssueLabel.Text" xml:space="preserve">
-    <value>问题反馈 :</value>
+    <value>Feedback :</value>
   </data>
   <data name="AboutPage_IssueLink.Content" xml:space="preserve">
-    <value>提交 Issue</value>
+    <value>Submit an Issue</value>
   </data>
   <data name="SplitPage_DropHint.Text" xml:space="preserve">
-    <value>拖拽已有的实况照片至此进行拆分</value>
+    <value>Drag existing live photos here to split them</value>
   </data>
   <data name="SplitPage_StartButton.Content" xml:space="preserve">
-    <value>开始拆分</value>
+    <value>Start Split</value>
   </data>
   <data name="SplitPage_ColSource.Text" xml:space="preserve">
-    <value>源文件</value>
+    <value>Source File</value>
   </data>
   <data name="SplitPage_ColStatus.Text" xml:space="preserve">
-    <value>状态</value>
+    <value>Status</value>
   </data>
   <data name="SplitPage_ColProgress.Text" xml:space="preserve">
-    <value>进度</value>
+    <value>Progress</value>
   </data>
   <data name="SplitPage_ColDetails.Text" xml:space="preserve">
-    <value>详情</value>
+    <value>Details</value>
   </data>
   <data name="SplitPage_DragCaption" xml:space="preserve">
-    <value>释放以导入需要拆分的实况照片</value>
+    <value>Release to import live photos for splitting</value>
   </data>
   <data name="RepairPage_DropHint.Text" xml:space="preserve">
-    <value>拖拽出现方向错误或拉伸的照片/视频至此进行修复</value>
+    <value>Drag photos or videos with wrong orientation or stretching here to repair</value>
   </data>
   <data name="RepairPage_StartButton.Content" xml:space="preserve">
-    <value>开始修复</value>
+    <value>Start Repair</value>
   </data>
   <data name="Btn_StartRepair" xml:space="preserve">
-    <value>开始修复</value>
+    <value>Start Repair</value>
   </data>
   <data name="RepairPage_ColSource.Text" xml:space="preserve">
-    <value>待修复文件</value>
+    <value>File to Repair</value>
   </data>
   <data name="RepairPage_ColStatus.Text" xml:space="preserve">
-    <value>状态</value>
+    <value>Status</value>
   </data>
   <data name="RepairPage_ColProgress.Text" xml:space="preserve">
-    <value>进度</value>
+    <value>Progress</value>
   </data>
   <data name="RepairPage_ColDetails.Text" xml:space="preserve">
-    <value>分析详情</value>
+    <value>Analysis</value>
   </data>
   <data name="RepairPage_DragCaption" xml:space="preserve">
-    <value>释放以导入需要修复的文件</value>
+    <value>Release to import files that need repair</value>
   </data>
   <data name="RepairPage_TaskPending" xml:space="preserve">
-    <value>等待分析元数据...</value>
+    <value>Waiting to analyze metadata...</value>
   </data>
   <data name="RepairPage_Task_WaitingRepair" xml:space="preserve">
-    <value>等待修复</value>
+    <value>Waiting for repair</value>
   </data>
   <data name="RepairPage_Task_Skipped" xml:space="preserve">
-    <value>已跳过</value>
+    <value>Skipped</value>
   </data>
   <data name="RepairPage_Task_SkippedNoIssue" xml:space="preserve">
-    <value>已跳过（无需处理）</value>
+    <value>Skipped (no issue)</value>
   </data>
   <data name="RepairPage_Task_Copied" xml:space="preserve">
-    <value>已复制</value>
+    <value>Copied</value>
   </data>
   <data name="RepairPage_Task_NoRepair" xml:space="preserve">
-    <value>无需修复</value>
+    <value>No repair needed</value>
   </data>
   <data name="SettingsPage_Footer.Text" xml:space="preserve">
-    <value>© 2026 LengxiQwQ · 基于 GPL-3.0 开源协议发布</value>
+    <value>© 2026 LengxiQwQ · Licensed under GPL-3.0</value>
   </data>
   <data name="RepairPage_Status_Ready" xml:space="preserve">
-    <value>就绪，请选择要修复的文件夹</value>
+    <value>Ready. Select the folder you want to repair.</value>
   </data>
   <data name="MergePage_ThumbnailLoadingText.Text" xml:space="preserve">
-    <value>加载中...</value>
+    <value>Loading...</value>
   </data>
   <data name="SplitPage_Status_Scanning" xml:space="preserve">
-    <value>扫描中...</value>
+    <value>Scanning for live photos...</value>
   </data>
   <data name="SplitPage_Status_ScanCancelling" xml:space="preserve">
-    <value>正在停止扫描...</value>
+    <value>Stopping scan...</value>
   </data>
   <data name="SplitPage_Status_ScanCancelled" xml:space="preserve">
-    <value>扫描已停止</value>
+    <value>Scan stopped</value>
   </data>
   <data name="SplitPage_Status_ScanDone" xml:space="preserve">
-    <value>扫描完成：已加载 {0} 项</value>
+    <value>Scan complete: recognized {0} splittable live photos</value>
   </data>
   <data name="SplitPage_Status_NoLivePhotos" xml:space="preserve">
-    <value>扫描完成：未找到实况照片！请确保文件夹含有实况照片（单文件格式）</value>
+    <value>Scan complete: no splittable live photos were found</value>
   </data>
   <data name="SplitPage_Task_Pending" xml:space="preserve">
-    <value>等待拆分</value>
+    <value>Pending split</value>
   </data>
   <data name="SplitPage_Task_Processing" xml:space="preserve">
-    <value>正在拆分...</value>
+    <value>Splitting...</value>
   </data>
   <data name="SplitPage_Task_Success" xml:space="preserve">
-    <value>拆分完成</value>
+    <value>Split completed</value>
   </data>
   <data name="SplitPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
-    <value>在文件夹中查看</value>
+    <value>Show in folder</value>
   </data>
   <data name="SplitPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>全屏预览</value>
+    <value>Fullscreen preview</value>
   </data>
   <data name="SplitPage_ThumbnailLoadingText.Text" xml:space="preserve">
-    <value>加载中...</value>
+    <value>Loading...</value>
   </data>
   <data name="SplitPage_ColSourceHeader.Text" xml:space="preserve">
-    <value>源文件</value>
+    <value>Source</value>
   </data>
   <data name="SplitPage_ColStatusHeader.Text" xml:space="preserve">
-    <value>状态</value>
+    <value>Status</value>
   </data>
   <data name="SplitPage_ColProgressHeader.Text" xml:space="preserve">
-    <value>进度</value>
+    <value>Progress</value>
   </data>
   <data name="Task_Failed" xml:space="preserve">
-    <value>处理失败</value>
+    <value>Failed</value>
   </data>
   <data name="SettingsPage_Crash_Header.Text" xml:space="preserve">
-    <value>应用日志</value>
+    <value>Application Logs</value>
   </data>
   <data name="CrashDialog_Title" xml:space="preserve">
-    <value>检测到上次异常退出</value>
+    <value>Previous Crash Detected</value>
   </data>
   <data name="CrashDialog_Content" xml:space="preserve">
-    <value>应用上次运行时发生了异常，已自动生成崩溃日志。
+    <value>The app encountered an unexpected error during its previous run, and a crash log was created.
 
-你可以打开日志文件夹，或立即导出最新日志以帮助定位问题。</value>
+You can open the log folder or export the latest log now to help diagnose the issue.</value>
   </data>
   <data name="CrashDialog_LogFileLabel" xml:space="preserve">
-    <value>日志文件：</value>
+    <value>Log file: </value>
   </data>
   <data name="CrashDialog_ExportButton" xml:space="preserve">
-    <value>导出日志</value>
+    <value>Export Log</value>
   </data>
   <data name="CrashDialog_CloseButton" xml:space="preserve">
-    <value>知道了</value>
+    <value>Close</value>
   </data>
   <data name="Picker_LogFileType" xml:space="preserve">
-    <value>日志文件</value>
+    <value>Log File</value>
   </data>
   <data name="SettingsPage_CrashOpenFolder_Button.Content" xml:space="preserve">
-    <value>打开日志文件夹</value>
+    <value>Open Log Folder</value>
   </data>
   <data name="SettingsPage_CrashOpenFolder_Button_Text.Text" xml:space="preserve">
-    <value>打开日志文件夹</value>
+    <value>Open Log Folder</value>
   </data>
   <data name="SettingsPage_CrashExportLatest_Button.Content" xml:space="preserve">
-    <value>导出最新记录</value>
+    <value>Export Latest Record</value>
   </data>
   <data name="SettingsPage_CrashExportLatest_Button_Text.Text" xml:space="preserve">
-    <value>导出上一次日志</value>
+    <value>Export Previous Log</value>
   </data>
   <data name="SettingsPage_CrashClear_Button.Content" xml:space="preserve">
-    <value>清理全部记录</value>
+    <value>Clear All Records</value>
   </data>
   <data name="SettingsPage_CrashClear_Button_Text.Text" xml:space="preserve">
-    <value>清除全部日志</value>
+    <value>Clear All Logs</value>
   </data>
   <data name="CrashDialog_OpenFolderButton" xml:space="preserve">
-    <value>打开日志文件夹</value>
+    <value>Open Log Folder</value>
   </data>
   <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
-    <value>上一次日志文件：</value>
+    <value>Previous Log File:</value>
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button.Content" xml:space="preserve">
-    <value>生成测试日志</value>
+    <value>Generate Test Log</value>
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button_Text.Text" xml:space="preserve">
-    <value>生成测试日志</value>
+    <value>Generate Test Log</value>
   </data>
   <data name="SettingsPage_CrashPreviewDialog_Button_Text.Text" xml:space="preserve">
-    <value>预览崩溃报告</value>
+    <value>Preview Crash Dialog</value>
   </data>
   <data name="SettingsPage_RestartApp_Button_Text.Text" xml:space="preserve">
-    <value>重启应用</value>
+    <value>Restart App</value>
   </data>
   <data name="SettingsPage_Test_Header.Text" xml:space="preserve">
-    <value>调试工具</value>
+    <value>Debug Tools</value>
   </data>
   <data name="SettingsPage_TestShow_Button_Text" xml:space="preserve">
-    <value>显示日志与调试工具</value>
+    <value>Show Logs &amp; Debug Tools</value>
   </data>
   <data name="SettingsPage_TestHide_Button_Text" xml:space="preserve">
-    <value>隐藏日志与调试工具</value>
+    <value>Hide Logs &amp; Debug Tools</value>
   </data>
   <data name="SettingsPage_CrashNotice_Text" xml:space="preserve">
-    <value>检测到上次应用非正常退出，你可以导出日志文件，通过 GitHub 反馈</value>
+    <value>The previous session did not shut down cleanly. You can export the log file and report the issue on GitHub.</value>
   </data>
   <data name="SettingsPage_CrashNoCrashValue" xml:space="preserve">
-    <value>暂无</value>
+    <value>Not detected</value>
   </data>
   <data name="Package_DisplayName" xml:space="preserve">
-    <value>实况照片工具箱</value>
+    <value>Live Photo Box</value>
   </data>
   <data name="Package_Description" xml:space="preserve">
-    <value>让你的 Apple 实况照片也可以在 Windows 上直接显示与处理。</value>
+    <value>Display and process Apple Live Photos directly on Windows.</value>
   </data>
   <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
-    <value>iPhone 实况照片显示修复配置</value>
+    <value>iPhone Live Photo Display Repair Settings</value>
   </data>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
-    <value>输入目录：</value>
+    <value>Input Dir:</value>
   </data>
   <data name="RepairPage_InputOutputLabel.Text" xml:space="preserve">
-    <value>输入输出目录：</value>
+    <value>Input/Output Folder:</value>
   </data>
   <data name="RepairPage_InputBox.PlaceholderText" xml:space="preserve">
-    <value>请选择需要修复的目录</value>
+    <value>Select directory to repair</value>
   </data>
   <data name="RepairPage_BrowseBtn1.Content" xml:space="preserve">
-    <value>浏览...</value>
+    <value>Browse...</value>
   </data>
   <data name="RepairPage_OpenInputBtn.Content" xml:space="preserve">
-    <value>打开输入目录</value>
+    <value>Open Input Folder</value>
   </data>
   <data name="RepairPage_OutputLabel.Text" xml:space="preserve">
-    <value>输出目录：</value>
+    <value>Output Dir:</value>
   </data>
   <data name="RepairPage_OutputBox.PlaceholderText" xml:space="preserve">
-    <value>修复后文件的保存路径</value>
+    <value>Save location for repaired files</value>
   </data>
   <data name="RepairPage_BrowseBtn2.Content" xml:space="preserve">
-    <value>浏览...</value>
+    <value>Browse...</value>
   </data>
   <data name="RepairPage_StatTotal.Text" xml:space="preserve">
-    <value>总任务数：</value>
+    <value>Total Tasks:</value>
   </data>
   <data name="RepairPage_StatSuccess.Text" xml:space="preserve">
-    <value>成功：</value>
+    <value>Success:</value>
   </data>
   <data name="RepairPage_StatFailed.Text" xml:space="preserve">
-    <value>失败：</value>
+    <value>Failed:</value>
   </data>
   <data name="RepairPage_ProtocolLabel.Text" xml:space="preserve">
-    <value>修复模式：</value>
+    <value>Repair Mode:</value>
   </data>
   <data name="RepairPage_Mode_V1.Content" xml:space="preserve">
-    <value>模式一 (常规修复)</value>
+    <value>Mode 1 (Standard)</value>
   </data>
   <data name="RepairPage_Mode_V2.Content" xml:space="preserve">
-    <value>模式二 (深度修复)</value>
+    <value>Mode 2 (Deep)</value>
   </data>
   <data name="RepairPage_ScanBtn.Content" xml:space="preserve">
-    <value>扫描目录</value>
+    <value>Scan Directory</value>
   </data>
   <data name="RepairPage_QueueProgress.Text" xml:space="preserve">
-    <value>队列进度：</value>
+    <value>Queue:</value>
   </data>
   <data name="RepairPage_ColSeq.Text" xml:space="preserve">
-    <value>序号</value>
+    <value>No.</value>
   </data>
   <data name="RepairPage_ColFile.Text" xml:space="preserve">
-    <value>文件名称</value>
+    <value>File Name</value>
   </data>
   <data name="RepairPage_ColSize.Text" xml:space="preserve">
-    <value>大小</value>
+    <value>Size</value>
   </data>
   <data name="RepairPage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
-    <value>在资源管理器中打开文件位置</value>
+    <value>Open file location in Explorer</value>
   </data>
   <data name="RepairPage_ThumbnailLoadingText.Text" xml:space="preserve">
-    <value>加载中...</value>
+    <value>Loading...</value>
   </data>
   <data name="RepairPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>打开文件</value>
+    <value>Open File</value>
   </data>
   <data name="RepairPage_OutputModeLabel.Text" xml:space="preserve">
-    <value>输出模式：</value>
+    <value>Output Mode:</value>
   </data>
   <data name="RepairPage_OutputModeSwitch.OnContent" xml:space="preserve">
-    <value>输出到目录</value>
+    <value>Output to Directory</value>
   </data>
   <data name="RepairPage_OutputModeSwitch.OffContent" xml:space="preserve">
-    <value>原文件替换</value>
+    <value>Replace Original</value>
   </data>
   <data name="RepairPage_StatTotalPhotos.Text" xml:space="preserve">
-    <value>总照片数：</value>
+    <value>Total Photos:</value>
   </data>
   <data name="RepairPage_StatThumbCorrect.Text" xml:space="preserve">
-    <value>正常：</value>
+    <value>Normal:</value>
   </data>
   <data name="RepairPage_StatThumbError.Text" xml:space="preserve">
-    <value>异常：</value>
+    <value>Broken:</value>
   </data>
   <data name="RepairPage_ColIssue.Text" xml:space="preserve">
-    <value>诊断结果</value>
+    <value>Diagnosis</value>
   </data>
   <data name="Error_ExifToolMissing" xml:space="preserve">
-    <value>找不到核心工具: Tools\exiftool.exe</value>
+    <value>Missing core tool: Tools\exiftool.exe</value>
   </data>
   <data name="Error_JpegTranMissing" xml:space="preserve">
-    <value>找不到核心工具: Tools\jpegtran.exe</value>
+    <value>Missing core tool: Tools\jpegtran.exe</value>
   </data>
   <data name="Error_CannotStartExifTool" xml:space="preserve">
-    <value>无法启动 exiftool 进程</value>
+    <value>Failed to start exiftool process</value>
   </data>
   <data name="Error_CannotStartJpegTran" xml:space="preserve">
-    <value>无法启动 jpegtran 进程</value>
+    <value>Failed to start jpegtran process</value>
   </data>
   <data name="Error_ExifToolError" xml:space="preserve">
-    <value>ExifTool 报错: {0}</value>
+    <value>ExifTool error: {0}</value>
   </data>
   <data name="Error_CSharpException" xml:space="preserve">
-    <value>内部异常: {0}</value>
+    <value>Internal exception: {0}</value>
   </data>
   <data name="Tag_HorizontalStretch" xml:space="preserve">
-    <value>像素横向拉伸</value>
+    <value>Horizontally stretched</value>
   </data>
   <data name="Tag_VerticalStretch" xml:space="preserve">
-    <value>像素纵向拉伸</value>
+    <value>Vertically stretched</value>
   </data>
   <data name="Tag_RotationLabel" xml:space="preserve">
-    <value>{0}° 旋转标签</value>
+    <value>{0}° rotation tag</value>
   </data>
   <data name="Tag_MissingRotationLabel" xml:space="preserve">
-    <value>缺失旋转标签</value>
+    <value>Missing rotation label</value>
   </data>
   <data name="Tag_ExtraThumbnail" xml:space="preserve">
-    <value>多余缩略图</value>
+    <value>Extra thumbnail</value>
   </data>
   <data name="Status_Perfect" xml:space="preserve">
-    <value>无需修复</value>
+    <value>No repair needed</value>
   </data>
   <data name="Status_RepairSuccess" xml:space="preserve">
-    <value>修复成功</value>
+    <value>Repair successful</value>
   </data>
   <data name="Status_Cancelled" xml:space="preserve">
-    <value>已取消</value>
+    <value>Cancelled</value>
   </data>
   <data name="Status_RepairFailed" xml:space="preserve">
-    <value>修复失败: {0}</value>
+    <value>Repair failed: {0}</value>
   </data>
   <data name="RepairPage_DynamicScanText" xml:space="preserve">
-    <value>扫描目录</value>
+    <value>Scan Directory</value>
   </data>
   <data name="RepairPage_DynamicCancelText" xml:space="preserve">
-    <value>取消扫描</value>
+    <value>Cancel Scan</value>
   </data>
   <data name="HomePage_CoreFeaturesTitle.Text" xml:space="preserve">
-    <value>核心功能指南</value>
+    <value>Core Features Guide</value>
   </data>
   <data name="HomePage_FeatureIntroLabel.Text" xml:space="preserve">
-    <value>功能简介：</value>
+    <value>Overview: </value>
   </data>
   <data name="HomePage_HowToUseLabel.Text" xml:space="preserve">
-    <value>如何使用：</value>
+    <value>How to use: </value>
   </data>
   <data name="HomePage_MergeTitle.Text" xml:space="preserve">
-    <value>实况照片合成</value>
+    <value>Live Photo Merge</value>
   </data>
   <data name="HomePage_MergeDesc.Text" xml:space="preserve">
-    <value>将 Apple 实况照片转换为单文件，使用各家安卓协议，使其可在 Windows 等设备上查看。支持图片（HEIC/HEIF/JPG/JPEG）与视频（MOV/MP4）合成，以及封装为 HEIF 的实况照片。</value>
+    <value>Converts Apple Live Photos into single files using various Android protocols, allowing them to be viewed on devices such as Windows. Supports images (HEIC/HEIF/JPG/JPEG) + videos (MOV/MP4) merging, as well as Live Photos packaged as HEIF files.</value>
   </data>
   <data name="HomePage_MergeUsage.Text" xml:space="preserve">
-    <value>将准备好的 (照片 JPG/HEIC + MOV/MP4 视频) 放在同一文件夹，点击“开始合成”即可。</value>
+    <value>Place the prepared (photos JPG/HEIC + MOV/MP4 video) in the same folder, and click "Start Combining".</value>
   </data>
   <data name="HomePage_SplitTitle.Text" xml:space="preserve">
-    <value>实况照片拆分</value>
+    <value>Live Photo Split</value>
   </data>
   <data name="HomePage_SplitDesc.Text" xml:space="preserve">
-    <value>将现有的单文件实况照片进行无损解包，提取出原始的静态画面与动态视频。</value>
+    <value>The existing single-file live photos are losslessly unpacked to extract the original still images and dynamic videos.</value>
   </data>
   <data name="HomePage_SplitUsage.Text" xml:space="preserve">
-    <value>选择你想拆分的照片文件夹，点击“开始拆分”即可。</value>
+    <value>Select the folder of photos you want to split, and click "Start Splitting".</value>
   </data>
   <data name="HomePage_RepairTitle.Text" xml:space="preserve">
-    <value>实况照片显示修复</value>
+    <value>Live Photo Display Repair</value>
   </data>
   <data name="HomePage_RepairSubtitle.Text" xml:space="preserve">
-    <value>修复 Apple 实况照片在 Windows 上的旋转、拉伸与缩略图异常</value>
+    <value>Fix rotation, stretching and thumbnail issues of Apple Live Photos on Windows</value>
   </data>
   <data name="HomePage_RepairTutorial_Step1_Title.Text" xml:space="preserve">
-    <value>它能修复什么？</value>
+    <value>What Does It Fix?</value>
   </data>
   <data name="HomePage_RepairTutorial_Step1_Desc.Text" xml:space="preserve">
-    <value>将 iPhone 实况照片导出后，常见的显示异常包括：
+    <value>After exporting iPhone Live Photos, common display issues include:
 
-1. 多余缩略图及横向拉伸（iOS 17.3 之前）：
-Apple 曾嵌入低分辨率缩略图来改善兼容性，但该缩略图带有方向标签，Windows 误将其当作横图处理，导致缩略图被异常拉宽或压扁。
-iOS 17.3 起已不再内嵌。通过 jpegtran 无损旋转并剥离残留缩略图即可修复。
+1. Stretched Thumbnail with Extra Embedded Data (pre‑iOS 17.3):
+Apple embedded a low-resolution thumbnail for compatibility, but it carried an orientation tag that Windows misinterpreted as landscape, causing the thumbnail to be stretched or squished.
+iOS 17.3 and later no longer embed this data.
+Fixed by lossless jpegtran rotation and stripping the leftover embedded thumbnail.
 
-2. 前摄实况照片的视频部分画面会旋转：
-iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正确显示角度，但 Windows 并不识别此标签。通过 FFmpeg 重编码即可修正。</value>
+2. Front camera Live Photo video portion may rotate:
+The iPhone front camera stores portrait pixels horizontally, relying on an orientation tag for correct display — but Windows ignores it. Corrected via FFmpeg re-encoding.</value>
   </data>
   <data name="HomePage_RepairTutorial_Step2_Title.Text" xml:space="preserve">
-    <value>扫描并查看诊断</value>
+    <value>Scan &amp; Review Diagnosis</value>
   </data>
   <data name="HomePage_RepairTutorial_Step2_Desc.Text" xml:space="preserve">
-    <value>点击「浏览」选择照片文件夹，然后点击「扫描目录」开始自动分析。
+    <value>Click "Browse" to select a photo folder, then click "Scan Directory" to start the automatic analysis.
 
-扫描完成后，上方统计面板展示当前文件夹的整体情况：
-· 总照片数 / 实况照片数 — 当前文件夹的概况
-· 正常 — 无需修复，照片完全健康
-· 异常 — 检测到旋转、拉伸或多余缩略图，需要修复
-· 单独照片 / 单独视频 — 未被配对为实况照片的文件
+Once scanning is complete, the stats panel shows an overview:
+· Total Photos / Live Photos — folder summary
+· Normal — no repair needed, photo is perfectly healthy
+· Abnormal — rotation, stretching, or extra thumbnails detected; repair needed
+· Lone Img / Lone Vid — files not paired as Live Photos
 
-每张照片右侧的「诊断结果」列标明具体问题类型，点击异常项可查看详细描述。使用顶部的筛选器可快速按「文件类型」或「修复状态」定位问题文件。</value>
+The "Diagnosis" column on the right shows the specific issue for each photo. Click any abnormal entry to view detailed descriptions. Use the filters at the top to quickly find files by type or repair status.</value>
   </data>
   <data name="HomePage_RepairTutorial_Step3_Title.Text" xml:space="preserve">
-    <value>选择输出模式并开始修复</value>
+    <value>Choose Output Mode &amp; Start Repair</value>
   </data>
   <data name="HomePage_RepairTutorial_Step3_Desc.Text" xml:space="preserve">
-    <value>确认无误后，选择输出模式：
+    <value>Once confirmed, select an output mode:
 
-· 输出到目录 — 修复结果保存到指定文件夹，原文件不受影响（推荐首次使用）
-· 替换原文件 — 直接在原文件上修复，建议提前做好备份
+· Output to Directory — Repaired files are saved to a separate folder, keeping originals untouched (recommended for first use)
+· Replace Original — Repairs files in place; please back up first
 
-点击「开始修复」，程序全自动处理：
-· JPEG → jpegtran 无损旋转 + 剥离多余缩略图
-· HEIC → 修正错误的 Orientation 标签
-· 视频 → FFmpeg 重编码消除旋转矩阵
+Click "Start Repair" and the app will handle everything automatically:
+· JPEG → jpegtran lossless rotation + strip extra thumbnails
+· HEIC → correct erroneous Orientation tags
+· Video → FFmpeg re-encode to remove rotation matrix
 
-完成后打开输出文件夹，照片已经恢复正常啦 ~</value>
+Open the output folder when done — your photos are back to normal ~</value>
   </data>
   <data name="HomePage_RepairTutorial_Reassurance.Text" xml:space="preserve">
-    <value>非 iPhone 拍摄的照片一般无需修复，扫描和修复也不会对正常照片造成任何影响，请放心使用。
-如果只想扫描 iPhone 拍摄的实况照片，可开启「更严格的实况照片扫描」选项。</value>
+    <value>Photos not taken with an iPhone generally don't need repair — scanning or repairing won't affect normal photos in any way. To scan only iPhone Live Photos, enable "Strict Live Photo Scanning".</value>
   </data>
   <data name="HomePage_GoToSettingsStrictScan.Content" xml:space="preserve">
-    <value>前往设置</value>
+    <value>Go to Settings</value>
   </data>
   <data name="HomePage_RepairTutorial_Ready_Subtitle.Text" xml:space="preserve">
-    <value>点击右侧按钮，即可体验内置预设，直观了解完整修复流程</value>
+    <value>Click the button on the right to try the built-in sample and see the full repair flow in action</value>
   </data>
   <data name="HomePage_RepairUsage.Text" xml:space="preserve">
-    <value>选择要修复的图片文件夹，程序会自动识别缩略图错误的图片并无损修复。</value>
+    <value>Select the problematic Live Photos, and the program will automatically reconstruct the metadata to bring them back to life.</value>
   </data>
   <data name="HomePage_KeyPhotoTitle.Text" xml:space="preserve">
-    <value>主图切换</value>
+    <value>Key Photo Switch</value>
   </data>
   <data name="HomePage_WIPLabel.Text" xml:space="preserve">
-    <value>开发中 🚧</value>
+    <value>WIP 🚧</value>
   </data>
   <data name="HomePage_KeyPhotoDesc.Text" xml:space="preserve">
-    <value>自由更改实况照片的封面主图，从动态画面中挑出最完美的一刻作为静态展示。</value>
+    <value>Freely change the cover photo of your Live Photo, picking the perfect moment from the dynamic frame.</value>
   </data>
   <data name="HomePage_KeyPhotoUsage.Text" xml:space="preserve">
-    <value>敬请期待！导入图片，选择照片中的主图。</value>
+    <value>Stay tuned! We are working hard to build this feature and it will meet you soon.</value>
   </data>
   <data name="AboutPage_MotivationTitle.Text" xml:space="preserve">
-    <value>开发初衷</value>
+    <value>Motivation</value>
   </data>
   <data name="AboutPage_MotivationContent.Text" xml:space="preserve">
-    <value>因为作者习惯把照片备份到电脑，因为手机存储空间紧张。但 Apple 的实况照片在 Windows 上会变成为独立的图片和视频，浏览体验极差。一气之下就开发了这款工具。让作者这强迫症患者得到解放 []~(￣▽￣)~*</value>
+    <value>The author habitually backs up photos to their computer due to limited storage space on their phone. However, Apple's Live Photos function on Windows results in separate images and videos, leading to a terrible browsing experience. Frustrated, the author developed this tool, finally liberating this perfectionist! []~(￣▽￣)~*</value>
   </data>
   <data name="AboutPage_CreditsTitle.Text" xml:space="preserve">
-    <value>开源致谢</value>
+    <value>Open Source Credits</value>
   </data>
   <data name="AboutPage_ExifToolSuffix.Text" xml:space="preserve">
-    <value>(by Phil Harvey) — 全局元数据解析、注入与 XMP 结构重构</value>
+    <value>(by Phil Harvey) — Global metadata parsing, injection, and XMP structure reconstruction</value>
   </data>
   <data name="AboutPage_JpegTranSuffix.Text" xml:space="preserve">
-    <value>(by IJG) — 基于 DCT 系数空间的无损变换，无需重新编码即可实现零损耗旋转</value>
+    <value>(by IJG) — Lossless JPEG transforms using DCT coefficient space, achieving zero-loss rotation without re-encoding</value>
   </data>
   <data name="AboutPage_FFmpegSuffix.Text" xml:space="preserve">
-    <value>(by FFmpeg 团队) — 视频转码与流封装引擎</value>
+    <value>(by FFmpeg team) — Video transcoding and stream remuxing engine</value>
   </data>
   <data name="AboutPage_ImageMagickSuffix.Text" xml:space="preserve">
-    <value>(by ImageMagick Studio / dlemstra) — 通过 libheif 解码 HEIC/HEIF 图像</value>
+    <value>(by ImageMagick Studio / dlemstra) — HEIC/HEIF image decoding via libheif</value>
   </data>
   <data name="AboutPage_PrivacyTitle.Text" xml:space="preserve">
-    <value>隐私政策</value>
+    <value>Privacy Policy</value>
   </data>
   <data name="AboutPage_Privacy_Local.Text" xml:space="preserve">
-    <value>本地化处理：本应用不包含任何网络请求代码。</value>
+    <value>Fully Localized: This application contains no network request code.</value>
   </data>
   <data name="AboutPage_Privacy_NoCollect.Text" xml:space="preserve">
-    <value>零隐私收集：所有操作均在您的本地计算机安全完成。</value>
+    <value>Zero Data Collection: All operations are performed safely on your local machine.</value>
   </data>
   <data name="AboutPage_DisclaimerTitle.Text" xml:space="preserve">
-    <value>免责声明</value>
+    <value>Disclaimer</value>
   </data>
   <data name="AboutPage_DisclaimerContent.Text" xml:space="preserve">
-    <value>本软件按“原样”提供，不附带任何形式的明示或暗示担保。开发者 LengxiQwQ 不对因使用本软件导致的数据损坏、丢失或硬件故障承担法律责任。请务必养成先备份、后处理的习惯。</value>
+    <value>This software is provided "as-is" without any warranty. LengxiQwQ shall not be liable for any data corruption, loss, or hardware failure resulting from the use of this software. Always back up your files before processing.</value>
   </data>
   <data name="HomePage_Intro3.Text" xml:space="preserve">
     <value> </value>
   </data>
   <data name="HomePage_TryMergeDemo.Content" xml:space="preserve">
-    <value>载入预设并体验</value>
+    <value>Load Merge Sample &amp; Try</value>
   </data>
   <data name="HomePage_TrySplitDemo.Content" xml:space="preserve">
-    <value>载入预设并体验</value>
+    <value>Load Split Sample &amp; Try</value>
   </data>
   <data name="HomePage_TryRepairDemo.Content" xml:space="preserve">
-    <value>载入预设并体验</value>
+    <value>Load Repair Sample &amp; Try</value>
   </data>
   <data name="HomePage_DemoOutputFolder" xml:space="preserve">
-    <value>LivePhotoBox_样例输出</value>
+    <value>LivePhotoBox_Output</value>
   </data>
   <data name="HomePage_GuideButton_Tooltip.Text" xml:space="preserve">
-    <value>新手操作指南</value>
+    <value>Beginner Guide</value>
   </data>
   <data name="MergePage_HelpButton.ToolTipService.ToolTip" xml:space="preserve">
-    <value>查看教程</value>
+    <value>View Tutorial</value>
   </data>
   <data name="MergePage_HelpBtnText.Text" xml:space="preserve">
-    <value>帮助 &amp; 教程</value>
+    <value>Help &amp; Tutorials</value>
   </data>
   <data name="SplitPage_HelpBtnText.Text" xml:space="preserve">
-    <value>帮助 &amp; 教程</value>
+    <value>Help &amp; Tutorials</value>
   </data>
   <data name="RepairPage_HelpBtnText.Text" xml:space="preserve">
-    <value>帮助 &amp; 教程</value>
+    <value>Help &amp; Tutorials</value>
   </data>
   <data name="MergePage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>前往主页查看教程</value>
+    <value>Go to Home for tutorials</value>
   </data>
   <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>前往主页查看教程</value>
+    <value>Go to Home for tutorials</value>
   </data>
   <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>前往主页查看教程</value>
+    <value>Go to Home for tutorials</value>
   </data>
   <data name="MergePage_Msg_NoInputDirectoryTitle" xml:space="preserve">
-    <value>尚未选择输入文件夹</value>
+    <value>Input Folder Not Selected</value>
   </data>
   <data name="MergePage_Msg_NoInputDirectory" xml:space="preserve">
-    <value>请先选择包含待合成文件的文件夹。文件夹内需要准备好静态照片（HEIC/HEIF/JPG/JPEG）与同名视频（MOV/MP4）放入同一目录。程序会自动扫描目录并将它们配对合并。</value>
+    <value>Please select a folder containing the files to be merged. Place images (HEIC/HEIF/JPG/JPEG) and videos (MOV/MP4) with matching names in the same folder, and the app will automatically scan and pair them.</value>
   </data>
   <data name="SplitPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
-    <value>尚未选择输入文件夹</value>
+    <value>Input Folder Not Selected</value>
   </data>
   <data name="SplitPage_Msg_NoInputDirectory" xml:space="preserve">
-    <value>请先选择包含待拆分实况照片的文件夹。程序会扫描该目录下的单文件实况照片，并无损解包提取出原始的静态画面与动态视频。</value>
+    <value>Please select a folder containing Live Photos to be split. The app will scan for single-file Live Photos and losslessly extract the original static image and dynamic video.</value>
   </data>
   <data name="RepairPage_Msg_NoInputDirectoryTitle" xml:space="preserve">
-    <value>尚未选择输入文件夹</value>
+    <value>Input Folder Not Selected</value>
   </data>
   <data name="RepairPage_Msg_NoInputDirectory" xml:space="preserve">
-    <value>请先选择需要修复的图片文件夹。程序会自动扫描目录，识别出因设备兼容性导致在 Windows 上出现缩略图旋转或拉伸问题的图片，并进行无损修复。</value>
+    <value>Please select a folder containing images to be repaired. The app will automatically scan for images with thumbnail rotation or stretching issues caused by device compatibility and perform a lossless repair.</value>
   </data>
   <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
-    <value>打开输入目录</value>
+    <value>Open Input Folder</value>
   </data>
   <data name="MergePage_OpenOutputBtn.Content" xml:space="preserve">
-    <value>打开输出目录</value>
+    <value>Open Output Folder</value>
   </data>
   <data name="SplitPage_OpenInputBtn.Content" xml:space="preserve">
-    <value>打开输入目录</value>
+    <value>Open Input Folder</value>
   </data>
   <data name="SplitPage_OpenOutputBtn.Content" xml:space="preserve">
-    <value>打开输出目录</value>
+    <value>Open Output Folder</value>
   </data>
   <data name="RepairPage_OpenInputOutputBtn.Content" xml:space="preserve">
-    <value>打开目录</value>
+    <value>Open Folder</value>
   </data>
   <data name="RepairPage_OpenOutputBtn.Content" xml:space="preserve">
-    <value>打开输出目录</value>
+    <value>Open Output Folder</value>
   </data>
   <data name="Msg_InvalidInputDirectoryTitle" xml:space="preserve">
-    <value>输入目录无效</value>
+    <value>Invalid Input Directory</value>
   </data>
   <data name="Msg_QueueNotEmptyTitle" xml:space="preserve">
-    <value>队列不为空</value>
+    <value>Queue Not Empty</value>
   </data>
   <data name="Msg_QueueNotEmpty" xml:space="preserve">
-    <value>请先清空列表后再扫描</value>
+    <value>Please clear the list first, then scan again.</value>
   </data>
   <data name="Msg_InvalidInputDirectory" xml:space="preserve">
-    <value>指定的输入目录不存在，请检查路径是否正确后重试。</value>
+    <value>The specified input directory does not exist. Please check the path and try again.</value>
   </data>
   <data name="Log_MissingDependency" xml:space="preserve">
-    <value>缺失核心依赖文件</value>
+    <value>Missing core dependency file</value>
   </data>
   <data name="Log_ExifToolStartFailed" xml:space="preserve">
-    <value>ExifTool 进程启动失败</value>
+    <value>Failed to start ExifTool process</value>
   </data>
   <data name="Log_ExifToolParseFailed" xml:space="preserve">
-    <value>ExifTool 解析 [{0}] 失败</value>
+    <value>ExifTool failed to parse [{0}]</value>
   </data>
   <data name="Log_CSharpException" xml:space="preserve">
-    <value>发生未处理的 C# 异常: {0}</value>
+    <value>Unhandled C# exception occurred: {0}</value>
   </data>
   <data name="Log_RepairSuccess" xml:space="preserve">
-    <value>修复成功: {0}</value>
+    <value>Repair successful: {0}</value>
   </data>
   <data name="Log_RepairCancelled" xml:space="preserve">
-    <value>用户取消修复任务: {0}</value>
+    <value>User cancelled the repair task: {0}</value>
   </data>
   <data name="Log_RepairFailed" xml:space="preserve">
-    <value>修复文件失败: {0}</value>
+    <value>Failed to repair file: {0}</value>
   </data>
   <data name="Log_JpegTranStartFailed" xml:space="preserve">
-    <value>无法启动 JpegTran 进程</value>
+    <value>Unable to start JpegTran process</value>
   </data>
   <data name="Log_JpegTranExecuteFailed" xml:space="preserve">
-    <value>进程退出码 {0}，运行失败</value>
+    <value>Process exited with code {0}, execution failed</value>
   </data>
   <data name="Log_ExifToolFatalError" xml:space="preserve">
-    <value>工具返回致命错误</value>
+    <value>Tool returned a fatal error</value>
   </data>
   <data name="Log_ExifToolWarning" xml:space="preserve">
-    <value>工具发出了警告信息 (非致命)</value>
+    <value>Tool issued a warning message (non-fatal)</value>
   </data>
   <data name="Error_CheckLog" xml:space="preserve">
-    <value>解析失败:</value>
+    <value>Parsing failed:</value>
   </data>
   <data name="Error_InternalCheckLog" xml:space="preserve">
-    <value>内部错误:</value>
+    <value>Internal error:</value>
   </data>
   <data name="Error_RepairFailedCheckLog" xml:space="preserve">
-    <value>修复失败，请查看日志</value>
+    <value>Repair failed, please check logs</value>
   </data>
   <data name="Error_XmpMetadataTooLarge" xml:space="preserve">
-    <value>XMP 元数据过大 ({0} 字节)，JPEG APP1 段最大支持 65535 字节。</value>
+    <value>XMP metadata too large ({0} bytes). Maximum allowed size for JPEG APP1 segment is 65535 bytes.</value>
   </data>
   <data name="Error_InvalidJpegFile" xml:space="preserve">
-    <value>无效的 JPEG 文件：无法读取 JPEG SOI 标记 (0xFF 0xD8)。</value>
+    <value>Invalid JPEG file: unable to read JPEG SOI marker (0xFF 0xD8).</value>
   </data>
   <data name="Error_HeicConversionFailed" xml:space="preserve">
-    <value>HEIC/HEIF 文件 "{0}" 转换失败：{1}</value>
+    <value>HEIC/HEIF file "{0}" conversion failed: {1}</value>
   </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
-    <value>将 Apple 实况照片或任意图片 + 视频组合为标准实况照片（单文件格式），方便在 Windows 及 Android 设备上查看</value>
+    <value>Combine Apple Live Photos or any image + video into standard Live Photos (single-file format), viewable on Windows and Android devices</value>
   </data>
   <data name="HomePage_Tutorial_ImagePlaceholder.Text" xml:space="preserve">
-    <value>教程图片待添加</value>
+    <value>Tutorial image coming soon</value>
   </data>
   <data name="HomePage_Tutorial_Step1_Title.Text" xml:space="preserve">
-    <value>准备照片文件夹</value>
+    <value>Prepare Photo Folder</value>
   </data>
   <data name="HomePage_Tutorial_Step2_Title.Text" xml:space="preserve">
-    <value>选择文件夹</value>
+    <value>Select Folder</value>
   </data>
   <data name="HomePage_Tutorial_Step3_Title.Text" xml:space="preserve">
-    <value>扫描并确认</value>
+    <value>Scan &amp; Confirm</value>
   </data>
   <data name="HomePage_Tutorial_Step4_Title.Text" xml:space="preserve">
-    <value>等待完成</value>
+    <value>Wait for Completion</value>
   </data>
   <data name="HomePage_Tutorial_Ready_Title.Text" xml:space="preserve">
-    <value>试一下？</value>
+    <value>Want to give it a try?</value>
   </data>
   <data name="HomePage_Tutorial_Ready_Subtitle.Text" xml:space="preserve">
-    <value>点击右侧按钮，即可体验内置预设，直观了解完整合成流程</value>
+    <value>Click the button on the right to try the built-in sample and see the full merge flow in action</value>
   </data>
   <data name="HomePage_SplitSubtitle.Text" xml:space="preserve">
-    <value>将单文件实况照片拆分为原始照片和视频</value>
+    <value>Split single-file Live Photos into original photos and videos</value>
   </data>
   <data name="HomePage_SplitTutorial_Step1_Title.Text" xml:space="preserve">
-    <value>准备实况照片</value>
+    <value>Prepare Live Photos</value>
   </data>
   <data name="HomePage_SplitTutorial_Step2_Title.Text" xml:space="preserve">
-    <value>选择文件夹并拆分</value>
+    <value>Select Folder and Split</value>
   </data>
   <data name="HomePage_SplitTutorial_Step3_Title.Text" xml:space="preserve">
-    <value>查看导出结果</value>
+    <value>View Exported Results</value>
   </data>
   <data name="HomePage_SplitTutorial_Ready_Subtitle.Text" xml:space="preserve">
-    <value>点击右侧按钮，即可体验内置预设，直观了解完整拆分流程</value>
+    <value>Click the button on the right to try the built-in sample and see the full split flow in action</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder.Text" xml:space="preserve">
-    <value>HEIC/HEIF 解码器</value>
+    <value>HEIC/HEIF Decoder</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_MagickNET.Content" xml:space="preserve">
-    <value>Magick.NET（ImageMagick + libheif）</value>
+    <value>Magick.NET (ImageMagick + libheif)</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_BitmapDecoder.Content" xml:space="preserve">
-    <value>BitmapDecoder（Windows 系统内置）</value>
+    <value>Windows BitmapDecoder (system built-in)</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_Desc.Text" xml:space="preserve">
-    <value>Magick.NET 方案软件已自带；BitmapDecoder 方案更快，但依赖系统的 HEIC/HEIF 扩展（Win11 已内置，Win10 需安装以下两个扩展）</value>
+    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC/HEIF extensions.
+(built-in on Win11, Win10 requires both extensions below)</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_HeifLink.Content" xml:space="preserve">
-    <value>安装 HEIF 图像扩展 →</value>
+    <value>Install HEIF Image Extensions →</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_HevcLink.Content" xml:space="preserve">
-    <value>安装 HEVC 视频扩展 →</value>
+    <value>Install HEVC Video Extensions →</value>
   </data>
   <data name="SettingsPage_Merge_ThreadCount.Text" xml:space="preserve">
-    <value>HEIC/HEIF 任务并行数</value>
+    <value>HEIC/HEIF Task Parallel Count</value>
   </data>
   <data name="SettingsPage_Merge_ThreadCount_Desc.Text" xml:space="preserve">
-    <value>HEIC/HEIF 照片转码时的并行处理任务数。注意：JPG 格式照片无需转码，因此不受限制，会自动使用最高 20 路并发以加速合成</value>
+    <value>HEIC/HEIF transcoding parallel task count. JPG needs no transcoding and automatically uses up to 20 concurrent threads for faster composition.</value>
   </data>
   <data name="SettingsPage_Merge_GoogleForceMp4.Text" xml:space="preserve">
-    <value>Google 协议始终转换成 MP4</value>
+    <value>Always convert to MP4 for Google protocols</value>
   </data>
   <data name="SettingsPage_Merge_GoogleForceMp4_Desc.Text" xml:space="preserve">
-    <value>开启后，使用 Google V1/V2 协议合成实况照片时，自动将 MOV 视频转为兼容性更广的 MP4 格式。默认关闭，保留视频原始封装格式，如果导入设备不支持浏览实况照片，可以尝试打开</value>
+    <value>When enabled, MOV videos are automatically converted to the more compatible MP4 format during Google V1/V2 Live Photo composition. Disabled by default, keeps the original video container format. If live photos fail to preview on your target imported device, you may try enabling this option.</value>
   </data>
   <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
-    <value>恢复默认设置</value>
+    <value>Restore Default Settings</value>
   </data>
   <data name="SettingsPage_Restore_Confirm_Message" xml:space="preserve">
-    <value>确定要将所有设置恢复为默认值吗？</value>
+    <value>Are you sure you want to restore all settings to their default values?</value>
   </data>
   <data name="SettingsPage_Restart_Confirm_Title" xml:space="preserve">
-    <value>重启应用</value>
+    <value>Restart App</value>
   </data>
   <data name="SettingsPage_Restart_Confirm_Message" xml:space="preserve">
-    <value>确定要关闭当前应用并重新启动吗？未完成的任务将丢失。</value>
+    <value>Are you sure you want to close the app and restart? Any unfinished tasks will be lost.</value>
   </data>
   <data name="Msg_Confirm" xml:space="preserve">
-    <value>确定</value>
+    <value>Confirm</value>
   </data>
   <data name="Msg_Cancel" xml:space="preserve">
-    <value>取消</value>
+    <value>Cancel</value>
   </data>
   <data name="HomePage_Tutorial_Step1_Desc.Text" xml:space="preserve">
-    <value>将你的实况照片（照片+视频）放在同一个文件夹中，文件名必须相同，仅扩展名不同。
+    <value>Place your Live Photos (photo + video) in the same folder. File names must match; only the extension differs.
 
-支持图片格式：JPG/JPEG、HEIC/HEIF
-支持视频格式：MOV、MP4
+Supported image formats: JPG/JPEG, HEIC/HEIF
+Supported video formats: MOV, MP4
 
 ✅ IMG_001.JPG + IMG_001.MOV
 ❌ IMG_001.JPG + VID_001.MOV</value>
   </data>
   <data name="HomePage_Tutorial_Step2_Desc.Text" xml:space="preserve">
-    <value>在「实况照片合成」页面，点击「浏览」按钮，选择你刚才准备好的文件夹。输出目录会自动设置，如需自定义可手动修改。</value>
+    <value>On the "Live Photo Merge" page, click the "Browse" button and select the folder you just prepared. The output directory is set automatically by default; change it only if you need a custom location.</value>
   </data>
   <data name="HomePage_Tutorial_Step3_Desc.Text" xml:space="preserve">
-    <value>扫描完成后，在「协议版本」选择适合你的封装协议：
+    <value>After scanning, select the appropriate protocol from the "Protocol" dropdown:
 
-🔹 仅需在 Windows 上查看？
-任意协议均可，推荐 Motion Photo (V2)。
+🔹 Only viewing on Windows?
+Any protocol works. Motion Photo (V2) is recommended.
 
-🔹 要导入 Android 设备？
-根据手机品牌选择最匹配的协议即可。
+🔹 Importing to an Android device?
+Choose the protocol that best matches your phone brand.
 
-· Micro Video (V1): 小米（旧版MIUI）
-· Motion Photo (V2): Pixel / 小米 / 红米
+· Micro Video (V1): Xiaomi (older MIUI)
+· Motion Photo (V2): Pixel / Xiaomi / Redmi
 · O-Live Photo: OPPO / OnePlus
 
-⚠️ 暂不支持以下设备：
-· iPhone / VIVO / iQOO —— 采用分离式实况照片
-· 三星 / 华为 / 荣耀 —— 未经测试
+⚠️ Currently not supported:
+· iPhone / VIVO / iQOO — Uses separate photo/video format
+· Samsung / Huawei / Honor — Not tested
 
-选定协议后，点击「开始合成」即可。</value>
+Once selected, click "Start Merge".</value>
   </data>
   <data name="HomePage_Tutorial_Step4_Desc.Text" xml:space="preserve">
-    <value>合成过程会自动处理，无需额外操作。完成后，输出文件夹中即为合并好的实况照片！
+    <value>The merging process runs automatically — no extra action needed. Once done, the output folder contains your merged Live Photos!
 
-转换后的单文件格式可在 Windows 和 Android 设备上直接查看和播放 ~</value>
+The resulting single-file format can be viewed and played directly on both Windows and Android devices ~</value>
   </data>
   <data name="HomePage_SplitTutorial_Step1_Desc.Text" xml:space="preserve">
-    <value>需要导入单文件格式的实况照片 JPG 格式，一个文件同时包含静态照片和动态视频，可以是：
+    <value>You need to import single-file Live Photos in JPG format. Each file contains both a still image and a motion video. These can be:
 
- • 本软件转换生成的实况照片
- • Android 手机直接拍摄的实况照片
-（单文件格式，不包括 VIVO）
+ • Live Photos generated by this app
+ • Live Photos captured directly on Android phones
+(Single file format, excluding VIVO)
 
-将以上任意文件放入同一文件夹即可。</value>
+Place any of these files into the same folder.</value>
   </data>
   <data name="HomePage_SplitTutorial_Step2_Desc.Text" xml:space="preserve">
-    <value>点击「浏览」按钮选择文件夹，程序会自动扫描并识别实况照片。查看统计确认无误后，点击「开始拆分」即可。</value>
+    <value>Click the 'Browse' button to choose a folder. The app will automatically scan and recognize Live Photos. After verifying the statistics look correct, click 'Start Split'.</value>
   </data>
   <data name="HomePage_SplitTutorial_Step3_Desc.Text" xml:space="preserve">
-    <value>拆分完成后，输出目录中会看到同文件名的照片和视频文件，直接打开即可查看。</value>
+    <value>Once splitting is complete, you will find photo and video files with matching file names in the output folder. Simply open them to review.</value>
   </data>
   <data name="SettingsPage_BannerRandom_Toggle.OnContent" xml:space="preserve">
-    <value>随机切换</value>
+    <value>Random</value>
   </data>
   <data name="SettingsPage_BannerRandom_Toggle.OffContent" xml:space="preserve">
-    <value>随机切换</value>
+    <value>Random</value>
   </data>
   <data name="SettingsPage_ResetBanner_Button_Text.Text" xml:space="preserve">
-    <value>恢复默认背景</value>
+    <value>Restore Default Background</value>
   </data>
   <data name="SettingsPage_HardwareRefresh_Button.ToolTipService.ToolTip" xml:space="preserve">
-    <value>刷新硬件检测</value>
+    <value>Refresh hardware detection</value>
   </data>
   <data name="Tag_OrientationMirror" xml:space="preserve">
-    <value>EXIF 镜像标签</value>
+    <value>EXIF mirror flag</value>
   </data>
   <data name="Tag_OrientationAngleMismatch" xml:space="preserve">
-    <value>方向标签角度不一致</value>
+    <value>EXIF angle mismatch</value>
   </data>
   <data name="SettingsPage_Repair_Header.Text" xml:space="preserve">
-    <value>实况照片显示修复</value>
+    <value>Live Photo Display Repair</value>
   </data>
   <data name="SettingsPage_Repair_HeicLabel.Text" xml:space="preserve">
-    <value>修复 HEIC/HEIF 照片</value>
+    <value>HEIC/HEIF Photo Repair</value>
   </data>
   <data name="SettingsPage_Repair_HeicSwitch.OnContent" xml:space="preserve">
-    <value>已启用</value>
+    <value>Enabled</value>
   </data>
   <data name="SettingsPage_Repair_HeicSwitch.OffContent" xml:space="preserve">
-    <value>已禁用</value>
+    <value>Disabled</value>
   </data>
   <data name="SettingsPage_Repair_HeicDesc.Text" xml:space="preserve">
-    <value>启用后将对 HEIC/HEIF 照片进行方向标签修复和缩略图剥离。HEIC/HEIF 的旋转标签通常是正确的显示指令，若无特殊需求，无需开启</value>
+    <value>When enabled, HEIC/HEIF photos will be checked for orientation metadata issues and extra thumbnails. HEIC/HEIF rotation tags are usually correct display instructions — leave this off unless you have specific needs.</value>
   </data>
   <data name="Status_HeicRepairDisabled" xml:space="preserve">
-    <value>[HEIC/HEIF修复已关闭]</value>
+    <value>[HEIC/HEIF repair off]</value>
   </data>
   <data name="SettingsPage_Repair_VideoLabel.Text" xml:space="preserve">
-    <value>视频旋转修复</value>
+    <value>Video Rotation Fix</value>
   </data>
   <data name="SettingsPage_Repair_VideoSwitch.OnContent" xml:space="preserve">
-    <value>已启用</value>
+    <value>Enabled</value>
   </data>
   <data name="SettingsPage_Repair_VideoSwitch.OffContent" xml:space="preserve">
-    <value>已禁用</value>
+    <value>Disabled</value>
   </data>
   <data name="SettingsPage_Repair_VideoDesc.Text" xml:space="preserve">
-    <value>启用后将对带有旋转矩阵的视频进行重编码以修正方向。视频修复耗时较长且涉及重编码</value>
+    <value>When enabled, videos with rotation matrices will be re-encoded to correct orientation. Video repair is time-consuming and involves re-encoding.</value>
   </data>
   <data name="SettingsPage_Repair_CopyPerfectLabel.Text" xml:space="preserve">
-    <value>同时输出无需修复的文件</value>
+    <value>Copy files that don't need repair</value>
   </data>
   <data name="SettingsPage_Repair_CopyPerfectDesc.Text" xml:space="preserve">
-    <value>仅在 "修复到单独目录" 模式下生效。开启后，无需修复的文件也会一并复制到输出目录，确保输出目录包含完整的文件集合</value>
+    <value>Only effective in "output to directory" mode. When enabled, files that don't require repair are also copied to the output directory, ensuring a complete collection.</value>
   </data>
   <data name="Status_VideoRepairDisabled" xml:space="preserve">
-    <value>[视频修复已关闭]</value>
+    <value>[Video repair off]</value>
   </data>
   <data name="Tag_VideoRotation" xml:space="preserve">
-    <value>{0}° 旋转标签</value>
+    <value>{0}° rotation tag</value>
   </data>
   <data name="Tag_FlipVertical" xml:space="preserve">
-    <value>上下翻转矩阵</value>
+    <value>Vertical flip matrix</value>
   </data>
   <data name="Tag_FlipHorizontal" xml:space="preserve">
-    <value>左右翻转矩阵</value>
+    <value>Horizontal flip matrix</value>
   </data>
   <data name="SettingsPage_Transcode_Header.Text" xml:space="preserve">
-    <value>视频转码</value>
+    <value>Video Transcoding</value>
   </data>
   <data name="SettingsPage_Split_FormatLabel.Text" xml:space="preserve">
-    <value>默认输出格式</value>
+    <value>Default Output Format</value>
   </data>
   <data name="SettingsPage_Split_FormatDesc.Text" xml:space="preserve">
-    <value>选择拆分后视频的默认保存格式，若无特殊需求，保持默认即可</value>
+    <value>Default format for split video output. Use default settings if you have no special requirements.</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware.Text" xml:space="preserve">
-    <value>硬件加速</value>
+    <value>Hardware Acceleration</value>
   </data>
   <data name="SettingsPage_Transcode_ThreadCount.Text" xml:space="preserve">
-    <value>视频任务并行数</value>
+    <value>Video task parallelism</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware_Threads.Text" xml:space="preserve">
-    <value>线程</value>
+    <value>threads</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware_Desc.Text" xml:space="preserve">
-    <value>视频转码时使用的硬件编码器。GPU 硬件加速可大幅提升转码速度，若不支持则自动回退到 CPU 软件编码</value>
+    <value>Hardware encoder used for video transcoding. GPU acceleration significantly improves transcoding speed. Falls back to CPU software encoding if hardware encoding is unavailable.</value>
   </data>
   <data name="SettingsPage_Transcode_ThreadCount_Desc.Text" xml:space="preserve">
-    <value>同时进行视频转码的任务数量，仅对需要转码的 MP4、MOV 视频生效</value>
+    <value>Number of simultaneous video transcoding tasks. Applies only to MP4 and MOV videos that require transcoding.</value>
   </data>
   <data name="RepairPage_StatPaired.Text" xml:space="preserve">
-    <value>实况照片：</value>
+    <value>Live Photo:</value>
   </data>
   <data name="RepairPage_StatStandaloneImg.Text" xml:space="preserve">
-    <value>单独照片：</value>
+    <value>Lone Img:</value>
   </data>
   <data name="RepairPage_StatStandaloneVid.Text" xml:space="preserve">
-    <value>单独视频：</value>
+    <value>Lone Vid:</value>
   </data>
   <data name="RepairPage_OutputSwitch.OnContent" xml:space="preserve">
-    <value>输出到目录</value>
+    <value>To Output Dir</value>
   </data>
   <data name="RepairPage_OutputSwitch.OffContent" xml:space="preserve">
-    <value>替换原文件</value>
+    <value>Replace Original</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggleLabel.Text" xml:space="preserve">
-    <value>在修复页扫描时同步加载视频缩略图</value>
+    <value>Load video thumbnails during scan</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggleDesc.Text" xml:space="preserve">
-    <value>关闭后扫描时跳过视频缩略图加载（开启后可能导致卡顿）</value>
+    <value>When off, video thumbnails are skipped during scanning. (Enabling this may cause lag)</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggle.OnContent" xml:space="preserve">
-    <value>开</value>
+    <value>On</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggle.OffContent" xml:space="preserve">
-    <value>关</value>
+    <value>Off</value>
   </data>
   <data name="SettingsPage_HeicConcurrencyLabel.Text" xml:space="preserve">
-    <value>缩略图预览并发数</value>
+    <value>Thumbnail Preview Concurrency</value>
   </data>
   <data name="SettingsPage_HeicConcurrencyDesc.Text" xml:space="preserve">
-    <value>控制灯箱预览时同时解码 HEIC 缩略图的最大数量。设为 1 逐张解码，设为较高值利用 GPU 并行解码以加速浏览</value>
+    <value>Maximum number of HEIC thumbnails decoded in parallel during lightbox preview. Set to 1 for sequential decoding, higher values leverage GPU for faster browsing.</value>
   </data>
   <data name="RepairPage_GroupHeaderPairs" xml:space="preserve">
-    <value>实况照片组合</value>
+    <value>Live Photo Pairs</value>
   </data>
   <data name="RepairPage_GroupHeaderStandaloneImg" xml:space="preserve">
-    <value>单独照片</value>
+    <value>Standalone Photos</value>
   </data>
   <data name="RepairPage_GroupHeaderStandaloneVid" xml:space="preserve">
-    <value>单独视频</value>
+    <value>Standalone Videos</value>
   </data>
   <data name="RepairPage_FilterLabel.Text" xml:space="preserve">
-    <value>筛选：</value>
+    <value>Filter:</value>
   </data>
   <data name="RepairPage_ShowingLabel" xml:space="preserve">
-    <value>当前显示：</value>
+    <value>Showing:</value>
   </data>
   <data name="RepairPage_FilterAll" xml:space="preserve">
-    <value>所有文件</value>
+    <value>All Files</value>
   </data>
   <data name="RepairPage_FilterPairs" xml:space="preserve">
-    <value>实况照片</value>
+    <value>Live Photos</value>
   </data>
   <data name="RepairPage_FilterStandaloneImg" xml:space="preserve">
-    <value>单独照片</value>
+    <value>Photos Only</value>
   </data>
   <data name="RepairPage_FilterStandaloneVid" xml:space="preserve">
-    <value>单独视频</value>
+    <value>Videos Only</value>
   </data>
   <data name="RepairPage_FilterStatusAll" xml:space="preserve">
-    <value>所有状态</value>
+    <value>All Status</value>
   </data>
   <data name="RepairPage_FilterStatusRepair" xml:space="preserve">
-    <value>仅待修复</value>
+    <value>Needs repair</value>
   </data>
   <data name="RepairPage_FilterStatusPerfect" xml:space="preserve">
-    <value>无需修复</value>
+    <value>Perfect only</value>
   </data>
   <data name="RepairPage_FilterHeaderType" xml:space="preserve">
-    <value>文件类型</value>
+    <value>File Type</value>
   </data>
   <data name="RepairPage_FilterHeaderStatus" xml:space="preserve">
-    <value>修复状态</value>
+    <value>Repair Status</value>
   </data>
   <data name="RepairPage_ResetFilterBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>重置筛选</value>
+    <value>Reset filter</value>
   </data>
   <data name="SettingsPage_Repair_LivePhotoVideoLabel.Text" xml:space="preserve">
-    <value>修复非实况照片的视频</value>
+    <value>Repair Non-Live-Photo Videos</value>
   </data>
   <data name="SettingsPage_Repair_LivePhotoVideoSwitch.OnContent" xml:space="preserve">
-    <value>已启用</value>
+    <value>Enabled</value>
   </data>
   <data name="SettingsPage_Repair_LivePhotoVideoSwitch.OffContent" xml:space="preserve">
-    <value>已禁用</value>
+    <value>Disabled</value>
   </data>
   <data name="SettingsPage_Repair_LivePhotoVideoDesc.Text" xml:space="preserve">
-    <value>启用后将同时修复时长超过 3.5 秒的普通长视频，长视频一般不用修复</value>
+    <value>When enabled, long videos (over 3.5 seconds) will also be repaired. Disable to repair only Live Photo videos.</value>
   </data>
   <data name="RepairPage_Task_SkippedHeic" xml:space="preserve">
-    <value>已跳过（HEIC/HEIF）</value>
+    <value>Skipped (HEIC/HEIF)</value>
   </data>
   <data name="RepairPage_Task_SkippedNonApple" xml:space="preserve">
-    <value>已跳过（非Apple照片）</value>
+    <value>Skipped (non-Apple)</value>
   </data>
   <data name="RepairPage_Task_SkippedDuration" xml:space="preserve">
-    <value>已跳过（时长超过3.5秒）</value>
+    <value>Skipped (duration > 3.5s)</value>
   </data>
   <data name="RepairPage_Task_SkippedNonLivePhoto" xml:space="preserve">
-    <value>已跳过（非实况照片）</value>
+    <value>Skipped (non-live-photo)</value>
   </data>
   <data name="RepairPage_HardwareGpu" xml:space="preserve">
-    <value> | {0} 硬件加速</value>
+    <value> | {0} hardware acceleration</value>
   </data>
   <data name="RepairPage_HardwareCpu" xml:space="preserve">
-    <value> | CPU 软件编码</value>
+    <value> | CPU software encoding</value>
   </data>
   <data name="SettingsPage_StrictLivePhotoScanLabel.Text" xml:space="preserve">
-    <value>更严格的实况照片扫描</value>
+    <value>Strict Live Photo Scanning</value>
   </data>
   <data name="SettingsPage_StrictLivePhotoScanDesc.Text" xml:space="preserve">
-    <value>开启后仅通过标识符精确匹配实况照片的图片与视频，方便筛选查看。此选项仅影响扫描时的配对方式，与修复功能无关</value>
+    <value>When enabled, only original Live Photos taken by Apple devices are identified via ContentIdentifier (UUID) matching, other photos and videos are skipped during scanning. When disabled, all files are matched by filename.</value>
   </data>
   <data name="SettingsPage_StrictLivePhotoScanToggle.OnContent" xml:space="preserve">
-    <value>开</value>
+    <value>On</value>
   </data>
   <data name="SettingsPage_StrictLivePhotoScanToggle.OffContent" xml:space="preserve">
-    <value>关</value>
+    <value>Off</value>
   </data>
   <data name="SettingsPage_AppleOnlyScanLabel.Text" xml:space="preserve">
-    <value>仅修复 Apple 设备拍摄的照片</value>
+    <value>Only Scan Apple Live Photos</value>
   </data>
   <data name="SettingsPage_AppleOnlyScanDesc.Text" xml:space="preserve">
-    <value>开启后仅扫描 Apple 设备（iPhone/iPad）拍摄的照片和视频。通过检测元数据中的制造商、设备型号、iOS 版本、标识符和实况照片标记来识别，任一满足即可。非 Apple 设备的文件将在诊断结果中显示跳过</value>
+    <value>Only scan photos and videos taken by Apple devices (iPhone/iPad). Detection uses metadata: device make, model, iOS version, ContentIdentifier, and LivePhotoAuto marker — any one condition is sufficient. Non-Apple files show as skipped in the diagnosis results.</value>
   </data>
   <data name="RepairPage_Diagnosis_NonApple" xml:space="preserve">
-    <value>非 Apple 照片</value>
+    <value>Non-Apple Photo</value>
   </data>
   <data name="RepairPage_LivePhotoVideoMissing" xml:space="preserve">
-    <value>实况照片（视频缺失）</value>
+    <value>Live Photo (video missing)</value>
   </data>
   <data name="SettingsPage_SwitchToModern_Button_Text.Text" xml:space="preserve">
-    <value>切换到新版设置界面</value>
+    <value>Switch to Modern Settings UI</value>
   </data>
   <data name="SettingsPageModern_SwitchToClassic_Button_Text.Text" xml:space="preserve">
-    <value>切换到旧版设置界面</value>
+    <value>Switch to Legacy Settings UI</value>
   </data>
   <data name="SettingsPageModern_SwitchConfirm_Title" xml:space="preserve">
-    <value>切换设置页面</value>
+    <value>Switch Settings Page</value>
   </data>
   <data name="SettingsPageModern_SwitchConfirm_Message" xml:space="preserve">
-    <value>将重启应用并切换设置页面样式，是否继续？</value>
+    <value>Restart the app and switch settings page style. Continue?</value>
   </data>
   <data name="SettingsPage_CrashLogPrivacyHint.Text" xml:space="preserve">
-    <value>日志仅记录应用运行状态与错误诊断信息，不包含任何个人照片数据。日志文件超过 15 个自动清理旧记录，无需手动维护</value>
+    <value>Logs only record app runtime status and error diagnostics — no personal photo data is collected. Old logs are automatically cleaned up when exceeding 15 files.</value>
   </data>
   <data name="Toggle_OnOff.OnContent" xml:space="preserve">
-    <value>开</value>
+    <value>On</value>
   </data>
   <data name="Toggle_OnOff.OffContent" xml:space="preserve">
-    <value>关</value>
+    <value>Off</value>
   </data>
   <data name="Toggle_EnabledDisabled.OnContent" xml:space="preserve">
-    <value>已启用</value>
+    <value>Enabled</value>
   </data>
   <data name="Toggle_EnabledDisabled.OffContent" xml:space="preserve">
-    <value>已禁用</value>
+    <value>Disabled</value>
   </data>
   <data name="SettingsPage_Test_Warning.Text" xml:space="preserve">
-    <value> ⚠️ 以下为高级调试选项，随意修改可能导致应用运行不稳定、卡顿甚至闪退。如无必要，请保持默认设置</value>
+    <value> ⚠️ Advanced debugging options below. Modifying these may cause instability, lag, or crashes. Keep default settings unless necessary.</value>
   </data>
   <data name="SettingsPage_SwitchToModern_Confirm_Title" xml:space="preserve">
-    <value>切换设置界面</value>
+    <value>Switch Settings UI</value>
   </data>
   <data name="SettingsPage_SwitchToModern_Confirm_Message" xml:space="preserve">
-    <value>将重启应用并切换到新版设置界面，是否继续？</value>
+    <value>The app will restart and switch to the modern settings UI. Continue?</value>
   </data>
   <data name="SettingsPage_SwitchToClassic_Confirm_Title" xml:space="preserve">
-    <value>切换到旧版设置界面</value>
+    <value>Switch to Legacy Settings UI</value>
   </data>
   <data name="SettingsPage_Banner_Desc.Text" xml:space="preserve">
-    <value>自定义主页的背景横幅图片</value>
+    <value>Customize the homepage banner background image</value>
   </data>
   <data name="SettingsPage_Banner_CurrentLabel.Text" xml:space="preserve">
-    <value>当前</value>
+    <value>Current</value>
   </data>
   <data name="SettingsPage_BannerRandom_Header.Text" xml:space="preserve">
-    <value>启动时随机切换</value>
+    <value>Randomize on Startup</value>
   </data>
   <data name="SettingsPage_BannerRandom_Desc.Text" xml:space="preserve">
-    <value>每次打开软件时自动随机选择一张主页背景图片</value>
+    <value>Automatically select a random home background image each time you open the app</value>
   </data>
   <data name="BannerPreset_Name_default" xml:space="preserve">
-    <value>预设 1</value>
+    <value>Preset 1</value>
   </data>
   <data name="BannerPreset_Name_scenic" xml:space="preserve">
-    <value>预设 2</value>
+    <value>Preset 2</value>
   </data>
   <data name="BannerPreset_Name_anime" xml:space="preserve">
-    <value>预设 3</value>
+    <value>Preset 3</value>
   </data>
   <data name="SettingsPage_SwitchToClassic_Confirm_Message" xml:space="preserve">
-    <value>⚠️ 旧版设置界面可能存在功能缺失或 UI 异常，建议使用新版界面。
+    <value>⚠️ The legacy settings UI may have missing features or display anomalies. The modern UI is recommended. 
 
-确定要切换吗？</value>
+Are you sure you want to switch?</value>
   </data>
   <data name="OutputDir_SplitPhotos" xml:space="preserve">
-    <value>输出_拆分照片</value>
-    <comment>拆分页默认输出文件夹名</comment>
+    <value>Output_SplitPhotos</value>
+    <comment>Default output folder name for Split page</comment>
   </data>
   <data name="OutputDir_LivePhotos" xml:space="preserve">
-    <value>输出_实况照片</value>
-    <comment>合成页默认输出文件夹名</comment>
+    <value>Output_LivePhotos</value>
+    <comment>Default output folder name for Merge page</comment>
   </data>
   <data name="OutputDir_RepairedPhotos" xml:space="preserve">
-    <value>输出_修复照片</value>
-    <comment>修复页默认输出文件夹名</comment>
+    <value>Output_RepairedPhotos</value>
+    <comment>Default output folder name for Repair page</comment>
   </data>
   <data name="HomePage_DemoTempRoot" xml:space="preserve">
-    <value>LivePhotoBox_示例</value>
-    <comment>示例文件临时目录名</comment>
+    <value>LivePhotoBox_Demo</value>
+    <comment>Temp folder for demo/sample files</comment>
   </data>
   <data name="HomePage_DemoSubFolder_Merge" xml:space="preserve">
-    <value>合成示例</value>
-    <comment>合成页示例子文件夹名</comment>
+    <value>Merge Sample</value>
+    <comment>Demo subfolder name for Merge/Merge page</comment>
   </data>
   <data name="HomePage_DemoSubFolder_Split" xml:space="preserve">
-    <value>拆分示例</value>
-    <comment>拆分页示例子文件夹名</comment>
+    <value>Split Sample</value>
+    <comment>Demo subfolder name for Split page</comment>
   </data>
   <data name="HomePage_DemoSubFolder_Repair" xml:space="preserve">
-    <value>修复示例</value>
-    <comment>修复页示例子文件夹名</comment>
+    <value>Repair Sample</value>
+    <comment>Demo subfolder name for Repair page</comment>
   </data>
   <data name="SettingsPage_Merge_MetadataMatchingLabel.Text" xml:space="preserve">
-    <value>实况照片配对方式</value>
+    <value>Live Photo Matching</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatchingDesc.Text" xml:space="preserve">
-    <value>选择照片与视频的配对方式。标识符即 Apple ContentIdentifier (UUID)，零歧义精确配对；元数据通过拍摄日期、GPS 位置、相机型号和 iOS 版本辅助配对（需至少两个条件同时满足）</value>
+    <value>Choose how photos and videos are paired. Identifier = Apple ContentIdentifier (UUID) for exact matching; Metadata uses capture date, GPS location, device model, and iOS version (at least 2 criteria must match)</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_Filename.Content" xml:space="preserve">
-    <value>仅文件名</value>
+    <value>Filename Only</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_Metadata.Content" xml:space="preserve">
-    <value>仅元数据（极端情况）</value>
+    <value>Metadata Only (edge case)</value>
   </data>
   <data name="Nav_History.Content" xml:space="preserve">
-    <value>照片历史 (开发中)</value>
+    <value>Photo History (In Development)</value>
   </data>
   <data name="HistoryPage_Title.Text" xml:space="preserve">
-    <value>照片操作历史</value>
+    <value>Photo Operation History</value>
   </data>
   <data name="HistoryPage_Subtitle.Text" xml:space="preserve">
-    <value>查看 LivePhotoBox 处理过的照片操作记录</value>
+    <value>View operation records of photos processed by LivePhotoBox</value>
   </data>
   <data name="History_SelectFolder.Text" xml:space="preserve">
-    <value>选择文件夹</value>
+    <value>Select Folder</value>
   </data>
   <data name="History_NoFolderSelected.Text" xml:space="preserve">
-    <value>尚未选择文件夹</value>
+    <value>No folder selected</value>
   </data>
   <data name="History_ScanButton.Text" xml:space="preserve">
-    <value>开始扫描</value>
+    <value>Scan</value>
   </data>
   <data name="History_EmptyTitle.Text" xml:space="preserve">
-    <value>选择一个文件夹开始查看</value>
+    <value>Select a folder to get started</value>
   </data>
   <data name="History_EmptyDesc.Text" xml:space="preserve">
-    <value>选择一个包含照片的文件夹，扫描后将显示所有实况照片的处理记录</value>
+    <value>Choose a folder containing photos. After scanning, all live photo operation records will be displayed.</value>
   </data>
   <data name="History_NoEntries.Text" xml:space="preserve">
-    <value>暂无操作记录</value>
+    <value>No operation records</value>
   </data>
   <data name="History_EntryCount" xml:space="preserve">
-    <value>处理过 {0} 次</value>
+    <value>{0} operations</value>
   </data>
   <data name="History_Action_Merge" xml:space="preserve">
-    <value>合成</value>
+    <value>Merge</value>
   </data>
   <data name="History_Action_Split" xml:space="preserve">
-    <value>拆分</value>
+    <value>Split</value>
   </data>
   <data name="History_Action_Repair" xml:space="preserve">
-    <value>修复</value>
+    <value>Repair</value>
   </data>
   <data name="History_MergeDesc" xml:space="preserve">
-    <value>协议: {0}</value>
+    <value>Protocol: {0}</value>
   </data>
   <data name="History_FormatDesc" xml:space="preserve">
-    <value>输出 {0}</value>
+    <value>Output {0}</value>
   </data>
   <data name="History_FixDesc" xml:space="preserve">
-    <value>修复 {0}</value>
+    <value>Fix {0}</value>
   </data>
   <data name="History_Protocol_MotionPhotoV2" xml:space="preserve">
     <value>Motion Photo V2</value>
@@ -1980,408 +1982,407 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>OPPO Live Photo</value>
   </data>
   <data name="History_Summary_Generated" xml:space="preserve">
-    <value>处理过 {0} 次</value>
+    <value>{0} operations</value>
   </data>
   <data name="History_Summary_MergeOnly" xml:space="preserve">
-    <value>已合成</value>
+    <value>Merge created</value>
   </data>
   <data name="History_Summary_LivePhoto" xml:space="preserve">
-    <value>实况照片</value>
+    <value>Live Photo</value>
   </data>
   <data name="History_TotalLabel" xml:space="preserve">
-    <value>文件:</value>
+    <value>Files:</value>
   </data>
   <data name="History_LivePhotoLabel" xml:space="preserve">
-    <value>实况照片:</value>
+    <value>Live Photos:</value>
   </data>
   <data name="History_MarkedLabel" xml:space="preserve">
-    <value>已标记:</value>
+    <value>Marked:</value>
   </data>
   <data name="History_Scanning" xml:space="preserve">
-    <value>正在扫描...</value>
+    <value>Scanning...</value>
   </data>
   <data name="History_ScanProgress" xml:space="preserve">
-    <value>正在扫描 {0}/{1}</value>
+    <value>Scanning {0}/{1}</value>
   </data>
   <data name="History_ScanComplete" xml:space="preserve">
-    <value>找到 {0} 个文件（{1} 个实况照片，{2} 个带标记）</value>
+    <value>Found {0} files ({1} live photos, {2} with markers)</value>
   </data>
   <data name="History_NoImages" xml:space="preserve">
-    <value>文件夹中没有支持的图片文件</value>
+    <value>No supported image files in the folder</value>
   </data>
   <data name="History_NoLivePhotos" xml:space="preserve">
-    <value>未找到实况照片</value>
+    <value>No live photos found</value>
   </data>
   <data name="SettingsPage_Debug_PhotoHistoryHeader.Text" xml:space="preserve">
-    <value>照片历史页面</value>
+    <value>Photo History Page</value>
   </data>
   <data name="SettingsPage_Debug_PhotoHistoryDesc.Text" xml:space="preserve">
-    <value>在导航栏显示「照片历史」页面，用于查看 LivePhotoBox 处理过的照片操作记录</value>
+    <value>Show the Photo History page in the navigation bar to view operation records of photos processed by LivePhotoBox</value>
   </data>
   <data name="SettingsPage_Debug_OpenHistoryBtn.Text" xml:space="preserve">
-    <value>打开</value>
+    <value>Open</value>
   </data>
   <data name="SettingsPage_Debug_WriteHistoryHeader.Text" xml:space="preserve">
-    <value>写入照片操作记录</value>
+    <value>Write Photo Operation Records</value>
   </data>
   <data name="SettingsPage_Debug_WriteHistoryDesc.Text" xml:space="preserve">
-    <value>打开后会记录本软件对照片所做的合成、拆分、修复等操作历史（如修复旋转、缩略图等），可在照片历史页面中查看完整处理内容</value>
+    <value>When enabled, records all combo, split, and repair operations (e.g. rotation fix, thumbnail fix) performed by LivePhotoBox. View the complete timeline in the Photo History page</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_HeifLinkText.Text" xml:space="preserve">
-    <value>安装 HEIF 图像扩展</value>
+    <value>Install HEIF Image Extensions</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_HevcLinkText.Text" xml:space="preserve">
-    <value>安装 HEVC 视频扩展</value>
+    <value>Install HEVC Video Extensions</value>
   </data>
   <data name="MergePage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>前往设置查看高级选项</value>
+    <value>Go to Settings for advanced options</value>
   </data>
   <data name="SplitPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>前往设置查看高级选项</value>
+    <value>Go to Settings for advanced options</value>
   </data>
   <data name="RepairPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>前往设置查看高级选项</value>
+    <value>Go to Settings for advanced options</value>
   </data>
   <data name="SettingsPage_General_Header.Text" xml:space="preserve">
-    <value>通用</value>
+    <value>General</value>
   </data>
   <data name="SettingsPage_General_RecursiveScan.Text" xml:space="preserve">
-    <value>扫描子文件夹</value>
+    <value>Scan Subfolders</value>
   </data>
   <data name="SettingsPage_General_RecursiveScan_Desc.Text" xml:space="preserve">
-    <value>在执行扫描文件的时候，会同时扫描子文件夹中的文件</value>
+    <value>When scanning files, also scan files in subfolders</value>
   </data>
   <data name="SettingsPage_General_OutputPreserveSubfolder.Text" xml:space="preserve">
-    <value>输出目录按照子文件夹结构</value>
+    <value>Preserve subfolder structure in output</value>
   </data>
   <data name="SettingsPage_General_OutputPreserveSubfolder_Desc.Text" xml:space="preserve">
-    <value>开启后，输出的文件将保留原始子文件夹的层级结构，不会全部平铺到输出目录根下</value>
+    <value>When enabled, output files retain the original subfolder hierarchy instead of being flattened into the output root directory</value>
   </data>
   <data name="SettingsPage_CheckTools_Button_Text.Text" xml:space="preserve">
-    <value>检测外部工具</value>
+    <value>Check External Tools</value>
   </data>
   <data name="SettingsPage_CheckTools_Dialog_Title" xml:space="preserve">
-    <value>外部工具检测结果</value>
+    <value>External Tools Diagnostic</value>
   </data>
   <data name="SettingsPage_CheckTools_Available" xml:space="preserve">
-    <value>可用</value>
+    <value>Available</value>
   </data>
   <data name="SettingsPage_CheckTools_Unavailable" xml:space="preserve">
-    <value>不可用</value>
+    <value>Unavailable</value>
   </data>
   <data name="SettingsPage_CheckTools_Path" xml:space="preserve">
-    <value>路径</value>
+    <value>Path</value>
   </data>
   <data name="SettingsPage_CheckTools_Version" xml:space="preserve">
-    <value>版本</value>
+    <value>Version</value>
   </data>
   <data name="SettingsPage_CheckTools_Error" xml:space="preserve">
-    <value>错误</value>
+    <value>Error</value>
   </data>
   <data name="SettingsPage_CheckTools_Checking" xml:space="preserve">
-    <value>正在检测外部工具，请稍候…</value>
+    <value>Checking external tools, please wait…</value>
   </data>
   <data name="SettingsPage_CheckTools_NotFound" xml:space="preserve">
-    <value>未找到可执行文件</value>
+    <value>Executable not found</value>
   </data>
   <data name="SettingsPage_CheckTools_Timeout" xml:space="preserve">
-    <value>检测超时（5 秒）</value>
+    <value>Check timed out (5 seconds)</value>
   </data>
   <data name="SettingsPage_CheckTools_AllOk" xml:space="preserve">
-    <value>✅ 全部 {0} 个外部工具均可用</value>
+    <value>✅ All {0} external tools are available</value>
   </data>
   <data name="SettingsPage_CheckTools_SomeFailed" xml:space="preserve">
-    <value>⚠️ {0}/{1} 个工具可用，请检查下方详情</value>
+    <value>⚠️ {0}/{1} tools available, check details below</value>
   </data>
   <data name="SettingsPage_CheckUpdate_Button_Text.Text" xml:space="preserve">
-    <value>检查更新</value>
+    <value>Check for Updates</value>
   </data>
   <data name="Update_NewVersion_Title" xml:space="preserve">
-    <value>发现新版本！</value>
+    <value>New Version Available!</value>
   </data>
   <data name="Update_NewVersion_Message" xml:space="preserve">
-    <value>实况照片工具箱 {1} → {0}，要下载并安装更新吗？</value>
+    <value>Live Photo Box {1} → {0}. Download and install now?</value>
   </data>
   <data name="Update_Downloading_Title" xml:space="preserve">
-    <value>正在下载更新...</value>
+    <value>Downloading Update...</value>
   </data>
   <data name="Update_Downloading_Message" xml:space="preserve">
-    <value>正在从 GitHub 下载，请稍候...</value>
+    <value>Downloading from GitHub, please wait...</value>
   </data>
   <data name="Update_DownloadComplete_Title" xml:space="preserve">
-    <value>更新下载完成</value>
+    <value>Download Complete</value>
   </data>
   <data name="Update_DownloadComplete_Setup_Message" xml:space="preserve">
-    <value>安装程序即将启动，应用将自动关闭并完成安装。</value>
+    <value>The installer will now launch and the app will close to complete the installation.</value>
   </data>
   <data name="Update_DownloadComplete_Portable_Message" xml:space="preserve">
-    <value>更新脚本即将运行，应用将自动关闭并替换文件后重新启动。</value>
+    <value>The update script will replace files and restart the app automatically.</value>
   </data>
   <data name="Update_DownloadFailed_Title" xml:space="preserve">
-    <value>下载失败</value>
+    <value>Download Failed</value>
   </data>
   <data name="Update_DownloadFailed_Message" xml:space="preserve">
-    <value>无法下载更新：{0}</value>
+    <value>Unable to download update: {0}</value>
   </data>
   <data name="Update_NoNewVersion_Title" xml:space="preserve">
-    <value>已是最新版本</value>
+    <value>Up to Date</value>
   </data>
   <data name="Update_NoNewVersion_Message" xml:space="preserve">
-    <value>您正在使用最新版本 {0}</value>
+    <value>You are using the latest version {0}</value>
   </data>
   <data name="Update_CheckFailed_Title" xml:space="preserve">
-    <value>检查更新失败</value>
+    <value>Update Check Failed</value>
   </data>
   <data name="Update_CheckFailed_Message" xml:space="preserve">
-    <value>无法连接到 GitHub 服务器，请稍后再试。</value>
+    <value>Unable to reach GitHub servers. Please try again later.</value>
   </data>
   <data name="Update_NetworkError_Title" xml:space="preserve">
-    <value>网络连接失败</value>
+    <value>Network Error</value>
   </data>
   <data name="Update_NetworkError_Message" xml:space="preserve">
-    <value>无法连接互联网，请检查网络连接后重试。</value>
+    <value>No internet connection detected. Please check your network and try again.</value>
   </data>
   <data name="Update_Btn_DownloadInstall" xml:space="preserve">
-    <value>下载并安装</value>
+    <value>Download &amp; Install</value>
   </data>
   <data name="Update_Btn_SkipVersion" xml:space="preserve">
-    <value>忽略此版本</value>
+    <value>Skip This Version</value>
   </data>
   <data name="Update_Btn_Later" xml:space="preserve">
-    <value>下次再说</value>
+    <value>Remind Me Later</value>
   </data>
   <data name="Update_Btn_RestartNow" xml:space="preserve">
-    <value>立即重启并更新</value>
+    <value>Restart &amp;&amp; Update</value>
   </data>
   <data name="Update_Btn_UpdateOnClose" xml:space="preserve">
-    <value>关闭时更新</value>
+    <value>Update on Close</value>
   </data>
   <data name="Update_Btn_Close" xml:space="preserve">
-    <value>关闭</value>
+    <value>Close</value>
   </data>
   <data name="Update_Btn_ManualDownload" xml:space="preserve">
-    <value>手动下载</value>
+    <value>Go to GitHub Releases</value>
   </data>
   <data name="Update_ReleaseNotes" xml:space="preserve">
-    <value>📋 更新日志</value>
+    <value>📋 Release Notes</value>
   </data>
   <data name="Update_DiskSpace_Insufficient" xml:space="preserve">
-    <value>磁盘空间不足，无法下载更新。请清理磁盘后重试。</value>
+    <value>Insufficient disk space to download the update. Please free up space and try again.</value>
   </data>
   <data name="Update_NoAssetAvailable" xml:space="preserve">
-    <value>未找到适用于当前安装类型的更新包，请前往 GitHub 手动下载。</value>
+    <value>No update package found for your installation type. Please visit GitHub to download manually.</value>
   </data>
   <data name="Update_PackagedMode_Disabled" xml:space="preserve">
-    <value>您当前使用的是 MSIX 打包版本，由 Windows 应用商店提供自动更新。如需使用内置更新功能，请前往 GitHub 下载便携版或安装版。</value>
+    <value>You are running the MSIX packaged version. The Microsoft Store provides automatic updates. To use built-in updates, please visit GitHub to download the portable or installer version.</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_FilenameAndCid.Content" xml:space="preserve">
-    <value>文件名 + 标识符</value>
+    <value>Filename + Identifier</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_FilenameCidAndMetadata.Content" xml:space="preserve">
-    <value>文件名 + 标识符 + 元数据</value>
+    <value>Filename + Identifier + Metadata</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_Cid.Content" xml:space="preserve">
-    <value>仅标识符</value>
+    <value>Identifier Only</value>
   </data>
   <data name="SettingsPage_Debug_GitHubTokenHeader.Text" xml:space="preserve">
     <value>GitHub API Token</value>
   </data>
   <data name="SettingsPage_Debug_GitHubTokenDesc.Text" xml:space="preserve">
-    <value>仅用于更新测试用；绕过未认证 API 限流（60次/小时 → 5000次/小时），Token 仅本地存储。打开页面后无需勾选任何权限，直接点底部「Generate token」生成即可</value>
+    <value>For update testing only. Bypass unauthenticated API rate limits (60 req/h → 5000 req/h). Token stored locally, never uploaded. No scopes needed — just click "Generate token" at the bottom of the page.</value>
   </data>
   <data name="SettingsPage_Debug_GitHubTokenGuideLink.Text" xml:space="preserve">
-    <value>前往生成 GitHub Token</value>
+    <value>Open token page</value>
   </data>
   <data name="SettingsPage_Debug_GitHubTokenBox_Placeholder" xml:space="preserve">
-    <value>输入 GitHub Token（ghp_...）</value>
+    <value>Enter GitHub Token (ghp_...)</value>
   </data>
   <data name="SettingsPage_Debug_GitHubTokenSaveBtn.Content" xml:space="preserve">
-    <value>保存</value>
+    <value>Save</value>
   </data>
   <data name="SettingsPage_Debug_GitHubTokenNotSet" xml:space="preserve">
-    <value>未设置（使用未认证 API，60 次/小时）</value>
+    <value>Not set (unauthenticated API, 60 req/h)</value>
   </data>
   <data name="SettingsPage_Debug_GitHubTokenSet" xml:space="preserve">
-    <value>已设置：{0}（5000 次/小时）</value>
+    <value>Set: {0} (5000 req/h)</value>
   </data>
   <data name="SettingsPage_Debug_GitHubTokenClearBtn.Content" xml:space="preserve">
-    <value>清除 Token</value>
+    <value>Clear Token</value>
   </data>
   <data name="SettingsPage_Debug_GitHubTokenEmpty" xml:space="preserve">
-    <value>Token 不能为空</value>
+    <value>Token cannot be empty</value>
   </data>
   <data name="SettingsPage_Debug_GitHubTokenInvalidFormat" xml:space="preserve">
-    <value>Token 格式不正确</value>
+    <value>Invalid token format</value>
   </data>
   <data name="Btn_ViewOptionsAndRepair" xml:space="preserve">
-    <value>查看选项并修复</value>
+    <value>View Options &amp; Repair</value>
   </data>
   <data name="Msg_Warning" xml:space="preserve">
-    <value>提示</value>
+    <value>Warning</value>
   </data>
   <data name="RepairOptions_Title" xml:space="preserve">
-    <value>选择修复内容</value>
+    <value>Repair Options</value>
   </data>
   <data name="RepairOptions_ImageSection" xml:space="preserve">
-    <value>图片修复</value>
+    <value>Image Repair</value>
   </data>
   <data name="RepairOptions_FixImageRotation" xml:space="preserve">
-    <value>旋转修正</value>
+    <value>Rotation Fix</value>
   </data>
   <data name="RepairOptions_StripImageThumbnail" xml:space="preserve">
-    <value>缩略图剥离</value>
+    <value>Strip Thumbnail</value>
   </data>
   <data name="RepairOptions_FixHeicOrientation" xml:space="preserve">
-    <value>HEIC/HEIF 方向修正</value>
+    <value>HEIC/HEIF Orientation Fix</value>
   </data>
   <data name="RepairOptions_VideoSection" xml:space="preserve">
-    <value>视频修复</value>
+    <value>Video Repair</value>
   </data>
   <data name="RepairOptions_FixVideoRotation" xml:space="preserve">
-    <value>去除旋转标签</value>
+    <value>Remove Rotation Tag</value>
   </data>
   <data name="RepairOptions_NoneSelected" xml:space="preserve">
-    <value>请至少勾选一项修复内容</value>
+    <value>Please select at least one repair option</value>
   </data>
   <data name="RepairOptions_CountFormat" xml:space="preserve">
-    <value>（{0}项）</value>
+    <value> ({0})</value>
   </data>
-  <data name="KeyPhotoPage_Back.Label" xml:space="preserve">
-    <value>返回</value>
+
+  <!-- ================================================================ -->
+  <!-- KeyPhotoPage — Change Live Photo Cover Page                       -->
+  <!-- ================================================================ -->
+
+  <!-- CommandBar -->
+  <data name="KeyPhotoPage_AddFile.Label" xml:space="preserve">
+    <value>Add File</value>
   </data>
-  <data name="KeyPhotoPage_Undo.Label" xml:space="preserve">
-    <value>撤销</value>
+  <data name="KeyPhotoPage_AddFolder.Label" xml:space="preserve">
+    <value>Add Folder</value>
   </data>
-  <data name="KeyPhotoPage_Redo.Label" xml:space="preserve">
-    <value>重做</value>
+  <data name="KeyPhotoPage_StartConvert.Label" xml:space="preserve">
+    <value>Start</value>
   </data>
-  <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
-    <value>恢复</value>
+  <data name="KeyPhotoPage_Pause.Label" xml:space="preserve">
+    <value>Pause</value>
   </data>
-  <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
-    <value>保存</value>
+  <data name="KeyPhotoPage_Stop.Label" xml:space="preserve">
+    <value>Stop</value>
   </data>
-  <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
-    <value>另存为</value>
+  <data name="KeyPhotoPage_ClearQueue.Label" xml:space="preserve">
+    <value>Clear Queue</value>
   </data>
-  <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
-    <value>导出</value>
+
+  <!-- Input Directory Card -->
+  <data name="KeyPhotoPage_InputDirTitle.Text" xml:space="preserve">
+    <value>📂 Input Directory</value>
   </data>
-  <data name="KeyPhotoPage_More.Label" xml:space="preserve">
-    <value>更多</value>
+  <data name="KeyPhotoPage_InputDirBox.PlaceholderText" xml:space="preserve">
+    <value>Select or enter the folder containing live photos...</value>
   </data>
-  <data name="KeyPhotoPage_CurrentDirBox.PlaceholderText" xml:space="preserve">
-    <value>当前目录...</value>
+  <data name="KeyPhotoPage_BrowseInputBtn.Content" xml:space="preserve">
+    <value>Browse...</value>
   </data>
-  <data name="KeyPhotoPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>浏览文件夹</value>
+  <data name="KeyPhotoPage_OpenInputBtn.Content" xml:space="preserve">
+    <value>Open Folder</value>
   </data>
-  <data name="KeyPhotoPage_SearchBox.PlaceholderText" xml:space="preserve">
-    <value>搜索文件...</value>
+
+  <!-- Output Directory Card -->
+  <data name="KeyPhotoPage_OutputDirTitle.Text" xml:space="preserve">
+    <value>📁 Output Directory</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Name.Content" xml:space="preserve">
-    <value>名称</value>
+  <data name="KeyPhotoPage_OutputDirBox.PlaceholderText" xml:space="preserve">
+    <value>Select or enter where to save converted files...</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Date.Content" xml:space="preserve">
-    <value>日期</value>
+  <data name="KeyPhotoPage_BrowseOutputBtn.Content" xml:space="preserve">
+    <value>Browse...</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Size.Content" xml:space="preserve">
-    <value>大小</value>
+  <data name="KeyPhotoPage_OpenOutputBtn.Content" xml:space="preserve">
+    <value>Open Folder</value>
   </data>
-  <data name="KeyPhotoPage_ViewModeToggle.ToolTipService.ToolTip" xml:space="preserve">
-    <value>切换显示模式</value>
-  </data>
-  <data name="KeyPhotoPage_SortDirectionBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>排序方向</value>
-  </data>
-  <data name="KeyPhotoPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>缩小</value>
-  </data>
-  <data name="KeyPhotoPage_ZoomResetBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>100%</value>
-  </data>
-  <data name="KeyPhotoPage_ZoomInBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>放大</value>
-  </data>
-  <data name="KeyPhotoPage_FitWindowBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>适应窗口</value>
-  </data>
-  <data name="KeyPhotoPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>1:1</value>
-  </data>
-  <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
-    <value>Live Photo 时间轴</value>
-  </data>
-  <data name="KeyPhotoPage_TimelinePlaceholder.Text" xml:space="preserve">
-    <value>（后续版本实现）</value>
-  </data>
-  <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
-    <value>当前照片信息</value>
-  </data>
-  <data name="KeyPhotoPage_LivePhotoInfoTitle.Text" xml:space="preserve">
-    <value>Live Photo 信息</value>
-  </data>
-  <data name="KeyPhotoPage_ExifInfoTitle.Text" xml:space="preserve">
-    <value>EXIF 信息</value>
-  </data>
-  <data name="KeyPhotoPage_FileNameLabel.Text" xml:space="preserve">
-    <value>文件名：</value>
-  </data>
-  <data name="KeyPhotoPage_FilePathLabel.Text" xml:space="preserve">
-    <value>路径：</value>
-  </data>
-  <data name="KeyPhotoPage_FileSizeLabel.Text" xml:space="preserve">
-    <value>大小：</value>
-  </data>
-  <data name="KeyPhotoPage_ResolutionLabel.Text" xml:space="preserve">
-    <value>分辨率：</value>
-  </data>
-  <data name="KeyPhotoPage_PhotoFormatLabel.Text" xml:space="preserve">
-    <value>格式：</value>
+
+  <!-- Convert Settings Card -->
+  <data name="KeyPhotoPage_SettingsTitle.Text" xml:space="preserve">
+    <value>⚙ Convert Settings</value>
   </data>
   <data name="KeyPhotoPage_ProtocolLabel.Text" xml:space="preserve">
-    <value>协议：</value>
+    <value>Protocol:</value>
   </data>
-  <data name="KeyPhotoPage_VideoDurationLabel.Text" xml:space="preserve">
-    <value>视频时长：</value>
+  <data name="KeyPhotoPage_Protocol_V1.Content" xml:space="preserve">
+    <value>MicroVideo V1</value>
   </data>
-  <data name="KeyPhotoPage_VideoCodecLabel.Text" xml:space="preserve">
-    <value>编码格式：</value>
+  <data name="KeyPhotoPage_Protocol_V2.Content" xml:space="preserve">
+    <value>MotionPhoto V2</value>
   </data>
-  <data name="KeyPhotoPage_VideoResolutionLabel.Text" xml:space="preserve">
-    <value>视频分辨率：</value>
+  <data name="KeyPhotoPage_Protocol_Oppo.Content" xml:space="preserve">
+    <value>OPPO Live Photo</value>
   </data>
-  <data name="KeyPhotoPage_VideoFpsLabel.Text" xml:space="preserve">
-    <value>帧率：</value>
+  <data name="KeyPhotoPage_FormatLabel.Text" xml:space="preserve">
+    <value>Output Format:</value>
   </data>
-  <data name="KeyPhotoPage_CameraModelLabel.Text" xml:space="preserve">
-    <value>相机型号：</value>
+  <data name="KeyPhotoPage_Format_HEIC.Content" xml:space="preserve">
+    <value>HEIC</value>
   </data>
-  <data name="KeyPhotoPage_LensModelLabel.Text" xml:space="preserve">
-    <value>镜头：</value>
+  <data name="KeyPhotoPage_Format_JPEG.Content" xml:space="preserve">
+    <value>JPEG</value>
   </data>
-  <data name="KeyPhotoPage_FocalLengthLabel.Text" xml:space="preserve">
-    <value>焦距：</value>
+  <data name="KeyPhotoPage_NamingLabel.Text" xml:space="preserve">
+    <value>Naming:</value>
   </data>
-  <data name="KeyPhotoPage_ApertureLabel.Text" xml:space="preserve">
-    <value>光圈：</value>
+  <data name="KeyPhotoPage_Naming_Original.Content" xml:space="preserve">
+    <value>Keep Original</value>
   </data>
-  <data name="KeyPhotoPage_ShutterSpeedLabel.Text" xml:space="preserve">
-    <value>快门：</value>
+  <data name="KeyPhotoPage_Naming_Suffix.Content" xml:space="preserve">
+    <value>Add _modified suffix</value>
   </data>
-  <data name="KeyPhotoPage_IsoLabel.Text" xml:space="preserve">
-    <value>ISO：</value>
+  <data name="KeyPhotoPage_KeepOriginal.Header" xml:space="preserve">
+    <value>Keep Original File</value>
   </data>
-  <data name="KeyPhotoPage_DateTakenLabel.Text" xml:space="preserve">
-    <value>拍摄日期：</value>
+  <data name="KeyPhotoPage_AutoOverwrite.Header" xml:space="preserve">
+    <value>Auto Overwrite</value>
   </data>
-  <data name="KeyPhotoPage_MapPlaceholder.Text" xml:space="preserve">
-    <value>地图（后续实现）</value>
+  <data name="KeyPhotoPage_OpenOnComplete.Header" xml:space="preserve">
+    <value>Open Directory on Complete</value>
   </data>
-  <data name="KeyPhotoPage_ViewFullProps.Label" xml:space="preserve">
-    <value>完整属性</value>
+
+  <!-- Statistics Card -->
+  <data name="KeyPhotoPage_StatsTitle.Text" xml:space="preserve">
+    <value>📊 Statistics</value>
   </data>
-  <data name="KeyPhotoPage_ViewFullPropsText.Text" xml:space="preserve">
-    <value>查看完整属性</value>
+  <data name="KeyPhotoPage_TotalFiles.Text" xml:space="preserve">
+    <value>Total:</value>
   </data>
+  <data name="KeyPhotoPage_Waiting.Text" xml:space="preserve">
+    <value>Waiting:</value>
+  </data>
+  <data name="KeyPhotoPage_Processing.Text" xml:space="preserve">
+    <value>Processing:</value>
+  </data>
+  <data name="KeyPhotoPage_Success.Text" xml:space="preserve">
+    <value>Succeeded:</value>
+  </data>
+  <data name="KeyPhotoPage_Failed.Text" xml:space="preserve">
+    <value>Failed:</value>
+  </data>
+
+  <!-- Task Queue -->
+  <data name="KeyPhotoPage_QueueTitle.Text" xml:space="preserve">
+    <value>Task Queue</value>
+  </data>
+  <data name="KeyPhotoPage_SearchBox.PlaceholderText" xml:space="preserve">
+    <value>Search files...</value>
+  </data>
+  <data name="KeyPhotoPage_SortBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Sort</value>
+  </data>
+  <data name="KeyPhotoPage_FilterBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Filter</value>
+  </data>
+  <data name="KeyPhotoPage_EmptyTitle.Text" xml:space="preserve">
+    <value>Drag photos here</value>
+  </data>
+  <data name="KeyPhotoPage_EmptyDesc.Text" xml:space="preserve">
+    <value>Or click "Add File" above to get started</value>
+  </data>
+
 </root>

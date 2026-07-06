@@ -703,7 +703,7 @@
     <value>您可以点击 </value>
   </data>
   <data name="SplitPage_EmptyQueueHint_Part2.Text" xml:space="preserve">
-    <value> 查看详细教程</value>
+    <value> 查看详细教程，或点击 </value>
   </data>
   <data name="SplitPage_EmptyQueueHint_Part3.Text" xml:space="preserve">
     <value> 进入高级设置。</value>
@@ -2246,142 +2246,141 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="RepairOptions_CountFormat" xml:space="preserve">
     <value>（{0}项）</value>
   </data>
-  <data name="KeyPhotoPage_Back.Label" xml:space="preserve">
-    <value>返回</value>
+
+  <!-- ================================================================ -->
+  <!-- KeyPhotoPage — 实况照片主图更换页面                                  -->
+  <!-- ================================================================ -->
+
+  <!-- CommandBar -->
+  <data name="KeyPhotoPage_AddFile.Label" xml:space="preserve">
+    <value>添加文件</value>
   </data>
-  <data name="KeyPhotoPage_Undo.Label" xml:space="preserve">
-    <value>撤销</value>
+  <data name="KeyPhotoPage_AddFolder.Label" xml:space="preserve">
+    <value>添加文件夹</value>
   </data>
-  <data name="KeyPhotoPage_Redo.Label" xml:space="preserve">
-    <value>重做</value>
+  <data name="KeyPhotoPage_StartConvert.Label" xml:space="preserve">
+    <value>开始转换</value>
   </data>
-  <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
-    <value>恢复</value>
+  <data name="KeyPhotoPage_Pause.Label" xml:space="preserve">
+    <value>暂停</value>
   </data>
-  <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
-    <value>保存</value>
+  <data name="KeyPhotoPage_Stop.Label" xml:space="preserve">
+    <value>停止</value>
   </data>
-  <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
-    <value>另存为</value>
+  <data name="KeyPhotoPage_ClearQueue.Label" xml:space="preserve">
+    <value>清空队列</value>
   </data>
-  <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
-    <value>导出</value>
+
+  <!-- 输入目录 Card -->
+  <data name="KeyPhotoPage_InputDirTitle.Text" xml:space="preserve">
+    <value>📂 输入目录</value>
   </data>
-  <data name="KeyPhotoPage_More.Label" xml:space="preserve">
-    <value>更多</value>
+  <data name="KeyPhotoPage_InputDirBox.PlaceholderText" xml:space="preserve">
+    <value>选择或输入实况照片所在文件夹路径...</value>
   </data>
-  <data name="KeyPhotoPage_CurrentDirBox.PlaceholderText" xml:space="preserve">
-    <value>当前目录...</value>
+  <data name="KeyPhotoPage_BrowseInputBtn.Content" xml:space="preserve">
+    <value>浏览...</value>
   </data>
-  <data name="KeyPhotoPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>浏览文件夹</value>
+  <data name="KeyPhotoPage_OpenInputBtn.Content" xml:space="preserve">
+    <value>打开目录</value>
+  </data>
+
+  <!-- 输出目录 Card -->
+  <data name="KeyPhotoPage_OutputDirTitle.Text" xml:space="preserve">
+    <value>📁 输出目录</value>
+  </data>
+  <data name="KeyPhotoPage_OutputDirBox.PlaceholderText" xml:space="preserve">
+    <value>选择或输入转换结果保存位置...</value>
+  </data>
+  <data name="KeyPhotoPage_BrowseOutputBtn.Content" xml:space="preserve">
+    <value>浏览...</value>
+  </data>
+  <data name="KeyPhotoPage_OpenOutputBtn.Content" xml:space="preserve">
+    <value>打开目录</value>
+  </data>
+
+  <!-- 转换设置 Card -->
+  <data name="KeyPhotoPage_SettingsTitle.Text" xml:space="preserve">
+    <value>⚙ 转换设置</value>
+  </data>
+  <data name="KeyPhotoPage_ProtocolLabel.Text" xml:space="preserve">
+    <value>转换协议：</value>
+  </data>
+  <data name="KeyPhotoPage_Protocol_V1.Content" xml:space="preserve">
+    <value>MicroVideo V1</value>
+  </data>
+  <data name="KeyPhotoPage_Protocol_V2.Content" xml:space="preserve">
+    <value>MotionPhoto V2</value>
+  </data>
+  <data name="KeyPhotoPage_Protocol_Oppo.Content" xml:space="preserve">
+    <value>OPPO Live Photo</value>
+  </data>
+  <data name="KeyPhotoPage_FormatLabel.Text" xml:space="preserve">
+    <value>输出格式：</value>
+  </data>
+  <data name="KeyPhotoPage_Format_HEIC.Content" xml:space="preserve">
+    <value>HEIC</value>
+  </data>
+  <data name="KeyPhotoPage_Format_JPEG.Content" xml:space="preserve">
+    <value>JPEG</value>
+  </data>
+  <data name="KeyPhotoPage_NamingLabel.Text" xml:space="preserve">
+    <value>命名规则：</value>
+  </data>
+  <data name="KeyPhotoPage_Naming_Original.Content" xml:space="preserve">
+    <value>保持原名</value>
+  </data>
+  <data name="KeyPhotoPage_Naming_Suffix.Content" xml:space="preserve">
+    <value>添加 _modified 后缀</value>
+  </data>
+  <data name="KeyPhotoPage_KeepOriginal.Header" xml:space="preserve">
+    <value>保留原文件</value>
+  </data>
+  <data name="KeyPhotoPage_AutoOverwrite.Header" xml:space="preserve">
+    <value>自动覆盖</value>
+  </data>
+  <data name="KeyPhotoPage_OpenOnComplete.Header" xml:space="preserve">
+    <value>转换完成后打开目录</value>
+  </data>
+
+  <!-- 统计信息 Card -->
+  <data name="KeyPhotoPage_StatsTitle.Text" xml:space="preserve">
+    <value>📊 当前统计</value>
+  </data>
+  <data name="KeyPhotoPage_TotalFiles.Text" xml:space="preserve">
+    <value>总文件：</value>
+  </data>
+  <data name="KeyPhotoPage_Waiting.Text" xml:space="preserve">
+    <value>等待：</value>
+  </data>
+  <data name="KeyPhotoPage_Processing.Text" xml:space="preserve">
+    <value>处理中：</value>
+  </data>
+  <data name="KeyPhotoPage_Success.Text" xml:space="preserve">
+    <value>成功：</value>
+  </data>
+  <data name="KeyPhotoPage_Failed.Text" xml:space="preserve">
+    <value>失败：</value>
+  </data>
+
+  <!-- 任务队列 -->
+  <data name="KeyPhotoPage_QueueTitle.Text" xml:space="preserve">
+    <value>任务队列</value>
   </data>
   <data name="KeyPhotoPage_SearchBox.PlaceholderText" xml:space="preserve">
     <value>搜索文件...</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Name.Content" xml:space="preserve">
-    <value>名称</value>
+  <data name="KeyPhotoPage_SortBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>排序</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Date.Content" xml:space="preserve">
-    <value>日期</value>
+  <data name="KeyPhotoPage_FilterBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>筛选</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Size.Content" xml:space="preserve">
-    <value>大小</value>
+  <data name="KeyPhotoPage_EmptyTitle.Text" xml:space="preserve">
+    <value>拖拽文件到这里</value>
   </data>
-  <data name="KeyPhotoPage_ViewModeToggle.ToolTipService.ToolTip" xml:space="preserve">
-    <value>切换显示模式</value>
+  <data name="KeyPhotoPage_EmptyDesc.Text" xml:space="preserve">
+    <value>或者点击上方「添加文件」开始转换</value>
   </data>
-  <data name="KeyPhotoPage_SortDirectionBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>排序方向</value>
-  </data>
-  <data name="KeyPhotoPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>缩小</value>
-  </data>
-  <data name="KeyPhotoPage_ZoomResetBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>100%</value>
-  </data>
-  <data name="KeyPhotoPage_ZoomInBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>放大</value>
-  </data>
-  <data name="KeyPhotoPage_FitWindowBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>适应窗口</value>
-  </data>
-  <data name="KeyPhotoPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>1:1</value>
-  </data>
-  <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
-    <value>Live Photo 时间轴</value>
-  </data>
-  <data name="KeyPhotoPage_TimelinePlaceholder.Text" xml:space="preserve">
-    <value>（后续版本实现）</value>
-  </data>
-  <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
-    <value>当前照片信息</value>
-  </data>
-  <data name="KeyPhotoPage_LivePhotoInfoTitle.Text" xml:space="preserve">
-    <value>Live Photo 信息</value>
-  </data>
-  <data name="KeyPhotoPage_ExifInfoTitle.Text" xml:space="preserve">
-    <value>EXIF 信息</value>
-  </data>
-  <data name="KeyPhotoPage_FileNameLabel.Text" xml:space="preserve">
-    <value>文件名：</value>
-  </data>
-  <data name="KeyPhotoPage_FilePathLabel.Text" xml:space="preserve">
-    <value>路径：</value>
-  </data>
-  <data name="KeyPhotoPage_FileSizeLabel.Text" xml:space="preserve">
-    <value>大小：</value>
-  </data>
-  <data name="KeyPhotoPage_ResolutionLabel.Text" xml:space="preserve">
-    <value>分辨率：</value>
-  </data>
-  <data name="KeyPhotoPage_PhotoFormatLabel.Text" xml:space="preserve">
-    <value>格式：</value>
-  </data>
-  <data name="KeyPhotoPage_ProtocolLabel.Text" xml:space="preserve">
-    <value>协议：</value>
-  </data>
-  <data name="KeyPhotoPage_VideoDurationLabel.Text" xml:space="preserve">
-    <value>视频时长：</value>
-  </data>
-  <data name="KeyPhotoPage_VideoCodecLabel.Text" xml:space="preserve">
-    <value>编码格式：</value>
-  </data>
-  <data name="KeyPhotoPage_VideoResolutionLabel.Text" xml:space="preserve">
-    <value>视频分辨率：</value>
-  </data>
-  <data name="KeyPhotoPage_VideoFpsLabel.Text" xml:space="preserve">
-    <value>帧率：</value>
-  </data>
-  <data name="KeyPhotoPage_CameraModelLabel.Text" xml:space="preserve">
-    <value>相机型号：</value>
-  </data>
-  <data name="KeyPhotoPage_LensModelLabel.Text" xml:space="preserve">
-    <value>镜头：</value>
-  </data>
-  <data name="KeyPhotoPage_FocalLengthLabel.Text" xml:space="preserve">
-    <value>焦距：</value>
-  </data>
-  <data name="KeyPhotoPage_ApertureLabel.Text" xml:space="preserve">
-    <value>光圈：</value>
-  </data>
-  <data name="KeyPhotoPage_ShutterSpeedLabel.Text" xml:space="preserve">
-    <value>快门：</value>
-  </data>
-  <data name="KeyPhotoPage_IsoLabel.Text" xml:space="preserve">
-    <value>ISO：</value>
-  </data>
-  <data name="KeyPhotoPage_DateTakenLabel.Text" xml:space="preserve">
-    <value>拍摄日期：</value>
-  </data>
-  <data name="KeyPhotoPage_MapPlaceholder.Text" xml:space="preserve">
-    <value>地图（后续实现）</value>
-  </data>
-  <data name="KeyPhotoPage_ViewFullProps.Label" xml:space="preserve">
-    <value>完整属性</value>
-  </data>
-  <data name="KeyPhotoPage_ViewFullPropsText.Text" xml:space="preserve">
-    <value>查看完整属性</value>
-  </data>
+
 </root>

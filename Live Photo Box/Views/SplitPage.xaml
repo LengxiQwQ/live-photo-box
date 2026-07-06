@@ -251,12 +251,6 @@
                             <TextBlock x:Uid="SplitPage_EmptyQueueHint_Part2" FontSize="12"
                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                        VerticalAlignment="Center"/>
-                            <FontIcon Glyph="&#xE90F;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                      VerticalAlignment="Center" Margin="5,0,2,0"/>
-                            <TextBlock x:Uid="SplitPage_EmptyQueueHint_Part3" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                       VerticalAlignment="Center"/>
                         </StackPanel>
                     </StackPanel>
 

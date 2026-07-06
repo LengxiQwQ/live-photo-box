@@ -704,7 +704,7 @@ Do you want to restart now?</value>
     <value>Click </value>
   </data>
   <data name="SplitPage_EmptyQueueHint_Part2.Text" xml:space="preserve">
-    <value> for tutorials, or click </value>
+    <value> for tutorials</value>
   </data>
   <data name="SplitPage_EmptyQueueHint_Part3.Text" xml:space="preserve">
     <value> for advanced settings.</value>
@@ -1784,7 +1784,7 @@ Place any of these files into the same folder.</value>
     <value>Skipped (non-Apple)</value>
   </data>
   <data name="RepairPage_Task_SkippedDuration" xml:space="preserve">
-    <value>Skipped (duration > 3.5s)</value>
+    <value>Skipped (duration &gt; 3.5s)</value>
   </data>
   <data name="RepairPage_Task_SkippedNonLivePhoto" xml:space="preserve">
     <value>Skipped (non-live-photo)</value>
@@ -2247,5 +2247,143 @@ Are you sure you want to switch?</value>
   </data>
   <data name="RepairOptions_CountFormat" xml:space="preserve">
     <value> ({0})</value>
+  </data>
+  <data name="KeyPhotoPage_Back.Label" xml:space="preserve">
+    <value>Back</value>
+  </data>
+  <data name="KeyPhotoPage_Undo.Label" xml:space="preserve">
+    <value>Undo</value>
+  </data>
+  <data name="KeyPhotoPage_Redo.Label" xml:space="preserve">
+    <value>Redo</value>
+  </data>
+  <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
+    <value>Restore</value>
+  </data>
+  <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
+    <value>Save</value>
+  </data>
+  <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
+    <value>Save As</value>
+  </data>
+  <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
+    <value>Export</value>
+  </data>
+  <data name="KeyPhotoPage_More.Label" xml:space="preserve">
+    <value>More</value>
+  </data>
+  <data name="KeyPhotoPage_CurrentDirBox.PlaceholderText" xml:space="preserve">
+    <value>Current directory...</value>
+  </data>
+  <data name="KeyPhotoPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Browse folder</value>
+  </data>
+  <data name="KeyPhotoPage_SearchBox.PlaceholderText" xml:space="preserve">
+    <value>Search files...</value>
+  </data>
+  <data name="KeyPhotoPage_Sort_Name.Content" xml:space="preserve">
+    <value>Name</value>
+  </data>
+  <data name="KeyPhotoPage_Sort_Date.Content" xml:space="preserve">
+    <value>Date</value>
+  </data>
+  <data name="KeyPhotoPage_Sort_Size.Content" xml:space="preserve">
+    <value>Size</value>
+  </data>
+  <data name="KeyPhotoPage_ViewModeToggle.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Toggle view mode</value>
+  </data>
+  <data name="KeyPhotoPage_SortDirectionBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Sort direction</value>
+  </data>
+  <data name="KeyPhotoPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Zoom out</value>
+  </data>
+  <data name="KeyPhotoPage_ZoomResetBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>100%</value>
+  </data>
+  <data name="KeyPhotoPage_ZoomInBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Zoom in</value>
+  </data>
+  <data name="KeyPhotoPage_FitWindowBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Fit to window</value>
+  </data>
+  <data name="KeyPhotoPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>1:1</value>
+  </data>
+  <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
+    <value>Live Photo Timeline</value>
+  </data>
+  <data name="KeyPhotoPage_TimelinePlaceholder.Text" xml:space="preserve">
+    <value>(Coming in a future update)</value>
+  </data>
+  <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
+    <value>Photo Info</value>
+  </data>
+  <data name="KeyPhotoPage_LivePhotoInfoTitle.Text" xml:space="preserve">
+    <value>Live Photo Info</value>
+  </data>
+  <data name="KeyPhotoPage_ExifInfoTitle.Text" xml:space="preserve">
+    <value>EXIF Info</value>
+  </data>
+  <data name="KeyPhotoPage_FileNameLabel.Text" xml:space="preserve">
+    <value>Filename: </value>
+  </data>
+  <data name="KeyPhotoPage_FilePathLabel.Text" xml:space="preserve">
+    <value>Path: </value>
+  </data>
+  <data name="KeyPhotoPage_FileSizeLabel.Text" xml:space="preserve">
+    <value>Size: </value>
+  </data>
+  <data name="KeyPhotoPage_ResolutionLabel.Text" xml:space="preserve">
+    <value>Resolution: </value>
+  </data>
+  <data name="KeyPhotoPage_PhotoFormatLabel.Text" xml:space="preserve">
+    <value>Format: </value>
+  </data>
+  <data name="KeyPhotoPage_ProtocolLabel.Text" xml:space="preserve">
+    <value>Protocol: </value>
+  </data>
+  <data name="KeyPhotoPage_VideoDurationLabel.Text" xml:space="preserve">
+    <value>Video duration: </value>
+  </data>
+  <data name="KeyPhotoPage_VideoCodecLabel.Text" xml:space="preserve">
+    <value>Codec: </value>
+  </data>
+  <data name="KeyPhotoPage_VideoResolutionLabel.Text" xml:space="preserve">
+    <value>Video resolution: </value>
+  </data>
+  <data name="KeyPhotoPage_VideoFpsLabel.Text" xml:space="preserve">
+    <value>Frame rate: </value>
+  </data>
+  <data name="KeyPhotoPage_CameraModelLabel.Text" xml:space="preserve">
+    <value>Camera: </value>
+  </data>
+  <data name="KeyPhotoPage_LensModelLabel.Text" xml:space="preserve">
+    <value>Lens: </value>
+  </data>
+  <data name="KeyPhotoPage_FocalLengthLabel.Text" xml:space="preserve">
+    <value>Focal length: </value>
+  </data>
+  <data name="KeyPhotoPage_ApertureLabel.Text" xml:space="preserve">
+    <value>Aperture: </value>
+  </data>
+  <data name="KeyPhotoPage_ShutterSpeedLabel.Text" xml:space="preserve">
+    <value>Shutter: </value>
+  </data>
+  <data name="KeyPhotoPage_IsoLabel.Text" xml:space="preserve">
+    <value>ISO: </value>
+  </data>
+  <data name="KeyPhotoPage_DateTakenLabel.Text" xml:space="preserve">
+    <value>Date taken: </value>
+  </data>
+  <data name="KeyPhotoPage_MapPlaceholder.Text" xml:space="preserve">
+    <value>Map (coming soon)</value>
+  </data>
+  <data name="KeyPhotoPage_ViewFullProps.Label" xml:space="preserve">
+    <value>Properties</value>
+  </data>
+  <data name="KeyPhotoPage_ViewFullPropsText.Text" xml:space="preserve">
+    <value>View Full Properties</value>
   </data>
 </root>
