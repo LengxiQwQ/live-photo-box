@@ -33,6 +33,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ── 1.5 清理旧 artifact ──────────────────────────────────
+      # 每次新构建前删掉旧的构建产物，释放 Actions 存储空间
+      - name: Clean old artifact
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: |
+          $id = gh api /repos/${{ github.repository }}/actions/artifacts --paginate -q '.artifacts[] | select(.name == "LivePhotoBox-x64-Release" and .expired == false) | .id'
+          if ($id) { $id | ForEach-Object { gh api -X DELETE "/repos/${{ github.repository }}/actions/artifacts/$_" } }
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+
       # ── 2. .NET 环境 ─────────────────────────────────────────
       - name: Setup .NET 9
         uses: actions/setup-dotnet@v4
@@ -176,7 +187,7 @@ jobs:
           path: |
             publish\*.zip
             publish\*.exe
-          retention-days: 30
+          retention-days: 7
 
       # ── 9. 创建 GitHub Release（标签构建） ─────────────────
       - name: Create Release
