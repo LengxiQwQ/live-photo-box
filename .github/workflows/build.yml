@@ -23,6 +23,7 @@ on:
 # ── 权限 ──────────────────────────────────────────────────────
 permissions:
   contents: write             # 允许创建 Release 和上传附件
+  actions: write              # 允许删除旧 artifact
 
 jobs:
   build:
