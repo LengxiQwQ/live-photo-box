@@ -2255,6 +2255,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_Redo.Label" xml:space="preserve">
     <value>重做</value>
   </data>
+  <data name="KeyPhotoPage_PageTitle.Text" xml:space="preserve">
+    <value>实况照片主图更换 &amp; 查看属性</value>
+  </data>
   <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
     <value>恢复</value>
   </data>

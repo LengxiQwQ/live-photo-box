@@ -2257,6 +2257,9 @@ Are you sure you want to switch?</value>
   <data name="KeyPhotoPage_Redo.Label" xml:space="preserve">
     <value>Redo</value>
   </data>
+  <data name="KeyPhotoPage_PageTitle.Text" xml:space="preserve">
+    <value>Live Photo Key Photo &amp; Properties</value>
+  </data>
   <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
     <value>Restore</value>
   </data>

@@ -27,12 +27,10 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private string _videoInfoLine = "1920 × 1440  │  8.2 MB  │  H.265";
         [ObservableProperty] private string _protocolLine = "MotionPhoto V2  ·  2024/12/15 14:32";
 
-        // ── 右区：设备名作标题，参数每行一个 ──
+        // ── 右区：设备名作标题，参数一行，色彩/GPS 一行 ──
         [ObservableProperty] private string _exifCamera = "Apple iPhone 15 Pro";
-        [ObservableProperty] private string _exifFocalLength = "24 mm";
-        [ObservableProperty] private string _exifAperture = "f/1.8";
-        [ObservableProperty] private string _exifShutterSpeed = "1/120 s";
-        [ObservableProperty] private string _exifIso = "ISO 80";
+        [ObservableProperty] private string _exifShootingParams = "24 mm  │  f/1.78  │  ISO 80  │  1/120 s";
+        [ObservableProperty] private string _exifColorGps = "Display P3  │  HDR  │  GPS  │  海拔 132 m";
 
         [ObservableProperty] private string _timelineInfo = "总时长：3.2 秒    共 48 帧";
         public int TimelineThumbnailCount => 14;
@@ -45,6 +43,16 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand] private void Export() { }
         [RelayCommand] private void BrowseFolder() { }
         [RelayCommand] private void ViewFullProperties() { }
+
+        /// <summary>当前选中的文件路径（由 View 层 SelectionChanged 回写）</summary>
+        [ObservableProperty] private string? _selectedFilePath;
+
+        /// <summary>View 层选中变更时调用，通知 ViewModel 更新绑定数据</summary>
+        public void SelectFile(string? filePath)
+        {
+            SelectedFilePath = filePath;
+            // 后续可在此处加载文件元数据、更新预览等
+        }
 
         private void PopulateDesignTimeData()
         {
