@@ -2389,4 +2389,7 @@ Are you sure you want to switch?</value>
   <data name="KeyPhotoPage_ViewFullPropsText.Text" xml:space="preserve">
     <value>View Full Properties</value>
   </data>
+  <data name="KeyPhotoPage_Altitude" xml:space="preserve">
+    <value>Altitude</value>
+  </data>
 </root>

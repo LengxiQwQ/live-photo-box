@@ -193,41 +193,83 @@ namespace LivePhotoBox.Services
                     }
                     else
                     {
-                        // 普通照片（JPG/PNG 等）— 保持原有内联逻辑不变
-                        StorageFile file = await StorageFile.GetFileFromPathAsync(imagePath);
-                        using var thumbnail = await file.GetThumbnailAsync(ThumbnailMode.ListView, 80, ThumbnailOptions.UseCurrentScale);
-
-                        if (thumbnail != null && thumbnail.Size > 0)
+                        // 普通照片：JPG/HEIC 走 Shell API（快），PNG/BMP 等跳过（Shell 返回白板）
+                        if (HasReliableShellThumbnail(imagePath))
                         {
-                            var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                            if (!dispatcher.TryEnqueue(async () =>
+                            try
                             {
-                                try
-                                {
-                                    var bitmap = new BitmapImage();
-                                    await bitmap.SetSourceAsync(thumbnail);
+                                StorageFile file = await StorageFile.GetFileFromPathAsync(imagePath);
+                                using var thumbnail = await file.GetThumbnailAsync(ThumbnailMode.ListView, 80, ThumbnailOptions.UseCurrentScale);
 
-                                    if (version == Volatile.Read(ref _cacheVersion))
+                                if (thumbnail != null && thumbnail.Size > 0)
+                                {
+                                    var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+                                    if (!dispatcher.TryEnqueue(async () =>
                                     {
-                                        _thumbnailCache[imagePath] = bitmap;
-                                        tcs.TrySetResult(bitmap);
-                                    }
-                                    else
+                                        try
+                                        {
+                                            var bitmap = new BitmapImage();
+                                            await bitmap.SetSourceAsync(thumbnail);
+
+                                            if (version == Volatile.Read(ref _cacheVersion))
+                                            {
+                                                _thumbnailCache[imagePath] = bitmap;
+                                                tcs.TrySetResult(bitmap);
+                                            }
+                                            else
+                                            {
+                                                tcs.TrySetResult(null);
+                                            }
+                                        }
+                                        catch
+                                        {
+                                            tcs.TrySetResult(null);
+                                        }
+                                    }))
                                     {
                                         tcs.TrySetResult(null);
                                     }
-                                }
-                                catch
-                                {
-                                    tcs.TrySetResult(null);
-                                }
-                            }))
-                            {
-                                tcs.TrySetResult(null);
-                            }
 
-                            result = await tcs.Task.ConfigureAwait(false);
+                                    result = await tcs.Task.ConfigureAwait(false);
+                                }
+                            }
+                            catch { }
+                        }
+
+                        // Shell 不可靠 / Shell 失败 → BitmapDecoder 兜底
+                        if (result == null)
+                        {
+                            var (data, w, h) = await LoadBitmapDecoderThumbnailDataAsync(imagePath);
+                            if (data is { Length: > 0 })
+                            {
+                                var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                                if (dispatcher.TryEnqueue(() =>
+                                {
+                                    try
+                                    {
+                                        var bitmap = new BitmapImage();
+                                        using var ms = new MemoryStream(data);
+                                        bitmap.SetSource(ms.AsRandomAccessStream());
+                                        if (version == Volatile.Read(ref _cacheVersion))
+                                        {
+                                            _thumbnailCache[imagePath] = bitmap;
+                                            tcs.TrySetResult(bitmap);
+                                        }
+                                        else
+                                        {
+                                            tcs.TrySetResult(null);
+                                        }
+                                    }
+                                    catch
+                                    {
+                                        tcs.TrySetResult(null);
+                                    }
+                                }))
+                                {
+                                    result = await tcs.Task.ConfigureAwait(false);
+                                }
+                            }
                         }
                     }
 
@@ -328,19 +370,24 @@ namespace LivePhotoBox.Services
                         targetHeight = (uint)Math.Max(1, originalHeight * scale);
                     }
 
-                    using var softwareBitmap = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+                    // ▸▸▸ 解码阶段直接缩放到目标尺寸，不解码全分辨率（省几十 MB 内存）
+                    var decodeTransform = new BitmapTransform
+                    {
+                        ScaledWidth = targetWidth,
+                        ScaledHeight = targetHeight,
+                        InterpolationMode = BitmapInterpolationMode.Fant
+                    };
+                    using var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
+                        BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+                        decodeTransform, ExifOrientationMode.IgnoreExifOrientation,
+                        ColorManagementMode.DoNotColorManage);
 
                     using (var fileStream = new FileStream(tempJpegPath, FileMode.Create, FileAccess.Write))
                     using (var randomAccessStream = fileStream.AsRandomAccessStream())
                     {
                         var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, randomAccessStream);
                         encoder.SetSoftwareBitmap(softwareBitmap);
-                        if (targetWidth != originalWidth || targetHeight != originalHeight)
-                        {
-                            encoder.BitmapTransform.InterpolationMode = BitmapInterpolationMode.Fant;
-                            encoder.BitmapTransform.ScaledWidth = targetWidth;
-                            encoder.BitmapTransform.ScaledHeight = targetHeight;
-                        }
+                        // 不用再设 BitmapTransform——已在解码阶段缩放过
                         await encoder.FlushAsync();
                     }
 
@@ -519,20 +566,54 @@ namespace LivePhotoBox.Services
         // 公开给外部判断视频文件
         public static bool IsVideoFilePath(string path) => IsVideoFile(path);
 
+        /// <summary>
+        /// 判断该图片格式的 Windows Shell 缩略图是否可靠。
+        /// JPG/HEIC 有系统级缩略图缓存，可靠；PNG/BMP/GIF 等可能返回白板图标，需跳过。
+        /// </summary>
+        private static bool HasReliableShellThumbnail(string path) =>
+            !(path.EndsWith(".png", StringComparison.OrdinalIgnoreCase)
+           || path.EndsWith(".bmp", StringComparison.OrdinalIgnoreCase)
+           || path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase)
+           || path.EndsWith(".tiff", StringComparison.OrdinalIgnoreCase)
+           || path.EndsWith(".tif", StringComparison.OrdinalIgnoreCase)
+           || path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase));
+
         //  ------  x:Bind property-getter support  ------
 
+        /// <summary>获取当前窗口的 DPI 缩放比例（线程安全：仅 UI 线程调用）</summary>
+        private static double GetDpiScale()
+        {
+            try
+            {
+                var xamlRoot = App.MainWindow?.Content?.XamlRoot;
+                if (xamlRoot != null)
+                    return xamlRoot.RasterizationScale;
+            }
+            catch { }
+            return 1.0;
+        }
+
         // For x:Bind property getter usage. Non-async, returns cached or triggers background load.
+        // targetSize：缩略图逻辑像素（长边），默认 80，会和 DPI 缩放相乘得到实际解码像素。
+        // 例如 KeyPhoto 框 56×56，200% DPI → 实际解码 112px，保证高清不糊。
         public static ImageSource? TryGetOrLoad(
             ref ImageSource? thumbnail,
             ref bool isLoading,
             string? imagePath,
-            Action<ImageSource?> assignThumbnail)
+            Action<ImageSource?> assignThumbnail,
+            uint targetSize = 80)
         {
             if (thumbnail == null && !isLoading && !string.IsNullOrWhiteSpace(imagePath))
             {
                 isLoading = true;
                 var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
                 var path = imagePath;
+                // 在 UI 线程拿到 DPI 缩放 → 实际解码像素
+                double dpiScale = GetDpiScale();
+                uint decodeSize = (uint)Math.Max(1, targetSize * dpiScale);
+
+                // 视频：无法提前知道宽高比，1.5× 兜底，后续可加 ffprobe 取真实尺寸
+                uint videoDecodeSize = (uint)(decodeSize * 1.5);
 
                 _ = System.Threading.Tasks.Task.Run(async () =>
                 {
@@ -542,7 +623,7 @@ namespace LivePhotoBox.Services
                         await _videoLoadLimiter.WaitAsync();
                         try
                         {
-                            var (data, w, h) = await LoadVideoThumbnailDataAsync(path);
+                            var (data, w, h) = await LoadVideoThumbnailDataAsync(path, videoDecodeSize);
                             if (data is { Length: > 0 } && dispatcher != null)
                             {
                                 dispatcher.TryEnqueue(() =>
@@ -550,7 +631,7 @@ namespace LivePhotoBox.Services
                                     try
                                     {
                                         var bmp = new BitmapImage();
-                                        bmp.DecodePixelWidth = 80;
+                                        bmp.DecodePixelWidth = (int)videoDecodeSize;
                                         using var ms = new MemoryStream(data);
                                         bmp.SetSource(ms.AsRandomAccessStream());
                                         assignThumbnail(bmp);
@@ -571,18 +652,18 @@ namespace LivePhotoBox.Services
                     try
                     {
                         byte[]? imageData = null;
-                        int width = 80;
-                        int height = 80;
+                        int width = (int)decodeSize;
+                        int height = (int)decodeSize;
 
                         try
                         {
                             if (HeicConverterService.IsHeicFile(path))
                             {
-                                (imageData, width, height) = await LoadHeicThumbnailDataAsync(path);
+                                (imageData, width, height) = await LoadHeicThumbnailDataAsync(path, decodeSize);
                             }
                             else
                             {
-                                (imageData, width, height) = await LoadSystemThumbnailDataAsync(path);
+                                (imageData, width, height) = await LoadSystemThumbnailDataAsync(path, decodeSize);
                             }
                         }
                         catch
@@ -621,7 +702,7 @@ namespace LivePhotoBox.Services
         public static Visibility GetPlaceholderVisibility(ImageSource? thumbnail)
             => thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
-        private static async Task<(byte[] data, int width, int height)> LoadHeicThumbnailDataAsync(string imagePath)
+        private static async Task<(byte[] data, int width, int height)> LoadHeicThumbnailDataAsync(string imagePath, uint targetSize = 80)
         {
             var file = await StorageFile.GetFileFromPathAsync(imagePath);
             using var inputStream = await file.OpenAsync(FileAccessMode.Read);
@@ -630,19 +711,28 @@ namespace LivePhotoBox.Services
             uint w = decoder.PixelWidth;
             uint h = decoder.PixelHeight;
 
-            uint targetSize = 80;
-            double scale = Math.Min((double)targetSize / w, (double)targetSize / h);
+            // 以短边为准缩放：正方形 UniformToFill 框里短边决定锐度
+            uint shorterEdge = Math.Min(w, h);
+            double scale = (double)targetSize / shorterEdge;
             uint targetWidth = Math.Max(1, (uint)(w * scale));
             uint targetHeight = Math.Max(1, (uint)(h * scale));
 
-            var softwareBitmap = await decoder.GetSoftwareBitmapAsync(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+            // ▸▸▸ 在解码阶段直接缩放到目标尺寸，不解码全分辨率（省几十 MB 内存）
+            var decodeTransform = new BitmapTransform
+            {
+                ScaledWidth = targetWidth,
+                ScaledHeight = targetHeight,
+                InterpolationMode = BitmapInterpolationMode.Fant
+            };
+            var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
+                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+                decodeTransform, ExifOrientationMode.IgnoreExifOrientation,
+                ColorManagementMode.DoNotColorManage);
 
             var outputStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
             var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, outputStream);
             encoder.SetSoftwareBitmap(softwareBitmap);
-            encoder.BitmapTransform.ScaledWidth = targetWidth;
-            encoder.BitmapTransform.ScaledHeight = targetHeight;
-            encoder.BitmapTransform.InterpolationMode = BitmapInterpolationMode.Fant;
+            // 不用再设 BitmapTransform——已在解码阶段缩放过
             await encoder.FlushAsync();
 
             outputStream.Seek(0);
@@ -656,23 +746,96 @@ namespace LivePhotoBox.Services
             return (buffer, (int)targetWidth, (int)targetHeight);
         }
 
-        private static async Task<(byte[] data, int width, int height)> LoadSystemThumbnailDataAsync(string imagePath)
+        private static async Task<(byte[] data, int width, int height)> LoadSystemThumbnailDataAsync(string imagePath, uint targetSize = 80)
         {
-            var file = await StorageFile.GetFileFromPathAsync(imagePath);
-            using var thumb = await file.GetThumbnailAsync(ThumbnailMode.ListView, 80, ThumbnailOptions.UseCurrentScale);
-
-            if (thumb != null && thumb.Size > 0)
+            // PNG/BMP 等格式的 Shell 缩略图会返回白板图标 → 直接走自解码
+            if (HasReliableShellThumbnail(imagePath))
             {
-                var thumbCopy = new MemoryStream();
-                await thumb.AsStream().CopyToAsync(thumbCopy);
-                return (thumbCopy.ToArray(), 80, 80);
+                try
+                {
+                    var file = await StorageFile.GetFileFromPathAsync(imagePath);
+                    using var thumb = await file.GetThumbnailAsync(ThumbnailMode.ListView, targetSize, ThumbnailOptions.UseCurrentScale);
+
+                    if (thumb != null && thumb.Size > 0)
+                    {
+                        var thumbCopy = new MemoryStream();
+                        await thumb.AsStream().CopyToAsync(thumbCopy);
+                        var data = thumbCopy.ToArray();
+                        if (data.Length > 0)
+                            return (data, (int)targetSize, (int)targetSize);
+                    }
+                }
+                catch
+                {
+                    // Shell 缩略图 API 不可用 → 走 BitmapDecoder 兜底
+                }
             }
 
-            return (Array.Empty<byte>(), 0, 0);
+            // 兜底：直接用 BitmapDecoder 解码并缩放（PNG/BMP/GIF/TIFF/WebP 等）
+            return await LoadBitmapDecoderThumbnailDataAsync(imagePath, targetSize);
+        }
+
+        /// <summary>
+        /// BitmapDecoder 兜底缩略图：适用于 Shell API 无法提供缩略图的格式（PNG/BMP/GIF/TIFF 等）。
+        /// 使用 GetPixelDataAsync 直接解码到目标尺寸（老 API，兼容性好）。
+        /// </summary>
+        private static async Task<(byte[] data, int width, int height)> LoadBitmapDecoderThumbnailDataAsync(string imagePath, uint targetSize = 80)
+        {
+            try
+            {
+                var file = await StorageFile.GetFileFromPathAsync(imagePath);
+                using var inputStream = await file.OpenAsync(FileAccessMode.Read);
+                var decoder = await BitmapDecoder.CreateAsync(inputStream);
+
+                uint w = decoder.PixelWidth;
+                uint h = decoder.PixelHeight;
+
+                // 以短边为准缩放：正方形 UniformToFill 框里短边决定锐度
+                uint shorterEdge = Math.Min(w, h);
+                double scale = (double)targetSize / shorterEdge;
+                uint targetWidth = Math.Max(1, (uint)(w * scale));
+                uint targetHeight = Math.Max(1, (uint)(h * scale));
+
+                // 用 GetPixelDataAsync（老 API）直接获取缩放后的像素，避开 GetSoftwareBitmapAsync
+                // 5 参数重载在某些格式（PNG）上不稳定
+                var decodeTransform = new BitmapTransform
+                {
+                    ScaledWidth = targetWidth,
+                    ScaledHeight = targetHeight,
+                    InterpolationMode = BitmapInterpolationMode.Fant
+                };
+                var pixelData = await decoder.GetPixelDataAsync(
+                    BitmapPixelFormat.Bgra8,
+                    BitmapAlphaMode.Straight,
+                    decodeTransform,
+                    ExifOrientationMode.IgnoreExifOrientation,
+                    ColorManagementMode.DoNotColorManage);
+
+                // 用 SetPixelData 直接写入已缩放的像素（无需 SoftwareBitmap 中转）
+                var outputStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, outputStream);
+                encoder.SetPixelData(
+                    BitmapPixelFormat.Bgra8, BitmapAlphaMode.Ignore,
+                    targetWidth, targetHeight, 96, 96,
+                    pixelData.DetachPixelData());
+                await encoder.FlushAsync();
+
+                outputStream.Seek(0);
+                using var reader = new Windows.Storage.Streams.DataReader(outputStream);
+                var buffer = new byte[outputStream.Size];
+                await reader.LoadAsync((uint)outputStream.Size);
+                reader.ReadBytes(buffer);
+
+                return (buffer, (int)targetWidth, (int)targetHeight);
+            }
+            catch
+            {
+                return (Array.Empty<byte>(), 0, 0);
+            }
         }
 
         // 视频缩略图数据提取（用于 x:Bind 路径）：使用 FFmpeg 抽取第一帧。
-        private static async Task<(byte[] data, int width, int height)> LoadVideoThumbnailDataAsync(string videoPath)
+        private static async Task<(byte[] data, int width, int height)> LoadVideoThumbnailDataAsync(string videoPath, uint targetSize = 80)
         {
             string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
@@ -684,8 +847,8 @@ namespace LivePhotoBox.Services
             {
                 string hwaccel = GetVideoHwAccelFlag();
                 string args = string.IsNullOrEmpty(hwaccel)
-                    ? $"-i \"{videoPath}\" -vframes 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error"
-                    : $"{hwaccel} -i \"{videoPath}\" -vframes 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
+                    ? $"-i \"{videoPath}\" -vframes 1 -vf \"scale={targetSize}:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error"
+                    : $"{hwaccel} -i \"{videoPath}\" -vframes 1 -vf \"scale={targetSize}:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
 
                 var psi = new ProcessStartInfo
                 {

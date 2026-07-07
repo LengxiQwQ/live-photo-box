@@ -17,7 +17,9 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace LivePhotoBox.Views
 {
@@ -63,7 +65,11 @@ namespace LivePhotoBox.Views
 
             // 系统换强调色时实时更新
             _uiSettings.ColorValuesChanged += OnSystemColorValuesChanged;
-            Unloaded += (s, e) => _uiSettings.ColorValuesChanged -= OnSystemColorValuesChanged;
+            Unloaded += (s, e) =>
+            {
+                _uiSettings.ColorValuesChanged -= OnSystemColorValuesChanged;
+                ViewModel.Cleanup();
+            };
 
             Loaded += KeyPhotoPage_Loaded;
             FileItemListView.ContainerContentChanging += OnContainerContentChanging;
@@ -363,14 +369,74 @@ namespace LivePhotoBox.Views
         }
 
         // ════════════════════════════════════════════════════════════
-        //  文件夹浏览
+        //  文件夹浏览 & 路径输入
         // ════════════════════════════════════════════════════════════
 
+        /// <summary>用户点击了浏览按钮 → 抑制本次 LostFocus 扫描</summary>
+        private bool _suppressLostFocusScan;
+
+        /// <summary>浏览按钮按下时设标记（早于 LostFocus 触发），防止 LostFocus 误扫描旧路径</summary>
+        private void BrowseFolder_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            _suppressLostFocusScan = true;
+        }
+
+        /// <summary>浏览按钮：弹出文件夹选择器，选中后填充路径并触发扫描</summary>
         private async void BrowseFolder_Click(object sender, RoutedEventArgs e)
         {
             var folder = await FilePickerService.PickFolderAsync();
             if (folder != null)
+            {
                 ViewModel.CurrentDirectory = folder.Path;
+                // 浏览按钮选择的路径直接触发扫描（不依赖 LostFocus）
+                ViewModel.TriggerScan();
+            }
+            // 重置标记
+            _suppressLostFocusScan = false;
+        }
+
+        /// <summary>点击照片信息行 → 文件资源管理器中定位照片</summary>
+        private void LocatePhotoFile_Click(object sender, RoutedEventArgs e)
+        {
+            var path = ViewModel.SelectedFilePath;
+            if (!string.IsNullOrEmpty(path))
+            {
+                try { FilePickerService.RevealInExplorer(path); }
+                catch (Exception ex) { LogService.Debug($"KeyPhoto reveal photo failed: {ex.Message}", LogSource.UI); }
+            }
+        }
+
+        /// <summary>点击视频信息行 → 文件资源管理器中定位同名视频</summary>
+        private void LocateVideoFile_Click(object sender, RoutedEventArgs e)
+        {
+            var photoPath = ViewModel.SelectedFilePath;
+            if (string.IsNullOrEmpty(photoPath)) return;
+            var dir = Path.GetDirectoryName(photoPath);
+            var baseName = Path.GetFileNameWithoutExtension(photoPath);
+            if (string.IsNullOrEmpty(dir)) return;
+
+            foreach (var ext in new[] { ".mov", ".mp4" })
+            {
+                var videoPath = System.IO.Path.Combine(dir, baseName + ext);
+                if (System.IO.File.Exists(videoPath))
+                {
+                    try { FilePickerService.RevealInExplorer(videoPath); }
+                    catch (Exception ex) { LogService.Debug($"KeyPhoto reveal video failed: {ex.Message}", LogSource.UI); }
+                    return;
+                }
+            }
+        }
+
+        /// <summary>路径输入框失去焦点时触发扫描（手动输入路径后点击别处的场景）</summary>
+        private void CurrentDirTextBox_LostFocus(object sender, RoutedEventArgs e)
+        {
+            // 用户点击了浏览按钮 → 跳过（由 BrowseFolder_Click 负责触发）
+            if (_suppressLostFocusScan)
+            {
+                _suppressLostFocusScan = false;
+                return;
+            }
+            ViewModel.TriggerScan();
         }
 
         // ════════════════════════════════════════════════════════════

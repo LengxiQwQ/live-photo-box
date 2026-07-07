@@ -2387,4 +2387,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_ViewFullPropsText.Text" xml:space="preserve">
     <value>查看完整属性</value>
   </data>
+  <data name="KeyPhotoPage_Altitude" xml:space="preserve">
+    <value>海拔</value>
+  </data>
 </root>

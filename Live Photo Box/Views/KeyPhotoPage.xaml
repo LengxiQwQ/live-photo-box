@@ -11,6 +11,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoBox.Models"
+    xmlns:converters="using:LivePhotoBox.Converters"
     mc:Ignorable="d"
     Background="Transparent"
     NavigationCacheMode="Required">
@@ -252,6 +253,16 @@
             <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}"/>
             <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
         </Style>
+        <Style x:Key="InfoRowButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="4,2"/>
+            <Setter Property="Margin" Value="-4,-2"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="CornerRadius" Value="4"/>
+        </Style>
+        <converters:StringNotEmptyConverter x:Key="StringNotEmptyConverter"/>
     </Page.Resources>
 
     <Grid>
@@ -343,10 +354,12 @@
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBox Grid.Column="0" x:Uid="KeyPhotoPage_CurrentDirBox"
+                                     x:Name="CurrentDirTextBox"
                                      Text="{x:Bind ViewModel.CurrentDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="当前目录..."
                                      FontSize="12" MinHeight="28" Height="28" Padding="10,5,32,5"
-                                     VerticalContentAlignment="Center" VerticalAlignment="Center" IsReadOnly="False">
+                                     VerticalContentAlignment="Center" VerticalAlignment="Center" IsReadOnly="False"
+                                     LostFocus="CurrentDirTextBox_LostFocus">
                                 <TextBox.Resources>
                                     <x:Double x:Key="TextControlThemeMinHeight">28</x:Double>
                                 </TextBox.Resources>
@@ -356,7 +369,9 @@
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="BrowseFolder_Click" ToolTipService.ToolTip="浏览文件夹">
+                                    Click="BrowseFolder_Click"
+                                    PointerPressed="BrowseFolder_PointerPressed"
+                                    ToolTipService.ToolTip="浏览文件夹">
                                 <FontIcon Glyph="&#xE838;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
@@ -446,25 +461,27 @@
                                             <ColumnDefinition Width="56"/>
                                             <ColumnDefinition Width="*"/>
                                         </Grid.ColumnDefinitions>
+                                        <!-- 缩略图：抄 SplitPage 的 Grid + FontIcon占位 + Image 模式 -->
                                         <Border Grid.Column="0" Width="56" Height="56" CornerRadius="5"
                                                 Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
                                                 VerticalAlignment="Center">
-                                            <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <Grid>
+                                                <FontIcon Glyph="&#xE722;" FontSize="18"
+                                                          Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
+                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                            </Grid>
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
                                             <TextBlock Text="{x:Bind FileName}"
                                                        FontSize="12" FontWeight="Bold"
                                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                        TextTrimming="CharacterEllipsis" MaxLines="1"/>
-                                            <TextBlock FontSize="11"
+                                            <TextBlock Text="{x:Bind FileInfoSubLine, Mode=OneWay}"
+                                                       FontSize="11"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                       TextTrimming="CharacterEllipsis" MaxLines="1">
-                                                <Run Text="{x:Bind Resolution}"/>
-                                                <Run Text=" │ " Foreground="{ThemeResource TextFillColorDisabledBrush}"/>
-                                                <Run Text="{x:Bind FileSize}"/>
-                                            </TextBlock>
+                                                       TextTrimming="CharacterEllipsis" MaxLines="1"/>
                                             <TextBlock Text="{x:Bind DateTaken}" FontSize="11"
                                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}" MaxLines="1"/>
                                         </StackPanel>
@@ -610,8 +627,9 @@
                     </StackPanel>
                 </Border>
 
-                <!-- ── 统一信息面板 ── -->
-                <Border x:Name="InfoPanel" Grid.Row="2" Style="{StaticResource InfoCardBorderStyle}">
+                <!-- ── 统一信息面板（最小高度锁死，避免切换文件时抖动）── -->
+                <Border x:Name="InfoPanel" Grid.Row="2" Style="{StaticResource InfoCardBorderStyle}"
+                        MinHeight="100">
                     <Grid ColumnSpacing="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -620,11 +638,12 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
 
-                        <!-- Col 0：缩略图（撑满整列高度） -->
-                        <Border Grid.Column="0" Width="56" CornerRadius="6"
-                                VerticalAlignment="Stretch"
+                        <!-- Col 0：缩略图（1:1 方形撑满面板上下，带圆角边框） -->
+                        <Border Grid.Column="0" x:Name="InfoThumbBorder"
+                                Width="80" Height="80" CornerRadius="6" VerticalAlignment="Center"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                 Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
-                            <FontIcon Glyph="&#xE722;" FontSize="22"
+                            <FontIcon Glyph="&#xE722;" FontSize="28"
                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
@@ -636,21 +655,31 @@
                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                        TextTrimming="CharacterEllipsis"/>
 
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <FontIcon Glyph="&#xE722;" FontSize="11"
-                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                          VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.PhotoInfoLine, Mode=OneWay}"
-                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
-                            </StackPanel>
+                            <!-- 照片信息行：可点击 → 文件资源管理器中定位照片 -->
+                            <Button Style="{StaticResource InfoRowButtonStyle}"
+                                    Click="LocatePhotoFile_Click"
+                                    ToolTipService.ToolTip="在文件资源管理器中定位照片">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <FontIcon Glyph="&#xE722;" FontSize="11"
+                                              Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                              VerticalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.PhotoInfoLine, Mode=OneWay}"
+                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Button>
 
-                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                <FontIcon Glyph="&#xE714;" FontSize="11"
-                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                          VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.VideoInfoLine, Mode=OneWay}"
-                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
-                            </StackPanel>
+                            <!-- 视频信息行：可点击 → 文件资源管理器中定位视频 -->
+                            <Button Style="{StaticResource InfoRowButtonStyle}"
+                                    Click="LocateVideoFile_Click"
+                                    ToolTipService.ToolTip="在文件资源管理器中定位视频">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <FontIcon Glyph="&#xE714;" FontSize="11"
+                                              Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                              VerticalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.VideoInfoLine, Mode=OneWay}"
+                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Button>
 
                             <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
                                        Style="{StaticResource SecondaryTextStyle}"/>
@@ -661,21 +690,29 @@
                                 Background="{ThemeResource DividerStrokeColorDefaultBrush}"
                                 VerticalAlignment="Stretch" Margin="0,2"/>
 
-                        <!-- Col 3：EXIF 信息（3 行：设备名 → 拍摄参数 → 色彩/GPS） -->
+                        <!-- Col 3：EXIF 信息（空行自动折叠） -->
                         <StackPanel Grid.Column="3" Spacing="4" VerticalAlignment="Top">
 
                             <!-- 设备名 -->
                             <TextBlock Text="{x:Bind ViewModel.ExifCamera, Mode=OneWay}"
+                                       Visibility="{Binding ExifCamera, Converter={StaticResource StringNotEmptyConverter}}"
                                        FontSize="12" FontWeight="SemiBold"
                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                        TextWrapping="Wrap"/>
 
-                            <!-- 拍摄参数：焦段 │ 光圈 │ ISO │ 快门 -->
+                            <!-- 拍摄参数 -->
                             <TextBlock Text="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay}"
+                                       Visibility="{Binding ExifShootingParams, Converter={StaticResource StringNotEmptyConverter}}"
                                        Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
 
-                            <!-- 色彩 / HDR / GPS / 海拔 -->
-                            <TextBlock Text="{x:Bind ViewModel.ExifColorGps, Mode=OneWay}"
+                            <!-- 海拔 -->
+                            <TextBlock Text="{x:Bind ViewModel.ExifLocation, Mode=OneWay}"
+                                       Visibility="{Binding ExifLocation, Converter={StaticResource StringNotEmptyConverter}}"
+                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+
+                            <!-- 反向地理编码地名 -->
+                            <TextBlock Text="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay}"
+                                       Visibility="{Binding ExifPlaceName, Converter={StaticResource StringNotEmptyConverter}}"
                                        Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
                         </StackPanel>
                     </Grid>
