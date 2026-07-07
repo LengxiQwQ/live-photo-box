@@ -338,7 +338,7 @@ namespace LivePhotoBox.ViewModels
                     try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
                 }
 
-                // 流式缓冲：每 120ms 刷新到 UI（拆分页面逐文件扫描，需要流式加载）
+                // ── 流式缓冲：每 120ms 刷新到 UI ──
                 var itemBuffer = new List<SplitTask>();
                 var bufferLock = new object();
                 long lastFlushMs = Environment.TickCount64;
@@ -366,19 +366,19 @@ namespace LivePhotoBox.ViewModels
                     }
                 }
 
-                var itemProgress = new Progress<LivePhotoSplitFileInfo>(file =>
+                var itemProgress = new Progress<LivePhotoDiscoveryItem>(item =>
                 {
                     int idx = Interlocked.Increment(ref streamIndex);
                     var task = new SplitTask
                     {
                         Index = idx,
-                        SourceFileName = Path.GetFileName(file.SourcePath),
-                        SourcePath = file.SourcePath,
-                        FileSize = FileSizeFormatter.Format(file.FileSizeBytes),
+                        SourceFileName = Path.GetFileName(item.FilePath),
+                        SourcePath = item.FilePath,
+                        FileSize = FileSizeFormatter.Format(item.FileSizeBytes),
                         ProgressText = "0%",
                         Status = ProcessStatus.Pending,
                         Details = pendingText,
-                        AppendedVideoLength = file.AppendedVideoLength  // 扫描时已解析，灯箱直接读
+                        AppendedVideoLength = item.AppendedVideoLength
                     };
 
                     lock (bufferLock) { itemBuffer.Add(task); }
@@ -391,17 +391,25 @@ namespace LivePhotoBox.ViewModels
                     }
                 });
 
-                var scanResult = await Task.Run(
-                    () => LivePhotoSplitScanService.Scan(InputDirectory, token, scanProgress, itemProgress),
+                // ── 使用统一发现服务扫描（Task.Run 将同步检测放到后台线程）──
+                var discoveryResult = await Task.Run(
+                    () => LivePhotoDiscoveryService.ScanAsync(
+                        InputDirectory, DiscoveryScanMode.SplitOnly, token, scanProgress, itemProgress),
                     token);
 
-                // 刷新残留项，然后用扫描结果的确切数量修正
+                // 刷新残留项
                 FlushBuffer();
-                int finalCount = scanResult.Files.Count;
-                RecognizedCount = scanResult.RecognizedCount;
-                SkippedCount = scanResult.SkippedCount;
 
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
+
+                int finalCount = discoveryResult.SingleFileJpegCount;
+                RecognizedCount = finalCount;
+                // SkippedCount = 扫描到的 JPEG 总数 - 识别出的实况照片数
+                // （不能用 RegularFileCount，因为那包含了视频和 HEIC 等非 JPEG 文件）
+                int totalJpegs = discoveryResult.Items.Count(i =>
+                    i.FilePath.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                    i.FilePath.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase));
+                SkippedCount = totalJpegs - finalCount;
 
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {

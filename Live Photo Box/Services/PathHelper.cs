@@ -14,7 +14,7 @@ using System.IO;
 namespace LivePhotoBox.Services
 {
     // 文件路径辅助工具
-    internal static class PathHelper
+    public static class PathHelper
     {
         // 生成配对用的唯一 key，包含子文件夹路径以防止同名文件冲突。
         // 示例：输入目录 "C:\Photos"，文件 "C:\Photos\2024\IMG_001.jpg" → key "2024\IMG_001"

@@ -44,6 +44,38 @@ namespace LivePhotoBox.Models
         [ObservableProperty]
         private string _dateTaken = string.Empty;
 
+        // ══════════════════════════════════════════════════════════════
+        //  实况照片分类（扫描阶段由 LivePhotoDiscoveryService 填充）
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>实况照片类型（None = 普通文件）</summary>
+        public LivePhotoType LivePhotoType { get; set; } = LivePhotoType.None;
+
+        /// <summary>双文件实况照片：配对的视频路径</summary>
+        public string? PairedVideoPath { get; set; }
+
+        /// <summary>单文件 JPEG 实况照片：内嵌视频段字节数</summary>
+        public long AppendedVideoLength { get; set; }
+
+        /// <summary>检测方法（区分 Apple CID 配对 vs 纯文件名配对等）</summary>
+        public LivePhotoDetectionMethod DetectionMethod { get; set; }
+
+        /// <summary>是否有已确认的实况照片协议（有真实协议标记，非纯文件名碰运气）</summary>
+        private bool _hasConfirmedProtocol;
+        public bool HasConfirmedProtocol
+        {
+            get => _hasConfirmedProtocol;
+            set
+            {
+                if (SetProperty(ref _hasConfirmedProtocol, value))
+                    OnPropertyChanged(nameof(LivePhotoBadgeVisibility));
+            }
+        }
+
+        /// <summary>LIVE 徽标可见性：仅有已确认协议的文件才显示</summary>
+        public Visibility LivePhotoBadgeVisibility =>
+            HasConfirmedProtocol ? Visibility.Visible : Visibility.Collapsed;
+
         /// <summary>ListView 子行：分辨率 │ 大小（合成属性，避免 Run 元素 x:Bind 不支持 OneWay 的问题）</summary>
         public string FileInfoSubLine
         {
@@ -67,7 +99,7 @@ namespace LivePhotoBox.Models
         private ImageSource? _thumbnail;
 
         /// <summary>缩略图解码目标尺寸：匹配 UI 框 56×56</summary>
-        private const uint ThumbnailTargetSize = 56;
+        private const uint ThumbnailTargetSize = 112;
 
         /// <summary>
         /// 文件缩略图（懒加载，按 56px 解码匹配 56×56 显示框）。

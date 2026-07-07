@@ -20,6 +20,7 @@ using Microsoft.UI.Xaml.Media;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace LivePhotoBox.Views
 {
@@ -132,6 +133,7 @@ namespace LivePhotoBox.Views
             var collapsed = _isLeftPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
             PanelControlsArea.Visibility = collapsed;
             FileCountText.Visibility = collapsed;
+            FilterComboBox.Visibility = collapsed;
             PanelTitleText.Visibility = _isLeftPanelCollapsed
                 ? Visibility.Collapsed : Visibility.Visible;
 
@@ -202,6 +204,7 @@ namespace LivePhotoBox.Views
             TimelineListView.ItemsSource = items;
 
             LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(SortComboBox);
+            LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(FilterComboBox);
 
             DispatcherQueue.TryEnqueue(() => ForceScrollBarsAlwaysThick());
         }
@@ -406,11 +409,37 @@ namespace LivePhotoBox.Views
             }
         }
 
-        /// <summary>点击视频信息行 → 文件资源管理器中定位同名视频</summary>
+        /// <summary>点击视频信息行 → 文件资源管理器中定位视频。
+        /// 单文件实况照片（JPEG 内嵌 / HEIC 视频轨）直接定位照片本身，
+        /// 双文件实况照片定位配对的视频文件。</summary>
         private void LocateVideoFile_Click(object sender, RoutedEventArgs e)
         {
             var photoPath = ViewModel.SelectedFilePath;
             if (string.IsNullOrEmpty(photoPath)) return;
+
+            // 查找选中项，判断实况照片类型
+            var item = ViewModel.FileItems.FirstOrDefault(f =>
+                string.Equals(f.FilePath, photoPath, StringComparison.OrdinalIgnoreCase));
+
+            // 单文件实况照片：视频嵌入在照片内 → 直接定位照片
+            if (item?.LivePhotoType == LivePhotoBox.Models.LivePhotoType.SingleFileJpeg
+                || item?.LivePhotoType == LivePhotoBox.Models.LivePhotoType.SingleFileHeic)
+            {
+                try { FilePickerService.RevealInExplorer(photoPath); }
+                catch (Exception ex) { LogService.Debug($"KeyPhoto reveal video (single-file) failed: {ex.Message}", LogSource.UI); }
+                return;
+            }
+
+            // 双文件实况照片：定位配对视频
+            if (item?.LivePhotoType == LivePhotoBox.Models.LivePhotoType.DualFile
+                && !string.IsNullOrEmpty(item.PairedVideoPath))
+            {
+                try { FilePickerService.RevealInExplorer(item.PairedVideoPath); }
+                catch (Exception ex) { LogService.Debug($"KeyPhoto reveal video (paired) failed: {ex.Message}", LogSource.UI); }
+                return;
+            }
+
+            // 回退：按同名查找视频
             var dir = Path.GetDirectoryName(photoPath);
             var baseName = Path.GetFileNameWithoutExtension(photoPath);
             if (string.IsNullOrEmpty(dir)) return;
@@ -421,7 +450,7 @@ namespace LivePhotoBox.Views
                 if (System.IO.File.Exists(videoPath))
                 {
                     try { FilePickerService.RevealInExplorer(videoPath); }
-                    catch (Exception ex) { LogService.Debug($"KeyPhoto reveal video failed: {ex.Message}", LogSource.UI); }
+                    catch (Exception ex) { LogService.Debug($"KeyPhoto reveal video (fallback) failed: {ex.Message}", LogSource.UI); }
                     return;
                 }
             }

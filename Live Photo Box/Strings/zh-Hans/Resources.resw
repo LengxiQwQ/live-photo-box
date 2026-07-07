@@ -2390,4 +2390,97 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_Altitude" xml:space="preserve">
     <value>海拔</value>
   </data>
+  <data name="KeyPhoto_Protocol_Apple" xml:space="preserve">
+    <value>Apple Live Photo</value>
+  </data>
+  <data name="KeyPhoto_Protocol_GoogleV1" xml:space="preserve">
+    <value>Google Micro Video (V1)</value>
+  </data>
+  <data name="KeyPhoto_Protocol_GoogleV2" xml:space="preserve">
+    <value>Google Motion Photo (V2)</value>
+  </data>
+  <data name="KeyPhoto_Protocol_OPPO" xml:space="preserve">
+    <value>OPPO - O-Live Photo</value>
+  </data>
+  <data name="KeyPhoto_Protocol_Xiaomi" xml:space="preserve">
+    <value>Xiaomi Motion Photo</value>
+  </data>
+  <data name="KeyPhoto_Protocol_HeicEmbedded" xml:space="preserve">
+    <value>Apple HEIC 实况</value>
+  </data>
+  <data name="KeyPhoto_Protocol_JpegGeneric" xml:space="preserve">
+    <value>JPEG 内嵌实况</value>
+  </data>
+  <data name="KeyPhoto_Protocol_NonLive" xml:space="preserve">
+    <value>非实况照片</value>
+  </data>
+  <data name="KeyPhoto_FileCountSummary" xml:space="preserve">
+    <value>共 {0} 个实况照片，{1} 个其他照片</value>
+  </data>
+  <data name="KeyPhoto_Filter_All.Content" xml:space="preserve">
+    <value>所有照片</value>
+  </data>
+  <data name="KeyPhoto_Filter_Live.Content" xml:space="preserve">
+    <value>仅实况照片</value>
+  </data>
+  <data name="KeyPhoto_Filter_Regular.Content" xml:space="preserve">
+    <value>仅普通照片</value>
+  </data>
+  <data name="KeyPhotoPage_PanelTitle.Text" xml:space="preserve">
+    <value>资源浏览</value>
+  </data>
+  <data name="KeyPhotoPage_CollapsePanel.ToolTipService.ToolTip" xml:space="preserve">
+    <value>折叠面板</value>
+  </data>
+  <data name="KeyPhotoPage_LocatePhoto.ToolTipService.ToolTip" xml:space="preserve">
+    <value>在文件夹中显示</value>
+  </data>
+  <data name="KeyPhotoPage_LocateVideo.ToolTipService.ToolTip" xml:space="preserve">
+    <value>在文件夹中显示</value>
+  </data>
+  <data name="KeyPhoto_CameraPosition_Rear" xml:space="preserve">
+    <value>后置摄像头</value>
+  </data>
+  <data name="KeyPhoto_CameraPosition_Front" xml:space="preserve">
+    <value>前置摄像头</value>
+  </data>
+  <data name="KeyPhotoPage_MaximizeButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>最大化预览</value>
+  </data>
+  <data name="KeyPhoto_UnknownDevice" xml:space="preserve">
+    <value>未知拍摄设备</value>
+  </data>
+  <data name="KeyPhoto_UnknownCamera" xml:space="preserve">
+    <value>未知摄像头</value>
+  </data>
+  <data name="KeyPhoto_Lens_Rear" xml:space="preserve">
+    <value>后置</value>
+  </data>
+  <data name="KeyPhoto_Lens_Front" xml:space="preserve">
+    <value>前置</value>
+  </data>
+  <data name="KeyPhoto_Lens_UltraWide" xml:space="preserve">
+    <value>超广角</value>
+  </data>
+  <data name="KeyPhoto_Lens_Wide" xml:space="preserve">
+    <value>广角</value>
+  </data>
+  <data name="KeyPhoto_Lens_Telephoto" xml:space="preserve">
+    <value>长焦</value>
+  </data>
+  <data name="KeyPhoto_Lens_Macro" xml:space="preserve">
+    <value>微距</value>
+  </data>
+  <data name="KeyPhoto_Lens_Main" xml:space="preserve">
+    <value>主摄</value>
+  </data>
+  <data name="KeyPhoto_Lens_Periscope" xml:space="preserve">
+    <value>潜望</value>
+  </data>
+  <data name="KeyPhoto_Lens_Depth" xml:space="preserve">
+    <value>景深</value>
+  </data>
+  <data name="KeyPhoto_Lens_Camera" xml:space="preserve">
+    <value>摄像头</value>
+  </data>
 </root>

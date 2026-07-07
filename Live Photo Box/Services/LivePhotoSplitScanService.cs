@@ -261,7 +261,7 @@ namespace LivePhotoBox.Services
         // 命名空间 URI 做二次确认（用 Regex 而非精确字节匹配，容忍格式差异）。
         // 目前直接放行即可，SplitService 会做最终校验。
         // ───────────────────────────────────────────────────────────────────
-        private static bool IsLikelyLivePhoto(string path, long fileSize)
+        public static bool IsLikelyLivePhoto(string path, long fileSize)
         {
             // ── 第一步：基础体积过滤 ──────────────────────────────────────
             if (fileSize <= MinImageBytes + MinVideoBytes) return false;

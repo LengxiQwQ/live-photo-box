@@ -18,7 +18,7 @@ namespace LivePhotoBox.Helpers
     // 解决了 WinUI 3 ComboBox 只按选中项定宽、不按最宽项定宽的问题。
     public static class ComboBoxHelper
     {
-        private const double ChromeWidth = 64; // 默认 padding(11*2) + 边框(2) + 下拉箭头(~32) + 安全余量
+        private const double ChromeWidth = 57; // padding(11*2) + 边框(2) + 下拉箭头(~32) + 余量(1)
 
         // 同步测量 ComboBox 的所有选项文本宽度，并设置固定 Width。
         // 适用于直接 XAML 声明的 ComboBoxItem，或 ItemsSource 已填充的数据绑定 ComboBox。
