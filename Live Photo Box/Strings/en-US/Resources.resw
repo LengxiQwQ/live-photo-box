@@ -2320,6 +2320,10 @@ Are you sure you want to switch?</value>
   <data name="KeyPhotoPage_TimelinePlaceholder.Text" xml:space="preserve">
     <value>(Coming in a future update)</value>
   </data>
+  <data name="KeyPhoto_TimelineInfo" xml:space="preserve">
+    <value>{0} · {1} frames</value>
+    <comment>Timeline summary info: {0}=duration, {1}=total frames</comment>
+  </data>
   <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
     <value>Photo Info</value>
   </data>

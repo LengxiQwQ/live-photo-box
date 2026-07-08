@@ -2318,6 +2318,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_TimelinePlaceholder.Text" xml:space="preserve">
     <value>（后续版本实现）</value>
   </data>
+  <data name="KeyPhoto_TimelineInfo" xml:space="preserve">
+    <value>{0} · {1} 帧</value>
+    <comment>时间轴摘要信息：{0}=时长, {1}=总帧数</comment>
+  </data>
   <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
     <value>当前照片信息</value>
   </data>

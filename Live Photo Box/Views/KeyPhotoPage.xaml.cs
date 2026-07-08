@@ -21,6 +21,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace LivePhotoBox.Views
 {
@@ -58,6 +59,9 @@ namespace LivePhotoBox.Views
         // ── 预览最大化状态 ──
         private bool _isPreviewMaximized;
 
+        // ── 时间轴居中滚动取消令牌 ──
+        private CancellationTokenSource? _scrollCts;
+
         public KeyPhotoPage()
         {
             InitializeComponent();
@@ -69,8 +73,12 @@ namespace LivePhotoBox.Views
             Unloaded += (s, e) =>
             {
                 _uiSettings.ColorValuesChanged -= OnSystemColorValuesChanged;
+                ViewModel.RequestScrollToFrame -= OnRequestScrollToFrame;
                 ViewModel.Cleanup();
             };
+
+            // 时间轴照片帧自动滚动
+            ViewModel.RequestScrollToFrame += OnRequestScrollToFrame;
 
             Loaded += KeyPhotoPage_Loaded;
             FileItemListView.ContainerContentChanging += OnContainerContentChanging;
@@ -198,15 +206,71 @@ namespace LivePhotoBox.Views
         {
             Loaded -= KeyPhotoPage_Loaded;
 
-            var items = new List<int>();
-            for (int i = 0; i < ViewModel.TimelineThumbnailCount; i++)
-                items.Add(i);
-            TimelineListView.ItemsSource = items;
+            // 时间轴 ItemsSource 已通过 XAML x:Bind 绑定到 ViewModel.TimelineFrames，
+            // 不再需要手动创建 dummy 数据
 
             LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(SortComboBox);
             LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(FilterComboBox);
 
             DispatcherQueue.TryEnqueue(() => ForceScrollBarsAlwaysThick());
+        }
+
+        /// <summary>ViewModel 通知时间轴滚动到指定帧并居中。
+        /// 仅在程序化选中 key photo 时触发（用户手动点击不滚动）。
+        /// 用索引计算偏移，延迟两帧等 ListView 布局完成后再 ChangeView 居中。</summary>
+        private void OnRequestScrollToFrame(TimelineFrame frame)
+        {
+            // 取消上一次在途的 scroll（快速切换文件时的竞态）
+            _scrollCts?.Cancel();
+            _scrollCts?.Dispose();
+            _scrollCts = new CancellationTokenSource();
+            var ct = _scrollCts.Token;
+
+            // 第一帧延后：等 ListView 初步布局拿到 ViewportWidth
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                if (ct.IsCancellationRequested) return;
+                try
+                {
+                    var sv = FindVisualChild<ScrollViewer>(TimelineListView);
+                    if (sv == null || sv.ViewportWidth <= 0) return;
+
+                    int index = ViewModel.TimelineFrames.IndexOf(frame);
+                    if (index < 0) return;
+
+                    const double itemStep = 56;
+                    int totalItems = ViewModel.TimelineFrames.Count;
+                    double totalWidth = totalItems * itemStep;
+
+                    // 如果时间轴整条比面板窄，无需滚动
+                    double maxOffset = totalWidth - sv.ViewportWidth;
+                    if (maxOffset <= 0) return;
+
+                    // 第二帧延后：等 ScrollViewer 的 ExtentWidth 稳定
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        if (ct.IsCancellationRequested) return;
+
+                        var sv2 = FindVisualChild<ScrollViewer>(TimelineListView);
+                        if (sv2 == null || sv2.ViewportWidth <= 0) return;
+
+                        double targetOffset = index * itemStep + 28.0 - (sv2.ViewportWidth / 2.0);
+                        targetOffset = Math.Max(0, Math.Min(targetOffset, maxOffset));
+
+                        LogService.Debug(
+                            $"Timeline ChangeView: idx={index}, total={totalItems}, " +
+                            $"vw={sv2.ViewportWidth:F0}, extent={sv2.ExtentWidth:F0}, " +
+                            $"offset={targetOffset:F0}, max={maxOffset:F0}",
+                            LogSource.UI);
+
+                        sv2.ChangeView(targetOffset, null, null);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    LogService.Debug($"Timeline scroll failed: {ex.Message}", LogSource.UI);
+                }
+            });
         }
 
         // ════════════════════════════════════════════════════════════
