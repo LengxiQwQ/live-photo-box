@@ -19,6 +19,7 @@ using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
@@ -252,14 +253,29 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnSelectedTimelineFrameChanged(TimelineFrame? value)
         {
-            if (value != null && _isProgrammaticTimelineSelection)
+            if (value == null) return;
+
+            if (_isProgrammaticTimelineSelection)
             {
+                // 程序化选中（初始加载/切换文件后的自动选中）→ 触发滚动
                 _isProgrammaticTimelineSelection = false;
                 RequestScrollToFrame?.Invoke(value);
+            }
+            else
+            {
+                // 用户手动点击时间轴帧 → 更新大图预览
+                _ = UpdatePreviewForTimelineFrameAsync(value);
             }
         }
 
         [ObservableProperty] private bool _isModified;
+
+        /// <summary>大图预览的图片源（PhotoViewer 绑定）。通用 ImageSource 类型，不限定 BitmapImage</summary>
+        [ObservableProperty]
+        private ImageSource? _previewImageSource;
+
+        /// <summary>预览图加载取消令牌（切换文件时取消上一次加载）</summary>
+        private CancellationTokenSource? _previewLoadCts;
 
         [ObservableProperty]
         private string? _selectedFilePath;
@@ -349,12 +365,13 @@ namespace LivePhotoBox.ViewModels
         {
             SelectedFilePath = filePath;
 
-            // 取消之前的属性加载 + 时间轴帧提取 + 清理临时文件
+            // 取消之前的属性加载 + 时间轴帧提取 + 预览图加载 + 清理临时文件
             _propLoadCts?.Cancel();
             _propLoadCts?.Dispose();
             _propLoadCts = null;
             _geoCts?.Cancel();
             _timelineCts?.Cancel();
+            _previewLoadCts?.Cancel();
             CleanupFrameTempFiles();
             CleanupTempVideo();
 
@@ -379,6 +396,9 @@ namespace LivePhotoBox.ViewModels
                 PhotoFileName = item.FileName;
                 SelectedFileThumbnail = item.Thumbnail;
             }
+            // 触发大图预览加载（异步，用令牌保护）
+            _ = LoadPreviewImageAsync(filePath);
+
             // 清空信息面板字段，等异步 LoadPropertiesAsync 一次填充（避免旧数据闪烁）
             PhotoInfoLine = string.Empty;
             VideoInfoLine = string.Empty;
@@ -941,13 +961,16 @@ namespace LivePhotoBox.ViewModels
                     {
                         try
                         {
-                            // 1. 用 ffmpeg 实际提取到的帧数创建视频帧
+                            // 1. 用 ffmpeg 实际提取到的帧数创建视频帧（同步保存 FullFramePath）
                             for (int i = 0; i < actualFrameCount; i++)
                             {
                                 TimelineFrames.Add(new TimelineFrame
                                 {
                                     FrameIndex = i,
-                                    Timestamp = TimeSpan.FromSeconds(i / fps)
+                                    Timestamp = TimeSpan.FromSeconds(i / fps),
+                                    // 回填全分辨率帧 JPEG 路径，供 PhotoViewer 大图预览
+                                    FullFramePath = i < result.JpegPaths.Count
+                                        ? result.JpegPaths[i] : null
                                 });
                             }
 
@@ -1122,6 +1145,91 @@ namespace LivePhotoBox.ViewModels
                 catch (Exception ex) { LogService.FileOp($"Cleanup temp video failed: {ex.Message}", Models.LogLevel.Warning); }
                 _tempVideoPath = null;
             }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  大图预览加载
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// 异步加载选中文件的大图预览（DecodePixelWidth=2560）。
+        /// 文件读取在后台线程，BitmapImage 创建和 SetSource 在 UI 线程。
+        /// </summary>
+        private async Task LoadPreviewImageAsync(string imagePath)
+        {
+            _previewLoadCts?.Cancel();
+            _previewLoadCts?.Dispose();
+            _previewLoadCts = new CancellationTokenSource();
+            var token = _previewLoadCts.Token;
+
+            // 立即清空旧预览（避免新文件显示旧图）
+            PreviewImageSource = null;
+
+            try
+            {
+                // 后台线程读取文件字节
+                byte[] fileBytes = await Task.Run(() =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    using var ms = new MemoryStream();
+                    fs.CopyTo(ms);
+                    return ms.ToArray();
+                }, token);
+
+                if (token.IsCancellationRequested) return;
+
+                // UI 线程创建 BitmapImage 并 SetSource
+                var dispatcher = App.MainWindow?.DispatcherQueue;
+                if (dispatcher == null) return;
+
+                dispatcher.TryEnqueue(() =>
+                {
+                    if (token.IsCancellationRequested) return;
+                    try
+                    {
+                        var bmp = new BitmapImage { DecodePixelWidth = 2560 };
+                        var ms = new MemoryStream(fileBytes);
+                        ms.Position = 0;
+                        bmp.SetSource(ms.AsRandomAccessStream());
+                        PreviewImageSource = bmp;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Debug($"PhotoViewer decode failed: {ex.Message}", LogSource.UI);
+                    }
+                });
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                LogService.Debug($"PhotoViewer load failed: {ex.Message}", LogSource.UI);
+            }
+        }
+
+        /// <summary>
+        /// 用户手动点击时间轴帧 → 更新大图预览。
+        /// 照片帧⭐ → 加载原始照片文件；
+        /// 视频帧 → 加载 ffmpeg 提取的全分辨率 JPEG。
+        /// </summary>
+        private async Task UpdatePreviewForTimelineFrameAsync(TimelineFrame frame)
+        {
+            string? imagePath = null;
+
+            if (frame.IsStillPhoto)
+            {
+                // 静态照片帧：使用原始照片文件
+                imagePath = SelectedFilePath;
+            }
+            else if (!string.IsNullOrEmpty(frame.FullFramePath) && File.Exists(frame.FullFramePath))
+            {
+                // 视频帧：使用 ffmpeg 提取的全分辨率帧 JPEG
+                imagePath = frame.FullFramePath;
+            }
+
+            if (string.IsNullOrEmpty(imagePath)) return;
+
+            await LoadPreviewImageAsync(imagePath);
         }
 
         /// <summary>解析 exiftool JSON 输出为结构化属性</summary>

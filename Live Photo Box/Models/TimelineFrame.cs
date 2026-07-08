@@ -45,6 +45,9 @@ namespace LivePhotoBox.Models
         private static readonly SolidColorBrush _videoFrameBadgeBg = new(
             Windows.UI.Color.FromArgb(0x80, 0x00, 0x00, 0x00)); // 半透明黑
 
+        /// <summary>全分辨率帧 JPEG 文件路径，供 PhotoViewer 加载大图预览。照片帧为 null</summary>
+        public string? FullFramePath { get; set; }
+
         /// <summary>帧缩略图（后台 ffmpeg 提取后回填，照片帧复用 SelectedFileThumbnail）</summary>
         [ObservableProperty]
         private ImageSource? _thumbnail;

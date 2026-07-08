@@ -1,0 +1,85 @@
+<!--
+    PhotoViewer.xaml
+    独立的高性能图片查看器 UserControl，用于 KeyPhoto 页面的大图预览区域。
+
+    架构（参考 Windows 相册）：
+    ┌─────────────────────────────────────────┐
+    │  RootGrid (Clip 裁剪)                    │
+    │  ┌───────────────────────────────────┐   │
+    │  │ ViewportGrid (手势交互容器)        │   │
+    │  │  ├─ Image + CompositeTransform    │   │
+    │  │  └─ MediaPlayerElement (预留)     │   │
+    │  └───────────────────────────────────┘   │
+    │  ┌───────────────────────────────────┐   │
+    │  │ OverlayCanvas (IsHitTestVisible   │   │
+    │  │  =False, 仅承载 HUD 元素)        │   │
+    │  └───────────────────────────────────┘   │
+    └─────────────────────────────────────────┘
+
+    分层原理：
+    - ViewportGrid：Background="Transparent"，处理滚轮/拖拽/双击等所有图片手势
+    - OverlayCanvas：默认事件穿透，未来可放 Live Photo 按钮/HUD 等
+      按钮区域设 IsHitTestVisible=True 即可响应，不影响其余区域手势
+
+    缩放/平移使用 CompositeTransform（GPU 加速），而非 ScrollViewer。
+    Stretch="Uniform" 做基础适配，CompositeTransform 叠加缩放和平移。
+-->
+<UserControl
+    x:Class="LivePhotoBox.Controls.PhotoViewer"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    IsTabStop="False">
+
+    <Grid x:Name="RootGrid">
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!--  Viewport：图片操作容器（处理所有手势）                     -->
+        <!--  Background="Transparent" 确保可命中 Pointer 事件          -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <Grid x:Name="ViewportGrid"
+              Background="Transparent"
+              PointerWheelChanged="Viewport_PointerWheelChanged"
+              PointerPressed="Viewport_PointerPressed"
+              PointerMoved="Viewport_PointerMoved"
+              PointerReleased="Viewport_PointerReleased"
+              DoubleTapped="Viewport_DoubleTapped"
+              SizeChanged="Viewport_SizeChanged">
+
+            <!-- 图片：Stretch="Uniform" 让框架完成基础适配（填满 Viewport 并保持宽高比），
+                 CompositeTransform 叠加缩放/平移。Uniform 的内容居中偏移由代码手动计算。 -->
+            <Image x:Name="MainImage"
+                   Stretch="Uniform"
+                   RenderTransformOrigin="0,0">
+                <Image.RenderTransform>
+                    <CompositeTransform x:Name="ImageTransform"
+                                        ScaleX="1" ScaleY="1"
+                                        TranslateX="0" TranslateY="0"/>
+                </Image.RenderTransform>
+            </Image>
+
+            <!-- 视频播放器（预留，后续播放 Live Photo） -->
+            <MediaPlayerElement x:Name="VideoPlayer"
+                                Visibility="Collapsed"
+                                AreTransportControlsEnabled="False"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"/>
+        </Grid>
+
+        <!-- ════════════════════════════════════════════════════════ -->
+        <!--  Overlay：HUD 展示层（默认事件穿透到 Viewport）            -->
+        <!--  后续在此添加 Live Photo 按钮、缩放指示器等               -->
+        <!-- ════════════════════════════════════════════════════════ -->
+        <Canvas x:Name="OverlayCanvas"
+                IsHitTestVisible="False">
+            <!-- 加载指示器（居中） -->
+            <ProgressRing x:Name="LoadingRing"
+                          Width="36" Height="36"
+                          Canvas.Left="0" Canvas.Top="0"
+                          Visibility="Collapsed"
+                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+        </Canvas>
+    </Grid>
+</UserControl>

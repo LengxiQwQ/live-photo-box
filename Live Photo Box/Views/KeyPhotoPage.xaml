@@ -12,6 +12,7 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoBox.Models"
     xmlns:converters="using:LivePhotoBox.Converters"
+    xmlns:controls="using:LivePhotoBox.Controls"
     mc:Ignorable="d"
     Background="Transparent"
     NavigationCacheMode="Required">
@@ -530,38 +531,44 @@
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- ── 图片预览 ── -->
+                <!-- ── 图片预览（PhotoViewer：高性能 Image+CompositeTransform 架构）── -->
                 <Border x:Name="PreviewBorder" Grid.Row="0" Style="{StaticResource CardBorderStyle}"
                         Padding="0" Margin="0,0,0,4">
                     <Grid>
-                        <Image x:Name="PreviewImage" Stretch="Uniform"
-                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="2"/>
+                        <!-- 大图查看器：占满整个预览区 -->
+                        <controls:PhotoViewer x:Name="PhotoViewer"
+                                              ImageSource="{x:Bind ViewModel.PreviewImageSource, Mode=OneWay}"
+                                              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+
+                        <!-- 缩放控件 + 最大化（浮动在右上角，覆盖在 PhotoViewer 上方） -->
                         <StackPanel Orientation="Horizontal" Spacing="4"
-                                    HorizontalAlignment="Right" VerticalAlignment="Top" Margin="6,6,6,0">
+                                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                                    Margin="6,6,6,0">
                             <Button x:Uid="KeyPhotoPage_ZoomOutBtn"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
-                                    VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                    Click="ZoomOutButton_Click"
                                     ToolTipService.ToolTip="缩小">
                                 <FontIcon Glyph="&#xE949;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
                             <Button x:Uid="KeyPhotoPage_ZoomResetBtn"
+                                    x:Name="ZoomPercentButton"
                                     Width="36" Height="28" Padding="0" CornerRadius="5"
-                                    VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    ToolTipService.ToolTip="100%">
-                                <TextBlock Text="100%" FontSize="10" FontWeight="SemiBold"
+                                    Click="ZoomPercentButton_Click"
+                                    ToolTipService.ToolTip="适应屏幕 / 100%">
+                                <TextBlock x:Name="ZoomPercentText" Text="100%" FontSize="10" FontWeight="SemiBold"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            VerticalAlignment="Center" HorizontalAlignment="Center"/>
                             </Button>
                             <Button x:Uid="KeyPhotoPage_ZoomInBtn"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
-                                    VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                    Click="ZoomInButton_Click"
                                     ToolTipService.ToolTip="放大">
                                 <FontIcon Glyph="&#xE948;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -572,7 +579,6 @@
                             <Button x:Name="MaximizeButton"
                                     x:Uid="KeyPhotoPage_MaximizeButton"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
-                                    VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="MaximizeButton_Click"

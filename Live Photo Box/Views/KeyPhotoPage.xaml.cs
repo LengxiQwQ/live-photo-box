@@ -82,6 +82,7 @@ namespace LivePhotoBox.Views
             ViewModel.RequestScrollToFrame += OnRequestScrollToFrame;
 
             Loaded += KeyPhotoPage_Loaded;
+            PhotoViewer.ScaleChanged += PhotoViewer_ScaleChanged;
             FileItemListView.ContainerContentChanging += OnContainerContentChanging;
             TimelineListView.ContainerContentChanging += OnTimelineContainerContentChanging;
         }
@@ -201,6 +202,40 @@ namespace LivePhotoBox.Views
                 MaximizeButtonIcon.Glyph = "";
                 ToolTipService.SetToolTip(MaximizeButton, "最大化预览");
             }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  缩放按钮（委托给 PhotoViewer）
+        // ════════════════════════════════════════════════════════════
+
+        private void ZoomInButton_Click(object sender, RoutedEventArgs e)
+        {
+            PhotoViewer.ZoomIn();
+            UpdateZoomPercentDisplay();
+        }
+
+        private void ZoomOutButton_Click(object sender, RoutedEventArgs e)
+        {
+            PhotoViewer.ZoomOut();
+            UpdateZoomPercentDisplay();
+        }
+
+        private void ZoomPercentButton_Click(object sender, RoutedEventArgs e)
+        {
+            PhotoViewer.ToggleFitVsPixel();
+            UpdateZoomPercentDisplay();
+        }
+
+        /// <summary>同步缩放百分比显示（相对于 Fit 的整数百分比）</summary>
+        private void UpdateZoomPercentDisplay()
+        {
+            int percent = (int)Math.Round(PhotoViewer.CurrentScale * 100);
+            ZoomPercentText.Text = $"{percent}%";
+        }
+
+        private void PhotoViewer_ScaleChanged(double newScale)
+        {
+            UpdateZoomPercentDisplay();
         }
 
         private void KeyPhotoPage_Loaded(object sender, RoutedEventArgs e)
