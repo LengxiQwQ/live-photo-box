@@ -39,11 +39,10 @@ namespace LivePhotoBox.Services
         /// 使用 ffmpeg 将视频全部帧提取为缩略图 JPEG，输出到临时目录。
         /// </summary>
         /// <param name="videoPath">视频文件路径</param>
-        /// <param name="thumbWidth">缩略图宽度（px），高度按比例缩放</param>
         /// <param name="ct">取消令牌</param>
         /// <returns>提取结果（临时目录 + 帧数 + JPEG 路径列表），失败返回 null</returns>
         public static async Task<FrameExtractionResult?> ExtractAllFramesAsync(
-            string videoPath, int thumbWidth, CancellationToken ct)
+            string videoPath, CancellationToken ct)
         {
             string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
@@ -62,13 +61,12 @@ namespace LivePhotoBox.Services
 
                 // ffmpeg 参数：
                 //   -vsync 0      — 不丢帧不重复，每帧都输出
-                //   scale=w:-1   — 宽度缩放到目标值，高度自动保持比例
                 //   -q:v 3       — JPEG 质量（2-5，3=高质量小体积）
                 //   frame_%06d   — 六位零填充序号（ffmpeg 从 1 开始编号）
+                //   不缩放 — 输出原始尺寸，缩略图由 DecodePixelWidth 控制
                 string outputPattern = Path.Combine(tempDir, "frame_%06d.jpg");
-                string scaleFilter = $"scale={thumbWidth}:-1:force_original_aspect_ratio=decrease";
 
-                string args = $"-i \"{videoPath}\" -vsync 0 -vf \"{scaleFilter}\" " +
+                string args = $"-i \"{videoPath}\" -vsync 0 " +
                               $"-q:v 3 -f image2 \"{outputPattern}\" -y -loglevel error";
 
                 var psi = new ProcessStartInfo

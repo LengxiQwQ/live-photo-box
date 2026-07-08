@@ -599,12 +599,17 @@
                                 <TextBlock x:Uid="KeyPhotoPage_TimelineTitle"
                                            Text="Live Photo 时间轴" FontWeight="SemiBold" FontSize="11"
                                            Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                                <ProgressRing Width="12" Height="12" IsIndeterminate="True"
+                                              VerticalAlignment="Center" Margin="4,0,0,0"
+                                              Opacity="{x:Bind ViewModel.TimelineLoadingOpacity, Mode=OneWay}"
+                                              Foreground="{ThemeResource AccentFillColorDefaultBrush}">
+                                    <ProgressRing.RenderTransform>
+                                        <TranslateTransform Y="2"/>
+                                    </ProgressRing.RenderTransform>
+                                </ProgressRing>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal"
                                         HorizontalAlignment="Right" VerticalAlignment="Center">
-                                <ProgressRing Width="12" Height="12" IsIndeterminate="True" Margin="0,0,6,0"
-                                              Visibility="{x:Bind ViewModel.IsTimelineLoading, Mode=OneWay}"
-                                              Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                 <TextBlock Text="{x:Bind ViewModel.TimelineInfo, Mode=OneWay}"
                                            FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                            VerticalAlignment="Center"/>

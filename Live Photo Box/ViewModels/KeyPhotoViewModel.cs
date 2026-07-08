@@ -220,6 +220,14 @@ namespace LivePhotoBox.ViewModels
         /// <summary>帧提取是否正在进行中</summary>
         [ObservableProperty] private bool _isTimelineLoading;
 
+        /// <summary>时间轴 loading 透明度（0=隐藏, 1=显示），用 Opacity 而非 Visibility 避免布局跳动</summary>
+        public double TimelineLoadingOpacity => IsTimelineLoading ? 1.0 : 0.0;
+
+        partial void OnIsTimelineLoadingChanged(bool value)
+        {
+            OnPropertyChanged(nameof(TimelineLoadingOpacity));
+        }
+
         /// <summary>时间轴帧提取取消令牌</summary>
         private CancellationTokenSource? _timelineCts;
 
@@ -646,20 +654,7 @@ namespace LivePhotoBox.ViewModels
                             LogLevel.Info);
                     }
 
-                    // ═══ 无论兜底是否触发，始终用最终 durSec 同步 TimelineInfo ═══
-                    if (durSec > 0)
-                    {
-                        double fps = double.TryParse(vidProps.VideoFrameRate,
-                            System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture, out var f)
-                            ? f : 30.0;
-                        int totalFrames = (int)Math.Ceiling(durSec * fps);
-                        string durDisplay = $"{durSec:F2}s";
-                        TimelineInfo = ResourceService.Format(
-                            "KeyPhoto_TimelineInfo", durDisplay, totalFrames);
-                    }
-
-                    // 计算照片帧的关键帧时间偏移（各协议标签）
+                    // 计算关键帧的时间偏移（各协议标签）
                     // 优先级：MotionPhotoPresentationTimestampUs(Google V2) >
                     //         MicroVideoPresentationTimestampUs(Google V1) >
                     //         PosterTime(Apple paired .MOV) >
@@ -667,7 +662,6 @@ namespace LivePhotoBox.ViewModels
                     double keyPhotoTimeSeconds = 0;
                     if (imgProps.MotionPhotoPresentationTimestampUs > 0)
                     {
-                        // Google V2 / OPPO: JPEG XMP 中精确标记，微秒→秒
                         keyPhotoTimeSeconds = imgProps.MotionPhotoPresentationTimestampUs / 1_000_000.0;
                         LogService.FileOp(
                             $"Timeline[LoadProps] KeyPhoto from MotionPhotoPresentationTimestampUs: " +
@@ -676,7 +670,6 @@ namespace LivePhotoBox.ViewModels
                     }
                     else if (imgProps.MicroVideoPresentationTimestampUs > 0)
                     {
-                        // Google V1: JPEG XMP 中精确标记，微秒→秒
                         keyPhotoTimeSeconds = imgProps.MicroVideoPresentationTimestampUs / 1_000_000.0;
                         LogService.FileOp(
                             $"Timeline[LoadProps] KeyPhoto from MicroVideoPresentationTimestampUs: " +
@@ -685,14 +678,13 @@ namespace LivePhotoBox.ViewModels
                     }
                     else if (!string.IsNullOrWhiteSpace(vidProps.PosterTime))
                     {
-                        // Apple QuickTime: 配对 .MOV 的 PosterTime
                         keyPhotoTimeSeconds = ParseExifDuration(vidProps.PosterTime);
                         LogService.FileOp(
                             $"Timeline[LoadProps] KeyPhoto from PosterTime: '{vidProps.PosterTime}' → {keyPhotoTimeSeconds}s",
                             LogLevel.Info);
                     }
 
-                    // Apple PosterTime 通常为 0（视频封面帧），实际照片帧在视频中间位置
+                    // PosterTime 通常为 0，实际照片帧在视频中间位置
                     if (keyPhotoTimeSeconds <= 0 && durSec > 0)
                     {
                         var halfDur = durSec / 2.0;
@@ -701,6 +693,34 @@ namespace LivePhotoBox.ViewModels
                             $"using half duration={halfDur:F2}s",
                             LogLevel.Info);
                         keyPhotoTimeSeconds = halfDur;
+                    }
+
+                    // Apple MOV: PosterTime 永远为 0，真正封面/照片时间在 mebx 元数据轨
+                    // ffprobe 找最后一个 nb_frames=1 且 start_time>0 的 mebx 轨
+                    if (!string.IsNullOrEmpty(videoPath) && durSec > 0)
+                    {
+                        var appleTime = KeyPhotoTimingService.ReadAppleStillImageTime(videoPath);
+                        if (appleTime.HasValue && appleTime.Value > 0)
+                        {
+                            LogService.FileOp(
+                                $"Timeline[LoadProps] KeyPhoto from Apple MOV metadata track: " +
+                                $"{appleTime.Value:F4}s (was {keyPhotoTimeSeconds:F4}s)",
+                                LogLevel.Info);
+                            keyPhotoTimeSeconds = appleTime.Value;
+                        }
+                    }
+
+                    // ── 协议专属 Key Photo 时机分离（OPPO 等）──
+                    string? xmpText = null;
+                    try { xmpText = LivePhotoSplitService.ReadMetadataTextSync(imagePath); }
+                    catch { /* 非 JPEG 或读取失败，跳过 */ }
+                    var timing = KeyPhotoTimingService.Resolve(keyPhotoTimeSeconds, xmpText);
+
+                    // OPPO 改封面后原始高清图在 Original item 中，需要提取出来给 ⭐
+                    byte[]? originalPhotoBytes = null;
+                    if (timing.HasOriginalPhoto)
+                    {
+                        originalPhotoBytes = KeyPhotoTimingService.ReadOriginalPhotoBytes(imagePath);
                     }
 
                     // 触发时间轴帧提取（需要视频路径 + 元数据）
@@ -724,7 +744,9 @@ namespace LivePhotoBox.ViewModels
                             LogService.FileOp(
                                 $"Timeline[LoadProps] → Triggering extraction for '{Path.GetFileName(actualVideoPath!)}'",
                                 LogLevel.Info);
-                            TriggerTimelineExtraction(actualVideoPath!, durSec, fps, keyPhotoTimeSeconds);
+                            TriggerTimelineExtraction(actualVideoPath!, durSec, fps,
+                                timing.PhotoTimeSeconds, timing.CoverTimeSeconds,
+                                originalPhotoBytes);
                         }
                         else
                         {
@@ -823,22 +845,37 @@ namespace LivePhotoBox.ViewModels
                 parts.Add(CodecToDisplay(vp.CompressorID));
             VideoInfoLine = string.Join("  │  ", parts);
 
-            // ── 时间轴信息（TimelineInfo 由 LoadPropertiesAsync 兜底后统一同步，此处不同步）──
+            // ── 时间轴信息（TimelineInfo 由 TriggerTimelineExtraction 用 ffmpeg 真实帧数同步）──
         }
 
         /// <summary>
         /// 触发时间轴帧提取。
-        /// 由 ApplyVideoProperties 或 LoadPropertiesAsync 在拿到视频元数据后调用。
+        /// 先让 ffmpeg 解码全部帧（原始尺寸），拿到真实帧数后再创建 TimelineFrame，
+        /// 避免 Ceil(dur × fps) 估算导致的帧数不匹配（末尾空白帧）。
         /// </summary>
         /// <param name="videoPath">视频文件路径（双文件=配对视频，单文件=提取出的临时视频）</param>
         /// <param name="durationSeconds">视频时长（秒）</param>
-        /// <param name="fps">视频帧率</param>
+        /// <param name="fps">视频帧率（用于计算每帧时间戳）</param>
+        /// <param name="keyPhotoTimeSeconds">关键帧时间偏移（秒）</param>
+        /// <param name="photoTimeSeconds">静态照片在视频中的时间偏移（秒，⭐ 位置）</param>
+        /// <param name="coverTimeSeconds">封面帧/Key Photo 时间偏移（秒，🔵 选中位置）</param>
         private void TriggerTimelineExtraction(string videoPath, double durationSeconds, double fps,
             double keyPhotoTimeSeconds = 0)
         {
+            // 兼容旧调用（没传 photo/cover 时，两者都等于 keyPhotoTimeSeconds）
+            TriggerTimelineExtraction(videoPath, durationSeconds, fps,
+                keyPhotoTimeSeconds, keyPhotoTimeSeconds);
+        }
+
+        private void TriggerTimelineExtraction(string videoPath, double durationSeconds, double fps,
+            double photoTimeSeconds, double coverTimeSeconds,
+            byte[]? originalPhotoBytes = null)
+        {
+            bool split = Math.Abs(coverTimeSeconds - photoTimeSeconds) > 0.001;
             LogService.FileOp(
                 $"Timeline[Extract] START: video='{Path.GetFileName(videoPath)}', " +
-                $"dur={durationSeconds}s, fps={fps}, keyPhotoTime={keyPhotoTimeSeconds}s",
+                $"dur={durationSeconds}s, fps={fps}, " +
+                $"photo={photoTimeSeconds}s, cover={coverTimeSeconds}s, split={split}",
                 LogLevel.Info);
 
             // 取消上一次提取
@@ -847,19 +884,6 @@ namespace LivePhotoBox.ViewModels
             _timelineCts = new CancellationTokenSource();
             var ct = _timelineCts.Token;
 
-            int totalFrames = (int)Math.Ceiling(durationSeconds * fps);
-            if (totalFrames <= 0)
-            {
-                LogService.FileOp(
-                    $"Timeline[Extract] SKIP: totalFrames={totalFrames} (dur={durationSeconds} * fps={fps})",
-                    LogLevel.Warning);
-                return;
-            }
-
-            LogService.FileOp(
-                $"Timeline[Extract] Calculated totalFrames={totalFrames}, creating placeholders...",
-                LogLevel.Info);
-
             var dispatcher = App.MainWindow?.DispatcherQueue;
             if (dispatcher == null)
             {
@@ -867,70 +891,21 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            // 先批量创建占位 TimelineFrame（立即显示序号），再插入照片帧
+            // 立即显示 loading（旧帧已在 SelectFile 中清空，仅实况→实况不清空）
             dispatcher.TryEnqueue(() =>
             {
                 TimelineFrames.Clear();
-                for (int i = 0; i < totalFrames; i++)
-                {
-                    TimelineFrames.Add(new TimelineFrame
-                    {
-                        FrameIndex = i,
-                        Timestamp = TimeSpan.FromSeconds(i / fps)
-                    });
-                }
-
-                // 插入照片帧到正确位置（按 Timestamp 排序）
-                var photoTimestamp = TimeSpan.FromSeconds(keyPhotoTimeSeconds);
-                int insertPos = 0;
-                for (; insertPos < TimelineFrames.Count; insertPos++)
-                {
-                    if (TimelineFrames[insertPos].Timestamp >= photoTimestamp)
-                        break;
-                }
-
-                var stillFrame = new TimelineFrame
-                {
-                    FrameIndex = -1,     // 哨兵值，照片帧不是视频帧
-                    Timestamp = photoTimestamp,
-                    IsStillPhoto = true,
-                    Thumbnail = SelectedFileThumbnail  // 复用已加载的照片缩略图
-                };
-                TimelineFrames.Insert(insertPos, stillFrame);
-
-                LogService.FileOp(
-                    $"Timeline[Extract] Still photo frame inserted at pos={insertPos}/{TimelineFrames.Count}, " +
-                    $"time={keyPhotoTimeSeconds}s, thumbnail={(SelectedFileThumbnail != null ? "ok" : "null")}",
-                    LogLevel.Info);
-
                 HasTimelineFrames = true;
                 IsTimelineLoading = true;
-
-                // 程序化选中 key photo（标记为 true → 允许滚动）
-                dispatcher.TryEnqueue(() =>
-                {
-                    LogService.Debug(
-                        $"Timeline select: inserting still photo at pos={insertPos}/{TimelineFrames.Count}, " +
-                        $"totalVidFrames={totalFrames}, keyPhotoTime={keyPhotoTimeSeconds:F4}s, " +
-                        $"stillPhotoIdx={TimelineFrames.IndexOf(stillFrame)}",
-                        LogSource.UI);
-
-                    _isProgrammaticTimelineSelection = true;
-                    SelectedTimelineFrame = stillFrame;
-                });
             });
 
-            LogService.FileOp(
-                $"Timeline[Extract] Placeholders enqueued ({totalFrames} items), starting ffmpeg...",
-                LogLevel.Info);
-
-            // 后台：ffmpeg 提取全部帧缩略图
+            // 后台：ffmpeg 解码全部帧（原始尺寸），完成后一次性创建 TimelineFrame
             _ = Task.Run(async () =>
             {
                 try
                 {
                     var result = await VideoFrameExtractionService.ExtractAllFramesAsync(
-                        videoPath, thumbWidth: 104, ct);
+                        videoPath, ct);
 
                     if (ct.IsCancellationRequested)
                     {
@@ -938,34 +913,101 @@ namespace LivePhotoBox.ViewModels
                         return;
                     }
 
-                    if (result == null)
+                    if (result == null || result.FrameCount <= 0)
                     {
                         LogService.FileOp(
-                            "Timeline[Extract] ffmpeg returned null — extraction failed (see earlier errors)",
+                            "Timeline[Extract] ffmpeg returned null or 0 frames — extraction failed",
                             LogLevel.Error);
-                        dispatcher.TryEnqueue(() => IsTimelineLoading = false);
+                        dispatcher.TryEnqueue(() =>
+                        {
+                            IsTimelineLoading = false;
+                            HasTimelineFrames = false;
+                        });
                         return;
                     }
 
+                    int actualFrameCount = result.FrameCount;
                     LogService.FileOp(
-                        $"Timeline[Extract] ffmpeg done: {result.FrameCount} frames in '{result.TempDirectory}'",
+                        $"Timeline[Extract] ffmpeg done: {actualFrameCount} frames in '{result.TempDirectory}'",
                         LogLevel.Info);
 
                     // 存储临时目录路径以便后续清理
                     _frameExtractDir = result.TempDirectory;
 
-                    // UI 线程：逐帧加载 JPEG → BitmapImage → 回填 Thumbnail
+                    // UI 线程：用真实帧数创建 TimelineFrame → 插入照片帧 → 加载缩略图
                     var loadedCount = 0;
                     var failedCount = 0;
                     dispatcher.TryEnqueue(() =>
                     {
                         try
                         {
-                            // 逐帧加载 JPEG，跳过照片帧（照片帧已用 SelectedFileThumbnail 填充）
+                            // 1. 用 ffmpeg 实际提取到的帧数创建视频帧
+                            for (int i = 0; i < actualFrameCount; i++)
+                            {
+                                TimelineFrames.Add(new TimelineFrame
+                                {
+                                    FrameIndex = i,
+                                    Timestamp = TimeSpan.FromSeconds(i / fps)
+                                });
+                            }
+
+                            // 2. 插入静态照片帧 ⭐（用 photoTimeSeconds 定位）
+                            var photoTimestamp = TimeSpan.FromSeconds(photoTimeSeconds);
+                            int insertPos = 0;
+                            for (; insertPos < TimelineFrames.Count; insertPos++)
+                            {
+                                if (TimelineFrames[insertPos].Timestamp >= photoTimestamp)
+                                    break;
+                            }
+
+                            // OPPO 改封面后：从 Original item 提取高清图作为星标缩略图
+                            Microsoft.UI.Xaml.Media.ImageSource? starThumbnail = SelectedFileThumbnail;
+                            if (originalPhotoBytes != null && originalPhotoBytes.Length > 0)
+                            {
+                                try
+                                {
+                                    var bmp = new BitmapImage { DecodePixelWidth = 104 };
+                                    var ms = new MemoryStream(originalPhotoBytes);
+                                    ms.Position = 0;
+                                    bmp.SetSource(ms.AsRandomAccessStream());
+                                    starThumbnail = bmp;
+                                    LogService.FileOp(
+                                        $"Timeline[Extract] ⭐ using Original photo ({originalPhotoBytes.Length} bytes)",
+                                        LogLevel.Info);
+                                }
+                                catch (Exception ex)
+                                {
+                                    LogService.FileOp(
+                                        $"Timeline[Extract] Failed to decode Original photo: {ex.Message}",
+                                        LogLevel.Warning);
+                                }
+                            }
+
+                            var stillFrame = new TimelineFrame
+                            {
+                                FrameIndex = -1,     // 哨兵值，照片帧不是视频帧
+                                Timestamp = photoTimestamp,
+                                IsStillPhoto = true,
+                                Thumbnail = starThumbnail
+                            };
+                            TimelineFrames.Insert(insertPos, stillFrame);
+
+                            LogService.FileOp(
+                                $"Timeline[Extract] Still photo ⭐ at pos={insertPos}/{TimelineFrames.Count}, " +
+                                $"time={photoTimeSeconds}s, split={split}, " +
+                                $"thumbnail={(starThumbnail != null ? "ok" : "null")}",
+                                LogLevel.Info);
+
+                            // 3. TimelineInfo 使用真实帧数（不是 Ceil(dur×fps) 估算值）
+                            string durDisplay = $"{durationSeconds:F2}s";
+                            TimelineInfo = ResourceService.Format(
+                                "KeyPhoto_TimelineInfo", durDisplay, actualFrameCount);
+
+                            // 4. 逐帧加载 JPEG → BitmapImage（DecodePixelWidth 限制解码分辨率）
                             int timelineIdx = 0;
                             for (int jpegIdx = 0; jpegIdx < result.JpegPaths.Count; jpegIdx++)
                             {
-                                // 跳过 TimelineFrames 中的照片帧
+                                // 跳过照片帧
                                 while (timelineIdx < TimelineFrames.Count
                                        && TimelineFrames[timelineIdx].IsStillPhoto)
                                     timelineIdx++;
@@ -973,7 +1015,7 @@ namespace LivePhotoBox.ViewModels
 
                                 try
                                 {
-                                    var bmp = new BitmapImage();
+                                    var bmp = new BitmapImage { DecodePixelWidth = 104 };
                                     using var fs = new FileStream(
                                         result.JpegPaths[jpegIdx], FileMode.Open, FileAccess.Read, FileShare.Read);
                                     var ms = new MemoryStream();
@@ -996,14 +1038,43 @@ namespace LivePhotoBox.ViewModels
                                     }
                                 }
                             }
-                        }
-                        finally
-                        {
+
                             IsTimelineLoading = false;
                             LogService.FileOp(
-                                $"Timeline[Extract] Thumbnails loaded: {loadedCount} ok, {failedCount} failed (out of {result.FrameCount})",
+                                $"Timeline[Extract] Thumbnails loaded: {loadedCount} ok, {failedCount} failed (out of {actualFrameCount})",
                                 failedCount > 0 ? LogLevel.Warning : LogLevel.Info);
-                            // 缩略图全部加载完后才清理临时目录（否则会删掉正在读的文件）
+
+                            // 5. 找到离 coverTimeSeconds 最近的帧并选中
+                            //    未改封面时 = stillFrame(⭐)；改了封面时可能是某个视频帧
+                            var coverTs = TimeSpan.FromSeconds(coverTimeSeconds);
+                            TimelineFrame? frameToSelect = stillFrame;
+                            if (split)
+                            {
+                                double minDiff = (stillFrame.Timestamp - coverTs).Duration().TotalSeconds;
+                                foreach (var f in TimelineFrames)
+                                {
+                                    double diff = (f.Timestamp - coverTs).Duration().TotalSeconds;
+                                    if (diff < minDiff) { minDiff = diff; frameToSelect = f; }
+                                }
+                            }
+
+                            _isProgrammaticTimelineSelection = true;
+                            SelectedTimelineFrame = frameToSelect;
+                            LogService.Debug(
+                                $"Timeline select: {(frameToSelect.IsStillPhoto ? "⭐" : $"vid #{frameToSelect.FrameIndex}")} " +
+                                $"at {frameToSelect.Timestamp.TotalSeconds:F4}s " +
+                                $"(cover={coverTimeSeconds:F4}s, photo={photoTimeSeconds:F4}s, split={split})",
+                                LogSource.UI);
+
+                            // 临时帧文件保留，切换图片时由 SelectFile 清理
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.FileOp(
+                                $"Timeline[Extract] UI thread exception: {ex.Message}",
+                                LogLevel.Error, ex);
+                            IsTimelineLoading = false;
+                            HasTimelineFrames = false;
                             CleanupFrameTempFiles();
                             CleanupTempVideo();
                         }
@@ -1012,7 +1083,6 @@ namespace LivePhotoBox.ViewModels
                 catch (OperationCanceledException)
                 {
                     LogService.FileOp("Timeline[Extract] ffmpeg Task CANCELLED (user switched files)", LogLevel.Warning);
-                    // 取消时也要清理
                     CleanupFrameTempFiles();
                     CleanupTempVideo();
                 }
@@ -1021,15 +1091,14 @@ namespace LivePhotoBox.ViewModels
                     LogService.FileOp(
                         $"Timeline[Extract] ffmpeg Task EXCEPTION: {ex.GetType().Name}: {ex.Message}",
                         LogLevel.Error, ex);
-                    LogService.FileOp(
-                        $"Timeline extraction failed: {ex.Message}",
-                        Models.LogLevel.Error, ex);
-                    dispatcher.TryEnqueue(() => IsTimelineLoading = false);
-                    // 异常时也要清理
+                    dispatcher.TryEnqueue(() =>
+                    {
+                        IsTimelineLoading = false;
+                        HasTimelineFrames = false;
+                    });
                     CleanupFrameTempFiles();
                     CleanupTempVideo();
                 }
-                // 注意：finally 不再清理 — 正常路径在 dispatcher 回调中清理，异常/取消路径各自清理
             }, ct);
         }
 

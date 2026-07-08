@@ -22,6 +22,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace LivePhotoBox.Views
 {
@@ -215,9 +216,18 @@ namespace LivePhotoBox.Views
             DispatcherQueue.TryEnqueue(() => ForceScrollBarsAlwaysThick());
         }
 
-        /// <summary>ViewModel 通知时间轴滚动到指定帧并居中。
-        /// 仅在程序化选中 key photo 时触发（用户手动点击不滚动）。
-        /// 用索引计算偏移，延迟两帧等 ListView 布局完成后再 ChangeView 居中。</summary>
+        /// <summary>
+        /// ViewModel 通知时间轴选中 key photo 帧并居中滚动。
+        /// 仅在程序化选中时触发（用户手动点击不滚动）。
+        ///
+        /// 核心问题：ViewModel 设置 SelectedTimelineFrame 时，ListView 的 Items
+        /// 刚被刷新，容器尚未完成布局，ScrollViewer 的 ExtentWidth 仍为 0。
+        /// 之前的双 DispatcherQueue 模式在首帧 ViewportWidth≤0 时直接放弃，导致
+        /// 每次加载都静默跳过滚动。
+        ///
+        /// 改进：带重试次数的延迟滚动，最多尝试 5 次（每次约一帧），确保布局完成后
+        /// 能正确居中。同时显式设置 ListView.SelectedItem 绕过 x:Bind TwoWay 时序问题。
+        /// </summary>
         private void OnRequestScrollToFrame(TimelineFrame frame)
         {
             // 取消上一次在途的 scroll（快速切换文件时的竞态）
@@ -226,51 +236,116 @@ namespace LivePhotoBox.Views
             _scrollCts = new CancellationTokenSource();
             var ct = _scrollCts.Token;
 
-            // 第一帧延后：等 ListView 初步布局拿到 ViewportWidth
+            // 显式设置 ListView 选中项（绕过 x:Bind TwoWay 时序问题）
+            // 此时已在 UI 线程，直接同步设置即可
+            TimelineListView.SelectedItem = frame;
+
+            // 延迟滚动：每 120ms 重试一次，最多 5 次，直到 ScrollViewer 布局完成
+            const int maxRetries = 5;
+            const int delayMs = 120;
+            ScheduleScrollRetry(frame, ct, maxRetries, delayMs);
+        }
+
+        private void ScheduleScrollRetry(TimelineFrame frame, CancellationToken ct,
+            int remainingRetries, int delayMs)
+        {
+            if (ct.IsCancellationRequested || remainingRetries <= 0) return;
+
             DispatcherQueue.TryEnqueue(() =>
             {
                 if (ct.IsCancellationRequested) return;
+
                 try
                 {
                     var sv = FindVisualChild<ScrollViewer>(TimelineListView);
-                    if (sv == null || sv.ViewportWidth <= 0) return;
+                    if (sv == null || sv.ViewportWidth <= 0 || sv.ExtentWidth <= 0)
+                    {
+                        // 布局未就绪，延迟后重试
+                        _ = RetryAfterDelay(frame, ct, remainingRetries - 1, delayMs);
+                        return;
+                    }
 
                     int index = ViewModel.TimelineFrames.IndexOf(frame);
                     if (index < 0) return;
 
                     const double itemStep = 56;
-                    int totalItems = ViewModel.TimelineFrames.Count;
-                    double totalWidth = totalItems * itemStep;
-
-                    // 如果时间轴整条比面板窄，无需滚动
+                    double totalWidth = ViewModel.TimelineFrames.Count * itemStep;
                     double maxOffset = totalWidth - sv.ViewportWidth;
                     if (maxOffset <= 0) return;
 
-                    // 第二帧延后：等 ScrollViewer 的 ExtentWidth 稳定
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        if (ct.IsCancellationRequested) return;
+                    double targetOffset = index * itemStep + 28.0 - (sv.ViewportWidth / 2.0);
+                    targetOffset = Math.Max(0, Math.Min(targetOffset, maxOffset));
 
-                        var sv2 = FindVisualChild<ScrollViewer>(TimelineListView);
-                        if (sv2 == null || sv2.ViewportWidth <= 0) return;
+                    LogService.Debug(
+                        $"Timeline scroll: idx={index}, total={ViewModel.TimelineFrames.Count}, " +
+                        $"vw={sv.ViewportWidth:F0}, extent={sv.ExtentWidth:F0}, " +
+                        $"offset={targetOffset:F0}, max={maxOffset:F0}",
+                        LogSource.UI);
 
-                        double targetOffset = index * itemStep + 28.0 - (sv2.ViewportWidth / 2.0);
-                        targetOffset = Math.Max(0, Math.Min(targetOffset, maxOffset));
+                    sv.ChangeView(targetOffset, null, null);
 
-                        LogService.Debug(
-                            $"Timeline ChangeView: idx={index}, total={totalItems}, " +
-                            $"vw={sv2.ViewportWidth:F0}, extent={sv2.ExtentWidth:F0}, " +
-                            $"offset={targetOffset:F0}, max={maxOffset:F0}",
-                            LogSource.UI);
-
-                        sv2.ChangeView(targetOffset, null, null);
-                    });
+                    // ChangeView 后容器需要约一帧才能被 realized，
+                    // 延迟后找到容器并显式刷新选中框视觉
+                    _ = RefreshSelectionVisualAfterScroll(frame, ct, 3);
                 }
                 catch (Exception ex)
                 {
                     LogService.Debug($"Timeline scroll failed: {ex.Message}", LogSource.UI);
                 }
             });
+        }
+
+        /// <summary>
+        /// 滚动后延迟刷新选中视觉。ChangeView 后 WinUI ListView 虚拟化
+        /// 需要约一帧来创建容器。每 50ms 通过 DispatcherQueue 检查一次，
+        /// 找到容器后立即刷新选中框。
+        /// </summary>
+        private async Task RefreshSelectionVisualAfterScroll(
+            TimelineFrame frame, CancellationToken ct, int remaining)
+        {
+            for (int i = 0; i < remaining; i++)
+            {
+                try { await Task.Delay(50, ct); }
+                catch (TaskCanceledException) { return; }
+                if (ct.IsCancellationRequested) return;
+
+                // 必须在 UI 线程上访问 ContainerFromItem
+                bool found = false;
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    try
+                    {
+                        if (TimelineListView.ContainerFromItem(frame) is ListViewItem container)
+                        {
+                            var card = FindVisualChild<Border>(container);
+                            if (card != null)
+                            {
+                                UpdateTimelineCardVisual(card, isSelected: true,
+                                    hovered: false, pressed: false);
+                                found = true;
+                            }
+                        }
+                    }
+                    catch { }
+                });
+
+                // 给 DispatcherQueue 回调一点时间执行
+                try { await Task.Delay(20, ct); }
+                catch (TaskCanceledException) { return; }
+
+                if (found) break;
+            }
+        }
+
+        private async Task RetryAfterDelay(TimelineFrame frame, CancellationToken ct,
+            int remainingRetries, int delayMs)
+        {
+            try
+            {
+                await Task.Delay(delayMs, ct);
+                ScheduleScrollRetry(frame, ct, remainingRetries, delayMs);
+            }
+            catch (TaskCanceledException) { }
         }
 
         // ════════════════════════════════════════════════════════════
