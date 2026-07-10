@@ -1,8 +1,12 @@
 <!--
-    KeyPhotoPage.xaml — 第六轮精修
+    KeyPhotoPage.xaml — 第七轮精修
 
     照片：📷大小/分辨率/日期 + 🎬视频/编码 + 协议 · 按钮在缩略图下
     EXIF 左上对齐自动换行 · 地图 50/50
+
+    时间轴：ItemsRepeater + ScrollViewer（替代 ListView）
+    · 中心锚点竖线固定 · 吸附动画可开关 · 惯性可独立禁用
+    · 帧卡片选中态通过 x:Bind → FrameBorderBrush/FrameBackground 驱动
 -->
 <Page
     x:Class="LivePhotoBox.Views.KeyPhotoPage"
@@ -590,11 +594,17 @@
                     </Grid>
                 </Border>
 
-                <!-- ── 时间轴 ── -->
+                <!-- ── 时间轴（双模式：经典 ListView / 胶片固定选中框）── -->
                 <Border x:Name="TimelinePanel" Grid.Row="1" Style="{StaticResource CardBorderStyle}"
                         Padding="10,5,10,4" Margin="0,0,0,4">
-                    <StackPanel Spacing="2">
-                        <Grid>
+                    <Grid RowSpacing="2">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- ── Row 0：标题 + 帧信息 ── -->
+                        <Grid Grid.Row="0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
@@ -615,77 +625,176 @@
                                 </ProgressRing>
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                        HorizontalAlignment="Right" VerticalAlignment="Center">
+                                        HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
                                 <TextBlock Text="{x:Bind ViewModel.TimelineInfo, Mode=OneWay}"
                                            FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                            VerticalAlignment="Center"/>
                             </StackPanel>
                         </Grid>
-                        <ListView x:Name="TimelineListView"
-                                  ItemsSource="{x:Bind ViewModel.TimelineFrames, Mode=OneWay}"
-                                  SelectedItem="{x:Bind ViewModel.SelectedTimelineFrame, Mode=TwoWay}"
-                                  SelectionMode="Single"
-                                  ScrollViewer.HorizontalScrollBarVisibility="Visible"
-                                  ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                  ScrollViewer.HorizontalScrollMode="Enabled"
-                                  ScrollViewer.VerticalScrollMode="Disabled"
-                                  Height="74" Padding="0,0,0,16"
-                                  Loaded="TimelineListView_Loaded"
-                                  SelectionChanged="TimelineListView_SelectionChanged"
-                                  ItemContainerTransitions="{x:Null}">
-                            <ListView.ItemsPanel>
-                                <ItemsPanelTemplate>
-                                    <StackPanel Orientation="Horizontal"/>
-                                </ItemsPanelTemplate>
-                            </ListView.ItemsPanel>
-                            <ListView.ItemContainerStyle>
-                                <Style TargetType="ListViewItem">
-                                    <Setter Property="Padding" Value="0"/>
-                                    <Setter Property="Margin" Value="0"/>
-                                    <Setter Property="MinHeight" Value="0"/>
-                                    <Setter Property="MinWidth" Value="0"/>
-                                    <Setter Property="IsTabStop" Value="False"/>
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="ListViewItem">
-                                                <ContentPresenter x:Name="ContentPresenter"/>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </ListView.ItemContainerStyle>
-                            <ListView.ItemTemplate>
-                                <DataTemplate x:DataType="models:TimelineFrame">
-                                    <Border x:Name="TimelineCardRoot" Width="56" Height="56" CornerRadius="5"
-                                            Background="Transparent" BorderThickness="2"
-                                            BorderBrush="Transparent">
-                                        <Grid>
-                                            <!-- 帧缩略图（复用左侧文件列表 Grid+FontIcon占位+Image 模式） -->
-                                            <Border Width="52" Height="52" CornerRadius="4"
-                                                    Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
-                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                                    HorizontalAlignment="Center" VerticalAlignment="Center">
+
+                        <!-- ══════════════════════════════════════════════════════════════ -->
+                        <!-- ── Row 1 A：经典模式（ListView）                           ── -->
+                        <!-- ══════════════════════════════════════════════════════════════ -->
+                        <Border Grid.Row="1"
+                                Visibility="{x:Bind ViewModel.IsClassicTimelineMode, Mode=OneWay}"
+                                Height="74" Padding="0">
+                            <ListView x:Name="TimelineListView"
+                                      ItemsSource="{x:Bind ViewModel.TimelineFrames, Mode=OneWay}"
+                                      SelectedItem="{x:Bind ViewModel.SelectedTimelineFrame, Mode=TwoWay}"
+                                      SelectionMode="Single"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Visible"
+                                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                      ScrollViewer.HorizontalScrollMode="Enabled"
+                                      ScrollViewer.VerticalScrollMode="Disabled"
+                                      Loaded="TimelineListView_Loaded"
+                                      SelectionChanged="TimelineListView_SelectionChanged"
+                                      ItemContainerTransitions="{x:Null}">
+                                <ListView.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ListView.ItemsPanel>
+                                <ListView.ItemContainerStyle>
+                                    <Style TargetType="ListViewItem">
+                                        <Setter Property="Padding" Value="0"/>
+                                        <Setter Property="Margin" Value="0"/>
+                                        <Setter Property="MinHeight" Value="0"/>
+                                        <Setter Property="MinWidth" Value="0"/>
+                                        <Setter Property="IsTabStop" Value="False"/>
+                                        <Setter Property="Template">
+                                            <Setter.Value>
+                                                <ControlTemplate TargetType="ListViewItem">
+                                                    <ContentPresenter x:Name="ContentPresenter"/>
+                                                </ControlTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                    </Style>
+                                </ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="models:TimelineFrame">
+                                        <Border x:Name="ClassicTimelineCardRoot" Width="56" Height="56" CornerRadius="5"
+                                                Background="Transparent" BorderThickness="2"
+                                                BorderBrush="Transparent">
+                                            <Grid>
+                                                <!-- 帧缩略图 52×52 内嵌于 56×56 卡片中 -->
+                                                <Border Width="52" Height="52" CornerRadius="4"
+                                                        Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
+                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <Grid>
+                                                        <FontIcon Glyph="&#xE722;" FontSize="18"
+                                                                  Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
+                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                                    </Grid>
+                                                </Border>
+                                                <!-- 帧角标：照片帧=金色⭐，视频帧=半透明黑数字 -->
+                                                <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
+                                                        Margin="2,0,0,2" CornerRadius="2" Padding="3,1"
+                                                        Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
+                                                    <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
+                                                               FontSize="8" Foreground="White"/>
+                                                </Border>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                        </Border>
+
+                        <!-- ══════════════════════════════════════════════════════════════ -->
+                        <!-- ── Row 1 B：胶片模式（固定选中框 + ItemsRepeater 逐帧步进）  ── -->
+                        <!-- ══════════════════════════════════════════════════════════════ -->
+                        <Grid Grid.Row="1"
+                              Visibility="{x:Bind ViewModel.IsFilmstripTimelineMode, Mode=OneWay}"
+                              Height="74" x:Name="FilmstripRoot">
+
+                            <!-- ▸▸▸ 底层：Border Viewport（纯裁切，无内置滚动） + ItemsRepeater + TranslateTransform ▸▸▸
+                                 无 ScrollViewer，无嵌套的 Padding Border。
+                                 边缘空隙由 TranslateTransform 直接计算（正数→右移），
+                                 不依赖任何布局时机，首帧永远可达画面中心。
+                                 Clip 在 SizeChanged 中动态设置。 -->
+                            <Border x:Name="FilmstripViewport"
+                                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                    Background="Transparent"
+                                    PointerWheelChanged="FilmstripViewport_PointerWheelChanged"
+                                    Loaded="FilmstripViewport_Loaded"
+                                    SizeChanged="FilmstripViewport_SizeChanged">
+                                <ItemsRepeater x:Name="TimelineRepeater"
+                                               ItemsSource="{x:Bind ViewModel.TimelineFrames, Mode=OneWay}">
+                                    <ItemsRepeater.Layout>
+                                        <StackLayout Orientation="Horizontal" Spacing="4"/>
+                                    </ItemsRepeater.Layout>
+                                    <ItemsRepeater.ItemTemplate>
+                                        <DataTemplate x:DataType="models:TimelineFrame">
+                                            <!-- 帧卡片 56×56：透明背景无选中态（选中框是固定覆盖层） -->
+                                            <Border Width="56" Height="56" CornerRadius="5"
+                                                    Background="Transparent" BorderThickness="0">
                                                 <Grid>
-                                                    <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                              Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                                    <Border Width="52" Height="52" CornerRadius="4"
+                                                            Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
+                                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                                            HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                        <Grid>
+                                                            <FontIcon Glyph="&#xE722;" FontSize="18"
+                                                                      Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
+                                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                            <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                                        </Grid>
+                                                    </Border>
+                                                    <!-- 帧角标：照片帧=金色⭐，视频帧=半透明黑数字 -->
+                                                    <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
+                                                            Margin="2,0,0,2" CornerRadius="2" Padding="3,1"
+                                                            Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
+                                                        <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
+                                                                   FontSize="8" Foreground="White"/>
+                                                    </Border>
                                                 </Grid>
                                             </Border>
-                                            <!-- 帧角标：照片帧=金色⭐，视频帧=半透明黑数字 -->
-                                            <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
-                                                    Margin="2,0,0,2" CornerRadius="2" Padding="3,1"
-                                                    Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
-                                                <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
-                                                           FontSize="8" Foreground="White"/>
-                                            </Border>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ListView.ItemTemplate>
-                        </ListView>
-                    </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsRepeater.ItemTemplate>
+                                    <ItemsRepeater.RenderTransform>
+                                        <TranslateTransform x:Name="FilmstripTransform" X="0" Y="0"/>
+                                    </ItemsRepeater.RenderTransform>
+                                </ItemsRepeater>
+                            </Border>
+
+                            <!-- ▸▸▸ 中层：固定选中框覆盖层（始终在画面中心，IsHitTestVisible=False）▸▸▸ -->
+                            <Border x:Name="FilmstripSelectionHighlight"
+                                    Width="56" Height="56" CornerRadius="5"
+                                    BorderThickness="2"
+                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                    IsHitTestVisible="False"/>
+
+                            <!-- ▸▸▸ 顶层：前/后帧切换按钮 ▸▸▸ -->
+                            <Button x:Name="FilmstripPrevFrameButton"
+                                    Width="24" Height="24" Padding="0" CornerRadius="12"
+                                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                                    Margin="4,0,0,0"
+                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                    Command="{x:Bind ViewModel.GoToPreviousFrameCommand}"
+                                    IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
+                                    x:Uid="KeyPhotoPage_PrevFrame" ToolTipService.ToolTip="上一帧">
+                                <FontIcon Glyph="&#xE76B;" FontSize="10"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </Button>
+                            <Button x:Name="FilmstripNextFrameButton"
+                                    Width="24" Height="24" Padding="0" CornerRadius="12"
+                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    Margin="0,0,4,0"
+                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                    Command="{x:Bind ViewModel.GoToNextFrameCommand}"
+                                    IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
+                                    x:Uid="KeyPhotoPage_NextFrame" ToolTipService.ToolTip="下一帧">
+                                <FontIcon Glyph="&#xE76C;" FontSize="10"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </Button>
+                        </Grid>
+                    </Grid>
                 </Border>
 
                 <!-- ── 统一信息面板（最小高度锁死，避免切换文件时抖动）── -->

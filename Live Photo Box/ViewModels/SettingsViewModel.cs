@@ -427,6 +427,24 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
+        #region KeyPhoto Timeline Settings
+
+        /// <summary>
+        /// 关键帧时间轴模式：0 = 经典 ListView（原有），1 = 胶片模式（固定选中框 + 逐帧步进）。
+        /// 设置在设置页面调整，KeyPhotoPage 读取后分别激活对应模式。
+        /// </summary>
+        [ObservableProperty]
+        private int _timelineModeIndex;
+
+        partial void OnTimelineModeIndexChanged(int value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(TimelineModeIndex), value);
+            LogService.Info($"Timeline mode changed to: {(value == 0 ? "Classic ListView" : "Filmstrip")}", LogSource.Settings);
+        }
+
+        #endregion
+
         #region Debug / Test Tools
 
         // 修复页面扫描时加载视频缩略图（默认关 = 不加载）
@@ -548,6 +566,7 @@ namespace LivePhotoBox.ViewModels
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), true);
             IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), true);
+            TimelineModeIndex = AppSettingsService.GetValue(nameof(TimelineModeIndex), 0);
         }
 
         // 异步加载硬件编码信息（WMI + FFmpeg 检测），完成后设置 SelectedHardware。

@@ -1122,5 +1122,20 @@ namespace LivePhotoBox.Views
                 },
                 ResourceService.GetString("Msg_Confirm"));
         }
+
+        // ════════════════════════════════════════════════════════════
+        //  关键帧时间轴模式切换
+        // ════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// 用户切换时间轴模式时通知 KeyPhotoPage 刷新。
+        /// 因为 KeyPhotoPage 使用 NavigationCacheMode="Required"，
+        /// 切换页面时不会重新构造，需要通过 NotifyTimelineModeChanged
+        /// 让 Visibility 绑定重新求值。
+        /// </summary>
+        private void TimelineMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            AppViewModel.Instance.KeyPhoto.NotifyTimelineModeChanged();
+        }
     }
 }

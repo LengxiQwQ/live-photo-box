@@ -9,6 +9,9 @@
  * 继承 ObservableObject，支持 MVVM 属性变更通知。
  * 缩略图懒加载：先创建占位 FrameInfo（显示序号/星标），
  * 后台 ffmpeg 提取完成后回填 Thumbnail。
+ *
+ * IsSelected 属性由 KeyPhotoViewModel 在选中帧变更时批量同步，
+ * 供 XAML DataTemplate 内绑定或代码后置视觉刷新使用。
  */
 
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -55,5 +58,13 @@ namespace LivePhotoBox.Models
         /// <summary>缩略图加载中显示 FontIcon 占位，加载完成后隐藏</summary>
         public Visibility ThumbnailPlaceholderVisibility =>
             Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
+
+        /// <summary>
+        /// 是否为当前选中帧。
+        /// 经典模式：同步 ListView.SelectedItem → 驱动卡片 Border 选中态视觉。
+        /// 胶片模式：由吸附逻辑同步，配合固定选中框覆盖确认数据一致。
+        /// </summary>
+        [ObservableProperty]
+        private bool _isSelected;
     }
 }

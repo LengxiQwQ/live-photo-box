@@ -2,10 +2,17 @@
  * KeyPhotoPage.xaml.cs
  *
  * 实况照片主图更换页面的代码后置。
- * 处理 UI 事件 + 时间轴滚轮左右滚动 + 自定义卡片交互（悬停/选中/按下）。
+ * 处理 UI 事件 + 自定义卡片交互（悬停/选中/按下）+ 预览最大化/缩放。
  *
- * 卡片视觉由 ItemTemplate 内的 Border 直接承载，ListViewItem 模板已剥离为裸 ContentPresenter，
- * 彻底消除 ListViewItem 内置的 PointerDownThemeAnimation（下压偏移动画）。
+ * 时间轴支持双模式（在设置页切换）：
+ *   经典模式（Classic）  — ListView（原有），卡片选中框跟随选中帧移动。
+ *   胶片模式（Filmstrip） — ItemsRepeater + 固定选中框覆盖层，
+ *                           选中框始终位于画面中心不动，缩略图从框下划过。
+ *                           滚轮每次精确步进一帧，支持边缘 padding
+ *                           确保所有帧都能到达画面中心。
+ *
+ * 左侧文件列表仍使用 ListView（裸 ContentPresenter 模板，消除
+ * ListViewItem 内置的 PointerDownThemeAnimation）。
  */
 
 using LivePhotoBox.Helpers;
@@ -34,10 +41,6 @@ namespace LivePhotoBox.Views
         private Border? _hoveredCard;
         private Border? _pressedCard;
 
-        // ── 时间轴卡片交互状态 ──
-        private Border? _hoveredTimelineCard;
-        private Border? _pressedTimelineCard;
-
         // ── 缓存画刷（系统换强调色时重建）──
         private SolidColorBrush _selectedBg = null!;
         private SolidColorBrush _selectedHoverBg = null!;
@@ -60,8 +63,19 @@ namespace LivePhotoBox.Views
         // ── 预览最大化状态 ──
         private bool _isPreviewMaximized;
 
-        // ── 时间轴居中滚动取消令牌 ──
+        // ── 时间轴常量 ──
+        /// <summary>帧步长：56px 卡片 + 4px 间距 = 60px</summary>
+        private const double FilmstripItemStep = 60.0;
+        private const double FilmstripItemWidth = 56.0;
+
+        // ── 经典模式（ListView）时间轴状态 ──
         private CancellationTokenSource? _scrollCts;
+        private Border? _hoveredTimelineCard;
+        private Border? _pressedTimelineCard;
+
+        // ── 胶片模式（固定选中框）状态 ──
+        private int _filmstripCurrentFrameIndex;
+        private double _filmstripViewportWidth;
 
         public KeyPhotoPage()
         {
@@ -84,7 +98,6 @@ namespace LivePhotoBox.Views
             Loaded += KeyPhotoPage_Loaded;
             PhotoViewer.ScaleChanged += PhotoViewer_ScaleChanged;
             FileItemListView.ContainerContentChanging += OnContainerContentChanging;
-            TimelineListView.ContainerContentChanging += OnTimelineContainerContentChanging;
         }
 
         /// <summary>重建所有强调色+悬停/按下画刷（系统换主题时调用）</summary>
@@ -100,6 +113,9 @@ namespace LivePhotoBox.Views
             _hoverBg = new SolidColorBrush(hoverBrush.Color) { Opacity = hoverBrush.Opacity };
             var pressedBrush = (SolidColorBrush)Application.Current.Resources["SystemControlHighlightListMediumBrush"];
             _pressedBg = new SolidColorBrush(pressedBrush.Color) { Opacity = pressedBrush.Opacity };
+
+            // 同步胶片模式选中框画刷（与文件列表使用相同的强调色画刷）
+            UpdateFilmstripSelectionHighlight();
         }
 
         /// <summary>系统强调色变化 → 重建画刷 + 刷新所有卡片视觉</summary>
@@ -112,7 +128,7 @@ namespace LivePhotoBox.Views
             });
         }
 
-        /// <summary>遍历所有可见卡片容器，刷新其视觉状态</summary>
+        /// <summary>遍历所有可见文件列表卡片容器，刷新其视觉状态</summary>
         private void RefreshAllCardVisuals()
         {
             foreach (var item in FileItemListView.Items)
@@ -242,46 +258,63 @@ namespace LivePhotoBox.Views
         {
             Loaded -= KeyPhotoPage_Loaded;
 
-            // 时间轴 ItemsSource 已通过 XAML x:Bind 绑定到 ViewModel.TimelineFrames，
-            // 不再需要手动创建 dummy 数据
-
             LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(SortComboBox);
             LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(FilterComboBox);
 
             DispatcherQueue.TryEnqueue(() => ForceScrollBarsAlwaysThick());
+
+            // 根据模式初始化对应的时间轴
+            if (ViewModel.IsClassicTimelineMode)
+                InitializeClassicTimeline();
+            else
+                InitializeFilmstripTimeline();
         }
 
-        /// <summary>
-        /// ViewModel 通知时间轴选中 key photo 帧并居中滚动。
-        /// 仅在程序化选中时触发（用户手动点击不滚动）。
-        ///
-        /// 核心问题：ViewModel 设置 SelectedTimelineFrame 时，ListView 的 Items
-        /// 刚被刷新，容器尚未完成布局，ScrollViewer 的 ExtentWidth 仍为 0。
-        /// 之前的双 DispatcherQueue 模式在首帧 ViewportWidth≤0 时直接放弃，导致
-        /// 每次加载都静默跳过滚动。
-        ///
-        /// 改进：带重试次数的延迟滚动，最多尝试 5 次（每次约一帧），确保布局完成后
-        /// 能正确居中。同时显式设置 ListView.SelectedItem 绕过 x:Bind TwoWay 时序问题。
-        /// </summary>
-        private void OnRequestScrollToFrame(TimelineFrame frame)
+        // ═════════════════════════════════════════════════════════════════
+        //  经典模式（ListView）时间轴
+        // ═════════════════════════════════════════════════════════════════
+
+        private void InitializeClassicTimeline()
         {
-            // 取消上一次在途的 scroll（快速切换文件时的竞态）
+            // ListView 的 ContainerContentChanging 在 XAML 中已注册
+            TimelineListView.ContainerContentChanging += OnTimelineContainerContentChanging;
+        }
+
+        private void TimelineListView_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (!ViewModel.IsClassicTimelineMode) return;
+            var sv = FindVisualChild<ScrollViewer>(TimelineListView);
+            if (sv != null)
+                sv.PointerWheelChanged += TimelineListScrollViewer_PointerWheelChanged;
+        }
+
+        private void TimelineListScrollViewer_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
+        {
+            if (sender is ScrollViewer sv)
+            {
+                var delta = e.GetCurrentPoint(null).Properties.MouseWheelDelta;
+                sv.ScrollToHorizontalOffset(sv.HorizontalOffset - delta);
+                e.Handled = true;
+            }
+        }
+
+        // ── 经典模式：ViewModel 通知滚动（带重试）──
+
+        private void ClassicScrollToFrame(TimelineFrame frame)
+        {
             _scrollCts?.Cancel();
             _scrollCts?.Dispose();
             _scrollCts = new CancellationTokenSource();
             var ct = _scrollCts.Token;
 
-            // 显式设置 ListView 选中项（绕过 x:Bind TwoWay 时序问题）
-            // 此时已在 UI 线程，直接同步设置即可
             TimelineListView.SelectedItem = frame;
 
-            // 延迟滚动：每 120ms 重试一次，最多 5 次，直到 ScrollViewer 布局完成
             const int maxRetries = 5;
             const int delayMs = 120;
-            ScheduleScrollRetry(frame, ct, maxRetries, delayMs);
+            ScheduleClassicScrollRetry(frame, ct, maxRetries, delayMs);
         }
 
-        private void ScheduleScrollRetry(TimelineFrame frame, CancellationToken ct,
+        private void ScheduleClassicScrollRetry(TimelineFrame frame, CancellationToken ct,
             int remainingRetries, int delayMs)
         {
             if (ct.IsCancellationRequested || remainingRetries <= 0) return;
@@ -289,14 +322,12 @@ namespace LivePhotoBox.Views
             DispatcherQueue.TryEnqueue(() =>
             {
                 if (ct.IsCancellationRequested) return;
-
                 try
                 {
                     var sv = FindVisualChild<ScrollViewer>(TimelineListView);
                     if (sv == null || sv.ViewportWidth <= 0 || sv.ExtentWidth <= 0)
                     {
-                        // 布局未就绪，延迟后重试
-                        _ = RetryAfterDelay(frame, ct, remainingRetries - 1, delayMs);
+                        _ = ClassicRetryAfterDelay(frame, ct, remainingRetries - 1, delayMs);
                         return;
                     }
 
@@ -311,31 +342,17 @@ namespace LivePhotoBox.Views
                     double targetOffset = index * itemStep + 28.0 - (sv.ViewportWidth / 2.0);
                     targetOffset = Math.Max(0, Math.Min(targetOffset, maxOffset));
 
-                    LogService.Debug(
-                        $"Timeline scroll: idx={index}, total={ViewModel.TimelineFrames.Count}, " +
-                        $"vw={sv.ViewportWidth:F0}, extent={sv.ExtentWidth:F0}, " +
-                        $"offset={targetOffset:F0}, max={maxOffset:F0}",
-                        LogSource.UI);
-
                     sv.ChangeView(targetOffset, null, null);
-
-                    // ChangeView 后容器需要约一帧才能被 realized，
-                    // 延迟后找到容器并显式刷新选中框视觉
-                    _ = RefreshSelectionVisualAfterScroll(frame, ct, 3);
+                    _ = ClassicRefreshSelectionAfterScroll(frame, ct, 3);
                 }
                 catch (Exception ex)
                 {
-                    LogService.Debug($"Timeline scroll failed: {ex.Message}", LogSource.UI);
+                    LogService.Debug($"Classic timeline scroll failed: {ex.Message}", LogSource.UI);
                 }
             });
         }
 
-        /// <summary>
-        /// 滚动后延迟刷新选中视觉。ChangeView 后 WinUI ListView 虚拟化
-        /// 需要约一帧来创建容器。每 50ms 通过 DispatcherQueue 检查一次，
-        /// 找到容器后立即刷新选中框。
-        /// </summary>
-        private async Task RefreshSelectionVisualAfterScroll(
+        private async Task ClassicRefreshSelectionAfterScroll(
             TimelineFrame frame, CancellationToken ct, int remaining)
         {
             for (int i = 0; i < remaining; i++)
@@ -344,7 +361,6 @@ namespace LivePhotoBox.Views
                 catch (TaskCanceledException) { return; }
                 if (ct.IsCancellationRequested) return;
 
-                // 必须在 UI 线程上访问 ContainerFromItem
                 bool found = false;
                 DispatcherQueue.TryEnqueue(() =>
                 {
@@ -364,54 +380,24 @@ namespace LivePhotoBox.Views
                     catch { }
                 });
 
-                // 给 DispatcherQueue 回调一点时间执行
                 try { await Task.Delay(20, ct); }
                 catch (TaskCanceledException) { return; }
-
                 if (found) break;
             }
         }
 
-        private async Task RetryAfterDelay(TimelineFrame frame, CancellationToken ct,
+        private async Task ClassicRetryAfterDelay(TimelineFrame frame, CancellationToken ct,
             int remainingRetries, int delayMs)
         {
             try
             {
                 await Task.Delay(delayMs, ct);
-                ScheduleScrollRetry(frame, ct, remainingRetries, delayMs);
+                ScheduleClassicScrollRetry(frame, ct, remainingRetries, delayMs);
             }
             catch (TaskCanceledException) { }
         }
 
-        // ════════════════════════════════════════════════════════════
-        //  时间轴滚轮
-        // ════════════════════════════════════════════════════════════
-
-        // ════════════════════════════════════════════════════════════
-        //  时间轴：ListView 加载 → 找到内部 ScrollViewer → 挂滚轮
-        // ════════════════════════════════════════════════════════════
-
-        private void TimelineListView_Loaded(object sender, RoutedEventArgs e)
-        {
-            var sv = FindVisualChild<ScrollViewer>(TimelineListView);
-            if (sv != null)
-                sv.PointerWheelChanged += TimelineScrollViewer_PointerWheelChanged;
-        }
-
-        private void TimelineScrollViewer_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
-        {
-            if (sender is ScrollViewer sv)
-            {
-                var delta = e.GetCurrentPoint(null).Properties.MouseWheelDelta;
-                sv.ScrollToHorizontalOffset(sv.HorizontalOffset - delta);
-                e.Handled = true;
-            }
-        }
-
-        // ════════════════════════════════════════════════════════════
-        //  时间轴卡片交互（悬停 / 按下 / 选中）
-        //  与左侧文件列表使用完全相同的强调色画刷 — 只改颜色不改尺寸
-        // ════════════════════════════════════════════════════════════
+        // ── 经典模式：卡片视觉（选中框+悬停）──
 
         private bool IsTimelineCardSelected(Border card)
         {
@@ -426,7 +412,6 @@ namespace LivePhotoBox.Views
 
             if (isSelected)
             {
-                // 选中态只显强调色边框，不填底色（缩略图位置留给真实图片）
                 card.Background = _transparent;
             }
             else
@@ -437,10 +422,9 @@ namespace LivePhotoBox.Views
             }
         }
 
-        // ── 时间轴容器生命周期（与左侧文件列表相同的 ContainerContentChanging 模式）──
-
         private void OnTimelineContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
         {
+            if (!ViewModel.IsClassicTimelineMode) return;
             if (args.InRecycleQueue)
             {
                 if (args.ItemContainer is ListViewItem container)
@@ -542,6 +526,179 @@ namespace LivePhotoBox.Views
                     UpdateTimelineCardVisual(card, isSelected,
                         hovered: _hoveredTimelineCard == card,
                         pressed: _pressedTimelineCard == card);
+            }
+        }
+
+        // ═════════════════════════════════════════════════════════════════
+        //  胶片模式（固定选中框 + ItemsRepeater 逐帧步进）
+        // ═════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// 胶片模式初始化。
+        /// 设置选中框画刷，计算边缘 padding 确保首末帧可到中心，初始化选中帧。
+        /// </summary>
+        private void InitializeFilmstripTimeline()
+        {
+            UpdateFilmstripSelectionHighlight();
+        }
+
+        /// <summary>
+        /// 更新选中框画刷颜色（跟随系统强调色）。
+        /// 选中框是固定覆盖层，强调色边框 + 半透明强调色背景。
+        /// </summary>
+        private void UpdateFilmstripSelectionHighlight()
+        {
+            if (FilmstripSelectionHighlight == null) return;
+            FilmstripSelectionHighlight.BorderBrush = _selectedBorder;
+            FilmstripSelectionHighlight.Background = _selectedBg;
+        }
+
+        /// <summary>
+        /// Viewport 加载完成 → 初始化 Clip、定位到当前帧。
+        /// </summary>
+        private void FilmstripViewport_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (!ViewModel.IsFilmstripTimelineMode) return;
+
+            _filmstripViewportWidth = FilmstripViewport.ActualWidth;
+            UpdateFilmstripViewportClip();
+
+            // 初始定位到首帧并在 ViewModel 中选中
+            _filmstripCurrentFrameIndex = 0;
+            UpdateFilmstripTransform();
+            if (ViewModel.TimelineFrames.Count > 0)
+                ViewModel.SelectTimelineFrameInteractively(ViewModel.TimelineFrames[0]);
+        }
+
+        /// <summary>
+        /// Viewport 尺寸变化 → 重算 Clip 和 Transform。
+        /// 模式切换（经典→胶片）时也会触发（Collapsed→Visible → SizeChanged），
+        /// 此时从中同步 ViewModel 的选中帧索引。
+        /// </summary>
+        private void FilmstripViewport_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (!ViewModel.IsFilmstripTimelineMode) return;
+
+            _filmstripViewportWidth = e.NewSize.Width;
+            UpdateFilmstripViewportClip();
+
+            // 同步 ViewModel 当前选中帧的索引
+            if (ViewModel.CurrentKeyFrame != null)
+            {
+                int idx = ViewModel.TimelineFrames.IndexOf(ViewModel.CurrentKeyFrame);
+                if (idx >= 0) _filmstripCurrentFrameIndex = idx;
+            }
+
+            UpdateFilmstripTransform();
+        }
+
+        /// <summary>
+        /// 设置 Viewport 裁切区域，防止内容溢出可见范围。
+        /// </summary>
+        private void UpdateFilmstripViewportClip()
+        {
+            if (FilmstripViewport.ActualWidth <= 0 || FilmstripViewport.ActualHeight <= 0) return;
+            var clip = new Microsoft.UI.Xaml.Media.RectangleGeometry();
+            clip.Rect = new Windows.Foundation.Rect(0, 0,
+                FilmstripViewport.ActualWidth, FilmstripViewport.ActualHeight);
+            FilmstripViewport.Clip = clip;
+        }
+
+        /// <summary>
+        /// 鼠标滚轮 — 每次步进一帧，绝对精确。
+        /// 不依赖任何"滚动"机制，只通过索引计算目标偏移。
+        /// </summary>
+        private void FilmstripViewport_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
+        {
+            if (!ViewModel.IsFilmstripTimelineMode || ViewModel.TimelineFrames.Count == 0) return;
+
+            var delta = e.GetCurrentPoint(null).Properties.MouseWheelDelta;
+            int direction = delta > 0 ? -1 : 1;
+
+            int count = ViewModel.TimelineFrames.Count;
+            int targetIdx = Math.Clamp(_filmstripCurrentFrameIndex + direction, 0, count - 1);
+
+            if (targetIdx != _filmstripCurrentFrameIndex)
+            {
+                _filmstripCurrentFrameIndex = targetIdx;
+                UpdateFilmstripTransform();
+                ViewModel.SelectTimelineFrameInteractively(ViewModel.TimelineFrames[targetIdx]);
+            }
+
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// 核心：将指定索引的帧定位到画面中心。
+        /// 完全通过 TranslateTransform 控制，无任何"滚动"层参与。
+        /// </summary>
+        private void FilmstripScrollToFrameIndex(int index, bool animate)
+        {
+            if (ViewModel.TimelineFrames.Count == 0) return;
+            if (_filmstripViewportWidth <= 0) return;
+
+            index = Math.Clamp(index, 0, ViewModel.TimelineFrames.Count - 1);
+            _filmstripCurrentFrameIndex = index;
+
+            UpdateFilmstripTransform();
+
+            ViewModel.SelectTimelineFrameInteractively(ViewModel.TimelineFrames[index]);
+        }
+
+        /// <summary>
+        /// 计算 TranslateTransform.X 使当前帧位于画面中心。
+        /// 边缘空隙（padding）由 Transform 自身产生（正数 X = 内容右移），
+        /// 不依赖任何 Border.Padding，无布局时机问题。
+        ///
+        /// 公式: Transform.X = viewportWidth/2 - (index * step + itemWidth/2)
+        ///       = 视口中心 - 帧中心在 ItemsRepeater 中的坐标
+        ///
+        /// 帧0: Transform.X > 0（内容右移，左侧出现边缘空隙）
+        /// 中间帧: Transform.X ≈ 0
+        /// 末帧: Transform.X < 0（内容左移）
+        /// </summary>
+        private void UpdateFilmstripTransform()
+        {
+            if (_filmstripViewportWidth <= 0 || ViewModel.TimelineFrames.Count == 0) return;
+
+            double totalContentWidth = ViewModel.TimelineFrames.Count * FilmstripItemStep - 4; // spacing
+            if (totalContentWidth <= _filmstripViewportWidth)
+            {
+                // 内容宽度小于视口 → 整体居中即可
+                FilmstripTransform.X = (_filmstripViewportWidth - totalContentWidth) / 2.0;
+                return;
+            }
+
+            double frameCenter = _filmstripCurrentFrameIndex * FilmstripItemStep + FilmstripItemWidth / 2.0;
+            double targetX = _filmstripViewportWidth / 2.0 - frameCenter;
+
+            // clamp: 帧0（最大右移） … 末帧（最大左移）
+            double maxRight = _filmstripViewportWidth / 2.0 - FilmstripItemWidth / 2.0;
+            double maxLeft = _filmstripViewportWidth / 2.0
+                - ((ViewModel.TimelineFrames.Count - 1) * FilmstripItemStep + FilmstripItemWidth / 2.0);
+
+            FilmstripTransform.X = Math.Clamp(targetX, maxLeft, maxRight);
+        }
+
+        // ═════════════════════════════════════════════════════════════════
+        //  ViewModel → View 滚动通知（双模式派发）
+        // ═════════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// ViewModel 通知时间轴选中 key photo 帧并居中滚动。
+        /// 根据当前模式分别派发到经典或胶片模式。
+        /// </summary>
+        private void OnRequestScrollToFrame(TimelineFrame frame)
+        {
+            if (ViewModel.IsClassicTimelineMode)
+            {
+                ClassicScrollToFrame(frame);
+            }
+            else if (ViewModel.IsFilmstripTimelineMode)
+            {
+                int index = ViewModel.TimelineFrames.IndexOf(frame);
+                if (index >= 0)
+                    FilmstripScrollToFrameIndex(index, animate: false);
             }
         }
 
@@ -648,13 +805,19 @@ namespace LivePhotoBox.Views
 
         private void ForceScrollBarsAlwaysThick()
         {
-            // 确保 ListView 纵向滚动条始终可见（厚/薄外观已通过自定义模板固定）
+            // 确保文件列表 ListView 纵向滚动条始终可见
             var listViewSv = FindVisualChild<ScrollViewer>(FileItemListView);
             if (listViewSv != null)
                 listViewSv.VerticalScrollBarVisibility = ScrollBarVisibility.Visible;
 
-            // Timeline 横向滚动条也保持可见
-            SetAllScrollBarsIndicatorMode(this);
+            // 时间轴：经典模式需要常驻滚动条
+            if (ViewModel.IsClassicTimelineMode)
+            {
+                var timelineSv = FindVisualChild<ScrollViewer>(TimelineListView);
+                if (timelineSv != null)
+                    timelineSv.HorizontalScrollBarVisibility = ScrollBarVisibility.Visible;
+            }
+            // 胶片模式无 ScrollViewer，无需操作
         }
 
         private static void SetAllScrollBarsIndicatorMode(DependencyObject parent)

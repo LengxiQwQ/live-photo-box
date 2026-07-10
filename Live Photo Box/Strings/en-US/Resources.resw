@@ -2059,6 +2059,18 @@ Are you sure you want to switch?</value>
   <data name="SettingsPage_General_OutputPreserveSubfolder_Desc.Text" xml:space="preserve">
     <value>When enabled, output files retain the original subfolder hierarchy instead of being flattened into the output root directory</value>
   </data>
+  <data name="SettingsPage_TimelineMode_Header.Text" xml:space="preserve">
+    <value>Timeline Mode</value>
+  </data>
+  <data name="SettingsPage_TimelineMode_Desc.Text" xml:space="preserve">
+    <value>Choose the display mode for the key frame timeline</value>
+  </data>
+  <data name="SettingsPage_TimelineMode_Classic.Content" xml:space="preserve">
+    <value>Classic</value>
+  </data>
+  <data name="SettingsPage_TimelineMode_Filmstrip.Content" xml:space="preserve">
+    <value>Filmstrip (fixed frame · step by step)</value>
+  </data>
   <data name="SettingsPage_CheckTools_Button_Text.Text" xml:space="preserve">
     <value>Check External Tools</value>
   </data>
