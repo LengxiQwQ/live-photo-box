@@ -1343,7 +1343,9 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            // 不清空旧预览：保留上一帧画面直到新图加载完成再原地替换，避免闪白屏
+            // 立即清空旧预览（避免新文件显示旧图）
+            PreviewImageSource = null;
+
             var dispatcher = App.MainWindow?.DispatcherQueue;
             if (dispatcher == null) return;
 
