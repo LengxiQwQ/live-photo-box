@@ -317,7 +317,8 @@ namespace LivePhotoBox.Views
 
         // ── 经典模式：ViewModel 通知滚动（带重试）──
 
-        private void ClassicScrollToFrame(TimelineFrame frame)
+        private void ClassicScrollToFrame(TimelineFrame frame,
+            int maxRetries = 5, int delayMs = 120)
         {
             _scrollCts?.Cancel();
             _scrollCts?.Dispose();
@@ -326,8 +327,6 @@ namespace LivePhotoBox.Views
 
             TimelineListView.SelectedItem = frame;
 
-            const int maxRetries = 5;
-            const int delayMs = 120;
             ScheduleClassicScrollRetry(frame, ct, maxRetries, delayMs);
         }
 
@@ -718,7 +717,7 @@ namespace LivePhotoBox.Views
         /// ViewModel 在文件加载完成后通过 RequestScrollToFrame 事件
         /// 通知 View 定位到封面帧。同样走 ChangeView → ViewChanged 管线。
         /// </summary>
-        private void FilmstripScrollToFrameIndex(int index)
+        private void FilmstripScrollToFrameIndex(int index, bool disableAnimation = true)
         {
             if (ViewModel.TimelineFrames.Count == 0) return;
 
@@ -727,7 +726,7 @@ namespace LivePhotoBox.Views
 
             double targetOffset = index * FilmstripItemStep;
             _targetScrollOffset = targetOffset;
-            FilmstripScrollViewer.ChangeView(targetOffset, null, null, disableAnimation: true);
+            FilmstripScrollViewer.ChangeView(targetOffset, null, null, disableAnimation: disableAnimation);
         }
 
         private void UpdateFilmstripSelectionHighlight()
@@ -755,14 +754,17 @@ namespace LivePhotoBox.Views
             {
                 int index = ViewModel.TimelineFrames.IndexOf(frame);
                 if (index >= 0)
-                    FilmstripScrollToFrameIndex(index);
+                    FilmstripScrollToFrameIndex(index, disableAnimation: false);
             }
         }
 
         /// <summary>
         /// 导航回 KeyPhotoPage 时调用。如果用户在设置页切换了模式，
-        /// SelectFile 异步重建帧期间 RequestScrollToFrame 可能因页面缓存
-        /// 导致滚动失败（ViewportWidth=0）。这里等布局完成后补刀。
+        /// 此时页面已在前台，正式触发 Visibility 切换 + 强刷绑定 + 恢复滚动。
+        ///
+        /// 为什么不在 NotifyTimelineModeChanged 中切 Visibility：
+        /// WinUI 3 在后台（缓存）页面上切换 Visibility 会导致 x:Bind 绑定断裂，
+        /// ListView SelectedItem 双向绑定失效 → 点击缩略图主图不更新、滚动条不响应。
         /// </summary>
         protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
         {
@@ -771,33 +773,47 @@ namespace LivePhotoBox.Views
             if (!ViewModel.NeedsModeSwitchFixup) return;
             ViewModel.NeedsModeSwitchFixup = false;
 
-            // 等布局完成后再修正滚动位置 + 初始化
+            // 1. 暂存当前选中帧进度，防止丢失
+            var currentFrame = ViewModel.SelectedTimelineFrame;
+
+            // 2. 页面已在前台，正式通知 XAML 切换 Visibility
+            ViewModel.TriggerModeVisibilityUpdate();
+
             DispatcherQueue.TryEnqueue(async () =>
             {
-                await Task.Delay(350);
+                // 3. 给 WinUI 3 渲染新布局一点时间（生成容器）
+                await Task.Delay(100);
 
+                // 4. 重新初始化对应模式（防重复挂接守卫保持原样）
                 if (ViewModel.IsFilmstripTimelineMode)
                 {
                     InitializeFilmstripTimeline();
                     UpdateFilmstripEdgePadding();
                     UpdateFilmstripSelectionHighlight();
-
-                    var frame = ViewModel.SelectedTimelineFrame;
-                    if (frame != null)
-                    {
-                        int idx = ViewModel.TimelineFrames.IndexOf(frame);
-                        if (idx >= 0)
-                            FilmstripScrollToFrameIndex(idx);
-                    }
                 }
                 else if (ViewModel.IsClassicTimelineMode)
                 {
                     InitializeClassicTimeline();
                     ForceScrollBarsAlwaysThick();
+                }
 
-                    var frame = ViewModel.SelectedTimelineFrame;
-                    if (frame != null)
-                        ClassicScrollToFrame(frame);
+                // 5. 核心修复：强刷双向绑定，解决"点击缩略图主图不更新"
+                if (currentFrame != null)
+                {
+                    ViewModel.SelectedTimelineFrame = null;
+                    ViewModel.SelectedTimelineFrame = currentFrame;
+
+                    // 6. 无缝恢复滚动条位置
+                    if (ViewModel.IsFilmstripTimelineMode)
+                    {
+                        int idx = ViewModel.TimelineFrames.IndexOf(currentFrame);
+                        if (idx >= 0)
+                            FilmstripScrollToFrameIndex(idx); // disableAnimation: true（瞬间复位）
+                    }
+                    else if (ViewModel.IsClassicTimelineMode)
+                    {
+                        ClassicScrollToFrame(currentFrame, maxRetries: 30, delayMs: 200);
+                    }
                 }
             });
         }

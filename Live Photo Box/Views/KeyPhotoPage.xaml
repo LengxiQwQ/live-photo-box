@@ -678,8 +678,8 @@
                                                 BorderBrush="Transparent"
                                                 VerticalAlignment="Top">
                                             <Grid>
-                                                <!-- 帧缩略图 52×52 内嵌于 56×56 卡片中 -->
-                                                <Border Width="52" Height="52" CornerRadius="4"
+                                                <!-- 帧缩略图 54×54 内嵌于 56×56 卡片中（多 2px 溢出盖白边） -->
+                                                <Border Width="54" Height="54" CornerRadius="4"
                                                         Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
                                                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                                         HorizontalAlignment="Center" VerticalAlignment="Center">
@@ -741,7 +741,8 @@
                                                 <Border Width="56" Height="56" CornerRadius="5"
                                                         Background="Transparent" BorderThickness="0">
                                                     <Grid>
-                                                        <Border Width="52" Height="52" CornerRadius="4"
+                                                        <!-- 帧缩略图 54×54（多 2px 溢出盖白边） -->
+                                                        <Border Width="54" Height="54" CornerRadius="4"
                                                                 Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
                                                                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                                                 HorizontalAlignment="Center" VerticalAlignment="Center">

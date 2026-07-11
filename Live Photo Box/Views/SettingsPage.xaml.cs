@@ -77,6 +77,7 @@ namespace LivePhotoBox.Views
                 if (_isTestToolsVisible != value)
                 {
                     _isTestToolsVisible = value;
+                    AppSettingsService.SetValue(nameof(IsTestToolsVisible), value);
                     AboutViewModel.RefreshCrashLogs();
                     NotifyPropertyChanged(nameof(TestToolsVisibility));
                     NotifyPropertyChanged(nameof(CrashNoticeVisibility));
@@ -93,6 +94,10 @@ namespace LivePhotoBox.Views
         public SettingsPage()
         {
             InitializeComponent();
+
+            // 从设置中恢复调试工具展开状态（默认关闭）
+            _isTestToolsVisible = AppSettingsService.GetValue(nameof(IsTestToolsVisible), false);
+
             Loaded += (_, _) =>
             {
                 // 后台预加载 Banner，不阻塞页面打开（fire-and-forget）

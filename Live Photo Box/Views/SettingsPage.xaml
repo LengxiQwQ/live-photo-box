@@ -303,25 +303,6 @@
                                   x:Uid="Toggle_OnOff"/>
                 </controls:SettingsCard>
 
-                <!-- 关键帧时间轴模式切换 -->
-                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
-                    <controls:SettingsCard.Header>
-                        <TextBlock x:Uid="SettingsPage_TimelineMode_Header" FontFamily="Microsoft YaHei UI"/>
-                    </controls:SettingsCard.Header>
-                    <controls:SettingsCard.Description>
-                        <TextBlock x:Uid="SettingsPage_TimelineMode_Desc" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                    </controls:SettingsCard.Description>
-                    <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xE8B2;" FontSize="16"/>
-                    </controls:SettingsCard.HeaderIcon>
-                    <ComboBox SelectedIndex="{x:Bind ViewModel.TimelineModeIndex, Mode=TwoWay}"
-                              MinWidth="200"
-                              SelectionChanged="TimelineMode_SelectionChanged">
-                        <ComboBoxItem x:Uid="SettingsPage_TimelineMode_Classic"/>
-                        <ComboBoxItem x:Uid="SettingsPage_TimelineMode_Filmstrip"/>
-                    </ComboBox>
-                </controls:SettingsCard>
             </StackPanel>
 
             <!-- ====================================================================== -->
@@ -629,6 +610,35 @@
                     </controls:SettingsCard.HeaderIcon>
                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsCopyPerfectToOutput, Mode=TwoWay}"
                                   x:Uid="Toggle_OnOff"/>
+                </controls:SettingsCard>
+            </StackPanel>
+
+            <!-- ====================================================================== -->
+            <!--  实况照片编辑                                                            -->
+            <!-- ====================================================================== -->
+            <StackPanel Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
+                    <FontIcon Glyph="&#xE8B2;" FontSize="18" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock x:Uid="SettingsPage_LivePhotoEdit_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                </StackPanel>
+
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_TimelineMode_Header" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_TimelineMode_Desc" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE8B2;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ComboBox SelectedIndex="{x:Bind ViewModel.TimelineModeIndex, Mode=TwoWay}"
+                              MinWidth="200"
+                              SelectionChanged="TimelineMode_SelectionChanged">
+                        <ComboBoxItem x:Uid="SettingsPage_TimelineMode_Classic"/>
+                        <ComboBoxItem x:Uid="SettingsPage_TimelineMode_Filmstrip"/>
+                    </ComboBox>
                 </controls:SettingsCard>
             </StackPanel>
 

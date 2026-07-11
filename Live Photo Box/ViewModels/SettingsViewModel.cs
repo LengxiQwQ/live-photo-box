@@ -566,7 +566,7 @@ namespace LivePhotoBox.ViewModels
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), true);
             IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), true);
-            TimelineModeIndex = AppSettingsService.GetValue(nameof(TimelineModeIndex), 0);
+            TimelineModeIndex = AppSettingsService.GetValue(nameof(TimelineModeIndex), 1);
         }
 
         // 异步加载硬件编码信息（WMI + FFmpeg 检测），完成后设置 SelectedHardware。

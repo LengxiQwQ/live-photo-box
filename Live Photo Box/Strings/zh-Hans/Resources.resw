@@ -2057,17 +2057,20 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_General_OutputPreserveSubfolder_Desc.Text" xml:space="preserve">
     <value>开启后，输出的文件将保留原始子文件夹的层级结构，不会全部平铺到输出目录根下</value>
   </data>
+  <data name="SettingsPage_LivePhotoEdit_Header.Text" xml:space="preserve">
+    <value>实况照片编辑</value>
+  </data>
   <data name="SettingsPage_TimelineMode_Header.Text" xml:space="preserve">
     <value>时间轴模式</value>
   </data>
   <data name="SettingsPage_TimelineMode_Desc.Text" xml:space="preserve">
-    <value>选择关键帧时间轴的显示模式</value>
+    <value>重启后完全生效。「经典模式」：可拖动的水平滚动列表，带滚动条，点击缩略图切换预览。「胶片模式」：隐藏滚动条，缩略图从画面中心的固定选中框下划过，滚轮逐帧步进，适合快速浏览。</value>
   </data>
   <data name="SettingsPage_TimelineMode_Classic.Content" xml:space="preserve">
     <value>经典模式</value>
   </data>
   <data name="SettingsPage_TimelineMode_Filmstrip.Content" xml:space="preserve">
-    <value>胶片模式（固定选中框 · 逐帧步进）</value>
+    <value>胶片模式</value>
   </data>
   <data name="SettingsPage_CheckTools_Button_Text.Text" xml:space="preserve">
     <value>检测外部工具</value>

@@ -355,23 +355,27 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>
         /// 当设置页切换时间轴模式时调用。
-        /// 更新 XAML Visibility 绑定，然后像重新点击左侧文件一样完整重新加载当前文件，
-        /// 让时间轴通过 SelectFile → LoadPropertiesAsync → TriggerTimelineExtraction 全链路重建。
+        /// 只打标记，不触发任何 UI 变更。等用户导航回 KeyPhotoPage（前台）时，
+        /// 由 OnNavigatedTo 调用 TriggerModeVisibilityUpdate() 正式切换 Visibility，
+        /// 避免后台页面 x:Bind 断裂导致点击缩略图不更新主图、滚动条失效。
         /// </summary>
         public void NotifyTimelineModeChanged()
         {
+            // 只打标记，不在后台触发 OnPropertyChanged。
+            // Visibility 切换推迟到 TriggerModeVisibilityUpdate()，
+            // 由 KeyPhotoPage.OnNavigatedTo 在前台调用。
+            NeedsModeSwitchFixup = true;
+        }
+
+        /// <summary>
+        /// 供 View 层在页面回到前台时调用，正式触发 Visibility 切换。
+        /// 必须在 OnNavigatedTo 中调用，而不是在 NotifyTimelineModeChanged 中，
+        /// 否则 WinUI 3 在后台页面切换 Visibility 会导致 x:Bind 绑定断裂。
+        /// </summary>
+        public void TriggerModeVisibilityUpdate()
+        {
             OnPropertyChanged(nameof(IsClassicTimelineMode));
             OnPropertyChanged(nameof(IsFilmstripTimelineMode));
-
-            // 标记：下次导航回 KeyPhotoPage 时需要修正滚动位置 + 初始化
-            NeedsModeSwitchFixup = true;
-
-            // 重新加载当前文件（跑 ffmpeg 重建帧）
-            var currentFile = SelectedFilePath;
-            if (!string.IsNullOrEmpty(currentFile))
-            {
-                SelectFile(currentFile);
-            }
         }
 
         /// <summary>
@@ -1173,7 +1177,32 @@ namespace LivePhotoBox.ViewModels
                             TimelineInfo = ResourceService.Format(
                                 "KeyPhoto_TimelineInfo", durDisplay, actualFrameCount);
 
-                            // 4. 逐帧加载 JPEG → SoftwareBitmap (Bgra8 Premultiplied) + SoftwareBitmapSource
+                            // 4. 立即选中封面帧并触发滚动 —— 不等缩略图加载！
+                            //    帧已全部添加到 TimelineFrames，布局已就绪。
+                            //    SelectTimelineFrameProgrammatically → RequestScrollToFrame 事件
+                            //    → View 层 ClassicScrollToFrame / FilmstripScrollToFrameIndex。
+                            //    缩略图在后台异步加载，不阻塞滚动。
+                            var coverTs = TimeSpan.FromSeconds(coverTimeSeconds);
+                            TimelineFrame? frameToSelect = stillFrame;
+                            if (split)
+                            {
+                                double minDiff = (stillFrame.Timestamp - coverTs).Duration().TotalSeconds;
+                                foreach (var f in TimelineFrames)
+                                {
+                                    double diff = (f.Timestamp - coverTs).Duration().TotalSeconds;
+                                    if (diff < minDiff) { minDiff = diff; frameToSelect = f; }
+                                }
+                            }
+
+                            IsTimelineLoading = false;
+                            SelectTimelineFrameProgrammatically(frameToSelect);
+                            LogService.Debug(
+                                $"Timeline select: {(frameToSelect.IsStillPhoto ? "⭐" : $"vid #{frameToSelect.FrameIndex}")} " +
+                                $"at {frameToSelect.Timestamp.TotalSeconds:F4}s " +
+                                $"(cover={coverTimeSeconds:F4}s, photo={photoTimeSeconds:F4}s, split={split})",
+                                LogSource.UI);
+
+                            // 5. 逐帧加载 JPEG 缩略图 → SoftwareBitmap (Bgra8 Premultiplied) + SoftwareBitmapSource
                             //    后台线程解码 + UI 线程创建 Source。
                             //    排水泵：每提取 4 帧执行一次 Task.Delay(1)，
                             //    强制 WinUI Compositor 在单帧内将已就绪纹理刷入 GPU，
@@ -1228,31 +1257,9 @@ namespace LivePhotoBox.ViewModels
                                     await Task.Delay(1);
                             }
 
-                            IsTimelineLoading = false;
                             LogService.FileOp(
                                 $"Timeline[Extract] Thumbnails loaded: {loadedCount} ok, {failedCount} failed (out of {actualFrameCount})",
                                 failedCount > 0 ? LogLevel.Warning : LogLevel.Info);
-
-                            // 5. 找到离 coverTimeSeconds 最近的帧并选中
-                            //    未改封面时 = stillFrame(⭐)；改了封面时可能是某个视频帧
-                            var coverTs = TimeSpan.FromSeconds(coverTimeSeconds);
-                            TimelineFrame? frameToSelect = stillFrame;
-                            if (split)
-                            {
-                                double minDiff = (stillFrame.Timestamp - coverTs).Duration().TotalSeconds;
-                                foreach (var f in TimelineFrames)
-                                {
-                                    double diff = (f.Timestamp - coverTs).Duration().TotalSeconds;
-                                    if (diff < minDiff) { minDiff = diff; frameToSelect = f; }
-                                }
-                            }
-
-                            SelectTimelineFrameProgrammatically(frameToSelect);
-                            LogService.Debug(
-                                $"Timeline select: {(frameToSelect.IsStillPhoto ? "⭐" : $"vid #{frameToSelect.FrameIndex}")} " +
-                                $"at {frameToSelect.Timestamp.TotalSeconds:F4}s " +
-                                $"(cover={coverTimeSeconds:F4}s, photo={photoTimeSeconds:F4}s, split={split})",
-                                LogSource.UI);
 
                             // 临时帧文件保留，切换图片时由 SelectFile 清理
                         }
