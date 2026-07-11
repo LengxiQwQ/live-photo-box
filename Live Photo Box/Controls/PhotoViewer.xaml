@@ -48,13 +48,28 @@
               DoubleTapped="Viewport_DoubleTapped"
               SizeChanged="Viewport_SizeChanged">
 
-            <!-- 图片：Stretch="Uniform" 让框架完成基础适配（填满 Viewport 并保持宽高比），
-                 CompositeTransform 叠加缩放/平移。Uniform 的内容居中偏移由代码手动计算。 -->
-            <Image x:Name="MainImage"
+            <!-- ════════════════════════════════════════════════════════════ -->
+            <!--  双缓冲层：Grid 包裹两层完全重叠的 Image 控件，          -->
+            <!--  始终将新图分配给隐藏层，就绪后 Opacity 交替完成切换，      -->
+            <!--  消除 Source=null 与异步解码之间的闪白间隙。               -->
+            <!--  层 A 初始可见，层 B 初始隐藏。                           -->
+            <!-- ════════════════════════════════════════════════════════ -->
+            <Image x:Name="ImageLayerA"
                    Stretch="Uniform"
-                   RenderTransformOrigin="0,0">
+                   RenderTransformOrigin="0,0"
+                   Opacity="1">
                 <Image.RenderTransform>
-                    <CompositeTransform x:Name="ImageTransform"
+                    <CompositeTransform x:Name="ImageTransformA"
+                                        ScaleX="1" ScaleY="1"
+                                        TranslateX="0" TranslateY="0"/>
+                </Image.RenderTransform>
+            </Image>
+            <Image x:Name="ImageLayerB"
+                   Stretch="Uniform"
+                   RenderTransformOrigin="0,0"
+                   Opacity="0">
+                <Image.RenderTransform>
+                    <CompositeTransform x:Name="ImageTransformB"
                                         ScaleX="1" ScaleY="1"
                                         TranslateX="0" TranslateY="0"/>
                 </Image.RenderTransform>

@@ -64,24 +64,38 @@ namespace LivePhotoBox.Views
         private bool _isPreviewMaximized;
 
         // ── 时间轴常量 ──
-        /// <summary>帧步长：56px 卡片 + 4px 间距 = 60px</summary>
-        private const double FilmstripItemStep = 60.0;
+        /// <summary>帧步长：56px 卡片 + 0px 间距 = 56px（Spacing="0"）</summary>
+        private const double FilmstripItemStep = 56.0;
         private const double FilmstripItemWidth = 56.0;
 
         // ── 经典模式（ListView）时间轴状态 ──
         private CancellationTokenSource? _scrollCts;
         private Border? _hoveredTimelineCard;
         private Border? _pressedTimelineCard;
+        private bool _isClassicTimelineInitialized;
 
-        // ── 胶片模式（固定选中框）状态 ──
+        // ── 胶片模式（ScrollViewer + SnapPanel 吸附）状态 ──
         private int _filmstripCurrentFrameIndex;
-        private double _filmstripViewportWidth;
+        private bool _isFilmstripTimelineInitialized;
+        /// <summary>胶片模式滚轮事件委托引用（AddHandler/RemoveHandler 需要同一实例）</summary>
+        private readonly PointerEventHandler _filmstripWheelHandler;
+
+        // ── 精准滚轮累积目标 ──
+        /// <summary>数学绝对目标偏移量（不受动画中途残缺值干扰），-1 表示未初始化</summary>
+        private double _targetScrollOffset = -1;
+        /// <summary>上次滚轮事件时间，用于 250ms 超时重校准</summary>
+        private DateTime _lastWheelTime = DateTime.MinValue;
+        /// <summary>帧合并锁：同一渲染帧内仅提交一次 ChangeView，防高频调用 0xc000027b 崩溃</summary>
+        private bool _isScrollQueued;
 
         public KeyPhotoPage()
         {
             InitializeComponent();
 
             RebuildAllBrushes();
+
+            // 存储委托引用，确保 AddHandler / RemoveHandler 使用同一实例
+            _filmstripWheelHandler = new PointerEventHandler(OnFilmstripPointerWheelChanged);
 
             // 系统换强调色时实时更新
             _uiSettings.ColorValuesChanged += OnSystemColorValuesChanged;
@@ -276,6 +290,9 @@ namespace LivePhotoBox.Views
 
         private void InitializeClassicTimeline()
         {
+            if (_isClassicTimelineInitialized) return;
+            _isClassicTimelineInitialized = true;
+
             // ListView 的 ContainerContentChanging 在 XAML 中已注册
             TimelineListView.ContainerContentChanging += OnTimelineContainerContentChanging;
         }
@@ -530,154 +547,194 @@ namespace LivePhotoBox.Views
         }
 
         // ═════════════════════════════════════════════════════════════════
-        //  胶片模式（固定选中框 + ItemsRepeater 逐帧步进）
+        //  胶片模式 — 统一滚动管线
+        //
+        //  所有滚动（滚轮 / ←→ 按钮 / ViewModel 通知）最终都经过
+        //  ScrollTimelineBy → ChangeView → ViewChanged 这条管线，
+        //  ViewChanged 统一负责同步帧索引 + 触发大图双缓冲更新。
         // ═════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// 胶片模式初始化。
-        /// 设置选中框画刷，计算边缘 padding 确保首末帧可到中心，初始化选中帧。
+        /// 胶片模式初始化：选中框画刷 + 滚轮劫持。
         /// </summary>
         private void InitializeFilmstripTimeline()
         {
+            if (_isFilmstripTimelineInitialized) return;
+            _isFilmstripTimelineInitialized = true;
+
             UpdateFilmstripSelectionHighlight();
+            FilmstripScrollViewer.AddHandler(
+                UIElement.PointerWheelChangedEvent,
+                _filmstripWheelHandler,
+                handledEventsToo: true);
         }
 
+        // ── 统一滚动核心（DispatcherQueue 原生版）──
+
         /// <summary>
-        /// 更新选中框画刷颜色（跟随系统强调色）。
-        /// 选中框是固定覆盖层，强调色边框 + 半透明强调色背景。
+        /// 绝对目标累加式精确滚动，支持高精度浮点步数。
+        /// 所有输入源（滚轮 / 按钮 / 代码）最终汇入此方法。
+        ///
+        /// DispatcherQueue.TryEnqueue 合并同一渲染帧内的高频滚轮事件：
+        ///   _targetScrollOffset 纯数学累加不丢失任何位移，
+        ///   仅首事件入队 ChangeView(disableAnimation:false)，
+        ///   依赖 WinUI 3 原生物理引擎飞向目标 —— 滚轮偏快、按钮优雅，各走各的原生曲线。
         /// </summary>
-        private void UpdateFilmstripSelectionHighlight()
+        private void ScrollTimelineBy(double steps)
         {
-            if (FilmstripSelectionHighlight == null) return;
-            FilmstripSelectionHighlight.BorderBrush = _selectedBorder;
-            FilmstripSelectionHighlight.Background = _selectedBg;
+            if (ViewModel.TimelineFrames.Count == 0) return;
+
+            double itemWidth = 56.0;
+
+            // 停顿超 250ms 或代码跳转到任意位置后 → 对齐网格重校准基准
+            if ((DateTime.Now - _lastWheelTime).TotalMilliseconds > 250 || _targetScrollOffset < 0)
+            {
+                _targetScrollOffset = Math.Round(
+                    FilmstripScrollViewer.HorizontalOffset / itemWidth) * itemWidth;
+            }
+
+            _lastWheelTime = DateTime.Now;
+
+            // 在数学绝对目标上累加，绝不丢失任何一次滚轮位移
+            _targetScrollOffset += steps * itemWidth;
+
+            // 边界钳制
+            if (_targetScrollOffset < 0)
+                _targetScrollOffset = 0;
+            if (_targetScrollOffset > FilmstripScrollViewer.ScrollableWidth)
+                _targetScrollOffset = FilmstripScrollViewer.ScrollableWidth;
+
+            // 帧合并：同一渲染帧内仅首事件入队 ChangeView
+            if (!_isScrollQueued)
+            {
+                _isScrollQueued = true;
+                DispatcherQueue.TryEnqueue(
+                    Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
+                {
+                    _isScrollQueued = false;
+                    FilmstripScrollViewer.ChangeView(
+                        _targetScrollOffset, null, null, disableAnimation: false);
+                });
+            }
         }
 
-        /// <summary>
-        /// Viewport 加载完成 → 初始化 Clip、定位到当前帧。
-        /// </summary>
-        private void FilmstripViewport_Loaded(object sender, RoutedEventArgs e)
+        // ── 滚轮事件 → 统一管线（高精度浮点步数）──
+
+        private void OnFilmstripPointerWheelChanged(object sender, PointerRoutedEventArgs e)
         {
             if (!ViewModel.IsFilmstripTimelineMode) return;
 
-            _filmstripViewportWidth = FilmstripViewport.ActualWidth;
-            UpdateFilmstripViewportClip();
-
-            // 初始定位到首帧并在 ViewModel 中选中
-            _filmstripCurrentFrameIndex = 0;
-            UpdateFilmstripTransform();
-            if (ViewModel.TimelineFrames.Count > 0)
-                ViewModel.SelectTimelineFrameInteractively(ViewModel.TimelineFrames[0]);
+            double delta = e.GetCurrentPoint(FilmstripScrollViewer).Properties.MouseWheelDelta;
+            // 向上滚 delta>0 → 内容左移（steps<0）
+            double steps = -(delta / 120.0);
+            ScrollTimelineBy(steps);
+            e.Handled = true;
         }
 
-        /// <summary>
-        /// Viewport 尺寸变化 → 重算 Clip 和 Transform。
-        /// 模式切换（经典→胶片）时也会触发（Collapsed→Visible → SizeChanged），
-        /// 此时从中同步 ViewModel 的选中帧索引。
-        /// </summary>
-        private void FilmstripViewport_SizeChanged(object sender, SizeChangedEventArgs e)
+        // ── ← → 按钮 Click → 统一管线 ──
+
+        private void FilmstripPrevButton_Click(object sender, RoutedEventArgs e)
+        {
+            ScrollTimelineBy(-1);
+        }
+
+        private void FilmstripNextButton_Click(object sender, RoutedEventArgs e)
+        {
+            ScrollTimelineBy(1);
+        }
+
+        // ── ScrollViewer 生命周期 ──
+
+        private void FilmstripScrollViewer_Loaded(object sender, RoutedEventArgs e)
         {
             if (!ViewModel.IsFilmstripTimelineMode) return;
 
-            _filmstripViewportWidth = e.NewSize.Width;
-            UpdateFilmstripViewportClip();
+            UpdateFilmstripEdgePadding();
 
-            // 同步 ViewModel 当前选中帧的索引
+            // 同步 ViewModel 选中帧并定位
             if (ViewModel.CurrentKeyFrame != null)
             {
                 int idx = ViewModel.TimelineFrames.IndexOf(ViewModel.CurrentKeyFrame);
                 if (idx >= 0) _filmstripCurrentFrameIndex = idx;
             }
-
-            UpdateFilmstripTransform();
+            FilmstripScrollToFrameIndex(_filmstripCurrentFrameIndex);
         }
 
-        /// <summary>
-        /// 设置 Viewport 裁切区域，防止内容溢出可见范围。
-        /// </summary>
-        private void UpdateFilmstripViewportClip()
+        private void FilmstripScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            if (FilmstripViewport.ActualWidth <= 0 || FilmstripViewport.ActualHeight <= 0) return;
-            var clip = new Microsoft.UI.Xaml.Media.RectangleGeometry();
-            clip.Rect = new Windows.Foundation.Rect(0, 0,
-                FilmstripViewport.ActualWidth, FilmstripViewport.ActualHeight);
-            FilmstripViewport.Clip = clip;
-        }
+            if (!ViewModel.IsFilmstripTimelineMode) return;
+            UpdateFilmstripEdgePadding();
 
-        /// <summary>
-        /// 鼠标滚轮 — 每次步进一帧，绝对精确。
-        /// 不依赖任何"滚动"机制，只通过索引计算目标偏移。
-        /// </summary>
-        private void FilmstripViewport_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
-        {
-            if (!ViewModel.IsFilmstripTimelineMode || ViewModel.TimelineFrames.Count == 0) return;
-
-            var delta = e.GetCurrentPoint(null).Properties.MouseWheelDelta;
-            int direction = delta > 0 ? -1 : 1;
-
-            int count = ViewModel.TimelineFrames.Count;
-            int targetIdx = Math.Clamp(_filmstripCurrentFrameIndex + direction, 0, count - 1);
-
-            if (targetIdx != _filmstripCurrentFrameIndex)
+            // Padding 变更 → 布局偏移 → 等布局刷新完成后瞬间归位（无动画）
+            DispatcherQueue.TryEnqueue(() =>
             {
-                _filmstripCurrentFrameIndex = targetIdx;
-                UpdateFilmstripTransform();
-                ViewModel.SelectTimelineFrameInteractively(ViewModel.TimelineFrames[targetIdx]);
-            }
-
-            e.Handled = true;
+                if (_targetScrollOffset >= 0)
+                {
+                    FilmstripScrollViewer.ChangeView(
+                        _targetScrollOffset, null, null, disableAnimation: true);
+                }
+            });
         }
 
+        private void UpdateFilmstripEdgePadding()
+        {
+            double vw = FilmstripScrollViewer.ViewportWidth;
+            if (vw <= 0) return;
+
+            double padding = (vw / 2.0) - (FilmstripItemWidth / 2.0);
+            if (padding < 0) padding = 0;
+
+            FilmstripPaddingBorder.Padding = new Thickness(padding, 0, padding, 0);
+        }
+
+        // ── ViewChanged：统一帧选中 + 大图双缓冲触发 ──
+
         /// <summary>
-        /// 核心：将指定索引的帧定位到画面中心。
-        /// 完全通过 TranslateTransform 控制，无任何"滚动"层参与。
+        /// 滚动结束 → 反算最近帧索引，同步 ViewModel 选中帧。
+        /// 无论是滚轮、按钮还是 ViewModel 通知的滚动，最终都在这里
+        /// 触发 SelectTimelineFrameInteractively → UpdatePreviewForTimelineFrameAsync
+        /// → PhotoViewer 双缓冲大图更新。
         /// </summary>
-        private void FilmstripScrollToFrameIndex(int index, bool animate)
+        private void FilmstripScrollViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
         {
             if (ViewModel.TimelineFrames.Count == 0) return;
-            if (_filmstripViewportWidth <= 0) return;
+
+            double offset = FilmstripScrollViewer.HorizontalOffset;
+            int nearestIndex = (int)Math.Round(offset / FilmstripItemStep);
+            nearestIndex = Math.Clamp(nearestIndex, 0, ViewModel.TimelineFrames.Count - 1);
+
+            if (nearestIndex != _filmstripCurrentFrameIndex)
+            {
+                _filmstripCurrentFrameIndex = nearestIndex;
+                // 统一走交互式选中 → 自动触发大图双缓冲更新
+                ViewModel.SelectTimelineFrameInteractively(
+                    ViewModel.TimelineFrames[nearestIndex]);
+            }
+        }
+
+        // ── ViewModel 通知跳转（SelectFile 后自动定位到封面帧）──
+
+        /// <summary>
+        /// ViewModel 在文件加载完成后通过 RequestScrollToFrame 事件
+        /// 通知 View 定位到封面帧。同样走 ChangeView → ViewChanged 管线。
+        /// </summary>
+        private void FilmstripScrollToFrameIndex(int index)
+        {
+            if (ViewModel.TimelineFrames.Count == 0) return;
 
             index = Math.Clamp(index, 0, ViewModel.TimelineFrames.Count - 1);
             _filmstripCurrentFrameIndex = index;
 
-            UpdateFilmstripTransform();
-
-            ViewModel.SelectTimelineFrameInteractively(ViewModel.TimelineFrames[index]);
+            double targetOffset = index * FilmstripItemStep;
+            _targetScrollOffset = targetOffset;
+            FilmstripScrollViewer.ChangeView(targetOffset, null, null, disableAnimation: true);
         }
 
-        /// <summary>
-        /// 计算 TranslateTransform.X 使当前帧位于画面中心。
-        /// 边缘空隙（padding）由 Transform 自身产生（正数 X = 内容右移），
-        /// 不依赖任何 Border.Padding，无布局时机问题。
-        ///
-        /// 公式: Transform.X = viewportWidth/2 - (index * step + itemWidth/2)
-        ///       = 视口中心 - 帧中心在 ItemsRepeater 中的坐标
-        ///
-        /// 帧0: Transform.X > 0（内容右移，左侧出现边缘空隙）
-        /// 中间帧: Transform.X ≈ 0
-        /// 末帧: Transform.X < 0（内容左移）
-        /// </summary>
-        private void UpdateFilmstripTransform()
+        private void UpdateFilmstripSelectionHighlight()
         {
-            if (_filmstripViewportWidth <= 0 || ViewModel.TimelineFrames.Count == 0) return;
-
-            double totalContentWidth = ViewModel.TimelineFrames.Count * FilmstripItemStep - 4; // spacing
-            if (totalContentWidth <= _filmstripViewportWidth)
-            {
-                // 内容宽度小于视口 → 整体居中即可
-                FilmstripTransform.X = (_filmstripViewportWidth - totalContentWidth) / 2.0;
-                return;
-            }
-
-            double frameCenter = _filmstripCurrentFrameIndex * FilmstripItemStep + FilmstripItemWidth / 2.0;
-            double targetX = _filmstripViewportWidth / 2.0 - frameCenter;
-
-            // clamp: 帧0（最大右移） … 末帧（最大左移）
-            double maxRight = _filmstripViewportWidth / 2.0 - FilmstripItemWidth / 2.0;
-            double maxLeft = _filmstripViewportWidth / 2.0
-                - ((ViewModel.TimelineFrames.Count - 1) * FilmstripItemStep + FilmstripItemWidth / 2.0);
-
-            FilmstripTransform.X = Math.Clamp(targetX, maxLeft, maxRight);
+            if (FilmstripSelectionHighlight == null) return;
+            FilmstripSelectionHighlight.BorderBrush = _selectedBorder;
+            FilmstripSelectionHighlight.Background = _selectedBg;
         }
 
         // ═════════════════════════════════════════════════════════════════
@@ -698,8 +755,51 @@ namespace LivePhotoBox.Views
             {
                 int index = ViewModel.TimelineFrames.IndexOf(frame);
                 if (index >= 0)
-                    FilmstripScrollToFrameIndex(index, animate: false);
+                    FilmstripScrollToFrameIndex(index);
             }
+        }
+
+        /// <summary>
+        /// 导航回 KeyPhotoPage 时调用。如果用户在设置页切换了模式，
+        /// SelectFile 异步重建帧期间 RequestScrollToFrame 可能因页面缓存
+        /// 导致滚动失败（ViewportWidth=0）。这里等布局完成后补刀。
+        /// </summary>
+        protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+        {
+            base.OnNavigatedTo(e);
+
+            if (!ViewModel.NeedsModeSwitchFixup) return;
+            ViewModel.NeedsModeSwitchFixup = false;
+
+            // 等布局完成后再修正滚动位置 + 初始化
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                await Task.Delay(350);
+
+                if (ViewModel.IsFilmstripTimelineMode)
+                {
+                    InitializeFilmstripTimeline();
+                    UpdateFilmstripEdgePadding();
+                    UpdateFilmstripSelectionHighlight();
+
+                    var frame = ViewModel.SelectedTimelineFrame;
+                    if (frame != null)
+                    {
+                        int idx = ViewModel.TimelineFrames.IndexOf(frame);
+                        if (idx >= 0)
+                            FilmstripScrollToFrameIndex(idx);
+                    }
+                }
+                else if (ViewModel.IsClassicTimelineMode)
+                {
+                    InitializeClassicTimeline();
+                    ForceScrollBarsAlwaysThick();
+
+                    var frame = ViewModel.SelectedTimelineFrame;
+                    if (frame != null)
+                        ClassicScrollToFrame(frame);
+                }
+            });
         }
 
         // ════════════════════════════════════════════════════════════

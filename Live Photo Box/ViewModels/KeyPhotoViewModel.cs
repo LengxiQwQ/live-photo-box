@@ -267,6 +267,9 @@ namespace LivePhotoBox.ViewModels
         /// <summary>ViewModel 通知 View 层滚动到指定帧（ItemsRepeater 布局就绪后吸附定位）</summary>
         public event Action<TimelineFrame>? RequestScrollToFrame;
 
+        /// <summary>标记：设置页切换模式后，OnNavigatedTo 需要修正滚动位置和初始化</summary>
+        public bool NeedsModeSwitchFixup { get; set; }
+
         /// <summary>标记当前 SelectedTimelineFrame 是否为程序化设置（vs 用户手动点击）。
         /// 为 true 时允许触发滚动，为 false 时跳过滚动（用户手动点击不滚）。</summary>
         private bool _isProgrammaticTimelineSelection;
@@ -351,13 +354,24 @@ namespace LivePhotoBox.ViewModels
             AppViewModel.Instance.Settings.TimelineModeIndex == 1;
 
         /// <summary>
-        /// 当设置页切换时间轴模式时调用此方法通知 UI 刷新。
-        /// 通过 OnPropertyChanged 触发 XAML Visibility 重新求值。
+        /// 当设置页切换时间轴模式时调用。
+        /// 更新 XAML Visibility 绑定，然后像重新点击左侧文件一样完整重新加载当前文件，
+        /// 让时间轴通过 SelectFile → LoadPropertiesAsync → TriggerTimelineExtraction 全链路重建。
         /// </summary>
         public void NotifyTimelineModeChanged()
         {
             OnPropertyChanged(nameof(IsClassicTimelineMode));
             OnPropertyChanged(nameof(IsFilmstripTimelineMode));
+
+            // 标记：下次导航回 KeyPhotoPage 时需要修正滚动位置 + 初始化
+            NeedsModeSwitchFixup = true;
+
+            // 重新加载当前文件（跑 ffmpeg 重建帧）
+            var currentFile = SelectedFilePath;
+            if (!string.IsNullOrEmpty(currentFile))
+            {
+                SelectFile(currentFile);
+            }
         }
 
         /// <summary>
@@ -1074,7 +1088,7 @@ namespace LivePhotoBox.ViewModels
                     var failedCount = 0;
                     TimelineFrame? stillFrame = null;
                     var uiTimelineDone = new System.Threading.Tasks.TaskCompletionSource();
-                    dispatcher.TryEnqueue(() =>
+                    dispatcher.TryEnqueue(async () =>
                     {
                         try
                         {
@@ -1112,12 +1126,16 @@ namespace LivePhotoBox.ViewModels
                             {
                                 try
                                 {
-                                    var bmp = new BitmapImage { DecodePixelWidth = 104 };
+                                    // SoftwareBitmap + SoftwareBitmapSource，杜绝 BitmapImage
                                     var ms = new MemoryStream(originalPhotoBytes);
                                     ms.Position = 0;
-                                    bmp.SetSource(ms.AsRandomAccessStream());
-                                    starThumbnail = bmp;
-                                    _thumbnailCache[starKey] = bmp;
+                                    var decoder = await BitmapDecoder.CreateAsync(ms.AsRandomAccessStream());
+                                    var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
+                                        BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+                                    var source = new SoftwareBitmapSource();
+                                    await source.SetBitmapAsync(softwareBitmap);
+                                    starThumbnail = source;
+                                    _thumbnailCache[starKey] = source;
                                     LogService.FileOp(
                                         $"Timeline[Extract] ⭐ using Original photo ({originalPhotoBytes.Length} bytes)",
                                         LogLevel.Info);
@@ -1155,7 +1173,11 @@ namespace LivePhotoBox.ViewModels
                             TimelineInfo = ResourceService.Format(
                                 "KeyPhoto_TimelineInfo", durDisplay, actualFrameCount);
 
-                            // 4. 逐帧加载 JPEG → BitmapImage（DecodePixelWidth 限制解码分辨率）
+                            // 4. 逐帧加载 JPEG → SoftwareBitmap (Bgra8 Premultiplied) + SoftwareBitmapSource
+                            //    后台线程解码 + UI 线程创建 Source。
+                            //    排水泵：每提取 4 帧执行一次 Task.Delay(1)，
+                            //    强制 WinUI Compositor 在单帧内将已就绪纹理刷入 GPU，
+                            //    避免 ItemsRepeater 虚拟化回收与异步解码撞车导致白块。
                             int timelineIdx = 0;
                             for (int jpegIdx = 0; jpegIdx < result.JpegPaths.Count; jpegIdx++)
                             {
@@ -1170,15 +1192,20 @@ namespace LivePhotoBox.ViewModels
                                     string frameKey = $"{sourcePath}|{jpegIdx}";
                                     if (!_thumbnailCache.TryGetValue(frameKey, out var cachedFrame))
                                     {
-                                        var bmp = new BitmapImage { DecodePixelWidth = 104 };
-                                        using var fs = new FileStream(
-                                            result.JpegPaths[jpegIdx], FileMode.Open, FileAccess.Read, FileShare.Read);
-                                        var ms = new MemoryStream();
-                                        fs.CopyTo(ms);
-                                        ms.Position = 0;
-                                        bmp.SetSource(ms.AsRandomAccessStream());
-                                        _thumbnailCache[frameKey] = bmp;
-                                        cachedFrame = bmp;
+                                        var jpegPath = result.JpegPaths[jpegIdx];
+                                        // 后台线程：BitmapDecoder 解码 JPEG → SoftwareBitmap (Bgra8, Premultiplied)
+                                        var softwareBitmap = await Task.Run(() =>
+                                        {
+                                            using var fs = new FileStream(jpegPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                                            var decoder = BitmapDecoder.CreateAsync(fs.AsRandomAccessStream()).GetAwaiter().GetResult();
+                                            return decoder.GetSoftwareBitmapAsync(
+                                                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied).GetAwaiter().GetResult();
+                                        });
+                                        // UI 线程：SoftwareBitmap → SoftwareBitmapSource
+                                        var source = new SoftwareBitmapSource();
+                                        await source.SetBitmapAsync(softwareBitmap);
+                                        _thumbnailCache[frameKey] = source;
+                                        cachedFrame = source;
                                     }
                                     TimelineFrames[timelineIdx].Thumbnail = cachedFrame;
                                     timelineIdx++;
@@ -1195,6 +1222,10 @@ namespace LivePhotoBox.ViewModels
                                             LogLevel.Warning);
                                     }
                                 }
+
+                                // 排水泵：每 4 帧让出 UI 线程给 Compositor 刷纹理
+                                if (loadedCount > 0 && loadedCount % 4 == 0)
+                                    await Task.Delay(1);
                             }
 
                             IsTimelineLoading = false;
@@ -1343,9 +1374,8 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            // 立即清空旧预览（避免新文件显示旧图）
-            PreviewImageSource = null;
-
+            // 不清空 PreviewImageSource —— PhotoViewer 双缓冲层会在新图就绪后自动切换，
+            // 旧图保持可见直至新图就绪，杜绝 Source=null 闪白。
             var dispatcher = App.MainWindow?.DispatcherQueue;
             if (dispatcher == null) return;
 

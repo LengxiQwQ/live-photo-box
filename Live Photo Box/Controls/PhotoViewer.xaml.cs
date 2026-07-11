@@ -83,6 +83,20 @@ namespace LivePhotoBox.Controls
         }
 
         // ══════════════════════════════════════════════════════════════
+        //  双缓冲层管理
+        // ══════════════════════════════════════════════════════════════
+
+        private enum ActiveLayer { A, B }
+        private ActiveLayer _activeLayer = ActiveLayer.A;
+        /// <summary>是否有待执行的图层切换（新图已分配但尚未就绪）</summary>
+        private bool _pendingSwap;
+
+        private Image ActiveImage => _activeLayer == ActiveLayer.A ? ImageLayerA : ImageLayerB;
+        private Image InactiveImage => _activeLayer == ActiveLayer.A ? ImageLayerB : ImageLayerA;
+        private CompositeTransform ActiveTransform => _activeLayer == ActiveLayer.A ? ImageTransformA : ImageTransformB;
+        private CompositeTransform InactiveTransform => _activeLayer == ActiveLayer.A ? ImageTransformB : ImageTransformA;
+
+        // ══════════════════════════════════════════════════════════════
         //  内部状态
         // ══════════════════════════════════════════════════════════════
 
@@ -124,35 +138,84 @@ namespace LivePhotoBox.Controls
         private static void OnImageSourceChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             var viewer = (PhotoViewer)d;
-            if (e.NewValue is BitmapImage bmp && bmp.PixelWidth > 0 && bmp.PixelHeight > 0)
+
+            // null → 忽略，保持当前图像可见（消除 Source=null 导致的闪白）
+            if (e.NewValue == null)
+                return;
+
+            if (e.NewValue is BitmapImage bmp)
             {
-                viewer._naturalWidth = bmp.PixelWidth;
-                viewer._naturalHeight = bmp.PixelHeight;
-                viewer.MainImage.Source = bmp;
-                bmp.ImageOpened += viewer.OnBitmapImageOpened;
+                // BitmapImage：可能已解码（同步 SetSource）或待解码（SetSourceAsync）
+                viewer._pendingSwap = true;
+                viewer.InactiveImage.Source = bmp;
+
+                if (bmp.PixelWidth > 0 && bmp.PixelHeight > 0)
+                {
+                    // 已解码完成 → 立即切换
+                    viewer.OnNewImageReady(bmp.PixelWidth, bmp.PixelHeight);
+                }
+                else
+                {
+                    // 等待异步解码完成
+                    bmp.ImageOpened += viewer.OnBitmapImageReadyForSwap;
+                }
             }
             else if (e.NewValue is ImageSource src)
             {
-                viewer.MainImage.Source = src;
-                viewer.ScheduleResetToFit();
-            }
-            else
-            {
-                viewer.MainImage.Source = null;
-                viewer._naturalWidth = 0;
-                viewer._naturalHeight = 0;
+                // SoftwareBitmapSource 等：已在赋值前完成 SetBitmapAsync，可直接切换
+                viewer._pendingSwap = true;
+                viewer.InactiveImage.Source = src;
+                // SoftwareBitmapSource 不通过 ImageOpened 通知就绪，
+                // 但其构造函数保证 SetBitmapAsync 完成后再赋值，直接切换。
+                viewer.OnNewImageReady(0, 0);
             }
         }
 
-        private void OnBitmapImageOpened(object sender, RoutedEventArgs e)
+        /// <summary>BitmapImage 异步解码完成 → 执行图层切换</summary>
+        private void OnBitmapImageReadyForSwap(object sender, RoutedEventArgs e)
         {
             if (sender is BitmapImage bmp)
             {
-                bmp.ImageOpened -= OnBitmapImageOpened;
-                _naturalWidth = bmp.PixelWidth;
-                _naturalHeight = bmp.PixelHeight;
-                ScheduleResetToFit();
+                bmp.ImageOpened -= OnBitmapImageReadyForSwap;
+                if (_pendingSwap)
+                    OnNewImageReady(bmp.PixelWidth, bmp.PixelHeight);
             }
+        }
+
+        /// <summary>
+        /// 新图像已就绪 → 复制变换状态到非活跃层，Opacity 交替切换，
+        /// 然后清空旧层 Source 释放内存。
+        /// </summary>
+        private void OnNewImageReady(double natW, double natH)
+        {
+            _pendingSwap = false;
+
+            // 同步变换状态到新层
+            InactiveTransform.ScaleX = ActiveTransform.ScaleX;
+            InactiveTransform.ScaleY = ActiveTransform.ScaleY;
+            InactiveTransform.TranslateX = ActiveTransform.TranslateX;
+            InactiveTransform.TranslateY = ActiveTransform.TranslateY;
+
+            // 交叉淡入淡出：旧层 → 透明，新层 → 不透明
+            ActiveImage.Opacity = 0;
+            InactiveImage.Opacity = 1;
+
+            // 释放旧层图片内存
+            ActiveImage.Source = null;
+
+            // 翻转活跃层标记
+            _activeLayer = _activeLayer == ActiveLayer.A ? ActiveLayer.B : ActiveLayer.A;
+
+            // 更新自然尺寸用于后续缩放计算
+            if (natW > 0 && natH > 0)
+            {
+                _naturalWidth = natW;
+                _naturalHeight = natH;
+            }
+
+            // 新图像就绪 → 重置到 Fit 状态
+            UpdatePixelScale();
+            ResetToFit();
         }
 
         private static void OnIsLoadingChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -216,11 +279,12 @@ namespace LivePhotoBox.Controls
             {
                 VideoPlayer.Visibility = Visibility.Collapsed;
                 VideoPlayer.Source = null;
-                MainImage.Visibility = Visibility.Visible;
+                ActiveImage.Visibility = Visibility.Visible;
             }
             else
             {
-                MainImage.Visibility = Visibility.Collapsed;
+                ImageLayerA.Visibility = Visibility.Collapsed;
+                ImageLayerB.Visibility = Visibility.Collapsed;
                 VideoPlayer.Source = source;
                 VideoPlayer.Visibility = Visibility.Visible;
             }
@@ -316,8 +380,8 @@ namespace LivePhotoBox.Controls
             double relY = ay - contentTop;
 
             // 锚点在内容区中的坐标（逆 CompositeTransform）
-            double cx = (relX - ImageTransform.TranslateX) / _currentScale;
-            double cy = (relY - ImageTransform.TranslateY) / _currentScale;
+            double cx = (relX - ActiveTransform.TranslateX) / _currentScale;
+            double cy = (relY - ActiveTransform.TranslateY) / _currentScale;
 
             // 新的平移量：保持同一内容区坐标在锚点位置
             double newTx = relX - cx * newScale;
@@ -339,10 +403,10 @@ namespace LivePhotoBox.Controls
             _currentScale = scale;
             // 边界夹持：杜绝拖出白边
             var (clampedTx, clampedTy) = ClampTranslation(scale, tx, ty);
-            ImageTransform.ScaleX = scale;
-            ImageTransform.ScaleY = scale;
-            ImageTransform.TranslateX = clampedTx;
-            ImageTransform.TranslateY = clampedTy;
+            ActiveTransform.ScaleX = scale;
+            ActiveTransform.ScaleY = scale;
+            ActiveTransform.TranslateX = clampedTx;
+            ActiveTransform.TranslateY = clampedTy;
 
             // 通知外部百分比显示更新
             if (Math.Abs(scale - oldScale) > 0.0001)
@@ -430,8 +494,8 @@ namespace LivePhotoBox.Controls
 
             _isDragging = true;
             _dragStartPoint = e.GetCurrentPoint(ViewportGrid).Position;
-            _dragStartTranslateX = ImageTransform.TranslateX;
-            _dragStartTranslateY = ImageTransform.TranslateY;
+            _dragStartTranslateX = ActiveTransform.TranslateX;
+            _dragStartTranslateY = ActiveTransform.TranslateY;
 
             ViewportGrid.CapturePointer(e.Pointer);
             e.Handled = true;
