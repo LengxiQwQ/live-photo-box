@@ -60,6 +60,9 @@ namespace LivePhotoBox.Views
         // 恰好完整露出缩略图，文字列空间归零自然不可见。
         private const double LeftPanelCollapsedWidth = 100;
 
+        /// <summary>上次成功触发扫描的目录路径（路径未变时跳过 LostFocus 重复扫描）</summary>
+        private string? _lastScannedPath;
+
         // ── 预览最大化状态 ──
         private bool _isPreviewMaximized;
 
@@ -103,11 +106,15 @@ namespace LivePhotoBox.Views
             {
                 _uiSettings.ColorValuesChanged -= OnSystemColorValuesChanged;
                 ViewModel.RequestScrollToFrame -= OnRequestScrollToFrame;
+                ViewModel.PreviewClearRequested -= OnPreviewClearRequested;
                 ViewModel.Cleanup();
             };
 
             // 时间轴照片帧自动滚动
             ViewModel.RequestScrollToFrame += OnRequestScrollToFrame;
+
+            // 大图预览清空（实况→非实况切换）
+            ViewModel.PreviewClearRequested += OnPreviewClearRequested;
 
             Loaded += KeyPhotoPage_Loaded;
             PhotoViewer.ScaleChanged += PhotoViewer_ScaleChanged;
@@ -758,6 +765,12 @@ namespace LivePhotoBox.Views
             }
         }
 
+        /// <summary>实况→非实况切换时，强制清空 PhotoViewer 双缓冲层</summary>
+        private void OnPreviewClearRequested()
+        {
+            PhotoViewer.ClearImage();
+        }
+
         /// <summary>
         /// 导航回 KeyPhotoPage 时调用。如果用户在设置页切换了模式，
         /// 此时页面已在前台，正式触发 Visibility 切换 + 强刷绑定 + 恢复滚动。
@@ -839,6 +852,7 @@ namespace LivePhotoBox.Views
             {
                 ViewModel.CurrentDirectory = folder.Path;
                 // 浏览按钮选择的路径直接触发扫描（不依赖 LostFocus）
+                _lastScannedPath = folder.Path;
                 ViewModel.TriggerScan();
             }
             // 重置标记
@@ -903,7 +917,10 @@ namespace LivePhotoBox.Views
             }
         }
 
-        /// <summary>路径输入框失去焦点时触发扫描（手动输入路径后点击别处的场景）</summary>
+
+
+        /// <summary>路径输入框失去焦点时触发扫描（手动输入路径后点击别处的场景）。
+        /// 路径与上次扫描相同时跳过，避免无变化时的重复扫描。</summary>
         private void CurrentDirTextBox_LostFocus(object sender, RoutedEventArgs e)
         {
             // 用户点击了浏览按钮 → 跳过（由 BrowseFolder_Click 负责触发）
@@ -912,6 +929,13 @@ namespace LivePhotoBox.Views
                 _suppressLostFocusScan = false;
                 return;
             }
+
+            // 路径未变 → 跳过，避免重复扫描
+            var currentPath = ViewModel.CurrentDirectory;
+            if (string.Equals(currentPath, _lastScannedPath, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            _lastScannedPath = currentPath;
             ViewModel.TriggerScan();
         }
 
@@ -1015,9 +1039,24 @@ namespace LivePhotoBox.Views
         {
             if (sender is Border card)
             {
-                // Loaded 可能触发多次（虚拟化回收），每次都检查
-                if (IsCardSelected(card))
-                    UpdateCardVisual(card, isSelected: true, hovered: false, pressed: false);
+                // Loaded 在虚拟化回收复用时重新触发。必须无条件刷新视觉状态：
+                // 旧项可能是选中态（蓝色边框），新项不是的话要清除，否则出现"多个选中"假象。
+                bool isSelected = IsCardSelected(card);
+                UpdateCardVisual(card, isSelected, hovered: false, pressed: false);
+            }
+        }
+
+        /// <summary>
+        /// DataContext 变更时强制刷新卡片视觉（虚拟化回收复用的关键补丁）。
+        /// Loaded 触发时 DataContext 可能还指向旧项 → IsCardSelected 误判。
+        /// DataContextChanged 一定在数据绑定完成后触发 → 判断准确。
+        /// </summary>
+        private void CardRoot_DataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
+        {
+            if (sender is Border card)
+            {
+                bool isSelected = IsCardSelected(card);
+                UpdateCardVisual(card, isSelected, hovered: false, pressed: false);
             }
         }
 

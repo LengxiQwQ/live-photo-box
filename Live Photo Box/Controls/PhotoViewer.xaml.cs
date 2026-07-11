@@ -230,6 +230,20 @@ namespace LivePhotoBox.Controls
         //  公开方法
         // ══════════════════════════════════════════════════════════════
 
+        /// <summary>强制清空双缓冲层图片（用于切换到非图片文件时立即清除预览）</summary>
+        public void ClearImage()
+        {
+            _pendingSwap = false;
+            ImageLayerA.Source = null;
+            ImageLayerB.Source = null;
+            ImageLayerA.Opacity = 1;
+            ImageLayerB.Opacity = 1;
+            _activeLayer = ActiveLayer.A;
+            _naturalWidth = 0;
+            _naturalHeight = 0;
+            ResetToFit();
+        }
+
         /// <summary>重置缩放使图片自适应容器大小</summary>
         public void ResetToFit()
         {

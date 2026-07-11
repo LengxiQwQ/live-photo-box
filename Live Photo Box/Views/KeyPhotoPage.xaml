@@ -349,7 +349,7 @@
                                 Visibility="{x:Bind ViewModel.HasAnyFiles, Mode=OneWay}"
                                 x:Uid="KeyPhotoPage_CollapsePanel"
                                 ToolTipService.ToolTip="折叠面板">
-                            <FontIcon x:Name="CollapseButtonIcon" Glyph="&#xE76C;"
+                            <FontIcon x:Name="CollapseButtonIcon" Glyph="&#xE76B;"
                                       FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </Button>
                     </Grid>
@@ -365,8 +365,8 @@
                                      x:Name="CurrentDirTextBox"
                                      Text="{x:Bind ViewModel.CurrentDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="当前目录..."
-                                     FontSize="12" MinHeight="28" Height="28" Padding="10,5,32,5"
-                                     VerticalContentAlignment="Center" VerticalAlignment="Center" IsReadOnly="False"
+                                     FontSize="12" MinHeight="28" Height="28" Padding="10,5,10,5"
+                                     VerticalContentAlignment="Center" VerticalAlignment="Center"
                                      LostFocus="CurrentDirTextBox_LostFocus">
                                 <TextBox.Resources>
                                     <x:Double x:Key="TextControlThemeMinHeight">28</x:Double>
@@ -395,7 +395,7 @@
                                             Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                             PlaceholderText="搜索文件..."
                                             FontSize="12" Height="28" MinHeight="28" Padding="10,0,30,0"
-                                            VerticalContentAlignment="Center" VerticalAlignment="Center" QueryIcon="Find">
+                                            VerticalContentAlignment="Center" VerticalAlignment="Center">
                                 <AutoSuggestBox.Resources>
                                     <x:Double x:Key="TextControlThemeMinHeight">28</x:Double>
                                 </AutoSuggestBox.Resources>
@@ -472,6 +472,7 @@
                                         Margin="0" Background="Transparent"
                                         BorderBrush="Transparent" BorderThickness="2"
                                         Loaded="CardRoot_Loaded"
+                                        DataContextChanged="CardRoot_DataContextChanged"
                                         PointerEntered="CardRoot_PointerEntered"
                                         PointerExited="CardRoot_PointerExited"
                                         PointerPressed="CardRoot_PointerPressed"
@@ -494,7 +495,7 @@
                                             </Grid>
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{x:Bind FileName}"
+                                            <TextBlock Text="{x:Bind DisplayFileName, Mode=OneWay}"
                                                        FontSize="12" FontWeight="Bold"
                                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                        TextTrimming="CharacterEllipsis" MaxLines="1"/>
@@ -774,7 +775,8 @@
                                     Width="56" Height="56" CornerRadius="5"
                                     BorderThickness="2"
                                     HorizontalAlignment="Center" VerticalAlignment="Center"
-                                    IsHitTestVisible="False"/>
+                                    IsHitTestVisible="False"
+                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"/>
 
                             <!-- ▸▸▸ 顶层：前/后帧切换按钮（Click → 统一滚动管线）▸▸▸ -->
                             <Button x:Name="FilmstripPrevFrameButton"
@@ -785,6 +787,7 @@
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="FilmstripPrevButton_Click"
                                     IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
+                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"
                                     x:Uid="KeyPhotoPage_PrevFrame" ToolTipService.ToolTip="上一帧">
                                 <FontIcon Glyph="&#xE76B;" FontSize="10"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -797,6 +800,7 @@
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="FilmstripNextButton_Click"
                                     IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
+                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"
                                     x:Uid="KeyPhotoPage_NextFrame" ToolTipService.ToolTip="下一帧">
                                 <FontIcon Glyph="&#xE76C;" FontSize="10"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>

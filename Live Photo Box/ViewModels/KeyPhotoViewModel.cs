@@ -19,6 +19,7 @@ using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
@@ -92,6 +93,14 @@ namespace LivePhotoBox.ViewModels
         private bool _isScanning;
 
         private CancellationTokenSource? _scanCts;
+
+        /// <summary>
+        /// 选中文件代数（每次 SelectFile 调用时通过 Interlocked.Increment 递增）。
+        /// 所有异步回调（exiftool 查询结果投递、ffmpeg 帧提取、大图预览加载）
+        /// 在操作执行前检查此值是否匹配：不匹配说明用户已切换到另一个文件，
+        /// 旧回调应立即 bail out，避免新旧文件的重量级操作同时抢占 CPU/内存。
+        /// </summary>
+        private int _selectionGeneration;
 
         // ══════════════════════════════════════════════════════════════
         //  搜索 & 排序（暂时占位，后续适配）
@@ -228,9 +237,18 @@ namespace LivePhotoBox.ViewModels
         /// <summary>时间轴 loading 透明度（0=隐藏, 1=显示），用 Opacity 而非 Visibility 避免布局跳动</summary>
         public double TimelineLoadingOpacity => IsTimelineLoading ? 1.0 : 0.0;
 
+        /// <summary>胶片模式控件（选中框 + 前后按钮）可见性</summary>
+        public Visibility FilmstripControlsVisibility =>
+            HasTimelineFrames ? Visibility.Visible : Visibility.Collapsed;
+
         partial void OnIsTimelineLoadingChanged(bool value)
         {
             OnPropertyChanged(nameof(TimelineLoadingOpacity));
+        }
+
+        partial void OnHasTimelineFramesChanged(bool value)
+        {
+            OnPropertyChanged(nameof(FilmstripControlsVisibility));
         }
 
         /// <summary>时间轴帧提取取消令牌</summary>
@@ -266,6 +284,9 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>ViewModel 通知 View 层滚动到指定帧（ItemsRepeater 布局就绪后吸附定位）</summary>
         public event Action<TimelineFrame>? RequestScrollToFrame;
+
+        /// <summary>ViewModel 通知 View 层强制清空 PhotoViewer 双缓冲层（实况→非实况切换时）</summary>
+        public event Action? PreviewClearRequested;
 
         /// <summary>标记：设置页切换模式后，OnNavigatedTo 需要修正滚动位置和初始化</summary>
         public bool NeedsModeSwitchFixup { get; set; }
@@ -404,6 +425,23 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private ImageSource? _previewImageSource;
 
+        /// <summary>
+        /// 安全设置 PreviewImageSource（带 try-catch 保护）。
+        /// x:Bind 会同步调用 PhotoViewer.ImageSource → SetValue(DependencyProperty) → COM，
+        /// 若控件正在销毁或线程不对 → COM 异常可能直接杀进程（0xc000027b），
+        /// 必须兜底捕获，防止崩到 WinUI 层之外。
+        /// </summary>
+        private void SetPreviewSafe(ImageSource? source)
+        {
+            try { PreviewImageSource = source; }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"KeyPhoto SetPreviewSafe failed: {ex.GetType().Name}: {ex.Message}",
+                    LogLevel.Warning);
+            }
+        }
+
         /// <summary>预览图加载取消令牌（切换文件时取消上一次加载）</summary>
         private CancellationTokenSource? _previewLoadCts;
 
@@ -505,6 +543,14 @@ namespace LivePhotoBox.ViewModels
             CleanupFrameTempFiles();
             CleanupTempVideo();
 
+            // 递增选中代数 —— 所有旧的异步回调（exiftool 查询结果、ffmpeg 提取、
+            // 大图预览）在拿到执行权后检查此值，不匹配则 bail out，避免新旧操作抢占资源。
+            int myGeneration = Interlocked.Increment(ref _selectionGeneration);
+
+            LogService.FileOp(
+                $"KeyPhoto SelectFile: path='{filePath ?? "null"}', generation={myGeneration}",
+                LogLevel.Info);
+
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
             {
                 ClearFileInfo();
@@ -523,11 +569,31 @@ namespace LivePhotoBox.ViewModels
             if (item != null)
             {
                 IsSelectedLivePhoto = item.HasConfirmedProtocol;
-                PhotoFileName = item.FileName;
+                PhotoFileName = KeyPhotoFileItem.FormatDisplayFileName(
+                    item.FileName, item.HasConfirmedProtocol, item.VideoExtension);
                 SelectedFileThumbnail = item.Thumbnail;
             }
-            // 触发大图预览加载（异步，用令牌保护）
-            _ = LoadPreviewImageAsync(filePath);
+
+            // 大图：视频不加载，直接清空；图片走 LoadPreviewImageAsync 正常加载
+            if (IsSelectedFileVideo)
+            {
+                SetPreviewSafe(null);
+                PreviewClearRequested?.Invoke();
+            }
+
+            // 时间轴：仅从实况切换到非实况时清空（实况之间保留旧帧防闪烁）
+            if (wasLivePhoto && !IsSelectedLivePhoto)
+            {
+                TimelineFrames.Clear();
+                HasTimelineFrames = false;
+                IsTimelineLoading = false;
+                TimelineInfo = string.Empty;
+                SelectedTimelineFrame = null;
+            }
+
+            // 触发大图预览加载（异步，用令牌+代数保护）。视频跳过。
+            if (!IsSelectedFileVideo)
+                _ = LoadPreviewImageAsync(filePath, myGeneration);
 
             // 清空信息面板字段，等异步 LoadPropertiesAsync 一次填充（避免旧数据闪烁）
             PhotoInfoLine = string.Empty;
@@ -538,16 +604,6 @@ namespace LivePhotoBox.ViewModels
             ExifLensParams = string.Empty;
             ExifShootingParams = string.Empty;
             ExifPlaceName = string.Empty;
-
-            // 时间轴：仅当从实况照片切换到非实况时清空（实况之间切换保留旧帧，避免闪烁）
-            if (wasLivePhoto && !IsSelectedLivePhoto)
-            {
-                TimelineFrames.Clear();
-                HasTimelineFrames = false;
-                IsTimelineLoading = false;
-                TimelineInfo = string.Empty;
-                SelectedTimelineFrame = null;
-            }
 
             // 异步加载完整属性
             _propLoadCts = new CancellationTokenSource();
@@ -583,7 +639,7 @@ namespace LivePhotoBox.ViewModels
                     LogLevel.Info);
             }
             LogService.Debug($"KeyPhoto SelectFile: type={item?.LivePhotoType}, videoPath={videoPath ?? "null"}, embeddedVideoLen={embeddedVideoLen}", LogSource.UI);
-            _ = LoadPropertiesAsync(filePath, videoPath, embeddedVideoLen, token);
+            _ = LoadPropertiesAsync(filePath, videoPath, embeddedVideoLen, myGeneration, token);
         }
 
         /// <summary>清空信息面板</summary>
@@ -665,7 +721,11 @@ namespace LivePhotoBox.ViewModels
         };
 
         /// <summary>异步加载照片 EXIF + 配对视频属性（并行查询，同时更新）</summary>
-        private async Task LoadPropertiesAsync(string imagePath, string? videoPath, long embeddedVideoLen, CancellationToken token)
+        /// <param name="generation">
+        /// 选中代数（来自 SelectFile 的 Interlocked.Increment）。
+        /// 在 dispatcher.TryEnqueue 回调中检查：如果已过期则跳过 TriggerTimelineExtraction。
+        /// </param>
+        private async Task LoadPropertiesAsync(string imagePath, string? videoPath, long embeddedVideoLen, int generation, CancellationToken token)
         {
             LogService.FileOp(
                 $"Timeline[LoadProps] START: image='{Path.GetFileName(imagePath)}', " +
@@ -788,6 +848,16 @@ namespace LivePhotoBox.ViewModels
 
                 dispatcher.TryEnqueue(() =>
                 {
+                    // 代数检查：exiftool 查询耗时 1~3s，期间用户可能已切换到另一个文件。
+                    // 若代数不匹配，说明此回调已过期，跳过所有 UI 更新和 ffmpeg 提取。
+                    if (generation != Volatile.Read(ref _selectionGeneration))
+                    {
+                        LogService.FileOp(
+                            $"Timeline[LoadProps] SKIP: generation mismatch (my={generation}, current={_selectionGeneration})",
+                            LogLevel.Warning);
+                        return;
+                    }
+
                     ApplyProperties(imgProps);
                     ApplyVideoProperties(vidProps);
 
@@ -896,6 +966,7 @@ namespace LivePhotoBox.ViewModels
                                 LogLevel.Info);
                             TriggerTimelineExtraction(actualVideoPath!, durSec, fps,
                                 timing.PhotoTimeSeconds, timing.CoverTimeSeconds,
+                                generation,
                                 originalPhotoBytes);
                         }
                         else
@@ -1009,22 +1080,24 @@ namespace LivePhotoBox.ViewModels
         /// <param name="keyPhotoTimeSeconds">关键帧时间偏移（秒）</param>
         /// <param name="photoTimeSeconds">静态照片在视频中的时间偏移（秒，⭐ 位置）</param>
         /// <param name="coverTimeSeconds">封面帧/Key Photo 时间偏移（秒，🔵 选中位置）</param>
+        /// <param name="generation">选中代数（过期则跳过所有 UI 更新）</param>
         private void TriggerTimelineExtraction(string videoPath, double durationSeconds, double fps,
-            double keyPhotoTimeSeconds = 0)
+            double keyPhotoTimeSeconds = 0, int generation = 0)
         {
             // 兼容旧调用（没传 photo/cover 时，两者都等于 keyPhotoTimeSeconds）
             TriggerTimelineExtraction(videoPath, durationSeconds, fps,
-                keyPhotoTimeSeconds, keyPhotoTimeSeconds);
+                keyPhotoTimeSeconds, keyPhotoTimeSeconds, generation);
         }
 
         private void TriggerTimelineExtraction(string videoPath, double durationSeconds, double fps,
             double photoTimeSeconds, double coverTimeSeconds,
+            int generation = 0,
             byte[]? originalPhotoBytes = null)
         {
             bool split = Math.Abs(coverTimeSeconds - photoTimeSeconds) > 0.001;
             LogService.FileOp(
                 $"Timeline[Extract] START: video='{Path.GetFileName(videoPath)}', " +
-                $"dur={durationSeconds}s, fps={fps}, " +
+                $"dur={durationSeconds}s, fps={fps}, gen={generation}, " +
                 $"photo={photoTimeSeconds}s, cover={coverTimeSeconds}s, split={split}",
                 LogLevel.Info);
 
@@ -1047,6 +1120,9 @@ namespace LivePhotoBox.ViewModels
             // 立即显示 loading（旧帧已在 SelectFile 中清空，仅实况→实况不清空）
             dispatcher.TryEnqueue(() =>
             {
+                // 代数检查：入队后执行前确认未被切换
+                if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
+                    return;
                 TimelineFrames.Clear();
                 HasTimelineFrames = true;
                 IsTimelineLoading = true;
@@ -1057,12 +1133,33 @@ namespace LivePhotoBox.ViewModels
             {
                 try
                 {
+                    // 代数检查：Task.Run 创建到实际执行之间存在调度间隔，
+                    // 期间用户可能已切换文件，此时跳过 ffmpeg 调用。
+                    if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
+                    {
+                        LogService.FileOp(
+                            "Timeline[Extract] SKIP before ffmpeg: generation mismatch",
+                            LogLevel.Warning);
+                        return;
+                    }
+
                     var result = await VideoFrameExtractionService.ExtractAllFramesAsync(
                         videoPath, ct);
 
                     if (ct.IsCancellationRequested)
                     {
                         LogService.FileOp("Timeline[Extract] ffmpeg CANCELLED", LogLevel.Warning);
+                        return;
+                    }
+
+                    // 代数检查：ffmpeg 提取耗时数秒，完成后再次确认文件未被切换。
+                    // 过期时跳过 frame 创建+缩略图加载，清理临时帧文件。
+                    if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
+                    {
+                        LogService.FileOp(
+                            "Timeline[Extract] SKIP after ffmpeg: generation mismatch",
+                            LogLevel.Warning);
+                        CleanupFrameTempFiles();
                         return;
                     }
 
@@ -1096,6 +1193,17 @@ namespace LivePhotoBox.ViewModels
                     {
                         try
                         {
+                            // 代数检查：入队后执行前，确认文件未被切换。
+                            // 若过期则跳过帧创建+缩略图加载（最重的 UI 操作）。
+                            if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
+                            {
+                                LogService.FileOp(
+                                    "Timeline[Extract] SKIP in UI callback: generation mismatch",
+                                    LogLevel.Warning);
+                                uiTimelineDone.TrySetResult();
+                                return;
+                            }
+
                             // 1. 用 ffmpeg 实际提取到的帧数创建视频帧（同步保存 FullFramePath）
                             for (int i = 0; i < actualFrameCount; i++)
                             {
@@ -1210,14 +1318,13 @@ namespace LivePhotoBox.ViewModels
                             int timelineIdx = 0;
                             for (int jpegIdx = 0; jpegIdx < result.JpegPaths.Count; jpegIdx++)
                             {
+                                try
+                                {
                                 // 跳过照片帧
                                 while (timelineIdx < TimelineFrames.Count
                                        && TimelineFrames[timelineIdx].IsStillPhoto)
                                     timelineIdx++;
                                 if (timelineIdx >= TimelineFrames.Count) break;
-
-                                try
-                                {
                                     string frameKey = $"{sourcePath}|{jpegIdx}";
                                     if (!_thumbnailCache.TryGetValue(frameKey, out var cachedFrame))
                                     {
@@ -1236,7 +1343,9 @@ namespace LivePhotoBox.ViewModels
                                         _thumbnailCache[frameKey] = source;
                                         cachedFrame = source;
                                     }
-                                    TimelineFrames[timelineIdx].Thumbnail = cachedFrame;
+                                    // 边界保护：加载期间 TimelineFrames 可能被新 SelectFile 清空
+                                    if (timelineIdx < TimelineFrames.Count)
+                                        TimelineFrames[timelineIdx].Thumbnail = cachedFrame;
                                     timelineIdx++;
                                     loadedCount++;
                                 }
@@ -1307,7 +1416,7 @@ namespace LivePhotoBox.ViewModels
                     // 写入 _previewCache，用户后续滚到 ⭐ 帧时缓存命中、瞬间显示。
                     if (stillFrame != null && !string.IsNullOrEmpty(sourcePath))
                     {
-                        _ = LoadPreviewImageAsync(sourcePath);
+                        _ = LoadPreviewImageAsync(sourcePath, generation);
                         LogService.FileOp(
                             "Timeline[Extract] ⭐ large preview preload started", LogLevel.Info);
                     }
@@ -1367,7 +1476,13 @@ namespace LivePhotoBox.ViewModels
         /// 非 HEIC：使用 StorageFile + BitmapImage.SetSourceAsync 异步解码，不阻塞 UI 线程。
         /// 结果写入 _previewCache，后续同一文件命中缓存直接返回，无需重新解码。
         /// </summary>
-        private async Task LoadPreviewImageAsync(string imagePath)
+        /// <param name="imagePath">图片文件路径</param>
+        /// <param name="generation">
+        /// 选中代数（来自 SelectFile 的 Interlocked.Increment）。
+        /// generation &gt; 0 时，在每次 dispatcher 回调中检查是否过期（!= _selectionGeneration），
+        /// 过期则跳过 UI 更新。generation == 0 时不检查（用户手动点击时间轴帧场景）。
+        /// </param>
+        private async Task LoadPreviewImageAsync(string imagePath, int generation = 0)
         {
             _previewLoadCts?.Cancel();
             _previewLoadCts?.Dispose();
@@ -1377,7 +1492,18 @@ namespace LivePhotoBox.ViewModels
             // 缓存命中 → 直接显示，无需重新解码
             if (_previewCache.TryGetValue(imagePath, out var cached))
             {
-                PreviewImageSource = cached;
+                // 代数检查：仅当此加载请求未过期时才写入 PreviewImageSource
+                if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
+                {
+                    LogService.FileOp(
+                        $"KeyPhoto Preview(cache): stale (gen={generation}, cur={_selectionGeneration}), skip",
+                        LogLevel.Info);
+                    return;
+                }
+                // 必须走 UI 线程设值：PreviewImageSource → x:Bind → PhotoViewer.ImageSource
+                // → SetValue(DependencyProperty) → COM 调用，非 UI 线程会抛 0x8001010E
+                var disp = App.MainWindow?.DispatcherQueue;
+                disp?.TryEnqueue(() => SetPreviewSafe(cached));
                 return;
             }
 
@@ -1441,6 +1567,15 @@ namespace LivePhotoBox.ViewModels
                         if (token.IsCancellationRequested) return;
                         if (tempJpegPath == null || !File.Exists(tempJpegPath)) return;
 
+                        // 代数检查：后台解码完成后，在回 UI 线程之前再次确认文件未被切换
+                        if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
+                        {
+                            LogService.FileOp(
+                                $"KeyPhoto Preview(HEIC): stale after decode (gen={generation}, cur={_selectionGeneration}), skip",
+                                LogLevel.Info);
+                            return;
+                        }
+
                         // UI 线程：从临时 JPEG 创建 BitmapImage
                         var tcs = new TaskCompletionSource<bool>(
                             TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1448,11 +1583,22 @@ namespace LivePhotoBox.ViewModels
                         {
                             try
                             {
+                                // 代数检查：回调入队后执行前，确认文件未被切换
+                                if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
+                                {
+                                    LogService.FileOp(
+                                        $"KeyPhoto Preview(HEIC-dispatch): stale (gen={generation}, cur={_selectionGeneration}), skip",
+                                        LogLevel.Info);
+                                    tcs.TrySetResult(false); return;
+                                }
                                 if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
                                 var bmp = new BitmapImage { DecodePixelWidth = 2560 };
                                 using var fs = new FileStream(tempJpegPath, FileMode.Open, FileAccess.Read);
                                 bmp.SetSource(fs.AsRandomAccessStream());
-                                PreviewImageSource = bmp;
+                                LogService.FileOp(
+                                    $"KeyPhoto Preview(HEIC): set PreviewImageSource for '{Path.GetFileName(imagePath)}'",
+                                    LogLevel.Info);
+                                SetPreviewSafe(bmp);
                                 AddToPreviewCache(imagePath, bmp);
                                 tcs.TrySetResult(true);
                             }
@@ -1484,6 +1630,9 @@ namespace LivePhotoBox.ViewModels
                     {
                         try
                         {
+                            // 代数检查：回调入队后执行前，确认文件未被切换
+                            if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
+                            { tcs.TrySetResult(false); return; }
                             if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
                             var bmp = new BitmapImage { DecodePixelWidth = 2560 };
                             using (var stream = await file.OpenReadAsync().AsTask(token))
@@ -1491,7 +1640,7 @@ namespace LivePhotoBox.ViewModels
                                 if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
                                 await bmp.SetSourceAsync(stream);
                             }
-                            PreviewImageSource = bmp;
+                            SetPreviewSafe(bmp);
                             AddToPreviewCache(imagePath, bmp);
                             tcs.TrySetResult(true);
                         }
@@ -1633,7 +1782,7 @@ namespace LivePhotoBox.ViewModels
         /// <summary>将解析好的属性写入绑定字段</summary>
         private void ApplyProperties(ExifProperties p)
         {
-            var ext = Path.GetExtension(PhotoFileName).TrimStart('.').ToUpperInvariant();
+            var ext = Path.GetExtension(SelectedFilePath ?? "").TrimStart('.').ToUpperInvariant();
             var item = FileItems.FirstOrDefault(f =>
                 string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
 
@@ -1681,35 +1830,52 @@ namespace LivePhotoBox.ViewModels
                 SelectedFilePath, p.ContentIdentifier);
             ProtocolLine = protocol ?? string.Empty;
 
-            // ── ExifCamera（Line 1）：拍摄设备（粗体）──
+            // ── 摄像头位置（后置/前置 + 类型），用于 Line 1 后缀 ──
+            string cameraPosition = GetCameraPosition(p);
+
+            // ── ExifCamera（Line 1 粗体）：拍摄设备 ──
             ExifCamera = !string.IsNullOrWhiteSpace(p.Camera)
                 ? p.Camera
                 : ResourceService.GetString("KeyPhoto_UnknownDevice");
 
-            // ── ExifCameraDateSuffix：设备名后的日期后缀（细灰字体）──
-            ExifCameraDateSuffix = string.IsNullOrEmpty(date) ? string.Empty : $"  —  {date}";
+            // ── ExifCameraDateSuffix（Line 1 后缀）：摄像头位置替代原来的日期 ──
+            ExifCameraDateSuffix = string.IsNullOrEmpty(cameraPosition)
+                ? string.Empty
+                : $"  —  {cameraPosition}";
 
-            // ── ExifLensParams（Line 2）：镜头描述（关键词映射 + 焦段 + 光圈）──
-            ExifLensParams = BuildLensDisplayName(p);
-
-            // ── ExifShootingParams（Line 3）：ISO │ EV │ 快门 │ HDR ──
-            var shootParts = new List<string>();
+            // ── ExifLensParams（Line 2）：镜头参数 + 拍摄参数合并为一行 ──
+            var paramParts = new List<string>();
+            // 焦段
+            if (!string.IsNullOrWhiteSpace(p.FocalLengthIn35mmFormat))
+                paramParts.Add(FormatFocalLength(p.FocalLengthIn35mmFormat));
+            // 光圈
+            if (!string.IsNullOrWhiteSpace(p.FNumber))
+                paramParts.Add(FormatFNumber(p.FNumber));
+            // ISO
             if (p.ISO > 0)
-                shootParts.Add($"ISO {p.ISO}");
+                paramParts.Add($"ISO {p.ISO}");
+            // EV
             if (!string.IsNullOrWhiteSpace(p.ExposureCompensation))
             {
                 var ev = p.ExposureCompensation.Trim();
                 if (double.TryParse(ev, System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out var evVal))
-                    shootParts.Add($"EV{(evVal >= 0 ? "+" : "")}{evVal:F1}");
+                    paramParts.Add($"EV{(evVal >= 0 ? "+" : "")}{evVal:F1}");
                 else
-                    shootParts.Add($"EV{ev}");
+                    paramParts.Add($"EV{ev}");
             }
+            // 快门
             if (!string.IsNullOrWhiteSpace(p.ExposureTime))
-                shootParts.Add(FormatExposureTime(p.ExposureTime));
+                paramParts.Add(FormatExposureTime(p.ExposureTime));
+            // HDR
             if (!string.IsNullOrWhiteSpace(p.HDRImageType))
-                shootParts.Add("HDR");
-            ExifShootingParams = string.Join("  │  ", shootParts);
+                paramParts.Add("HDR");
+            ExifLensParams = paramParts.Count > 0
+                ? string.Join("  │  ", paramParts)
+                : string.Empty;
+
+            // ── ExifShootingParams（Line 3）：日期时间（从 Line 1 移下来）──
+            ExifShootingParams = string.IsNullOrEmpty(date) ? string.Empty : date;
 
             // ── ExifPlaceName：反向地理编码地名 ──
             ExifPlaceName = string.Empty;
@@ -2050,6 +2216,39 @@ namespace LivePhotoBox.ViewModels
                 }
             }
             return null;
+        }
+
+        /// <summary>根据 LensModel / SensorType / ZoomMultiple 解析摄像头位置（后置/前置 + 类型）。
+        /// 无任何镜头信息时返回空字符串。</summary>
+        private static string GetCameraPosition(ExifProperties p)
+        {
+            string? lens = p.LensModel;
+            bool hasLensInfo = !string.IsNullOrWhiteSpace(lens)
+                || !string.IsNullOrWhiteSpace(p.SensorType)
+                || p.ZoomMultiple > 0;
+
+            if (!hasLensInfo)
+                return string.Empty;
+
+            bool isFront = (!string.IsNullOrWhiteSpace(lens) && lens.Contains("front", StringComparison.OrdinalIgnoreCase))
+                || (!string.IsNullOrWhiteSpace(p.SensorType) && p.SensorType.Equals("front", StringComparison.OrdinalIgnoreCase));
+
+            string position = isFront
+                ? ResourceService.GetString("KeyPhoto_Lens_Front")
+                : ResourceService.GetString("KeyPhoto_Lens_Rear");
+
+            string? type = lens != null ? MatchLensType(lens) : null;
+            if (type == null && p.ZoomMultiple > 0)
+            {
+                type = p.ZoomMultiple switch
+                {
+                    <= 1 => ResourceService.GetString("KeyPhoto_Lens_Main"),
+                    2 or 3 => ResourceService.GetString("KeyPhoto_Lens_Telephoto"),
+                    _ => ResourceService.GetString("KeyPhoto_Lens_Periscope")
+                };
+            }
+
+            return type != null ? $"{position}{type}" : $"{position}{ResourceService.GetString("KeyPhoto_Lens_Camera")}";
         }
 
         /// <summary>根据 LensModel / 小米 SensorType+ZoomMultiple / 焦段+光圈构建镜头描述。</summary>
