@@ -30,6 +30,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.Storage;
 
 namespace LivePhotoBox.Views
 {
@@ -63,6 +64,12 @@ namespace LivePhotoBox.Views
         /// <summary>上次成功触发扫描的目录路径（路径未变时跳过 LostFocus 重复扫描）</summary>
         private string? _lastScannedPath;
 
+        // ── 拖拽类型缓存（DragEnter 异步检测 → DragOver 同步读取）──
+        /// <summary>左侧面板：当前拖入的 StorageItems 是否全是文件夹</summary>
+        private bool _isLeftDropAllFolders;
+        /// <summary>右侧面板：当前拖入的 StorageItems 是否包含媒体文件</summary>
+        private bool _isRightDropHasFiles;
+
         // ── 预览最大化状态 ──
         private bool _isPreviewMaximized;
 
@@ -95,22 +102,18 @@ namespace LivePhotoBox.Views
         {
             InitializeComponent();
 
+            // 拖拽事件（Unloaded 中 detach，OnNavigatedTo 中重新 attach）
+            AttachDragEvents();
+
             RebuildAllBrushes();
 
             // 存储委托引用，确保 AddHandler / RemoveHandler 使用同一实例
             _filmstripWheelHandler = new PointerEventHandler(OnFilmstripPointerWheelChanged);
 
-            // 系统换强调色时实时更新
+            // 系统换强调色时实时更新（页面缓存，无需 detach，跟随 app 生命周期）
             _uiSettings.ColorValuesChanged += OnSystemColorValuesChanged;
-            Unloaded += (s, e) =>
-            {
-                _uiSettings.ColorValuesChanged -= OnSystemColorValuesChanged;
-                ViewModel.RequestScrollToFrame -= OnRequestScrollToFrame;
-                ViewModel.PreviewClearRequested -= OnPreviewClearRequested;
-                ViewModel.Cleanup();
-            };
 
-            // 时间轴照片帧自动滚动
+            // 时间轴照片帧自动滚动（ViewModel 事件，页面缓存期间持续有效）
             ViewModel.RequestScrollToFrame += OnRequestScrollToFrame;
 
             // 大图预览清空（实况→非实况切换）
@@ -838,6 +841,17 @@ namespace LivePhotoBox.Views
         /// <summary>用户点击了浏览按钮 → 抑制本次 LostFocus 扫描</summary>
         private bool _suppressLostFocusScan;
 
+        /// <summary>刷新按钮：重新扫描当前目录</summary>
+        private void RefreshDir_Click(object sender, RoutedEventArgs e)
+        {
+            var path = ViewModel.CurrentDirectory;
+            if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+            {
+                _lastScannedPath = path;
+                ViewModel.TriggerScan();
+            }
+        }
+
         /// <summary>浏览按钮按下时设标记（早于 LostFocus 触发），防止 LostFocus 误扫描旧路径</summary>
         private void BrowseFolder_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
@@ -847,16 +861,28 @@ namespace LivePhotoBox.Views
         /// <summary>浏览按钮：弹出文件夹选择器，选中后填充路径并触发扫描</summary>
         private async void BrowseFolder_Click(object sender, RoutedEventArgs e)
         {
-            var folder = await FilePickerService.PickFolderAsync();
-            if (folder != null)
+            try
             {
-                ViewModel.CurrentDirectory = folder.Path;
-                // 浏览按钮选择的路径直接触发扫描（不依赖 LostFocus）
-                _lastScannedPath = folder.Path;
-                ViewModel.TriggerScan();
+                var folder = await FilePickerService.PickFolderAsync();
+                if (folder != null)
+                {
+                    ViewModel.CurrentDirectory = folder.Path;
+                    // 浏览按钮选择的路径直接触发扫描（不依赖 LostFocus）
+                    _lastScannedPath = folder.Path;
+                    ViewModel.TriggerScan();
+                }
             }
-            // 重置标记
-            _suppressLostFocusScan = false;
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"BrowseFolder CRASH: {ex.GetType().Name}: {ex.Message}",
+                    LogLevel.Error, ex);
+            }
+            finally
+            {
+                // 重置标记（异常时也要重置，防止后续 LostFocus 被永久抑制）
+                _suppressLostFocusScan = false;
+            }
         }
 
         /// <summary>点击照片信息行 → 文件资源管理器中定位照片</summary>
@@ -937,6 +963,223 @@ namespace LivePhotoBox.Views
 
             _lastScannedPath = currentPath;
             ViewModel.TriggerScan();
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  拖拽事件挂接/解除（构造 + OnNavigatedTo → attach，Unloaded → detach）
+        // ════════════════════════════════════════════════════════════
+
+        private void AttachDragEvents()
+        {
+            LeftPanelBorder.DragEnter += LeftPanel_DragEnter;
+            LeftPanelBorder.DragOver += LeftPanel_DragOver;
+            LeftPanelBorder.DragLeave += LeftPanel_DragLeave;
+            LeftPanelBorder.Drop += LeftPanel_Drop;
+            RightPanelBorder.DragEnter += RightPanel_DragEnter;
+            RightPanelBorder.DragOver += RightPanel_DragOver;
+            RightPanelBorder.DragLeave += RightPanel_DragLeave;
+            RightPanelBorder.Drop += RightPanel_Drop;
+        }
+
+        private void DetachDragEvents()
+        {
+            LeftPanelBorder.DragEnter -= LeftPanel_DragEnter;
+            LeftPanelBorder.DragOver -= LeftPanel_DragOver;
+            LeftPanelBorder.DragLeave -= LeftPanel_DragLeave;
+            LeftPanelBorder.Drop -= LeftPanel_Drop;
+            RightPanelBorder.DragEnter -= RightPanel_DragEnter;
+            RightPanelBorder.DragOver -= RightPanel_DragOver;
+            RightPanelBorder.DragLeave -= RightPanel_DragLeave;
+            RightPanelBorder.Drop -= RightPanel_Drop;
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  拖拽文件夹到左侧面板（Drag & Drop）— 只接受文件夹
+        // ════════════════════════════════════════════════════════════
+
+        /// <summary>拖入时异步检测内容是否全是文件夹，缓存结果</summary>
+        private async void LeftPanel_DragEnter(object sender, DragEventArgs e)
+        {
+            _isLeftDropAllFolders = false;
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var deferral = e.GetDeferral();
+                try
+                {
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    _isLeftDropAllFolders = items.Count > 0
+                        && items.All(i => i is StorageFolder);
+                }
+                catch { _isLeftDropAllFolders = false; }
+                finally { deferral.Complete(); }
+            }
+        }
+
+        private void LeftPanel_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+
+            if (_isLeftDropAllFolders)
+            {
+                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                e.DragUIOverride.IsGlyphVisible = true;
+                e.DragUIOverride.IsCaptionVisible = false;
+                DragOverlay.Visibility = Visibility.Visible;
+            }
+
+            e.Handled = true;
+        }
+
+        private void LeftPanel_DragLeave(object sender, DragEventArgs e)
+        {
+            DragOverlay.Visibility = Visibility.Collapsed;
+            _isLeftDropAllFolders = false;
+            e.Handled = true;
+        }
+
+        /// <summary>
+        /// 拖拽释放：提取文件夹路径 → 设置 ViewModel → 触发扫描。
+        /// 优先取拖入的文件夹，若拖入的是文件则取其父目录。
+        /// </summary>
+        private async void LeftPanel_Drop(object sender, DragEventArgs e)
+        {
+            try
+            {
+                DragOverlay.Visibility = Visibility.Collapsed;
+
+                if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+                    return;
+
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count == 0) return;
+
+                // 优先取文件夹，否则取第一个文件的父目录
+                string? targetPath = null;
+                foreach (var item in items)
+                {
+                    if (item is StorageFolder folder)
+                    {
+                        targetPath = folder.Path;
+                        break;
+                    }
+                }
+
+                if (targetPath == null && items[0] is StorageFile file)
+                    targetPath = Path.GetDirectoryName(file.Path);
+
+                if (string.IsNullOrEmpty(targetPath) || !Directory.Exists(targetPath))
+                    return;
+
+                ViewModel.CurrentDirectory = targetPath;
+                _lastScannedPath = targetPath;
+                ViewModel.TriggerScan();
+
+                e.Handled = true;
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"Drop[Left] CRASH: {ex.GetType().Name}: {ex.Message}",
+                    LogLevel.Error, ex);
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  拖拽单文件到右侧面板 → 自动检测并加载（Drag & Drop）— 只接受文件
+        // ════════════════════════════════════════════════════════════
+
+        /// <summary>拖入时异步检测是否包含媒体文件，缓存结果</summary>
+        private async void RightPanel_DragEnter(object sender, DragEventArgs e)
+        {
+            _isRightDropHasFiles = false;
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var deferral = e.GetDeferral();
+                try
+                {
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    _isRightDropHasFiles = items.Count > 0
+                        && items.All(i => i is StorageFile)
+                        && items.Cast<StorageFile>().Any(
+                            f => IsSupportedMediaFile(Path.GetExtension(f.Path)));
+                }
+                catch { _isRightDropHasFiles = false; }
+                finally { deferral.Complete(); }
+            }
+        }
+
+        private void RightPanel_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+
+            if (_isRightDropHasFiles)
+            {
+                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                e.DragUIOverride.IsGlyphVisible = true;
+                e.DragUIOverride.IsCaptionVisible = false;
+                RightDragOverlay.Visibility = Visibility.Visible;
+            }
+
+            e.Handled = true;
+        }
+
+        private void RightPanel_DragLeave(object sender, DragEventArgs e)
+        {
+            RightDragOverlay.Visibility = Visibility.Collapsed;
+            _isRightDropHasFiles = false;
+            e.Handled = true;
+        }
+
+        private async void RightPanel_Drop(object sender, DragEventArgs e)
+        {
+            try
+            {
+                RightDragOverlay.Visibility = Visibility.Collapsed;
+
+                if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+                    return;
+
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count == 0) return;
+
+                // 收集所有拖入的媒体文件路径
+                var filePaths = new List<string>();
+                foreach (var item in items)
+                {
+                    if (item is StorageFile file)
+                    {
+                        var ext = Path.GetExtension(file.Path);
+                        if (IsSupportedMediaFile(ext))
+                            filePaths.Add(file.Path);
+                    }
+                }
+
+                if (filePaths.Count == 0) return;
+
+                LogService.FileOp(
+                    $"Drop[Right] Received {filePaths.Count} file(s): " +
+                    string.Join(", ", filePaths.Select(p => Path.GetFileName(p))),
+                    LogLevel.Info);
+
+                // 交给 ViewModel：自动检测配对、去重、加入列表
+                await ViewModel.LoadDroppedFilesAsync(filePaths);
+                e.Handled = true;
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"Drop[Right] CRASH: {ex.GetType().Name}: {ex.Message}",
+                    LogLevel.Error, ex);
+            }
+        }
+
+        /// <summary>判断扩展名是否为支持的图片/视频格式（大小写不敏感）</summary>
+        private static bool IsSupportedMediaFile(string ext)
+        {
+            var lower = ext.ToLowerInvariant();
+            return lower is ".heic" or ".heif" or ".jpg" or ".jpeg" or ".png"
+                or ".bmp" or ".gif" or ".tiff" or ".tif" or ".webp"
+                or ".mov" or ".mp4";
         }
 
         // ════════════════════════════════════════════════════════════

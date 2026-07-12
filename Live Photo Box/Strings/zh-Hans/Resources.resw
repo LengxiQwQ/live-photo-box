@@ -1005,8 +1005,14 @@
   <data name="CrashDialog_OpenFolderButton" xml:space="preserve">
     <value>打开日志文件夹</value>
   </data>
+  <data name="SettingsPage_CrashCurrentTime_Label.Text" xml:space="preserve">
+    <value>本次日志文件：</value>
+  </data>
   <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
     <value>上一次日志文件：</value>
+  </data>
+  <data name="SettingsPage_CrashExportCurrent_Button_Text.Text" xml:space="preserve">
+    <value>导出本次日志</value>
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button.Content" xml:space="preserve">
     <value>生成测试日志</value>
@@ -2328,7 +2334,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>1:1</value>
   </data>
   <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
-    <value>Live Photo 时间轴</value>
+    <value>实况照片帧</value>
   </data>
   <data name="KeyPhotoPage_TimelinePlaceholder.Text" xml:space="preserve">
     <value>（后续版本实现）</value>
@@ -2435,6 +2441,12 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="KeyPhoto_FileCountSummary" xml:space="preserve">
     <value>共 {0} 个实况照片，{1} 个其他照片</value>
+  </data>
+  <data name="KeyPhoto_LivePhotoLabel" xml:space="preserve">
+    <value>实况照片</value>
+  </data>
+  <data name="KeyPhoto_OtherFileLabel" xml:space="preserve">
+    <value>其他照片</value>
   </data>
   <data name="KeyPhoto_Filter_All.Content" xml:space="preserve">
     <value>所有照片</value>

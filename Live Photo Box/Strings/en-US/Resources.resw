@@ -997,6 +997,9 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="SettingsPage_CrashExportLatest_Button_Text.Text" xml:space="preserve">
     <value>Export Previous Log</value>
   </data>
+  <data name="SettingsPage_CrashExportCurrent_Button_Text.Text" xml:space="preserve">
+    <value>Export Current Log</value>
+  </data>
   <data name="SettingsPage_CrashClear_Button.Content" xml:space="preserve">
     <value>Clear All Records</value>
   </data>
@@ -1005,6 +1008,9 @@ You can open the log folder or export the latest log now to help diagnose the is
   </data>
   <data name="CrashDialog_OpenFolderButton" xml:space="preserve">
     <value>Open Log Folder</value>
+  </data>
+  <data name="SettingsPage_CrashCurrentTime_Label.Text" xml:space="preserve">
+    <value>Current Log File:</value>
   </data>
   <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
     <value>Previous Log File:</value>
@@ -2330,7 +2336,7 @@ Are you sure you want to switch?</value>
     <value>1:1</value>
   </data>
   <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
-    <value>Live Photo Timeline</value>
+    <value>Live Photo Frames</value>
   </data>
   <data name="KeyPhotoPage_TimelinePlaceholder.Text" xml:space="preserve">
     <value>(Coming in a future update)</value>
@@ -2437,6 +2443,12 @@ Are you sure you want to switch?</value>
   </data>
   <data name="KeyPhoto_FileCountSummary" xml:space="preserve">
     <value>{0} live photos, {1} other photos</value>
+  </data>
+  <data name="KeyPhoto_LivePhotoLabel" xml:space="preserve">
+    <value>Live Photos</value>
+  </data>
+  <data name="KeyPhoto_OtherFileLabel" xml:space="preserve">
+    <value>Other Files</value>
   </data>
   <data name="KeyPhoto_Filter_All.Content" xml:space="preserve">
     <value>All Photos</value>

@@ -323,14 +323,17 @@
             <!-- ························································ -->
             <!-- 左侧面板                                                     -->
             <!-- ························································ -->
-            <Border Grid.Column="0" Style="{StaticResource LeftFileListSurface}">
+            <Border x:Name="LeftPanelBorder" Grid.Column="0" Style="{StaticResource LeftFileListSurface}"
+                    AllowDrop="True">
+                <!-- 外层 Grid：让原始内容 + DragOverlay 叠加（Border 只能有一个子元素） -->
                 <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>   <!-- 标题行 -->
-                        <RowDefinition Height="Auto"/>   <!-- 控件区 -->
-                        <RowDefinition Height="Auto"/>   <!-- 文件统计 -->
-                        <RowDefinition Height="*"/>      <!-- ListView -->
-                    </Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>   <!-- 标题行 -->
+                            <RowDefinition Height="Auto"/>   <!-- 控件区 -->
+                            <RowDefinition Height="Auto"/>   <!-- 文件统计 -->
+                            <RowDefinition Height="*"/>      <!-- ListView -->
+                        </Grid.RowDefinitions>
 
                     <!-- ── 标题行：资源浏览 + 折叠按钮 ── -->
                     <Grid Grid.Row="0" Margin="10,10,10,4">
@@ -360,6 +363,7 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
                             <TextBox Grid.Column="0" x:Uid="KeyPhotoPage_CurrentDirBox"
                                      x:Name="CurrentDirTextBox"
@@ -381,6 +385,16 @@
                                     PointerPressed="BrowseFolder_PointerPressed"
                                     ToolTipService.ToolTip="浏览文件夹">
                                 <FontIcon Glyph="&#xE838;" FontSize="12"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </Button>
+                            <Button Grid.Column="2" x:Uid="KeyPhotoPage_RefreshDirBtn"
+                                    Width="28" Height="28" Padding="0" CornerRadius="5"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                    Click="RefreshDir_Click"
+                                    ToolTipService.ToolTip="刷新目录">
+                                <FontIcon Glyph="&#xE72C;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
                         </Grid>
@@ -420,17 +434,55 @@
                             </Button>
                         </Grid>
                     </StackPanel>
-                    <!-- ── 文件统计 + 照片类型过滤（左文字，右 ComboBox）── -->
-                    <Grid Grid.Row="2" Margin="10,8,10,0" Padding="0,0,0,2">
+                    <!-- ── 文件统计 + 照片类型过滤（左两行文字，右 ComboBox）── -->
+                    <Grid Grid.Row="2" Margin="10,8,10,0" ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock x:Name="FileCountText" Grid.Column="0"
-                                   FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                   VerticalAlignment="Center"
-                                   Text="{x:Bind ViewModel.FileCountSummary, Mode=OneWay}"/>
-                        <ComboBox Grid.Column="1" x:Name="FilterComboBox"
+                        <StackPanel x:Name="FileCountText" Grid.Column="0" VerticalAlignment="Center" Spacing="2">
+                            <!-- 实况照片行 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" x:Uid="KeyPhoto_LivePhotoLabel"
+                                           Text="实况照片" FontSize="10"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                <TextBlock Grid.Column="1" Text=":" FontSize="10"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                <TextBlock Grid.Column="3" FontSize="10"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                           Text="{x:Bind ViewModel.LivePhotoCount, Mode=OneWay}"/>
+                            </Grid>
+                            <!-- 其他文件行 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="8"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" x:Uid="KeyPhoto_OtherFileLabel"
+                                           Text="其他照片" FontSize="10"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                <TextBlock Grid.Column="1" Text=":" FontSize="10"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                <TextBlock Grid.Column="3" FontSize="10"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                           Text="{x:Bind ViewModel.OtherCount, Mode=OneWay}"/>
+                            </Grid>
+                        </StackPanel>
+                        <!-- 扫描加载动画 -->
+                        <ProgressRing Grid.Column="1" Width="12" Height="12"
+                                      IsActive="{x:Bind ViewModel.IsScanning, Mode=OneWay}"
+                                      VerticalAlignment="Center" Margin="0,0,4,0"
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        <ComboBox Grid.Column="2" x:Name="FilterComboBox"
                                   SelectedIndex="{x:Bind ViewModel.SelectedFilterIndex, Mode=TwoWay}"
                                   FontSize="12" MinHeight="28" Height="28" Padding="10,3,6,3"
                                   IsEditable="False" VerticalAlignment="Center">
@@ -524,12 +576,37 @@
                     </ListView>
                 </Grid>
             </Grid>
+
+            <!-- 拖拽视觉反馈覆盖层（后渲染 → 始终在 ListView 之上）。
+                 三层结构：半透明遮罩 + 虚线描边 + 图标文字，各层独立 Opacity 互不传染。 -->
+            <Grid x:Name="DragOverlay" Visibility="Collapsed" IsHitTestVisible="False">
+                <!-- Layer 0：半透明黑遮暗背景，让白色文字清晰可读 -->
+                <Border Background="#90000000" CornerRadius="10"/>
+                <!-- Layer 1：虚线描边（强调色，{ThemeResource} 自动跟随系统变化） -->
+                <Rectangle Stroke="White"
+                           StrokeThickness="2" StrokeDashArray="6,3"
+                           RadiusX="10" RadiusY="10" Margin="4"/>
+                <!-- Layer 2：文件夹图标 + 提示文字 -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+                    <FontIcon Glyph="&#xE838;" FontSize="36"
+                              Foreground="White"/>
+                    <TextBlock Text="释放以浏览此文件夹"
+                               FontSize="14" FontWeight="SemiBold"
+                               Foreground="White"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+            </Grid>   <!-- 关闭外层 Grid（Border 的子元素） -->
             </Border>
 
             <!-- ························································ -->
-            <!-- 右侧                                                       -->
+            <!-- 右侧：Border 包裹作为拖拽目标                              -->
             <!-- ························································ -->
-            <Grid Grid.Column="2">
+            <Border x:Name="RightPanelBorder" Grid.Column="2"
+                    AllowDrop="True" Background="Transparent">
+                <Grid>
+                    <!-- 内层 Grid：原右侧三行内容 -->
+                    <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
@@ -588,7 +665,7 @@
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="MaximizeButton_Click"
                                     ToolTipService.ToolTip="最大化预览">
-                                <FontIcon x:Name="MaximizeButtonIcon" Glyph="&#xE740;" FontSize="12"
+                                <FontIcon x:Name="MaximizeButtonIcon" Glyph="&#xE922;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
                         </StackPanel>
@@ -847,7 +924,7 @@
                                     x:Uid="KeyPhotoPage_LocatePhoto"
                                     Click="LocatePhotoFile_Click"
                                     Visibility="{x:Bind ViewModel.IsPhotoRowVisible, Mode=OneWay}">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xE722;" FontSize="11"
                                               Foreground="{ThemeResource AccentFillColorDefaultBrush}"
                                               VerticalAlignment="Center"
@@ -862,7 +939,7 @@
                                     x:Uid="KeyPhotoPage_LocateVideo"
                                     Click="LocateVideoFile_Click"
                                     Visibility="{x:Bind ViewModel.IsVideoRowVisible, Mode=OneWay}">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
                                     <FontIcon Glyph="&#xE714;" FontSize="11"
                                               Foreground="{ThemeResource AccentFillColorDefaultBrush}"
                                               VerticalAlignment="Center"
@@ -872,8 +949,17 @@
                                 </StackPanel>
                             </Button>
 
-                            <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
-                                       Style="{StaticResource SecondaryTextStyle}"/>
+                            <!-- 协议信息行（实况照片图标 + 协议文字） -->
+                            <StackPanel Orientation="Horizontal" Spacing="6"
+                                        Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}">
+                                <Path Data="M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0 M7 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0m8.9 8.11v.01m3.14-2.51v.01M20.77 14v.01m0-4.01v.01m-1.73-3.62v.01M15.9 3.89v.01M12 3v.01m-3.9.88v.01M4.96 6.39v.01M3.23 10v.01m0 3.99v.01m1.73 3.6v.01m3.14 2.49v.01M12 21v.01"
+                                      Width="12" Height="12" Stretch="Uniform"
+                                      Stroke="{ThemeResource AccentFillColorDefaultBrush}"
+                                      StrokeThickness="1" Fill="Transparent"
+                                      VerticalAlignment="Center" Margin="-1,1,0,0"/>
+                                <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
+                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                            </StackPanel>
                         </StackPanel>
 
                         <!-- 竖线分割 -->
@@ -917,6 +1003,30 @@
                     </Grid>
                 </Border>
             </Grid>
+            <!-- 关闭内层 Grid ────────────────────────────── -->
+
+            <!-- 右侧拖拽视觉反馈覆盖层（遮罩 + 虚线 + 图标文字） -->
+            <Grid x:Name="RightDragOverlay" Visibility="Collapsed" IsHitTestVisible="False">
+                <!-- Layer 0：半透明黑遮暗背景 -->
+                <Border Background="#90000000" CornerRadius="10"/>
+                <!-- Layer 1：虚线描边（强调色） -->
+                <Rectangle Stroke="White"
+                           StrokeThickness="2" StrokeDashArray="6,3"
+                           RadiusX="10" RadiusY="10" Margin="4"/>
+                <!-- Layer 2：图标 + 文字 -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+                    <FontIcon Glyph="&#xE8B2;" FontSize="36"
+                              Foreground="White"/>
+                    <TextBlock Text="释放以查看此文件"
+                               FontSize="14" FontWeight="SemiBold"
+                               Foreground="White"
+                               HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+        </Grid>
+        <!-- 关闭外层 Grid（Border 子元素） -->
+            </Border>
+            <!-- 关闭 RightPanelBorder ──────────────────────── -->
         </Grid>
     </Grid>
 </Page>

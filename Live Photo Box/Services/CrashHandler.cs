@@ -2,6 +2,7 @@ using LivePhotoBox.Models;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -10,16 +11,178 @@ using XamlUnhandledExceptionEventArgs = Microsoft.UI.Xaml.UnhandledExceptionEven
 
 namespace LivePhotoBox.Services
 {
-    // Crash handler — registers exception handlers and shows crash-report dialogs.
+    // Crash handler — registers exception handlers, writes crash dumps,
+    // and shows crash-report dialogs.
     // All crash REPORTING (writing to log) is delegated to <see cref="LogService"/>.
-    // This class only handles:
-    // - Exception handler registration
-    // - WER local dump registration
+    // This class handles:
+    // - Exception handler registration (App / AppDomain / TaskScheduler)
+    // - WER local dump registration (native crashes → .dmp via Windows Error Reporting)
+    // - MiniDumpWriteDump (managed crashes → .dmp via dbghelp.dll)
     // - Crash dialog UI (ContentDialog)
     public static class CrashHandler
     {
         private static bool _initialized;
         private static readonly object _initLock = new();
+
+        #region P/Invoke — MiniDumpWriteDump (dbghelp.dll)
+
+        // MINIDUMP_TYPE flags — 包含最常用的诊断信息。
+        // MiniDumpNormal: 线程栈、模块列表、系统信息
+        // MiniDumpWithDataSegs: 全局变量/静态变量的数据段
+        // MiniDumpWithFullMemory: 完整进程内存（体积大，仅在整进程崩溃时用）
+        // MiniDumpWithHandleData: 句柄信息
+        // MiniDumpWithThreadInfo: 扩展线程信息
+        // MiniDumpWithUnloadedModules: 已卸载模块（对诊断加载/卸载崩溃有用）
+        [Flags]
+        private enum MiniDumpType : uint
+        {
+            MiniDumpNormal = 0x00000000,
+            MiniDumpWithDataSegs = 0x00000001,
+            MiniDumpWithFullMemory = 0x00000002,
+            MiniDumpWithHandleData = 0x00000004,
+            MiniDumpFilterMemory = 0x00000008,
+            MiniDumpScanMemory = 0x00000010,
+            MiniDumpWithUnloadedModules = 0x00000020,
+            MiniDumpWithIndirectlyReferencedMemory = 0x00000040,
+            MiniDumpFilterModulePaths = 0x00000080,
+            MiniDumpWithProcessThreadData = 0x00000100,
+            MiniDumpWithPrivateReadWriteMemory = 0x00000200,
+            MiniDumpWithoutOptionalData = 0x00000400,
+            MiniDumpWithFullMemoryInfo = 0x00000800,
+            MiniDumpWithThreadInfo = 0x00001000,
+            MiniDumpWithCodeSegs = 0x00002000,
+            MiniDumpWithoutAuxiliaryState = 0x00004000,
+            MiniDumpWithFullAuxiliaryState = 0x00008000,
+            MiniDumpWithPrivateWriteCopyMemory = 0x00010000,
+            MiniDumpIgnoreInaccessibleMemory = 0x00020000,
+            MiniDumpWithTokenInformation = 0x00040000,
+            MiniDumpWithModuleHeaders = 0x00080000,
+            MiniDumpFilterTriage = 0x00100000,
+            MiniDumpWithAvxXStateContext = 0x00200000,
+            MiniDumpWithIptTrace = 0x00400000,
+        }
+
+        private struct MiniDumpExceptionInformation
+        {
+            public uint ThreadId;
+            public IntPtr ExceptionPointers;
+            [MarshalAs(UnmanagedType.Bool)]
+            public bool ClientPointers;
+        }
+
+        [DllImport("dbghelp.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool MiniDumpWriteDump(
+            IntPtr hProcess,
+            uint processId,
+            SafeHandle hFile,
+            MiniDumpType dumpType,
+            ref MiniDumpExceptionInformation exceptionParam,
+            IntPtr userStreamParam,
+            IntPtr callbackParam);
+
+        // 无异常上下文的简化重载（用于非异常场景如 TaskScheduler 崩溃）
+        [DllImport("dbghelp.dll", SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool MiniDumpWriteDump(
+            IntPtr hProcess,
+            uint processId,
+            SafeHandle hFile,
+            MiniDumpType dumpType,
+            IntPtr exceptionParam,
+            IntPtr userStreamParam,
+            IntPtr callbackParam);
+
+        /// <summary>
+        /// 写入 MiniDump 文件到 Dumps 目录。捕获完整调用栈、线程、模块和句柄信息。
+        /// 使用 MiniDumpWithFullMemory 会生成巨大的文件（数百 MB），因此折叠内存相关标志。
+        /// </summary>
+        /// <param name="source">崩溃来源标识（如 "App.UnhandledException"）</param>
+        /// <param name="exceptionPointers">
+        /// 异常上下文指针（来自 Exception 的 HResult/内部指针）。
+        /// 为 IntPtr.Zero 时使用无异常上下文的简化 dump。
+        /// </param>
+        /// <returns>生成的 .dmp 文件完整路径，失败返回 null</returns>
+        private static string? WriteCrashDump(string source, IntPtr exceptionPointers)
+        {
+            try
+            {
+                string dumpDir = Path.Combine(LogService.LogDirectory, "Dumps");
+                Directory.CreateDirectory(dumpDir);
+
+                string fileName = $"crash-{source}-{DateTime.Now:yyyyMMdd-HHmmss}-{Environment.ProcessId}.dmp";
+                // 清理 source 中不能用于文件名的字符
+                foreach (char c in Path.GetInvalidFileNameChars())
+                    fileName = fileName.Replace(c, '-');
+                string dumpPath = Path.Combine(dumpDir, fileName);
+
+                using var fs = new FileStream(dumpPath, FileMode.Create, FileAccess.Write, FileShare.Read);
+                using var process = Process.GetCurrentProcess();
+
+                // 基础标志：线程栈 + 数据段 + 句柄 + 线程信息 + 模块 + 已卸载模块
+                const MiniDumpType flags =
+                    MiniDumpType.MiniDumpNormal
+                    | MiniDumpType.MiniDumpWithDataSegs
+                    | MiniDumpType.MiniDumpWithHandleData
+                    | MiniDumpType.MiniDumpWithThreadInfo
+                    | MiniDumpType.MiniDumpWithModuleHeaders
+                    | MiniDumpType.MiniDumpWithUnloadedModules
+                    | MiniDumpType.MiniDumpWithIndirectlyReferencedMemory
+                    | MiniDumpType.MiniDumpIgnoreInaccessibleMemory;
+
+                bool result;
+                if (exceptionPointers != IntPtr.Zero)
+                {
+                    var expInfo = new MiniDumpExceptionInformation
+                    {
+                        ThreadId = GetCurrentThreadId(),
+                        ExceptionPointers = exceptionPointers,
+                        ClientPointers = false
+                    };
+                    result = MiniDumpWriteDump(
+                        process.Handle, (uint)process.Id, fs.SafeFileHandle,
+                        flags, ref expInfo,
+                        IntPtr.Zero, IntPtr.Zero);
+                }
+                else
+                {
+                    result = MiniDumpWriteDump(
+                        process.Handle, (uint)process.Id, fs.SafeFileHandle,
+                        flags,
+                        IntPtr.Zero, IntPtr.Zero, IntPtr.Zero);
+                }
+
+                if (result)
+                {
+                    long size = new FileInfo(dumpPath).Length;
+                    LogService.Info(
+                        $"Crash dump written: {fileName} ({size / 1024} KB)", LogSource.System);
+                    return dumpPath;
+                }
+                else
+                {
+                    int err = Marshal.GetLastWin32Error();
+                    LogService.Error(
+                        $"MiniDumpWriteDump failed: win32 error {err}", null, LogSource.System);
+                    // 写入失败 → 清理空文件 / 部分文件
+                    try { File.Delete(dumpPath); } catch { }
+                    return null;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Error(
+                    $"WriteCrashDump failed: {ex.Message}", ex, LogSource.System);
+                return null;
+            }
+        }
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+
+        #endregion
 
         #region P/Invoke — WER Local Dump
 
@@ -42,7 +205,7 @@ namespace LivePhotoBox.Services
         // 通过动态加载 KernelBase.dll 中的 WerRegisterAppLocalDump 函数指针实现，
         // 避免对旧版 Windows 的直接依赖。注册后应用发生原生崩溃时会在指定目录生成 .dmp 文件。
         // localAppDataRelativePath: 相对 LocalAppData 的转储目录路径
-        // è¿å: 注册成功返回 true
+        // 返回: 注册成功返回 true
         private static bool TryRegisterAppLocalDump(string localAppDataRelativePath)
         {
             IntPtr hModule = LoadLibrary("KernelBase.dll");
@@ -114,6 +277,9 @@ namespace LivePhotoBox.Services
                 ("Handled", e.Handled.ToString(System.Globalization.CultureInfo.InvariantCulture))
             ]);
 
+            // MiniDump：捕获完整线程栈、模块、句柄
+            WriteCrashDump("WinUI-UnhandledException", IntPtr.Zero);
+            // WER dump（原生层）+ 日志刷盘
             LogService.ForceFlush();
 
             // 不设置 e.Handled = true，让 WinUI 正常终止进程。
@@ -131,6 +297,8 @@ namespace LivePhotoBox.Services
                 ("IsTerminating", e.IsTerminating.ToString(System.Globalization.CultureInfo.InvariantCulture))
             ]);
 
+            // MiniDump：捕获完整线程栈、模块、句柄
+            WriteCrashDump("AppDomain-UnhandledException", IntPtr.Zero);
             LogService.ForceFlush();
 
             // AppDomain 未处理异常后 CLR 必然终止进程，确保退出码非零。
@@ -147,6 +315,8 @@ namespace LivePhotoBox.Services
                 ("ObservedBeforeSet", e.Observed.ToString(System.Globalization.CultureInfo.InvariantCulture))
             ]);
 
+            // MiniDump：火-and-forget Task 崩溃，捕获线程栈用于定位丢失的 await
+            WriteCrashDump("TaskScheduler-UnobservedTask", IntPtr.Zero);
             LogService.ForceFlush();
 
             // 不要调用 e.SetObserved()。

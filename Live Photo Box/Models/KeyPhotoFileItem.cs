@@ -81,41 +81,38 @@ namespace LivePhotoBox.Models
             HasConfirmedProtocol ? Visibility.Visible : Visibility.Collapsed;
 
         /// <summary>
-        /// 格式化显示用的文件名：后缀括号括起；文件名 > 19 字符时截断为 前19 + "…" + 后缀
+        /// 格式化显示用的文件名：双文件实况照片用括号（.HEIC+MOV）；其余正常显示后缀。
+        /// 文件名 > 19 字符时截断：双文件仅前面，普通/单文件 前19 + "…" + 后4。
         /// </summary>
-        public static string FormatDisplayFileName(string fileName, bool isLivePhoto, string? videoExtension = null)
+        public static string FormatDisplayFileName(string fileName, bool isDualFileLivePhoto, string? videoExtension = null)
         {
             if (string.IsNullOrEmpty(fileName)) return string.Empty;
 
             string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-            string imageExt = Path.GetExtension(fileName).ToUpperInvariant().TrimStart('.'); // 括号内不加点
+            string imageExt = Path.GetExtension(fileName).ToUpperInvariant(); // 含点，如 ".JPG"
 
-            string displayName;
-
-            if (isLivePhoto)
+            if (isDualFileLivePhoto && !string.IsNullOrEmpty(videoExtension))
             {
-                // 实况照片：仅前面截断（后缀有双格式，长了不好看）
+                // 双文件实况照片：括号括起双后缀，仅前面截断
                 string truncatedName = nameWithoutExt.Length > 19
                     ? nameWithoutExt[..19] + "…"
                     : nameWithoutExt;
-
-                string vidExt = videoExtension?.TrimStart('.').ToUpperInvariant();
-                string suffix = !string.IsNullOrEmpty(vidExt)
-                    ? $" ({imageExt}+{vidExt})"
-                    : $" ({imageExt})";
-                displayName = truncatedName + suffix;
+                string imgNoDot = imageExt.TrimStart('.');
+                string vidNoDot = videoExtension.TrimStart('.').ToUpperInvariant();
+                return $"{truncatedName} ({imgNoDot}+{vidNoDot})";
             }
             else
             {
-                // 普通照片：前后都保留（前19 + … + 后5），后缀在括号里
+                // 普通照片 / 单文件实况：正常 .后缀，前后都保留
                 if (nameWithoutExt.Length > 19)
-                    displayName = nameWithoutExt[..19] + "…" + nameWithoutExt[^4..] + $" ({imageExt})";
+                    return nameWithoutExt[..19] + "…" + nameWithoutExt[^4..] + imageExt;
                 else
-                    displayName = $"{nameWithoutExt} ({imageExt})";
+                    return nameWithoutExt + imageExt;
             }
-
-            return displayName;
         }
+
+        /// <summary>是否为双文件实况照片（DualFile 且已确认协议）</summary>
+        public bool IsDualFileLivePhoto => HasConfirmedProtocol && LivePhotoType == LivePhotoType.DualFile;
 
         /// <summary>实况照片对应的视频扩展名（含点），如 ".MOV"；非实况返回 null</summary>
         public string? VideoExtension => HasConfirmedProtocol
@@ -128,8 +125,8 @@ namespace LivePhotoBox.Models
             }
             : null;
 
-        /// <summary>列表显示用文件名（实况显示 imgExt+vidExt + 过长截断），绑定到 ListView</summary>
-        public string DisplayFileName => FormatDisplayFileName(FileName, HasConfirmedProtocol, VideoExtension);
+        /// <summary>列表显示用文件名，绑定到 ListView</summary>
+        public string DisplayFileName => FormatDisplayFileName(FileName, IsDualFileLivePhoto, VideoExtension);
 
         /// <summary>ListView 子行：分辨率 │ 大小（合成属性，避免 Run 元素 x:Bind 不支持 OneWay 的问题）</summary>
         public string FileInfoSubLine

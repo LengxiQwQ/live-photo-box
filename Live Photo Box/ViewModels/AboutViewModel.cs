@@ -37,8 +37,20 @@ namespace LivePhotoBox.ViewModels
         // 是否存在可用的崩溃产物（日志或转储文件）。
         public bool HasCrashArtifacts => GetLatestCrashArtifactPath() != null;
 
-        // 上一次崩溃文件的显示名称，无可用时显示"无崩溃记录"提示。
-        public string LastCrashFileNameText => GetLatestCrashArtifactPath() is string latestPath
+        // 本次会话日志文件显示名称。
+        public string CurrentLogFileNameText
+        {
+            get
+            {
+                string? path = LogService.CurrentLogPath;
+                if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                    return Path.GetFileName(path);
+                return ResourceService.GetString("SettingsPage_CrashNoCrashValue");
+            }
+        }
+
+        // 上一次日志文件的显示名称，无可用时显示"暂无"。
+        public string PreviousLogFileNameText => GetLatestCrashArtifactPath() is string latestPath
             ? Path.GetFileName(latestPath)
             : ResourceService.GetString("SettingsPage_CrashNoCrashValue");
 
@@ -49,11 +61,17 @@ namespace LivePhotoBox.ViewModels
         // 打开崩溃日志文件夹的命令。
         public IRelayCommand OpenCrashLogFolderActionCommand => _openCrashLogFolderActionCommand ??= new RelayCommand(OpenCrashLogFolder);
 
-        // 打开最新崩溃日志文件的命令。
-        public IAsyncRelayCommand OpenLatestCrashLogActionCommand => _openLatestCrashLogActionCommand ??= new AsyncRelayCommand(OpenLatestCrashLogAsync, () => HasCrashArtifacts);
+        // 打开本次日志文件的命令。
+        public IAsyncRelayCommand OpenCurrentLogActionCommand => _openCurrentLogActionCommand ??= new AsyncRelayCommand(OpenCurrentLogAsync, () => HasCurrentLog);
 
-        // 导出最新崩溃日志文件到用户指定位置的命令。
-        public IAsyncRelayCommand ExportLatestCrashLogActionCommand => _exportLatestCrashLogActionCommand ??= new AsyncRelayCommand(ExportLatestCrashLogAsync, CanExportLatestCrashLog);
+        // 打开上一次崩溃日志文件的命令。
+        public IAsyncRelayCommand OpenPreviousLogActionCommand => _openPreviousLogActionCommand ??= new AsyncRelayCommand(OpenPreviousLogAsync, () => HasCrashArtifacts);
+
+        // 导出本次日志文件到用户指定位置的命令。
+        public IAsyncRelayCommand ExportCurrentLogActionCommand => _exportCurrentLogActionCommand ??= new AsyncRelayCommand(ExportCurrentLogAsync, () => HasCurrentLog);
+
+        // 导出上一次崩溃日志文件到用户指定位置的命令。
+        public IAsyncRelayCommand ExportPreviousLogActionCommand => _exportPreviousLogActionCommand ??= new AsyncRelayCommand(ExportPreviousLogAsync, CanExportPreviousLog);
 
         // 清除所有崩溃日志文件的命令。
         public IRelayCommand ClearCrashLogsActionCommand => _clearCrashLogsActionCommand ??= new RelayCommand(ClearCrashLogs, CanClearCrashLogs);
@@ -62,8 +80,10 @@ namespace LivePhotoBox.ViewModels
         public IAsyncRelayCommand OpenIssueFeedbackActionCommand => _openIssueFeedbackActionCommand ??= new AsyncRelayCommand(OpenIssueFeedbackAsync);
 
         private IRelayCommand? _openCrashLogFolderActionCommand;
-        private IAsyncRelayCommand? _openLatestCrashLogActionCommand;
-        private IAsyncRelayCommand? _exportLatestCrashLogActionCommand;
+        private IAsyncRelayCommand? _openCurrentLogActionCommand;
+        private IAsyncRelayCommand? _openPreviousLogActionCommand;
+        private IAsyncRelayCommand? _exportCurrentLogActionCommand;
+        private IAsyncRelayCommand? _exportPreviousLogActionCommand;
         private IRelayCommand? _clearCrashLogsActionCommand;
         private IAsyncRelayCommand? _openIssueFeedbackActionCommand;
 
@@ -97,11 +117,24 @@ namespace LivePhotoBox.ViewModels
                 _latestDumpPath = null;
             }
 
-            OpenLatestCrashLogActionCommand.NotifyCanExecuteChanged();
-            ExportLatestCrashLogActionCommand.NotifyCanExecuteChanged();
+            OpenCurrentLogActionCommand.NotifyCanExecuteChanged();
+            OpenPreviousLogActionCommand.NotifyCanExecuteChanged();
+            ExportCurrentLogActionCommand.NotifyCanExecuteChanged();
+            ExportPreviousLogActionCommand.NotifyCanExecuteChanged();
             ClearCrashLogsActionCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(HasCrashArtifacts));
-            OnPropertyChanged(nameof(LastCrashFileNameText));
+            OnPropertyChanged(nameof(CurrentLogFileNameText));
+            OnPropertyChanged(nameof(PreviousLogFileNameText));
+        }
+
+        // 本次日志文件是否存在。
+        private bool HasCurrentLog
+        {
+            get
+            {
+                string? path = LogService.CurrentLogPath;
+                return !string.IsNullOrEmpty(path) && File.Exists(path);
+            }
         }
 
         // 在文件资源管理器中打开日志文件夹。
@@ -112,8 +145,21 @@ namespace LivePhotoBox.ViewModels
             FilePickerService.OpenFolderInExplorer(logDirectory);
         }
 
-        // 用默认程序打开上一次的崩溃日志文件。
-        private async Task OpenLatestCrashLogAsync()
+        // 用默认程序打开本次日志文件。
+        private async Task OpenCurrentLogAsync()
+        {
+            string? path = LogService.CurrentLogPath;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                RefreshCrashLogs();
+                return;
+            }
+            LogService.Info($"OpenCurrentLog requested. File='{Path.GetFileName(path)}'", LogSource.App);
+            await FilePickerService.OpenFileAsync(path);
+        }
+
+        // 用默认程序打开上一次的日志文件。
+        private async Task OpenPreviousLogAsync()
         {
             string? latestPath = GetLatestCrashArtifactPath();
             if (string.IsNullOrWhiteSpace(latestPath) || !File.Exists(latestPath))
@@ -121,13 +167,25 @@ namespace LivePhotoBox.ViewModels
                 RefreshCrashLogs();
                 return;
             }
-
-            LogService.Info($"OpenLatestCrashArtifact requested. File='{Path.GetFileName(latestPath)}'", LogSource.App);
+            LogService.Info($"OpenPreviousLog requested. File='{Path.GetFileName(latestPath)}'", LogSource.App);
             await FilePickerService.OpenFileAsync(latestPath);
         }
 
-        // 将最新崩溃日志文件导出到用户指定的位置。
-        private async Task ExportLatestCrashLogAsync()
+        // 将本次日志文件导出到用户指定位置。
+        private async Task ExportCurrentLogAsync()
+        {
+            string? path = LogService.CurrentLogPath;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                RefreshCrashLogs();
+                return;
+            }
+            LogService.Info($"ExportCurrentLog requested. File='{Path.GetFileName(path)}'", LogSource.App);
+            await FilePickerService.ExportFileCopyAsync(path, Path.GetFileName(path));
+        }
+
+        // 将上一次日志文件导出到用户指定位置。
+        private async Task ExportPreviousLogAsync()
         {
             string? latestPath = GetLatestCrashArtifactPath();
             if (string.IsNullOrWhiteSpace(latestPath) || !File.Exists(latestPath))
@@ -135,8 +193,7 @@ namespace LivePhotoBox.ViewModels
                 RefreshCrashLogs();
                 return;
             }
-
-            LogService.Info($"ExportLatestCrashArtifact requested. File='{Path.GetFileName(latestPath)}'", LogSource.App);
+            LogService.Info($"ExportPreviousLog requested. File='{Path.GetFileName(latestPath)}'", LogSource.App);
             await FilePickerService.ExportFileCopyAsync(latestPath, Path.GetFileName(latestPath));
         }
 
@@ -155,8 +212,8 @@ namespace LivePhotoBox.ViewModels
             await FeedbackService.OpenIssuePageAsync();
         }
 
-        // 是否有崩溃产物可导出。
-        private bool CanExportLatestCrashLog() => HasCrashArtifacts;
+        // 是否有上一次日志可导出。
+        private bool CanExportPreviousLog() => HasCrashArtifacts;
 
         // 是否有崩溃产物可清除。
         private bool CanClearCrashLogs() => HasCrashArtifacts;

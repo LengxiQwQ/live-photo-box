@@ -126,11 +126,8 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private int _otherCount;
 
-        /// <summary>文件统计摘要：共 M 个实况照片，K 个其他照片（多语言）</summary>
-        public string FileCountSummary => ResourceService.Format("KeyPhoto_FileCountSummary", LivePhotoCount, OtherCount);
-
-        partial void OnLivePhotoCountChanged(int value) => OnPropertyChanged(nameof(FileCountSummary));
-        partial void OnOtherCountChanged(int value) => OnPropertyChanged(nameof(FileCountSummary));
+        partial void OnLivePhotoCountChanged(int value) { }
+        partial void OnOtherCountChanged(int value) { }
 
         /// <summary>照片过滤：0=所有照片 / 1=实况照片 / 2=普通照片</summary>
         [ObservableProperty]
@@ -570,7 +567,7 @@ namespace LivePhotoBox.ViewModels
             {
                 IsSelectedLivePhoto = item.HasConfirmedProtocol;
                 PhotoFileName = KeyPhotoFileItem.FormatDisplayFileName(
-                    item.FileName, item.HasConfirmedProtocol, item.VideoExtension);
+                    item.FileName, item.IsDualFileLivePhoto, item.VideoExtension);
                 SelectedFileThumbnail = item.Thumbnail;
             }
 
@@ -645,6 +642,11 @@ namespace LivePhotoBox.ViewModels
         /// <summary>清空信息面板</summary>
         private void ClearFileInfo()
         {
+            // 取消进行中的属性/帧加载
+            _propLoadCts?.Cancel();
+            _timelineCts?.Cancel();
+
+            SelectedFilePath = null;
             IsSelectedFileVideo = false;
             IsSelectedLivePhoto = false;
             PhotoFileName = string.Empty;
@@ -658,11 +660,17 @@ namespace LivePhotoBox.ViewModels
             TimelineInfo = string.Empty;
             SelectedFileThumbnail = null;
 
-            // 清除时间轴帧
+            // 清空大图预览
+            SetPreviewSafe(null);
+            PreviewClearRequested?.Invoke();
+
+            // 清除时间轴帧 + 临时文件
             TimelineFrames.Clear();
             HasTimelineFrames = false;
             IsTimelineLoading = false;
             SelectedTimelineFrame = null;
+            CleanupFrameTempFiles();
+            CleanupTempVideo();
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -2451,6 +2459,205 @@ namespace LivePhotoBox.ViewModels
             {
                 LogService.FileOp($"Geo lookup failed: {ex.Message}", LogLevel.Warning);
             }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  拖拽单文件加载（右侧面板 Drop）
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// 加载从右侧面板拖入的文件（支持同时拖入多个）。
+        /// 自动通过 LivePhotoDiscoveryService 检测实况照片配对：
+        ///   - 照片+视频配对成功 → 以照片为主项加入列表（LIVE 徽标），视频跳过
+        ///   - 未配对 → 各自作为普通文件加入
+        ///   - 单文件实况 → 直接标记
+        /// 最后选中第一个加入的文件。
+        /// </summary>
+        public async Task LoadDroppedFilesAsync(List<string> filePaths)
+        {
+            if (filePaths.Count == 0) return;
+
+            // 收集所有涉及的目录，按目录批量扫描（去重）
+            var dirs = filePaths
+                .Select(p => Path.GetDirectoryName(p) ?? "")
+                .Where(d => Directory.Exists(d))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // ── 步骤 1：扫描所有涉及目录，建立路径→发现结果的映射 ──
+            var discoveryMap = new Dictionary<string, LivePhotoDiscoveryItem>(StringComparer.OrdinalIgnoreCase);
+            foreach (var dir in dirs)
+            {
+                try
+                {
+                    var result = await Task.Run(() =>
+                        LivePhotoDiscoveryService.ScanAsync(dir,
+                            DiscoveryScanMode.JpegMarkers | DiscoveryScanMode.HeicTrack
+                                | DiscoveryScanMode.CidMatch));
+                    foreach (var di in result.Items)
+                    {
+                        discoveryMap[di.FilePath] = di;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp(
+                        $"Drop[Scan] Failed for '{dir}': {ex.Message}", LogLevel.Warning);
+                }
+            }
+
+            // ── 步骤 2：构建 KeyPhotoFileItem 列表，处理配对去重 ──
+            var toAdd = new List<KeyPhotoFileItem>();
+            var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var pairedVideoPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var rawPath in filePaths)
+            {
+                if (!File.Exists(rawPath)) continue;
+                if (addedPaths.Contains(rawPath)) continue;
+
+                var filePath = rawPath;
+                var fileName = Path.GetFileName(filePath);
+                var fileSize = new FileInfo(filePath).Length;
+                var lastWrite = File.GetLastWriteTime(filePath);
+
+                LivePhotoType detectedType = LivePhotoType.None;
+                LivePhotoDetectionMethod detectionMethod = LivePhotoDetectionMethod.FilenamePairing;
+                string? pairedVideoPath = null;
+                long appendedVideoLength = 0;
+
+                if (discoveryMap.TryGetValue(filePath, out var match))
+                {
+                    detectedType = match.LivePhotoType;
+                    detectionMethod = match.DetectionMethod;
+                    pairedVideoPath = match.PairedVideoPath;
+                    appendedVideoLength = match.AppendedVideoLength;
+                }
+
+                // ── DualFile：去重处理 ──
+                if (detectedType == LivePhotoType.DualFile)
+                {
+                    // 如果这个文件是配对中的视频 → 看照片是否在本次拖入列表中
+                    bool isVideo = match?.IsVideo ?? false;
+                    if (isVideo && !string.IsNullOrEmpty(match?.PairedImagePath))
+                    {
+                        // 照片在本次拖入中 → 跳过视频，等照片加入时一起处理
+                        if (filePaths.Contains(match.PairedImagePath, StringComparer.OrdinalIgnoreCase))
+                        {
+                            LogService.FileOp(
+                                $"Drop[Pair] Skipping video '{fileName}' — paired photo also dropped",
+                                LogLevel.Info);
+                            continue;
+                        }
+                        // 照片不在本次拖入但存在于目录 → 改以照片为主文件
+                        if (File.Exists(match.PairedImagePath))
+                        {
+                            var photoPath = match.PairedImagePath;
+                            filePath = photoPath;
+                            fileName = Path.GetFileName(photoPath);
+                            fileSize = new FileInfo(photoPath).Length;
+                            lastWrite = File.GetLastWriteTime(photoPath);
+                            pairedVideoPath = match.FilePath; // 原视频路径是配对视频
+                            if (discoveryMap.TryGetValue(photoPath, out var photoMatch))
+                            {
+                                detectedType = photoMatch.LivePhotoType;
+                                detectionMethod = photoMatch.DetectionMethod;
+                                appendedVideoLength = photoMatch.AppendedVideoLength;
+                            }
+                        }
+                    }
+                    // 标记配对视频路径（后续不再重复加入）
+                    if (pairedVideoPath != null)
+                        pairedVideoPaths.Add(pairedVideoPath);
+                }
+
+                bool confirmed = detectedType is LivePhotoType.SingleFileJpeg
+                    or LivePhotoType.SingleFileHeic
+                    or LivePhotoType.DualFile;
+
+                // DualFile 需要配对视频路径才算已确认
+                if (detectedType == LivePhotoType.DualFile && pairedVideoPath == null)
+                    confirmed = false;
+
+                var item = new KeyPhotoFileItem
+                {
+                    FileName = fileName,
+                    FilePath = filePath,
+                    FileSize = FileSizeFormatter.Format(fileSize),
+                    DateTaken = lastWrite.ToString("yyyy/MM/dd HH:mm"),
+                    LivePhotoType = detectedType,
+                    PairedVideoPath = pairedVideoPath,
+                    AppendedVideoLength = appendedVideoLength,
+                    DetectionMethod = detectionMethod,
+                    HasConfirmedProtocol = confirmed,
+                    Resolution = string.Empty
+                };
+
+                toAdd.Add(item);
+                addedPaths.Add(filePath);
+                if (pairedVideoPath != null)
+                    addedPaths.Add(pairedVideoPath);
+            }
+
+            if (toAdd.Count == 0) return;
+
+            LogService.FileOp(
+                $"Drop[Result] {toAdd.Count} items to add: " +
+                string.Join(", ", toAdd.Select(i => $"{i.FileName}[{i.LivePhotoType}]")),
+                LogLevel.Info);
+
+            // ── 步骤 3：UI 线程加入列表并选中第一个 ──
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            if (dispatcher == null) return;
+
+            var tcs = new TaskCompletionSource();
+            dispatcher.TryEnqueue(() =>
+            {
+                try
+                {
+                    string? firstNewPath = null;
+                    foreach (var item in toAdd)
+                    {
+                        var existing = FileItems.FirstOrDefault(f =>
+                            string.Equals(f.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
+                        if (existing != null)
+                        {
+                            if (firstNewPath == null) firstNewPath = item.FilePath;
+                            continue;
+                        }
+
+                        // 避免重复添加配对视频路径
+                        if (pairedVideoPaths.Contains(item.FilePath)
+                            && FileItems.Any(f => string.Equals(f.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase)))
+                            continue;
+
+                        _allFileItems.Insert(0, item);
+                        FileItems.Insert(0, item);
+                        if (item.HasConfirmedProtocol)
+                            LivePhotoCount++;
+                        else
+                            OtherCount++;
+
+                        if (firstNewPath == null) firstNewPath = item.FilePath;
+                    }
+
+                    // 显式通知统计数绑定刷新，确保 LivePhotoCount/OtherCount 的 x:Bind 更新
+                    OnPropertyChanged(nameof(LivePhotoCount));
+                    OnPropertyChanged(nameof(OtherCount));
+                    OnPropertyChanged(nameof(HasAnyFiles));
+
+                    if (firstNewPath != null)
+                        SelectFile(firstNewPath);
+                    tcs.TrySetResult();
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp($"Drop[Load] dispatch failed: {ex.Message}", LogLevel.Error, ex);
+                    tcs.TrySetResult();
+                }
+            });
+
+            await tcs.Task;
         }
 
         // ══════════════════════════════════════════════════════════════

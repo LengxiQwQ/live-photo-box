@@ -71,7 +71,9 @@ namespace LivePhotoBox.Controls
         public bool AreVerticalSnapPointsRegular => false;
 
         public event EventHandler<object>? HorizontalSnapPointsChanged;
+#pragma warning disable CS0067
         public event EventHandler<object>? VerticalSnapPointsChanged;
+#pragma warning restore CS0067
 
         public IReadOnlyList<float> GetIrregularSnapPoints(
             Orientation orientation, SnapPointsAlignment alignment)
