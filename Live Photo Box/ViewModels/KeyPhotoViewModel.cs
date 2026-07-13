@@ -2473,18 +2473,22 @@ namespace LivePhotoBox.ViewModels
         ///   - 单文件实况 → 直接标记
         /// 最后选中第一个加入的文件。
         /// </summary>
-        public async Task LoadDroppedFilesAsync(List<string> filePaths)
+        /// <returns>第一个新文件的路径，用于 View 层触发 ListView 选中；无新文件返回 null</returns>
+        public async Task<string?> LoadDroppedFilesAsync(List<string> filePaths)
         {
-            if (filePaths.Count == 0) return;
+            if (filePaths.Count == 0) return null;
 
-            // 收集所有涉及的目录，按目录批量扫描（去重）
-            var dirs = filePaths
-                .Select(p => Path.GetDirectoryName(p) ?? "")
-                .Where(d => Directory.Exists(d))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            IsScanning = true;
+            try
+            {
+                // 收集所有涉及的目录，按目录批量扫描（去重）
+                var dirs = filePaths
+                    .Select(p => Path.GetDirectoryName(p) ?? "")
+                    .Where(d => Directory.Exists(d))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
-            // ── 步骤 1：扫描所有涉及目录，建立路径→发现结果的映射 ──
+                // ── 步骤 1：扫描所有涉及目录，建立路径→发现结果的映射 ──
             var discoveryMap = new Dictionary<string, LivePhotoDiscoveryItem>(StringComparer.OrdinalIgnoreCase);
             foreach (var dir in dirs)
             {
@@ -2599,18 +2603,18 @@ namespace LivePhotoBox.ViewModels
                     addedPaths.Add(pairedVideoPath);
             }
 
-            if (toAdd.Count == 0) return;
+            if (toAdd.Count == 0) return null;
 
             LogService.FileOp(
                 $"Drop[Result] {toAdd.Count} items to add: " +
                 string.Join(", ", toAdd.Select(i => $"{i.FileName}[{i.LivePhotoType}]")),
                 LogLevel.Info);
 
-            // ── 步骤 3：UI 线程加入列表并选中第一个 ──
+            // ── 步骤 3：UI 线程加入列表，返回第一个新路径让 View 层触发选中 ──
             var dispatcher = App.MainWindow?.DispatcherQueue;
-            if (dispatcher == null) return;
+            if (dispatcher == null) return null;
 
-            var tcs = new TaskCompletionSource();
+            var tcs = new TaskCompletionSource<string?>();
             dispatcher.TryEnqueue(() =>
             {
                 try
@@ -2646,18 +2650,23 @@ namespace LivePhotoBox.ViewModels
                     OnPropertyChanged(nameof(OtherCount));
                     OnPropertyChanged(nameof(HasAnyFiles));
 
-                    if (firstNewPath != null)
-                        SelectFile(firstNewPath);
-                    tcs.TrySetResult();
+                    // 不在这里调用 SelectFile — 交给 View 层通过 ListView.SelectedItem 触发，
+                    // 这样 SelectionChanged → SelectFile 只走一次，避免重复加载。
+                    tcs.TrySetResult(firstNewPath);
                 }
                 catch (Exception ex)
                 {
                     LogService.FileOp($"Drop[Load] dispatch failed: {ex.Message}", LogLevel.Error, ex);
-                    tcs.TrySetResult();
+                    tcs.TrySetResult(null);
                 }
             });
 
-            await tcs.Task;
+                return await tcs.Task;
+            }
+            finally
+            {
+                IsScanning = false;
+            }
         }
 
         // ══════════════════════════════════════════════════════════════

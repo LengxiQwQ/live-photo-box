@@ -239,9 +239,50 @@ namespace LivePhotoBox.Views
                 MainContentGrid.Padding = new Thickness(8, 0, 8, 6);
                 PreviewBorder.CornerRadius = new CornerRadius(10);
                 PreviewBorder.Margin = new Thickness(0, 0, 0, 4);
-                MaximizeButtonIcon.Glyph = "";
+                MaximizeButtonIcon.Glyph = "";
                 ToolTipService.SetToolTip(MaximizeButton, "最大化预览");
             }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        // ════════════════════════════════════════════════════════════
+        //  实况照片按钮悬停动画：仅图标放大（文字不动）
+        // ════════════════════════════════════════════════════════════
+
+        private void LivePhotoBadgeButton_PointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            // 图标顺时针旋转一整圈
+            var rotateAnimation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+            {
+                From = LivePhotoIconTransform.Rotation,
+                To = LivePhotoIconTransform.Rotation + 360.0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(400)),
+                EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut }
+            };
+            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(rotateAnimation, LivePhotoIconTransform);
+            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(rotateAnimation, "Rotation");
+
+            var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+            storyboard.Children.Add(rotateAnimation);
+            storyboard.Begin();
+        }
+
+        private void LivePhotoBadgeButton_PointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            // 图标逆时针转一圈归位
+            var rotateAnimation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
+            {
+                From = LivePhotoIconTransform.Rotation,
+                To = LivePhotoIconTransform.Rotation - 360.0,
+                Duration = new Duration(TimeSpan.FromMilliseconds(400)),
+                EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut }
+            };
+            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(rotateAnimation, LivePhotoIconTransform);
+            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(rotateAnimation, "Rotation");
+
+            var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
+            storyboard.Children.Add(rotateAnimation);
+            storyboard.Begin();
         }
 
         // ════════════════════════════════════════════════════════════
@@ -1162,7 +1203,18 @@ namespace LivePhotoBox.Views
                     LogLevel.Info);
 
                 // 交给 ViewModel：自动检测配对、去重、加入列表
-                await ViewModel.LoadDroppedFilesAsync(filePaths);
+                var firstNewPath = await ViewModel.LoadDroppedFilesAsync(filePaths);
+
+                // 通过 ListView 选中触发 SelectionChanged → SelectFile，
+                // 而不是让 ViewModel 直接调 SelectFile，避免选中态不同步 + 重复加载。
+                if (firstNewPath != null)
+                {
+                    var item = ViewModel.FileItems.FirstOrDefault(f =>
+                        string.Equals(f.FilePath, firstNewPath, StringComparison.OrdinalIgnoreCase));
+                    if (item != null)
+                        FileItemListView.SelectedItem = item;
+                }
+
                 e.Handled = true;
             }
             catch (Exception ex)

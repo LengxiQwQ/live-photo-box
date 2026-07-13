@@ -268,6 +268,7 @@
             <Setter Property="CornerRadius" Value="4"/>
         </Style>
         <converters:StringNotEmptyConverter x:Key="StringNotEmptyConverter"/>
+        <converters:VisibilityConverter x:Key="VisibilityConverter"/>
     </Page.Resources>
 
     <Grid>
@@ -622,10 +623,41 @@
                                               ImageSource="{x:Bind ViewModel.PreviewImageSource, Mode=OneWay}"
                                               HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 
-                        <!-- 缩放控件 + 最大化（浮动在右上角，覆盖在 PhotoViewer 上方） -->
+                        <!-- 实况照片按钮（浮动在左上角，左边图标 + 右边 LIVE 文字）
+                             图标持续呼吸脉冲动画 -->
+                        <Button x:Name="LivePhotoBadgeButton"
+                                Height="28" Padding="8,0,10,0" CornerRadius="5"
+                                Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                HorizontalAlignment="Left" VerticalAlignment="Top"
+                                Margin="6,6,0,0"
+                                Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                PointerEntered="LivePhotoBadgeButton_PointerEntered"
+                                PointerExited="LivePhotoBadgeButton_PointerExited"
+                                ToolTipService.ToolTip="播放实况照片">
+                            <StackPanel Orientation="Horizontal" Spacing="6"
+                                        VerticalAlignment="Center">
+                                <Path Data="M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0 M7 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0m8.9 8.11v.01m3.14-2.51v.01M20.77 14v.01m0-4.01v.01m-1.73-3.62v.01M15.9 3.89v.01M12 3v.01m-3.9.88v.01M4.96 6.39v.01M3.23 10v.01m0 3.99v.01m1.73 3.6v.01m3.14 2.49v.01M12 21v.01"
+                                      Width="14" Height="14" Stretch="Uniform"
+                                      Stroke="{ThemeResource TextFillColorSecondaryBrush}"
+                                      StrokeThickness="1" Fill="Transparent"
+                                      RenderTransformOrigin="0.5,0.5"
+                                      VerticalAlignment="Center">
+                                    <Path.RenderTransform>
+                                        <CompositeTransform x:Name="LivePhotoIconTransform" ScaleX="1" ScaleY="1"/>
+                                    </Path.RenderTransform>
+                                </Path>
+                                <TextBlock Text="LIVE" FontSize="10" FontWeight="Bold"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+
+                        <!-- 缩放控件 + 最大化（浮动在右上角，有文件选中时才显示） -->
                         <StackPanel Orientation="Horizontal" Spacing="4"
                                     HorizontalAlignment="Right" VerticalAlignment="Top"
-                                    Margin="6,6,6,0">
+                                    Margin="6,6,6,0"
+                                    Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
                             <Button x:Uid="KeyPhotoPage_ZoomOutBtn"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
@@ -665,7 +697,7 @@
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="MaximizeButton_Click"
                                     ToolTipService.ToolTip="最大化预览">
-                                <FontIcon x:Name="MaximizeButtonIcon" Glyph="&#xE922;" FontSize="12"
+                                        <FontIcon x:Name="MaximizeButtonIcon" Glyph="&#xE740;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
                         </StackPanel>
