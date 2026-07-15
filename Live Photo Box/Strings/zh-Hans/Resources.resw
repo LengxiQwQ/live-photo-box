@@ -2279,14 +2279,38 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_PageTitle.Text" xml:space="preserve">
     <value>实况照片主图更换 &amp; 查看属性</value>
   </data>
+  <data name="KeyPhotoPage_ConvertProtocol.Label" xml:space="preserve">
+    <value>转换实况照片协议</value>
+  </data>
+  <data name="KeyPhotoPage_ConvertProtocol.ToolTipService.ToolTip" xml:space="preserve">
+    <value>转换当前实况照片的封装协议</value>
+  </data>
   <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
     <value>恢复</value>
   </data>
   <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
-    <value>保存</value>
+    <value>设为封面并保存为副本</value>
+  </data>
+  <data name="KeyPhotoPage_Save.ToolTipService.ToolTip" xml:space="preserve">
+    <value>将当前帧设为封面并另存为新文件</value>
   </data>
   <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
     <value>另存为</value>
+  </data>
+  <data name="KeyPhotoPage_SaveAs.ToolTipService.ToolTip" xml:space="preserve">
+    <value>另存为新文件</value>
+  </data>
+  <data name="KeyPhotoPage_ExportFrame.Label" xml:space="preserve">
+    <value>导出当前帧</value>
+  </data>
+  <data name="KeyPhotoPage_ExportFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>将当前选中帧导出为图片文件</value>
+  </data>
+  <data name="KeyPhotoPage_ExportAllFrames.Label" xml:space="preserve">
+    <value>导出所有帧</value>
+  </data>
+  <data name="KeyPhotoPage_ExportAllFrames.ToolTipService.ToolTip" xml:space="preserve">
+    <value>将全部帧导出为图片序列</value>
   </data>
   <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
     <value>导出</value>
@@ -2296,6 +2320,21 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="KeyPhotoPage_CurrentDirBox.PlaceholderText" xml:space="preserve">
     <value>当前目录...</value>
+  </data>
+  <data name="KeyPhotoPage_RefreshDirBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>刷新目录</value>
+  </data>
+  <data name="KeyPhotoPage_PrevFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>上一帧</value>
+  </data>
+  <data name="KeyPhotoPage_NextFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>下一帧</value>
+  </data>
+  <data name="KeyPhotoPage_PlayLivePhoto.ToolTipService.ToolTip" xml:space="preserve">
+    <value>播放实况照片</value>
+  </data>
+  <data name="KeyPhotoPage_MuteToggle.ToolTipService.ToolTip" xml:space="preserve">
+    <value>切换静音</value>
   </data>
   <data name="KeyPhotoPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>浏览文件夹</value>
@@ -2478,6 +2517,12 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_MaximizeButton.ToolTipService.ToolTip" xml:space="preserve">
     <value>最大化预览</value>
   </data>
+  <data name="KeyPhotoPage_GotoCover.Content" xml:space="preserve">
+    <value>前往封面</value>
+  </data>
+  <data name="KeyPhotoPage_GotoCover.ToolTipService.ToolTip" xml:space="preserve">
+    <value>跳转到当前封面对应的帧</value>
+  </data>
   <data name="KeyPhoto_UnknownDevice" xml:space="preserve">
     <value>未知拍摄设备</value>
   </data>
@@ -2513,5 +2558,17 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="KeyPhoto_Lens_Camera" xml:space="preserve">
     <value>摄像头</value>
+  </data>
+  <data name="KeyPhotoPage_TabCombined.Content" xml:space="preserve">
+    <value>组合查看</value>
+  </data>
+  <data name="KeyPhotoPage_TabFrames.Content" xml:space="preserve">
+    <value>实况照片帧</value>
+  </data>
+  <data name="KeyPhotoPage_TabBasicInfo.Content" xml:space="preserve">
+    <value>文件基础信息</value>
+  </data>
+  <data name="KeyPhotoPage_TabDetailProps.Content" xml:space="preserve">
+    <value>更改文件属性</value>
   </data>
 </root>

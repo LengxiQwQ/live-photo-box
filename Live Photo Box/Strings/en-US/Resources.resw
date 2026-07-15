@@ -2281,14 +2281,38 @@ Are you sure you want to switch?</value>
   <data name="KeyPhotoPage_PageTitle.Text" xml:space="preserve">
     <value>Live Photo Key Photo &amp; Properties</value>
   </data>
+  <data name="KeyPhotoPage_ConvertProtocol.Label" xml:space="preserve">
+    <value>Convert Live Photo Protocol</value>
+  </data>
+  <data name="KeyPhotoPage_ConvertProtocol.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Convert the Live Photo protocol of current file</value>
+  </data>
   <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
     <value>Restore</value>
   </data>
   <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
-    <value>Save</value>
+    <value>Set Cover &amp; Save Copy</value>
+  </data>
+  <data name="KeyPhotoPage_Save.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Set current frame as cover and save a copy</value>
   </data>
   <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
     <value>Save As</value>
+  </data>
+  <data name="KeyPhotoPage_SaveAs.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Save as a new file</value>
+  </data>
+  <data name="KeyPhotoPage_ExportFrame.Label" xml:space="preserve">
+    <value>Export Frame</value>
+  </data>
+  <data name="KeyPhotoPage_ExportFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Export the selected frame as an image</value>
+  </data>
+  <data name="KeyPhotoPage_ExportAllFrames.Label" xml:space="preserve">
+    <value>Export All Frames</value>
+  </data>
+  <data name="KeyPhotoPage_ExportAllFrames.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Export all frames as an image sequence</value>
   </data>
   <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
     <value>Export</value>
@@ -2298,6 +2322,21 @@ Are you sure you want to switch?</value>
   </data>
   <data name="KeyPhotoPage_CurrentDirBox.PlaceholderText" xml:space="preserve">
     <value>Current directory...</value>
+  </data>
+  <data name="KeyPhotoPage_RefreshDirBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Refresh Directory</value>
+  </data>
+  <data name="KeyPhotoPage_PrevFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Previous Frame</value>
+  </data>
+  <data name="KeyPhotoPage_NextFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Next Frame</value>
+  </data>
+  <data name="KeyPhotoPage_PlayLivePhoto.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Play Live Photo</value>
+  </data>
+  <data name="KeyPhotoPage_MuteToggle.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Toggle Mute</value>
   </data>
   <data name="KeyPhotoPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Browse folder</value>
@@ -2480,6 +2519,12 @@ Are you sure you want to switch?</value>
   <data name="KeyPhotoPage_MaximizeButton.ToolTipService.ToolTip" xml:space="preserve">
     <value>Maximize Preview</value>
   </data>
+  <data name="KeyPhotoPage_GotoCover.Content" xml:space="preserve">
+    <value>Go to Cover</value>
+  </data>
+  <data name="KeyPhotoPage_GotoCover.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Jump to the cover frame</value>
+  </data>
   <data name="KeyPhoto_UnknownDevice" xml:space="preserve">
     <value>Unknown Device</value>
   </data>
@@ -2515,5 +2560,17 @@ Are you sure you want to switch?</value>
   </data>
   <data name="KeyPhoto_Lens_Camera" xml:space="preserve">
     <value>Camera</value>
+  </data>
+  <data name="KeyPhotoPage_TabCombined.Content" xml:space="preserve">
+    <value>Combined View</value>
+  </data>
+  <data name="KeyPhotoPage_TabFrames.Content" xml:space="preserve">
+    <value>Live Photo Frames</value>
+  </data>
+  <data name="KeyPhotoPage_TabBasicInfo.Content" xml:space="preserve">
+    <value>File Basic Info</value>
+  </data>
+  <data name="KeyPhotoPage_TabDetailProps.Content" xml:space="preserve">
+    <value>Change File Properties</value>
   </data>
 </root>

@@ -80,6 +80,101 @@ namespace LivePhotoBox.Views
         // ── 预览最大化状态 ──
         private bool _isPreviewMaximized;
 
+        // ════════════════════════════════════════════════════════════
+        //  底部选项卡单选状态（带记忆 + 非实况自动切"文件基础信息"）
+        //
+        //  四个选项卡（单选）对应的面板可见性：
+        //    "combined"     → 时间轴 + 文件基础信息（组合查看）
+        //    "frames"       → 仅时间轴
+        //    "basicInfo"    → 仅文件基础信息
+        //    "detailProps"  → 仅更改文件属性（占位）
+        //
+        //  记忆规则：用户手动切换选项卡时保存到 AppSettings；
+        //           非实况照片自动切到"文件基础信息"，不保存此次自动切换。
+        //           默认值为"combined"（组合查看）。
+        // ════════════════════════════════════════════════════════════
+
+        private const string InfoTabSettingKey = "KeyPhoto_LastInfoTab";
+        private const string DefaultInfoTab = "combined";
+
+        /// <summary>防止自动切换选项卡时触发保存记忆</summary>
+        private bool _isAutoSwitchingTab;
+
+        /// <summary>
+        /// InfoTabs 加载时恢复上次记忆的选项卡（默认"combined"）。
+        /// </summary>
+        private void InfoTabs_Loaded(object sender, RoutedEventArgs e)
+        {
+            var savedTag = AppSettingsService.GetValue(InfoTabSettingKey, DefaultInfoTab);
+            var item = FindSegmentedItem(savedTag) ?? FindSegmentedItem(DefaultInfoTab);
+            InfoTabs.SelectedItem = item;
+        }
+
+        /// <summary>
+        /// Segmented 单选 SelectionChanged 事件处理：
+        ///   1. 根据当前选项卡 Tag 决定各面板可见性
+        ///   2. 非自动切换时保存用户选择到 AppSettings（记忆功能）
+        /// </summary>
+        private void InfoTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            var selectedTag = (InfoTabs.SelectedItem as CommunityToolkit.WinUI.Controls.SegmentedItem)?.Tag as string;
+
+            // "combined" → 组合查看：时间轴 + 基础信息都显示
+            // "frames" / "basicInfo" / "detailProps" → 各自单独显示
+            ViewModel.IsFramesPanelVisible = selectedTag == "combined" || selectedTag == "frames";
+            ViewModel.IsBasicInfoPanelVisible = selectedTag == "combined" || selectedTag == "basicInfo";
+            ViewModel.IsDetailPropsPanelVisible = selectedTag == "detailProps";
+
+            // 记忆用户手动选择的选项卡（自动切换不记忆）
+            if (!_isAutoSwitchingTab && selectedTag != null)
+            {
+                AppSettingsService.SetValue(InfoTabSettingKey, selectedTag);
+            }
+        }
+
+        /// <summary>
+        /// 根据当前选中文件类型自动调整底部选项卡：
+        ///   非实况照片 + 当前在"组合查看"或"实况照片帧" → 自动切到"文件基础信息"
+        ///     （这两个选项卡是为实况照片时间轴设计的，普通文件不适用；
+        ///      但"更改文件属性"例外——普通照片也可查看，保持不变）
+        ///   实况照片 → 恢复用户上次记忆的选项卡
+        /// </summary>
+        private void ApplyInfoTabForSelectedFile()
+        {
+            var currentTag = (InfoTabs.SelectedItem as CommunityToolkit.WinUI.Controls.SegmentedItem)?.Tag as string;
+
+            if (ViewModel.HasSelectedFile && !ViewModel.IsSelectedLivePhoto)
+            {
+                // 非实况照片：如果当前在"组合查看"或"实况照片帧"，切到"文件基础信息"
+                // "文件基础信息"和"更改文件属性"保持不动
+                if (currentTag == "combined" || currentTag == "frames")
+                {
+                    _isAutoSwitchingTab = true;
+                    InfoTabs.SelectedItem = FindSegmentedItem("basicInfo");
+                    _isAutoSwitchingTab = false;
+                }
+            }
+            else if (ViewModel.IsSelectedLivePhoto)
+            {
+                // 实况照片：恢复记忆的选项卡
+                var savedTag = AppSettingsService.GetValue(InfoTabSettingKey, DefaultInfoTab);
+                var item = FindSegmentedItem(savedTag) ?? FindSegmentedItem(DefaultInfoTab);
+                if (!ReferenceEquals(InfoTabs.SelectedItem, item))
+                {
+                    _isAutoSwitchingTab = true;
+                    InfoTabs.SelectedItem = item;
+                    _isAutoSwitchingTab = false;
+                }
+            }
+        }
+
+        private CommunityToolkit.WinUI.Controls.SegmentedItem? FindSegmentedItem(string tag)
+        {
+            return InfoTabs.Items
+                .OfType<CommunityToolkit.WinUI.Controls.SegmentedItem>()
+                .FirstOrDefault(i => (string)i.Tag == tag);
+        }
+
         // ── 时间轴常量 ──
         /// <summary>帧步长：56px 卡片 + 0px 间距 = 56px（Spacing="0"）</summary>
         private const double FilmstripItemStep = 56.0;
@@ -104,6 +199,8 @@ namespace LivePhotoBox.Views
         private DateTime _lastWheelTime = DateTime.MinValue;
         /// <summary>帧合并锁：同一渲染帧内仅提交一次 ChangeView，防高频调用 0xc000027b 崩溃</summary>
         private bool _isScrollQueued;
+        /// <summary>胶片模式滚动重试取消令牌（布局未就绪时延迟重试）</summary>
+        private CancellationTokenSource? _filmstripScrollRetryCts;
 
         public KeyPhotoPage()
         {
@@ -227,8 +324,7 @@ namespace LivePhotoBox.Views
                 TopBarGrid.Visibility = Visibility.Collapsed;
                 LeftPanelColumn.Width = new GridLength(0);
                 PanelSpacerColumn.Width = new GridLength(0);
-                TimelinePanel.Visibility = Visibility.Collapsed;
-                InfoPanel.Visibility = Visibility.Collapsed;
+                UnifiedInfoPanel.Visibility = Visibility.Collapsed;
                 MainContentGrid.Padding = new Thickness(0);
                 PreviewBorder.CornerRadius = new CornerRadius(0);
                 PreviewBorder.Margin = new Thickness(0);
@@ -241,8 +337,7 @@ namespace LivePhotoBox.Views
                 LeftPanelColumn.Width = new GridLength(
                     _isLeftPanelCollapsed ? LeftPanelCollapsedWidth : LeftPanelExpandedWidth);
                 PanelSpacerColumn.Width = new GridLength(8);
-                TimelinePanel.Visibility = Visibility.Visible;
-                InfoPanel.Visibility = Visibility.Visible;
+                UnifiedInfoPanel.Visibility = Visibility.Visible;
                 MainContentGrid.Padding = new Thickness(8, 0, 8, 6);
                 PreviewBorder.CornerRadius = new CornerRadius(10);
                 PreviewBorder.Margin = new Thickness(0, 0, 0, 4);
@@ -331,13 +426,17 @@ namespace LivePhotoBox.Views
 
                 // 隐藏浮在视频上方的控件（图片始终未被隐藏，被视频覆盖）
                 LivePhotoBadgeButton.Visibility = Visibility.Collapsed;
+                MuteButton.Visibility = Visibility.Collapsed;
                 ZoomControlsPanel.Visibility = Visibility.Collapsed;
+
+                // 播放前应用静音状态
+                ApplyMuteState();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[KeyPhotoPage] 视频播放失败: {ex.Message}");
-                LivePhotoBadgeButton.ClearValue(Button.VisibilityProperty);
+                SyncLivePhotoBadgeVisibility();
                 ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
             }
         }
@@ -350,8 +449,40 @@ namespace LivePhotoBox.Views
         {
             if (_isApplyingPreviewMode) return;
 
-            LivePhotoBadgeButton.ClearValue(Button.VisibilityProperty);
+            SyncLivePhotoBadgeVisibility();
             ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
+        }
+
+        /// <summary>
+        /// 根据 ViewModel.IsSelectedLivePhoto 显式同步 LIVE + 静音按钮可见性。
+        /// 用于替代 ClearValue，因为 x:Bind 使用直接属性赋值而非 SetBinding，
+        /// ClearValue 后按钮会回退到默认 Visible 状态，x:Bind 不会自动重新应用。
+        /// </summary>
+        private void SyncLivePhotoBadgeVisibility()
+        {
+            var visibility = ViewModel.IsSelectedLivePhoto
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            LivePhotoBadgeButton.Visibility = visibility;
+            MuteButton.Visibility = visibility;
+        }
+
+        /// <summary>
+        /// 将 ViewModel.IsMuted 应用到 PureMediaViewer 的 MediaPlayer。
+        /// 在切换静音、开始播放时调用，确保 UI 状态与播放器同步。
+        /// </summary>
+        private void ApplyMuteState()
+        {
+            PureMediaViewer.IsMuted = ViewModel.IsMuted;
+        }
+
+        /// <summary>
+        /// 点击静音按钮 → 切换静音状态并应用到当前视频播放器。
+        /// </summary>
+        private void MuteButton_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.IsMuted = !ViewModel.IsMuted;
+            ApplyMuteState();
         }
 
         /// <summary>
@@ -933,7 +1064,56 @@ namespace LivePhotoBox.Views
 
             double targetOffset = index * FilmstripItemStep;
             _targetScrollOffset = targetOffset;
-            FilmstripScrollViewer.ChangeView(targetOffset, null, null, disableAnimation: disableAnimation);
+
+            // ── 布局未就绪？重试 ──
+            // 根因：Clear() → Add() 后 ItemsRepeater 不会同步完成布局。
+            // ScrollableWidth 可能为 0（首次），也可能残留旧值（Clear 未处理完），
+            // 导致 ChangeView 静默失败 → 封面不居中。
+            //
+            // 策略：先立即尝试一次（无动画），若布局已就绪则一次到位；
+            //       若未就绪（ScrollableWidth == 0 或小于目标偏移），延迟重试。
+            if (FilmstripScrollViewer.ScrollableWidth > 0
+                && targetOffset <= FilmstripScrollViewer.ScrollableWidth)
+            {
+                // 布局已就绪，直接到位
+                FilmstripScrollViewer.ChangeView(targetOffset, null, null, disableAnimation: disableAnimation);
+                return;
+            }
+
+            // 布局未就绪 → 取消旧重试，启动新重试
+            _filmstripScrollRetryCts?.Cancel();
+            _filmstripScrollRetryCts?.Dispose();
+            _filmstripScrollRetryCts = new CancellationTokenSource();
+            _ = FilmstripScrollToFrameRetryAsync(index, disableAnimation, _filmstripScrollRetryCts.Token);
+        }
+
+        /// <summary>
+        /// 胶片模式滚动重试：每 50ms 检查一次 ScrollViewer 是否已完成布局，
+        /// 最多重试 10 次（共 500ms）。布局就绪后立即执行 ChangeView。
+        /// </summary>
+        private async Task FilmstripScrollToFrameRetryAsync(int index, bool disableAnimation, CancellationToken ct, int maxRetries = 10)
+        {
+            for (int i = 0; i < maxRetries; i++)
+            {
+                try { await Task.Delay(50, ct); }
+                catch (TaskCanceledException) { return; }
+
+                double targetOffset = index * FilmstripItemStep;
+                if (FilmstripScrollViewer.ScrollableWidth > 0
+                    && targetOffset <= FilmstripScrollViewer.ScrollableWidth)
+                {
+                    _targetScrollOffset = targetOffset;
+                    FilmstripScrollViewer.ChangeView(targetOffset, null, null, disableAnimation: disableAnimation);
+                    return;
+                }
+            }
+
+            // 最终兜底：即使布局可能还没好，也强制执行一次
+            double fallbackOffset = index * FilmstripItemStep;
+            _targetScrollOffset = fallbackOffset;
+            if (FilmstripScrollViewer.ScrollableWidth > 0)
+                fallbackOffset = Math.Min(fallbackOffset, FilmstripScrollViewer.ScrollableWidth);
+            FilmstripScrollViewer.ChangeView(fallbackOffset, null, null, disableAnimation: disableAnimation);
         }
 
         private void UpdateFilmstripSelectionHighlight()
@@ -1563,6 +1743,9 @@ namespace LivePhotoBox.Views
             else
                 ViewModel.SelectFile(null);
 
+            // 非实况照片自动切"文件基础信息"；实况照片恢复记忆选项卡
+            ApplyInfoTabForSelectedFile();
+
             // 根据新选中的文件类型决定显示模式
             _ = ApplyPreviewModeAsync();
         }
@@ -1606,7 +1789,12 @@ namespace LivePhotoBox.Views
 
                             // 隐藏浮动控件（图片层始终可见，被视频覆盖）
                             LivePhotoBadgeButton.Visibility = Visibility.Collapsed;
+                            MuteButton.Visibility = Visibility.Collapsed;
                             ZoomControlsPanel.Visibility = Visibility.Collapsed;
+
+                            // 普通视频不受实况照片静音影响，始终非静音
+                            //（用户通过内置传输栏音量按钮自行控制）
+                            PureMediaViewer.IsMuted = false;
                             return;
                         }
                         catch (Exception ex)
@@ -1620,7 +1808,7 @@ namespace LivePhotoBox.Views
                 // 非视频文件：恢复图片预览模式
                 // PhotoViewer 未被隐藏，但防御性恢复不会造成问题
                 PhotoViewer.Visibility = Visibility.Visible;
-                LivePhotoBadgeButton.ClearValue(Button.VisibilityProperty);
+                SyncLivePhotoBadgeVisibility();
                 ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
             }
             finally

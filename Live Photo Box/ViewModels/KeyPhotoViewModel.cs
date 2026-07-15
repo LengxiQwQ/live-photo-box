@@ -60,7 +60,8 @@ namespace LivePhotoBox.ViewModels
 
         public KeyPhotoViewModel()
         {
-            // 默认路径为空，用户需要点击"浏览"选择文件夹或手动输入路径
+            // 从设置恢复静音状态（默认不静音）
+            _isMuted = AppSettingsService.GetValue("IsLivePhotoMuted", false);
         }
 
         public override string? PageStatusTag => null;
@@ -101,6 +102,24 @@ namespace LivePhotoBox.ViewModels
         /// 旧回调应立即 bail out，避免新旧文件的重量级操作同时抢占 CPU/内存。
         /// </summary>
         private int _selectionGeneration;
+
+        /// <summary>
+        /// 当前选中文件的缩略图异步加载监听器。
+        /// KeyPhotoFileItem.Thumbnail 为懒加载（TryGetOrLoad），首次返回 null；
+        /// 监听其 PropertyChanged，加载完成后同步到 SelectedFileThumbnail。
+        /// </summary>
+        private KeyPhotoFileItem? _thumbnailLoadListener;
+
+        /// <summary>缩略图异步加载完成的回调</summary>
+        private void ThumbnailItem_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(KeyPhotoFileItem.Thumbnail) && _thumbnailLoadListener != null)
+            {
+                SelectedFileThumbnail = _thumbnailLoadListener.Thumbnail;
+                _thumbnailLoadListener.PropertyChanged -= ThumbnailItem_PropertyChanged;
+                _thumbnailLoadListener = null;
+            }
+        }
 
         // ══════════════════════════════════════════════════════════════
         //  搜索 & 排序（暂时占位，后续适配）
@@ -219,6 +238,56 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty] private string _timelineInfo = string.Empty;
 
         // ══════════════════════════════════════════════════════════════
+        //  底部信息面板选项卡可见性（多选 ToggleButton 绑定）
+        //
+        //  互斥规则：
+        //  · "实况照片帧" 和 "文件基础信息" 可同时开启
+        //  · "更改文件属性" 为独占模式 —— 开启时关闭前两者
+        //  · 开启前两者任一 → 关闭"更改文件属性"
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>"实况照片帧" 面板可见性，默认 true（时间轴 + 帧列表）</summary>
+        [ObservableProperty]
+        private bool _isFramesPanelVisible = true;
+
+        /// <summary>"文件基础信息" 面板可见性，默认 true（缩略图 + EXIF 等基本信息）</summary>
+        [ObservableProperty]
+        private bool _isBasicInfoPanelVisible = true;
+
+        /// <summary>"更改文件属性" 面板可见性，默认 false（独占模式，开启时互斥）</summary>
+        [ObservableProperty]
+        private bool _isDetailPropsPanelVisible = false;
+
+        partial void OnIsFramesPanelVisibleChanged(bool value)
+        {
+            // 开启 frames / basicInfo → 关闭 detailProps（互斥）
+            if (value && IsDetailPropsPanelVisible)
+                IsDetailPropsPanelVisible = false;
+            OnPropertyChanged(nameof(IsCombinedView));
+        }
+
+        partial void OnIsBasicInfoPanelVisibleChanged(bool value)
+        {
+            // 开启 frames / basicInfo → 关闭 detailProps（互斥）
+            if (value && IsDetailPropsPanelVisible)
+                IsDetailPropsPanelVisible = false;
+            OnPropertyChanged(nameof(IsCombinedView));
+        }
+
+        partial void OnIsDetailPropsPanelVisibleChanged(bool value)
+        {
+            // 开启 detailProps → 独占，关闭 frames 和 basicInfo
+            if (value)
+            {
+                IsFramesPanelVisible = false;
+                IsBasicInfoPanelVisible = false;
+            }
+        }
+
+        /// <summary>组合查看模式（时间轴 + 基础信息同时可见），用于控制分割线显示</summary>
+        public bool IsCombinedView => IsFramesPanelVisible && IsBasicInfoPanelVisible;
+
+        // ══════════════════════════════════════════════════════════════
         //  时间轴帧数据
         // ══════════════════════════════════════════════════════════════
 
@@ -279,6 +348,12 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private TimelineFrame? _selectedTimelineFrame;
 
+        /// <summary>
+        /// "设为封面并保存为副本"按钮是否可用。
+        /// 星标帧（IsStillPhoto）已为封面 → 禁用；数字角标帧 → 可用。
+        /// </summary>
+        public bool IsSetCoverEnabled => SelectedTimelineFrame != null && !SelectedTimelineFrame.IsStillPhoto;
+
         /// <summary>ViewModel 通知 View 层滚动到指定帧（ItemsRepeater 布局就绪后吸附定位）</summary>
         public event Action<TimelineFrame>? RequestScrollToFrame;
 
@@ -294,6 +369,7 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnSelectedTimelineFrameChanged(TimelineFrame? value)
         {
+            OnPropertyChanged(nameof(IsSetCoverEnabled));
             if (value == null) return;
 
             // 同步 IsSelected 标记到所有帧：仅当前选中帧为 true
@@ -402,6 +478,18 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         public void SelectTimelineFrameProgrammatically(TimelineFrame frame)
         {
+            if (SelectedTimelineFrame == frame)
+            {
+                // 已选中同一帧：[ObservableProperty] setter 不会触发 OnChanged，
+                // 但调用方期望触发滚动（如首次加载后定位封面帧）。
+                // 手动复现 OnSelectedTimelineFrameChanged 的程序化选中路径。
+                OnPropertyChanged(nameof(IsSetCoverEnabled));
+                foreach (var f in TimelineFrames)
+                    f.IsSelected = ReferenceEquals(f, frame);
+                RequestScrollToFrame?.Invoke(frame);
+                return;
+            }
+
             _isProgrammaticTimelineSelection = true;
             SelectedTimelineFrame = frame;
         }
@@ -485,6 +573,21 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        /// <summary>静音状态（跨文件选择 + 跨会话持久保持，写入 AppSettings）</summary>
+        private bool _isMuted;
+        public bool IsMuted
+        {
+            get => _isMuted;
+            set
+            {
+                if (SetProperty(ref _isMuted, value))
+                {
+                    OnPropertyChanged(nameof(IsMuted));
+                    AppSettingsService.SetValue("IsLivePhotoMuted", value);
+                }
+            }
+        }
+
         /// <summary>视频信息行可见（实况照片或有视频数据的独立视频时显示）</summary>
         public bool IsVideoRowVisible => IsSelectedFileVideo || IsSelectedLivePhoto;
 
@@ -509,8 +612,27 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand] private void Save() { IsModified = false; }
         [RelayCommand] private void SaveAs() { }
         [RelayCommand] private void Export() { }
+        [RelayCommand] private void ExportCurrentFrame() { }
+        [RelayCommand] private void ExportAllFrames() { }
+        [RelayCommand] private void ConvertProtocol() { }
+
+        /// <summary>
+        /// 前往封面：滚动到星标帧（IsStillPhoto=true）。
+        /// 复用首次加载实况照片时的程序化选中 + 滚动吸附管线。
+        /// </summary>
+        [RelayCommand]
+        private void GotoCover()
+        {
+            var coverFrame = TimelineFrames.FirstOrDefault(f => f.IsStillPhoto);
+            if (coverFrame != null)
+            {
+                // 复用 SelectTimelineFrameProgrammatically，
+                // 确保即使已选中封面帧也会重新触发滚动
+                SelectTimelineFrameProgrammatically(coverFrame);
+            }
+        }
+
         [RelayCommand] private void BrowseFolder() { }
-        [RelayCommand] private void ViewFullProperties() { }
 
 
         // ══════════════════════════════════════════════════════════════
@@ -561,6 +683,13 @@ namespace LivePhotoBox.ViewModels
             IsSelectedLivePhoto = false; // 默认，下面从 item 读取
 
             // 先从 FileItems 找基础信息（只保留必要即时反馈，详情等异步加载一起刷新）
+            // 取消旧的缩略图监听，避免前一张图异步完成后覆盖新图的属性面板缩略图
+            if (_thumbnailLoadListener != null)
+            {
+                _thumbnailLoadListener.PropertyChanged -= ThumbnailItem_PropertyChanged;
+                _thumbnailLoadListener = null;
+            }
+
             var item = FileItems.FirstOrDefault(f =>
                 string.Equals(f.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
             if (item != null)
@@ -569,6 +698,14 @@ namespace LivePhotoBox.ViewModels
                 PhotoFileName = KeyPhotoFileItem.FormatDisplayFileName(
                     item.FileName, item.IsDualFileLivePhoto, item.VideoExtension);
                 SelectedFileThumbnail = item.Thumbnail;
+
+                // 缩略图为懒加载（TryGetOrLoad 首次返回 null，异步回填）。
+                // 若尚未就绪 → 监听 PropertyChanged，加载结束后同步到 SelectedFileThumbnail。
+                if (SelectedFileThumbnail == null)
+                {
+                    _thumbnailLoadListener = item;
+                    item.PropertyChanged += ThumbnailItem_PropertyChanged;
+                }
             }
 
             // 大图：视频不加载，直接清空；图片走 LoadPreviewImageAsync 正常加载
@@ -645,6 +782,13 @@ namespace LivePhotoBox.ViewModels
             // 取消进行中的属性/帧加载
             _propLoadCts?.Cancel();
             _timelineCts?.Cancel();
+
+            // 取消缩略图异步加载监听
+            if (_thumbnailLoadListener != null)
+            {
+                _thumbnailLoadListener.PropertyChanged -= ThumbnailItem_PropertyChanged;
+                _thumbnailLoadListener = null;
+            }
 
             SelectedFilePath = null;
             IsSelectedFileVideo = false;

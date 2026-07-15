@@ -17,6 +17,8 @@
     xmlns:models="using:LivePhotoBox.Models"
     xmlns:converters="using:LivePhotoBox.Converters"
     xmlns:controls="using:LivePhotoBox.Controls"
+    xmlns:ctk="using:CommunityToolkit.WinUI.Controls"
+    xmlns:ic="using:FluentIcons.WinUI"
     mc:Ignorable="d"
     Background="Transparent"
     NavigationCacheMode="Required">
@@ -261,8 +263,8 @@
         <Style x:Key="InfoRowButtonStyle" TargetType="Button">
             <Setter Property="Background" Value="Transparent"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="4,2"/>
-            <Setter Property="Margin" Value="-4,-2"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
             <Setter Property="CornerRadius" Value="4"/>
@@ -284,21 +286,32 @@
             <CommandBar DefaultLabelPosition="Right"
                         HorizontalAlignment="Stretch" IsDynamicOverflowEnabled="False"
                         Background="Transparent">
-                <AppBarButton x:Uid="KeyPhotoPage_Restore" Command="{x:Bind ViewModel.RestoreCommand}"
-                              IsEnabled="{x:Bind ViewModel.IsModified, Mode=OneWay}" Label="恢复">
-                    <AppBarButton.Icon><FontIcon Glyph="&#xE777;" FontSize="14"/></AppBarButton.Icon>
+                <AppBarButton x:Uid="KeyPhotoPage_ConvertProtocol"
+                              Command="{x:Bind ViewModel.ConvertProtocolCommand}"
+                              IsEnabled="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay}"
+                              Label="转换实况照片协议">
+                    <AppBarButton.Icon><FontIcon Glyph="&#xE8B2;" FontSize="14"/></AppBarButton.Icon>
+                </AppBarButton>
+                <AppBarSeparator/>
+                <AppBarButton x:Uid="KeyPhotoPage_ExportFrame"
+                              Command="{x:Bind ViewModel.ExportCurrentFrameCommand}"
+                              Label="导出当前帧">
+                    <AppBarButton.Icon><FontIcon Glyph="&#xE896;" FontSize="14"/></AppBarButton.Icon>
+                </AppBarButton>
+                <AppBarButton x:Uid="KeyPhotoPage_ExportAllFrames"
+                              Command="{x:Bind ViewModel.ExportAllFramesCommand}"
+                              Label="导出所有帧">
+                    <AppBarButton.Icon><FontIcon Glyph="&#xE8A7;" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
                 <AppBarSeparator/>
                 <AppBarButton x:Uid="KeyPhotoPage_Save" Command="{x:Bind ViewModel.SaveCommand}"
-                              IsEnabled="{x:Bind ViewModel.IsModified, Mode=OneWay}" Label="保存">
+                              IsEnabled="{x:Bind ViewModel.IsSetCoverEnabled, Mode=OneWay}"
+                              Label="设为封面并保存为副本">
                     <AppBarButton.Icon><FontIcon Glyph="&#xE74E;" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
-                <AppBarButton x:Uid="KeyPhotoPage_SaveAs" Command="{x:Bind ViewModel.SaveAsCommand}" Label="另存为">
+                <AppBarButton x:Uid="KeyPhotoPage_SaveAs" Command="{x:Bind ViewModel.SaveAsCommand}"
+                              Label="另存为">
                     <AppBarButton.Icon><FontIcon Glyph="&#xE792;" FontSize="14"/></AppBarButton.Icon>
-                </AppBarButton>
-                <AppBarButton x:Uid="KeyPhotoPage_ViewFullProps"
-                              Command="{x:Bind ViewModel.ViewFullPropertiesCommand}" Label="完整属性">
-                    <AppBarButton.Icon><FontIcon Glyph="&#xE9D2;" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
             </CommandBar>
 
@@ -351,8 +364,7 @@
                                 BorderThickness="1" CornerRadius="5"
                                 Click="CollapsePanelButton_Click"
                                 Visibility="{x:Bind ViewModel.HasAnyFiles, Mode=OneWay}"
-                                x:Uid="KeyPhotoPage_CollapsePanel"
-                                ToolTipService.ToolTip="折叠面板">
+                                x:Uid="KeyPhotoPage_CollapsePanel">
                             <FontIcon x:Name="CollapseButtonIcon" Glyph="&#xE76B;"
                                       FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </Button>
@@ -383,8 +395,7 @@
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="BrowseFolder_Click"
-                                    PointerPressed="BrowseFolder_PointerPressed"
-                                    ToolTipService.ToolTip="浏览文件夹">
+                                    PointerPressed="BrowseFolder_PointerPressed">
                                 <FontIcon Glyph="&#xE838;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
@@ -393,8 +404,7 @@
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="RefreshDir_Click"
-                                    ToolTipService.ToolTip="刷新目录">
+                                    Click="RefreshDir_Click">
                                 <FontIcon Glyph="&#xE72C;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
@@ -429,7 +439,7 @@
                                     Command="{x:Bind ViewModel.ToggleSortDirectionCommand}"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    ToolTipService.ToolTip="排序方向">
+                                    >
                                 <FontIcon Glyph="{x:Bind ViewModel.SortDirectionGlyph, Mode=OneWay}" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
@@ -611,7 +621,6 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
-                    <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <!-- ── 图片预览（PhotoViewer：高性能 Image+CompositeTransform 架构）── -->
@@ -630,36 +639,55 @@
                                                   HorizontalAlignment="Stretch"
                                                   VerticalAlignment="Stretch"/>
 
-                        <!-- 实况照片按钮（浮动在左上角，左边图标 + 右边 LIVE 文字）
-                             图标持续呼吸脉冲动画 -->
-                        <Button x:Name="LivePhotoBadgeButton"
-                                Height="28" Padding="8,0,10,0" CornerRadius="5"
-                                Background="Transparent"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                HorizontalAlignment="Left" VerticalAlignment="Top"
-                                Margin="6,6,0,0"
-                                Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                Click="LivePhotoBadgeButton_Click"
-                                PointerEntered="LivePhotoBadgeButton_PointerEntered"
-                                PointerExited="LivePhotoBadgeButton_PointerExited"
-                                ToolTipService.ToolTip="播放实况照片">
-                            <StackPanel Orientation="Horizontal" Spacing="6"
-                                        VerticalAlignment="Center">
-                                <Image Width="14" Height="14" Stretch="Uniform"
-                                       RenderTransformOrigin="0.5,0.5"
-                                       VerticalAlignment="Center">
-                                    <Image.Source>
-                                        <SvgImageSource UriSource="ms-appx:///Assets/Icons/tabler-live-photo.svg"/>
-                                    </Image.Source>
-                                    <Image.RenderTransform>
-                                        <CompositeTransform x:Name="LivePhotoIconTransform" ScaleX="1" ScaleY="1"/>
-                                    </Image.RenderTransform>
-                                </Image>
-                                <TextBlock Text="LIVE" FontSize="10" FontWeight="Bold"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Button>
+                        <!-- 实况照片控制按钮组（浮动在左上角）
+                             LIVE 播放 + 静音切换，两按钮同显同隐 -->
+                        <StackPanel Orientation="Horizontal"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                                    Margin="6,6,0,0">
+                            <Button x:Name="LivePhotoBadgeButton" x:Uid="KeyPhotoPage_PlayLivePhoto"
+                                    Height="28" Padding="8,0,10,0" CornerRadius="5"
+                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                    Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                    Click="LivePhotoBadgeButton_Click"
+                                    PointerEntered="LivePhotoBadgeButton_PointerEntered"
+                                    PointerExited="LivePhotoBadgeButton_PointerExited">
+                                <StackPanel Orientation="Horizontal" Spacing="6"
+                                            VerticalAlignment="Center">
+                                    <Image Width="16" Height="16" Stretch="Uniform"
+                                           RenderTransformOrigin="0.5,0.5"
+                                           VerticalAlignment="Center">
+                                        <Image.Source>
+                                            <SvgImageSource UriSource="ms-appx:///Assets/Icons/tabler-live-photo.svg"/>
+                                        </Image.Source>
+                                        <Image.RenderTransform>
+                                            <CompositeTransform x:Name="LivePhotoIconTransform" ScaleX="1" ScaleY="1"/>
+                                        </Image.RenderTransform>
+                                    </Image>
+                                    <TextBlock Text="LIVE" FontSize="10" FontWeight="Bold"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
+                            <!-- 静音切换按钮：与 LIVE 按钮同显同隐，点击切换 Speaker2 ↔ SpeakerMute -->
+                            <Button x:Name="MuteButton" x:Uid="KeyPhotoPage_MuteToggle"
+                                    Height="28" Width="28" Padding="0" CornerRadius="5"
+                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                    Margin="6,0,0,0"
+                                    Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                    Click="MuteButton_Click">
+                                <Grid Width="12" Height="12">
+                                    <ic:SymbolIcon x:Name="MuteIconSpeaker" Symbol="Speaker2" FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   Visibility="{x:Bind ViewModel.IsMuted, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"/>
+                                    <ic:SymbolIcon x:Name="MuteIconMuted" Symbol="SpeakerMute" FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                   Visibility="{x:Bind ViewModel.IsMuted, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"/>
+                                </Grid>
+                            </Button>
+                        </StackPanel>
 
                         <!-- 缩放控件 + 最大化（浮动在右上角，有文件选中时才显示） -->
                         <StackPanel x:Name="ZoomControlsPanel"
@@ -672,7 +700,7 @@
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="ZoomOutButton_Click"
-                                    ToolTipService.ToolTip="缩小">
+                                    >
                                 <FontIcon Glyph="&#xE949;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
@@ -682,7 +710,7 @@
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="ZoomPercentButton_Click"
-                                    ToolTipService.ToolTip="适应屏幕 / 100%">
+                                    >
                                 <TextBlock x:Name="ZoomPercentText" Text="100%" FontSize="10" FontWeight="SemiBold"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            VerticalAlignment="Center" HorizontalAlignment="Center"/>
@@ -692,7 +720,7 @@
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="ZoomInButton_Click"
-                                    ToolTipService.ToolTip="放大">
+                                    >
                                 <FontIcon Glyph="&#xE948;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
@@ -705,7 +733,7 @@
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="MaximizeButton_Click"
-                                    ToolTipService.ToolTip="最大化预览">
+                                    >
                                         <FontIcon x:Name="MaximizeButtonIcon" Glyph="&#xE740;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
@@ -713,333 +741,365 @@
                     </Grid>
                 </Border>
 
-                <!-- ── 时间轴（双模式：经典 ListView / 胶片固定选中框）── -->
-                <Border x:Name="TimelinePanel" Grid.Row="1" Style="{StaticResource CardBorderStyle}"
-                        Padding="10,5,10,4" Margin="0,0,0,4">
-                    <Grid RowSpacing="2">
+                <!-- ── 统一信息面板（多选 ToggleButton 选项卡，面板直接铺开）── -->
+                <Border x:Name="UnifiedInfoPanel" Grid.Row="1" Style="{StaticResource CardBorderStyle}"
+                        Padding="8,5,8,4">
+                    <Grid RowSpacing="0">
                         <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
-                        <!-- ── Row 0：标题 + 帧信息 ── -->
-                        <Grid Grid.Row="0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="5">
-                                <FontIcon Glyph="&#xE8B2;" FontSize="13"
-                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}" VerticalAlignment="Center"/>
-                                <TextBlock x:Uid="KeyPhotoPage_TimelineTitle"
-                                           Text="Live Photo 时间轴" FontWeight="SemiBold" FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                                <ProgressRing Width="12" Height="12" IsIndeterminate="True"
-                                              VerticalAlignment="Center" Margin="4,0,0,0"
-                                              Opacity="{x:Bind ViewModel.TimelineLoadingOpacity, Mode=OneWay}"
-                                              Foreground="{ThemeResource AccentFillColorDefaultBrush}">
-                                    <ProgressRing.RenderTransform>
-                                        <TranslateTransform Y="2"/>
-                                    </ProgressRing.RenderTransform>
-                                </ProgressRing>
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal"
-                                        HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
-                                <TextBlock Text="{x:Bind ViewModel.TimelineInfo, Mode=OneWay}"
-                                           FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                           VerticalAlignment="Center"/>
-                            </StackPanel>
-                        </Grid>
+                        <!-- ── Segmented 选项卡（单选，SelectionChanged 由代码后置处理）── -->
+                        <ctk:Segmented x:Name="InfoTabs" Grid.Row="1"
+                                       HorizontalAlignment="Stretch" Margin="0,6,0,4"
+                                       Loaded="InfoTabs_Loaded"
+                                       SelectionChanged="InfoTabs_SelectionChanged">
+                            <ctk:Segmented.ItemContainerStyle>
+                                <Style TargetType="ctk:SegmentedItem">
+                                    <Setter Property="FontSize" Value="12"/>
+                                    <Setter Property="MinHeight" Value="28"/>
+                                    <Setter Property="Padding" Value="8,0"/>
+                                </Style>
+                            </ctk:Segmented.ItemContainerStyle>
+                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabCombined" Content="组合查看" Tag="combined"/>
+                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabFrames" Content="实况照片帧" Tag="frames"/>
+                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabBasicInfo" Content="文件基础信息" Tag="basicInfo"/>
+                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabDetailProps" Content="更改文件属性" Tag="detailProps"/>
+                        </ctk:Segmented>
 
-                        <!-- ══════════════════════════════════════════════════════════════ -->
-                        <!-- ── Row 1 A：经典模式（ListView）                           ── -->
-                        <!-- ══════════════════════════════════════════════════════════════ -->
-                        <Border x:Name="ClassicTimelineBorder" Grid.Row="1"
-                                Visibility="{x:Bind ViewModel.IsClassicTimelineMode, Mode=OneWay}"
-                                Height="80" Padding="0">
-                            <ListView x:Name="TimelineListView"
-                                      ItemsSource="{x:Bind ViewModel.TimelineFrames, Mode=OneWay}"
-                                      SelectedItem="{x:Bind ViewModel.SelectedTimelineFrame, Mode=TwoWay}"
-                                      SelectionMode="Single"
-                                      ScrollViewer.HorizontalScrollBarVisibility="Visible"
-                                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                      ScrollViewer.HorizontalScrollMode="Enabled"
-                                      ScrollViewer.VerticalScrollMode="Disabled"
-                                      Padding="0,6,0,14"
-                                      Loaded="TimelineListView_Loaded"
-                                      SelectionChanged="TimelineListView_SelectionChanged"
-                                      ItemContainerTransitions="{x:Null}">
-                                <ListView.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal"/>
-                                    </ItemsPanelTemplate>
-                                </ListView.ItemsPanel>
-                                <ListView.ItemContainerStyle>
-                                    <Style TargetType="ListViewItem">
-                                        <Setter Property="Padding" Value="0"/>
-                                        <Setter Property="Margin" Value="0"/>
-                                        <Setter Property="MinHeight" Value="0"/>
-                                        <Setter Property="MinWidth" Value="0"/>
-                                        <Setter Property="IsTabStop" Value="False"/>
-                                        <Setter Property="Template">
-                                            <Setter.Value>
-                                                <ControlTemplate TargetType="ListViewItem">
-                                                    <ContentPresenter x:Name="ContentPresenter"/>
-                                                </ControlTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                    </Style>
-                                </ListView.ItemContainerStyle>
-                                <ListView.ItemTemplate>
-                                    <DataTemplate x:DataType="models:TimelineFrame">
-                                        <Border x:Name="ClassicTimelineCardRoot" Width="56" Height="56" CornerRadius="5"
-                                                Background="Transparent" BorderThickness="2"
-                                                BorderBrush="Transparent"
-                                                VerticalAlignment="Top">
-                                            <Grid>
-                                                <!-- 帧缩略图 54×54 内嵌于 56×56 卡片中（多 2px 溢出盖白边） -->
-                                                <Border Width="54" Height="54" CornerRadius="4"
-                                                        Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
-                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                                        HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                    <Grid>
-                                                        <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                                  Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                        <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
-                                                    </Grid>
-                                                </Border>
-                                                <!-- 帧角标：照片帧=金色⭐，视频帧=半透明黑数字 -->
-                                                <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
-                                                        Margin="2,0,0,2" CornerRadius="2" Padding="3,1"
-                                                        Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
-                                                    <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
-                                                               FontSize="8" Foreground="White"/>
-                                                </Border>
-                                            </Grid>
-                                        </Border>
-                                    </DataTemplate>
-                                </ListView.ItemTemplate>
-                            </ListView>
-                        </Border>
+                        <!-- ═══════════════════════════════════════════════════════ -->
+                        <!--  面板容器（各面板独立控制可见性，StackPanel 自动折叠空面板） -->
+                        <!-- ═══════════════════════════════════════════════════════ -->
+                        <StackPanel Grid.Row="0">
 
-                        <!-- ══════════════════════════════════════════════════════════════ -->
-                        <!-- ── Row 1 B：胶片模式（ScrollViewer 强制居中式单帧吸附）  ── -->
-                        <!-- ══════════════════════════════════════════════════════════════ -->
-                        <Grid Grid.Row="1"
-                              Visibility="{x:Bind ViewModel.IsFilmstripTimelineMode, Mode=OneWay}"
-                              Height="74" x:Name="FilmstripRoot">
+                            <!-- ──────────────────────────────────────────────── -->
+                            <!--  实况照片帧面板（时间轴：双模式 ListView / 胶片）  -->
+                            <!-- ──────────────────────────────────────────────── -->
+                            <Grid Visibility="{x:Bind ViewModel.IsFramesPanelVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                  Height="84">
+                                <StackPanel Spacing="0">
+                                    <!-- 时间轴（双模式：经典 ListView / 胶片） -->
+                                    <Grid RowSpacing="3">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
 
-                            <!-- ScrollViewer 柔性吸附 + 动态边缘 Padding。
-                                 Optional = 允许惯性多帧滚动，停下后自动居中对齐；
-                                 Padding = viewportWidth/2 - itemWidth/2，首末帧可到中心。
-                                 ZoomMode="Disabled" 防止手势缩放干扰。 -->
-                            <ScrollViewer x:Name="FilmstripScrollViewer"
-                                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                          HorizontalScrollBarVisibility="Hidden"
-                                          VerticalScrollBarVisibility="Disabled"
-                                          HorizontalScrollMode="Enabled"
-                                          VerticalScrollMode="Disabled"
-                                          HorizontalSnapPointsType="Optional"
-                                          HorizontalSnapPointsAlignment="Center"
-                                          ZoomMode="Disabled"
-                                          Loaded="FilmstripScrollViewer_Loaded"
-                                          SizeChanged="FilmstripScrollViewer_SizeChanged"
-                                          ViewChanged="FilmstripScrollViewer_ViewChanged">
-                                <!-- Padding 在 SizeChanged 中动态计算更新 -->
-                                <Border x:Name="FilmstripPaddingBorder" Padding="0">
-                                    <ItemsRepeater x:Name="TimelineRepeater"
-                                                   ItemsSource="{x:Bind ViewModel.TimelineFrames, Mode=OneWay}">
-                                        <ItemsRepeater.Layout>
-                                            <StackLayout Orientation="Horizontal" Spacing="0"/>
-                                        </ItemsRepeater.Layout>
-                                        <ItemsRepeater.ItemTemplate>
-                                            <DataTemplate x:DataType="models:TimelineFrame">
-                                                <!-- 帧卡片 56×56：透明背景无选中态（选中框是固定覆盖层） -->
-                                                <Border Width="56" Height="56" CornerRadius="5"
-                                                        Background="Transparent" BorderThickness="0">
-                                                    <Grid>
-                                                        <!-- 帧缩略图 54×54（多 2px 溢出盖白边） -->
-                                                        <Border Width="54" Height="54" CornerRadius="4"
-                                                                Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
-                                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                        <!-- ── Row 0：标题 + 帧信息 ── -->
+                                        <Grid Grid.Row="0">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="5">
+                                                        <FontIcon Glyph="&#xE8B2;" FontSize="13" Margin="0,2,0,0"
+                                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}" VerticalAlignment="Center"/>
+                                                <TextBlock x:Uid="KeyPhotoPage_TimelineTitle"
+                                                           Text="Live Photo 时间轴" FontWeight="SemiBold" FontSize="11"
+                                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                                                <ProgressRing Width="12" Height="12" IsIndeterminate="True"
+                                                              VerticalAlignment="Center" Margin="0,0,0,0"
+                                                              Opacity="{x:Bind ViewModel.TimelineLoadingOpacity, Mode=OneWay}"
+                                                              Foreground="{ThemeResource AccentFillColorDefaultBrush}">
+                                                    <ProgressRing.RenderTransform>
+                                                        <TranslateTransform Y="2"/>
+                                                    </ProgressRing.RenderTransform>
+                                                </ProgressRing>
+                                                <Button x:Uid="KeyPhotoPage_GotoCover"
+                                                        Content="前往封面" FontSize="10"
+                                                        Height="21" Padding="8,0"
+                                                        VerticalAlignment="Center"
+                                                        Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                                        IsEnabled="{x:Bind ViewModel.IsSetCoverEnabled, Mode=OneWay}"
+                                                        Command="{x:Bind ViewModel.GotoCoverCommand}"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                                        HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
+                                                        <TextBlock Text="{x:Bind ViewModel.TimelineInfo, Mode=OneWay}"
+                                                           FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                           VerticalAlignment="Center"/>
+                                            </StackPanel>
+                                        </Grid>
+
+                                        <!-- Row 1A：经典模式 ListView（水平滚动帧缩略图） -->
+                                        <Border x:Name="ClassicTimelineBorder" Grid.Row="1"
+                                                Visibility="{x:Bind ViewModel.IsClassicTimelineMode, Mode=OneWay}"
+                                                Height="80" Padding="0">
+                                            <ListView x:Name="TimelineListView"
+                                                      ItemsSource="{x:Bind ViewModel.TimelineFrames, Mode=OneWay}"
+                                                      SelectedItem="{x:Bind ViewModel.SelectedTimelineFrame, Mode=TwoWay}"
+                                                      SelectionMode="Single"
+                                                      ScrollViewer.HorizontalScrollBarVisibility="Visible"
+                                                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                                      ScrollViewer.HorizontalScrollMode="Enabled"
+                                                      ScrollViewer.VerticalScrollMode="Disabled"
+                                                      Padding="0,6,0,14"
+                                                      Loaded="TimelineListView_Loaded"
+                                                      SelectionChanged="TimelineListView_SelectionChanged"
+                                                      ItemContainerTransitions="{x:Null}">
+                                                <ListView.ItemsPanel>
+                                                    <ItemsPanelTemplate>
+                                                        <StackPanel Orientation="Horizontal"/>
+                                                    </ItemsPanelTemplate>
+                                                </ListView.ItemsPanel>
+                                                <ListView.ItemContainerStyle>
+                                                    <Style TargetType="ListViewItem">
+                                                        <Setter Property="Padding" Value="0"/>
+                                                        <Setter Property="Margin" Value="0"/>
+                                                        <Setter Property="MinHeight" Value="0"/>
+                                                        <Setter Property="MinWidth" Value="0"/>
+                                                        <Setter Property="IsTabStop" Value="False"/>
+                                                        <Setter Property="Template">
+                                                            <Setter.Value>
+                                                                <ControlTemplate TargetType="ListViewItem">
+                                                                    <ContentPresenter x:Name="ContentPresenter"/>
+                                                                </ControlTemplate>
+                                                            </Setter.Value>
+                                                        </Setter>
+                                                    </Style>
+                                                </ListView.ItemContainerStyle>
+                                                <ListView.ItemTemplate>
+                                                    <DataTemplate x:DataType="models:TimelineFrame">
+                                                        <Border x:Name="ClassicTimelineCardRoot" Width="56" Height="56" CornerRadius="5"
+                                                                Background="Transparent" BorderThickness="2"
+                                                                BorderBrush="Transparent"
+                                                                VerticalAlignment="Top">
                                                             <Grid>
-                                                                <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                                          Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                                                <Border Width="54" Height="54" CornerRadius="4"
+                                                                        Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
+                                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                    <Grid>
+                                                                        <FontIcon Glyph="&#xE722;" FontSize="18"
+                                                                                  Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
+                                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                                        <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                                                    </Grid>
+                                                                </Border>
+                                                                <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
+                                                                        Margin="2,0,0,2" CornerRadius="2" Padding="3,1"
+                                                                        Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
+                                                                    <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
+                                                                               FontSize="8" Foreground="White"/>
+                                                                </Border>
                                                             </Grid>
                                                         </Border>
-                                                        <!-- 帧角标：照片帧=金色⭐，视频帧=半透明黑数字 -->
-                                                        <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
-                                                                Margin="2,0,0,2" CornerRadius="2" Padding="3,1"
-                                                                Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
-                                                            <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
-                                                                       FontSize="8" Foreground="White"/>
-                                                        </Border>
-                                                    </Grid>
+                                                    </DataTemplate>
+                                                </ListView.ItemTemplate>
+                                            </ListView>
+                                        </Border>
+
+                                        <!-- Row 1B：胶片模式（居中吸附 ScrollViewer + ItemsRepeater） -->
+                                        <Grid Grid.Row="1"
+                                              Visibility="{x:Bind ViewModel.IsFilmstripTimelineMode, Mode=OneWay}"
+                                              Height="60" x:Name="FilmstripRoot">
+                                            <ScrollViewer x:Name="FilmstripScrollViewer"
+                                                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                                          HorizontalScrollBarVisibility="Hidden"
+                                                          VerticalScrollBarVisibility="Disabled"
+                                                          HorizontalScrollMode="Enabled"
+                                                          VerticalScrollMode="Disabled"
+                                                          HorizontalSnapPointsType="Optional"
+                                                          HorizontalSnapPointsAlignment="Center"
+                                                          ZoomMode="Disabled"
+                                                          Loaded="FilmstripScrollViewer_Loaded"
+                                                          SizeChanged="FilmstripScrollViewer_SizeChanged"
+                                                          ViewChanged="FilmstripScrollViewer_ViewChanged">
+                                                <Border x:Name="FilmstripPaddingBorder" Padding="0">
+                                                    <ItemsRepeater x:Name="TimelineRepeater"
+                                                                   ItemsSource="{x:Bind ViewModel.TimelineFrames, Mode=OneWay}">
+                                                        <ItemsRepeater.Layout>
+                                                            <StackLayout Orientation="Horizontal" Spacing="0"/>
+                                                        </ItemsRepeater.Layout>
+                                                        <ItemsRepeater.ItemTemplate>
+                                                            <DataTemplate x:DataType="models:TimelineFrame">
+                                                                <Border Width="56" Height="56" CornerRadius="5"
+                                                                        Background="Transparent" BorderThickness="0">
+                                                                    <Grid>
+                                                                        <Border Width="54" Height="54" CornerRadius="4"
+                                                                                Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
+                                                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                                                                HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                                            <Grid>
+                                                                                <FontIcon Glyph="&#xE722;" FontSize="18"
+                                                                                          Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
+                                                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                                                            </Grid>
+                                                                        </Border>
+                                                                        <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
+                                                                                Margin="2,0,0,2" CornerRadius="2" Padding="3,1"
+                                                                                Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
+                                                                            <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
+                                                                                       FontSize="8" Foreground="White"/>
+                                                                        </Border>
+                                                                    </Grid>
+                                                                </Border>
+                                                            </DataTemplate>
+                                                        </ItemsRepeater.ItemTemplate>
+                                                    </ItemsRepeater>
                                                 </Border>
-                                            </DataTemplate>
-                                        </ItemsRepeater.ItemTemplate>
-                                    </ItemsRepeater>
-                                </Border>
-                            </ScrollViewer>
+                                            </ScrollViewer>
+                                            <Border x:Name="FilmstripSelectionHighlight"
+                                                    Width="56" Height="56" CornerRadius="5"
+                                                    BorderThickness="2"
+                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                    IsHitTestVisible="False"
+                                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"/>
+                                            <Button x:Name="FilmstripPrevFrameButton"
+                                                    Width="24" Height="24" Padding="0" CornerRadius="12"
+                                                    HorizontalAlignment="Left" VerticalAlignment="Center"
+                                                    Margin="4,0,0,0"
+                                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                                    Click="FilmstripPrevButton_Click"
+                                                    IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
+                                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"
+                                                    x:Uid="KeyPhotoPage_PrevFrame">
+                                                <FontIcon Glyph="&#xE76B;" FontSize="10"
+                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </Button>
+                                            <Button x:Name="FilmstripNextFrameButton"
+                                                    Width="24" Height="24" Padding="0" CornerRadius="12"
+                                                    HorizontalAlignment="Right" VerticalAlignment="Center"
+                                                    Margin="0,0,4,0"
+                                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                                    Click="FilmstripNextButton_Click"
+                                                    IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
+                                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"
+                                                    x:Uid="KeyPhotoPage_NextFrame">
+                                                <FontIcon Glyph="&#xE76C;" FontSize="10"
+                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </Button>
+                                        </Grid>
+                                    </Grid>
 
-                            <!-- ▸▸▸ 中层：固定选中框覆盖层（始终在画面中心，IsHitTestVisible=False）▸▸▸ -->
-                            <Border x:Name="FilmstripSelectionHighlight"
-                                    Width="56" Height="56" CornerRadius="5"
-                                    BorderThickness="2"
-                                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                                    IsHitTestVisible="False"
-                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"/>
-
-                            <!-- ▸▸▸ 顶层：前/后帧切换按钮（Click → 统一滚动管线）▸▸▸ -->
-                            <Button x:Name="FilmstripPrevFrameButton"
-                                    Width="24" Height="24" Padding="0" CornerRadius="12"
-                                    HorizontalAlignment="Left" VerticalAlignment="Center"
-                                    Margin="4,0,0,0"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="FilmstripPrevButton_Click"
-                                    IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
-                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"
-                                    x:Uid="KeyPhotoPage_PrevFrame" ToolTipService.ToolTip="上一帧">
-                                <FontIcon Glyph="&#xE76B;" FontSize="10"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Button>
-                            <Button x:Name="FilmstripNextFrameButton"
-                                    Width="24" Height="24" Padding="0" CornerRadius="12"
-                                    HorizontalAlignment="Right" VerticalAlignment="Center"
-                                    Margin="0,0,4,0"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="FilmstripNextButton_Click"
-                                    IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
-                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"
-                                    x:Uid="KeyPhotoPage_NextFrame" ToolTipService.ToolTip="下一帧">
-                                <FontIcon Glyph="&#xE76C;" FontSize="10"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Button>
-                        </Grid>
-                    </Grid>
-                </Border>
-
-                <!-- ── 统一信息面板（最小高度锁死，避免切换文件时抖动）── -->
-                <Border x:Name="InfoPanel" Grid.Row="2" Style="{StaticResource InfoCardBorderStyle}"
-                        MinHeight="100">
-                    <Grid ColumnSpacing="22">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
-
-                        <!-- Col 0：缩略图（1:1 方形，复用列表已加载的缩略图） -->
-                        <Border Grid.Column="0" x:Name="InfoThumbBorder"
-                                Width="80" Height="80" CornerRadius="10" VerticalAlignment="Center"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
-                            <Grid>
-                                <FontIcon Glyph="&#xE722;" FontSize="28"
-                                          Visibility="{x:Bind ViewModel.SelectedFileThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                <Image Source="{x:Bind ViewModel.SelectedFileThumbnail, Mode=OneWay}"
-                                       Stretch="UniformToFill"/>
+                                </StackPanel>
                             </Grid>
-                        </Border>
 
-                        <!-- Col 1：照片 + Live Photo 信息 -->
-                        <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Top">
-                            <TextBlock Text="{x:Bind ViewModel.PhotoFileName, Mode=OneWay}"
-                                       FontSize="12" FontWeight="SemiBold"
-                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                       TextTrimming="CharacterEllipsis"/>
+                            <!-- 分割线（组合查看时显示，分隔时间轴和基础信息） -->
+                            <Border Height="1" Margin="0,6"
+                                    Visibility="{x:Bind ViewModel.IsCombinedView, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
 
-                            <!-- 照片信息行：可点击 → 文件资源管理器中定位照片 -->
-                            <Button Style="{StaticResource InfoRowButtonStyle}"
-                                    x:Uid="KeyPhotoPage_LocatePhoto"
-                                    Click="LocatePhotoFile_Click"
-                                    Visibility="{x:Bind ViewModel.IsPhotoRowVisible, Mode=OneWay}">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE722;" FontSize="11"
-                                              Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                              VerticalAlignment="Center"
-                                              Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
-                                    <TextBlock Text="{x:Bind ViewModel.PhotoInfoLine, Mode=OneWay}"
-                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                            <!-- ──────────────────────────────────────────────── -->
+                            <!--  文件基础信息面板（缩略图 + 照片/视频信息行 + EXIF） -->
+                            <!-- ──────────────────────────────────────────────── -->
+                            <Grid Visibility="{x:Bind ViewModel.IsBasicInfoPanelVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                  ColumnSpacing="22" Height="84">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Col 0：缩略图 80×80（1:1 方形，复用列表已加载的缩略图） -->
+                                <Border Grid.Column="0" x:Name="InfoThumbBorder"
+                                        Width="80" Height="80" CornerRadius="10" VerticalAlignment="Center"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                        Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                    <Grid>
+                                        <FontIcon Glyph="&#xE722;" FontSize="28"
+                                                  Visibility="{x:Bind ViewModel.SelectedFileThumbnailPlaceholderVisibility, Mode=OneWay}"
+                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        <Image Source="{x:Bind ViewModel.SelectedFileThumbnail, Mode=OneWay}"
+                                               Stretch="UniformToFill"/>
+                                    </Grid>
+                                </Border>
+
+                                <!-- Col 1：照片 + Live Photo 信息行 -->
+                                <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                    <TextBlock Text="{x:Bind ViewModel.PhotoFileName, Mode=OneWay}"
+                                               FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <Button Style="{StaticResource InfoRowButtonStyle}"
+                                            x:Uid="KeyPhotoPage_LocatePhoto"
+                                            Click="LocatePhotoFile_Click"
+                                            Visibility="{x:Bind ViewModel.IsPhotoRowVisible, Mode=OneWay}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <FontIcon Glyph="&#xE722;" FontSize="11"
+                                                      Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                                      VerticalAlignment="Center"
+                                                      Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
+                                            <TextBlock Text="{x:Bind ViewModel.PhotoInfoLine, Mode=OneWay}"
+                                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Style="{StaticResource InfoRowButtonStyle}"
+                                            x:Uid="KeyPhotoPage_LocateVideo"
+                                            Click="LocateVideoFile_Click"
+                                            Visibility="{x:Bind ViewModel.IsVideoRowVisible, Mode=OneWay}">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <FontIcon Glyph="&#xE714;" FontSize="11"
+                                                      Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                                      VerticalAlignment="Center"
+                                                      Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
+                                            <TextBlock Text="{x:Bind ViewModel.VideoInfoLine, Mode=OneWay}"
+                                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <StackPanel Orientation="Horizontal" Spacing="4"
+                                                Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}">
+                                        <Path Data="M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0 M7 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0m8.9 8.11v.01m3.14-2.51v.01M20.77 14v.01m0-4.01v.01m-1.73-3.62v.01M15.9 3.89v.01M12 3v.01m-3.9.88v.01M4.96 6.39v.01M3.23 10v.01m0 3.99v.01m1.73 3.6v.01m3.14 2.49v.01M12 21v.01"
+                                              Width="12" Height="12" Stretch="Uniform"
+                                              Stroke="{ThemeResource AccentFillColorDefaultBrush}"
+                                              StrokeThickness="1" Fill="Transparent"
+                                              VerticalAlignment="Center" Margin="-1,1,0,0"/>
+                                        <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
+                                                   Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                                    </StackPanel>
                                 </StackPanel>
-                            </Button>
 
-                            <!-- 视频信息行：可点击 → 文件资源管理器中定位视频 -->
-                            <Button Style="{StaticResource InfoRowButtonStyle}"
-                                    x:Uid="KeyPhotoPage_LocateVideo"
-                                    Click="LocateVideoFile_Click"
-                                    Visibility="{x:Bind ViewModel.IsVideoRowVisible, Mode=OneWay}">
-                                <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE714;" FontSize="11"
-                                              Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                              VerticalAlignment="Center"
-                                              Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
-                                    <TextBlock Text="{x:Bind ViewModel.VideoInfoLine, Mode=OneWay}"
-                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                                <!-- Col 2：竖线分割 -->
+                                <Border Grid.Column="2" Width="1"
+                                        Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                        VerticalAlignment="Stretch" Margin="0,2"
+                                        Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
+
+                                <!-- Col 3：EXIF 信息栈（空行自动折叠） -->
+                                <StackPanel Grid.Column="3" Spacing="4" VerticalAlignment="Top">
+                                    <TextBlock Visibility="{x:Bind ViewModel.ExifCamera, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
+                                               TextWrapping="Wrap" IsTextSelectionEnabled="True">
+                                        <Run Text="{x:Bind ViewModel.ExifCamera, Mode=OneWay}"
+                                             FontWeight="SemiBold" FontSize="12"
+                                             Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                        <Run Text="{x:Bind ViewModel.ExifCameraDateSuffix, Mode=OneWay}"
+                                             FontSize="11"
+                                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                    </TextBlock>
+                                    <TextBlock Text="{x:Bind ViewModel.ExifLensParams, Mode=OneWay}"
+                                               Visibility="{x:Bind ViewModel.ExifLensParams, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
+                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                                               IsTextSelectionEnabled="True"/>
+                                    <TextBlock Text="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay}"
+                                               Visibility="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
+                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                                               IsTextSelectionEnabled="True"/>
+                                    <TextBlock Text="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay}"
+                                               Visibility="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
+                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                                               IsTextSelectionEnabled="True"/>
                                 </StackPanel>
-                            </Button>
+                            </Grid>
 
-                            <!-- 协议信息行（实况照片图标 + 协议文字） -->
-                            <StackPanel Orientation="Horizontal" Spacing="6"
-                                        Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}">
-                                <Path Data="M11 12a1 1 0 1 0 2 0a1 1 0 1 0-2 0 M7 12a5 5 0 1 0 10 0a5 5 0 1 0-10 0m8.9 8.11v.01m3.14-2.51v.01M20.77 14v.01m0-4.01v.01m-1.73-3.62v.01M15.9 3.89v.01M12 3v.01m-3.9.88v.01M4.96 6.39v.01M3.23 10v.01m0 3.99v.01m1.73 3.6v.01m3.14 2.49v.01M12 21v.01"
-                                      Width="12" Height="12" Stretch="Uniform"
-                                      Stroke="{ThemeResource AccentFillColorDefaultBrush}"
-                                      StrokeThickness="1" Fill="Transparent"
-                                      VerticalAlignment="Center" Margin="-1,1,0,0"/>
-                                <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
-                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
-                            </StackPanel>
-                        </StackPanel>
+                            <!-- ──────────────────────────────────────────────── -->
+                            <!--  更改文件属性面板（占位，后续扩展）                -->
+                            <!-- ──────────────────────────────────────────────── -->
+                            <Grid MinHeight="100"
+                                  Visibility="{x:Bind ViewModel.IsDetailPropsPanelVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
+                                <TextBlock Text="更改文件属性（即将推出）"
+                                           FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Grid>
 
-                        <!-- 竖线分割 -->
-                        <Border Grid.Column="2" Width="1"
-                                Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                VerticalAlignment="Stretch" Margin="0,2"
-                                Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
-
-                        <!-- Col 3：EXIF 信息（空行自动折叠） -->
-                        <StackPanel Grid.Column="3" Spacing="4" VerticalAlignment="Top">
-
-                            <!-- 设备名（粗体）+ 日期（细灰）同行显示 -->
-                            <TextBlock Visibility="{x:Bind ViewModel.ExifCamera, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                       TextWrapping="Wrap" IsTextSelectionEnabled="True">
-                                <Run Text="{x:Bind ViewModel.ExifCamera, Mode=OneWay}"
-                                     FontWeight="SemiBold" FontSize="12"
-                                     Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                <Run Text="{x:Bind ViewModel.ExifCameraDateSuffix, Mode=OneWay}"
-                                     FontSize="11"
-                                     Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                            </TextBlock>
-
-                            <!-- 镜头参数 -->
-                            <TextBlock Text="{x:Bind ViewModel.ExifLensParams, Mode=OneWay}"
-                                       Visibility="{x:Bind ViewModel.ExifLensParams, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                                       IsTextSelectionEnabled="True"/>
-
-                            <!-- 拍摄参数 -->
-                            <TextBlock Text="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay}"
-                                       Visibility="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                                       IsTextSelectionEnabled="True"/>
-
-                            <!-- 反向地理编码地名 -->
-                            <TextBlock Text="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay}"
-                                       Visibility="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                                       IsTextSelectionEnabled="True"/>
                         </StackPanel>
                     </Grid>
                 </Border>

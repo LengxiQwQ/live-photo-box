@@ -716,6 +716,7 @@ namespace LivePhotoBox.ViewModels
             AppViewModel.Instance.Split.SelectedFormatIndex = 0;
             AppViewModel.Instance.Merge.SelectedModeIndex = 1;
             AppViewModel.Instance.Repair.IsOutputToDirectory = false;
+            AppViewModel.Instance.KeyPhoto.IsMuted = false;
 
             // 4. 重置页面偏好为现代版
             AppSettingsService.SetValue("UseClassicSettingsPage", false);

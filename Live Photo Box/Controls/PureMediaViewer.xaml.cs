@@ -108,6 +108,17 @@ namespace LivePhotoBox.Controls
         /// <summary>视频已关闭，外部可恢复底层控件</summary>
         public event EventHandler? CloseRequested;
 
+        /// <summary>获取或设置底层 MediaPlayer 的静音状态</summary>
+        public bool IsMuted
+        {
+            get => VideoPlayer.MediaPlayer?.IsMuted ?? false;
+            set
+            {
+                if (VideoPlayer.MediaPlayer != null)
+                    VideoPlayer.MediaPlayer.IsMuted = value;
+            }
+        }
+
         // ══════════════════════════════════════════════════════════════
         //  内部状态
         // ══════════════════════════════════════════════════════════════
