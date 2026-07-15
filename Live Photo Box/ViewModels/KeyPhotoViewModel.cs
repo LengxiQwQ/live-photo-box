@@ -288,6 +288,51 @@ namespace LivePhotoBox.ViewModels
         public bool IsCombinedView => IsFramesPanelVisible && IsBasicInfoPanelVisible;
 
         // ══════════════════════════════════════════════════════════════
+        //  底部信息面板选项卡可见性（多选 ToggleButton 绑定）
+        //
+        //  互斥规则：
+        //  · "实况照片帧" 和 "文件基础信息" 可同时开启
+        //  · "文件详细属性" 为独占模式 —— 开启时关闭前两者
+        //  · 开启前两者任一 → 关闭"文件详细属性"
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>"实况照片帧" 面板可见性，默认 true（时间轴 + 帧列表）</summary>
+        [ObservableProperty]
+        private bool _isFramesPanelVisible = true;
+
+        /// <summary>"文件基础信息" 面板可见性，默认 true（缩略图 + EXIF 等基本信息）</summary>
+        [ObservableProperty]
+        private bool _isBasicInfoPanelVisible = true;
+
+        /// <summary>"文件详细属性" 面板可见性，默认 false（独占模式，开启时互斥）</summary>
+        [ObservableProperty]
+        private bool _isDetailPropsPanelVisible = false;
+
+        partial void OnIsFramesPanelVisibleChanged(bool value)
+        {
+            // 开启 frames / basicInfo → 关闭 detailProps（互斥）
+            if (value && IsDetailPropsPanelVisible)
+                IsDetailPropsPanelVisible = false;
+        }
+
+        partial void OnIsBasicInfoPanelVisibleChanged(bool value)
+        {
+            // 开启 frames / basicInfo → 关闭 detailProps（互斥）
+            if (value && IsDetailPropsPanelVisible)
+                IsDetailPropsPanelVisible = false;
+        }
+
+        partial void OnIsDetailPropsPanelVisibleChanged(bool value)
+        {
+            // 开启 detailProps → 独占，关闭 frames 和 basicInfo
+            if (value)
+            {
+                IsFramesPanelVisible = false;
+                IsBasicInfoPanelVisible = false;
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
         //  时间轴帧数据
         // ══════════════════════════════════════════════════════════════
 
