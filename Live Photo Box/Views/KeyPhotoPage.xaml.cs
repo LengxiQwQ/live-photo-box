@@ -30,6 +30,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.Media.Core;
 using Windows.Storage;
 
 namespace LivePhotoBox.Views
@@ -63,6 +64,12 @@ namespace LivePhotoBox.Views
 
         /// <summary>上次成功触发扫描的目录路径（路径未变时跳过 LostFocus 重复扫描）</summary>
         private string? _lastScannedPath;
+
+        // ── 视频预览状态 ──
+        /// <summary>SingleFileJpeg 提取的临时视频路径（用于播放后清理）</summary>
+        private string? _previewTempVideoPath;
+        /// <summary>正在切换预览模式（禁止 CloseRequested 重复恢复 UI）</summary>
+        private bool _isApplyingPreviewMode;
 
         // ── 拖拽类型缓存（DragEnter 异步检测 → DragOver 同步读取）──
         /// <summary>左侧面板：当前拖入的 StorageItems 是否全是文件夹</summary>
@@ -283,6 +290,155 @@ namespace LivePhotoBox.Views
             var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
             storyboard.Children.Add(rotateAnimation);
             storyboard.Begin();
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  实况照片就地视频预览（PureMediaViewer 叠加层交互）
+        // ════════════════════════════════════════════════════════════
+
+        // ════════════════════════════════════════════════════════════
+        //  实况照片就地视频预览（PureMediaViewer 叠加层交互）
+        //  硬直切，无过渡动画
+        // ════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// 点击 LIVE 按钮 → 解析视频路径 → PureMediaViewer 透明加载 →
+        /// 第一帧就绪后变不透明覆盖图片。
+        /// </summary>
+        private async void LivePhotoBadgeButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (PureMediaViewer.Visibility == Visibility.Visible) return;
+
+            var videoPath = await ResolveVideoPathAsync();
+            if (videoPath == null) return;
+
+            try
+            {
+                var storageFile = await StorageFile.GetFileFromPathAsync(videoPath);
+                var mediaSource = MediaSource.CreateFromStorageFile(storageFile);
+
+                PureMediaViewer.AutoCloseOnEnd = true;
+                PureMediaViewer.ShowCloseButton = true;
+                PureMediaViewer.ShowTransportControls = false;
+
+                // PureMediaViewer.Play() 先透明加载（用户仍能看到底下的图片），
+                // 等视频第一帧就绪后变不透明盖住图片，全程无闪白/闪黑
+                PureMediaViewer.VideoSource = mediaSource;
+                PureMediaViewer.Play();
+
+                // 等视频第一帧渲染完成
+                await Task.Delay(100);
+
+                // 隐藏浮在视频上方的控件（图片始终未被隐藏，被视频覆盖）
+                LivePhotoBadgeButton.Visibility = Visibility.Collapsed;
+                ZoomControlsPanel.Visibility = Visibility.Collapsed;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[KeyPhotoPage] 视频播放失败: {ex.Message}");
+                LivePhotoBadgeButton.ClearValue(Button.VisibilityProperty);
+                ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
+            }
+        }
+
+        /// <summary>
+        /// PureMediaViewer 关闭回调。
+        /// 图片层始终位于视频层下方未被隐藏，只需恢复浮动控件。
+        /// </summary>
+        private void PureMediaViewer_CloseRequested(object? sender, EventArgs e)
+        {
+            if (_isApplyingPreviewMode) return;
+
+            LivePhotoBadgeButton.ClearValue(Button.VisibilityProperty);
+            ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
+        }
+
+        /// <summary>
+        /// 获取当前选中实况照片的视频路径。
+        /// DualFile → 直接取 PairedVideoPath；
+        /// SingleFileJpeg → 从 JPEG 尾部提取嵌入式 MP4 到临时文件。
+        /// 返回 null 表示无法获取有效视频。
+        /// </summary>
+        private async Task<string?> ResolveVideoPathAsync()
+        {
+            // 先清理上一次的临时文件
+            CleanupPreviewTempVideo();
+
+            var selectedPath = ViewModel.SelectedFilePath;
+            if (string.IsNullOrEmpty(selectedPath)) return null;
+
+            var item = ViewModel.FileItems
+                .FirstOrDefault(f => f.FilePath == selectedPath);
+            if (item == null) return null;
+
+            // DualFile：直接使用配对视频路径
+            if (item.LivePhotoType == LivePhotoType.DualFile
+                && !string.IsNullOrEmpty(item.PairedVideoPath)
+                && File.Exists(item.PairedVideoPath))
+            {
+                return item.PairedVideoPath;
+            }
+
+            // SingleFileJpeg：从 JPEG 文件尾部提取嵌入式视频
+            if (item.LivePhotoType == LivePhotoType.SingleFileJpeg
+                && item.AppendedVideoLength > 0
+                && File.Exists(item.FilePath))
+            {
+                try
+                {
+                    var tempPath = Path.Combine(
+                        Path.GetTempPath(),
+                        $"lpb_preview_{Guid.NewGuid():N}.mp4");
+
+                    var imagePath = item.FilePath;
+                    var videoLength = item.AppendedVideoLength;
+
+                    await Task.Run(() =>
+                    {
+                        using var src = new FileStream(imagePath, FileMode.Open,
+                            FileAccess.Read, FileShare.Read);
+                        src.Seek(-videoLength, SeekOrigin.End);
+
+                        using var dst = new FileStream(tempPath, FileMode.Create,
+                            FileAccess.Write, FileShare.None);
+                        src.CopyTo(dst);
+                    });
+
+                    if (File.Exists(tempPath))
+                    {
+                        _previewTempVideoPath = tempPath;
+                        return tempPath;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[KeyPhotoPage] 嵌入式视频提取失败: {ex.Message}");
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>删除上一次提取的临时视频文件，释放磁盘空间</summary>
+        private void CleanupPreviewTempVideo()
+        {
+            if (_previewTempVideoPath == null) return;
+            try
+            {
+                if (File.Exists(_previewTempVideoPath))
+                    File.Delete(_previewTempVideoPath);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[KeyPhotoPage] 临时视频清理失败: {ex.Message}");
+            }
+            finally
+            {
+                _previewTempVideoPath = null;
+            }
         }
 
         // ════════════════════════════════════════════════════════════
@@ -1406,6 +1562,71 @@ namespace LivePhotoBox.Views
                 ViewModel.SelectFile(selected.FilePath);
             else
                 ViewModel.SelectFile(null);
+
+            // 根据新选中的文件类型决定显示模式
+            _ = ApplyPreviewModeAsync();
+        }
+
+        /// <summary>
+        /// 根据当前选中文件类型切换预览模式：
+        /// - 纯视频文件 → 自动隐藏 PhotoViewer，显示 PureMediaViewer 播放
+        /// - 实况照片 → 显示 PhotoViewer + LIVE 播放按钮
+        /// - 普通图片 → 显示 PhotoViewer
+        /// - 无选中 → 关闭视频层
+        /// </summary>
+        private async Task ApplyPreviewModeAsync()
+        {
+            _isApplyingPreviewMode = true;
+
+            try
+            {
+                if (PureMediaViewer.Visibility == Visibility.Visible)
+                    PureMediaViewer.Close();
+
+                if (ViewModel.IsSelectedFileVideo)
+                {
+                    var videoPath = ViewModel.SelectedFilePath;
+                    if (!string.IsNullOrEmpty(videoPath) && File.Exists(videoPath))
+                    {
+                        try
+                        {
+                            var storageFile = await StorageFile.GetFileFromPathAsync(videoPath);
+                            var mediaSource = MediaSource.CreateFromStorageFile(storageFile);
+
+                            PureMediaViewer.AutoCloseOnEnd = false;
+                            PureMediaViewer.ShowCloseButton = false;
+                            PureMediaViewer.ShowTransportControls = true;
+
+                            // 先透明加载（用户仍看到底层控件）
+                            PureMediaViewer.VideoSource = mediaSource;
+                            PureMediaViewer.Play();
+
+                            // 等第一帧就绪
+                            await Task.Delay(100);
+
+                            // 隐藏浮动控件（图片层始终可见，被视频覆盖）
+                            LivePhotoBadgeButton.Visibility = Visibility.Collapsed;
+                            ZoomControlsPanel.Visibility = Visibility.Collapsed;
+                            return;
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[KeyPhotoPage] 视频自动播放失败: {ex.Message}");
+                        }
+                    }
+                }
+
+                // 非视频文件：恢复图片预览模式
+                // PhotoViewer 未被隐藏，但防御性恢复不会造成问题
+                PhotoViewer.Visibility = Visibility.Visible;
+                LivePhotoBadgeButton.ClearValue(Button.VisibilityProperty);
+                ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
+            }
+            finally
+            {
+                _isApplyingPreviewMode = false;
+            }
         }
 
         /// <summary>通过数据项找到对应容器中的 Border 并刷新视觉</summary>

@@ -1,0 +1,34 @@
+<UserControl
+    x:Class="LivePhotoBox.Controls.PureMediaViewer"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    IsTabStop="False">
+
+    <Grid x:Name="RootGrid" Background="Transparent">
+        <MediaPlayerElement x:Name="VideoPlayer"
+                            AutoPlay="False"
+                            AreTransportControlsEnabled="True"
+                            Stretch="Uniform"
+                            HorizontalAlignment="Stretch"
+                            VerticalAlignment="Stretch">
+            <MediaPlayerElement.TransportControls>
+                <MediaTransportControls IsCompact="True"
+                                        IsPlaybackRateButtonVisible="False"
+                                        IsFastForwardButtonVisible="False"
+                                        IsStopButtonVisible="False"
+                                        IsSeekBarVisible="True"
+                                        IsVolumeButtonVisible="True"/>
+            </MediaPlayerElement.TransportControls>
+        </MediaPlayerElement>
+
+        <Button x:Name="CloseButton"
+                HorizontalAlignment="Right" VerticalAlignment="Top"
+                Width="32" Height="32" Margin="8"
+                Padding="0" CornerRadius="16"
+                Background="#40FFFFFF"
+                BorderThickness="0"
+                Click="CloseButton_Click">
+            <FontIcon Glyph="&#xE711;" FontSize="12" Foreground="White"/>
+        </Button>
+    </Grid>
+</UserControl>
