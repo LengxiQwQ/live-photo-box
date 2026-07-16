@@ -42,14 +42,14 @@ namespace LivePhotoBox.Services
         /// </summary>
         public static async Task ShowSingleAsync(
             XamlRoot xamlRoot,
-            string title,
+            string? title,
             object content,
             string buttonText,
             ElementTheme? theme = null)
         {
             var dialog = new ContentDialog
             {
-                Title = title,
+                Title = string.IsNullOrEmpty(title) ? null : title,
                 Content = WrapContent(content),
                 CloseButtonText = buttonText,
                 DefaultButton = ContentDialogButton.Close,

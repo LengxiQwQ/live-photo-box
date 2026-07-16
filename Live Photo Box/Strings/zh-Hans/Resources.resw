@@ -2096,6 +2096,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_CheckTools_Version" xml:space="preserve">
     <value>版本</value>
   </data>
+  <data name="SettingsPage_CheckTools_UnknownVersion" xml:space="preserve">
+    <value>未知</value>
+  </data>
   <data name="SettingsPage_CheckTools_Error" xml:space="preserve">
     <value>错误</value>
   </data>
@@ -2289,10 +2292,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>恢复</value>
   </data>
   <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
-    <value>设为封面并保存为副本</value>
+    <value>设为主图并保存为副本</value>
   </data>
   <data name="KeyPhotoPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>将当前帧设为封面并另存为新文件</value>
+    <value>将当前帧设为主图并另存为新文件</value>
   </data>
   <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
     <value>另存为</value>
@@ -2300,20 +2303,14 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_SaveAs.ToolTipService.ToolTip" xml:space="preserve">
     <value>另存为新文件</value>
   </data>
-  <data name="KeyPhotoPage_ExportFrame.Label" xml:space="preserve">
+  <data name="KeyPhotoPage_ExportFrame.Text" xml:space="preserve">
     <value>导出当前帧</value>
   </data>
-  <data name="KeyPhotoPage_ExportFrame.ToolTipService.ToolTip" xml:space="preserve">
-    <value>将当前选中帧导出为图片文件</value>
-  </data>
-  <data name="KeyPhotoPage_ExportAllFrames.Label" xml:space="preserve">
+  <data name="KeyPhotoPage_ExportAllFrames.Text" xml:space="preserve">
     <value>导出所有帧</value>
   </data>
-  <data name="KeyPhotoPage_ExportAllFrames.ToolTipService.ToolTip" xml:space="preserve">
-    <value>将全部帧导出为图片序列</value>
-  </data>
   <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
-    <value>导出</value>
+    <value>导出帧…</value>
   </data>
   <data name="KeyPhotoPage_More.Label" xml:space="preserve">
     <value>更多</value>
@@ -2372,6 +2369,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>1:1</value>
   </data>
+  <data name="KeyPhotoPage_ExportProgressPrefix.Text" xml:space="preserve">
+    <value>正在导出帧…</value>
+  </data>
   <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
     <value>实况照片帧</value>
   </data>
@@ -2381,6 +2381,17 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhoto_TimelineInfo" xml:space="preserve">
     <value>{0} · {1} 帧</value>
     <comment>时间轴摘要信息：{0}=时长, {1}=总帧数</comment>
+  </data>
+  <data name="KeyPhoto_TimelineFramePosition" xml:space="preserve">
+    <value>第 {0} 帧 / 共 {1} 帧</value>
+    <comment>{0}=当前帧序号, {1}=总帧数</comment>
+  </data>
+  <data name="KeyPhoto_TimelineFps" xml:space="preserve">
+    <value>{0} fps</value>
+    <comment>{0}=帧率数值，如 30</comment>
+  </data>
+  <data name="KeyPhoto_TimelineFrameKeyPhoto" xml:space="preserve">
+    <value>主图</value>
   </data>
   <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
     <value>当前照片信息</value>
@@ -2481,10 +2492,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhoto_FileCountSummary" xml:space="preserve">
     <value>共 {0} 个实况照片，{1} 个其他照片</value>
   </data>
-  <data name="KeyPhoto_LivePhotoLabel" xml:space="preserve">
+  <data name="KeyPhoto_LivePhotoLabel.Text" xml:space="preserve">
     <value>实况照片</value>
   </data>
-  <data name="KeyPhoto_OtherFileLabel" xml:space="preserve">
+  <data name="KeyPhoto_OtherFileLabel.Text" xml:space="preserve">
     <value>其他照片</value>
   </data>
   <data name="KeyPhoto_Filter_All.Content" xml:space="preserve">
@@ -2518,10 +2529,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>最大化预览</value>
   </data>
   <data name="KeyPhotoPage_GotoCover.Content" xml:space="preserve">
-    <value>前往封面</value>
+    <value>前往主图</value>
   </data>
   <data name="KeyPhotoPage_GotoCover.ToolTipService.ToolTip" xml:space="preserve">
-    <value>跳转到当前封面对应的帧</value>
+    <value>跳转到当前主图对应的帧</value>
   </data>
   <data name="KeyPhoto_UnknownDevice" xml:space="preserve">
     <value>未知拍摄设备</value>
@@ -2570,5 +2581,68 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="KeyPhotoPage_TabDetailProps.Content" xml:space="preserve">
     <value>更改文件属性</value>
+  </data>
+  <data name="KeyPhotoPage_LiveBadge.Text" xml:space="preserve">
+    <value>LIVE</value>
+  </data>
+  <data name="KeyPhotoPage_DropToBrowse.Text" xml:space="preserve">
+    <value>释放以浏览此文件夹</value>
+  </data>
+  <data name="KeyPhotoPage_DropToView.Text" xml:space="preserve">
+    <value>释放以查看此文件</value>
+  </data>
+  <data name="KeyPhotoPage_DetailPropsPlaceholder.Text" xml:space="preserve">
+    <value>更改文件属性（即将推出）</value>
+  </data>
+  <data name="KeyPhotoPage_ListItemLiveBadge.Text" xml:space="preserve">
+    <value>LIVE</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_Title" xml:space="preserve">
+    <value>导出所有帧</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_Description" xml:space="preserve">
+    <value>请确认导出位置以及文件夹名称，将导出所有实况照片帧为JPG图片。</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_FolderNameLabel" xml:space="preserve">
+    <value>文件夹名称</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_FolderPathLabel" xml:space="preserve">
+    <value>导出位置</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_BrowseBtn" xml:space="preserve">
+    <value>浏览…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_BrowseTip" xml:space="preserve">
+    <value>选择导出位置</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_ResetTip" xml:space="preserve">
+    <value>重置为默认文件夹名称</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_CopyExifLabel" xml:space="preserve">
+    <value>为视频帧写入 EXIF 信息（拍摄设备、日期、相机参数等）</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_PathEmptyError" xml:space="preserve">
+    <value>导出位置不能为空</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_PathInvalidError" xml:space="preserve">
+    <value>导出位置无效，请输入有效的目录路径</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_ExportBtn" xml:space="preserve">
+    <value>导出</value>
+  </data>
+  <data name="KeyPhotoPage_ExportComplete_Title" xml:space="preserve">
+    <value>导出完成</value>
+  </data>
+  <data name="KeyPhotoPage_ExportComplete_Summary" xml:space="preserve">
+    <value>导出已完成。成功 {0} 帧，失败 {1} 帧，共 {2} 帧。</value>
+  </data>
+  <data name="KeyPhotoPage_SaveInProgress" xml:space="preserve">
+    <value>正在保存...</value>
+  </data>
+  <data name="KeyPhotoPage_SaveComplete" xml:space="preserve">
+    <value>保存完成</value>
+  </data>
+  <data name="KeyPhotoPage_SaveAppleFilename" xml:space="preserve">
+    <value>{0}_封面帧{1}</value>
   </data>
 </root>

@@ -757,44 +757,38 @@ namespace LivePhotoBox.ViewModels
             public string? Error { get; init; }
         }
 
-        // 检测所有外部工具（exiftool / ffmpeg / ffprobe / jpegtran）是否可用。
+        // 检测所有外部工具（exiftool / ffmpeg / jpegtran）是否可用。
+        // 整个检测过程在后台线程执行：路径定位 + 进程启动 + 输出收集均不阻塞 UI。
         // 对每个工具依次：定位路径 → 尝试运行获取版本 → 返回结构化结果列表。
         // 单个工具检测超时 5 秒，超时或异常不影响其他工具的检测。
         public static async Task<List<ToolCheckResult>> CheckAllExternalToolsAsync()
         {
-            var results = new List<ToolCheckResult>();
-
-            // ExifTool
-            results.Add(await CheckSingleToolAsync(
-                "ExifTool",
-                () => ExternalToolLocator.FindExifTool(),
-                "-ver"));
-
-            // FFmpeg
-            results.Add(await CheckSingleToolAsync(
-                "FFmpeg",
-                () => ExternalToolLocator.FindFFmpeg(),
-                "-version"));
-
-            // jpegtran 不支持 -version，不带参数直接运行即可验证可执行性
-            //（会输出用法 + 版本号到 stdout，exit code 为 1 属于正常行为）
-            results.Add(await CheckSingleToolAsync(
-                "jpegtran",
-                () => ExternalToolLocator.FindJpegTran(),
-                ""));
-
-            return results;
+            // 全部工作放到后台线程，避免 PATH 扫描和进程 Wait 阻塞 UI 线程
+            return await Task.Run(() =>
+            {
+                var results = new List<ToolCheckResult>();
+                results.Add(CheckSingleTool("ExifTool", () => ExternalToolLocator.FindExifTool(), "-ver"));
+                results.Add(CheckSingleTool("FFmpeg", () => ExternalToolLocator.FindFFmpeg(), "-version"));
+                // jpegtran 不支持 -version，只验证可执行性，不提取版本号
+                results.Add(CheckSingleTool("jpegtran", () => ExternalToolLocator.FindJpegTran(), "", maxVersionLines: -1));
+                results.Add(CheckSingleTool("heif-enc", () => ExternalToolLocator.FindHeifEnc(), "--version"));
+                results.Add(CheckSingleTool("heif-dec", () => ExternalToolLocator.FindHeifDec(), "--version"));
+                return results;
+            });
         }
 
-        // 检测单个工具：定位 → 实际执行 → 返回结果。
+        // 检测单个工具（同步版本，仅从 Task.Run 内部调用，运行在后台线程上）。
         // 核心目标：验证工具不仅存在于磁盘，还能被当前进程环境成功调用
         //（MSIX 打包 / 权限限制 / 依赖缺失 都可能导致找到文件但无法执行）。
         // versionArg 为获取版本的参数（exiftool -ver / ffmpeg -version），
-        // jpegtran 传 "" 表示不带参数运行（会输出用法+版本到 stdout，exit 1 属正常）。
-        private static async Task<ToolCheckResult> CheckSingleToolAsync(
+        // jpegtran 传 "" 表示不带参数运行（会输出用法到 stdout，exit 1 属正常）。
+        // maxVersionLines: 版本信息最大行数，0 = 不限制（用于有版本命令的工具），1 = 只取第一行（用于 jpegtran 等无版本命令的工具）。
+        // 注意：stdoutBuilder / stderrBuilder 使用 lock 保护，消除事件处理器在 ThreadPool 线程上的竞态条件。
+        private static ToolCheckResult CheckSingleTool(
             string displayName,
             Func<string?> pathResolver,
-            string versionArg)
+            string versionArg,
+            int maxVersionLines = 0)
         {
             string? path;
             try
@@ -839,37 +833,51 @@ namespace LivePhotoBox.ViewModels
                     EnableRaisingEvents = true
                 };
 
-                var tcs = new TaskCompletionSource<(int exitCode, string output)>();
-                var outputBuilder = new StringBuilder();
+                var tcs = new TaskCompletionSource<(int exitCode, string stdout, string stderr)>();
+                var stdoutBuilder = new StringBuilder();
+                var stderrBuilder = new StringBuilder();
+                var lockObj = new object();  // 保护两个 StringBuilder：所有事件处理器均运行在 ThreadPool 线程上
 
                 process.OutputDataReceived += (_, e) =>
                 {
                     if (e.Data != null)
                     {
-                        if (outputBuilder.Length > 0) outputBuilder.Append('\n');
-                        outputBuilder.Append(e.Data);
+                        lock (lockObj)
+                        {
+                            if (stdoutBuilder.Length > 0) stdoutBuilder.Append('\n');
+                            stdoutBuilder.Append(e.Data);
+                        }
                     }
                 };
                 process.ErrorDataReceived += (_, e) =>
                 {
                     if (e.Data != null)
                     {
-                        if (outputBuilder.Length > 0) outputBuilder.Append('\n');
-                        outputBuilder.Append(e.Data);
+                        lock (lockObj)
+                        {
+                            if (stderrBuilder.Length > 0) stderrBuilder.Append('\n');
+                            stderrBuilder.Append(e.Data);
+                        }
                     }
                 };
 
                 process.Exited += (_, _) =>
                 {
-                    tcs.TrySetResult((process.ExitCode, outputBuilder.ToString().Trim()));
+                    string stdout, stderr;
+                    lock (lockObj)
+                    {
+                        stdout = stdoutBuilder.ToString().Trim();
+                        stderr = stderrBuilder.ToString().Trim();
+                    }
+                    tcs.TrySetResult((process.ExitCode, stdout, stderr));
                 };
 
                 process.Start();
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
 
-                // 5 秒超时 — 超时说明工具无法正常启动或卡死
-                var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(5000));
+                // 5 秒超时 — 在后台线程上阻塞等待（不阻塞 UI）
+                var completedTask = Task.WhenAny(tcs.Task, Task.Delay(5000)).GetAwaiter().GetResult();
                 if (completedTask != tcs.Task)
                 {
                     try { process.Kill(entireProcessTree: true); } catch { }
@@ -882,18 +890,27 @@ namespace LivePhotoBox.ViewModels
                     };
                 }
 
-                var (exitCode, output) = tcs.Task.Result;
+                var (exitCode, stdout, stderr) = tcs.Task.Result;
 
                 // 工具成功运行（进程启动并正常退出，无论 exit code 是否为 0）
-                // jpegtran 不带参数 exit code = 1 但已证明可执行
+                // 版本号从 stdout 提取，stdout 为空时回退到 stderr
+                // maxVersionLines: 0 = 全部行, N = 前 N 行, -1 = 不提取版本号（直接显示"未知"）
                 string? version = null;
-                if (output.Length > 0)
+                if (maxVersionLines >= 0)
                 {
-                    // 取第一行作为版本号
-                    version = output;
-                    int newlineIndex = version.IndexOf('\n');
-                    if (newlineIndex > 0) version = version.Substring(0, newlineIndex);
-                    if (version.Length > 120) version = version.Substring(0, 120) + "...";
+                    string versionSource = stdout.Length > 0 ? stdout : stderr;
+                    if (versionSource.Length > 0)
+                    {
+                        if (maxVersionLines == 0)
+                        {
+                            version = versionSource;
+                        }
+                        else
+                        {
+                            var lines = versionSource.Split('\n');
+                            version = string.Join('\n', lines.Take(maxVersionLines));
+                        }
+                    }
                 }
 
                 // 额外诊断：exit code 非 0 时附注（jpegtran 除外，这是预期行为）

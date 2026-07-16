@@ -328,7 +328,7 @@ namespace LivePhotoBox.Views
                 MainContentGrid.Padding = new Thickness(0);
                 PreviewBorder.CornerRadius = new CornerRadius(0);
                 PreviewBorder.Margin = new Thickness(0);
-                MaximizeButtonIcon.Glyph = "";
+                MaximizeButtonIcon.Glyph = "";
                 ToolTipService.SetToolTip(MaximizeButton, "还原");
             }
             else

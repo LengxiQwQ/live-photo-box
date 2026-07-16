@@ -49,7 +49,7 @@ namespace LivePhotoBox.Services.Protocols
         // from scratch we do NOT append a OnePlus trailer — our video is exactly the
         // mp4 bytes.  Therefore OpCamera:VideoLength equals GContainer:Item:Length,
         // and both represent the actual video payload.
-        private static string RdfTemplate(long videoSize) =>
+        private static string RdfTemplate(long videoSize, long presentationTimestampUs) =>
             "<rdf:Description rdf:about=\"\"" +
             " xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\"" +
             " xmlns:Container=\"http://ns.google.com/photos/1.0/container/\"" +
@@ -57,8 +57,8 @@ namespace LivePhotoBox.Services.Protocols
             " xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\"" +
             " GCamera:MotionPhoto=\"1\"" +
             " GCamera:MotionPhotoVersion=\"1\"" +
-            $" GCamera:MotionPhotoPresentationTimestampUs=\"0\"" +
-            $" OpCamera:MotionPhotoPrimaryPresentationTimestampUs=\"0\"" +
+            $" GCamera:MotionPhotoPresentationTimestampUs=\"{presentationTimestampUs}\"" +
+            $" OpCamera:MotionPhotoPrimaryPresentationTimestampUs=\"{presentationTimestampUs}\"" +
             $" OpCamera:MotionPhotoOwner=\"oplus\"" +
             $" OpCamera:OLivePhotoVersion=\"2\"" +
             $" OpCamera:VideoLength=\"{videoSize}\">" +
@@ -80,7 +80,17 @@ namespace LivePhotoBox.Services.Protocols
         // videoSize: Size of the appended MP4 video in bytes (trailer-free pure video size).
         // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.
         public override byte[] BuildXmpMetadata(long videoSize)
-            => WrapXmp(RdfTemplate(videoSize), Key);
+            => BuildXmpMetadata(videoSize, 0);
+
+        // Build XMP metadata with presentation timestamp (microseconds).
+        // OPPO uses two timestamp fields: MotionPhotoPresentationTimestampUs (cover position)
+        // and OpCamera:MotionPhotoPrimaryPresentationTimestampUs (primary photo position).
+        // We set both to the selected frame's timestamp since we're replacing the key photo.
+        // videoSize: Size of the appended MP4 video in bytes (trailer-free pure video size).
+        // presentationTimestampUs: Timestamp in microseconds of the selected frame.
+        // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.
+        public override byte[] BuildXmpMetadata(long videoSize, long presentationTimestampUs)
+            => WrapXmp(RdfTemplate(videoSize, presentationTimestampUs), Key);
 
         // Pre-process: inject <c>oplus_10485792</c> into the EXIF UserComment
         // so OPPO Gallery recognises the output as a valid O-Live Photo.

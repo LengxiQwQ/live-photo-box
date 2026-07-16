@@ -190,8 +190,11 @@ namespace LivePhotoBox.Controls
             if (_isClosing) return;
             _isClosing = true;
 
-            VideoPlayer.MediaPlayer?.Pause();
-            VideoPlayer.MediaPlayer.Source = null;
+            if (VideoPlayer.MediaPlayer != null)
+            {
+                VideoPlayer.MediaPlayer.Pause();
+                VideoPlayer.MediaPlayer.Source = null;
+            }
             RootGrid.Opacity = 0;
             this.Visibility = Visibility.Collapsed;
 

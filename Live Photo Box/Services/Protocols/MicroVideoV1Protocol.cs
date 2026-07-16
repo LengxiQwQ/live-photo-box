@@ -40,7 +40,7 @@ namespace LivePhotoBox.Services.Protocols
             " GCamera:MicroVideo=\"1\"" +
             " GCamera:MicroVideoVersion=\"1\"" +
             " GCamera:MicroVideoOffset=\"{0}\"" +
-            " GCamera:MicroVideoPresentationTimestampUs=\"0\"/>";
+            " GCamera:MicroVideoPresentationTimestampUs=\"{1}\"/>";
 
         // Build the XMP metadata bytes for Google MicroVideo V1.
         // Generates a self-closing rdf:Description tag with GCamera:MicroVideoOffset
@@ -49,6 +49,14 @@ namespace LivePhotoBox.Services.Protocols
         // videoSize: Size of the appended MP4 video in bytes (equals the offset from end of file).
         // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.
         public override byte[] BuildXmpMetadata(long videoSize)
-            => WrapXmp(string.Format(RdfTemplate, videoSize), Key);
+            => BuildXmpMetadata(videoSize, 0);
+
+        // Build XMP metadata with presentation timestamp (microseconds).
+        // This timestamp tells the viewer where in the video the key photo was taken.
+        // videoSize: Size of the appended MP4 video in bytes.
+        // presentationTimestampUs: Timestamp in microseconds of the selected frame.
+        // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.
+        public override byte[] BuildXmpMetadata(long videoSize, long presentationTimestampUs)
+            => WrapXmp(string.Format(RdfTemplate, videoSize, presentationTimestampUs), Key);
     }
 }

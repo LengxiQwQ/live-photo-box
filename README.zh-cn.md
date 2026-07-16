@@ -1,6 +1,6 @@
 <div align="center">
 <h1>
-  <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" alt="icon" width="130" align="left" hspace="16" />
+  <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
   Live Photo Box（实况照片工具箱）
 </h1>
 <p><em>实况照片工具箱 — 专为 Windows 和 Android 打造的 Apple 实况照片管理与修复工具</em></p>
@@ -19,9 +19,6 @@
 
 <p align="center">
   📖 README Language：<strong>简体中文</strong> &nbsp;·&nbsp; <a href="README.md">English</a>
-</p>
-<p align="center">
-  📋 CHANGELOG：<strong><a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.md">English</a></strong>
 </p>
 
 ## 🚀 下载
@@ -195,6 +192,12 @@ live-photo-box/
 ```
 
 > 📖 完整目录说明见 [`docs/LivePhotoBox-ProjectOverview.md`](docs/LivePhotoBox-ProjectOverview.md)
+
+---
+
+## 📋 更新日志
+
+📋 CHANGELOG：<strong><a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.md">English</a></strong>
 
 ---
 

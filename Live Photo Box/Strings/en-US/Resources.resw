@@ -2098,6 +2098,9 @@ Are you sure you want to switch?</value>
   <data name="SettingsPage_CheckTools_Version" xml:space="preserve">
     <value>Version</value>
   </data>
+  <data name="SettingsPage_CheckTools_UnknownVersion" xml:space="preserve">
+    <value>Unknown</value>
+  </data>
   <data name="SettingsPage_CheckTools_Error" xml:space="preserve">
     <value>Error</value>
   </data>
@@ -2291,10 +2294,10 @@ Are you sure you want to switch?</value>
     <value>Restore</value>
   </data>
   <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
-    <value>Set Cover &amp; Save Copy</value>
+    <value>Set as Key Photo &amp; Save Copy</value>
   </data>
   <data name="KeyPhotoPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Set current frame as cover and save a copy</value>
+    <value>Set current frame as the key photo and save a copy</value>
   </data>
   <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
     <value>Save As</value>
@@ -2302,20 +2305,14 @@ Are you sure you want to switch?</value>
   <data name="KeyPhotoPage_SaveAs.ToolTipService.ToolTip" xml:space="preserve">
     <value>Save as a new file</value>
   </data>
-  <data name="KeyPhotoPage_ExportFrame.Label" xml:space="preserve">
-    <value>Export Frame</value>
+  <data name="KeyPhotoPage_ExportFrame.Text" xml:space="preserve">
+    <value>Export Current Frame</value>
   </data>
-  <data name="KeyPhotoPage_ExportFrame.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Export the selected frame as an image</value>
-  </data>
-  <data name="KeyPhotoPage_ExportAllFrames.Label" xml:space="preserve">
+  <data name="KeyPhotoPage_ExportAllFrames.Text" xml:space="preserve">
     <value>Export All Frames</value>
   </data>
-  <data name="KeyPhotoPage_ExportAllFrames.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Export all frames as an image sequence</value>
-  </data>
   <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
-    <value>Export</value>
+    <value>Export Frames…</value>
   </data>
   <data name="KeyPhotoPage_More.Label" xml:space="preserve">
     <value>More</value>
@@ -2374,6 +2371,9 @@ Are you sure you want to switch?</value>
   <data name="KeyPhotoPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>1:1</value>
   </data>
+  <data name="KeyPhotoPage_ExportProgressPrefix.Text" xml:space="preserve">
+    <value>Exporting frames…</value>
+  </data>
   <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
     <value>Live Photo Frames</value>
   </data>
@@ -2383,6 +2383,17 @@ Are you sure you want to switch?</value>
   <data name="KeyPhoto_TimelineInfo" xml:space="preserve">
     <value>{0} · {1} frames</value>
     <comment>Timeline summary info: {0}=duration, {1}=total frames</comment>
+  </data>
+  <data name="KeyPhoto_TimelineFramePosition" xml:space="preserve">
+    <value>Frame {0} of {1}</value>
+    <comment>{0}=current frame index (1-based), {1}=total frames</comment>
+  </data>
+  <data name="KeyPhoto_TimelineFps" xml:space="preserve">
+    <value>{0} fps</value>
+    <comment>{0}=frame rate number, e.g. 30</comment>
+  </data>
+  <data name="KeyPhoto_TimelineFrameKeyPhoto" xml:space="preserve">
+    <value>Key Photo</value>
   </data>
   <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
     <value>Photo Info</value>
@@ -2483,10 +2494,10 @@ Are you sure you want to switch?</value>
   <data name="KeyPhoto_FileCountSummary" xml:space="preserve">
     <value>{0} live photos, {1} other photos</value>
   </data>
-  <data name="KeyPhoto_LivePhotoLabel" xml:space="preserve">
+  <data name="KeyPhoto_LivePhotoLabel.Text" xml:space="preserve">
     <value>Live Photos</value>
   </data>
-  <data name="KeyPhoto_OtherFileLabel" xml:space="preserve">
+  <data name="KeyPhoto_OtherFileLabel.Text" xml:space="preserve">
     <value>Other Files</value>
   </data>
   <data name="KeyPhoto_Filter_All.Content" xml:space="preserve">
@@ -2520,10 +2531,10 @@ Are you sure you want to switch?</value>
     <value>Maximize Preview</value>
   </data>
   <data name="KeyPhotoPage_GotoCover.Content" xml:space="preserve">
-    <value>Go to Cover</value>
+    <value>Go to Key Photo</value>
   </data>
   <data name="KeyPhotoPage_GotoCover.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Jump to the cover frame</value>
+    <value>Jump to the key photo frame</value>
   </data>
   <data name="KeyPhoto_UnknownDevice" xml:space="preserve">
     <value>Unknown Device</value>
@@ -2572,5 +2583,68 @@ Are you sure you want to switch?</value>
   </data>
   <data name="KeyPhotoPage_TabDetailProps.Content" xml:space="preserve">
     <value>Change File Properties</value>
+  </data>
+  <data name="KeyPhotoPage_LiveBadge.Text" xml:space="preserve">
+    <value>LIVE</value>
+  </data>
+  <data name="KeyPhotoPage_DropToBrowse.Text" xml:space="preserve">
+    <value>Drop to browse this folder</value>
+  </data>
+  <data name="KeyPhotoPage_DropToView.Text" xml:space="preserve">
+    <value>Drop to view this file</value>
+  </data>
+  <data name="KeyPhotoPage_DetailPropsPlaceholder.Text" xml:space="preserve">
+    <value>Change File Properties (coming soon)</value>
+  </data>
+  <data name="KeyPhotoPage_ListItemLiveBadge.Text" xml:space="preserve">
+    <value>LIVE</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_Title" xml:space="preserve">
+    <value>Export All Frames</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_Description" xml:space="preserve">
+    <value>Confirm the export location and folder name. All live photo frames will be exported as JPEG images.</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_FolderNameLabel" xml:space="preserve">
+    <value>Folder Name</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_FolderPathLabel" xml:space="preserve">
+    <value>Export Location</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_BrowseBtn" xml:space="preserve">
+    <value>Browse…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_BrowseTip" xml:space="preserve">
+    <value>Choose export location</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_ResetTip" xml:space="preserve">
+    <value>Reset to default folder name</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_CopyExifLabel" xml:space="preserve">
+    <value>Write EXIF metadata for video frames (device, date, camera settings, etc.)</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_PathEmptyError" xml:space="preserve">
+    <value>Export location cannot be empty</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_PathInvalidError" xml:space="preserve">
+    <value>Invalid export location, please enter a valid directory path</value>
+  </data>
+  <data name="KeyPhotoPage_ExportDialog_ExportBtn" xml:space="preserve">
+    <value>Export</value>
+  </data>
+  <data name="KeyPhotoPage_ExportComplete_Title" xml:space="preserve">
+    <value>Export Complete</value>
+  </data>
+  <data name="KeyPhotoPage_ExportComplete_Summary" xml:space="preserve">
+    <value>Export completed. {0} succeeded, {1} failed, {2} total frames.</value>
+  </data>
+  <data name="KeyPhotoPage_SaveInProgress" xml:space="preserve">
+    <value>Saving...</value>
+  </data>
+  <data name="KeyPhotoPage_SaveComplete" xml:space="preserve">
+    <value>Saved</value>
+  </data>
+  <data name="KeyPhotoPage_SaveAppleFilename" xml:space="preserve">
+    <value>{0}_keyframe{1}</value>
   </data>
 </root>

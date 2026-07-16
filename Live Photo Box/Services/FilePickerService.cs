@@ -137,6 +137,173 @@ namespace LivePhotoBox.Services
             }
         }
 
+        /// <summary>
+        /// 弹出 Windows 原生"另存为"对话框，将源文件复制到用户选择的位置。
+        /// 支持图片和视频文件类型。用户取消时返回 null。
+        /// </summary>
+        /// <param name="sourcePath">源文件完整路径</param>
+        /// <returns>保存后的目标文件路径，用户取消则返回 null</returns>
+        public static async Task<string?> SaveFileAsAsync(string sourcePath)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                {
+                    LogService.FileOp($"SaveFileAs: source not found: {sourcePath}", LogLevel.Warning);
+                    return null;
+                }
+
+                var fileName = Path.GetFileName(sourcePath);
+                var extension = Path.GetExtension(sourcePath);
+                var nameWithoutExt = Path.GetFileNameWithoutExtension(sourcePath);
+
+                LogService.FileOp($"SaveFileAs requested: {sourcePath}");
+
+                var savePicker = new FileSavePicker
+                {
+                    SuggestedStartLocation = PickerLocationId.PicturesLibrary,
+                    SuggestedFileName = nameWithoutExt
+                };
+
+                // 根据扩展名添加对应的文件类型选项
+                var extLower = extension.ToLowerInvariant();
+                var displayName = extLower switch
+                {
+                    ".jpg" or ".jpeg" => "JPEG 图像",
+                    ".png" => "PNG 图像",
+                    ".heic" or ".heif" => "HEIC 图像",
+                    ".bmp" => "BMP 图像",
+                    ".gif" => "GIF 图像",
+                    ".tiff" or ".tif" => "TIFF 图像",
+                    ".webp" => "WebP 图像",
+                    ".mov" => "MOV 视频",
+                    ".mp4" => "MP4 视频",
+                    _ => $"{extLower.TrimStart('.').ToUpperInvariant()} 文件"
+                };
+                savePicker.FileTypeChoices.Add(displayName, new List<string> { extLower });
+
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+                WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+
+                var targetFile = await savePicker.PickSaveFileAsync();
+                if (targetFile == null)
+                {
+                    LogService.FileOp("SaveFileAs cancelled by user");
+                    return null;
+                }
+
+                // 复制源文件到目标位置（覆盖已存在的文件）
+                var sourceFile = await StorageFile.GetFileFromPathAsync(sourcePath);
+                await sourceFile.CopyAndReplaceAsync(targetFile);
+
+                LogService.FileOp($"SaveFileAs success: {sourcePath} -> {targetFile.Path}");
+                return targetFile.Path;
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"SaveFileAs failed: {sourcePath}", LogLevel.Error, ex);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 弹出"另存为"对话框，将 JPEG 源文件保存到用户选择的位置。
+        /// 固定使用 .jpg 扩展名，建议文件名由调用方指定（不含扩展名）。
+        /// </summary>
+        /// <param name="sourcePath">JPEG 源文件完整路径</param>
+        /// <param name="suggestedFileName">建议文件名（不含扩展名）</param>
+        /// <returns>保存后的目标文件路径，用户取消则返回 null</returns>
+        public static async Task<string?> SaveFileAsJpegAsync(string sourcePath, string suggestedFileName)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(sourcePath) || !File.Exists(sourcePath))
+                {
+                    LogService.FileOp($"SaveFileAsJpeg: source not found: {sourcePath}", LogLevel.Warning);
+                    return null;
+                }
+
+                LogService.FileOp($"SaveFileAsJpeg requested: {sourcePath}, suggestedName={suggestedFileName}");
+
+                var savePicker = new FileSavePicker
+                {
+                    SuggestedStartLocation = PickerLocationId.PicturesLibrary,
+                    SuggestedFileName = suggestedFileName
+                };
+                savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".jpg" });
+
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+                WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+
+                var targetFile = await savePicker.PickSaveFileAsync();
+                if (targetFile == null)
+                {
+                    LogService.FileOp("SaveFileAsJpeg cancelled by user");
+                    return null;
+                }
+
+                var sourceFile = await StorageFile.GetFileFromPathAsync(sourcePath);
+                await sourceFile.CopyAndReplaceAsync(targetFile);
+
+                LogService.FileOp($"SaveFileAsJpeg success: {sourcePath} -> {targetFile.Path}");
+                return targetFile.Path;
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"SaveFileAsJpeg failed: {sourcePath}", LogLevel.Error, ex);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 打开"另存为"对话框，根据源文件类型提供格式选择。
+        /// 源文件非 JPEG 时，提供"原格式" + "JPEG"两个选项，默认选中原格式。
+        /// 源文件已是 JPEG 时只提供 JPEG 选项。
+        /// </summary>
+        /// <param name="sourceExtension">源文件扩展名（含点，如 ".heic"）</param>
+        /// <param name="suggestedFileName">建议文件名（不含扩展名）</param>
+        /// <returns>用户选择的 StorageFile（含所选扩展名），取消则返回 null</returns>
+        public static async Task<StorageFile?> PickSaveFileForExportAsync(
+            string sourceExtension, string suggestedFileName)
+        {
+            var savePicker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.PicturesLibrary,
+                SuggestedFileName = suggestedFileName
+            };
+
+            var extLower = sourceExtension.ToLowerInvariant();
+            bool isJpeg = extLower is ".jpg" or ".jpeg";
+
+            if (!isJpeg)
+            {
+                // 非 JPEG：提供原格式 + JPEG，原格式在前（默认）
+                string originalLabel = extLower switch
+                {
+                    ".heic" or ".heif" => "HEIC 图像（原格式）",
+                    ".png" => "PNG 图像（原格式）",
+                    ".bmp" => "BMP 图像（原格式）",
+                    ".tiff" or ".tif" => "TIFF 图像（原格式）",
+                    _ => $"{extLower.TrimStart('.').ToUpperInvariant()}（原格式）"
+                };
+                savePicker.FileTypeChoices.Add(originalLabel, new List<string> { extLower });
+                savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".jpg" });
+            }
+            else
+            {
+                savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".jpg" });
+            }
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+            WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+
+            var targetFile = await savePicker.PickSaveFileAsync();
+            if (targetFile == null)
+                LogService.FileOp("PickSaveFileForExport cancelled by user");
+
+            return targetFile;
+        }
+
         // 在 Windows 资源管理器中打开指定文件夹。
         // 如果文件夹不存在则自动创建。用于快速定位日志目录、输出目录等。
         // folderPath: 要打开的文件夹路径

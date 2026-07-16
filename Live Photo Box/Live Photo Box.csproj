@@ -16,7 +16,7 @@
 		<Authors>LengxiQwQ</Authors>
 		<Company>LengxiQwQ</Company>
 		<Product>Live Photo Box</Product>
-		<AssemblyTitle>Display &amp; process Apple Live Photos on Windows</AssemblyTitle>
+		<AssemblyTitle>Live Photo Box</AssemblyTitle>
 		<Copyright>Copyright © 2026 LengxiQwQ. Licensed under GPL v3.0</Copyright>
 		<ApplicationIcon>Assets\Icons\AppIcon.ico</ApplicationIcon>
 		<ApplicationManifest>app.manifest</ApplicationManifest>
@@ -78,10 +78,9 @@
         <Compile Remove="Tools\**" />
         <EmbeddedResource Remove="Tools\**" />
         <Page Remove="Tools\**" />
-		<!-- Include exiftool executable and any files under exiftool_files if present. Using wildcard avoids MSBuild errors when files are absent. -->
-     <!-- FFmpeg for video transcoding -->
-     <Content Include="Tools\ffprobe.exe" Condition="Exists('Tools\ffprobe.exe')">
-		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		<!-- 外部命令行工具：编译时将整个 Tools 目录复制到构建输出 -->
+		<Content Include="Tools\**\*" Condition="Exists('Tools')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
 	</ItemGroup>
 

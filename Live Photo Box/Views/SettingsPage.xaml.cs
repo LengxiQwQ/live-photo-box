@@ -1009,18 +1009,20 @@ namespace LivePhotoBox.Views
             // 禁用按钮防止重复点击
             if (sender is Button btn) btn.IsEnabled = false;
 
-            List<SettingsViewModel.ToolCheckResult> results;
             try
             {
-                results = await SettingsViewModel.CheckAllExternalToolsAsync();
-            }
-            finally
-            {
-                if (sender is Button btn2) btn2.IsEnabled = true;
-            }
+                List<SettingsViewModel.ToolCheckResult> results;
+                try
+                {
+                    results = await SettingsViewModel.CheckAllExternalToolsAsync();
+                }
+                finally
+                {
+                    if (sender is Button btn2) btn2.IsEnabled = true;
+                }
 
-            // 构建结果内容
-            var resultPanel = new StackPanel { Spacing = 16 };
+                // 构建结果内容
+                var resultPanel = new StackPanel { Spacing = 8 };
 
             // 顶部汇总
             int availableCount = 0;
@@ -1042,7 +1044,12 @@ namespace LivePhotoBox.Views
                 Margin = new Microsoft.UI.Xaml.Thickness(0, 0, 0, 4)
             });
 
-            // 逐条工具结果
+            // 逐条工具结果 — 每个工具用一个 TextBlock + Inlines，支持连续选中复制
+            var detailBrush = SafeGetBrush("TextFillColorTertiaryBrush");
+            var versionBrush = SafeGetBrush("TextFillColorSecondaryBrush");
+            var errorBrush = SafeGetBrush("SystemErrorTextColor");
+            var separatorBrush = SafeGetBrush("CardStrokeColorDefaultBrush");
+
             for (int i = 0; i < results.Count; i++)
             {
                 var r = results[i];
@@ -1052,57 +1059,60 @@ namespace LivePhotoBox.Views
                     ? ResourceService.GetString("SettingsPage_CheckTools_Available")
                     : ResourceService.GetString("SettingsPage_CheckTools_Unavailable");
 
-                var headerText = new TextBlock
+                var toolBlock = new TextBlock
+                {
+                    IsTextSelectionEnabled = true,
+                    TextWrapping = TextWrapping.Wrap
+                };
+
+                // 标题行
+                toolBlock.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
                 {
                     Text = $"{statusIcon}  {r.DisplayName}  —  {statusText}",
                     FontSize = 14,
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-                    TextWrapping = TextWrapping.Wrap,
-                    IsTextSelectionEnabled = true
-                };
+                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+                });
 
-                var detailStack = new StackPanel { Spacing = 2, Margin = new Microsoft.UI.Xaml.Thickness(24, 2, 0, 0) };
+                // 标题和详情之间的段间距
+                toolBlock.Inlines.Add(new Microsoft.UI.Xaml.Documents.LineBreak());
+                toolBlock.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = " ", FontSize = 8 });
+                toolBlock.Inlines.Add(new Microsoft.UI.Xaml.Documents.LineBreak());
 
+                // 路径行
                 if (r.Path != null)
                 {
-                    detailStack.Children.Add(new TextBlock
+                    toolBlock.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
                     {
                         Text = $"{ResourceService.GetString("SettingsPage_CheckTools_Path")}: {r.Path}",
                         FontSize = 11,
-                        Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
-                        TextWrapping = TextWrapping.Wrap,
-                        IsTextSelectionEnabled = true
+                        Foreground = detailBrush
                     });
+                    toolBlock.Inlines.Add(new Microsoft.UI.Xaml.Documents.LineBreak());
                 }
 
-                if (r.Version != null)
+                // 版本行（始终显示）
+                string versionText = r.Version
+                    ?? ResourceService.GetString("SettingsPage_CheckTools_UnknownVersion");
+                toolBlock.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
                 {
-                    detailStack.Children.Add(new TextBlock
-                    {
-                        Text = $"{ResourceService.GetString("SettingsPage_CheckTools_Version")}: {r.Version}",
-                        FontSize = 11,
-                        Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
-                        TextWrapping = TextWrapping.Wrap,
-                        IsTextSelectionEnabled = true
-                    });
-                }
+                    Text = $"{ResourceService.GetString("SettingsPage_CheckTools_Version")}: {versionText}",
+                    FontSize = 11,
+                    Foreground = versionBrush
+                });
 
+                // 错误行（仅出错时显示）
                 if (r.Error != null)
                 {
-                    detailStack.Children.Add(new TextBlock
+                    toolBlock.Inlines.Add(new Microsoft.UI.Xaml.Documents.LineBreak());
+                    toolBlock.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run
                     {
                         Text = $"{ResourceService.GetString("SettingsPage_CheckTools_Error")}: {r.Error}",
                         FontSize = 11,
-                        Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["SystemErrorTextColor"],
-                        TextWrapping = TextWrapping.Wrap,
-                        IsTextSelectionEnabled = true
+                        Foreground = errorBrush
                     });
                 }
 
-                var toolCard = new StackPanel { Spacing = 4 };
-                toolCard.Children.Add(headerText);
-                toolCard.Children.Add(detailStack);
-                resultPanel.Children.Add(toolCard);
+                resultPanel.Children.Add(toolBlock);
 
                 // 分隔线（最后一项不加）
                 if (i < results.Count - 1)
@@ -1110,7 +1120,8 @@ namespace LivePhotoBox.Views
                     resultPanel.Children.Add(new Microsoft.UI.Xaml.Controls.Border
                     {
                         Height = 1,
-                        Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"]
+                        Background = separatorBrush,
+                        Margin = new Microsoft.UI.Xaml.Thickness(0, 4, 0, 4)
                     });
                 }
             }
@@ -1123,9 +1134,40 @@ namespace LivePhotoBox.Views
                 {
                     MaxHeight = 450,
                     Content = resultPanel,
-                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                    VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                    Padding = new Microsoft.UI.Xaml.Thickness(0, 0, 20, 0)
                 },
                 ResourceService.GetString("Msg_Confirm"));
+            }
+            catch (Exception ex)
+            {
+                // 全局异常捕获：将异常详情展示在对话框中，方便定位问题
+                LogService.Error($"CheckExternalTools failed: {ex}", ex, LogSource.UI);
+                try
+                {
+                    await DialogService.ShowSingleAsync(
+                        App.MainWindow.Content.XamlRoot,
+                        "外部工具检测失败",
+                        $"异常类型：{ex.GetType().FullName}\n\n" +
+                        $"异常消息：{ex.Message}\n\n" +
+                        $"堆栈跟踪：\n{ex.StackTrace}",
+                        ResourceService.GetString("Msg_Confirm"));
+                }
+                catch { /* 连对话框都弹不出来就算了 */ }
+            }
+        }
+
+        // 安全地从 Application.Resources 获取 Brush。
+        // WinUI 3 中部分资源键（如 SystemErrorTextColor）返回 Windows.UI.Color 而非 Brush，
+        // 直接强转 Brush 会抛 InvalidCastException。此方法统一处理两种类型。
+        private static Microsoft.UI.Xaml.Media.Brush SafeGetBrush(string key)
+        {
+            var resource = Application.Current.Resources[key];
+            if (resource is Microsoft.UI.Xaml.Media.Brush brush)
+                return brush;
+            if (resource is Windows.UI.Color color)
+                return new Microsoft.UI.Xaml.Media.SolidColorBrush(color);
+            return new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Gray);
         }
 
         // ════════════════════════════════════════════════════════════

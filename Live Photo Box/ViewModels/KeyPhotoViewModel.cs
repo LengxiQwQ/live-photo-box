@@ -19,7 +19,9 @@ using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using LivePhotoBox.Services.Protocols;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
@@ -27,12 +29,14 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.Streams;
+using Windows.UI;
 
 namespace LivePhotoBox.ViewModels
 {
@@ -62,6 +66,8 @@ namespace LivePhotoBox.ViewModels
         {
             // 从设置恢复静音状态（默认不静音）
             _isMuted = AppSettingsService.GetValue("IsLivePhotoMuted", false);
+            // 进度前缀默认：导出帧
+            ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
         }
 
         public override string? PageStatusTag => null;
@@ -72,6 +78,10 @@ namespace LivePhotoBox.ViewModels
             _propLoadCts?.Cancel();
             _geoCts?.Cancel();
             _timelineCts?.Cancel();
+            _exportCts?.Cancel();
+            _exportCts?.Dispose();
+            _completionCts?.Cancel();
+            _completionCts?.Dispose();
             DisposeExifTool();
             CleanupFrameTempFiles();
             CleanupTempVideo();
@@ -237,6 +247,15 @@ namespace LivePhotoBox.ViewModels
 
         [ObservableProperty] private string _timelineInfo = string.Empty;
 
+        /// <summary>视频帧率数值（fps），用于绑定 FpsDisplayText 计算</summary>
+        private double _videoFps = 30.0;
+
+        /// <summary>FPS 显示文本，如 "30fps"</summary>
+        [ObservableProperty] private string _fpsDisplayText = string.Empty;
+
+        /// <summary>当前帧位置文本，如 "第12帧 / 共89帧" / "Frame 12 of 89"</summary>
+        [ObservableProperty] private string _currentFramePositionText = string.Empty;
+
         // ══════════════════════════════════════════════════════════════
         //  底部信息面板选项卡可见性（多选 ToggleButton 绑定）
         //
@@ -326,6 +345,38 @@ namespace LivePhotoBox.ViewModels
         /// <summary>ffmpeg 提取的帧 JPEG 临时目录</summary>
         private string? _frameExtractDir;
 
+        /// <summary>批量导出全部帧的取消令牌</summary>
+        private CancellationTokenSource? _exportCts;
+
+        /// <summary>"保存完成"消息停留计时器取消令牌</summary>
+        private CancellationTokenSource? _completionCts;
+
+        /// <summary>保存完成后显示对号图标（替代进度圈），短暂停留后自动消失</summary>
+        [ObservableProperty]
+        private bool _isShowingSaveComplete;
+
+        /// <summary>是否正在导出中（用于 XAML 进度显示和按钮防重入）</summary>
+        [ObservableProperty]
+        private bool _isExporting;
+
+        /// <summary>导出进度文本，如 "12/80"</summary>
+        [ObservableProperty]
+        private string _exportProgressText = string.Empty;
+
+        /// <summary>进度前缀文本：导出时显示"正在导出帧…"，保存主图时清空</summary>
+        [ObservableProperty]
+        private string _progressPrefixText = string.Empty;
+
+        /// <summary>导出进度百分比 0.0-100.0</summary>
+        [ObservableProperty]
+        private double _exportProgressPercent = 0.0;
+
+        /// <summary>未在导出中（XAML 绑定用，导出时禁用按钮）</summary>
+        public bool IsNotExporting => !IsExporting;
+
+        /// <summary>导出选项对话框返回模型</summary>
+        private sealed record ExportOptions(string FolderName, bool CopyExif, string ExportPath);
+
         /// <summary>
         /// 帧缩略图内存缓存：key = "filePath|frameKey", value = ImageSource。
         /// 已加载的缩略图驻留内存，切换回同一文件时瞬间显示（无需重新解码 HEIC 或重读 JPEG）。
@@ -370,6 +421,36 @@ namespace LivePhotoBox.ViewModels
         partial void OnSelectedTimelineFrameChanged(TimelineFrame? value)
         {
             OnPropertyChanged(nameof(IsSetCoverEnabled));
+
+            // 更新帧位置文本
+            if (value != null)
+            {
+                if (value.IsStillPhoto)
+                {
+                    // 封面帧：显示 "Key Photo" / "主图"
+                    CurrentFramePositionText = ResourceService.GetString("KeyPhoto_TimelineFrameKeyPhoto");
+                }
+                else
+                {
+                    // 普通视频帧：排除封面帧后计算序号和总数
+                    var videoFrames = TimelineFrames.Where(f => !f.IsStillPhoto).ToList();
+                    int idx = videoFrames.IndexOf(value);
+                    if (idx >= 0)
+                    {
+                        CurrentFramePositionText = ResourceService.Format(
+                            "KeyPhoto_TimelineFramePosition", idx + 1, videoFrames.Count);
+                    }
+                    else
+                    {
+                        CurrentFramePositionText = string.Empty;
+                    }
+                }
+            }
+            else
+            {
+                CurrentFramePositionText = string.Empty;
+            }
+
             if (value == null) return;
 
             // 同步 IsSelected 标记到所有帧：仅当前选中帧为 true
@@ -609,11 +690,1219 @@ namespace LivePhotoBox.ViewModels
 
         [RelayCommand] private void GoBack() { }
         [RelayCommand] private void Restore() { }
-        [RelayCommand] private void Save() { IsModified = false; }
-        [RelayCommand] private void SaveAs() { }
+        /// <summary>
+        /// "设为主图并保存为副本"：将时间轴当前选中的帧设为新的主图，
+        /// 保留原视频段 + EXIF 信息 + 实况照片协议信息，输出到用户指定位置。
+        /// 支持 Google MicroVideo V1、Google Motion Photo V2、OPPO O-Live Photo。
+        /// </summary>
+        [RelayCommand]
+        private async Task Save()
+        {
+            // ── 1. Guards ──────────────────────────────────────────────────
+            var frame = SelectedTimelineFrame;
+            if (frame == null || frame.IsStillPhoto)
+            {
+                LogService.FileOp("KeyPhoto Save: no valid frame selected", LogLevel.Warning);
+                return;
+            }
+
+            var photoPath = SelectedFilePath;
+            if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath))
+            {
+                LogService.FileOp("KeyPhoto Save: no file selected or file not found", LogLevel.Warning);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
+            {
+                LogService.FileOp("KeyPhoto Save: frame FullFramePath not available", LogLevel.Warning);
+                return;
+            }
+
+            var item = FileItems.FirstOrDefault(f =>
+                string.Equals(f.FilePath, photoPath, StringComparison.OrdinalIgnoreCase));
+            if (item == null)
+            {
+                LogService.FileOp("KeyPhoto Save: file item not found in list", LogLevel.Warning);
+                return;
+            }
+
+            // Apple 双文件实况照片（HEIC + MOV）→ 单独分支
+            if (item.LivePhotoType == LivePhotoType.DualFile && item.HasConfirmedProtocol)
+            {
+                await SaveAppleAsync(frame, item, photoPath);
+                return;
+            }
+
+            // 仅支持 SingleFileJpeg（Google V1/V2、OPPO）
+            if (item.LivePhotoType != LivePhotoType.SingleFileJpeg)
+            {
+                LogService.FileOp(
+                    $"KeyPhoto Save: unsupported type {item.LivePhotoType} (only SingleFileJpeg supported)",
+                    LogLevel.Warning);
+                return;
+            }
+
+            if (item.AppendedVideoLength <= 0)
+            {
+                LogService.FileOp("KeyPhoto Save: AppendedVideoLength is not available", LogLevel.Warning);
+                return;
+            }
+
+            // ── 2. 先弹出保存对话框，让用户选位置 ────────────────────────
+            var photoBaseName = Path.GetFileNameWithoutExtension(photoPath);
+            var suggestedName = $"{photoBaseName}_封面帧{frame.FrameIndex + 1}";
+
+            var savedFile = await FilePickerService.PickSaveFileForExportAsync(".jpg", suggestedName);
+            if (savedFile == null)
+            {
+                LogService.FileOp("KeyPhoto Save: cancelled by user", LogLevel.Info);
+                return; // 用户取消
+            }
+            string targetPath = savedFile.Path;
+
+            // ── 3. 显示进度（复用标题栏进度条） ─────────────────────────
+            // 清空上一次的完成状态和"正在导出帧…"前缀，改为纯"正在保存…"
+            IsShowingSaveComplete = false;
+            ProgressPrefixText = string.Empty;
+            ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveInProgress");
+            IsExporting = true;
+
+            string? tempWorkDir = null;
+            string? tempVideoPath = null;
+
+            try
+            {
+                // ── 4. 检测协议（从 XMP 文本判断） ──────────────────────
+                string metadataText = LivePhotoSplitService.ReadMetadataTextSync(photoPath);
+
+                LivePhotoProtocol protocol;
+                if (metadataText.Contains("OpCamera:", StringComparison.Ordinal))
+                    protocol = LivePhotoProtocol.FromIndex(2); // OPPO O-Live Photo
+                else if (metadataText.Contains("GCamera:MicroVideoOffset", StringComparison.Ordinal))
+                    protocol = LivePhotoProtocol.FromIndex(0); // Google MicroVideo V1
+                else
+                    protocol = LivePhotoProtocol.FromIndex(1); // Google Motion Photo V2（兜底）
+
+                LogService.FileOp(
+                    $"KeyPhoto Save: protocol={protocol.Key}, frame=#{frame.FrameIndex} @ {frame.Timestamp}",
+                    LogLevel.Info);
+
+                // ── 5. 创建工作目录 ─────────────────────────────────────
+                tempWorkDir = Path.Combine(Path.GetTempPath(), $"lpb_save_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(tempWorkDir);
+
+                // ── 6. 复制帧 JPEG 到工作目录，注入原图 EXIF ──────────
+                string workImagePath = Path.Combine(tempWorkDir, $"frame_{Guid.NewGuid():N}.jpg");
+                File.Copy(frame.FullFramePath, workImagePath, overwrite: true);
+
+                // 从原图复制全部可用 EXIF 标签（-all:all），但显式排除 XMP 组
+                // （因为后续 WriteNativeAsync 会写入全新的协议 XMP，旧 XMP 会冲突）
+                await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                    "-TagsFromFile", photoPath,
+                    "-all:all",
+                    "--xmp:all",
+                    "-Orientation=",
+                    "-ExifImageWidth=",
+                    "-ExifImageHeight=",
+                    "-ThumbnailImage=",
+                    "-overwrite_original",
+                    "-quiet",
+                    workImagePath);
+
+                LogService.FileOp("KeyPhoto Save: EXIF copied to frame JPEG", LogLevel.Info);
+
+                // ── 7. 协议预处理（OPPO 注入 oplus_ EXIF 标记） ────────
+                string processedImagePath = await protocol.PrepareImageAsync(
+                    workImagePath, tempWorkDir, CancellationToken.None);
+
+                // ── 8. 提取视频段到临时文件 ─────────────────────────────
+                var fileSize = new FileInfo(photoPath).Length;
+                long videoOffset = fileSize - item.AppendedVideoLength;
+
+                tempVideoPath = Path.Combine(tempWorkDir, "video.mp4");
+                using (var src = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var dst = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    src.Position = videoOffset;
+                    await src.CopyToAsync(dst);
+                }
+
+                long actualVideoSize = new FileInfo(tempVideoPath).Length;
+                LogService.FileOp($"KeyPhoto Save: video extracted ({actualVideoSize} bytes)", LogLevel.Info);
+
+                // ── 9. 构建协议 XMP（含选中帧时间戳）并合成到临时文件 ──
+                long presentationTimestampUs = (long)(frame.Timestamp.TotalSeconds * 1_000_000);
+                byte[] xmpBytes = protocol.BuildXmpMetadata(actualVideoSize, presentationTimestampUs);
+
+                // 日志：输出生成的 XMP 文本（前 600 字符），便于排查时间戳是否写入
+                string xmpText = System.Text.Encoding.UTF8.GetString(xmpBytes);
+                LogService.FileOp(
+                    $"KeyPhoto Save: XMP generated ({xmpText.Length} chars), " +
+                    $"presentationTimestampUs={presentationTimestampUs}μs (≈{frame.Timestamp.TotalSeconds:F4}s). " +
+                    $"XMP preview: [{xmpText[..Math.Min(xmpText.Length, 600)]}]",
+                    LogLevel.Info);
+
+                // 先写到临时文件，再用 WinRT API 复制到用户选择的路径
+                // （直接 FileMode.Create 写入 FileSavePicker 返回的路径可能会因系统句柄导致 0 字节）
+                string tempOutputPath = Path.Combine(tempWorkDir, "output.jpg");
+                await LivePhotoMergeService.WriteNativeAsync(
+                    processedImagePath, tempVideoPath, tempOutputPath, xmpBytes, CancellationToken.None);
+
+                var tempFile = await StorageFile.GetFileFromPathAsync(tempOutputPath);
+                await tempFile.CopyAndReplaceAsync(savedFile);
+
+                LogService.FileOp($"KeyPhoto Save: combined file written to '{targetPath}'", LogLevel.Info);
+
+                // ── 10. 验证：用 exiftool 回读刚保存文件的 PresentationTimestamp ──
+                string? verifyExifPath = ExternalToolLocator.FindExifTool();
+                if (!string.IsNullOrEmpty(verifyExifPath))
+                {
+                    try
+                    {
+                        long? readBackTimestamp = await ReadTimestampFromFileAsync(targetPath);
+                        LogService.FileOp(
+                            $"KeyPhoto Save: verify timestamp after write: " +
+                            $"expect={presentationTimestampUs}, readback={(readBackTimestamp.HasValue ? readBackTimestamp.Value.ToString() : "N/A")}",
+                            readBackTimestamp == presentationTimestampUs ? LogLevel.Info : LogLevel.Warning);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.FileOp(
+                            $"KeyPhoto Save: timestamp verify failed: {ex.Message}",
+                            LogLevel.Warning);
+                    }
+                }
+
+                IsModified = false;
+
+                LogService.FileOp(
+                    $"KeyPhoto Save SUCCESS: {Path.GetFileName(photoPath)} frame#{frame.FrameIndex} -> '{targetPath}'",
+                    LogLevel.Info);
+
+                // ── 11. 完成消息：显示对号 + "保存完成"，停留 5 秒后自动消失 ──
+                IsShowingSaveComplete = true;
+                ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveComplete");
+                _ = HoldSaveCompleteMessageAsync();
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"KeyPhoto Save FAILED: {ex.GetType().Name}: {ex.Message}",
+                    LogLevel.Error, ex);
+
+                // 清理可能不完整的输出文件
+                try { if (File.Exists(targetPath)) File.Delete(targetPath); } catch { }
+
+                // 失败时立即隐藏进度指示
+                IsShowingSaveComplete = false;
+                IsExporting = false;
+                ExportProgressText = string.Empty;
+                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+            }
+            finally
+            {
+                // 清理临时文件和工作目录
+                if (!string.IsNullOrEmpty(tempWorkDir) && Directory.Exists(tempWorkDir))
+                    try { Directory.Delete(tempWorkDir, recursive: true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// 用 exiftool 回读已保存文件的 PresentationTimestamp，验证写入正确。
+        /// 返回微秒值，读取失败或标签不存在时返回 null。
+        /// </summary>
+        private static async Task<long?> ReadTimestampFromFileAsync(string filePath)
+        {
+            try
+            {
+                string? exifToolPath = ExternalToolLocator.FindExifTool();
+                if (string.IsNullOrEmpty(exifToolPath)) return null;
+
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    Arguments = $"-MotionPhotoPresentationTimestampUs -MicroVideoPresentationTimestampUs -s -s -S \"{filePath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+
+                using var proc = System.Diagnostics.Process.Start(psi);
+                if (proc == null) return null;
+
+                string output = await proc.StandardOutput.ReadToEndAsync();
+                proc.WaitForExit(5000);
+
+                // exiftool -s -s -S 输出格式：每行 "TagName: Value"
+                foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var trimmed = line.Trim();
+                    if (trimmed.StartsWith("MotionPhotoPresentationTimestampUs:", StringComparison.OrdinalIgnoreCase)
+                        || trimmed.StartsWith("MicroVideoPresentationTimestampUs:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var colonIdx = trimmed.IndexOf(':');
+                        if (colonIdx >= 0 && long.TryParse(trimmed[(colonIdx + 1)..].Trim(), out long val))
+                            return val;
+                    }
+                }
+
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 保存完成后显示"保存完成"消息，5 秒后自动清除进度指示。
+        /// </summary>
+        private async Task HoldSaveCompleteMessageAsync()
+        {
+            _completionCts?.Cancel();
+            _completionCts?.Dispose();
+            _completionCts = new CancellationTokenSource();
+            var ct = _completionCts.Token;
+
+            try
+            {
+                await Task.Delay(4000, ct);
+
+                var dispatcher = App.MainWindow?.DispatcherQueue;
+                dispatcher?.TryEnqueue(() =>
+                {
+                    IsShowingSaveComplete = false;
+                    IsExporting = false;
+                    ExportProgressText = string.Empty;
+                    ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+                });
+            }
+            catch (TaskCanceledException) { /* 新的保存开始，已取消旧计时器 */ }
+        }
+
+        /// <summary>
+        /// Apple 双文件实况照片（HEIC + MOV）的"设为主图并保存为副本"。
+        /// 先弹出保存对话框让用户选 HEIC 位置，元数据策略：
+        /// ① exiftool 把原 HEIC 的全部标签（除 XMP）写到帧 JPEG 上
+        /// ② 把 MotionPhotoPresentationTimestampUs 写进帧 JPEG 的 XMP（通过 temp .xmp 文件）
+        /// ③ heif-enc（libheif, Tools/ 目录下）把 JPEG 转为标准 HEIC，保留 EXIF
+        /// ④ exiftool 把帧 JPEG 的全部标签回写到 HEIC（安全兜底）
+        /// ⑤ MOV 静默复制到同目录
+        /// </summary>
+        private async Task SaveAppleAsync(TimelineFrame frame, KeyPhotoFileItem item, string photoPath)
+        {
+            string? tempWorkDir = null;
+            try
+            {
+                // ── 1. 守卫检查 ──────────────────────────────────────────
+                string? pairedVideoPath = item.PairedVideoPath;
+                if (string.IsNullOrEmpty(pairedVideoPath) || !File.Exists(pairedVideoPath))
+                {
+                    LogService.FileOp("KeyPhoto Save[Apple]: paired MOV not found", LogLevel.Warning);
+                    return;
+                }
+
+                if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
+                {
+                    LogService.FileOp("KeyPhoto Save[Apple]: frame FullFramePath not available", LogLevel.Warning);
+                    return;
+                }
+
+                string? heifEncPath = Path.Combine(AppContext.BaseDirectory, "Tools", "heif-enc.exe");
+                if (!File.Exists(heifEncPath))
+                {
+                    LogService.FileOp("KeyPhoto Save[Apple]: heif-enc.exe not found in Tools/", LogLevel.Warning);
+                    return;
+                }
+
+                // ── 2. 弹出保存对话框（与 Android 一样，先选位置再处理） ──
+                string sourceBaseName = Path.GetFileNameWithoutExtension(photoPath);
+                string filenameTemplate = ResourceService.GetString("KeyPhotoPage_SaveAppleFilename");
+                string suggestedName = string.Format(filenameTemplate, sourceBaseName, frame.FrameIndex + 1);
+
+                var savedFile = await FilePickerService.PickSaveFileForExportAsync(".heic", suggestedName);
+                if (savedFile == null)
+                {
+                    LogService.FileOp("KeyPhoto Save[Apple]: cancelled by user", LogLevel.Info);
+                    return;
+                }
+                string targetHeicPath = savedFile.Path;
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[Apple]: start — frame=#{frame.FrameIndex + 1} @ {frame.Timestamp.TotalSeconds:F3}s, " +
+                    $"target='{targetHeicPath}'",
+                    LogLevel.Info);
+
+                // ── 3. 显示进度 ──────────────────────────────────────────
+                IsShowingSaveComplete = false;
+                ProgressPrefixText = string.Empty;
+                ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveInProgress");
+                IsExporting = true;
+
+                // ── 4. 创建工作目录 ──────────────────────────────────────
+                tempWorkDir = Path.Combine(Path.GetTempPath(), $"lpb_apple_save_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(tempWorkDir);
+
+                // ── 5. 把原 HEIC 全部标签写到帧 JPEG（exiftool on JPEG = 成熟可靠） ──
+                string enrichedJpegPath = Path.Combine(tempWorkDir, $"frame_{Guid.NewGuid():N}.jpg");
+                File.Copy(frame.FullFramePath, enrichedJpegPath, overwrite: true);
+
+                // --xmp:all：排除原 HEIC 的 XMP（下面自己写含时间戳的 XMP）
+                await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                    "-TagsFromFile", photoPath,
+                    "-all:all",
+                    "--xmp:all",
+                    "-Orientation=",
+                    "-ExifImageWidth=",
+                    "-ExifImageHeight=",
+                    "-ThumbnailImage=",
+                    "-overwrite_original",
+                    "-quiet",
+                    enrichedJpegPath);
+
+                LogService.FileOp("KeyPhoto Save[Apple]: EXIF + MakerNote copied to frame JPEG", LogLevel.Info);
+
+                // ── 6. 写 MotionPhotoPresentationTimestampUs 到帧 JPEG 的 XMP ──
+                long presentationTimestampUs = (long)(frame.Timestamp.TotalSeconds * 1_000_000);
+                try
+                {
+                    // exiftool 不能直接写 GCamera 命名空间的 tag，改用原始 XMP 文件方式
+                    string xmpFilePath = Path.Combine(tempWorkDir, "timestamp.xmp");
+                    string xmpContent =
+                        "<?xpacket begin=\"﻿\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" +
+                        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\n" +
+                        "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\n" +
+                        "<rdf:Description rdf:about=\"\"\n" +
+                        "  xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\"\n" +
+                        $"  GCamera:MotionPhotoPresentationTimestampUs=\"{presentationTimestampUs}\"/>\n" +
+                        "</rdf:RDF>\n" +
+                        "</x:xmpmeta>\n" +
+                        "<?xpacket end=\"w\"?>";
+                    await File.WriteAllTextAsync(xmpFilePath, xmpContent, Encoding.UTF8);
+
+                    await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                        $"-xmp<={xmpFilePath}",
+                        "-overwrite_original",
+                        "-quiet",
+                        enrichedJpegPath);
+                    LogService.FileOp(
+                        $"KeyPhoto Save[Apple]: timestamp {presentationTimestampUs}μs written to JPEG XMP",
+                        LogLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp(
+                        $"KeyPhoto Save[Apple]: XMP timestamp write failed (non-fatal): {ex.Message}",
+                        LogLevel.Warning);
+                }
+
+                // ── 7. heif-enc: JPEG → HEIC（libheif + x265，保留 EXIF） ──
+                string tempHeicPath = Path.Combine(tempWorkDir, $"keyframe_{Guid.NewGuid():N}.heic");
+                // -q 90 = 高质量（1-100），-p x265:preset=fast 平衡速度和质量
+                string heifArgs = $"-o \"{tempHeicPath}\" -q 90 \"{enrichedJpegPath}\"";
+
+                LogService.FileOp($"KeyPhoto Save[Apple]: heif-enc args: {heifArgs}", LogLevel.Info);
+
+                var psi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = heifEncPath,
+                    Arguments = heifArgs,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+
+                using (var proc = System.Diagnostics.Process.Start(psi))
+                {
+                    if (proc == null)
+                    {
+                        LogService.FileOp("KeyPhoto Save[Apple]: heif-enc failed to start", LogLevel.Error);
+                        IsExporting = false;
+                        ExportProgressText = string.Empty;
+                        ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+                        return;
+                    }
+
+                    await proc.WaitForExitAsync(new CancellationTokenSource(TimeSpan.FromSeconds(30)).Token);
+
+                    if (proc.ExitCode != 0)
+                    {
+                        string stderr = await proc.StandardError.ReadToEndAsync();
+                        LogService.FileOp(
+                            $"KeyPhoto Save[Apple]: heif-enc exit={proc.ExitCode}, stderr: {stderr.Trim()}",
+                            LogLevel.Error);
+                        IsExporting = false;
+                        ExportProgressText = string.Empty;
+                        ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+                        return;
+                    }
+                }
+
+                long heicSize = new FileInfo(tempHeicPath).Length;
+                LogService.FileOp($"KeyPhoto Save[Apple]: HEIC encoded ({heicSize} bytes)", LogLevel.Info);
+                if (heicSize == 0)
+                {
+                    LogService.FileOp("KeyPhoto Save[Apple]: HEIC is 0 bytes after heif-enc", LogLevel.Error);
+                    IsExporting = false;
+                    ExportProgressText = string.Empty;
+                    ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+                    return;
+                }
+
+                // ── 8. 把 enriched JPEG 标签回写到 HEIC（安全兜底，heif-enc 声称保留 EXIF） ──
+                try
+                {
+                    await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                        "-TagsFromFile", enrichedJpegPath,
+                        "-all:all",
+                        "-Orientation=",
+                        "-overwrite_original",
+                        "-quiet",
+                        tempHeicPath);
+                    LogService.FileOp("KeyPhoto Save[Apple]: tags copied from JPEG -> HEIC", LogLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp(
+                        $"KeyPhoto Save[Apple]: copy tags to HEIC failed (non-fatal): {ex.Message}",
+                        LogLevel.Warning);
+                }
+
+                // ── 9. 用 WinRT API 保存 HEIC ──
+                var tempHeicFile = await StorageFile.GetFileFromPathAsync(tempHeicPath);
+                await tempHeicFile.CopyAndReplaceAsync(savedFile);
+
+                LogService.FileOp($"KeyPhoto Save[Apple]: HEIC saved to '{targetHeicPath}'", LogLevel.Info);
+
+                // ── 10. 静默复制 MOV 到同目录 ──
+                string targetDir = Path.GetDirectoryName(targetHeicPath)!;
+                string movFileName = Path.GetFileNameWithoutExtension(targetHeicPath) + Path.GetExtension(pairedVideoPath);
+                string targetMovPath = PathHelper.GetUniqueFilePath(targetDir, movFileName);
+                File.Copy(pairedVideoPath, targetMovPath, overwrite: true);
+
+                LogService.FileOp($"KeyPhoto Save[Apple]: MOV copied to '{targetMovPath}'", LogLevel.Info);
+
+                // ── 11. 验证 ─────────────────────────────────────────────
+                try
+                {
+                    long? readBack = await ReadTimestampFromFileAsync(targetHeicPath);
+                    LogService.FileOp(
+                        $"KeyPhoto Save[Apple]: verify timestamp expect={presentationTimestampUs}, " +
+                        $"readback={(readBack.HasValue ? readBack.Value.ToString() : "N/A")}",
+                        readBack == presentationTimestampUs ? LogLevel.Info : LogLevel.Warning);
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp($"KeyPhoto Save[Apple]: verify failed (non-fatal): {ex.Message}", LogLevel.Warning);
+                }
+
+                IsModified = false;
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[Apple] SUCCESS: {Path.GetFileName(photoPath)} frame#{frame.FrameIndex + 1} " +
+                    $"-> HEIC({heicSize}B) + MOV({new FileInfo(pairedVideoPath).Length}B)",
+                    LogLevel.Info);
+
+                // ── 12. 完成消息：对号 + "保存完成" → 4s 后消失 ─────────
+                IsShowingSaveComplete = true;
+                ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveComplete");
+                _ = HoldSaveCompleteMessageAsync();
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"KeyPhoto Save[Apple] FAILED: {ex.GetType().Name}: {ex.Message}",
+                    LogLevel.Error, ex);
+
+                IsShowingSaveComplete = false;
+                IsExporting = false;
+                ExportProgressText = string.Empty;
+                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+            }
+            finally
+            {
+                if (!string.IsNullOrEmpty(tempWorkDir) && Directory.Exists(tempWorkDir))
+                    try { Directory.Delete(tempWorkDir, recursive: true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// 另存为：弹出 Windows 原生"另存为"对话框，将当前选中的照片保存到用户选择的位置。
+        /// 如果该文件有配对的视频（PairedVideoPath），自动一同复制到同一目录。
+        /// </summary>
+        [RelayCommand]
+        private async Task SaveAs()
+        {
+            var photoPath = SelectedFilePath;
+            if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath))
+                return;
+
+            // 弹出另存为对话框保存照片
+            var savedPath = await FilePickerService.SaveFileAsAsync(photoPath);
+            if (savedPath == null) return; // 用户取消
+
+            // 直接取 PairedVideoPath，有就一起复制
+            var item = FileItems.FirstOrDefault(f =>
+                string.Equals(f.FilePath, photoPath, StringComparison.OrdinalIgnoreCase));
+            var pairedVideoPath = item?.PairedVideoPath;
+            if (!string.IsNullOrEmpty(pairedVideoPath) && File.Exists(pairedVideoPath))
+            {
+                try
+                {
+                    var destDir = Path.GetDirectoryName(savedPath)!;
+                    var videoFileName = Path.GetFileNameWithoutExtension(savedPath) + Path.GetExtension(pairedVideoPath);
+                    // 使用已有工具方法：同名文件自动加 (2)、(3)，与 Windows 资源管理器行为一致
+                    var destVideoPath = PathHelper.GetUniqueFilePath(destDir, videoFileName);
+                    File.Copy(pairedVideoPath, destVideoPath, overwrite: true);
+                    LogService.FileOp(
+                        $"SaveAs: paired video copied: {pairedVideoPath} -> {destVideoPath}",
+                        LogLevel.Info);
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp(
+                        $"SaveAs: failed to copy paired video: {ex.Message}", LogLevel.Warning);
+                }
+            }
+        }
         [RelayCommand] private void Export() { }
-        [RelayCommand] private void ExportCurrentFrame() { }
-        [RelayCommand] private void ExportAllFrames() { }
+        /// <summary>
+        /// 导出当前帧：先弹出系统"另存为"窗口让用户选择格式和位置，
+        /// 选完后再按需转换（避免转换阻塞弹窗）。
+        /// 视频帧已是 JPEG 直接复制；主图（⭐）若非 JPG 则提供原格式 + JPEG 选项，
+        /// 选 JPEG 时以 quality=92 转换，文件大小合理。
+        /// </summary>
+        [RelayCommand]
+        private async Task ExportCurrentFrame()
+        {
+            var frame = SelectedTimelineFrame;
+            if (frame == null) return;
+
+            // 1. 确定源文件路径和扩展名
+            string sourcePath;
+            string sourceExt;
+
+            if (frame.IsStillPhoto)
+            {
+                var photoPath = SelectedFilePath;
+                if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath)) return;
+                sourcePath = photoPath;
+                sourceExt = Path.GetExtension(photoPath);
+            }
+            else
+            {
+                if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
+                    return;
+                sourcePath = frame.FullFramePath;
+                sourceExt = ".jpg"; // ffmpeg 提取的帧始终是 JPEG
+            }
+
+            // 2. 生成建议文件名
+            var photoBaseName = Path.GetFileNameWithoutExtension(SelectedFilePath ?? "photo");
+            var suggestedName = frame.IsStillPhoto
+                ? photoBaseName
+                : $"{photoBaseName}_帧{frame.FrameIndex + 1}";
+
+            // 3. 弹出另存为窗口（先弹窗，不阻塞，用户可选手选格式）
+            var targetFile = await FilePickerService.PickSaveFileForExportAsync(
+                sourceExt, suggestedName);
+            if (targetFile == null) return; // 用户取消
+
+            // 4. 根据用户选择的格式执行导出
+            bool targetIsJpeg = targetFile.FileType is ".jpg" or ".jpeg";
+            string? tempConvertedPath = null;
+
+            try
+            {
+                if (targetIsJpeg && HeicConverterService.IsHeicFile(sourcePath))
+                {
+                    // 用户选了 JPEG + 源是 HEIC → 转换后再复制（quality=92，文件大小合理）
+                    tempConvertedPath = await HeicConverterService.ConvertToJpegAsync(
+                        sourcePath, Path.GetTempPath(), quality: 92);
+                    var jpegFile = await StorageFile.GetFileFromPathAsync(tempConvertedPath);
+                    await jpegFile.CopyAndReplaceAsync(targetFile);
+                }
+                else
+                {
+                    // 原格式导出 / 源已是 JPEG → 直接复制
+                    var sourceFile = await StorageFile.GetFileFromPathAsync(sourcePath);
+                    await sourceFile.CopyAndReplaceAsync(targetFile);
+                }
+
+                LogService.FileOp(
+                    $"ExportCurrentFrame: {Path.GetFileName(sourcePath)} -> {targetFile.Path}",
+                    LogLevel.Info);
+
+                // 5. JPEG 导出：复制原图 EXIF（相机/日期/GPS等），但排除实况照片私有协议标签
+                if (targetIsJpeg && !string.IsNullOrEmpty(SelectedFilePath)
+                    && File.Exists(SelectedFilePath))
+                {
+                    await CopyExifForExportAsync(SelectedFilePath, targetFile.Path);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"ExportCurrentFrame failed: {ex.Message}", LogLevel.Error, ex);
+            }
+            finally
+            {
+                if (tempConvertedPath != null)
+                {
+                    try { File.Delete(tempConvertedPath); } catch { }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 将原图的 EXIF 信息（相机、日期、GPS 等）复制到导出文件，
+        /// 但排除各家实况照片私有协议标签（GCamera、OpCamera、Container 等），
+        /// 确保导出的是干净的静态图片。
+        /// </summary>
+        private static async Task CopyExifForExportAsync(string sourcePath, string targetPath)
+        {
+            try
+            {
+                // 先复制原图全部标签到导出文件
+                // 排除以下可能造成问题的标签：
+                //   Orientation      — 帧像素已正确，复制后导致查看器二次旋转
+                //   ExifImageWidth/Height — HEIC 原始尺寸，视频帧尺寸不同，复制后可能干扰查看
+                //   ThumbnailImage   — HEIC 内嵌缩略图格式与 JPEG 不兼容
+                await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                    "-TagsFromFile", sourcePath,
+                    "-all:all",
+                    "-Orientation=",
+                    "-ExifImageWidth=",
+                    "-ExifImageHeight=",
+                    "-ThumbnailImage=",
+                    "-overwrite_original",
+                    "-quiet",
+                    targetPath);
+
+                // 删除实况照片私有协议标签
+                await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                    "-xmp-GCamera:all=",
+                    "-xmp-OpCamera:all=",
+                    "-xmp-Container:all=",
+                    "-ContentIdentifier=",
+                    "-overwrite_original",
+                    "-quiet",
+                    targetPath);
+
+                LogService.FileOp(
+                    $"CopyExifForExport: {Path.GetFileName(sourcePath)} -> {Path.GetFileName(targetPath)}",
+                    LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"CopyExifForExport failed: {ex.Message}", LogLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// 导出所有帧：先弹出选项对话框 → 文件夹选择器 → 多线程并行导出所有帧，
+        /// 更新进度 UI，导出完成后显示汇总结果。
+        /// </summary>
+        [RelayCommand]
+        private async Task ExportAllFrames()
+        {
+            // 1. 防重入守卫
+            if (IsExporting)
+            {
+                LogService.FileOp("ExportAllFrames: already exporting", LogLevel.Warning);
+                return;
+            }
+
+            // 2. 守卫条件：无帧或无文件选中
+            if (TimelineFrames.Count == 0)
+            {
+                LogService.FileOp("ExportAllFrames: no frames to export", LogLevel.Warning);
+                return;
+            }
+
+            var photoPath = SelectedFilePath;
+            if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath))
+            {
+                LogService.FileOp("ExportAllFrames: no file selected or file not found", LogLevel.Warning);
+                return;
+            }
+
+            // 3. 默认导出路径 = 当前照片所在目录
+            var photoBaseName = Path.GetFileNameWithoutExtension(photoPath);
+            var defaultDir = Path.GetDirectoryName(photoPath) ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+
+            // 4. 弹出选项对话框（浏览换路径在对话框内部处理，不关闭弹窗）
+            var options = await ShowExportOptionsDialogAsync(photoBaseName, defaultDir);
+            if (options == null)
+            {
+                LogService.FileOp("ExportAllFrames cancelled by user (options dialog)", LogLevel.Info);
+                return;
+            }
+
+            // 5. 创建不冲突的导出子目录
+            var exportDir = GetUniqueFolderPath(options.ExportPath, options.FolderName);
+            Directory.CreateDirectory(exportDir);
+
+            LogService.FileOp(
+                $"ExportAllFrames started: {TimelineFrames.Count} frames -> '{exportDir}'",
+                LogLevel.Info);
+
+            // 6. 初始化导出状态
+            _exportCts?.Cancel();
+            _exportCts?.Dispose();
+            _exportCts = new CancellationTokenSource();
+            var token = _exportCts.Token;
+
+            IsExporting = true;
+            ExportProgressText = $"0/{TimelineFrames.Count}";
+            ExportProgressPercent = 0.0;
+
+            var semaphore = new SemaphoreSlim(8, 8);
+            var tasks = new List<Task>();
+            var counters = new ExportCounters();
+
+            try
+            {
+                // 7. 多线程并行导出
+                foreach (var frame in TimelineFrames)
+                {
+                    token.ThrowIfCancellationRequested();
+
+                    await semaphore.WaitAsync(token);
+
+                    tasks.Add(ExportOneFrameAsync(
+                        frame, photoPath, photoBaseName, exportDir,
+                        options.CopyExif, token, semaphore,
+                        TimelineFrames.Count, counters));
+                }
+
+                await Task.WhenAll(tasks);
+
+                // 8. 先清除进度显示，避免"完成了还在显示进度"的重复感
+                ExportProgressText = string.Empty;
+                ExportProgressPercent = 0.0;
+
+                // 9. 汇总日志
+                LogService.FileOp(
+                    $"ExportAllFrames completed: {counters.Success} succeeded, {counters.Fail} failed -> '{exportDir}'",
+                    counters.Fail > 0 ? LogLevel.Warning : LogLevel.Info);
+
+                // 10. 显示结果对话框
+                if (!token.IsCancellationRequested
+                    && App.MainWindow?.Content?.XamlRoot is XamlRoot resultXamlRoot)
+                {
+                    var summaryText = ResourceService.Format(
+                        "KeyPhotoPage_ExportComplete_Summary",
+                        counters.Success, counters.Fail, TimelineFrames.Count);
+
+                    var openFolder = await DialogService.ShowDualAsync(
+                        resultXamlRoot,
+                        ResourceService.GetString("KeyPhotoPage_ExportComplete_Title"),
+                        summaryText,
+                        primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
+                        closeText: ResourceService.GetString("Msg_GotIt"));
+
+                    // 用户点击"打开输出文件夹"→ 在资源管理器中打开
+                    if (openFolder)
+                    {
+                        FilePickerService.OpenFolderInExplorer(exportDir);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                LogService.FileOp("ExportAllFrames cancelled mid-operation", LogLevel.Warning);
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"ExportAllFrames fatal error: {ex.Message}", LogLevel.Error, ex);
+            }
+            finally
+            {
+                IsExporting = false;
+                ExportProgressText = string.Empty;
+                ExportProgressPercent = 0.0;
+                _exportCts?.Dispose();
+                _exportCts = null;
+                semaphore.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// 导出计数器（线程安全，通过 Interlocked 操作）。
+        /// </summary>
+        private sealed class ExportCounters
+        {
+            public int Completed;
+            public int Success;
+            public int Fail;
+        }
+
+        /// <summary>
+        /// 弹出导出选项设置对话框：包含文件夹名编辑框、导出位置+浏览按钮、EXIF 勾选框。
+        /// </summary>
+        private async Task<ExportOptions?> ShowExportOptionsDialogAsync(
+            string defaultFolderName, string currentFolderPath)
+        {
+            if (App.MainWindow?.Content?.XamlRoot is not XamlRoot xamlRoot)
+                return null;
+
+            // 构建内容面板
+            var panel = new StackPanel { Spacing = 10 };
+
+            // 描述文字：告诉用户会自动创建文件夹
+            panel.Children.Add(new TextBlock
+            {
+                Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_Description"),
+                FontSize = 14,
+                TextWrapping = TextWrapping.Wrap,
+            });
+
+            // 导出位置：header + 路径文本框 + 文件夹图标按钮（Grid 保证文本框填满）
+            panel.Children.Add(new TextBlock
+            {
+                Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_FolderPathLabel"),
+                FontSize = 13,
+            });
+
+            var pathRow = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                },
+            };
+
+            var folderPathBox = new TextBox
+            {
+                Text = currentFolderPath,
+                Header = null, // 不显示重复 header
+            };
+            Grid.SetColumn(folderPathBox, 0);
+            pathRow.Children.Add(folderPathBox);
+
+            var browseButton = new Button
+            {
+                Width = 32,
+                Height = 32,
+                Padding = new Thickness(0),
+                Margin = new Thickness(4, 0, 0, 0),
+                Content = new FontIcon { Glyph = "", FontSize = 14 },
+            };
+            ToolTipService.SetToolTip(browseButton,
+                ResourceService.GetString("KeyPhotoPage_ExportDialog_BrowseTip"));
+            Grid.SetColumn(browseButton, 1);
+            pathRow.Children.Add(browseButton);
+
+            panel.Children.Add(pathRow);
+
+            // 路径错误提示（默认隐藏）
+            var pathErrorText = new TextBlock
+            {
+                Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 220, 78, 78)),
+                FontSize = 12,
+                Visibility = Visibility.Collapsed,
+                Margin = new Thickness(0, 2, 0, 0),
+            };
+            panel.Children.Add(pathErrorText);
+
+            // 文件夹名称编辑框 + 重置按钮（圆圈箭头）
+            panel.Children.Add(new TextBlock
+            {
+                Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_FolderNameLabel"),
+                FontSize = 13,
+            });
+
+            var nameRow = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                },
+            };
+
+            var folderNameBox = new TextBox
+            {
+                Text = defaultFolderName,
+                PlaceholderText = defaultFolderName,
+            };
+            Grid.SetColumn(folderNameBox, 0);
+            nameRow.Children.Add(folderNameBox);
+
+            var resetNameButton = new Button
+            {
+                Width = 32,
+                Height = 32,
+                Padding = new Thickness(0),
+                Margin = new Thickness(4, 0, 0, 0),
+                Content = new FontIcon { Glyph = "", FontSize = 14 },
+            };
+            ToolTipService.SetToolTip(resetNameButton,
+                ResourceService.GetString("KeyPhotoPage_ExportDialog_ResetTip"));
+            Grid.SetColumn(resetNameButton, 1);
+            nameRow.Children.Add(resetNameButton);
+
+            panel.Children.Add(nameRow);
+
+            // EXIF 勾选框（默认勾选）
+            var copyExifCheckBox = new CheckBox
+            {
+                Content = ResourceService.GetString("KeyPhotoPage_ExportDialog_CopyExifLabel"),
+                IsChecked = true,
+            };
+            panel.Children.Add(copyExifCheckBox);
+
+            var dialog = new ContentDialog
+            {
+                Title = ResourceService.GetString("KeyPhotoPage_ExportDialog_Title"),
+                Content = panel,
+                PrimaryButtonText = ResourceService.GetString("KeyPhotoPage_ExportDialog_ExportBtn"),
+                CloseButtonText = ResourceService.GetString("Msg_Cancel"),
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = xamlRoot,
+                RequestedTheme = App.CurrentTheme,
+            };
+
+            // 重置按钮：恢复为默认文件夹名称
+            var capturedDefaultName = defaultFolderName;
+            resetNameButton.Click += (_, _) =>
+            {
+                folderNameBox.Text = capturedDefaultName;
+            };
+
+            // 验证路径是否合法：必须绝对路径、不含非法字符、根驱动器存在
+            bool IsPathValid(string path)
+            {
+                if (string.IsNullOrWhiteSpace(path)) return false;
+                try
+                {
+                    var invalid = Path.GetInvalidPathChars();
+                    if (path.IndexOfAny(invalid) >= 0) return false;
+                    if (!Path.IsPathRooted(path)) return false; // 必须是绝对路径
+                    var full = Path.GetFullPath(path);
+                    // 如果指定了驱动器号，检查驱动器是否存在
+                    if (full.Length >= 2 && full[1] == ':')
+                    {
+                        var drive = char.ToUpperInvariant(full[0]);
+                        if (drive < 'A' || drive > 'Z') return false;
+                        if (!Directory.Exists($@"{drive}:\")) return false; // 驱动器不存在
+                    }
+                    return true;
+                }
+                catch { return false; }
+            }
+
+            // 实时更新路径状态：错误文字 + 导出按钮灰态
+            var errorText = pathErrorText;
+            void UpdatePathState()
+            {
+                currentFolderPath = folderPathBox.Text.Trim();
+                if (IsPathValid(currentFolderPath))
+                {
+                    errorText.Visibility = Visibility.Collapsed;
+                    dialog.IsPrimaryButtonEnabled = true;
+                }
+                else
+                {
+                    errorText.Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_PathInvalidError");
+                    errorText.Visibility = Visibility.Visible;
+                    dialog.IsPrimaryButtonEnabled = false;
+                }
+            }
+
+            // 初始检查 + 输入时实时检查
+            folderPathBox.Loaded += (_, _) => UpdatePathState();
+            folderPathBox.TextChanged += (_, _) => UpdatePathState();
+
+            // 浏览按钮：不关闭弹窗，直接打开文件夹选择器
+            browseButton.Click += async (_, _) =>
+            {
+                try
+                {
+                    var folder = await FilePickerService.PickFolderAsync();
+                    if (folder != null)
+                    {
+                        currentFolderPath = folder.Path;
+                        folderPathBox.Text = currentFolderPath;
+                        UpdatePathState();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp($"Browse folder in dialog failed: {ex.Message}", LogLevel.Warning);
+                }
+            };
+
+            // 导出按钮点击时二次验证（兜底：防止按钮状态未正确更新）
+            dialog.PrimaryButtonClick += (_, args) =>
+            {
+                try
+                {
+                    var testPath = folderPathBox.Text.Trim();
+                    if (!IsPathValid(testPath))
+                    {
+                        errorText.Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_PathInvalidError");
+                        errorText.Visibility = Visibility.Visible;
+                        args.Cancel = true;
+                        return;
+                    }
+                    currentFolderPath = testPath;
+                    errorText.Visibility = Visibility.Collapsed;
+                }
+                catch
+                {
+                    errorText.Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_PathInvalidError");
+                    errorText.Visibility = Visibility.Visible;
+                    args.Cancel = true;
+                }
+            };
+
+            var result = await dialog.ShowAsync();
+
+            if (result == ContentDialogResult.Primary)
+            {
+                string folderName = folderNameBox.Text.Trim();
+                if (string.IsNullOrWhiteSpace(folderName))
+                    folderName = defaultFolderName;
+                bool copyExif = copyExifCheckBox.IsChecked ?? true;
+                return new ExportOptions(folderName, copyExif, currentFolderPath);
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 在信号量约束下导出单帧到目标目录，并更新进度计数器。
+        /// 可被多个任务并行调用，线程安全。
+        /// </summary>
+        private async Task ExportOneFrameAsync(
+            TimelineFrame frame, string photoPath, string photoBaseName,
+            string exportDir, bool copyExif, CancellationToken token,
+            SemaphoreSlim semaphore, int totalFrames,
+            ExportCounters counters)
+        {
+            string? tempConvertedPath = null;
+            try
+            {
+                token.ThrowIfCancellationRequested();
+
+                // 1. 确定源文件路径
+                string sourcePath;
+
+                if (frame.IsStillPhoto)
+                {
+                    sourcePath = photoPath; // 主图帧：原照片文件
+                }
+                else
+                {
+                    // 视频帧：ffmpeg 提取的全分辨率 JPEG
+                    if (string.IsNullOrEmpty(frame.FullFramePath)
+                        || !File.Exists(frame.FullFramePath))
+                    {
+                        Interlocked.Increment(ref counters.Fail);
+                        LogService.FileOp(
+                            $"ExportAllFrames: frame {frame.FrameIndex + 1} SKIP — source not found",
+                            LogLevel.Warning);
+                        return;
+                    }
+                    sourcePath = frame.FullFramePath;
+                }
+
+                // 2. 生成输出文件名
+                var fileName = frame.IsStillPhoto
+                    ? $"{photoBaseName}.jpg"
+                    : $"{photoBaseName}_帧{frame.FrameIndex + 1}.jpg";
+
+                // 3. 原子性预留不冲突的文件路径
+                var targetPath = PathHelper.GetUniqueFilePath(exportDir, fileName);
+
+                // 4. 执行复制/转换
+                try
+                {
+                    if (frame.IsStillPhoto && HeicConverterService.IsHeicFile(sourcePath))
+                    {
+                        // HEIC 主图 → 转换为 JPEG
+                        tempConvertedPath = await HeicConverterService.ConvertToJpegAsync(
+                            sourcePath, Path.GetTempPath(), quality: 92, token);
+                        File.Copy(tempConvertedPath, targetPath, overwrite: true);
+                    }
+                    else
+                    {
+                        // 直接复制：视频帧（已是 JPEG）或非 HEIC 主图
+                        File.Copy(sourcePath, targetPath, overwrite: true);
+                    }
+
+                    // 5. 复制 EXIF（从原照片复制到导出文件）
+                    if (copyExif && File.Exists(photoPath))
+                    {
+                        await CopyExifForExportAsync(photoPath, targetPath);
+                    }
+
+                    Interlocked.Increment(ref counters.Success);
+                    LogService.FileOp(
+                        $"ExportAllFrames: frame {(frame.IsStillPhoto ? "⭐" : $"#{frame.FrameIndex + 1}")} -> {Path.GetFileName(targetPath)}",
+                        LogLevel.Info);
+                }
+                finally
+                {
+                    // 清理 HEIC 转换临时文件
+                    if (tempConvertedPath != null)
+                    {
+                        try { File.Delete(tempConvertedPath); } catch { }
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Interlocked.Increment(ref counters.Fail);
+                LogService.FileOp(
+                    $"ExportAllFrames: frame {(frame.IsStillPhoto ? "⭐" : $"#{frame.FrameIndex + 1}")} FAILED: {ex.Message}",
+                    LogLevel.Error, ex);
+            }
+            finally
+            {
+                int done = Interlocked.Increment(ref counters.Completed);
+
+                // 通过 DispatcherQueue 更新 UI 进度（线程安全）
+                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
+                {
+                    ExportProgressText = $"{done}/{totalFrames}";
+                    ExportProgressPercent = (double)done / totalFrames * 100.0;
+                });
+
+                semaphore.Release();
+            }
+        }
+
+        /// <summary>
+        /// 在指定父目录下生成不冲突的文件夹路径。
+        /// 如果文件夹已存在，自动追加 (2)、(3) 等后缀（与 Windows 资源管理器行为一致）。
+        /// </summary>
+        private static string GetUniqueFolderPath(string parentDir, string baseName)
+        {
+            var candidate = Path.Combine(parentDir, baseName);
+            if (!Directory.Exists(candidate))
+                return candidate;
+
+            for (int i = 2; i < 999; i++)
+            {
+                candidate = Path.Combine(parentDir, $"{baseName} ({i})");
+                if (!Directory.Exists(candidate))
+                    return candidate;
+            }
+
+            return Path.Combine(parentDir, $"{baseName} ({Guid.NewGuid():N})");
+        }
+
         [RelayCommand] private void ConvertProtocol() { }
 
         /// <summary>
@@ -658,6 +1947,7 @@ namespace LivePhotoBox.ViewModels
             _propLoadCts = null;
             _geoCts?.Cancel();
             _timelineCts?.Cancel();
+            _exportCts?.Cancel();
             _previewLoadCts?.Cancel();
             CleanupFrameTempFiles();
             CleanupTempVideo();
@@ -722,6 +2012,8 @@ namespace LivePhotoBox.ViewModels
                 HasTimelineFrames = false;
                 IsTimelineLoading = false;
                 TimelineInfo = string.Empty;
+                FpsDisplayText = string.Empty;
+                CurrentFramePositionText = string.Empty;
                 SelectedTimelineFrame = null;
             }
 
@@ -802,6 +2094,8 @@ namespace LivePhotoBox.ViewModels
             ExifShootingParams = string.Empty;
             ExifPlaceName = string.Empty;
             TimelineInfo = string.Empty;
+            FpsDisplayText = string.Empty;
+            CurrentFramePositionText = string.Empty;
             SelectedFileThumbnail = null;
 
             // 清空大图预览
@@ -1102,6 +2396,8 @@ namespace LivePhotoBox.ViewModels
                             System.Globalization.NumberStyles.Any,
                             System.Globalization.CultureInfo.InvariantCulture, out var f)
                             ? f : 30.0;
+                        _videoFps = fps;
+                        FpsDisplayText = ResourceService.Format("KeyPhoto_TimelineFps", fps.ToString("F2"));
 
                         // 单文件实况照片：使用提取出的临时视频路径
                         // 双文件实况照片：使用配对视频路径
@@ -1432,10 +2728,8 @@ namespace LivePhotoBox.ViewModels
                                 $"thumbnail={(starThumbnail != null ? "ok" : "null")}",
                                 LogLevel.Info);
 
-                            // 3. TimelineInfo 使用真实帧数（不是 Ceil(dur×fps) 估算值）
-                            string durDisplay = $"{durationSeconds:F2}s";
-                            TimelineInfo = ResourceService.Format(
-                                "KeyPhoto_TimelineInfo", durDisplay, actualFrameCount);
+                            // 3. TimelineInfo 只存时长（帧计数移到中间显示）
+                            TimelineInfo = $"{durationSeconds:F2}s";
 
                             // 4. 立即选中封面帧并触发滚动 —— 不等缩略图加载！
                             //    帧已全部添加到 TimelineFrames，布局已就绪。
@@ -2115,6 +3409,60 @@ namespace LivePhotoBox.ViewModels
                     $"DualFile={dualCount}, SingleFileJpeg={singleJpegCount}, " +
                     $"SingleFileHeic={singleHeicCount}, Confirmed={confirmedCount}, " +
                     $"Regular={files.Count - dualCount - singleJpegCount - singleHeicCount}");
+
+                // ── SingleFileHeic 补 CID 匹配：关联同目录的外部 MOV ──
+                // Pass 2 把 HEIC 分类为 SingleFileHeic 后跳过了 Pass 4，
+                // 导致同目录 MOV 永远没机会配对。此处补一次 CID 匹配，
+                // 把配对视频路径写入 PairedVideoPath，供另存为等功能使用。
+                if (singleHeicCount > 0)
+                {
+                    var unclassifiedMovs = discoveryResult.Items
+                        .Where(d => d.LivePhotoType == LivePhotoType.None
+                                    && d.FilePath.EndsWith(".mov", StringComparison.OrdinalIgnoreCase))
+                        .Select(d => d.FilePath)
+                        .ToList();
+
+                    if (unclassifiedMovs.Count > 0)
+                    {
+                        var heicPaths = files
+                            .Where(f => f.LivePhotoType == LivePhotoType.SingleFileHeic)
+                            .Select(f => f.FilePath)
+                            .ToList();
+
+                        string? exifToolPath = ExternalToolLocator.FindExifTool()
+                            ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
+
+                        if (File.Exists(exifToolPath))
+                        {
+                            try
+                            {
+                                var matchResult = await Task.Run(
+                                    () => LivePhotoMetadataMatcher.MatchAsync(
+                                        heicPaths, unclassifiedMovs, exifToolPath, token,
+                                        enableCombinedMatching: false, runContentIdentifier: true),
+                                    token);
+
+                                foreach (var pair in matchResult.Pairs)
+                                {
+                                    var item = files.FirstOrDefault(f =>
+                                        string.Equals(f.FilePath, pair.ImagePath, StringComparison.OrdinalIgnoreCase));
+                                    if (item != null)
+                                    {
+                                        item.PairedVideoPath = pair.VideoPath;
+                                    }
+                                }
+
+                                if (matchResult.Pairs.Count > 0)
+                                    LogService.FileOp($"KeyPhoto CID补配: {matchResult.Pairs.Count} 对 HEIC↔MOV");
+                            }
+                            catch (OperationCanceledException) { throw; }
+                            catch (Exception ex)
+                            {
+                                LogService.FileOp($"KeyPhoto CID补配失败: {ex.Message}", LogLevel.Warning);
+                            }
+                        }
+                    }
+                }
 
                 _allFileItems = files;
                 LivePhotoCount = confirmedCount;

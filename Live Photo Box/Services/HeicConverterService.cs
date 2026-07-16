@@ -42,7 +42,7 @@ namespace LivePhotoBox.Services
                 Path.GetDirectoryName(heicPath) ?? string.Empty,
                 Path.GetFileNameWithoutExtension(heicPath) + ".jpg");
 
-            return ConvertInternalAsync(heicPath, jpegPath, token);
+            return ConvertInternalAsync(heicPath, jpegPath, quality: 100, token);
         }
 
         public static Task<string> ConvertToJpegAsync(string heicPath, string outputDirectory, CancellationToken token = default)
@@ -52,7 +52,21 @@ namespace LivePhotoBox.Services
             string baseName = Path.GetFileNameWithoutExtension(heicPath);
             string tempPath = Path.Combine(outputDirectory, baseName + "_heic.jpg");
 
-            return ConvertInternalAsync(heicPath, tempPath, token);
+            return ConvertInternalAsync(heicPath, tempPath, quality: 100, token);
+        }
+
+        /// <summary>
+        /// 转换 HEIC 为 JPEG，可指定质量（1-100）。
+        /// 用于导出等不需要 100% 质量的场景，避免文件过大。
+        /// </summary>
+        public static Task<string> ConvertToJpegAsync(string heicPath, string outputDirectory, int quality, CancellationToken token = default)
+        {
+            if (!IsHeicFile(heicPath)) return Task.FromResult(heicPath);
+
+            string baseName = Path.GetFileNameWithoutExtension(heicPath);
+            string tempPath = Path.Combine(outputDirectory, baseName + "_heic.jpg");
+
+            return ConvertInternalAsync(heicPath, tempPath, quality, token);
         }
 
         // ── 调度 ──────────────────────────────────────────
@@ -63,12 +77,12 @@ namespace LivePhotoBox.Services
         // outputPath: 目标 JPEG 文件路径
         // token: 取消令牌
         // è¿å: 转换后的 JPEG 文件路径
-        private static async Task<string> ConvertInternalAsync(string heicPath, string outputPath, CancellationToken token)
+        private static async Task<string> ConvertInternalAsync(string heicPath, string outputPath, int quality, CancellationToken token)
         {
             // 一次读取解码器索引，避免多次调 AppSettingsService（IO 开销）
             int decoderIndex = DecoderIndex;
             var decoderName = decoderIndex == 1 ? "BitmapDecoder" : "Magick.NET";
-            LogService.Merge($"Converting HEIC to JPEG ({decoderName}): {heicPath}");
+            LogService.Merge($"Converting HEIC to JPEG ({decoderName}, q={quality}): {heicPath}");
 
             try
             {
@@ -76,10 +90,10 @@ namespace LivePhotoBox.Services
 
                 if (decoderIndex == 1)
                     // BitmapDecoder：WinRT I/O，天然异步
-                    await ConvertWithBitmapDecoderAsync(heicPath, outputPath).ConfigureAwait(false);
+                    await ConvertWithBitmapDecoderAsync(heicPath, outputPath, quality).ConfigureAwait(false);
                 else
                     // Magick.NET：CPU 密集型，放线程池
-                    await Task.Run(() => ConvertWithMagickNET(heicPath, outputPath), token).ConfigureAwait(false);
+                    await Task.Run(() => ConvertWithMagickNET(heicPath, outputPath, quality), token).ConfigureAwait(false);
 
                 await CopyTagsSafeAsync(heicPath, outputPath, token).ConfigureAwait(false);
 
@@ -104,7 +118,7 @@ namespace LivePhotoBox.Services
         // 使用 ImageMagick/libheif 解码 HEIC。
         // 优点：完全自包含，无需 Windows 商店扩展；瓦片网格自动拼接；
         // Display P3→sRGB 自动转换；EXIF 方向自动应用。
-        private static void ConvertWithMagickNET(string heicPath, string outputPath)
+        private static void ConvertWithMagickNET(string heicPath, string outputPath, int quality)
         {
             using var image = new MagickImage(heicPath);
 
@@ -115,7 +129,7 @@ namespace LivePhotoBox.Services
             image.ColorSpace = ColorSpace.sRGB;
 
             image.Format = MagickFormat.Jpeg;
-            image.Quality = 100;
+            image.Quality = (uint)quality;
 
             image.Write(outputPath);
         }
@@ -125,7 +139,7 @@ namespace LivePhotoBox.Services
         // 使用 Windows 内置 BitmapDecoder 解码 HEIC。
         // 优点：系统原生解码，色彩还原最准确，HDR 色调映射由系统完成。
         // 缺点：依赖 Windows HEIC 扩展（Win10 需手动安装，Win11 内置）。
-        private static async Task ConvertWithBitmapDecoderAsync(string heicPath, string outputPath)
+        private static async Task ConvertWithBitmapDecoderAsync(string heicPath, string outputPath, int quality)
         {
             StorageFile sourceFile = await StorageFile.GetFileFromPathAsync(heicPath);
 
@@ -143,7 +157,7 @@ namespace LivePhotoBox.Services
                 using var randomAccessStream = fileStream.AsRandomAccessStream();
 
                 var propertySet = new BitmapPropertySet();
-                propertySet.Add("ImageQuality", new BitmapTypedValue(1.0f, PropertyType.Single));
+                propertySet.Add("ImageQuality", new BitmapTypedValue(quality / 100f, PropertyType.Single));
 
                 var encoder = await BitmapEncoder.CreateAsync(
                     BitmapEncoder.JpegEncoderId, randomAccessStream, propertySet);

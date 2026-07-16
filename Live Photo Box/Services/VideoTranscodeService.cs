@@ -77,7 +77,7 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                string? ffmpegPath = FindFFmpeg();
+                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
                 if (string.IsNullOrEmpty(ffmpegPath))
                 {
                     return false;
@@ -148,7 +148,7 @@ namespace LivePhotoBox.Services
                 return result;
             }
 
-            string? ffmpegPath = FindFFmpeg();
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath))
             {
                 result.Success = false;
@@ -409,7 +409,7 @@ namespace LivePhotoBox.Services
                 return result;
             }
 
-            string? ffmpegPath = FindFFmpeg();
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath))
             {
                 result.Success = false;
@@ -635,7 +635,7 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                string? ffmpegPath = FindFFmpeg();
+                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
                 if (string.IsNullOrEmpty(ffmpegPath)) return null;
 
                 string[] candidates = codec == "h264"
@@ -1024,90 +1024,5 @@ namespace LivePhotoBox.Services
             catch { return string.Empty; }
         }
 
-        // 在多个候选路径和系统 PATH 中查找 FFmpeg 可执行文件。
-        // 搜索顺序：
-        // 1. AppContext.BaseDirectory/Tools/ffmpeg.exe
-        // 2. AppContext.BaseDirectory/ffmpeg.exe
-        // 3. 上一级目录的 Tools/
-        // 4. PATH 环境变量中的 "ffmpeg" / "ffmpeg.exe"
-        // è¿å: FFmpeg 的完整路径，未找到则返回 null。
-        public static string? FindFFmpeg()
-        {
-            string[] candidates =
-            {
-                Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg.exe"),
-                Path.Combine(AppContext.BaseDirectory, "Tools", "ffmpeg"),
-                Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"),
-                Path.Combine(AppContext.BaseDirectory, "ffmpeg"),
-                Path.Combine(AppContext.BaseDirectory, "..", "Tools", "ffmpeg.exe"),
-                "ffmpeg"
-            };
-
-            foreach (var candidate in candidates)
-            {
-                try
-                {
-                    if (File.Exists(candidate)) return candidate;
-
-                    // 修复：局部 Try-Catch 处理 PATH 变量带来的隐患
-                    if (candidate == "ffmpeg")
-                    {
-                        var pathEnv = Environment.GetEnvironmentVariable("PATH");
-                        if (!string.IsNullOrEmpty(pathEnv))
-                        {
-                            foreach (var part in pathEnv.Split(Path.PathSeparator))
-                            {
-                                try
-                                {
-                                    string cleanPart = part.Trim(' ', '"'); // 净化非法字符和引号
-                                    if (string.IsNullOrEmpty(cleanPart)) continue;
-
-                                    string fullPath = Path.Combine(cleanPart, candidate + ".exe");
-                                    if (File.Exists(fullPath)) return fullPath;
-                                }
-                                catch { /* 单个 PATH 解析失败不会中断整体寻找 */ }
-                            }
-                        }
-                    }
-                }
-                catch { }
-            }
-
-            return null;
-        }
-
-        // 判断 FFmpeg 是否可用。
-        // è¿å: true 表示可在系统中找到 FFmpeg。
-        public static bool IsFFmpegAvailable()
-        {
-            return !string.IsNullOrEmpty(FindFFmpeg());
-        }
-
-        // 异步获取 FFmpeg 版本号（输出第一行）。
-        // è¿å: 版本字符串，如 "ffmpeg version n7.1"，失败返回 null。
-        public static async Task<string?> GetFFmpegVersionAsync()
-        {
-            string? ffmpegPath = FindFFmpeg();
-            if (string.IsNullOrEmpty(ffmpegPath)) return null;
-
-            try
-            {
-                using var process = new Process();
-                process.StartInfo.FileName = ffmpegPath;
-                process.StartInfo.Arguments = "-version";
-                process.StartInfo.UseShellExecute = false;
-                process.StartInfo.CreateNoWindow = true;
-                process.StartInfo.RedirectStandardOutput = true;
-                process.StartInfo.RedirectStandardError = true;
-
-                process.Start();
-                string output = await process.StandardOutput.ReadToEndAsync();
-                await process.WaitForExitAsync();
-
-                var lines = output.Split('\n');
-                return lines.Length > 0 ? lines[0] : null;
-            }
-            catch { return null; }
-        }
     }
 }

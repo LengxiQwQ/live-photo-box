@@ -1,6 +1,6 @@
 <div align="center">
 <h1>
-  <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" alt="icon" width="130" align="left" hspace="16" />
+  <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
   Live Photo Box（实况照片工具箱）
 </h1>
 <p><em>A toolbox for managing, repairing, and converting Apple Live Photos on Windows &amp; Android</em></p>
@@ -18,9 +18,6 @@
 
 <p align="center">
   📖 README Language: &nbsp;<strong>English  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文</a></strong>
-</p>
-<p align="center">
-  📋 CHANGELOG: &nbsp;<strong><a href="changelogs/CHANGELOG.md">English</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a></strong>
 </p>
 
 </div>
@@ -195,6 +192,12 @@ live-photo-box/
 ```
 
 > 📖 See [`docs/LivePhotoBox-ProjectOverview.md`](docs/LivePhotoBox-ProjectOverview.md) for the complete directory reference.
+
+---
+
+## 📋 Changelog
+
+📋 CHANGELOG: &nbsp;<strong><a href="changelogs/CHANGELOG.md">English</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a></strong>
 
 ---
 

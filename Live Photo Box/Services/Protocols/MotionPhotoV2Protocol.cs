@@ -42,7 +42,7 @@ namespace LivePhotoBox.Services.Protocols
             " xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\"" +
             " GCamera:MotionPhoto=\"1\"" +
             " GCamera:MotionPhotoVersion=\"1\"" +
-            " GCamera:MotionPhotoPresentationTimestampUs=\"0\">" +
+            " GCamera:MotionPhotoPresentationTimestampUs=\"{1}\">" +
             "<Container:Directory>" +
             "<rdf:Seq>" +
             "<rdf:li rdf:parseType=\"Resource\">" +
@@ -61,6 +61,15 @@ namespace LivePhotoBox.Services.Protocols
         // videoSize: Size of the appended MP4 video in bytes.
         // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.
         public override byte[] BuildXmpMetadata(long videoSize)
-            => WrapXmp(string.Format(RdfTemplate, videoSize), Key);
+            => BuildXmpMetadata(videoSize, 0);
+
+        // Build XMP metadata with presentation timestamp (microseconds).
+        // This timestamp tells the viewer (Google Photos, Windows 11, etc.) where in the
+        // video the key photo was taken, so playback starts from the correct position.
+        // videoSize: Size of the appended MP4 video in bytes.
+        // presentationTimestampUs: Timestamp in microseconds of the selected frame.
+        // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.
+        public override byte[] BuildXmpMetadata(long videoSize, long presentationTimestampUs)
+            => WrapXmp(string.Format(RdfTemplate, videoSize, presentationTimestampUs), Key);
     }
 }
