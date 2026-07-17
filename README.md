@@ -49,26 +49,23 @@ iPhone Live Photos are essentially a still image + a short video clip. The probl
 
 **Live Photo Box** solves all these problems — letting you view, manage, and repair Live Photos on Windows just like on an iPhone.
 
-Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent Design guidelines, with Mica / Acrylic materials and dark/light theme support.
+Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent Design guidelines, with Mica material and dark/light theme support.
 
 ---
 
 ## 📸 Screenshots
 
-<table align="center">
-<tr>
-  <td align="center"><b>🏠 Home & Tutorial</b><br><img src="screenshots/home.png" alt="Home" width="100%" /></td>
-  <td align="center"><b>📸 Split Live Photo</b><br><img src="screenshots/split.png" alt="Split" width="100%" /></td>
-</tr>
-<tr>
-  <td align="center"><b>🔗 Merge Live Photo</b><br><img src="screenshots/merge.png" alt="Merge" width="100%" /></td>
-  <td align="center"><b>🛠️ Repair Live Photo</b><br><img src="screenshots/repair.png" alt="Repair" width="100%" /></td>
-</tr>
-<tr>
-  <td align="center"><b>⚙️ Settings</b><br><img src="screenshots/settings.png" alt="Settings" width="100%" /></td>
-  <td align="center"><b>✨ Acrylic Semi-Transparent Effect</b><br><img src="screenshots/acrylic_thin.png" alt="Acrylic effect" width="100%" /></td>
-</tr>
-</table>
+<p align="center"><b>🏠 Home & Tutorial</b><br><img src="screenshots/home.png" alt="Home" width="80%" /></p>
+
+<p align="center"><b>🖼️ Live Photo Edit</b><br><img src="screenshots/Edit.png" alt="Edit" width="80%" /></p>
+
+<p align="center"><b>📸 Split Live Photo</b><br><img src="screenshots/split.png" alt="Split" width="80%" /></p>
+
+<p align="center"><b>🔗 Merge Live Photo</b><br><img src="screenshots/merge.png" alt="Merge" width="80%" /></p>
+
+<p align="center"><b>🛠️ Repair Live Photo</b><br><img src="screenshots/repair.png" alt="Repair" width="80%" /></p>
+
+<p align="center"><b>⚙️ Settings</b><br><img src="screenshots/settings.png" alt="Settings" width="80%" /></p>
 
 ---
 
@@ -100,13 +97,13 @@ Deeply repair the visual defects that occur when iPhone Live Photos are exported
 - **ContentIdentifier restoration**: auto-repairs photo-video `UUID` pairings
 - Scan and review **diagnostic details** per photo; filter by file type or repair status
 
-### 🖼️ Replace Key Photo (In Development)
+### 🖼️ Live Photo Edit
 
-Change the cover frame of a Live Photo freely.
+Freely change your Live Photo cover — pick the perfect moment from the video timeline.
 
-- Extract any frame from the video as the new key photo
-- Import a custom image
-- Lossless replacement — all Live Photo properties remain intact
+- Filmstrip timeline with frame-by-frame preview
+- Replace cover, export a single frame, or export all frames in one click
+- Quick Live Photo protocol conversion
 
 ### 📂 Photo Organize (In Development)
 
@@ -191,7 +188,7 @@ live-photo-box/
 └── README.md
 ```
 
-> 📖 See [`docs/LivePhotoBox-ProjectOverview.md`](docs/LivePhotoBox-ProjectOverview.md) for the complete directory reference.
+> 📖 See [`docs/项目总览.md`](docs/项目总览.md) for the complete directory reference.
 
 ---
 

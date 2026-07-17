@@ -49,26 +49,23 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 **Live Photo Box** 就是来解决这些问题的——让你在 Windows 上也能像 iPhone 一样查看、管理、修复实况照片。
 
-基于 **WinUI 3（Windows App SDK 1.8）** 构建，原生适配 Windows 11 Fluent Design 设计规范，支持 Mica / Acrylic 材质、深色/浅色主题自动切换。
+基于 **WinUI 3（Windows App SDK 1.8）** 构建，原生适配 Windows 11 Fluent Design 设计规范，支持 Mica 材质、深色/浅色主题自动切换。
 
 ---
 
 ## 📸 应用截图
 
-<table align="center">
-<tr>
-  <td align="center"><b>🏠 主页与图文教程</b><br><img src="screenshots/主页.png" alt="主页" width="100%" /></td>
-  <td align="center"><b>📸 实况照片拆分</b><br><img src="screenshots/拆分页.png" alt="拆分" width="100%" /></td>
-</tr>
-<tr>
-  <td align="center"><b>🔗 实况照片合成</b><br><img src="screenshots/合成页.png" alt="合成" width="100%" /></td>
-  <td align="center"><b>🛠️ 实况照片修复</b><br><img src="screenshots/修复页.png" alt="修复" width="100%" /></td>
-</tr>
-<tr>
-  <td align="center"><b>⚙️ 设置面板</b><br><img src="screenshots/设置.png" alt="设置" width="100%" /></td>
-  <td align="center"><b>✨ Acrylic 半透明材质效果</b><br><img src="screenshots/acrylic_thin.png" alt="Acrylic效果" width="100%" /></td>
-</tr>
-</table>
+<p align="center"><b>🏠 主页与图文教程</b><br><img src="screenshots/主页.png" alt="主页" width="80%" /></p>
+
+<p align="center"><b>🖼️ 实况照片编辑</b><br><img src="screenshots/编辑页.png" alt="编辑" width="80%" /></p>
+
+<p align="center"><b>📸 实况照片拆分</b><br><img src="screenshots/拆分页.png" alt="拆分" width="80%" /></p>
+
+<p align="center"><b>🔗 实况照片合成</b><br><img src="screenshots/合成页.png" alt="合成" width="80%" /></p>
+
+<p align="center"><b>🛠️ 实况照片修复</b><br><img src="screenshots/修复页.png" alt="修复" width="80%" /></p>
+
+<p align="center"><b>⚙️ 设置面板</b><br><img src="screenshots/设置.png" alt="设置" width="80%" /></p>
 
 ---
 
@@ -101,13 +98,13 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - **ContentIdentifier 丢失**：自动修复照片-视频的 `UUID` 配对关系
 - 扫描后可查看每张照片的**诊断详情**，可以按文件类型或修复状态快速筛选
 
-### 🖼️ 封面修改（功能开发中）
+### 🖼️ 实况照片编辑
 
-自由更换实况照片的封面帧。
+自由更换实况照片的封面帧，从视频时间轴中选取最完美的一刻。
 
-- 从视频中提取任意帧作为新封面
-- 支持上传自定义图片
-- 无损替换，保持实况属性完整
+- 视频帧时间轴胶片条，逐帧预览
+- 一键替换封面、导出单帧或全部视频帧
+- 快速实况照片协议转换
 
 ### 📂 自动整理相册（功能开发中）
 
@@ -191,7 +188,7 @@ live-photo-box/
 └── README.md
 ```
 
-> 📖 完整目录说明见 [`docs/LivePhotoBox-ProjectOverview.md`](docs/LivePhotoBox-ProjectOverview.md)
+> 📖 完整目录说明见 [`docs/项目总览.md`](docs/项目总览.md)
 
 ---
 
