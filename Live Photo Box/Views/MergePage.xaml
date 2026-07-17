@@ -193,15 +193,16 @@
                 </Grid>
             </Border>
 
-            <!-- 任务列表 -->
-            <Border Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="8">
+            <!-- 任务列表（支持拖拽文件夹导入） -->
+            <Border x:Name="MergeTaskListSurface" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="8" AllowDrop="True">
                 <Grid>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="*"/>
-                    </Grid.RowDefinitions>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
 
-                    <Grid Grid.Row="0" Padding="12,0,12,6" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,4">
+                        <Grid Grid.Row="0" Padding="12,0,12,6" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="56"/>
                             <ColumnDefinition Width="62"/>
@@ -314,6 +315,14 @@
                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                        VerticalAlignment="Center"/>
                         </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6" Margin="0,8,0,0">
+                            <FontIcon Glyph="&#xE838;" FontSize="12"
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="MergePage_EmptyQueueDragHint" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
                     </StackPanel>
 
                     <!-- 回到顶部悬浮按钮 — 滚动超过 200px 后出现 -->
@@ -346,7 +355,18 @@
                         <FontIcon Glyph="&#xE70E;" FontSize="14"
                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                     </Button>
-            </Grid>
+                    </Grid>
+
+                    <!-- 拖拽文件夹视觉反馈覆盖层（后渲染 → 始终在列表之上） -->
+                    <Grid x:Name="DragOverlay" Visibility="Collapsed" IsHitTestVisible="False">
+                        <Border Background="#90000000" CornerRadius="10"/>
+                        <Rectangle Stroke="White" StrokeThickness="2" StrokeDashArray="6,3" RadiusX="10" RadiusY="10" Margin="4"/>
+                        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+                            <FontIcon Glyph="&#xE838;" FontSize="36" Foreground="White"/>
+                            <TextBlock x:Uid="MergePage_DropToBrowse" FontSize="14" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
             </Border>
 
         </Grid>

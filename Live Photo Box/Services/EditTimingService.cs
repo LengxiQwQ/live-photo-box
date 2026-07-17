@@ -1,5 +1,5 @@
 /*
- * KeyPhotoTimingService.cs
+ * EditTimingService.cs
  *
  * 实况照片关键帧时间读取服务。
  *
@@ -22,13 +22,13 @@ using System.Text.RegularExpressions;
 
 namespace LivePhotoBox.Services
 {
-    /// <summary>Key photo 时机信息（⭐ 照片位置 + 🔵 封面位置 + 原始照片数据）</summary>
-    public readonly struct KeyPhotoTimingInfo
+    /// <summary>Cover 时机信息（⭐ 照片位置 + 🔵 封面位置 + 原始照片数据）</summary>
+    public readonly struct EditTimingInfo
     {
         /// <summary>静态照片在视频时间轴中的时间偏移（秒），对应 ⭐ 位置</summary>
         public double PhotoTimeSeconds { get; init; }
 
-        /// <summary>封面帧 / Key Photo 的时间偏移（秒），对应 🔵 选中位置</summary>
+        /// <summary>封面帧 / Cover 的时间偏移（秒），对应 🔵 选中位置</summary>
         public double CoverTimeSeconds { get; init; }
 
         /// <summary>照片和封面是否不同（true=协议支持分离且用户改了封面）</summary>
@@ -38,7 +38,7 @@ namespace LivePhotoBox.Services
         public bool HasOriginalPhoto { get; init; }
     }
 
-    public static class KeyPhotoTimingService
+    public static class EditTimingService
     {
         // OPPO XMP 中的原始照片时间戳标签（OpCamera 命名空间）
         private static readonly Regex OppoPrimaryTimestampRegex = new(
@@ -55,9 +55,9 @@ namespace LivePhotoBox.Services
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         /// <summary>
-        /// 从 XMP 文本和标准 key photo 时间，按协议计算分离后的 timing。
+        /// 从 XMP 文本和标准 cover 时间，按协议计算分离后的 timing。
         /// </summary>
-        public static KeyPhotoTimingInfo Resolve(
+        public static EditTimingInfo Resolve(
             double standardKeyPhotoTimeSeconds,
             string? xmpText)
         {
@@ -100,7 +100,7 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            return new KeyPhotoTimingInfo
+            return new EditTimingInfo
             {
                 PhotoTimeSeconds = photoTime,
                 CoverTimeSeconds = coverTime,
@@ -212,6 +212,191 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
+        /// 二进制 patch Apple Live Photo MOV 的封面时间戳。
+        ///
+        /// === 背景 ===
+        /// Apple 实况照片的封面位置存在 MOV 的 mebx 轨 edit list (elst) 里。
+        /// exiftool 源码硬编码 Writable=0 写不了，ffmpeg remux 会丢弃整个 mebx 轨。
+        /// 唯一可行方案：直接改二进制。
+        ///
+        /// === Apple 的结构 ===
+        /// mebx 轨用 edit list 实现"空位 → 样本"：
+        ///   elst[0] = { trackDur=封面时间×600, mediaTime=-1 }  ← 空位长度 = 封面位置
+        ///   elst[1] = { trackDur=1, mediaTime=0 }               ← 元数据样本本身
+        ///   tkhd.duration = elst[0].trackDur + elst[1].trackDur
+        ///
+        /// === 实现 ===
+        /// 1. 在 moov 原子树中递归搜索，找 elst 符合 [空位(mediaTime=-1), 样本] 模式的 trak
+        /// 2. Patch elst[0].trackDur  ← 改 4 字节
+        /// 3. Patch tkhd.duration     ← 改 4 字节
+        /// 4. 写回文件（毫秒级，不动其他 99.9% 的数据）
+        /// </summary>
+        /// <param name="movPath">MOV 文件路径</param>
+        /// <param name="newTimeSeconds">新的封面时间（秒）</param>
+        public static void PatchAppleStillImageTime(string movPath, double newTimeSeconds)
+        {
+            byte[] data = File.ReadAllBytes(movPath);
+
+            // ── 1. 找 moov atom ──
+            int moovIdx = IndexOfBytes(data, "moov"u8);
+            if (moovIdx < 4)
+                throw new InvalidDataException("MOV: moov atom not found");
+            int moovStart = moovIdx - 4;
+            int moovSize = ReadBigEndianInt32(data, moovStart);
+            int moovEnd = moovStart + moovSize;
+
+            // ── 2. 获取 mvhd timescale ──
+            int mvhdOff = FindAtom(data, moovStart + 8, moovEnd, "mvhd"u8);
+            if (mvhdOff < 0)
+                throw new InvalidDataException("MOV: mvhd atom not found");
+            int mvTimescale = ReadBigEndianInt32(data, mvhdOff + 20); // version 0
+
+            // ── 3. 遍历所有 trak，找 mebx 轨（通过 elst 模式识别） ──
+            //     Apple Live Photo 的 mebx 轨 elst 固定为 2 条目：
+            //     [0]: trackDur=封面时间, mediaTime=-1 (空位)
+            //     [1]: trackDur=1, mediaTime=0 (元数据样本)
+            //     不依赖 hdlr subtype（Apple 用 'meta' 不是 'mebx'）。
+            int pos = moovStart + 8;
+            int trakIndex = 0;
+            bool found = false;
+            while (pos < moovEnd - 7)
+            {
+                int atomSize = ReadBigEndianInt32(data, pos);
+                if (atomSize < 8 || atomSize > moovEnd - pos) break;
+
+                if (IsAtomType(data, pos, "trak"u8))
+                {
+                    trakIndex++;
+                    int trakStart = pos;
+                    int trakEnd = pos + atomSize;
+
+                    // 找 elst（递归，因为 elst 在 trak→edts 下面）
+                    int elstOff = FindAtom(data, trakStart + 8, trakEnd, "elst"u8);
+                    if (elstOff < 0) { pos += atomSize; continue; }
+
+                    // 验证 elst 结构：2 条目、第 1 条 mediaTime = -1
+                    int elstVer = data[elstOff + 8];
+                    int elstEntryCount = ReadBigEndianInt32(data, elstOff + 12);
+                    if (elstEntryCount != 2) { pos += atomSize; continue; }
+
+                    int entrySize = elstVer == 0 ? 12 : 20;
+                    int mediaTime0 = ReadBigEndianInt32(data, elstOff + 16 + 4); // entry[0].mediaTime
+                    if (mediaTime0 != -1) { pos += atomSize; continue; }
+
+                    // ── 4. 确认是 mebx 轨 → patch elst[0].trackDur 和 tkhd.duration ──
+                    int oldTrackDur0 = ReadBigEndianInt32(data, elstOff + 16);
+                    int trackDur1 = ReadBigEndianInt32(data, elstOff + 16 + entrySize); // entry[1].trackDur
+
+                    // 写新的 elst[0].trackDur
+                    int newTrackDur0 = (int)Math.Round(newTimeSeconds * mvTimescale);
+                    WriteBigEndianInt32(data, elstOff + 16, newTrackDur0);
+
+                    // 写新的 tkhd.duration
+                    int tkhdOff = FindAtom(data, trakStart + 8, trakEnd, "tkhd"u8);
+                    if (tkhdOff < 0)
+                        throw new InvalidDataException("MOV: mebx track has no tkhd");
+                    int tkhdVer = data[tkhdOff + 8];
+                    int tkhdDurOff = tkhdVer == 0 ? tkhdOff + 28 : tkhdOff + 36;
+                    int newTkhdDuration = newTrackDur0 + trackDur1;
+                    WriteBigEndianInt32(data, tkhdDurOff, newTkhdDuration);
+
+                    LogService.FileOp(
+                        $"KeyPhotoTiming[Apple] Patched MOV Track{trakIndex}: " +
+                        $"elst[0].trackDur {oldTrackDur0}→{newTrackDur0}, " +
+                        $"tkhd.duration→{newTkhdDuration} " +
+                        $"→ still image at {newTimeSeconds:F3}s",
+                        Models.LogLevel.Info);
+                    found = true;
+                    break;
+                }
+                pos += atomSize;
+            }
+
+            if (!found)
+                throw new InvalidDataException("MOV: mebx track not found");
+
+            // ── 5. 写回 ──
+            File.WriteAllBytes(movPath, data);
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  辅助方法：原子查找、字节读取、字节写入
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>在字节数组中递归查找指定类型的 atom（在容器原子中递归搜索子级）</summary>
+        private static int FindAtom(byte[] data, int start, int end, ReadOnlySpan<byte> atomType)
+        {
+            int pos = start;
+            while (pos < end - 7)
+            {
+                int size = ReadBigEndianInt32(data, pos);
+                if (size < 8 || size > end - pos) break;
+
+                if (IsAtomType(data, pos, atomType))
+                    return pos;
+
+                // 对容器型原子递归搜索
+                if (IsContainerAtom(data, pos))
+                {
+                    int found = FindAtom(data, pos + 8, pos + size, atomType);
+                    if (found >= 0) return found;
+                }
+
+                pos += size;
+            }
+            return -1;
+        }
+
+        private static bool IsContainerAtom(byte[] data, int offset)
+        {
+            // MOV/MP4 容器原子：moov, trak, mdia, minf, stbl, edts, dinf, udta, meta
+            byte b4 = data[offset + 4], b5 = data[offset + 5], b6 = data[offset + 6], b7 = data[offset + 7];
+            return (b4 == (byte)'m' && b5 == (byte)'o' && b6 == (byte)'o' && b7 == (byte)'v') ||
+                   (b4 == (byte)'t' && b5 == (byte)'r' && b6 == (byte)'a' && b7 == (byte)'k') ||
+                   (b4 == (byte)'m' && b5 == (byte)'d' && b6 == (byte)'i' && b7 == (byte)'a') ||
+                   (b4 == (byte)'m' && b5 == (byte)'i' && b6 == (byte)'n' && b7 == (byte)'f') ||
+                   (b4 == (byte)'s' && b5 == (byte)'t' && b6 == (byte)'b' && b7 == (byte)'l') ||
+                   (b4 == (byte)'e' && b5 == (byte)'d' && b6 == (byte)'t' && b7 == (byte)'s') ||
+                   (b4 == (byte)'d' && b5 == (byte)'i' && b6 == (byte)'n' && b7 == (byte)'f') ||
+                   (b4 == (byte)'u' && b5 == (byte)'d' && b6 == (byte)'t' && b7 == (byte)'a') ||
+                   (b4 == (byte)'m' && b5 == (byte)'e' && b6 == (byte)'t' && b7 == (byte)'a');
+        }
+
+        private static bool IsAtomType(byte[] data, int offset, ReadOnlySpan<byte> atomType)
+        {
+            return data[offset + 4] == atomType[0] &&
+                   data[offset + 5] == atomType[1] &&
+                   data[offset + 6] == atomType[2] &&
+                   data[offset + 7] == atomType[3];
+        }
+
+        private static int IndexOfBytes(byte[] data, ReadOnlySpan<byte> pattern)
+        {
+            for (int i = 0; i <= data.Length - pattern.Length; i++)
+            {
+                int j;
+                for (j = 0; j < pattern.Length; j++)
+                    if (data[i + j] != pattern[j]) break;
+                if (j == pattern.Length) return i;
+            }
+            return -1;
+        }
+
+        private static int ReadBigEndianInt32(byte[] data, int offset)
+        {
+            return (data[offset] << 24) | (data[offset + 1] << 16) |
+                   (data[offset + 2] << 8) | data[offset + 3];
+        }
+
+        private static void WriteBigEndianInt32(byte[] data, int offset, int value)
+        {
+            data[offset] = (byte)(value >> 24);
+            data[offset + 1] = (byte)(value >> 16);
+            data[offset + 2] = (byte)(value >> 8);
+            data[offset + 3] = (byte)value;
+        }
+
+        /// <summary>
         /// 从 OPPO 容器中提取 Original 原始高清照片的 JPEG 字节。
         /// 仅在 HasOriginalPhoto=true 时调用。
         /// 返回 null 表示提取失败，调用方应回退到 SelectedFileThumbnail。
@@ -287,7 +472,7 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 找到 JPEG 文件中主图像的结束位置（EOI 标记之后）。
+        /// 找到 JPEG 文件中主图结束位置（EOI 标记之后）。
         /// 跳过所有 JPEG marker 段（APPn, DQT, SOF, DHT, SOS 等），
         /// 遇到 EOI (0xFF 0xD9) 返回其后的文件位置。
         /// 不处理 RST 标记之间的转义——对于 Motion Photo 容器中的 Primary JPEG，

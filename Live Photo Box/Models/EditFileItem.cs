@@ -1,7 +1,7 @@
 /*
- * KeyPhotoFileItem.cs
+ * EditFileItem.cs
  *
- * 实况照片主图更换页面 — 左侧资源浏览列表中每一项的数据模型。
+ * 实况照片封面更换页面 — 左侧资源浏览列表中每一项的数据模型。
  * 每个条目显示：缩略图 + 文件名（Bold）+ 分辨率/大小 + 日期。
  *
  * 继承 ObservableObject，支持 MVVM 属性变更通知。
@@ -19,7 +19,7 @@ using System.IO;
 
 namespace LivePhotoBox.Models
 {
-    public partial class KeyPhotoFileItem : ObservableObject
+    public partial class EditFileItem : ObservableObject
     {
         /// <summary>文件名（含扩展名），如 "IMG_8842.HEIC"</summary>
         [ObservableProperty]

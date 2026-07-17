@@ -1,7 +1,7 @@
 /*
- * KeyPhotoViewModel.cs
+ * EditViewModel.cs
  *
- * 实况照片主图更换页面的 ViewModel。
+ * 实况照片封面更换页面的 ViewModel。
  * 管理资源浏览（文件夹选择 → 自动扫描 → ListView 文件列表）、
  * 选中文件信息展示、CommandBar 命令及时间轴数据的绑定。
  *
@@ -29,6 +29,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -40,7 +41,7 @@ using Windows.UI;
 
 namespace LivePhotoBox.ViewModels
 {
-    public partial class KeyPhotoViewModel : ViewModelBase
+    public partial class EditViewModel : ViewModelBase
     {
         // ══════════════════════════════════════════════════════════════
         //  支持的文件扩展名（图片 + 视频）
@@ -62,12 +63,12 @@ namespace LivePhotoBox.ViewModels
         //  构造函数 & 生命周期
         // ══════════════════════════════════════════════════════════════
 
-        public KeyPhotoViewModel()
+        public EditViewModel()
         {
             // 从设置恢复静音状态（默认不静音）
             _isMuted = AppSettingsService.GetValue("IsLivePhotoMuted", false);
             // 进度前缀默认：导出帧
-            ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+            ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
         }
 
         public override string? PageStatusTag => null;
@@ -115,15 +116,15 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>
         /// 当前选中文件的缩略图异步加载监听器。
-        /// KeyPhotoFileItem.Thumbnail 为懒加载（TryGetOrLoad），首次返回 null；
+        /// EditFileItem.Thumbnail 为懒加载（TryGetOrLoad），首次返回 null；
         /// 监听其 PropertyChanged，加载完成后同步到 SelectedFileThumbnail。
         /// </summary>
-        private KeyPhotoFileItem? _thumbnailLoadListener;
+        private EditFileItem? _thumbnailLoadListener;
 
         /// <summary>缩略图异步加载完成的回调</summary>
         private void ThumbnailItem_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(KeyPhotoFileItem.Thumbnail) && _thumbnailLoadListener != null)
+            if (e.PropertyName == nameof(EditFileItem.Thumbnail) && _thumbnailLoadListener != null)
             {
                 SelectedFileThumbnail = _thumbnailLoadListener.Thumbnail;
                 _thumbnailLoadListener.PropertyChanged -= ThumbnailItem_PropertyChanged;
@@ -168,10 +169,10 @@ namespace LivePhotoBox.ViewModels
         //  文件列表
         // ══════════════════════════════════════════════════════════════
 
-        public ObservableCollection<KeyPhotoFileItem> FileItems { get; } = new();
+        public ObservableCollection<EditFileItem> FileItems { get; } = new();
 
         /// <summary>未过滤的完整文件列表（排序/搜索的后备存储）</summary>
-        private List<KeyPhotoFileItem> _allFileItems = new();
+        private List<EditFileItem> _allFileItems = new();
 
         // ══════════════════════════════════════════════════════════════
         //  排序 & 搜索实现
@@ -363,7 +364,7 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private string _exportProgressText = string.Empty;
 
-        /// <summary>进度前缀文本：导出时显示"正在导出帧…"，保存主图时清空</summary>
+        /// <summary>进度前缀文本：导出时显示"正在导出帧…"，保存封面时清空</summary>
         [ObservableProperty]
         private string _progressPrefixText = string.Empty;
 
@@ -427,8 +428,10 @@ namespace LivePhotoBox.ViewModels
             {
                 if (value.IsStillPhoto)
                 {
-                    // 封面帧：显示 "Key Photo" / "主图"
-                    CurrentFramePositionText = ResourceService.GetString("KeyPhoto_TimelineFrameKeyPhoto");
+                    // 封面帧：显示 "Cover · 共 N 帧"
+                    var videoFrames = TimelineFrames.Where(f => !f.IsStillPhoto).ToList();
+                    CurrentFramePositionText = ResourceService.Format(
+                        "KeyPhoto_TimelineFrameKeyPhoto", videoFrames.Count);
                 }
                 else
                 {
@@ -532,7 +535,7 @@ namespace LivePhotoBox.ViewModels
         /// 当设置页切换时间轴模式时调用。
         /// 只打标记，不触发任何 UI 变更。等用户导航回 KeyPhotoPage（前台）时，
         /// 由 OnNavigatedTo 调用 TriggerModeVisibilityUpdate() 正式切换 Visibility，
-        /// 避免后台页面 x:Bind 断裂导致点击缩略图不更新主图、滚动条失效。
+        /// 避免后台页面 x:Bind 断裂导致点击缩略图不更新封面、滚动条失效。
         /// </summary>
         public void NotifyTimelineModeChanged()
         {
@@ -691,7 +694,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand] private void GoBack() { }
         [RelayCommand] private void Restore() { }
         /// <summary>
-        /// "设为主图并保存为副本"：将时间轴当前选中的帧设为新的主图，
+        /// "设为封面并保存为副本"：将时间轴当前选中的帧设为新的封面，
         /// 保留原视频段 + EXIF 信息 + 实况照片协议信息，输出到用户指定位置。
         /// 支持 Google MicroVideo V1、Google Motion Photo V2、OPPO O-Live Photo。
         /// </summary>
@@ -753,7 +756,7 @@ namespace LivePhotoBox.ViewModels
             var photoBaseName = Path.GetFileNameWithoutExtension(photoPath);
             var suggestedName = $"{photoBaseName}_封面帧{frame.FrameIndex + 1}";
 
-            var savedFile = await FilePickerService.PickSaveFileForExportAsync(".jpg", suggestedName);
+            var savedFile = await FilePickerService.PickSaveFileForExportAsync(".JPG", suggestedName);
             if (savedFile == null)
             {
                 LogService.FileOp("KeyPhoto Save: cancelled by user", LogLevel.Info);
@@ -880,6 +883,9 @@ namespace LivePhotoBox.ViewModels
                     $"KeyPhoto Save SUCCESS: {Path.GetFileName(photoPath)} frame#{frame.FrameIndex} -> '{targetPath}'",
                     LogLevel.Info);
 
+                                // 修改日期设为当前时间
+                    try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
+
                 // ── 11. 完成消息：显示对号 + "保存完成"，停留 5 秒后自动消失 ──
                 IsShowingSaveComplete = true;
                 ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveComplete");
@@ -894,11 +900,14 @@ namespace LivePhotoBox.ViewModels
                 // 清理可能不完整的输出文件
                 try { if (File.Exists(targetPath)) File.Delete(targetPath); } catch { }
 
-                // 失败时立即隐藏进度指示
+                // 失败时立即隐藏进度指示，弹出错误弹窗
                 IsShowingSaveComplete = false;
                 IsExporting = false;
                 ExportProgressText = string.Empty;
-                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+                _ = ShowSaveErrorDialogAsync(
+                    $"{ResourceService.GetString("KeyPhotoPage_SaveError")}: {ex.Message}",
+                    Path.GetDirectoryName(targetPath));
             }
             finally
             {
@@ -976,24 +985,54 @@ namespace LivePhotoBox.ViewModels
                     IsShowingSaveComplete = false;
                     IsExporting = false;
                     ExportProgressText = string.Empty;
-                    ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+                    ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
                 });
             }
             catch (TaskCanceledException) { /* 新的保存开始，已取消旧计时器 */ }
         }
 
         /// <summary>
-        /// Apple 双文件实况照片（HEIC + MOV）的"设为主图并保存为副本"。
-        /// 先弹出保存对话框让用户选 HEIC 位置，元数据策略：
-        /// ① exiftool 把原 HEIC 的全部标签（除 XMP）写到帧 JPEG 上
-        /// ② 把 MotionPhotoPresentationTimestampUs 写进帧 JPEG 的 XMP（通过 temp .xmp 文件）
-        /// ③ heif-enc（libheif, Tools/ 目录下）把 JPEG 转为标准 HEIC，保留 EXIF
-        /// ④ exiftool 把帧 JPEG 的全部标签回写到 HEIC（安全兜底）
-        /// ⑤ MOV 静默复制到同目录
+        /// 保存/导出失败时显示错误弹窗。
+        /// 用户可点击"打开输出目录"在资源管理器中打开目标文件夹，或"我知道了"关闭。
         /// </summary>
-        private async Task SaveAppleAsync(TimelineFrame frame, KeyPhotoFileItem item, string photoPath)
+        /// <param name="errorMessage">错误描述文本</param>
+        /// <param name="outputDir">可选：输出目录路径，用于"打开"按钮</param>
+        private async Task ShowSaveErrorDialogAsync(string errorMessage, string? outputDir = null)
+        {
+            if (App.MainWindow?.Content?.XamlRoot is not XamlRoot xamlRoot)
+            {
+                LogService.FileOp("ShowSaveErrorDialog: MainWindow XamlRoot unavailable", LogLevel.Warning);
+                return;
+            }
+
+            var openDir = await DialogService.ShowDualAsync(
+                xamlRoot,
+                ResourceService.GetString("KeyPhotoPage_SaveError"),
+                errorMessage,
+                primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
+                closeText: ResourceService.GetString("Msg_GotIt"));
+
+            if (openDir && !string.IsNullOrEmpty(outputDir) && Directory.Exists(outputDir))
+            {
+                FilePickerService.OpenFolderInExplorer(outputDir);
+            }
+        }
+
+        /// <summary>
+        /// Apple 双文件实况照片（HEIC + MOV）的"设为封面并保存为副本"。
+        ///
+        /// === 整体流程 ===
+        /// 1. 用户选帧 → HEIC 重新编码为该帧画面，MOV 静默复制并更新 mebx 轨时间戳
+        /// 2. HEIC 管线：帧 JPEG → 注入原图 EXIF → 写 XMP 时间戳 → heif-enc 转 HEIC → 回写 EXIF 兜底
+        /// 3. MOV 管线：直接 File.Copy 复制原 MOV → 二进制 patch elst[0].trackDur + tkhd.duration
+        ///    （Apple 实况照片的封面位置存在 MOV mebx 轨的 edit list 里，标准工具写不了，只能 patch 二进制）
+        /// 4. ContentIdentifier：从原 HEIC 读取 → 显式写回新 HEIC 和新 MOV，保证重新扫描时能配对识别
+        /// 5. 所有步骤独立 try-catch，某步失败不阻断整体（用户仍能得到 HEIC + MOV）
+        /// </summary>
+        private async Task SaveAppleAsync(TimelineFrame frame, EditFileItem item, string photoPath)
         {
             string? tempWorkDir = null;
+            string? targetHeicPath = null;
             try
             {
                 // ── 1. 守卫检查 ──────────────────────────────────────────
@@ -1022,13 +1061,14 @@ namespace LivePhotoBox.ViewModels
                 string filenameTemplate = ResourceService.GetString("KeyPhotoPage_SaveAppleFilename");
                 string suggestedName = string.Format(filenameTemplate, sourceBaseName, frame.FrameIndex + 1);
 
-                var savedFile = await FilePickerService.PickSaveFileForExportAsync(".heic", suggestedName);
+                var savedFile = await FilePickerService.PickSaveFileForExportAsync(
+                    ".HEIC", suggestedName, jpegOption: false);
                 if (savedFile == null)
                 {
                     LogService.FileOp("KeyPhoto Save[Apple]: cancelled by user", LogLevel.Info);
                     return;
                 }
-                string targetHeicPath = savedFile.Path;
+                targetHeicPath = savedFile.Path;
 
                 LogService.FileOp(
                     $"KeyPhoto Save[Apple]: start — frame=#{frame.FrameIndex + 1} @ {frame.Timestamp.TotalSeconds:F3}s, " +
@@ -1040,6 +1080,38 @@ namespace LivePhotoBox.ViewModels
                 ProgressPrefixText = string.Empty;
                 ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveInProgress");
                 IsExporting = true;
+
+                // ── 3b. 读取原 HEIC 的 ContentIdentifier（Apple 配对 UUID）──
+                //     后续显式写回 HEIC 和 MOV，确保重新扫描时能识别为实况照片
+                string? contentIdentifier = null;
+                try
+                {
+                    string? exifPath = ExternalToolLocator.FindExifTool();
+                    if (!string.IsNullOrEmpty(exifPath))
+                    {
+                        var cidPsi = new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = exifPath,
+                            Arguments = $"-j -ContentIdentifier \"{photoPath}\"",
+                            UseShellExecute = false, CreateNoWindow = true,
+                            RedirectStandardOutput = true, RedirectStandardError = true
+                        };
+                        using var cidProc = System.Diagnostics.Process.Start(cidPsi);
+                        if (cidProc != null)
+                        {
+                            string cidJson = await cidProc.StandardOutput.ReadToEndAsync();
+                            cidProc.WaitForExit(5000);
+                            using var doc = JsonDocument.Parse(cidJson);
+                            var root = doc.RootElement[0];
+                            if (root.TryGetProperty("ContentIdentifier", out var cidEl))
+                                contentIdentifier = cidEl.GetString();
+                        }
+                    }
+                }
+                catch { /* non-fatal */ }
+                LogService.FileOp(
+                    $"KeyPhoto Save[Apple]: original ContentIdentifier = {contentIdentifier ?? "(null)"}",
+                    LogLevel.Info);
 
                 // ── 4. 创建工作目录 ──────────────────────────────────────
                 tempWorkDir = Path.Combine(Path.GetTempPath(), $"lpb_apple_save_{Guid.NewGuid():N}");
@@ -1121,7 +1193,7 @@ namespace LivePhotoBox.ViewModels
                         LogService.FileOp("KeyPhoto Save[Apple]: heif-enc failed to start", LogLevel.Error);
                         IsExporting = false;
                         ExportProgressText = string.Empty;
-                        ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+                        ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
                         return;
                     }
 
@@ -1135,7 +1207,7 @@ namespace LivePhotoBox.ViewModels
                             LogLevel.Error);
                         IsExporting = false;
                         ExportProgressText = string.Empty;
-                        ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+                        ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
                         return;
                     }
                 }
@@ -1147,7 +1219,7 @@ namespace LivePhotoBox.ViewModels
                     LogService.FileOp("KeyPhoto Save[Apple]: HEIC is 0 bytes after heif-enc", LogLevel.Error);
                     IsExporting = false;
                     ExportProgressText = string.Empty;
-                    ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+                    ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
                     return;
                 }
 
@@ -1176,13 +1248,90 @@ namespace LivePhotoBox.ViewModels
 
                 LogService.FileOp($"KeyPhoto Save[Apple]: HEIC saved to '{targetHeicPath}'", LogLevel.Info);
 
-                // ── 10. 静默复制 MOV 到同目录 ──
+                // ── 9b. 显式写回 ContentIdentifier，确保配对识别 ──────
+                if (!string.IsNullOrEmpty(contentIdentifier))
+                {
+                    try
+                    {
+                        await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                            $"-ContentIdentifier={contentIdentifier}",
+                            "-overwrite_original",
+                            "-quiet",
+                            targetHeicPath);
+                        LogService.FileOp(
+                            $"KeyPhoto Save[Apple]: ContentIdentifier written to HEIC: {contentIdentifier}",
+                            LogLevel.Info);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.FileOp(
+                            $"KeyPhoto Save[Apple]: ContentIdentifier write to HEIC failed: {ex.Message}",
+                            LogLevel.Warning);
+                    }
+                }
+
+                // ── 10. 静默复制 MOV 到同目录（同名覆盖，不做占位预留）──
+                //     不用 PathHelper.GetUniqueFilePath——其 TryReservePath 会创建 0 字节
+                //     占位文件，在 Windows Defender / Search Indexer 等系统组件竞争下，
+                //     File.Copy 覆盖时可能因文件被外部短暂锁定而失败 → MOV 丢失。
+                //     改用直接 Path.Combine + File.Copy(overwrite: true)，干净可靠。
+                //     HEIC 文件名由用户通过 FileSavePicker 确认，MOV 同名伴随是最自然的行为。
                 string targetDir = Path.GetDirectoryName(targetHeicPath)!;
                 string movFileName = Path.GetFileNameWithoutExtension(targetHeicPath) + Path.GetExtension(pairedVideoPath);
-                string targetMovPath = PathHelper.GetUniqueFilePath(targetDir, movFileName);
-                File.Copy(pairedVideoPath, targetMovPath, overwrite: true);
+                string targetMovPath = Path.Combine(targetDir, movFileName);
 
-                LogService.FileOp($"KeyPhoto Save[Apple]: MOV copied to '{targetMovPath}'", LogLevel.Info);
+                try
+                {
+                    File.Copy(pairedVideoPath, targetMovPath, overwrite: true);
+                    LogService.FileOp($"KeyPhoto Save[Apple]: MOV copied to '{targetMovPath}'", LogLevel.Info);
+                    NotifyShellFileCreated(targetMovPath);
+                }
+                catch (Exception ex)
+                {
+                    // MOV 复制失败不阻断整体流程：HEIC 已成功保存，单独记录错误日志
+                    LogService.FileOp(
+                        $"KeyPhoto Save[Apple]: MOV copy FAILED — {ex.GetType().Name}: {ex.Message}",
+                        LogLevel.Error, ex);
+                }
+
+                // ── 10b. 更新 MOV mebx 轨的封面时间 ──────────────────────
+                // Apple 实况照片的封面时间存在 MOV 的 mebx 轨 edit list 中
+                //（elst[0].trackDur ÷ mvhd.timescale = 封面在视频中的秒数）。
+                // 复制了原始 MOV 后其值仍是旧的，用二进制 patch 直接改 elst 和 tkhd，
+                // 不 remux、不重编码、毫秒级完成。
+                try
+                {
+                    EditTimingService.PatchAppleStillImageTime(
+                        targetMovPath, frame.Timestamp.TotalSeconds);
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp(
+                        $"KeyPhoto Save[Apple]: MOV StillImageTime patch FAILED — {ex.Message}",
+                        LogLevel.Warning);
+                }
+
+                // ── 10c. 显式写回 ContentIdentifier 到 MOV ─────────────
+                if (!string.IsNullOrEmpty(contentIdentifier))
+                {
+                    try
+                    {
+                        await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                            $"-ContentIdentifier={contentIdentifier}",
+                            "-overwrite_original",
+                            "-quiet",
+                            targetMovPath);
+                        LogService.FileOp(
+                            $"KeyPhoto Save[Apple]: ContentIdentifier written to MOV: {contentIdentifier}",
+                            LogLevel.Info);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.FileOp(
+                            $"KeyPhoto Save[Apple]: ContentIdentifier write to MOV failed: {ex.Message}",
+                            LogLevel.Warning);
+                    }
+                }
 
                 // ── 11. 验证 ─────────────────────────────────────────────
                 try
@@ -1205,6 +1354,10 @@ namespace LivePhotoBox.ViewModels
                     $"-> HEIC({heicSize}B) + MOV({new FileInfo(pairedVideoPath).Length}B)",
                     LogLevel.Info);
 
+                                // 修改日期设为当前时间
+                    try { File.SetLastWriteTime(targetHeicPath, DateTime.Now); } catch { }
+                    try { File.SetLastWriteTime(targetMovPath, DateTime.Now); } catch { }
+
                 // ── 12. 完成消息：对号 + "保存完成" → 4s 后消失 ─────────
                 IsShowingSaveComplete = true;
                 ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveComplete");
@@ -1219,7 +1372,13 @@ namespace LivePhotoBox.ViewModels
                 IsShowingSaveComplete = false;
                 IsExporting = false;
                 ExportProgressText = string.Empty;
-                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefix.Text");
+                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+
+                // 提取目标目录（可能部分完成但报错，尽量提供目录位置）
+                string? appleOutputDir = !string.IsNullOrEmpty(targetHeicPath)
+                    ? Path.GetDirectoryName(targetHeicPath)
+                    : null;
+                _ = ShowSaveErrorDialogAsync(ex.Message, appleOutputDir);
             }
             finally
             {
@@ -1243,35 +1402,53 @@ namespace LivePhotoBox.ViewModels
             var savedPath = await FilePickerService.SaveFileAsAsync(photoPath);
             if (savedPath == null) return; // 用户取消
 
-            // 直接取 PairedVideoPath，有就一起复制
-            var item = FileItems.FirstOrDefault(f =>
-                string.Equals(f.FilePath, photoPath, StringComparison.OrdinalIgnoreCase));
-            var pairedVideoPath = item?.PairedVideoPath;
-            if (!string.IsNullOrEmpty(pairedVideoPath) && File.Exists(pairedVideoPath))
+            // 显示"正在保存…"状态
+            IsShowingSaveComplete = false;
+            ProgressPrefixText = string.Empty;
+            ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveInProgress");
+            IsExporting = true;
+
+            try
             {
-                try
+                // 直接取 PairedVideoPath，有就一起复制
+                var item = FileItems.FirstOrDefault(f =>
+                    string.Equals(f.FilePath, photoPath, StringComparison.OrdinalIgnoreCase));
+                var pairedVideoPath = item?.PairedVideoPath;
+                if (!string.IsNullOrEmpty(pairedVideoPath) && File.Exists(pairedVideoPath))
                 {
                     var destDir = Path.GetDirectoryName(savedPath)!;
                     var videoFileName = Path.GetFileNameWithoutExtension(savedPath) + Path.GetExtension(pairedVideoPath);
-                    // 使用已有工具方法：同名文件自动加 (2)、(3)，与 Windows 资源管理器行为一致
                     var destVideoPath = PathHelper.GetUniqueFilePath(destDir, videoFileName);
                     File.Copy(pairedVideoPath, destVideoPath, overwrite: true);
                     LogService.FileOp(
                         $"SaveAs: paired video copied: {pairedVideoPath} -> {destVideoPath}",
                         LogLevel.Info);
+                    NotifyShellFileCreated(destVideoPath);
                 }
-                catch (Exception ex)
-                {
-                    LogService.FileOp(
-                        $"SaveAs: failed to copy paired video: {ex.Message}", LogLevel.Warning);
-                }
+
+                LogService.FileOp($"SaveAs: saved to '{savedPath}'", LogLevel.Info);
+
+                // 完成状态
+                IsShowingSaveComplete = true;
+                ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveComplete");
+                _ = HoldSaveCompleteMessageAsync();
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"SaveAs FAILED: {ex.GetType().Name}: {ex.Message}", LogLevel.Error, ex);
+
+                IsShowingSaveComplete = false;
+                IsExporting = false;
+                ExportProgressText = string.Empty;
+                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+                _ = ShowSaveErrorDialogAsync(ex.Message, Path.GetDirectoryName(savedPath));
             }
         }
         [RelayCommand] private void Export() { }
         /// <summary>
         /// 导出当前帧：先弹出系统"另存为"窗口让用户选择格式和位置，
         /// 选完后再按需转换（避免转换阻塞弹窗）。
-        /// 视频帧已是 JPEG 直接复制；主图（⭐）若非 JPG 则提供原格式 + JPEG 选项，
+        /// 视频帧已是 JPEG 直接复制；封面（⭐）若非 JPG 则提供原格式 + JPEG 选项，
         /// 选 JPEG 时以 quality=92 转换，文件大小合理。
         /// </summary>
         [RelayCommand]
@@ -1296,7 +1473,7 @@ namespace LivePhotoBox.ViewModels
                 if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
                     return;
                 sourcePath = frame.FullFramePath;
-                sourceExt = ".jpg"; // ffmpeg 提取的帧始终是 JPEG
+                sourceExt = ".JPG"; // ffmpeg 提取的帧始终是 JPEG
             }
 
             // 2. 生成建议文件名
@@ -1310,7 +1487,14 @@ namespace LivePhotoBox.ViewModels
                 sourceExt, suggestedName);
             if (targetFile == null) return; // 用户取消
 
-            // 4. 根据用户选择的格式执行导出
+            // 4. 显示"正在保存…"状态
+            string targetPath = targetFile.Path;
+            IsShowingSaveComplete = false;
+            ProgressPrefixText = string.Empty;
+            ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveInProgress");
+            IsExporting = true;
+
+            // 5. 根据用户选择的格式执行导出
             bool targetIsJpeg = targetFile.FileType is ".jpg" or ".jpeg";
             string? tempConvertedPath = null;
 
@@ -1335,17 +1519,31 @@ namespace LivePhotoBox.ViewModels
                     $"ExportCurrentFrame: {Path.GetFileName(sourcePath)} -> {targetFile.Path}",
                     LogLevel.Info);
 
-                // 5. JPEG 导出：复制原图 EXIF（相机/日期/GPS等），但排除实况照片私有协议标签
+                // 6. JPEG 导出：复制原图 EXIF（相机/日期/GPS等），但排除实况照片私有协议标签
                 if (targetIsJpeg && !string.IsNullOrEmpty(SelectedFilePath)
                     && File.Exists(SelectedFilePath))
                 {
                     await CopyExifForExportAsync(SelectedFilePath, targetFile.Path);
                 }
+
+                // 修改日期设为当前时间
+                try { File.SetLastWriteTime(targetFile.Path, DateTime.Now); } catch { }
+
+                // 完成状态
+                IsShowingSaveComplete = true;
+                ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveComplete");
+                _ = HoldSaveCompleteMessageAsync();
             }
             catch (Exception ex)
             {
                 LogService.FileOp(
                     $"ExportCurrentFrame failed: {ex.Message}", LogLevel.Error, ex);
+
+                IsShowingSaveComplete = false;
+                IsExporting = false;
+                ExportProgressText = string.Empty;
+                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+                _ = ShowSaveErrorDialogAsync(ex.Message, Path.GetDirectoryName(targetPath));
             }
             finally
             {
@@ -1399,6 +1597,33 @@ namespace LivePhotoBox.ViewModels
             {
                 LogService.FileOp(
                     $"CopyExifForExport failed: {ex.Message}", LogLevel.Warning);
+            }
+        }
+
+        /// <summary>
+        /// 通知 Windows 资源管理器有文件已创建/修改，强制刷新显示。
+        /// 解决 File.Copy 后 Explorer 不自动刷新的问题（如 Apple 双文件的配对 MOV 不显示）。
+        /// </summary>
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        private static extern void SHChangeNotify(
+            int wEventId, int uFlags, string dwItem1, IntPtr dwItem2);
+
+        private const int SHCNE_CREATE = 0x2;
+        private const int SHCNF_PATHW = 0x0005;
+        private const int SHCNF_FLUSH = 0x1000;
+
+        /// <summary>
+        /// 通知壳层指定路径的文件已创建，强制 Explorer 刷新。
+        /// </summary>
+        private static void NotifyShellFileCreated(string filePath)
+        {
+            try
+            {
+                SHChangeNotify(SHCNE_CREATE, SHCNF_PATHW | SHCNF_FLUSH, filePath, IntPtr.Zero);
+            }
+            catch
+            {
+                // 壳层通知失败不影响功能，静默忽略
             }
         }
 
@@ -1796,7 +2021,7 @@ namespace LivePhotoBox.ViewModels
 
                 if (frame.IsStillPhoto)
                 {
-                    sourcePath = photoPath; // 主图帧：原照片文件
+                    sourcePath = photoPath; // 封面帧：原照片文件
                 }
                 else
                 {
@@ -1826,14 +2051,14 @@ namespace LivePhotoBox.ViewModels
                 {
                     if (frame.IsStillPhoto && HeicConverterService.IsHeicFile(sourcePath))
                     {
-                        // HEIC 主图 → 转换为 JPEG
+                        // HEIC 封面 → 转换为 JPEG
                         tempConvertedPath = await HeicConverterService.ConvertToJpegAsync(
                             sourcePath, Path.GetTempPath(), quality: 92, token);
                         File.Copy(tempConvertedPath, targetPath, overwrite: true);
                     }
                     else
                     {
-                        // 直接复制：视频帧（已是 JPEG）或非 HEIC 主图
+                        // 直接复制：视频帧（已是 JPEG）或非 HEIC 封面
                         File.Copy(sourcePath, targetPath, overwrite: true);
                     }
 
@@ -1842,6 +2067,9 @@ namespace LivePhotoBox.ViewModels
                     {
                         await CopyExifForExportAsync(photoPath, targetPath);
                     }
+
+                    // 6. 修改日期设为当前时间（保留原始拍摄日期不变）
+                    try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
 
                     Interlocked.Increment(ref counters.Success);
                     LogService.FileOp(
@@ -1985,7 +2213,7 @@ namespace LivePhotoBox.ViewModels
             if (item != null)
             {
                 IsSelectedLivePhoto = item.HasConfirmedProtocol;
-                PhotoFileName = KeyPhotoFileItem.FormatDisplayFileName(
+                PhotoFileName = EditFileItem.FormatDisplayFileName(
                     item.FileName, item.IsDualFileLivePhoto, item.VideoExtension);
                 SelectedFileThumbnail = item.Thumbnail;
 
@@ -2365,7 +2593,7 @@ namespace LivePhotoBox.ViewModels
                     // ffprobe 找最后一个 nb_frames=1 且 start_time>0 的 mebx 轨
                     if (!string.IsNullOrEmpty(videoPath) && durSec > 0)
                     {
-                        var appleTime = KeyPhotoTimingService.ReadAppleStillImageTime(videoPath);
+                        var appleTime = EditTimingService.ReadAppleStillImageTime(videoPath);
                         if (appleTime.HasValue && appleTime.Value > 0)
                         {
                             LogService.FileOp(
@@ -2376,17 +2604,17 @@ namespace LivePhotoBox.ViewModels
                         }
                     }
 
-                    // ── 协议专属 Key Photo 时机分离（OPPO 等）──
+                    // ── 协议专属 Cover 时机分离（OPPO 等）──
                     string? xmpText = null;
                     try { xmpText = LivePhotoSplitService.ReadMetadataTextSync(imagePath); }
                     catch { /* 非 JPEG 或读取失败，跳过 */ }
-                    var timing = KeyPhotoTimingService.Resolve(keyPhotoTimeSeconds, xmpText);
+                    var timing = EditTimingService.Resolve(keyPhotoTimeSeconds, xmpText);
 
                     // OPPO 改封面后原始高清图在 Original item 中，需要提取出来给 ⭐
                     byte[]? originalPhotoBytes = null;
                     if (timing.HasOriginalPhoto)
                     {
-                        originalPhotoBytes = KeyPhotoTimingService.ReadOriginalPhotoBytes(imagePath);
+                        originalPhotoBytes = EditTimingService.ReadOriginalPhotoBytes(imagePath);
                     }
 
                     // 触发时间轴帧提取（需要视频路径 + 元数据）
@@ -2527,7 +2755,7 @@ namespace LivePhotoBox.ViewModels
         /// <param name="fps">视频帧率（用于计算每帧时间戳）</param>
         /// <param name="keyPhotoTimeSeconds">关键帧时间偏移（秒）</param>
         /// <param name="photoTimeSeconds">静态照片在视频中的时间偏移（秒，⭐ 位置）</param>
-        /// <param name="coverTimeSeconds">封面帧/Key Photo 时间偏移（秒，🔵 选中位置）</param>
+        /// <param name="coverTimeSeconds">封面帧/Cover 时间偏移（秒，🔵 选中位置）</param>
         /// <param name="generation">选中代数（过期则跳过所有 UI 更新）</param>
         private void TriggerTimelineExtraction(string videoPath, double durationSeconds, double fps,
             double keyPhotoTimeSeconds = 0, int generation = 0)
@@ -3385,7 +3613,7 @@ namespace LivePhotoBox.ViewModels
                         // DualFile 先标 false，Phase 2 exiftool 查到 ContentIdentifier 后再确认。
                         bool confirmed = d.LivePhotoType is LivePhotoType.SingleFileJpeg
                             or LivePhotoType.SingleFileHeic;
-                        return new KeyPhotoFileItem
+                        return new EditFileItem
                         {
                             FileName = Path.GetFileName(d.FilePath),
                             FilePath = d.FilePath,
@@ -3497,7 +3725,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        private async Task ReadResolutionsAsync(List<KeyPhotoFileItem> files, CancellationToken token)
+        private async Task ReadResolutionsAsync(List<EditFileItem> files, CancellationToken token)
         {
             string? exifToolPath = ExternalToolLocator.FindExifTool()
                 ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
@@ -3854,7 +4082,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         /// <summary>获取照片部分的大小（单文件实况照片需扣除视频段）</summary>
-        private static string GetPhotoSizeDisplay(KeyPhotoFileItem? item)
+        private static string GetPhotoSizeDisplay(EditFileItem? item)
         {
             if (item == null) return "—";
             if (item.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic
@@ -4002,8 +4230,8 @@ namespace LivePhotoBox.ViewModels
                 }
             }
 
-            // ── 步骤 2：构建 KeyPhotoFileItem 列表，处理配对去重 ──
-            var toAdd = new List<KeyPhotoFileItem>();
+            // ── 步骤 2：构建 EditFileItem 列表，处理配对去重 ──
+            var toAdd = new List<EditFileItem>();
             var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var pairedVideoPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -4075,7 +4303,7 @@ namespace LivePhotoBox.ViewModels
                 if (detectedType == LivePhotoType.DualFile && pairedVideoPath == null)
                     confirmed = false;
 
-                var item = new KeyPhotoFileItem
+                var item = new EditFileItem
                 {
                     FileName = fileName,
                     FilePath = filePath,

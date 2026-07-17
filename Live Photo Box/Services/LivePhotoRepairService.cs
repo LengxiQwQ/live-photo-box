@@ -852,7 +852,7 @@ public static class LivePhotoRepairService
             // 临时文件放在系统 %TEMP% 下独立子文件夹（GUID 命名），避免中文路径编码问题，
             // 且每个修复操作互不干扰——并发修复时不会因共享 Temp 目录导致文件被意外删除。
             string ext = Path.GetExtension(sourcePath);
-            if (string.IsNullOrWhiteSpace(ext)) ext = ".jpg";
+            if (string.IsNullOrWhiteSpace(ext)) ext = ".JPG";
             string imgRepairTempDir = Path.Combine(Path.GetTempPath(), $"lpb_repair_{Guid.NewGuid():N}");
             Directory.CreateDirectory(imgRepairTempDir);
             string tempWorkFile = Path.Combine(imgRepairTempDir, $"repair_{Guid.NewGuid():N}{ext}");

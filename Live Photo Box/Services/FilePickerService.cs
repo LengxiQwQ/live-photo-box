@@ -180,7 +180,7 @@ namespace LivePhotoBox.Services
                     ".mp4" => "MP4 视频",
                     _ => $"{extLower.TrimStart('.').ToUpperInvariant()} 文件"
                 };
-                savePicker.FileTypeChoices.Add(displayName, new List<string> { extLower });
+                savePicker.FileTypeChoices.Add(displayName, new List<string> { extLower.ToUpperInvariant() });
 
                 var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
                 WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
@@ -230,7 +230,7 @@ namespace LivePhotoBox.Services
                     SuggestedStartLocation = PickerLocationId.PicturesLibrary,
                     SuggestedFileName = suggestedFileName
                 };
-                savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".jpg" });
+                savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".JPG" });
 
                 var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
                 WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
@@ -260,11 +260,12 @@ namespace LivePhotoBox.Services
         /// 源文件非 JPEG 时，提供"原格式" + "JPEG"两个选项，默认选中原格式。
         /// 源文件已是 JPEG 时只提供 JPEG 选项。
         /// </summary>
-        /// <param name="sourceExtension">源文件扩展名（含点，如 ".heic"）</param>
+        /// <param name="sourceExtension">源文件扩展名（含点，如 ".HEIC"）</param>
         /// <param name="suggestedFileName">建议文件名（不含扩展名）</param>
+        /// <param name="jpegOption">是否同时提供 JPEG 选项（默认 true）</param>
         /// <returns>用户选择的 StorageFile（含所选扩展名），取消则返回 null</returns>
         public static async Task<StorageFile?> PickSaveFileForExportAsync(
-            string sourceExtension, string suggestedFileName)
+            string sourceExtension, string suggestedFileName, bool jpegOption = true)
         {
             var savePicker = new FileSavePicker
             {
@@ -273,25 +274,29 @@ namespace LivePhotoBox.Services
             };
 
             var extLower = sourceExtension.ToLowerInvariant();
+            var extUpper = sourceExtension.ToUpperInvariant(); // 后缀统一大写
             bool isJpeg = extLower is ".jpg" or ".jpeg";
 
             if (!isJpeg)
             {
-                // 非 JPEG：提供原格式 + JPEG，原格式在前（默认）
+                // 原格式
                 string originalLabel = extLower switch
                 {
                     ".heic" or ".heif" => "HEIC 图像（原格式）",
                     ".png" => "PNG 图像（原格式）",
                     ".bmp" => "BMP 图像（原格式）",
                     ".tiff" or ".tif" => "TIFF 图像（原格式）",
-                    _ => $"{extLower.TrimStart('.').ToUpperInvariant()}（原格式）"
+                    _ => $"{extUpper.TrimStart('.')}（原格式）"
                 };
-                savePicker.FileTypeChoices.Add(originalLabel, new List<string> { extLower });
-                savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".jpg" });
+                savePicker.FileTypeChoices.Add(originalLabel, new List<string> { extUpper });
+
+                // JPEG 选项（可关闭，如 Apple 保存只需 HEIC）
+                if (jpegOption)
+                    savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".JPG" });
             }
             else
             {
-                savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".jpg" });
+                savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".JPG" });
             }
 
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);

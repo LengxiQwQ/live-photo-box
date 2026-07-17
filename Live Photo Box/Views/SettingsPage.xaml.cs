@@ -1182,7 +1182,7 @@ namespace LivePhotoBox.Views
         /// </summary>
         private void TimelineMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            AppViewModel.Instance.KeyPhoto.NotifyTimelineModeChanged();
+            AppViewModel.Instance.Edit.NotifyTimelineModeChanged();
         }
     }
 }

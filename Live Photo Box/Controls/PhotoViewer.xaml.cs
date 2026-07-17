@@ -213,9 +213,11 @@ namespace LivePhotoBox.Controls
                 _naturalHeight = natH;
             }
 
-            // 新图像就绪 → 重置到 Fit 状态
+            // 新图像就绪 → 保持当前缩放，仅依新尺寸重夹持平移防白边
             UpdatePixelScale();
-            ResetToFit();
+            var (tx, ty) = ClampTranslation(_currentScale,
+                ActiveTransform.TranslateX, ActiveTransform.TranslateY);
+            ApplyTransform(_currentScale, tx, ty);
         }
 
         private static void OnIsLoadingChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -252,16 +254,16 @@ namespace LivePhotoBox.Controls
             ApplyTransform(1.0, 0, 0);
         }
 
-        /// <summary>步进放大（×1.25，Viewport 中心为锚点）</summary>
+        /// <summary>步进放大（×1.75，Viewport 中心为锚点）</summary>
         public void ZoomIn()
         {
-            PerformZoom(_currentScale * 1.25, GetViewportCenter());
+            PerformZoom(_currentScale * 1.75, GetViewportCenter());
         }
 
-        /// <summary>步进缩小（÷1.25，下限 1.0=Fit）</summary>
+        /// <summary>步进缩小（÷1.75，下限 1.0=Fit）</summary>
         public void ZoomOut()
         {
-            PerformZoom(_currentScale / 1.25, GetViewportCenter());
+            PerformZoom(_currentScale / 1.75, GetViewportCenter());
         }
 
         /// <summary>Fit ↔ 100% 切换（Viewport 中心为锚点）</summary>
@@ -272,6 +274,70 @@ namespace LivePhotoBox.Controls
             UpdatePixelScale();
             bool isAtFit = Math.Abs(_currentScale - 1.0) < 0.001;
             PerformZoom(isAtFit ? _pixelScale : 1.0, GetViewportCenter());
+        }
+
+        /// <summary>直接设置缩放比例（Viewport 中心为锚点），供外部同步缩放状态</summary>
+        public void SetScale(double scale)
+        {
+            PerformZoom(scale, GetViewportCenter());
+        }
+
+        /// <summary>读取当前缩放+平移状态（缩放值 + 水平/垂直位置比例 0~1）</summary>
+        public (double scale, double panX, double panY) GetZoomPanState()
+        {
+            var (cl, ct, cw, ch) = GetContentLayout();
+            double vw = ViewportGrid.ActualWidth;
+            double vh = ViewportGrid.ActualHeight;
+            double s = _currentScale;
+            double sw = cw * s;
+            double sh = ch * s;
+
+            double px = 0.5, py = 0.5;
+            if (sw > vw + 0.01)
+            {
+                double min = vw - sw - cl;
+                double max = -cl;
+                px = max > min ? (ActiveTransform.TranslateX - min) / (max - min) : 0.5;
+            }
+            if (sh > vh + 0.01)
+            {
+                double min = vh - sh - ct;
+                double max = -ct;
+                py = max > min ? (ActiveTransform.TranslateY - min) / (max - min) : 0.5;
+            }
+            return (s, px, py);
+        }
+
+        /// <summary>应用完整缩放+平移状态（与 GetZoomPanState 配对）</summary>
+        public void ApplyZoomPanState(double scale, double panX, double panY)
+        {
+            if (_naturalWidth <= 0 || _naturalHeight <= 0) return;
+            scale = Math.Clamp(scale, 1.0, MaxZoom);
+
+            var (cl, ct, cw, ch) = GetContentLayout();
+            double vw = ViewportGrid.ActualWidth;
+            double vh = ViewportGrid.ActualHeight;
+            double sw = cw * scale;
+            double sh = ch * scale;
+
+            double tx, ty;
+            if (sw > vw + 0.01)
+            {
+                double min = vw - sw - cl;
+                double max = -cl;
+                tx = min + panX * (max - min);
+            }
+            else { tx = (vw - sw) / 2.0 - cl; }
+
+            if (sh > vh + 0.01)
+            {
+                double min = vh - sh - ct;
+                double max = -ct;
+                ty = min + panY * (max - min);
+            }
+            else { ty = (vh - sh) / 2.0 - ct; }
+
+            ApplyTransform(scale, tx, ty);
         }
 
         public void SetOverlayContent(UIElement element)
@@ -495,7 +561,7 @@ namespace LivePhotoBox.Controls
         private void Viewport_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
         {
             int delta = e.GetCurrentPoint(ViewportGrid).Properties.MouseWheelDelta;
-            double zoomFactor = 1.0 + (delta / 120.0) * 0.1;
+            double zoomFactor = 1.0 + (delta / 120.0) * 0.14;
             var cursorPos = e.GetCurrentPoint(ViewportGrid).Position;
             PerformZoom(_currentScale * zoomFactor, cursorPos);
             e.Handled = true;

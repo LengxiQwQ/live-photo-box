@@ -310,8 +310,8 @@ namespace LivePhotoBox.Services
         {
             return selectedSplitFormatIndex switch
             {
-                1 => ".mp4",
-                2 => ".mov",
+                1 => ".MP4",
+                2 => ".MOV",
                 _ => await DetectDefaultVideoExtensionAsync(sourceStream, videoStartOffset, metadataText, token)
             };
         }
@@ -336,7 +336,7 @@ namespace LivePhotoBox.Services
 
                     // 匹配 Apple QuickTime
                     if (majorBrand.StartsWith("qt", StringComparison.OrdinalIgnoreCase))
-                        return ".mov";
+                        return ".MOV";
 
                     // 匹配 MP4 及其变种 (含 hvc1 等 HEVC 变种)
                     if (majorBrand.StartsWith("isom", StringComparison.OrdinalIgnoreCase) ||
@@ -344,12 +344,12 @@ namespace LivePhotoBox.Services
                         majorBrand.StartsWith("avc1", StringComparison.OrdinalIgnoreCase) ||
                         majorBrand.StartsWith("hvc1", StringComparison.OrdinalIgnoreCase) ||
                         majorBrand.StartsWith("hev1", StringComparison.OrdinalIgnoreCase))
-                        return ".mp4";
+                        return ".MP4";
                 }
                 else if (boxType == "moov")
                 {
                     // 兼容极少数无 ftyp 直接 moov 开头的老版本格式
-                    return ".mov";
+                    return ".MOV";
                 }
             }
 
@@ -358,13 +358,13 @@ namespace LivePhotoBox.Services
             if (!string.IsNullOrWhiteSpace(mimeType))
             {
                 var mime = mimeType.Trim().ToLowerInvariant();
-                if (mime == "video/quicktime") return ".mov";
-                if (mime == "video/mp4") return ".mp4";
+                if (mime == "video/quicktime") return ".MOV";
+                if (mime == "video/mp4") return ".MP4";
             }
 
             // 3. 兜底方案
-            LogService.Split("Failed to detect video format via Magic Number and XMP, fallback to .mp4", LogLevel.Warning);
-            return ".mp4";
+            LogService.Split("Failed to detect video format via Magic Number and XMP, fallback to .MP4", LogLevel.Warning);
+            return ".MP4";
         }
 
         // 构建拆分后图片和视频的输出路径。
@@ -380,7 +380,7 @@ namespace LivePhotoBox.Services
 
             if (string.IsNullOrWhiteSpace(imageExtension))
             {
-                imageExtension = ".jpg";
+                imageExtension = ".JPG";
             }
 
             string? subDir = null;

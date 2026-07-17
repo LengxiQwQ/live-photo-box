@@ -121,16 +121,16 @@
     <value>By LengxiQwQ</value>
   </data>
   <data name="MainWindow_Title.Text" xml:space="preserve">
-    <value>Live Photo Box</value>
+    <value>实况照片工具箱（Live Photo Box）</value>
   </data>
   <data name="Nav_About.Content" xml:space="preserve">
     <value>关于</value>
   </data>
   <data name="Nav_Merge.Content" xml:space="preserve">
-    <value>实况照片合成</value>
+    <value>合成 &amp; 协议转换</value>
   </data>
   <data name="Nav_KeyPhoto.Content" xml:space="preserve">
-    <value>实况照片主图更换</value>
+    <value>实况照片编辑</value>
   </data>
   <data name="Nav_PhotoClassify.Content" xml:space="preserve">
     <value>照片自动分类</value>
@@ -996,6 +996,9 @@
   <data name="SettingsPage_CrashExportLatest_Button_Text.Text" xml:space="preserve">
     <value>导出上一次日志</value>
   </data>
+  <data name="SettingsPage_CrashExportCurrent_Button_Text.Text" xml:space="preserve">
+    <value>导出本次日志</value>
+  </data>
   <data name="SettingsPage_CrashClear_Button.Content" xml:space="preserve">
     <value>清理全部记录</value>
   </data>
@@ -1010,9 +1013,6 @@
   </data>
   <data name="SettingsPage_CrashLastTime_Label.Text" xml:space="preserve">
     <value>上一次日志文件：</value>
-  </data>
-  <data name="SettingsPage_CrashExportCurrent_Button_Text.Text" xml:space="preserve">
-    <value>导出本次日志</value>
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button.Content" xml:space="preserve">
     <value>生成测试日志</value>
@@ -2292,10 +2292,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>恢复</value>
   </data>
   <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
-    <value>设为主图并保存为副本</value>
+    <value>设为封面并保存为副本</value>
   </data>
   <data name="KeyPhotoPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>将当前帧设为主图并另存为新文件</value>
+    <value>将当前帧设为封面并另存为新文件</value>
   </data>
   <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
     <value>另存为</value>
@@ -2369,7 +2369,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>1:1</value>
   </data>
-  <data name="KeyPhotoPage_ExportProgressPrefix.Text" xml:space="preserve">
+  <data name="KeyPhotoPage_ExportProgressPrefixLabel" xml:space="preserve">
     <value>正在导出帧…</value>
   </data>
   <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
@@ -2391,7 +2391,8 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <comment>{0}=帧率数值，如 30</comment>
   </data>
   <data name="KeyPhoto_TimelineFrameKeyPhoto" xml:space="preserve">
-    <value>主图</value>
+    <value>封面 · 共 {0} 帧</value>
+    <comment>{0}=总帧数</comment>
   </data>
   <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
     <value>当前照片信息</value>
@@ -2529,10 +2530,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>最大化预览</value>
   </data>
   <data name="KeyPhotoPage_GotoCover.Content" xml:space="preserve">
-    <value>前往主图</value>
+    <value>前往封面</value>
   </data>
   <data name="KeyPhotoPage_GotoCover.ToolTipService.ToolTip" xml:space="preserve">
-    <value>跳转到当前主图对应的帧</value>
+    <value>跳转到当前封面对应的帧</value>
   </data>
   <data name="KeyPhoto_UnknownDevice" xml:space="preserve">
     <value>未知拍摄设备</value>
@@ -2644,5 +2645,59 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="KeyPhotoPage_SaveAppleFilename" xml:space="preserve">
     <value>{0}_封面帧{1}</value>
+  </data>
+  <data name="KeyPhotoPage_SaveError" xml:space="preserve">
+    <value>保存错误</value>
+  </data>
+  <data name="MergePage_DropToBrowse.Text" xml:space="preserve">
+    <value>释放以浏览此文件夹</value>
+  </data>
+  <data name="SplitPage_DropToBrowse.Text" xml:space="preserve">
+    <value>释放以浏览此文件夹</value>
+  </data>
+  <data name="RepairPage_DropToBrowse.Text" xml:space="preserve">
+    <value>释放以浏览此文件夹</value>
+  </data>
+  <data name="MergePage_EmptyQueueDragHint.Text" xml:space="preserve">
+    <value>或将文件夹拖拽到此处</value>
+  </data>
+  <data name="SplitPage_EmptyQueueDragHint.Text" xml:space="preserve">
+    <value>或将文件夹拖拽到此处</value>
+  </data>
+  <data name="RepairPage_EmptyQueueDragHint.Text" xml:space="preserve">
+    <value>或将文件夹拖拽到此处</value>
+  </data>
+  <data name="KeyPhotoPage_LeftPanelEmptyHint_Line1.Text" xml:space="preserve">
+    <value>点击上方浏览按钮选择目录</value>
+  </data>
+  <data name="KeyPhotoPage_LeftPanelEmptyHint_Line2.Text" xml:space="preserve">
+    <value>或将文件夹拖拽到此处</value>
+  </data>
+  <data name="KeyPhotoPage_PreviewEmptyHint_Line1.Text" xml:space="preserve">
+    <value>从左侧选择文件预览</value>
+  </data>
+  <data name="KeyPhotoPage_PreviewEmptyHint_Line2.Text" xml:space="preserve">
+    <value>或将文件拖拽到此处</value>
+  </data>
+  <data name="KeyPhotoPage_TimelineEmptyHint.Text" xml:space="preserve">
+    <value>选择实况照片后查看逐帧预览</value>
+  </data>
+  <data name="KeyPhotoPage_BasicInfoLeftHint.Text" xml:space="preserve">
+    <value>查看文件基本属性</value>
+  </data>
+  <data name="KeyPhotoPage_BasicInfoRightHint.Text" xml:space="preserve">
+    <value>查看 EXIF 拍摄参数</value>
+  </data>
+  <data name="PureMediaViewer_Stretch_Uniform" xml:space="preserve">
+    <value>适应</value>
+  </data>
+  <data name="PureMediaViewer_Stretch_UniformToFill" xml:space="preserve">
+    <value>填充</value>
+  </data>
+  <data name="PureMediaViewer_Stretch_Fill" xml:space="preserve">
+    <value>拉伸</value>
+  </data>
+  <data name="PureMediaViewer_Stretch_None" xml:space="preserve">
+    <value>原始</value>
   </data>
 </root>

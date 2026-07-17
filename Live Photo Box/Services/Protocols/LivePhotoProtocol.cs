@@ -45,11 +45,11 @@ namespace LivePhotoBox.Services.Protocols
 
         // Build XMP metadata with a specified presentation timestamp (microseconds).
         // This timestamp tells viewers (Google Photos, OPPO Gallery, etc.) where in the
-        // video timeline the key photo / still image was taken.
+        // video timeline the cover / still image was taken.
         // The default implementation ignores the timestamp for backward compatibility;
         // override in protocol subclasses that support presentation timestamps.
         // videoSize: Size of the appended video in bytes.
-        // presentationTimestampUs: The timestamp in microseconds of the selected key photo frame.
+        // presentationTimestampUs: The timestamp in microseconds of the selected cover frame.
         // è¿å: UTF-8 encoded XMP bytes including xpacket wrapper markers.
         public virtual byte[] BuildXmpMetadata(long videoSize, long presentationTimestampUs)
             => BuildXmpMetadata(videoSize);

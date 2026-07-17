@@ -65,7 +65,7 @@ namespace LivePhotoBox.Services.Protocols
 
         // Build XMP metadata with presentation timestamp (microseconds).
         // This timestamp tells the viewer (Google Photos, Windows 11, etc.) where in the
-        // video the key photo was taken, so playback starts from the correct position.
+        // video the cover was taken, so playback starts from the correct position.
         // videoSize: Size of the appended MP4 video in bytes.
         // presentationTimestampUs: Timestamp in microseconds of the selected frame.
         // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.

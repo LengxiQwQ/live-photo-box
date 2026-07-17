@@ -4,22 +4,90 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     IsTabStop="False">
 
-    <Grid x:Name="RootGrid" Background="Transparent">
-        <MediaPlayerElement x:Name="VideoPlayer"
-                            AutoPlay="False"
-                            AreTransportControlsEnabled="True"
-                            Stretch="Uniform"
-                            HorizontalAlignment="Stretch"
-                            VerticalAlignment="Stretch">
-            <MediaPlayerElement.TransportControls>
-                <MediaTransportControls IsCompact="True"
-                                        IsPlaybackRateButtonVisible="False"
-                                        IsFastForwardButtonVisible="False"
-                                        IsStopButtonVisible="False"
-                                        IsSeekBarVisible="True"
-                                        IsVolumeButtonVisible="True"/>
-            </MediaPlayerElement.TransportControls>
-        </MediaPlayerElement>
+    <Grid x:Name="RootGrid" Background="Transparent"
+          SizeChanged="RootGrid_SizeChanged">
+        <!-- Viewport：手势容器 + 视频（无内置传输控件） -->
+        <Grid x:Name="ViewportGrid"
+              Background="Transparent"
+              PointerPressed="Viewport_PointerPressed"
+              PointerMoved="Viewport_PointerMoved"
+              PointerReleased="Viewport_PointerReleased"
+              DoubleTapped="Viewport_DoubleTapped">
+            <MediaPlayerElement x:Name="VideoPlayer"
+                                RenderTransformOrigin="0,0"
+                                AutoPlay="False"
+                                AreTransportControlsEnabled="False"
+                                Stretch="Uniform"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center">
+                <MediaPlayerElement.RenderTransform>
+                    <CompositeTransform x:Name="VideoTransform"
+                                        ScaleX="1" ScaleY="1"
+                                        TranslateX="0" TranslateY="0"/>
+                </MediaPlayerElement.RenderTransform>
+            </MediaPlayerElement>
+        </Grid>
+
+        <!-- 拖拽进度条时浮出的时间提示 -->
+        <Border x:Name="SeekTimeBubble"
+                HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                Margin="0,0,0,48" Visibility="Collapsed"
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                CornerRadius="4" Padding="8,2">
+            <TextBlock x:Name="SeekTimeBubbleText"
+                       Text="00:00" FontSize="13" FontWeight="SemiBold"
+                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+        </Border>
+
+        <!-- 独立传输栏（铺满 RootGrid 底部，不受视频尺寸限制） -->
+        <Grid x:Name="TransportBar"
+              VerticalAlignment="Bottom"
+              Height="44" Padding="8,0"
+              Background="{ThemeResource LayerFillColorDefaultBrush}"
+              Visibility="Collapsed">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button x:Name="PlayPauseBtn" Grid.Column="0"
+                    Width="32" Height="32" Padding="0"
+                    Background="Transparent" BorderThickness="0"
+                    Click="PlayPauseBtn_Click">
+                <FontIcon x:Name="PlayPauseIcon" Glyph="&#xE768;" FontSize="14"
+                          Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+            </Button>
+            <TextBlock x:Name="TimeText" Grid.Column="1"
+                       Text="00:00" FontSize="11"
+                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                       VerticalAlignment="Center" Margin="6,0"/>
+            <Slider x:Name="SeekSlider" Grid.Column="2"
+                    Minimum="0" Maximum="100" Value="0"
+                    VerticalAlignment="Center" Margin="8,0"
+                    IsThumbToolTipEnabled="False"
+                    ValueChanged="SeekSlider_ValueChanged"/>
+            <TextBlock x:Name="DurationText" Grid.Column="3"
+                       Text="00:00" FontSize="11"
+                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                       VerticalAlignment="Center" Margin="6,0"/>
+            <Button x:Name="VolumeBtn" Grid.Column="4"
+                    Width="32" Height="32" Padding="0"
+                    Background="Transparent" BorderThickness="0"
+                    Click="VolumeBtn_Click">
+                <FontIcon x:Name="VolumeIcon" Glyph="&#xE767;" FontSize="14"
+                          Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+            </Button>
+            <Button x:Name="StretchBtn" Grid.Column="5"
+                    Width="Auto" MinWidth="32" Height="32" Padding="6,0"
+                    Background="Transparent" BorderThickness="0"
+                    Click="StretchBtn_Click">
+                <FontIcon Glyph="&#xE9A6;" FontSize="14"
+                          Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+            </Button>
+        </Grid>
 
         <Button x:Name="CloseButton"
                 HorizontalAlignment="Right" VerticalAlignment="Top"

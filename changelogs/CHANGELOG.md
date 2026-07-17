@@ -1,10 +1,14 @@
 # Live Photo Box Changelog
 
-> Current version: **v1.15.2**
+> Current version: **v2.0.0**
 > Project started: 2026-03-27
 > Tech stack: WinUI 3 + .NET 9 + C# 13
 
 ---
+
+## v2.0.x — LivePhotoEdit Page & Toolchain Rewrite
+
+> **v2.0.0** (2026-07-18) **[Major Release]** **New LivePhotoEdit page** — timeline (extract video frames, pick any frame), export single or all frames, replace Live Photo cover, view EXIF properties, drag-and-drop files; **Folder drag-and-drop on all pages**; **Timeline mode setting** (classic/filmstrip); **Enhanced log viewer** (current + previous logs); **Fixed critical packaging defect** from v1.15.2/v1.15.3; **Fixed language switching not working in portable/installer versions** (issue present since initial release)
 
 ## v1.15.x — Auto Update & Pairing Enhancement
 

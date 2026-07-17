@@ -40,8 +40,8 @@ namespace LivePhotoBox.ViewModels
         // 关于页面 ViewModel（AboutPage）。
         public AboutViewModel About { get; }
 
-        // 关键帧提取页面 ViewModel（KeyPhotoPage）。
-        public KeyPhotoViewModel KeyPhoto { get; }
+        // 实况照片编辑页面 ViewModel（EditPage）。
+        public EditViewModel Edit { get; }
 
         // 照片分类页面 ViewModel（PhotoClassifyPage）。
         public PhotoClassifyViewModel PhotoClassify { get; }
@@ -427,7 +427,7 @@ namespace LivePhotoBox.ViewModels
             Home = new HomeViewModel();
             Settings = new SettingsViewModel();
             About = new AboutViewModel();
-            KeyPhoto = new KeyPhotoViewModel();
+            Edit = new EditViewModel();
             PhotoClassify = new PhotoClassifyViewModel();
             History = new HistoryViewModel();
 

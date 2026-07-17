@@ -1,7 +1,7 @@
 /*
- * KeyPhotoPage.xaml.cs
+ * EditPage.xaml.cs
  *
- * 实况照片主图更换页面的代码后置。
+ * 实况照片封面更换页面的代码后置。
  * 处理 UI 事件 + 自定义卡片交互（悬停/选中/按下）+ 预览最大化/缩放。
  *
  * 时间轴支持双模式（在设置页切换）：
@@ -35,9 +35,9 @@ using Windows.Storage;
 
 namespace LivePhotoBox.Views
 {
-    public sealed partial class KeyPhotoPage : Page
+    public sealed partial class EditPage : Page
     {
-        public KeyPhotoViewModel ViewModel => AppViewModel.Instance.KeyPhoto;
+        public EditViewModel ViewModel => AppViewModel.Instance.Edit;
 
         // ── 文件列表卡片交互状态 ──
         private Border? _hoveredCard;
@@ -79,6 +79,11 @@ namespace LivePhotoBox.Views
 
         // ── 预览最大化状态 ──
         private bool _isPreviewMaximized;
+
+        // ── 缩放+平移状态同步（图片 ↔ 实况视频）──
+        private double _sharedZoomScale = 1.0;
+        private double _sharedPanX = 0.5;
+        private double _sharedPanY = 0.5;
 
         // ════════════════════════════════════════════════════════════
         //  底部选项卡单选状态（带记忆 + 非实况自动切"文件基础信息"）
@@ -202,7 +207,7 @@ namespace LivePhotoBox.Views
         /// <summary>胶片模式滚动重试取消令牌（布局未就绪时延迟重试）</summary>
         private CancellationTokenSource? _filmstripScrollRetryCts;
 
-        public KeyPhotoPage()
+        public EditPage()
         {
             InitializeComponent();
 
@@ -225,6 +230,11 @@ namespace LivePhotoBox.Views
 
             Loaded += KeyPhotoPage_Loaded;
             PhotoViewer.ScaleChanged += PhotoViewer_ScaleChanged;
+            PureMediaViewer.ScaleChanged += s =>
+            {
+                _sharedZoomScale = s;
+                UpdateZoomPercentDisplay();
+            };
             FileItemListView.ContainerContentChanging += OnContainerContentChanging;
         }
 
@@ -339,7 +349,8 @@ namespace LivePhotoBox.Views
                 PanelSpacerColumn.Width = new GridLength(8);
                 UnifiedInfoPanel.Visibility = Visibility.Visible;
                 MainContentGrid.Padding = new Thickness(8, 0, 8, 6);
-                PreviewBorder.CornerRadius = new CornerRadius(10);
+                PreviewBorder.CornerRadius = ViewModel.IsSelectedFileVideo
+                    ? new CornerRadius(0) : new CornerRadius(10);
                 PreviewBorder.Margin = new Thickness(0, 0, 0, 4);
                 MaximizeButtonIcon.Glyph = "";
                 ToolTipService.SetToolTip(MaximizeButton, "最大化预览");
@@ -397,8 +408,7 @@ namespace LivePhotoBox.Views
         // ════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// 点击 LIVE 按钮 → 解析视频路径 → PureMediaViewer 透明加载 →
-        /// 第一帧就绪后变不透明覆盖图片。
+        /// 点击 LIVE 按钮 → 等待 MediaOpened → VideoOpened 事件中同一帧藏照片+亮视频。
         /// </summary>
         private async void LivePhotoBadgeButton_Click(object sender, RoutedEventArgs e)
         {
@@ -415,27 +425,55 @@ namespace LivePhotoBox.Views
                 PureMediaViewer.AutoCloseOnEnd = true;
                 PureMediaViewer.ShowCloseButton = true;
                 PureMediaViewer.ShowTransportControls = false;
+                PureMediaViewer.ZoomEnabled = true;
 
-                // PureMediaViewer.Play() 先透明加载（用户仍能看到底下的图片），
-                // 等视频第一帧就绪后变不透明盖住图片，全程无闪白/闪黑
                 PureMediaViewer.VideoSource = mediaSource;
-                PureMediaViewer.Play();
 
-                // 等视频第一帧渲染完成
-                await Task.Delay(100);
+                // 从照片读取完整缩放+平移状态
+                var photoState = PhotoViewer.GetZoomPanState();
+                _sharedZoomScale = photoState.scale;
+                _sharedPanX = photoState.panX;
+                _sharedPanY = photoState.panY;
 
-                // 隐藏浮在视频上方的控件（图片始终未被隐藏，被视频覆盖）
+                // ════════════════════════════════════════════════════════
+                // 原子切换：等视频第一帧就绪后，同一帧内藏照片 + 亮视频 + 同步缩放平移
+                // ════════════════════════════════════════════════════════
+                var tcs = new TaskCompletionSource<bool>();
+                Action onOpened = null!;
+                onOpened = () =>
+                {
+                    PureMediaViewer.VideoOpened -= onOpened;
+                    PhotoViewer.Opacity = 0;
+                    PureMediaViewer.ShowDirect();
+                    // 应用完整缩放+平移状态（ShowDirect 后布局已就绪）
+                    PureMediaViewer.ApplyZoomPanState(_sharedZoomScale, _sharedPanX, _sharedPanY);
+                    tcs.TrySetResult(true);
+                };
+                PureMediaViewer.VideoOpened += onOpened;
+
+                // 等待视频就绪（含 3 秒超时）
+                await Task.WhenAny(tcs.Task, Task.Delay(3000));
+
+                // 超时或加载失败 → 视频未成功显示，恢复状态
+                if (PureMediaViewer.Visibility != Visibility.Visible)
+                {
+                    SyncLivePhotoBadgeVisibility();
+                    ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
+                    return;
+                }
+
+                // 隐藏浮在视频上方的控件——保留 ZoomControlsPanel 供缩放
                 LivePhotoBadgeButton.Visibility = Visibility.Collapsed;
                 MuteButton.Visibility = Visibility.Collapsed;
-                ZoomControlsPanel.Visibility = Visibility.Collapsed;
 
-                // 播放前应用静音状态
+                // 播放前应用静音状态（ShowDirect 已启动播放）
                 ApplyMuteState();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
-                    $"[KeyPhotoPage] 视频播放失败: {ex.Message}");
+                    $"[EditPage] 视频播放失败: {ex.Message}");
+                PhotoViewer.Opacity = 1;
                 SyncLivePhotoBadgeVisibility();
                 ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
             }
@@ -448,6 +486,18 @@ namespace LivePhotoBox.Views
         private void PureMediaViewer_CloseRequested(object? sender, EventArgs e)
         {
             if (_isApplyingPreviewMode) return;
+
+            // 从视频读取完整缩放+平移状态
+            var videoState = PureMediaViewer.GetZoomPanState();
+            _sharedZoomScale = videoState.scale;
+            _sharedPanX = videoState.panX;
+            _sharedPanY = videoState.panY;
+
+            // 恢复照片层可见
+            PhotoViewer.Opacity = 1;
+
+            // 将完整状态同步回照片
+            PhotoViewer.ApplyZoomPanState(_sharedZoomScale, _sharedPanX, _sharedPanY);
 
             SyncLivePhotoBadgeVisibility();
             ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
@@ -545,7 +595,7 @@ namespace LivePhotoBox.Views
                 catch (Exception ex)
                 {
                     System.Diagnostics.Debug.WriteLine(
-                        $"[KeyPhotoPage] 嵌入式视频提取失败: {ex.Message}");
+                        $"[EditPage] 嵌入式视频提取失败: {ex.Message}");
                 }
             }
 
@@ -564,7 +614,7 @@ namespace LivePhotoBox.Views
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
-                    $"[KeyPhotoPage] 临时视频清理失败: {ex.Message}");
+                    $"[EditPage] 临时视频清理失败: {ex.Message}");
             }
             finally
             {
@@ -573,37 +623,56 @@ namespace LivePhotoBox.Views
         }
 
         // ════════════════════════════════════════════════════════════
-        //  缩放按钮（委托给 PhotoViewer）
+        //  缩放按钮（视频活跃时路由到 PureMediaViewer，否则到 PhotoViewer）
         // ════════════════════════════════════════════════════════════
+
+        /// <summary>视频层是否正在活跃显示</summary>
+        private bool IsVideoActive() =>
+            PureMediaViewer.Visibility == Visibility.Visible && PureMediaViewer.Opacity > 0.99;
 
         private void ZoomInButton_Click(object sender, RoutedEventArgs e)
         {
-            PhotoViewer.ZoomIn();
+            if (IsVideoActive())
+                PureMediaViewer.ZoomIn();
+            else
+                PhotoViewer.ZoomIn();
             UpdateZoomPercentDisplay();
         }
 
         private void ZoomOutButton_Click(object sender, RoutedEventArgs e)
         {
-            PhotoViewer.ZoomOut();
+            if (IsVideoActive())
+                PureMediaViewer.ZoomOut();
+            else
+                PhotoViewer.ZoomOut();
             UpdateZoomPercentDisplay();
         }
 
         private void ZoomPercentButton_Click(object sender, RoutedEventArgs e)
         {
-            PhotoViewer.ToggleFitVsPixel();
+            if (IsVideoActive())
+                PureMediaViewer.ToggleFitVsPixel();
+            else
+                PhotoViewer.ToggleFitVsPixel();
             UpdateZoomPercentDisplay();
         }
 
         /// <summary>同步缩放百分比显示（相对于 Fit 的整数百分比）</summary>
         private void UpdateZoomPercentDisplay()
         {
-            int percent = (int)Math.Round(PhotoViewer.CurrentScale * 100);
+            int percent;
+            if (IsVideoActive())
+                percent = (int)Math.Round(PureMediaViewer.CurrentScale * 100);
+            else
+                percent = (int)Math.Round(PhotoViewer.CurrentScale * 100);
             ZoomPercentText.Text = $"{percent}%";
         }
 
         private void PhotoViewer_ScaleChanged(double newScale)
         {
-            UpdateZoomPercentDisplay();
+            _sharedZoomScale = newScale;
+            if (!IsVideoActive())
+                UpdateZoomPercentDisplay();
         }
 
         private void KeyPhotoPage_Loaded(object sender, RoutedEventArgs e)
@@ -1128,7 +1197,7 @@ namespace LivePhotoBox.Views
         // ═════════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// ViewModel 通知时间轴选中 key photo 帧并居中滚动。
+        /// ViewModel 通知时间轴选中 cover 帧并居中滚动。
         /// 根据当前模式分别派发到经典或胶片模式。
         /// </summary>
         private void OnRequestScrollToFrame(TimelineFrame frame)
@@ -1152,12 +1221,12 @@ namespace LivePhotoBox.Views
         }
 
         /// <summary>
-        /// 导航回 KeyPhotoPage 时调用。如果用户在设置页切换了模式，
+        /// 导航回 EditPage 时调用。如果用户在设置页切换了模式，
         /// 此时页面已在前台，正式触发 Visibility 切换 + 强刷绑定 + 恢复滚动。
         ///
         /// 为什么不在 NotifyTimelineModeChanged 中切 Visibility：
         /// WinUI 3 在后台（缓存）页面上切换 Visibility 会导致 x:Bind 绑定断裂，
-        /// ListView SelectedItem 双向绑定失效 → 点击缩略图主图不更新、滚动条不响应。
+        /// ListView SelectedItem 双向绑定失效 → 点击缩略图封面不更新、滚动条不响应。
         /// </summary>
         protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
         {
@@ -1190,7 +1259,7 @@ namespace LivePhotoBox.Views
                     ForceScrollBarsAlwaysThick();
                 }
 
-                // 5. 核心修复：强刷双向绑定，解决"点击缩略图主图不更新"
+                // 5. 核心修复：强刷双向绑定，解决"点击缩略图封面不更新"
                 if (currentFrame != null)
                 {
                     ViewModel.SelectedTimelineFrame = null;
@@ -1734,14 +1803,20 @@ namespace LivePhotoBox.Views
         private void FileItemListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             foreach (var item in e.RemovedItems)
-                RefreshSingleCardVisual(item as KeyPhotoFileItem, isSelected: false);
+                RefreshSingleCardVisual(item as EditFileItem, isSelected: false);
             foreach (var item in e.AddedItems)
-                RefreshSingleCardVisual(item as KeyPhotoFileItem, isSelected: true);
+                RefreshSingleCardVisual(item as EditFileItem, isSelected: true);
 
-            if (FileItemListView.SelectedItem is KeyPhotoFileItem selected)
+            if (FileItemListView.SelectedItem is EditFileItem selected)
                 ViewModel.SelectFile(selected.FilePath);
             else
                 ViewModel.SelectFile(null);
+
+            // 切换文件 → 重置共享缩放/平移 + 照片 Viewer 归位
+            _sharedZoomScale = 1.0;
+            _sharedPanX = 0.5;
+            _sharedPanY = 0.5;
+            PhotoViewer.ResetToFit();
 
             // 非实况照片自动切"文件基础信息"；实况照片恢复记忆选项卡
             ApplyInfoTabForSelectedFile();
@@ -1779,6 +1854,10 @@ namespace LivePhotoBox.Views
                             PureMediaViewer.AutoCloseOnEnd = false;
                             PureMediaViewer.ShowCloseButton = false;
                             PureMediaViewer.ShowTransportControls = true;
+                            PureMediaViewer.ZoomEnabled = false;
+
+                            // 视频模式 → 预览面板直角
+                            PreviewBorder.CornerRadius = new CornerRadius(0);
 
                             // 先透明加载（用户仍看到底层控件）
                             PureMediaViewer.VideoSource = mediaSource;
@@ -1800,14 +1879,15 @@ namespace LivePhotoBox.Views
                         catch (Exception ex)
                         {
                             System.Diagnostics.Debug.WriteLine(
-                                $"[KeyPhotoPage] 视频自动播放失败: {ex.Message}");
+                                $"[EditPage] 视频自动播放失败: {ex.Message}");
                         }
                     }
                 }
 
-                // 非视频文件：恢复图片预览模式
-                // PhotoViewer 未被隐藏，但防御性恢复不会造成问题
+                // 非视频文件：恢复图片预览模式 + 圆角
+                PreviewBorder.CornerRadius = new CornerRadius(10);
                 PhotoViewer.Visibility = Visibility.Visible;
+                PhotoViewer.Opacity = 1;
                 SyncLivePhotoBadgeVisibility();
                 ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
             }
@@ -1818,7 +1898,7 @@ namespace LivePhotoBox.Views
         }
 
         /// <summary>通过数据项找到对应容器中的 Border 并刷新视觉</summary>
-        private void RefreshSingleCardVisual(KeyPhotoFileItem? item, bool isSelected)
+        private void RefreshSingleCardVisual(EditFileItem? item, bool isSelected)
         {
             if (item == null) return;
             if (FileItemListView.ContainerFromItem(item) is ListViewItem container)

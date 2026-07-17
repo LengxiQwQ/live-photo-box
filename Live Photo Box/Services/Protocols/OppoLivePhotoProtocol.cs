@@ -85,7 +85,7 @@ namespace LivePhotoBox.Services.Protocols
         // Build XMP metadata with presentation timestamp (microseconds).
         // OPPO uses two timestamp fields: MotionPhotoPresentationTimestampUs (cover position)
         // and OpCamera:MotionPhotoPrimaryPresentationTimestampUs (primary photo position).
-        // We set both to the selected frame's timestamp since we're replacing the key photo.
+        // We set both to the selected frame's timestamp since we're replacing the cover.
         // videoSize: Size of the appended MP4 video in bytes (trailer-free pure video size).
         // presentationTimestampUs: Timestamp in microseconds of the selected frame.
         // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.

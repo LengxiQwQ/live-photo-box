@@ -42,7 +42,7 @@ namespace LivePhotoBox
     public sealed partial class MainWindow : Window
     {
         private const int DefaultWindowWidth = 1222;
-        private const int DefaultWindowHeight = 732;
+        private const int DefaultWindowHeight = 731;
 
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr hwnd);
@@ -80,6 +80,9 @@ namespace LivePhotoBox
         {
             InitializeComponent();
             LogService.Info("MainWindow constructed.", LogSource.UI);
+
+            // 本地化窗口标题（任务栏、Alt+Tab 显示）
+            Title = ResourceService.GetString("MainWindow_Title.Text");
 
             // 窗口关闭。
             // 行业标准做法：只做"不做就会崩"的事。OS 在进程退出时自动回收内存/句柄/子进程。
@@ -435,7 +438,7 @@ namespace LivePhotoBox
                 case "Merge": NavigateToPage(typeof(Views.MergePage), "Merge", transitionInfo); break;
                 case "Split": NavigateToPage(typeof(Views.SplitPage), "Split", transitionInfo); break;
                 case "History": NavigateToPage(typeof(Views.HistoryPage), null, transitionInfo); break;
-                case "KeyPhoto": NavigateToPage(typeof(Views.KeyPhotoPage), null, transitionInfo); break;
+                case "Edit": NavigateToPage(typeof(Views.EditPage), null, transitionInfo); break;
                 case "PhotoClassify": NavigateToPage(typeof(Views.PhotoClassifyPage), null, transitionInfo); break;
                 case "Repair": NavigateToPage(typeof(Views.RepairPage), "Repair", transitionInfo); break;
                 case "About": NavigateToPage(typeof(Views.AboutPage), null, transitionInfo); break;

@@ -127,10 +127,10 @@
     <value>About</value>
   </data>
   <data name="Nav_Merge.Content" xml:space="preserve">
-    <value>Merge Live Photo</value>
+    <value>Merge &amp; Convert</value>
   </data>
   <data name="Nav_KeyPhoto.Content" xml:space="preserve">
-    <value>Replace Key Photo</value>
+    <value>Edit Live Photo</value>
   </data>
   <data name="Nav_PhotoClassify.Content" xml:space="preserve">
     <value>Photo Organize</value>
@@ -2294,10 +2294,10 @@ Are you sure you want to switch?</value>
     <value>Restore</value>
   </data>
   <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
-    <value>Set as Key Photo &amp; Save Copy</value>
+    <value>Set as Cover &amp; Save Copy</value>
   </data>
   <data name="KeyPhotoPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Set current frame as the key photo and save a copy</value>
+    <value>Set current frame as the cover and save a copy</value>
   </data>
   <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
     <value>Save As</value>
@@ -2371,7 +2371,7 @@ Are you sure you want to switch?</value>
   <data name="KeyPhotoPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>1:1</value>
   </data>
-  <data name="KeyPhotoPage_ExportProgressPrefix.Text" xml:space="preserve">
+  <data name="KeyPhotoPage_ExportProgressPrefixLabel" xml:space="preserve">
     <value>Exporting frames…</value>
   </data>
   <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
@@ -2393,7 +2393,8 @@ Are you sure you want to switch?</value>
     <comment>{0}=frame rate number, e.g. 30</comment>
   </data>
   <data name="KeyPhoto_TimelineFrameKeyPhoto" xml:space="preserve">
-    <value>Key Photo</value>
+    <value>Cover · {0} frames</value>
+    <comment>{0}=total frames</comment>
   </data>
   <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
     <value>Photo Info</value>
@@ -2531,10 +2532,10 @@ Are you sure you want to switch?</value>
     <value>Maximize Preview</value>
   </data>
   <data name="KeyPhotoPage_GotoCover.Content" xml:space="preserve">
-    <value>Go to Key Photo</value>
+    <value>Go to Cover</value>
   </data>
   <data name="KeyPhotoPage_GotoCover.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Jump to the key photo frame</value>
+    <value>Jump to the cover frame</value>
   </data>
   <data name="KeyPhoto_UnknownDevice" xml:space="preserve">
     <value>Unknown Device</value>
@@ -2646,5 +2647,59 @@ Are you sure you want to switch?</value>
   </data>
   <data name="KeyPhotoPage_SaveAppleFilename" xml:space="preserve">
     <value>{0}_keyframe{1}</value>
+  </data>
+  <data name="KeyPhotoPage_SaveError" xml:space="preserve">
+    <value>Save Error</value>
+  </data>
+  <data name="MergePage_DropToBrowse.Text" xml:space="preserve">
+    <value>Drop to browse this folder</value>
+  </data>
+  <data name="SplitPage_DropToBrowse.Text" xml:space="preserve">
+    <value>Drop to browse this folder</value>
+  </data>
+  <data name="RepairPage_DropToBrowse.Text" xml:space="preserve">
+    <value>Drop to browse this folder</value>
+  </data>
+  <data name="MergePage_EmptyQueueDragHint.Text" xml:space="preserve">
+    <value>Or drag a folder here</value>
+  </data>
+  <data name="SplitPage_EmptyQueueDragHint.Text" xml:space="preserve">
+    <value>Or drag a folder here</value>
+  </data>
+  <data name="RepairPage_EmptyQueueDragHint.Text" xml:space="preserve">
+    <value>Or drag a folder here</value>
+  </data>
+  <data name="KeyPhotoPage_LeftPanelEmptyHint_Line1.Text" xml:space="preserve">
+    <value>Click Browse above to select a folder</value>
+  </data>
+  <data name="KeyPhotoPage_LeftPanelEmptyHint_Line2.Text" xml:space="preserve">
+    <value>or drag a folder here</value>
+  </data>
+  <data name="KeyPhotoPage_PreviewEmptyHint_Line1.Text" xml:space="preserve">
+    <value>Select a file from the left</value>
+  </data>
+  <data name="KeyPhotoPage_PreviewEmptyHint_Line2.Text" xml:space="preserve">
+    <value>or drag files here</value>
+  </data>
+  <data name="KeyPhotoPage_TimelineEmptyHint.Text" xml:space="preserve">
+    <value>Select a Live Photo to view frames</value>
+  </data>
+  <data name="KeyPhotoPage_BasicInfoLeftHint.Text" xml:space="preserve">
+    <value>View basic file info</value>
+  </data>
+  <data name="KeyPhotoPage_BasicInfoRightHint.Text" xml:space="preserve">
+    <value>View EXIF camera data</value>
+  </data>
+  <data name="PureMediaViewer_Stretch_Uniform" xml:space="preserve">
+    <value>Fit</value>
+  </data>
+  <data name="PureMediaViewer_Stretch_UniformToFill" xml:space="preserve">
+    <value>Fill</value>
+  </data>
+  <data name="PureMediaViewer_Stretch_Fill" xml:space="preserve">
+    <value>Stretch</value>
+  </data>
+  <data name="PureMediaViewer_Stretch_None" xml:space="preserve">
+    <value>Original</value>
   </data>
 </root>

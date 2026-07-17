@@ -22,7 +22,9 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using System;
+using System.IO;
 using System.Linq;
+using Windows.Storage;
 
 namespace LivePhotoBox.Views
 {
@@ -36,6 +38,10 @@ namespace LivePhotoBox.Views
 
         // 是否已绑定 ViewModel 事件，防止重复绑定
         private bool _eventsHooked;
+
+        // ── 拖拽文件夹状态 ──
+        /// <summary>拖入的 StorageItems 是否全是文件夹</summary>
+        private bool _isDropAllFolders;
 
         // 关联的 SplitViewModel
         public SplitViewModel ViewModel => AppViewModel.Instance.Split;
@@ -71,6 +77,8 @@ namespace LivePhotoBox.Views
             _scrollToTopHelper ??= new ScrollToTopButtonHelper(SplitTaskListView, ScrollToTopButton);
             _scrollToTopHelper.Attach();
 
+            AttachDragEvents();
+
             if (_eventsHooked) return;
 
             ViewModel.TaskStartedForScroll += OnTaskStarted;
@@ -87,6 +95,8 @@ namespace LivePhotoBox.Views
 
             _scroller.NotifyPageUnloading();
             _scroller.Detach();
+
+            DetachDragEvents();
 
             if (!_eventsHooked) return;
 
@@ -179,6 +189,104 @@ namespace LivePhotoBox.Views
             finally
             {
                 _isOpeningLightbox = false;
+            }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  拖拽文件夹导入（Drag & Drop）
+        // ════════════════════════════════════════════════════════════
+
+        private void AttachDragEvents()
+        {
+            SplitTaskListSurface.DragEnter += TaskList_DragEnter;
+            SplitTaskListSurface.DragOver += TaskList_DragOver;
+            SplitTaskListSurface.DragLeave += TaskList_DragLeave;
+            SplitTaskListSurface.Drop += TaskList_Drop;
+        }
+
+        private void DetachDragEvents()
+        {
+            SplitTaskListSurface.DragEnter -= TaskList_DragEnter;
+            SplitTaskListSurface.DragOver -= TaskList_DragOver;
+            SplitTaskListSurface.DragLeave -= TaskList_DragLeave;
+            SplitTaskListSurface.Drop -= TaskList_Drop;
+        }
+
+        /// <summary>拖入时异步检测内容是否全是文件夹</summary>
+        private async void TaskList_DragEnter(object sender, DragEventArgs e)
+        {
+            _isDropAllFolders = false;
+            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+            {
+                var deferral = e.GetDeferral();
+                try
+                {
+                    var items = await e.DataView.GetStorageItemsAsync();
+                    _isDropAllFolders = items.Count > 0
+                        && items.All(i => i is StorageFolder);
+                }
+                catch { _isDropAllFolders = false; }
+                finally { deferral.Complete(); }
+            }
+        }
+
+        private void TaskList_DragOver(object sender, DragEventArgs e)
+        {
+            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
+
+            if (_isDropAllFolders)
+            {
+                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                e.DragUIOverride.IsGlyphVisible = true;
+                e.DragUIOverride.IsCaptionVisible = false;
+                DragOverlay.Visibility = Visibility.Visible;
+            }
+
+            e.Handled = true;
+        }
+
+        private void TaskList_DragLeave(object sender, DragEventArgs e)
+        {
+            DragOverlay.Visibility = Visibility.Collapsed;
+            _isDropAllFolders = false;
+            e.Handled = true;
+        }
+
+        /// <summary>拖拽释放：提取文件夹路径 → 设置 ViewModel.InputDirectory 触发自动扫描</summary>
+        private async void TaskList_Drop(object sender, DragEventArgs e)
+        {
+            try
+            {
+                DragOverlay.Visibility = Visibility.Collapsed;
+
+                if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
+                    return;
+
+                var items = await e.DataView.GetStorageItemsAsync();
+                if (items.Count == 0) return;
+
+                // 取第一个文件夹路径
+                string? targetPath = null;
+                foreach (var item in items)
+                {
+                    if (item is StorageFolder folder)
+                    {
+                        targetPath = folder.Path;
+                        break;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(targetPath) || !Directory.Exists(targetPath))
+                    return;
+
+                LogService.Split($"Drop folder: {targetPath}");
+                ViewModel.InputDirectory = targetPath;
+
+                e.Handled = true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Split($"Drop CRASH: {ex.GetType().Name}: {ex.Message}", LogLevel.Error, ex);
             }
         }
 

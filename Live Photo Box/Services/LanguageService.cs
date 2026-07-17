@@ -89,21 +89,28 @@ namespace LivePhotoBox.Services
             ApplyLanguageOverride(GetEffectiveLanguage(languageIndex));
         }
 
-        // 通过语言标签设置 PrimaryLanguageOverride，写入后立即生效于资源加载。
-        // 非打包模式下此 API 不可用，语言切换需重启应用才能完全生效。
+        // 设置语言覆盖。
+        // WinAppSDK 1.6+ 的 Microsoft.Windows.Globalization.ApplicationLanguages
+        // 在打包和非打包模式下均可工作（不同于旧版 Windows.Globalization 命名空间，
+        // 后者在非打包下抛 InvalidOperationException）。
+        //
+        // 已知限制：
+        //   - 不跨会话持久化（microsoft/WindowsAppSDK#6118），每次启动需重新设置。
+        //     已通过 AppSettingsService 持久化 LanguageIndex 并在启动时调用本方法兜底。
+        //   - 设置为 "" 会抛异常（microsoft/WindowsAppSDK#5335），因此"跟随系统"模式
+        //     通过设置成解析后的系统语言来实现，而非清空覆盖。
         // languageTag: BCP-47 语言标签
         public static void ApplyLanguageOverride(string languageTag)
         {
-            if (App.IsPackaged)
+            try
             {
-                try
-                {
-                    Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = languageTag;
-                }
-                catch { /* 极端情况 */ }
+                Microsoft.Windows.Globalization.ApplicationLanguages.PrimaryLanguageOverride = languageTag;
             }
-            // 非打包模式：PrimaryLanguageOverride 不可用，跳过。
-            // 语言切换效果需依赖资源系统的默认行为或重启应用生效。
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[LivePhotoBox] Failed to set PrimaryLanguageOverride to '{languageTag}': {ex.Message}");
+            }
         }
 
         // 显示语言切换确认对话框，询问用户是否立即重启应用以使语言切换完全生效。
