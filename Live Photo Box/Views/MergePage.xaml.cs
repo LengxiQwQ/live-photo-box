@@ -323,6 +323,7 @@ namespace LivePhotoBox.Views
                 e.DragUIOverride.IsGlyphVisible = true;
                 e.DragUIOverride.IsCaptionVisible = false;
                 DragOverlay.Visibility = Visibility.Visible;
+                EmptyQueueHint.Visibility = Visibility.Collapsed;
             }
 
             e.Handled = true;
@@ -331,6 +332,7 @@ namespace LivePhotoBox.Views
         private void TaskList_DragLeave(object sender, DragEventArgs e)
         {
             DragOverlay.Visibility = Visibility.Collapsed;
+            EmptyQueueHint.ClearValue(UIElement.VisibilityProperty);
             _isDropAllFolders = false;
             e.Handled = true;
         }
@@ -341,6 +343,7 @@ namespace LivePhotoBox.Views
             try
             {
                 DragOverlay.Visibility = Visibility.Collapsed;
+                EmptyQueueHint.ClearValue(UIElement.VisibilityProperty);
 
                 if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                     return;

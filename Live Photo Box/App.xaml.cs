@@ -208,6 +208,7 @@ namespace LivePhotoBox
 
             LogService.Info("Application initialized.", LogSource.App);
             System.Diagnostics.Debug.WriteLine("[LivePhotoBox] App constructor completed successfully.");
+
         }
 
         // 从持久化设置中读取语言索引并应用语言覆盖

@@ -25,6 +25,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -56,8 +57,24 @@ namespace LivePhotoBox.ViewModels
             ".mov", ".mp4"
         };
 
-        /// <summary>exiftool 并行实例数（扫描阶段分辨率读取用）</summary>
-        private const int ExifToolPoolSize = 2;
+        /// <summary>exiftool 并发数。磁盘 I/O 密集操作，上限 8 避免 HDD 颠簸或 SSD 带宽饱和。</summary>
+        private static readonly int ExifToolPoolSize = Math.Min(Environment.ProcessorCount, 8);
+
+        /// <summary>目录 CID 索引缓存：拖拽扫描一次后缓存，后续同目录拖拽直接复用，O(1) 查找。</summary>
+        private readonly Dictionary<string, CidDirectoryIndex> _cidIndexCache = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>目录级 ContentIdentifier 索引：图片 CID 映射 + 视频 CID → 路径反向索引。</summary>
+        private sealed class CidDirectoryIndex
+        {
+            /// <summary>建索引时的文件路径快照，用于检测目录变动（增删文件 → 重建索引）。</summary>
+            public HashSet<string> FilePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
+            /// <summary>图片路径 → ContentIdentifier</summary>
+            public Dictionary<string, string?> ImageCids { get; } = new(StringComparer.OrdinalIgnoreCase);
+            /// <summary>视频路径 → ContentIdentifier</summary>
+            public Dictionary<string, string?> VideoCids { get; } = new(StringComparer.OrdinalIgnoreCase);
+            /// <summary>CID → 视频路径（反向索引，供快速匹配）</summary>
+            public Dictionary<string, string> CidToVideo { get; } = new(StringComparer.OrdinalIgnoreCase);
+        }
 
         // ══════════════════════════════════════════════════════════════
         //  构造函数 & 生命周期
@@ -3570,7 +3587,22 @@ namespace LivePhotoBox.ViewModels
             if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
                 return;
             if (IsScanning) return;
+            _cidIndexCache.Clear(); // 切换目录 → 废弃旧索引
             _ = ScanDirectoryAsync(path);
+        }
+
+        /// <summary>清空当前浏览的全部内容：目录、文件列表、索引缓存、预览。</summary>
+        public void ClearAll()
+        {
+            _cidIndexCache.Clear();
+            CurrentDirectory = string.Empty;
+            _allFileItems.Clear();
+            FileItems.Clear();
+            LivePhotoCount = 0;
+            OtherCount = 0;
+            ClearFileInfo();
+            ThumbnailService.ClearCache();
+            OnPropertyChanged(nameof(HasAnyFiles));
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -3595,22 +3627,21 @@ namespace LivePhotoBox.ViewModels
                 var dispatcher = App.MainWindow?.DispatcherQueue;
                 LogService.FileOp($"KeyPhoto scan started: '{directoryPath}'");
 
-                // 阶段 1：使用统一发现服务扫描（识别实况照片类型）
+                // 阶段 1：文件发现。仅检测单文件实况（JPEG XMP / HEIC 视频轨），
+                // 双文件配对不放这里——靠文件名碰运气不严谨，统一在 Phase 2 用 ContentIdentifier 严格匹配。
                 var discoveryResult = await Task.Run(
                     () => LivePhotoDiscoveryService.ScanAsync(
                         directoryPath,
-                        DiscoveryScanMode.JpegMarkers | DiscoveryScanMode.HeicTrack
-                            | DiscoveryScanMode.CidMatch, token),
+                        DiscoveryScanMode.JpegMarkers | DiscoveryScanMode.HeicTrack, token),
                     token);
 
                 if (token.IsCancellationRequested) return;
 
+                // 分离图片和视频：列表只显示图片，视频路径单独收集供 Phase 2 CID 匹配
                 var files = discoveryResult.Items
-                    .Where(d => !(d.LivePhotoType == LivePhotoType.DualFile && d.IsVideo))
+                    .Where(d => !SupportedVideoExtensions.Contains(Path.GetExtension(d.FilePath)))
                     .Select(d =>
                     {
-                        // 有协议确认的：JPEG XMP 标记 / HEIC 视频轨。
-                        // DualFile 先标 false，Phase 2 exiftool 查到 ContentIdentifier 后再确认。
                         bool confirmed = d.LivePhotoType is LivePhotoType.SingleFileJpeg
                             or LivePhotoType.SingleFileHeic;
                         return new EditFileItem
@@ -3628,69 +3659,17 @@ namespace LivePhotoBox.ViewModels
                         };
                     }).ToList();
 
-                // 按分类统计（仅已确认协议的才算实况照片）
-                int confirmedCount = files.Count(f => f.HasConfirmedProtocol);
-                int dualCount = files.Count(f => f.LivePhotoType == LivePhotoType.DualFile);
+                var videoPaths = discoveryResult.Items
+                    .Where(d => SupportedVideoExtensions.Contains(Path.GetExtension(d.FilePath)))
+                    .Select(d => d.FilePath)
+                    .ToList();
+
                 int singleJpegCount = files.Count(f => f.LivePhotoType == LivePhotoType.SingleFileJpeg);
                 int singleHeicCount = files.Count(f => f.LivePhotoType == LivePhotoType.SingleFileHeic);
-                LogService.FileOp($"KeyPhoto scan done: {files.Count} files total, " +
-                    $"DualFile={dualCount}, SingleFileJpeg={singleJpegCount}, " +
-                    $"SingleFileHeic={singleHeicCount}, Confirmed={confirmedCount}, " +
-                    $"Regular={files.Count - dualCount - singleJpegCount - singleHeicCount}");
-
-                // ── SingleFileHeic 补 CID 匹配：关联同目录的外部 MOV ──
-                // Pass 2 把 HEIC 分类为 SingleFileHeic 后跳过了 Pass 4，
-                // 导致同目录 MOV 永远没机会配对。此处补一次 CID 匹配，
-                // 把配对视频路径写入 PairedVideoPath，供另存为等功能使用。
-                if (singleHeicCount > 0)
-                {
-                    var unclassifiedMovs = discoveryResult.Items
-                        .Where(d => d.LivePhotoType == LivePhotoType.None
-                                    && d.FilePath.EndsWith(".mov", StringComparison.OrdinalIgnoreCase))
-                        .Select(d => d.FilePath)
-                        .ToList();
-
-                    if (unclassifiedMovs.Count > 0)
-                    {
-                        var heicPaths = files
-                            .Where(f => f.LivePhotoType == LivePhotoType.SingleFileHeic)
-                            .Select(f => f.FilePath)
-                            .ToList();
-
-                        string? exifToolPath = ExternalToolLocator.FindExifTool()
-                            ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
-
-                        if (File.Exists(exifToolPath))
-                        {
-                            try
-                            {
-                                var matchResult = await Task.Run(
-                                    () => LivePhotoMetadataMatcher.MatchAsync(
-                                        heicPaths, unclassifiedMovs, exifToolPath, token,
-                                        enableCombinedMatching: false, runContentIdentifier: true),
-                                    token);
-
-                                foreach (var pair in matchResult.Pairs)
-                                {
-                                    var item = files.FirstOrDefault(f =>
-                                        string.Equals(f.FilePath, pair.ImagePath, StringComparison.OrdinalIgnoreCase));
-                                    if (item != null)
-                                    {
-                                        item.PairedVideoPath = pair.VideoPath;
-                                    }
-                                }
-
-                                if (matchResult.Pairs.Count > 0)
-                                    LogService.FileOp($"KeyPhoto CID补配: {matchResult.Pairs.Count} 对 HEIC↔MOV");
-                            }
-                            catch (OperationCanceledException) { throw; }
-                            catch (Exception ex)
-                            {
-                                LogService.FileOp($"KeyPhoto CID补配失败: {ex.Message}", LogLevel.Warning);
-                            }
-                        }
-                    }
-                }
+                int confirmedCount = singleJpegCount + singleHeicCount;
+                LogService.FileOp($"KeyPhoto scan done: {files.Count} images + {videoPaths.Count} videos, " +
+                    $"SingleFileJpeg={singleJpegCount}, SingleFileHeic={singleHeicCount}, " +
+                    $"Confirmed={confirmedCount}, Unclassified={files.Count - confirmedCount}");
 
                 _allFileItems = files;
                 LivePhotoCount = confirmedCount;
@@ -3699,12 +3678,12 @@ namespace LivePhotoBox.ViewModels
                 ThumbnailService.ClearCache();
                 ClearFileInfo();
 
-                LogService.FileOp($"KeyPhoto scan phase 1: {files.Count} files ({LivePhotoCount} live photos) in '{directoryPath}'");
+                LogService.FileOp($"KeyPhoto scan phase 1: {files.Count} images ({LivePhotoCount} live photos) in '{directoryPath}'");
 
-                // 阶段 2：exiftool 并行读取分辨率 + EXIF 日期
+                // 阶段 2：二进制读宽高+日期 + ContentIdentifier 配对确认
                 if (files.Count > 0)
                 {
-                    await ReadResolutionsAsync(files, token);
+                    await ReadResolutionsAsync(files, videoPaths, token);
                 }
 
                 ApplySortAndFilter();
@@ -3725,98 +3704,382 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        private async Task ReadResolutionsAsync(List<EditFileItem> files, CancellationToken token)
+        /// <summary>
+        /// 混合模式读取元数据 + ContentIdentifier 严格配对。
+        ///   Phase 1 — C# 读文件头二进制取宽高+日期（失败文件记录，Phase 2 exiftool 兜底）。
+        ///   Phase 2 — exiftool 批量查所有未分类图片和所有视频的 ContentIdentifier + 宽高+日期，
+        ///             按 UUID 严格匹配，未匹配视频也加入列表显示。
+        /// </summary>
+        private async Task ReadResolutionsAsync(List<EditFileItem> files, List<string> videoPaths, CancellationToken token)
         {
-            string? exifToolPath = ExternalToolLocator.FindExifTool()
-                ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
-            if (!File.Exists(exifToolPath))
-            {
-                LogService.FileOp("KeyPhoto: exiftool not found, skipping resolution reading", LogLevel.Warning);
-                return;
-            }
-
-            int resSuccess = 0, resFail = 0;
-
             var dispatcher = App.MainWindow?.DispatcherQueue;
             if (dispatcher == null) return;
 
-            var pool = new List<PersistentExifTool>(ExifToolPoolSize);
-            try
+            // ═══════════════════════════════════════════════════════════
+            //  Phase 1: C# 二进制读宽高 + EXIF 日期（不走 exiftool）
+            // ═══════════════════════════════════════════════════════════
+            var p1Sw = System.Diagnostics.Stopwatch.StartNew();
+            int fastOk = 0, fastFail = 0, dateSuccess = 0;
+            int ioParallelism = Math.Min(Environment.ProcessorCount, 8);
+
+            // 记录 C# 读宽高失败的文件，Phase 2 用 exiftool 兜底
+            var fallbackFiles = new ConcurrentBag<(int Index, string Path)>();
+
+            await Task.Run(() =>
             {
-                for (int i = 0; i < ExifToolPoolSize; i++)
+                Parallel.ForEach(files, new ParallelOptions
                 {
-                    var tool = new PersistentExifTool(exifToolPath);
-                    int toolIdx = i;
-                    tool.OnRestarted += (msg) =>
-                        dispatcher.TryEnqueue(() =>
-                            LogService.FileOp($"[KeyPhoto exiftool#{toolIdx}] {msg}", LogLevel.Warning));
-                    pool.Add(tool);
-                }
-
-                int batchSize = ExifToolPoolSize;
-                for (int batchStart = 0; batchStart < files.Count; batchStart += batchSize)
+                    MaxDegreeOfParallelism = ioParallelism,
+                    CancellationToken = token
+                }, file =>
                 {
-                    if (token.IsCancellationRequested) break;
-                    int batchEnd = Math.Min(batchStart + batchSize, files.Count);
-                    int batchCount = batchEnd - batchStart;
-
-                    var batchTasks = new Task<(int index, int width, int height, string? dateTaken, string? cid)>[batchCount];
-                    for (int bi = 0; bi < batchCount; bi++)
+                    var (w, h, date) = FastMetadataReader.Read(file.FilePath);
+                    if (w > 0 && h > 0)
                     {
-                        int fileIndex = batchStart + bi;
-                        var file = files[fileIndex];
-                        var tool = pool[bi % ExifToolPoolSize];
-                        batchTasks[bi] = Task.Run(async () =>
-                        {
-                            try
-                            {
-                                string json = await tool.SendCommandAsync(
-                                    token, "-j", "-ImageWidth", "-ImageHeight", "-DateTimeOriginal",
-                                    "-ContentIdentifier", file.FilePath);
-                                var (w, h, date, cid) = ParseExifInfo(json);
-                                return (fileIndex, w, h, date, cid);
-                            }
-                            catch (OperationCanceledException) { return (fileIndex, 0, 0, null, null); }
-                            catch (Exception ex)
-                            {
-                                LogService.FileOp($"exiftool resolution failed: {ex.Message}", LogLevel.Warning);
-                                return (fileIndex, 0, 0, null, null);
-                            }
-                        }, token);
+                        file.Resolution = $"{w} × {h}";
+                        Interlocked.Increment(ref fastOk);
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref fastFail);
+                        // HEIC 等 FastMetadataReader 不支持的格式 → 记录索引供 exiftool 兜底
+                        int idx = files.IndexOf(file);
+                        if (idx >= 0) fallbackFiles.Add((idx, file.FilePath));
                     }
 
-                    var results = await Task.WhenAll(batchTasks);
-                    dispatcher.TryEnqueue(() =>
+                    if (!string.IsNullOrWhiteSpace(date))
                     {
-                        foreach (var (index, width, height, dateTaken, cid) in results)
+                        if (DateTime.TryParseExact(date, "yyyy:MM:dd HH:mm:ss",
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.None, out var dt))
                         {
-                            if (width > 0 && height > 0)
-                            {
-                                files[index].Resolution = $"{width} × {height}";
-                                resSuccess++;
-                            }
-                            else resFail++;
-                            if (!string.IsNullOrWhiteSpace(dateTaken))
-                                files[index].DateTaken = dateTaken;
-                            // DualFile + ContentIdentifier → 确认为 Apple，显示 LIVE 徽标
-                            if (!string.IsNullOrWhiteSpace(cid) &&
-                                files[index].LivePhotoType == LivePhotoType.DualFile &&
-                                !files[index].HasConfirmedProtocol)
-                            {
-                                files[index].HasConfirmedProtocol = true;
-                                LivePhotoCount++;
-                                OtherCount--;
-                            }
+                            file.DateTaken = dt.ToString("yyyy/MM/dd HH:mm");
+                            Interlocked.Increment(ref dateSuccess);
                         }
-                    });
-                }
-            }
-            finally
+                    }
+                });
+            }, token);
+
+            LogService.FileOp(
+                $"KeyPhoto Phase1 (C# binary): {fastOk} ok, {fastFail} fail ({fallbackFiles.Count} fallback), " +
+                $"{dateSuccess} dates, {p1Sw.ElapsedMilliseconds}ms");
+
+            if (token.IsCancellationRequested) return;
+
+            // ═══════════════════════════════════════════════════════════
+            //  Phase 2: exiftool 批量查 ContentIdentifier + 宽高日期兜底
+            // ═══════════════════════════════════════════════════════════
+            var unclassifiedImgs = new List<(int Index, string Path)>();
+            for (int i = 0; i < files.Count; i++)
             {
-                foreach (var tool in pool) try { tool.Dispose(); } catch { }
+                if (files[i].LivePhotoType == LivePhotoType.None)
+                    unclassifiedImgs.Add((i, files[i].FilePath));
             }
 
-            LogService.FileOp($"KeyPhoto resolution reading done: {resSuccess} success, {resFail} failed (out of {files.Count})");
+            bool needImgQuery = unclassifiedImgs.Count > 0 || fallbackFiles.Count > 0;
+            bool needVidQuery = videoPaths.Count > 0;
+
+            if (needImgQuery)
+            {
+                string? exifToolPath = ExternalToolLocator.FindExifTool()
+                    ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
+
+                if (!File.Exists(exifToolPath))
+                {
+                    LogService.FileOp("KeyPhoto Phase2: exiftool not found, skipping", LogLevel.Warning);
+                    return;
+                }
+
+                var p2Sw = System.Diagnostics.Stopwatch.StartNew();
+                const int batchSize = 100;
+                int poolSize = ExifToolPoolSize;
+                var pool = new List<PersistentExifTool>(poolSize);
+                try
+                {
+                    for (int i = 0; i < poolSize; i++)
+                    {
+                        var tool = new PersistentExifTool(exifToolPath);
+                        int toolIdx = i;
+                        tool.OnRestarted += (msg) => dispatcher.TryEnqueue(() =>
+                            LogService.FileOp($"[KeyPhoto CID exiftool#{toolIdx}] {msg}", LogLevel.Warning));
+                        pool.Add(tool);
+                    }
+
+                    // ── 查询图片：ContentIdentifier + 宽高日期（兜底 Phase 1 失败 + CID 匹配）──
+                    var imgResults = new Dictionary<string, (int W, int H, string? Date, string? Cid)>(StringComparer.OrdinalIgnoreCase);
+                    {
+                        // 合并：未分类图片 + Phase 1 失败的文件（去重）
+                        var toQuery = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var (idx, path) in unclassifiedImgs) toQuery[path] = idx;
+                        foreach (var (idx, path) in fallbackFiles) toQuery.TryAdd(path, idx);
+                        var queryList = toQuery.Select(kv => (kv.Value, kv.Key)).ToList();
+
+                        var batches = BuildBatches(queryList, batchSize);
+                        var sem = new SemaphoreSlim(poolSize);
+                        var tasks = new List<Task>();
+                        int done = 0;
+
+                        LogService.FileOp($"KeyPhoto Phase2 img query: {queryList.Count} files in {batches.Count} batches");
+
+                        for (int bi = 0; bi < batches.Count; bi++)
+                        {
+                            if (token.IsCancellationRequested) break;
+                            await sem.WaitAsync(token);
+                            int batchIdx = bi;
+                            var batch = batches[bi];
+                            var tool = pool[batchIdx % poolSize];
+
+                            tasks.Add(Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    var args = new List<string>(batch.Count + 7)
+                                        { "-j", "-ImageWidth", "-ImageHeight", "-DateTimeOriginal", "-ContentIdentifier" };
+                                    foreach (var f in batch) args.Add(f.Path);
+                                    string json = await tool.SendCommandAsync(token, args.ToArray());
+                                    var results = ParseExifInfoBatch(json);
+                                    lock (imgResults)
+                                    {
+                                        foreach (var (_, path) in batch)
+                                        {
+                                            if (results.TryGetValue(path, out var info))
+                                                imgResults[path] = (info.Width, info.Height, info.DateTaken, info.ContentIdentifier);
+                                        }
+                                    }
+                                }
+                                catch (OperationCanceledException) { }
+                                catch (Exception ex) { LogService.FileOp($"img query failed: {ex.Message}", LogLevel.Warning); }
+                                finally
+                                {
+                                    sem.Release();
+                                    var d = Interlocked.Increment(ref done);
+                                    if (d % 10 == 0 || d == batches.Count)
+                                        LogService.FileOp($"KeyPhoto CID images: {d}/{batches.Count} batches");
+                                }
+                            }, token));
+                        }
+                        await Task.WhenAll(tasks);
+                    }
+
+                    if (token.IsCancellationRequested) return;
+
+                    // ── Phase 1 兜底：用 exiftool 结果填充宽高+日期 ──
+                    int fallbackOk = 0;
+                    foreach (var (idx, path) in fallbackFiles)
+                    {
+                        if (imgResults.TryGetValue(path, out var info) && info.W > 0 && info.H > 0)
+                        {
+                            files[idx].Resolution = $"{info.W} × {info.H}";
+                            fallbackOk++;
+                        }
+                        if (!string.IsNullOrWhiteSpace(info.Date))
+                        {
+                            if (DateTime.TryParseExact(info.Date, "yyyy:MM:dd HH:mm:ss",
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                System.Globalization.DateTimeStyles.None, out var dt))
+                                files[idx].DateTaken = dt.ToString("yyyy/MM/dd HH:mm");
+                        }
+                    }
+                    if (fallbackOk > 0)
+                        LogService.FileOp($"KeyPhoto fallback (exiftool): {fallbackOk} resolved");
+
+                    // ── 查询视频：ContentIdentifier + 宽高 ──
+                    var vidResults = new Dictionary<string, (int W, int H, string? Cid)>(StringComparer.OrdinalIgnoreCase);
+                    if (needVidQuery)
+                    {
+                        var vidEntries = videoPaths.Select((p, i) => (Index: i, Path: p)).ToList();
+                        var batches = BuildBatches(vidEntries, batchSize);
+                        var sem = new SemaphoreSlim(poolSize);
+                        var tasks = new List<Task>();
+                        int done = 0;
+
+                        LogService.FileOp($"KeyPhoto Phase2 vid query: {videoPaths.Count} files in {batches.Count} batches");
+
+                        for (int bi = 0; bi < batches.Count; bi++)
+                        {
+                            if (token.IsCancellationRequested) break;
+                            await sem.WaitAsync(token);
+                            int batchIdx = bi;
+                            var batch = batches[bi];
+                            var tool = pool[batchIdx % poolSize];
+
+                            tasks.Add(Task.Run(async () =>
+                            {
+                                try
+                                {
+                                    var args = new List<string>(batch.Count + 5)
+                                        { "-j", "-ImageWidth", "-ImageHeight", "-ContentIdentifier" };
+                                    foreach (var f in batch) args.Add(f.Path);
+                                    string json = await tool.SendCommandAsync(token, args.ToArray());
+                                    var results = ParseExifInfoBatch(json);
+                                    lock (vidResults)
+                                    {
+                                        foreach (var (_, path) in batch)
+                                        {
+                                            if (results.TryGetValue(path, out var info))
+                                                vidResults[path] = (info.Width, info.Height, info.ContentIdentifier);
+                                        }
+                                    }
+                                }
+                                catch (OperationCanceledException) { }
+                                catch (Exception ex) { LogService.FileOp($"vid query failed: {ex.Message}", LogLevel.Warning); }
+                                finally
+                                {
+                                    sem.Release();
+                                    var d = Interlocked.Increment(ref done);
+                                    if (d % 10 == 0 || d == batches.Count)
+                                        LogService.FileOp($"KeyPhoto CID videos: {d}/{batches.Count} batches");
+                                }
+                            }, token));
+                        }
+                        await Task.WhenAll(tasks);
+                    }
+
+                    if (token.IsCancellationRequested) return;
+
+                    // ── 按 ContentIdentifier UUID 匹配 ──
+                    var cidToVideo = new Dictionary<string, (string Path, int W, int H)>(StringComparer.OrdinalIgnoreCase);
+                    var matchedVideoPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var (vPath, vInfo) in vidResults)
+                    {
+                        if (!string.IsNullOrWhiteSpace(vInfo.Cid) && !cidToVideo.ContainsKey(vInfo.Cid))
+                            cidToVideo[vInfo.Cid] = (vPath, vInfo.W, vInfo.H);
+                    }
+
+                    int liveConfirmed = 0;
+                    foreach (var (index, imgPath) in unclassifiedImgs)
+                    {
+                        if (imgResults.TryGetValue(imgPath, out var imgInfo) &&
+                            !string.IsNullOrWhiteSpace(imgInfo.Cid) &&
+                            cidToVideo.TryGetValue(imgInfo.Cid, out var matched))
+                        {
+                            files[index].LivePhotoType = LivePhotoType.DualFile;
+                            files[index].PairedVideoPath = matched.Path;
+                            files[index].HasConfirmedProtocol = true;
+                            files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
+                            matchedVideoPaths.Add(matched.Path);
+                            liveConfirmed++;
+                        }
+                    }
+
+                    // ── 未匹配视频也加入列表显示 ──
+                    int addedVids = 0;
+                    foreach (var vPath in videoPaths)
+                    {
+                        if (matchedVideoPaths.Contains(vPath)) continue; // 已匹配的不重复显示
+                        vidResults.TryGetValue(vPath, out var vInfo);
+                        files.Add(new EditFileItem
+                        {
+                            FileName = Path.GetFileName(vPath),
+                            FilePath = vPath,
+                            FileSize = FileSizeFormatter.Format(new FileInfo(vPath).Length),
+                            DateTaken = new FileInfo(vPath).LastWriteTime.ToString("yyyy/MM/dd HH:mm"),
+                            Resolution = vInfo.W > 0 && vInfo.H > 0 ? $"{vInfo.W} × {vInfo.H}" : string.Empty,
+                            LivePhotoType = LivePhotoType.None,
+                            HasConfirmedProtocol = false
+                        });
+                        addedVids++;
+                    }
+
+                    if (liveConfirmed > 0)
+                    {
+                        dispatcher.TryEnqueue(() =>
+                        {
+                            LivePhotoCount += liveConfirmed;
+                            OtherCount = files.Count - LivePhotoCount;
+                        });
+                    }
+
+                    // 扫描结果顺手建 CID 索引，后续拖拽直接 O(1) 查表，不用重复扫描
+                    if (!string.IsNullOrWhiteSpace(CurrentDirectory) && Directory.Exists(CurrentDirectory))
+                    {
+                        var index = new CidDirectoryIndex();
+                        foreach (var (p, info) in imgResults) index.ImageCids[p] = info.Cid;
+                        foreach (var (p, info) in vidResults) index.VideoCids[p] = info.Cid;
+                        foreach (var (cid, vinfo) in cidToVideo) index.CidToVideo[cid] = vinfo.Path;
+                        foreach (var f in Directory.EnumerateFiles(CurrentDirectory))
+                            index.FilePaths.Add(f);
+                        _cidIndexCache[CurrentDirectory] = index;
+                    }
+
+                    LogService.FileOp(
+                        $"KeyPhoto Phase2 done: {liveConfirmed} pairs + {addedVids} standalone videos, " +
+                        $"{p2Sw.ElapsedMilliseconds}ms");
+                }
+                finally
+                {
+                    foreach (var t in pool) try { t.Dispose(); } catch { }
+                }
+            }
+
+            int resSuccess = files.Count(f => !string.IsNullOrEmpty(f.Resolution));
+            LogService.FileOp(
+                $"KeyPhoto resolution done: {resSuccess} success, {files.Count - resSuccess} failed " +
+                $"(out of {files.Count})");
+        }
+
+        /// <summary>将文件列表按 batchSize 分批，供 exiftool 批量查询使用。</summary>
+        private static List<List<(int Index, string Path)>> BuildBatches(
+            List<(int Index, string Path)> items, int batchSize)
+        {
+            var batches = new List<List<(int Index, string Path)>>();
+            for (int start = 0; start < items.Count; start += batchSize)
+            {
+                int end = Math.Min(start + batchSize, items.Count);
+                batches.Add(items.GetRange(start, end - start));
+            }
+            return batches;
+        }
+
+        /// <summary>
+        /// 解析 exiftool 批量查询返回的 JSON 数组，按 SourceFile 路径建立索引。
+        /// exiftool 批量命令返回 [{SourceFile, ImageWidth, ImageHeight, ...}, ...]，
+        /// 一次解析即可获取整批所有文件的元数据，避免逐文件解析的开销。
+        /// </summary>
+        private static Dictionary<string, (int Width, int Height, string? DateTaken, string? ContentIdentifier)>
+            ParseExifInfoBatch(string json)
+        {
+            var result = new Dictionary<string, (int, int, string?, string?)>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(json) || !json.TrimStart().StartsWith("[")) return result;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(json);
+                foreach (var item in doc.RootElement.EnumerateArray())
+                {
+                    string? sourceFile = null;
+                    if (item.TryGetProperty("SourceFile", out var sf) && sf.ValueKind == JsonValueKind.String)
+                        sourceFile = sf.GetString();
+                    if (string.IsNullOrWhiteSpace(sourceFile)) continue;
+                    // exiftool 返回 /，Windows 路径用 \，统一为反斜杠
+                    sourceFile = sourceFile.Replace('/', '\\');
+
+                    int w = 0, h = 0;
+                    if (item.TryGetProperty("ImageWidth", out var wp)) w = ParseIntFromJson(wp);
+                    if (item.TryGetProperty("ImageHeight", out var hp)) h = ParseIntFromJson(hp);
+
+                    string? dateTaken = null;
+                    if (item.TryGetProperty("DateTimeOriginal", out var dto) && dto.ValueKind == JsonValueKind.String)
+                    {
+                        var raw = dto.GetString();
+                        if (!string.IsNullOrWhiteSpace(raw))
+                        {
+                            if (DateTime.TryParseExact(raw, "yyyy:MM:dd HH:mm:ss",
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                System.Globalization.DateTimeStyles.None, out var dt))
+                            {
+                                dateTaken = dt.ToString("yyyy/MM/dd HH:mm");
+                            }
+                        }
+                    }
+
+                    string? cid = GetJsonStr(item, "ContentIdentifier");
+                    result[sourceFile] = (w, h, dateTaken, cid);
+                }
+            }
+            catch { }
+
+            return result;
         }
 
         private static (int width, int height, string? dateTaken, string? contentIdentifier) ParseExifInfo(string json)
@@ -4201,185 +4464,216 @@ namespace LivePhotoBox.ViewModels
             IsScanning = true;
             try
             {
-                // 收集所有涉及的目录，按目录批量扫描（去重）
+                var dispatcher = App.MainWindow?.DispatcherQueue;
+                if (dispatcher == null) return null;
+
+                // ── Step 1: 扫描目录（单文件实况检测）──
                 var dirs = filePaths
                     .Select(p => Path.GetDirectoryName(p) ?? "")
                     .Where(d => Directory.Exists(d))
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
-                // ── 步骤 1：扫描所有涉及目录，建立路径→发现结果的映射 ──
-            var discoveryMap = new Dictionary<string, LivePhotoDiscoveryItem>(StringComparer.OrdinalIgnoreCase);
-            foreach (var dir in dirs)
-            {
-                try
+                var discoveryMap = new Dictionary<string, LivePhotoDiscoveryItem>(StringComparer.OrdinalIgnoreCase);
+                foreach (var dir in dirs)
                 {
-                    var result = await Task.Run(() =>
-                        LivePhotoDiscoveryService.ScanAsync(dir,
-                            DiscoveryScanMode.JpegMarkers | DiscoveryScanMode.HeicTrack
-                                | DiscoveryScanMode.CidMatch));
-                    foreach (var di in result.Items)
+                    try
                     {
-                        discoveryMap[di.FilePath] = di;
+                        var result = await Task.Run(() =>
+                            LivePhotoDiscoveryService.ScanAsync(dir,
+                                DiscoveryScanMode.JpegMarkers | DiscoveryScanMode.HeicTrack));
+                        foreach (var di in result.Items)
+                            discoveryMap[di.FilePath] = di;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.FileOp($"Drop[Scan] Failed for '{dir}': {ex.Message}", LogLevel.Warning);
                     }
                 }
-                catch (Exception ex)
+
+                string? exifToolPath = ExternalToolLocator.FindExifTool()
+                    ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
+                bool hasExifTool = File.Exists(exifToolPath);
+
+                // ── Step 2: 处理每个拖入文件 ──
+                var toAdd = new List<EditFileItem>();
+                var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var rawPath in filePaths)
                 {
-                    LogService.FileOp(
-                        $"Drop[Scan] Failed for '{dir}': {ex.Message}", LogLevel.Warning);
-                }
-            }
+                    if (!File.Exists(rawPath) || addedPaths.Contains(rawPath)) continue;
 
-            // ── 步骤 2：构建 EditFileItem 列表，处理配对去重 ──
-            var toAdd = new List<EditFileItem>();
-            var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var pairedVideoPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    var filePath = rawPath;
+                    var fileName = Path.GetFileName(filePath);
+                    var dir = Path.GetDirectoryName(filePath) ?? "";
+                    var ext = Path.GetExtension(filePath);
 
-            foreach (var rawPath in filePaths)
-            {
-                if (!File.Exists(rawPath)) continue;
-                if (addedPaths.Contains(rawPath)) continue;
+                    LivePhotoType detectedType = LivePhotoType.None;
+                    LivePhotoDetectionMethod detectionMethod = LivePhotoDetectionMethod.FilenamePairing;
+                    string? pairedVideoPath = null;
+                    long appendedVideoLength = 0;
+                    bool confirmed = false;
 
-                var filePath = rawPath;
-                var fileName = Path.GetFileName(filePath);
-                var fileSize = new FileInfo(filePath).Length;
-                var lastWrite = File.GetLastWriteTime(filePath);
-
-                LivePhotoType detectedType = LivePhotoType.None;
-                LivePhotoDetectionMethod detectionMethod = LivePhotoDetectionMethod.FilenamePairing;
-                string? pairedVideoPath = null;
-                long appendedVideoLength = 0;
-
-                if (discoveryMap.TryGetValue(filePath, out var match))
-                {
-                    detectedType = match.LivePhotoType;
-                    detectionMethod = match.DetectionMethod;
-                    pairedVideoPath = match.PairedVideoPath;
-                    appendedVideoLength = match.AppendedVideoLength;
-                }
-
-                // ── DualFile：去重处理 ──
-                if (detectedType == LivePhotoType.DualFile)
-                {
-                    // 如果这个文件是配对中的视频 → 看照片是否在本次拖入列表中
-                    bool isVideo = match?.IsVideo ?? false;
-                    if (isVideo && !string.IsNullOrEmpty(match?.PairedImagePath))
+                    if (discoveryMap.TryGetValue(filePath, out var match))
                     {
-                        // 照片在本次拖入中 → 跳过视频，等照片加入时一起处理
-                        if (filePaths.Contains(match.PairedImagePath, StringComparer.OrdinalIgnoreCase))
+                        detectedType = match.LivePhotoType;
+                        detectionMethod = match.DetectionMethod;
+                        pairedVideoPath = match.PairedVideoPath;
+                        appendedVideoLength = match.AppendedVideoLength;
+                    }
+
+                    bool isVideo = SupportedVideoExtensions.Contains(ext);
+                    bool isImage = SupportedImageExtensions.Contains(ext);
+
+                    // ── 单文件实况已确认 ──
+                    if (detectedType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic)
+                        confirmed = true;
+
+                    // ── 未分类 → 尝试双文件配对 ──
+                    if (detectedType == LivePhotoType.None && hasExifTool)
+                    {
+                        // 策略 1: 同名速查 — 同目录找同名异类文件，各读一次 CID O(1)
+                        string? oppPath = FindOppositeTypeFile(dir, filePath, isImage, isVideo);
+                        bool quickMatched = false;
+
+                        if (oppPath != null)
                         {
-                            LogService.FileOp(
-                                $"Drop[Pair] Skipping video '{fileName}' — paired photo also dropped",
-                                LogLevel.Info);
-                            continue;
-                        }
-                        // 照片不在本次拖入但存在于目录 → 改以照片为主文件
-                        if (File.Exists(match.PairedImagePath))
-                        {
-                            var photoPath = match.PairedImagePath;
-                            filePath = photoPath;
-                            fileName = Path.GetFileName(photoPath);
-                            fileSize = new FileInfo(photoPath).Length;
-                            lastWrite = File.GetLastWriteTime(photoPath);
-                            pairedVideoPath = match.FilePath; // 原视频路径是配对视频
-                            if (discoveryMap.TryGetValue(photoPath, out var photoMatch))
+                            var (myCid, oppCid) = await QueryTwoCidsAsync(exifToolPath, filePath, oppPath);
+                            if (!string.IsNullOrWhiteSpace(myCid) &&
+                                !string.IsNullOrWhiteSpace(oppCid) &&
+                                myCid.Equals(oppCid, StringComparison.OrdinalIgnoreCase))
                             {
-                                detectedType = photoMatch.LivePhotoType;
-                                detectionMethod = photoMatch.DetectionMethod;
-                                appendedVideoLength = photoMatch.AppendedVideoLength;
+                                quickMatched = true;
+                                if (isImage) pairedVideoPath = oppPath;
                             }
                         }
-                    }
-                    // 标记配对视频路径（后续不再重复加入）
-                    if (pairedVideoPath != null)
-                        pairedVideoPaths.Add(pairedVideoPath);
-                }
 
-                bool confirmed = detectedType is LivePhotoType.SingleFileJpeg
-                    or LivePhotoType.SingleFileHeic
-                    or LivePhotoType.DualFile;
-
-                // DualFile 需要配对视频路径才算已确认
-                if (detectedType == LivePhotoType.DualFile && pairedVideoPath == null)
-                    confirmed = false;
-
-                var item = new EditFileItem
-                {
-                    FileName = fileName,
-                    FilePath = filePath,
-                    FileSize = FileSizeFormatter.Format(fileSize),
-                    DateTaken = lastWrite.ToString("yyyy/MM/dd HH:mm"),
-                    LivePhotoType = detectedType,
-                    PairedVideoPath = pairedVideoPath,
-                    AppendedVideoLength = appendedVideoLength,
-                    DetectionMethod = detectionMethod,
-                    HasConfirmedProtocol = confirmed,
-                    Resolution = string.Empty
-                };
-
-                toAdd.Add(item);
-                addedPaths.Add(filePath);
-                if (pairedVideoPath != null)
-                    addedPaths.Add(pairedVideoPath);
-            }
-
-            if (toAdd.Count == 0) return null;
-
-            LogService.FileOp(
-                $"Drop[Result] {toAdd.Count} items to add: " +
-                string.Join(", ", toAdd.Select(i => $"{i.FileName}[{i.LivePhotoType}]")),
-                LogLevel.Info);
-
-            // ── 步骤 3：UI 线程加入列表，返回第一个新路径让 View 层触发选中 ──
-            var dispatcher = App.MainWindow?.DispatcherQueue;
-            if (dispatcher == null) return null;
-
-            var tcs = new TaskCompletionSource<string?>();
-            dispatcher.TryEnqueue(() =>
-            {
-                try
-                {
-                    string? firstNewPath = null;
-                    foreach (var item in toAdd)
-                    {
-                        var existing = FileItems.FirstOrDefault(f =>
-                            string.Equals(f.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
-                        if (existing != null)
+                        // 策略 2: 缓存 / 全量扫描（先校验目录是否变动）
+                        if (!quickMatched)
                         {
-                            if (firstNewPath == null) firstNewPath = item.FilePath;
-                            continue;
+                            CidDirectoryIndex? index = null;
+                            if (_cidIndexCache.TryGetValue(dir, out var cached))
+                            {
+                                // 快速对比：当前目录文件列表 vs 建索引时快照
+                                var currentFiles = new HashSet<string>(
+                                    Directory.EnumerateFiles(dir), StringComparer.OrdinalIgnoreCase);
+                                if (currentFiles.SetEquals(cached.FilePaths))
+                                    index = cached;
+                                else
+                                    _cidIndexCache.Remove(dir); // 有变动，废弃旧索引
+                            }
+
+                            if (index == null)
+                            {
+                                index = await BuildCidIndexAsync(dir, exifToolPath, CancellationToken.None);
+                                if (index != null) _cidIndexCache[dir] = index;
+                            }
+
+                            if (index != null)
+                            {
+                                string? myCid = index.ImageCids.TryGetValue(filePath, out var ic) ? ic :
+                                    index.VideoCids.TryGetValue(filePath, out var vc) ? vc : null;
+
+                                if (!string.IsNullOrWhiteSpace(myCid))
+                                {
+                                    if (isImage && index.CidToVideo.TryGetValue(myCid, out var vid))
+                                    {
+                                        pairedVideoPath = vid;
+                                        quickMatched = true;
+                                    }
+                                    else if (isVideo)
+                                    {
+                                        foreach (var (ip, icid) in index.ImageCids)
+                                        {
+                                            if (string.Equals(icid, myCid, StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                // 以照片为主项
+                                                filePath = ip;
+                                                fileName = Path.GetFileName(ip);
+                                                pairedVideoPath = rawPath;
+                                                isVideo = false;
+                                                quickMatched = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
 
-                        // 避免重复添加配对视频路径
-                        if (pairedVideoPaths.Contains(item.FilePath)
-                            && FileItems.Any(f => string.Equals(f.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase)))
-                            continue;
-
-                        _allFileItems.Insert(0, item);
-                        FileItems.Insert(0, item);
-                        if (item.HasConfirmedProtocol)
-                            LivePhotoCount++;
-                        else
-                            OtherCount++;
-
-                        if (firstNewPath == null) firstNewPath = item.FilePath;
+                        if (quickMatched)
+                        {
+                            detectedType = LivePhotoType.DualFile;
+                            detectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
+                            confirmed = true;
+                        }
                     }
 
-                    // 显式通知统计数绑定刷新，确保 LivePhotoCount/OtherCount 的 x:Bind 更新
-                    OnPropertyChanged(nameof(LivePhotoCount));
-                    OnPropertyChanged(nameof(OtherCount));
-                    OnPropertyChanged(nameof(HasAnyFiles));
+                    if (addedPaths.Contains(filePath)) continue;
 
-                    // 不在这里调用 SelectFile — 交给 View 层通过 ListView.SelectedItem 触发，
-                    // 这样 SelectionChanged → SelectFile 只走一次，避免重复加载。
-                    tcs.TrySetResult(firstNewPath);
+                    var item = new EditFileItem
+                    {
+                        FileName = fileName,
+                        FilePath = filePath,
+                        FileSize = FileSizeFormatter.Format(new FileInfo(filePath).Length),
+                        DateTaken = File.GetLastWriteTime(filePath).ToString("yyyy/MM/dd HH:mm"),
+                        LivePhotoType = detectedType,
+                        PairedVideoPath = pairedVideoPath,
+                        AppendedVideoLength = appendedVideoLength,
+                        DetectionMethod = detectionMethod,
+                        HasConfirmedProtocol = confirmed,
+                        Resolution = string.Empty
+                    };
+
+                    toAdd.Add(item);
+                    addedPaths.Add(filePath);
+                    if (pairedVideoPath != null) addedPaths.Add(pairedVideoPath);
                 }
-                catch (Exception ex)
+
+                if (toAdd.Count == 0) return null;
+
+                // ── Step 3: 后台加载宽高日期 ──
+                var vidPaths = toAdd
+                    .Where(i => i.HasConfirmedProtocol && i.PairedVideoPath != null)
+                    .Select(i => i.PairedVideoPath!)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                _ = ReadResolutionsAsync(toAdd, vidPaths, CancellationToken.None);
+
+                // ── Step 4: UI 线程加入列表 ──
+                var tcs = new TaskCompletionSource<string?>();
+                dispatcher.TryEnqueue(() =>
                 {
-                    LogService.FileOp($"Drop[Load] dispatch failed: {ex.Message}", LogLevel.Error, ex);
-                    tcs.TrySetResult(null);
-                }
-            });
+                    try
+                    {
+                        string? firstNewPath = null;
+                        foreach (var item in toAdd)
+                        {
+                            if (FileItems.Any(f => string.Equals(f.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase)))
+                            {
+                                if (firstNewPath == null) firstNewPath = item.FilePath;
+                                continue;
+                            }
+
+                            _allFileItems.Insert(0, item);
+                            FileItems.Insert(0, item);
+                            if (item.HasConfirmedProtocol) LivePhotoCount++;
+                            else OtherCount++;
+
+                            if (firstNewPath == null) firstNewPath = item.FilePath;
+                        }
+
+                        OnPropertyChanged(nameof(LivePhotoCount));
+                        OnPropertyChanged(nameof(OtherCount));
+                        OnPropertyChanged(nameof(HasAnyFiles));
+                        tcs.TrySetResult(firstNewPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.FileOp($"Drop[Load] dispatch failed: {ex.Message}", LogLevel.Error, ex);
+                        tcs.TrySetResult(null);
+                    }
+                });
 
                 return await tcs.Task;
             }
@@ -4387,6 +4681,186 @@ namespace LivePhotoBox.ViewModels
             {
                 IsScanning = false;
             }
+        }
+
+        /// <summary>找同目录同名异类文件：JPG→MOV, MOV→JPG/HEIC/PNG。</summary>
+        private static string? FindOppositeTypeFile(string dir, string filePath, bool isImage, bool isVideo)
+        {
+            var baseName = Path.GetFileNameWithoutExtension(filePath);
+            if (isImage)
+            {
+                foreach (var vExt in new[] { ".MOV", ".MP4" })
+                {
+                    var p = Path.Combine(dir, baseName + vExt);
+                    if (File.Exists(p)) return p;
+                }
+            }
+            else if (isVideo)
+            {
+                foreach (var iExt in new[] { ".JPG", ".JPEG", ".HEIC", ".HEIF", ".PNG" })
+                {
+                    var p = Path.Combine(dir, baseName + iExt);
+                    if (File.Exists(p)) return p;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>快速查询两个文件的 ContentIdentifier（各一次 exiftool，O(1)）。</summary>
+        private static async Task<(string? Cid1, string? Cid2)> QueryTwoCidsAsync(
+            string exifToolPath, string path1, string path2)
+        {
+            try
+            {
+                using var tool = new PersistentExifTool(exifToolPath);
+                var t1 = tool.SendCommandAsync(CancellationToken.None, "-j", "-ContentIdentifier", path1);
+                var t2 = tool.SendCommandAsync(CancellationToken.None, "-j", "-ContentIdentifier", path2);
+                await Task.WhenAll(t1, t2);
+
+                static string? ExtractCid(string json)
+                {
+                    if (string.IsNullOrWhiteSpace(json) || !json.TrimStart().StartsWith("[")) return null;
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(json);
+                        var root = doc.RootElement;
+                        if (root.GetArrayLength() > 0 &&
+                            root[0].TryGetProperty("ContentIdentifier", out var cid) &&
+                            cid.ValueKind == JsonValueKind.String)
+                            return cid.GetString();
+                    }
+                    catch { }
+                    return null;
+                }
+
+                return (ExtractCid(t1.Result), ExtractCid(t2.Result));
+            }
+            catch
+            {
+                return (null, null);
+            }
+        }
+
+        /// <summary>
+        /// 建目录 CID 索引：批量查询目录内所有图片和视频的 ContentIdentifier，
+        /// 构建图片 CID 映射 + 视频 CID→路径反向索引，缓存供后续拖拽 O(1) 复用。
+        /// </summary>
+        private async Task<CidDirectoryIndex?> BuildCidIndexAsync(
+            string dir, string exifToolPath, CancellationToken token)
+        {
+            try
+            {
+                var allFiles = Directory.EnumerateFiles(dir).ToList();
+                var imgPaths = allFiles
+                    .Where(f => SupportedImageExtensions.Contains(Path.GetExtension(f)))
+                    .ToList();
+                var vidPaths = allFiles
+                    .Where(f => SupportedVideoExtensions.Contains(Path.GetExtension(f)))
+                    .ToList();
+
+                if (imgPaths.Count == 0 && vidPaths.Count == 0) return null;
+
+                var index = new CidDirectoryIndex();
+                // 保存文件路径快照，后续拖拽时对比检测目录变动
+                foreach (var f in allFiles) index.FilePaths.Add(f);
+                const int batchSize = 100;
+                int poolSize = ExifToolPoolSize;
+                var pool = new List<PersistentExifTool>(poolSize);
+
+                try
+                {
+                    for (int i = 0; i < poolSize; i++)
+                        pool.Add(new PersistentExifTool(exifToolPath));
+
+                    if (imgPaths.Count > 0)
+                    {
+                        var entries = imgPaths.Select((p, i) => (Index: i, Path: p)).ToList();
+                        await RunCidBatchAsync(pool, entries, batchSize, index.ImageCids, "Drop idx img", token);
+                    }
+
+                    if (vidPaths.Count > 0)
+                    {
+                        var entries = vidPaths.Select((p, i) => (Index: i, Path: p)).ToList();
+                        await RunCidBatchAsync(pool, entries, batchSize, index.VideoCids, "Drop idx vid", token);
+                    }
+
+                    foreach (var (vPath, cid) in index.VideoCids)
+                    {
+                        if (!string.IsNullOrWhiteSpace(cid) && !index.CidToVideo.ContainsKey(cid))
+                            index.CidToVideo[cid] = vPath;
+                    }
+
+                    LogService.FileOp(
+                        $"Drop[Index] Built for '{Path.GetFileName(dir)}': " +
+                        $"{imgPaths.Count} imgs + {vidPaths.Count} vids → {index.CidToVideo.Count} CIDs");
+                }
+                finally
+                {
+                    foreach (var t in pool) try { t.Dispose(); } catch { }
+                }
+
+                return index;
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"Drop[Index] Failed for '{dir}': {ex.Message}", LogLevel.Warning);
+                return null;
+            }
+        }
+
+        /// <summary>批量查询文件的 ContentIdentifier，结果写入 dict。</summary>
+        private static async Task RunCidBatchAsync(
+            List<PersistentExifTool> pool,
+            List<(int Index, string Path)> entries,
+            int batchSize,
+            Dictionary<string, string?> result,
+            string logTag,
+            CancellationToken token)
+        {
+            var batches = BuildBatches(entries, batchSize);
+            var sem = new SemaphoreSlim(pool.Count);
+            var tasks = new List<Task>();
+            int done = 0;
+
+            for (int bi = 0; bi < batches.Count; bi++)
+            {
+                if (token.IsCancellationRequested) break;
+                await sem.WaitAsync(token);
+                int batchIdx = bi;
+                var batch = batches[bi];
+                var tool = pool[batchIdx % pool.Count];
+
+                tasks.Add(Task.Run(async () =>
+                {
+                    try
+                    {
+                        var args = new List<string>(batch.Count + 3) { "-j", "-ContentIdentifier" };
+                        foreach (var f in batch) args.Add(f.Path);
+                        string json = await tool.SendCommandAsync(token, args.ToArray());
+                        var parsed = ParseExifInfoBatch(json);
+                        lock (result)
+                        {
+                            foreach (var (_, path) in batch)
+                                result[path] = parsed.TryGetValue(path, out var info)
+                                    ? info.ContentIdentifier : null;
+                        }
+                    }
+                    catch (OperationCanceledException) { }
+                    catch (Exception ex)
+                    {
+                        LogService.FileOp($"{logTag} batch failed: {ex.Message}", LogLevel.Warning);
+                    }
+                    finally
+                    {
+                        sem.Release();
+                        var d = Interlocked.Increment(ref done);
+                        if (d % 10 == 0 || d == batches.Count)
+                            LogService.FileOp($"{logTag}: {d}/{batches.Count} batches");
+                    }
+                }, token));
+            }
+
+            await Task.WhenAll(tasks);
         }
 
         // ══════════════════════════════════════════════════════════════

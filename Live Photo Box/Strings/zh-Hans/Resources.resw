@@ -2700,4 +2700,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="PureMediaViewer_Stretch_None" xml:space="preserve">
     <value>原始</value>
   </data>
+  <data name="KeyPhotoPage_RefreshDirTooltip" xml:space="preserve">
+    <value>重新扫描当前目录</value>
+  </data>
+  <data name="KeyPhotoPage_ClearDirTooltip" xml:space="preserve">
+    <value>清空当前列表</value>
+  </data>
 </root>

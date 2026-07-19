@@ -438,13 +438,14 @@
                                 <FontIcon Glyph="&#xE838;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
-                            <Button Grid.Column="2" x:Uid="KeyPhotoPage_RefreshDirBtn"
+                            <!-- 目录有内容 → 刷新按钮；目录为空 → 清空按钮 -->
+                            <Button Grid.Column="2" x:Name="RefreshDirBtn"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="RefreshDir_Click">
-                                <FontIcon Glyph="&#xE72C;" FontSize="12"
+                                    Click="RefreshOrClearDir_Click">
+                                <FontIcon x:Name="RefreshDirIcon" Glyph="&#xE72C;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
                         </Grid>
@@ -619,8 +620,8 @@
                         </ListView.ItemTemplate>
                     </ListView>
 
-                    <!-- 空状态提示：无文件时显示（40% 顶空 → 内容 → 60% 底空） -->
-                    <Grid Grid.Row="3"
+                    <!-- 空状态提示：无文件时显示。拖拽时由代码隐藏避免与遮罩重叠。 -->
+                    <Grid x:Name="LeftEmptyHint" Grid.Row="3"
                           Visibility="{x:Bind ViewModel.HasAnyFiles, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"
                           IsHitTestVisible="False">
                         <Grid.RowDefinitions>
@@ -804,8 +805,8 @@
                             </Button>
                         </StackPanel>
 
-                        <!-- 空状态提示：未选择文件时显示 -->
-                        <Grid Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"
+                        <!-- 空状态提示：未选择文件时显示。拖拽时隐藏避免与遮罩重叠。 -->
+                        <Grid x:Name="RightEmptyHint" Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"
                               IsHitTestVisible="False"
                               VerticalAlignment="Center" HorizontalAlignment="Center">
                             <StackPanel Spacing="24" HorizontalAlignment="Center">
@@ -1096,8 +1097,8 @@
 
                                 </StackPanel>
 
-                            <!-- 空状态提示：未选择实况照片时显示 -->
-                            <StackPanel Orientation="Horizontal" Spacing="6"
+                            <!-- 空状态提示：未选择实况照片时显示。拖拽时隐藏 -->
+                            <StackPanel x:Name="TimelineEmptyHint" Orientation="Horizontal" Spacing="6"
                                         Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"
                                         IsHitTestVisible="False"
                                         VerticalAlignment="Center" HorizontalAlignment="Center">
@@ -1280,7 +1281,7 @@
                             <!-- ──────────────────────────────────────────────── -->
                             <!--  更改文件属性面板（占位，后续扩展）                -->
                             <!-- ──────────────────────────────────────────────── -->
-                            <Grid MinHeight="100"
+                            <Grid x:Name="DetailPropsPlaceholder" MinHeight="100"
                                   Visibility="{x:Bind ViewModel.IsDetailPropsPanelVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
                                 <TextBlock x:Uid="KeyPhotoPage_DetailPropsPlaceholder"
                                            FontSize="12"

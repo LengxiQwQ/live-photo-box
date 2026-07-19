@@ -283,8 +283,8 @@
                     </ListView.ItemTemplate>
                 </ListView>
 
-                    <!-- 队列为空占位提示 -->
-                    <StackPanel Grid.Row="1"
+                    <!-- 队列为空占位提示。拖拽时代码隐藏 -->
+                    <StackPanel x:Name="EmptyQueueHint" Grid.Row="1"
                                 Visibility="{x:Bind ViewModel.EmptyQueueVisibility, Mode=OneWay}"
                                 VerticalAlignment="Center" HorizontalAlignment="Center"
                                 Spacing="14" Margin="0">

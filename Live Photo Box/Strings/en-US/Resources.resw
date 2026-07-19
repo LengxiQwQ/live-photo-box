@@ -2702,4 +2702,10 @@ Are you sure you want to switch?</value>
   <data name="PureMediaViewer_Stretch_None" xml:space="preserve">
     <value>Original</value>
   </data>
+  <data name="KeyPhotoPage_RefreshDirTooltip" xml:space="preserve">
+    <value>Rescan current directory</value>
+  </data>
+  <data name="KeyPhotoPage_ClearDirTooltip" xml:space="preserve">
+    <value>Clear current list</value>
+  </data>
 </root>

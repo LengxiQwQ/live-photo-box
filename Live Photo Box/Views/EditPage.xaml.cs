@@ -1288,14 +1288,37 @@ namespace LivePhotoBox.Views
         private bool _suppressLostFocusScan;
 
         /// <summary>刷新按钮：重新扫描当前目录</summary>
-        private void RefreshDir_Click(object sender, RoutedEventArgs e)
+        /// <summary>
+        /// 目录有内容 → 刷新重新扫描；目录为空 → 清空全部内容（等价"大叉号"）。
+        /// CurrentDirectory 变化时同步更新图标。
+        /// </summary>
+        private void RefreshOrClearDir_Click(object sender, RoutedEventArgs e)
         {
             var path = ViewModel.CurrentDirectory;
             if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
             {
+                // 刷新：重新扫描当前目录
                 _lastScannedPath = path;
                 ViewModel.TriggerScan();
             }
+            else
+            {
+                // 清空：目录为空时点击清空一切
+                ViewModel.ClearAll();
+                _lastScannedPath = null;
+                UpdateRefreshButtonIcon();
+            }
+        }
+
+        /// <summary>CurrentDirectory 变化时更新刷新/清空按钮图标和提示。</summary>
+        private void UpdateRefreshButtonIcon()
+        {
+            var hasDir = !string.IsNullOrEmpty(ViewModel.CurrentDirectory);
+            RefreshDirIcon.Glyph = hasDir ? "" : ""; // ↻ vs ✕
+            ToolTipService.SetToolTip(RefreshDirBtn,
+                ResourceService.GetString(hasDir
+                    ? "KeyPhotoPage_RefreshDirTooltip"
+                    : "KeyPhotoPage_ClearDirTooltip"));
         }
 
         /// <summary>浏览按钮按下时设标记（早于 LostFocus 触发），防止 LostFocus 误扫描旧路径</summary>
@@ -1313,6 +1336,7 @@ namespace LivePhotoBox.Views
                 if (folder != null)
                 {
                     ViewModel.CurrentDirectory = folder.Path;
+                    UpdateRefreshButtonIcon();
                     // 浏览按钮选择的路径直接触发扫描（不依赖 LostFocus）
                     _lastScannedPath = folder.Path;
                     ViewModel.TriggerScan();
@@ -1408,6 +1432,7 @@ namespace LivePhotoBox.Views
                 return;
 
             _lastScannedPath = currentPath;
+            UpdateRefreshButtonIcon();
             ViewModel.TriggerScan();
         }
 
@@ -1471,6 +1496,7 @@ namespace LivePhotoBox.Views
                 e.DragUIOverride.IsGlyphVisible = true;
                 e.DragUIOverride.IsCaptionVisible = false;
                 DragOverlay.Visibility = Visibility.Visible;
+                LeftEmptyHint.Visibility = Visibility.Collapsed; // 遮罩显示时隐藏底层空提示
             }
 
             e.Handled = true;
@@ -1479,6 +1505,7 @@ namespace LivePhotoBox.Views
         private void LeftPanel_DragLeave(object sender, DragEventArgs e)
         {
             DragOverlay.Visibility = Visibility.Collapsed;
+            LeftEmptyHint.ClearValue(UIElement.VisibilityProperty); // 恢复 x:Bind
             _isLeftDropAllFolders = false;
             e.Handled = true;
         }
@@ -1492,6 +1519,7 @@ namespace LivePhotoBox.Views
             try
             {
                 DragOverlay.Visibility = Visibility.Collapsed;
+                LeftEmptyHint.ClearValue(UIElement.VisibilityProperty);
 
                 if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                     return;
@@ -1564,6 +1592,9 @@ namespace LivePhotoBox.Views
                 e.DragUIOverride.IsGlyphVisible = true;
                 e.DragUIOverride.IsCaptionVisible = false;
                 RightDragOverlay.Visibility = Visibility.Visible;
+                RightEmptyHint.Visibility = Visibility.Collapsed;
+                TimelineEmptyHint.Visibility = Visibility.Collapsed;
+                DetailPropsPlaceholder.Visibility = Visibility.Collapsed;
             }
 
             e.Handled = true;
@@ -1572,6 +1603,9 @@ namespace LivePhotoBox.Views
         private void RightPanel_DragLeave(object sender, DragEventArgs e)
         {
             RightDragOverlay.Visibility = Visibility.Collapsed;
+            RightEmptyHint.ClearValue(UIElement.VisibilityProperty);
+            TimelineEmptyHint.ClearValue(UIElement.VisibilityProperty);
+            DetailPropsPlaceholder.ClearValue(UIElement.VisibilityProperty);
             _isRightDropHasFiles = false;
             e.Handled = true;
         }
@@ -1581,6 +1615,9 @@ namespace LivePhotoBox.Views
             try
             {
                 RightDragOverlay.Visibility = Visibility.Collapsed;
+                RightEmptyHint.ClearValue(UIElement.VisibilityProperty);
+                TimelineEmptyHint.ClearValue(UIElement.VisibilityProperty);
+                DetailPropsPlaceholder.ClearValue(UIElement.VisibilityProperty);
 
                 if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                     return;
