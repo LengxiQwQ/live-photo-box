@@ -127,6 +127,15 @@ namespace LivePhotoBox.Services
                 return await SendCommandInternalAsync(token, args, isRetry: false)
                     .ConfigureAwait(false);
             }
+            catch (OperationCanceledException)
+            {
+                // ⚠️ 命令被取消时，我们可能已经往 exiftool stdin 写入了 -execute，
+                // 但还没来得及读完 stdout 的 JSON 响应。残留的响应数据会污染下一次命令的
+                // 输出，导致 JSON 解析失败 → 所有文件被误判为非实况照片。
+                // 重启进程是最安全的清理方式：stdin/stdout 管道全部重置。
+                try { RestartProcess("cancelled command"); } catch { }
+                throw;
+            }
             finally
             {
                 _ioLock.Release();

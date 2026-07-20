@@ -96,6 +96,9 @@ namespace LivePhotoBox.ViewModels
             _propLoadCts?.Cancel();
             _geoCts?.Cancel();
             _timelineCts?.Cancel();
+            _timelineDebounceCts?.Cancel();
+            _earlyFfmpegCts?.Cancel();
+            _earlyFfmpegTask = null;
             _exportCts?.Cancel();
             _exportCts?.Dispose();
             _completionCts?.Cancel();
@@ -357,6 +360,16 @@ namespace LivePhotoBox.ViewModels
         /// <summary>时间轴帧提取取消令牌</summary>
         private CancellationTokenSource? _timelineCts;
 
+        /// <summary>时间轴帧提取防抖取消令牌（快速切换时取消上一次待执行提取）</summary>
+        private CancellationTokenSource? _timelineDebounceCts;
+        private const int TimelineDebounceMs = 200;
+        /// <summary>防抖武装标记：0=首次点击直接启动，1=已武装后续点击需防抖</summary>
+        private int _timelineDebounceArmed;
+
+        /// <summary>提前启动的 ffmpeg 帧提取任务（与 exiftool 并行，省 500-700ms）</summary>
+        private Task<FrameExtractionResult?>? _earlyFfmpegTask;
+        private CancellationTokenSource? _earlyFfmpegCts;
+
         /// <summary>单文件实况照片的内嵌视频临时文件路径（帧提取完成后清理）</summary>
         private string? _tempVideoPath;
 
@@ -401,6 +414,8 @@ namespace LivePhotoBox.ViewModels
         /// frameKey：⭐ 帧 = "star"，视频帧 = 帧序号（如 "3"）。
         /// </summary>
         private readonly Dictionary<string, ImageSource> _thumbnailCache = new();
+        private readonly LinkedList<string> _thumbnailCacheOrder = new();  // 插入顺序，用于 LRU 淘汰
+        private const int MaxThumbnailCacheSize = 120;  // ~5 个文件的完整时间轴缩略图
 
         /// <summary>
         /// 大图预览内存缓存：key = filePath, value = ImageSource（DecodePixelWidth=2560）。
@@ -2192,6 +2207,9 @@ namespace LivePhotoBox.ViewModels
             _propLoadCts = null;
             _geoCts?.Cancel();
             _timelineCts?.Cancel();
+            _timelineDebounceCts?.Cancel();
+            _earlyFfmpegCts?.Cancel();
+            _earlyFfmpegTask = null;
             _exportCts?.Cancel();
             _previewLoadCts?.Cancel();
             CleanupFrameTempFiles();
@@ -2292,6 +2310,11 @@ namespace LivePhotoBox.ViewModels
                 LogService.FileOp(
                     $"Timeline[SelectFile]: DualFile confirmed, videoPath='{videoPath}', exists={File.Exists(videoPath)}",
                     LogLevel.Info);
+
+                // 提前启动 ffmpeg：与后续 exiftool 查询并行，省 500-700ms
+                _earlyFfmpegCts = new CancellationTokenSource();
+                _earlyFfmpegTask = VideoFrameExtractionService.ExtractAllFramesAsync(
+                    videoPath, _earlyFfmpegCts.Token);
             }
             else if (item?.LivePhotoType == LivePhotoType.SingleFileJpeg && item.AppendedVideoLength > 0)
             {
@@ -2480,7 +2503,7 @@ namespace LivePhotoBox.ViewModels
                 Array.Copy(PropTags, imgArgs, PropTags.Length);
                 imgArgs[^1] = imagePath;
 
-                // 并行查询照片 + 配对视频
+                // 并行查询照片 + 配对视频 + Apple MOV StillImageTime
                 LogService.FileOp(
                     $"Timeline[LoadProps] Querying exiftool: image='{Path.GetFileName(imagePath)}', " +
                     $"video='{(videoPath != null ? Path.GetFileName(videoPath) : "N/A")}'",
@@ -2493,7 +2516,12 @@ namespace LivePhotoBox.ViewModels
                         "-VideoFrameRate", "-PosterTime", "-Duration", videoPath)
                     : Task.FromResult(string.Empty);
 
-                await Task.WhenAll(imgTask, vidTask);
+                // Apple 查询使用独立 exiftool 进程，可与其他查询真正并行
+                var appleTask = (!string.IsNullOrEmpty(videoPath))
+                    ? Task.Run(() => EditTimingService.ReadAppleStillImageTime(videoPath))
+                    : Task.FromResult<double?>(null);
+
+                await Task.WhenAll(imgTask, vidTask, appleTask);
 
                 // 捕获 exiftool stderr（外部工具警告/错误）
                 var stderr = exifTool.FlushStderr();
@@ -2537,10 +2565,64 @@ namespace LivePhotoBox.ViewModels
                     LogLevel.Info);
                 LogService.Debug($"KeyPhoto video props: W={vidProps.Width} H={vidProps.Height} Size={vidProps.FileSizeBytes} BR={vidProps.AvgBitrate} Codec={vidProps.CompressorID} Dur={vidProps.MediaDuration} FPS={vidProps.VideoFrameRate}", LogSource.UI);
 
+                // ── 后台线程预计算 ──────────────────────────────────────────
+                // 以下操作涉及 exiftool Process.Start 或磁盘 I/O，在后台线程执行，
+                // 避免在 dispatcher 回调中阻塞 UI 线程 500-1000ms。
+                // 预计算完成后，dispatcher 回调只做纯 UI 赋值（毫秒级）。
+
+                // 解析视频时长：取 MediaDuration 和 Duration 中较长的那个
+                double durSec = ParseExifDuration(vidProps.MediaDuration);
+                double durSec2 = ParseExifDuration(vidProps.Duration);
+                if (durSec2 > durSec) durSec = durSec2;
+
+                // 计算关键帧时间偏移（各协议标签，纯 CPU 计算）
+                double keyPhotoTimeSeconds = 0;
+                if (imgProps.MotionPhotoPresentationTimestampUs > 0)
+                    keyPhotoTimeSeconds = imgProps.MotionPhotoPresentationTimestampUs / 1_000_000.0;
+                else if (imgProps.MicroVideoPresentationTimestampUs > 0)
+                    keyPhotoTimeSeconds = imgProps.MicroVideoPresentationTimestampUs / 1_000_000.0;
+                else if (!string.IsNullOrWhiteSpace(vidProps.PosterTime))
+                    keyPhotoTimeSeconds = ParseExifDuration(vidProps.PosterTime);
+
+                if (keyPhotoTimeSeconds <= 0 && durSec > 0)
+                    keyPhotoTimeSeconds = durSec / 2.0;
+
+                // Apple MOV StillImageTime — 已与 PersistentExifTool 并行执行，直接取结果
+                double? appleTime = appleTask.Result;
+                if (appleTime.HasValue && appleTime.Value > 0)
+                {
+                    LogService.FileOp(
+                        $"Timeline[LoadProps] KeyPhoto from Apple MOV metadata track: " +
+                        $"{appleTime.Value:F4}s (was {keyPhotoTimeSeconds:F4}s)",
+                        LogLevel.Info);
+                    keyPhotoTimeSeconds = appleTime.Value;
+                }
+
+                // XMP 文本读取 + 协议 timing 解析（涉及磁盘 I/O）
+                string? xmpText = null;
+                try { xmpText = LivePhotoSplitService.ReadMetadataTextSync(imagePath); }
+                catch { /* 非 JPEG 或读取失败，跳过 */ }
+                var timing = EditTimingService.Resolve(keyPhotoTimeSeconds, xmpText);
+
+                // OPPO 改封面后原始高清图提取
+                byte[]? originalPhotoBytes = null;
+                if (timing.HasOriginalPhoto)
+                    originalPhotoBytes = EditTimingService.ReadOriginalPhotoBytes(imagePath);
+
+                // 视频 FPS 解析
+                double fps = double.TryParse(vidProps.VideoFrameRate,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var f)
+                    ? f : 30.0;
+
+                // 视频路径确认（单文件实况 → 临时视频，双文件 → 配对视频）
+                string? actualVideoPath = tempVideoPath ?? videoPath;
+                bool videoExists = !string.IsNullOrEmpty(actualVideoPath) && File.Exists(actualVideoPath);
+
+                // ── UI 线程：仅做属性赋值 + 触发时间轴提取 ──────────────────
                 dispatcher.TryEnqueue(() =>
                 {
-                    // 代数检查：exiftool 查询耗时 1~3s，期间用户可能已切换到另一个文件。
-                    // 若代数不匹配，说明此回调已过期，跳过所有 UI 更新和 ffmpeg 提取。
+                    // 代数检查：后台计算耗时期间用户可能已切换到另一个文件
                     if (generation != Volatile.Read(ref _selectionGeneration))
                     {
                         LogService.FileOp(
@@ -2552,102 +2634,11 @@ namespace LivePhotoBox.ViewModels
                     ApplyProperties(imgProps);
                     ApplyVideoProperties(vidProps);
 
-                    // 解析视频时长：取 MediaDuration 和 Duration 中较长的那个。
-                    // • MediaDuration ("0.95 s") 有时被 exiftool 截断，而 Duration ("0.96 s") 更精确
-                    // • 某些文件 MediaDuration = "0.00 s" 但 Duration 正确 → 取不为 0 的那个
-                    double durSec = ParseExifDuration(vidProps.MediaDuration);
-                    double durSec2 = ParseExifDuration(vidProps.Duration);
-                    if (durSec2 > durSec)
-                    {
-                        durSec = durSec2;
-                        LogService.FileOp(
-                            $"Timeline[LoadProps] Using Duration={vidProps.Duration} (longer than MediaDuration={vidProps.MediaDuration})",
-                            LogLevel.Info);
-                    }
-
-                    // 计算关键帧的时间偏移（各协议标签）
-                    // 优先级：MotionPhotoPresentationTimestampUs(Google V2) >
-                    //         MicroVideoPresentationTimestampUs(Google V1) >
-                    //         PosterTime(Apple paired .MOV) >
-                    //         默认 = 视频总时长 / 2
-                    double keyPhotoTimeSeconds = 0;
-                    if (imgProps.MotionPhotoPresentationTimestampUs > 0)
-                    {
-                        keyPhotoTimeSeconds = imgProps.MotionPhotoPresentationTimestampUs / 1_000_000.0;
-                        LogService.FileOp(
-                            $"Timeline[LoadProps] KeyPhoto from MotionPhotoPresentationTimestampUs: " +
-                            $"{imgProps.MotionPhotoPresentationTimestampUs}μs → {keyPhotoTimeSeconds}s",
-                            LogLevel.Info);
-                    }
-                    else if (imgProps.MicroVideoPresentationTimestampUs > 0)
-                    {
-                        keyPhotoTimeSeconds = imgProps.MicroVideoPresentationTimestampUs / 1_000_000.0;
-                        LogService.FileOp(
-                            $"Timeline[LoadProps] KeyPhoto from MicroVideoPresentationTimestampUs: " +
-                            $"{imgProps.MicroVideoPresentationTimestampUs}μs → {keyPhotoTimeSeconds}s",
-                            LogLevel.Info);
-                    }
-                    else if (!string.IsNullOrWhiteSpace(vidProps.PosterTime))
-                    {
-                        keyPhotoTimeSeconds = ParseExifDuration(vidProps.PosterTime);
-                        LogService.FileOp(
-                            $"Timeline[LoadProps] KeyPhoto from PosterTime: '{vidProps.PosterTime}' → {keyPhotoTimeSeconds}s",
-                            LogLevel.Info);
-                    }
-
-                    // PosterTime 通常为 0，实际照片帧在视频中间位置
-                    if (keyPhotoTimeSeconds <= 0 && durSec > 0)
-                    {
-                        var halfDur = durSec / 2.0;
-                        LogService.FileOp(
-                            $"Timeline[LoadProps] KeyPhoto fallback: keyPhotoTimeSeconds={keyPhotoTimeSeconds}, " +
-                            $"using half duration={halfDur:F2}s",
-                            LogLevel.Info);
-                        keyPhotoTimeSeconds = halfDur;
-                    }
-
-                    // Apple MOV: PosterTime 永远为 0，真正封面/照片时间在 mebx 元数据轨
-                    // ffprobe 找最后一个 nb_frames=1 且 start_time>0 的 mebx 轨
-                    if (!string.IsNullOrEmpty(videoPath) && durSec > 0)
-                    {
-                        var appleTime = EditTimingService.ReadAppleStillImageTime(videoPath);
-                        if (appleTime.HasValue && appleTime.Value > 0)
-                        {
-                            LogService.FileOp(
-                                $"Timeline[LoadProps] KeyPhoto from Apple MOV metadata track: " +
-                                $"{appleTime.Value:F4}s (was {keyPhotoTimeSeconds:F4}s)",
-                                LogLevel.Info);
-                            keyPhotoTimeSeconds = appleTime.Value;
-                        }
-                    }
-
-                    // ── 协议专属 Cover 时机分离（OPPO 等）──
-                    string? xmpText = null;
-                    try { xmpText = LivePhotoSplitService.ReadMetadataTextSync(imagePath); }
-                    catch { /* 非 JPEG 或读取失败，跳过 */ }
-                    var timing = EditTimingService.Resolve(keyPhotoTimeSeconds, xmpText);
-
-                    // OPPO 改封面后原始高清图在 Original item 中，需要提取出来给 ⭐
-                    byte[]? originalPhotoBytes = null;
-                    if (timing.HasOriginalPhoto)
-                    {
-                        originalPhotoBytes = EditTimingService.ReadOriginalPhotoBytes(imagePath);
-                    }
-
-                    // 触发时间轴帧提取（需要视频路径 + 元数据）
                     if (durSec > 0)
                     {
-                        double fps = double.TryParse(vidProps.VideoFrameRate,
-                            System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture, out var f)
-                            ? f : 30.0;
                         _videoFps = fps;
                         FpsDisplayText = ResourceService.Format("KeyPhoto_TimelineFps", fps.ToString("F2"));
 
-                        // 单文件实况照片：使用提取出的临时视频路径
-                        // 双文件实况照片：使用配对视频路径
-                        string? actualVideoPath = tempVideoPath ?? videoPath;
-                        bool videoExists = !string.IsNullOrEmpty(actualVideoPath) && File.Exists(actualVideoPath);
                         LogService.FileOp(
                             $"Timeline[LoadProps] Checking trigger: durSec={durSec}, fps={fps}, " +
                             $"actualVideoPath='{actualVideoPath ?? "null"}', exists={videoExists}",
@@ -2657,7 +2648,7 @@ namespace LivePhotoBox.ViewModels
                             LogService.FileOp(
                                 $"Timeline[LoadProps] → Triggering extraction for '{Path.GetFileName(actualVideoPath!)}'",
                                 LogLevel.Info);
-                            TriggerTimelineExtraction(actualVideoPath!, durSec, fps,
+                            TriggerTimelineExtractionDebounced(actualVideoPath!, durSec, fps,
                                 timing.PhotoTimeSeconds, timing.CoverTimeSeconds,
                                 generation,
                                 originalPhotoBytes);
@@ -2763,6 +2754,54 @@ namespace LivePhotoBox.ViewModels
         }
 
         /// <summary>
+        /// 防抖包装：延迟 <see cref="TimelineDebounceMs"/>ms 后再触发时间轴帧提取。
+        /// 快速连续切换文件时，每次调用会取消上一次待执行的提取，确保只有最后一次生效。
+        /// 智能防抖：首次点击直接启动，200ms 内后续点击才防抖。
+        /// 单次点击零延迟；快速切文件时只处理最后一次。
+        /// </summary>
+        private void TriggerTimelineExtractionDebounced(string videoPath, double durationSeconds,
+            double fps, double photoTimeSeconds, double coverTimeSeconds,
+            int generation, byte[]? originalPhotoBytes)
+        {
+            _timelineDebounceCts?.Cancel();
+            _timelineDebounceCts = new CancellationTokenSource();
+            var debounceToken = _timelineDebounceCts.Token;
+
+            if (Interlocked.CompareExchange(ref _timelineDebounceArmed, 1, 0) == 0)
+            {
+                // 首次点击：直接启动，零延迟
+                TriggerTimelineExtraction(videoPath, durationSeconds, fps,
+                    photoTimeSeconds, coverTimeSeconds, generation, originalPhotoBytes);
+
+                // 预设 200ms 后解除武装，期间的新点击会走防抖路径
+                _ = Task.Run(async () =>
+                {
+                    try { await Task.Delay(TimelineDebounceMs, debounceToken); }
+                    catch (OperationCanceledException) { }
+                    Interlocked.Exchange(ref _timelineDebounceArmed, 0);
+                });
+                return;
+            }
+
+            // 已武装：防抖，延迟后只执行最后一次
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    await Task.Delay(TimelineDebounceMs, debounceToken);
+                    if (generation != Volatile.Read(ref _selectionGeneration))
+                        return;
+                    TriggerTimelineExtraction(videoPath, durationSeconds, fps,
+                        photoTimeSeconds, coverTimeSeconds, generation, originalPhotoBytes);
+                }
+                catch (OperationCanceledException)
+                {
+                    // 被新点击取消，预期行为
+                }
+            });
+        }
+
+        /// <summary>
         /// 触发时间轴帧提取。
         /// 先让 ffmpeg 解码全部帧（原始尺寸），拿到真实帧数后再创建 TimelineFrame，
         /// 避免 Ceil(dur × fps) 估算导致的帧数不匹配（末尾空白帧）。
@@ -2836,8 +2875,25 @@ namespace LivePhotoBox.ViewModels
                         return;
                     }
 
-                    var result = await VideoFrameExtractionService.ExtractAllFramesAsync(
-                        videoPath, ct);
+                    // 优先使用 SelectFile 中提前启动的 ffmpeg（与 exiftool 并行，省 500-700ms）
+                    var earlyTask = _earlyFfmpegTask;
+                    _earlyFfmpegTask = null;
+                    var earlyCts = _earlyFfmpegCts;
+                    _earlyFfmpegCts = null;
+
+                    FrameExtractionResult? result;
+                    if (earlyTask != null && !earlyTask.IsFaulted && !earlyTask.IsCanceled)
+                    {
+                        result = await earlyTask;
+                        // 提前任务的 CTS 已用完，释放
+                        try { earlyCts?.Dispose(); } catch { }
+                    }
+                    else
+                    {
+                        // 提前任务不可用（SingleFileJpeg 或已失败）→ 现场启动
+                        result = await VideoFrameExtractionService.ExtractAllFramesAsync(
+                            videoPath, ct);
+                    }
 
                     if (ct.IsCancellationRequested)
                     {
@@ -2940,7 +2996,7 @@ namespace LivePhotoBox.ViewModels
                                     var source = new SoftwareBitmapSource();
                                     await source.SetBitmapAsync(softwareBitmap);
                                     starThumbnail = source;
-                                    _thumbnailCache[starKey] = source;
+                                    AddToThumbnailCache(starKey, source);
                                     LogService.FileOp(
                                         $"Timeline[Extract] ⭐ using Original photo ({originalPhotoBytes.Length} bytes)",
                                         LogLevel.Info);
@@ -2955,7 +3011,7 @@ namespace LivePhotoBox.ViewModels
                             else if (starThumbnail != null)
                             {
                                 // SelectedFileThumbnail 已可用，加入缓存供后续复用
-                                _thumbnailCache[starKey] = starThumbnail;
+                                AddToThumbnailCache(starKey, starThumbnail);
                             }
 
                             stillFrame = new TimelineFrame
@@ -3009,6 +3065,7 @@ namespace LivePhotoBox.ViewModels
                             int timelineIdx = 0;
                             for (int jpegIdx = 0; jpegIdx < result.JpegPaths.Count; jpegIdx++)
                             {
+                                ct.ThrowIfCancellationRequested();  // 快速切换时立即停止缩略图加载
                                 try
                                 {
                                 // 跳过照片帧
@@ -3021,17 +3078,32 @@ namespace LivePhotoBox.ViewModels
                                     {
                                         var jpegPath = result.JpegPaths[jpegIdx];
                                         // 后台线程：BitmapDecoder 解码 JPEG → SoftwareBitmap (Bgra8, Premultiplied)
+                                        // 缩放至 224px 宽（4× 56px 卡片尺寸，高分屏锐利），GPU 内存从 ~8MB/帧 降至 ~0.05MB/帧
                                         var softwareBitmap = await Task.Run(() =>
                                         {
                                             using var fs = new FileStream(jpegPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                                             var decoder = BitmapDecoder.CreateAsync(fs.AsRandomAccessStream()).GetAwaiter().GetResult();
+                                            uint origW = decoder.PixelWidth;
+                                            uint origH = decoder.PixelHeight;
+                                            double scale = origW > 224 ? 224.0 / origW : 1.0;
+                                            uint targetW = scale < 1.0 ? 224 : origW;
+                                            uint targetH = scale < 1.0 ? (uint)Math.Max(1, origH * scale) : origH;
+                                            var transform = new BitmapTransform
+                                            {
+                                                ScaledWidth = targetW,
+                                                ScaledHeight = targetH,
+                                                InterpolationMode = BitmapInterpolationMode.Fant
+                                            };
                                             return decoder.GetSoftwareBitmapAsync(
-                                                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied).GetAwaiter().GetResult();
+                                                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+                                                transform,
+                                                ExifOrientationMode.IgnoreExifOrientation,
+                                                ColorManagementMode.DoNotColorManage).GetAwaiter().GetResult();
                                         });
                                         // UI 线程：SoftwareBitmap → SoftwareBitmapSource
                                         var source = new SoftwareBitmapSource();
                                         await source.SetBitmapAsync(softwareBitmap);
-                                        _thumbnailCache[frameKey] = source;
+                                        AddToThumbnailCache(frameKey, source);
                                         cachedFrame = source;
                                     }
                                     // 边界保护：加载期间 TimelineFrames 可能被新 SelectFile 清空
@@ -3092,7 +3164,7 @@ namespace LivePhotoBox.ViewModels
                             var loaded = await ThumbnailService.LoadAsync(sourcePath, dispatcher);
                             if (loaded != null)
                             {
-                                _thumbnailCache[starKey] = loaded;
+                                AddToThumbnailCache(starKey, loaded);
                                 dispatcher.TryEnqueue(() =>
                                 {
                                     if (stillFrame != null) stillFrame.Thumbnail = loaded;
@@ -3371,6 +3443,24 @@ namespace LivePhotoBox.ViewModels
         }
 
         /// <summary>
+        /// 将帧缩略图写入缓存，超过上限时淘汰最旧的条目。
+        /// 与 <see cref="AddToPreviewCache"/> 结构一致。
+        /// </summary>
+        private void AddToThumbnailCache(string key, ImageSource source)
+        {
+            _thumbnailCacheOrder.Remove(key);
+            _thumbnailCacheOrder.AddLast(key);
+            _thumbnailCache[key] = source;
+
+            while (_thumbnailCacheOrder.Count > MaxThumbnailCacheSize)
+            {
+                string oldest = _thumbnailCacheOrder.First!.Value;
+                _thumbnailCacheOrder.RemoveFirst();
+                _thumbnailCache.Remove(oldest);
+            }
+        }
+
+        /// <summary>
         /// 用户手动点击时间轴帧 → 更新大图预览。
         /// 照片帧⭐ → 加载原始照片文件；
         /// 视频帧 → 加载 ffmpeg 提取的全分辨率 JPEG。
@@ -3619,6 +3709,7 @@ namespace LivePhotoBox.ViewModels
 
             // 切换到新目录 → 清空旧文件帧缩略图缓存 + 大图预览缓存
             _thumbnailCache.Clear();
+            _thumbnailCacheOrder.Clear();
             _previewCache.Clear();
             _previewCacheOrder.Clear();
 
