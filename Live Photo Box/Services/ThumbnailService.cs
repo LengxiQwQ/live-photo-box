@@ -46,6 +46,9 @@ namespace LivePhotoBox.Services
         private static SemaphoreSlim _videoLoadLimiter => _videoLoadLimiterLazy.Value;
         // 追踪可取消的视频缩略图加载（用于滚动时取消队列中等待的）
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _videoLoadCts = new(StringComparer.OrdinalIgnoreCase);
+        // 追踪可取消的照片加载（TryGetOrLoad 旧路径用，滚动时新请求取消旧请求）
+        private static readonly ConcurrentDictionary<string, CancellationTokenSource> _photoLoadCts = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _photoCtsLock = new();
         private static int _cacheVersion;
 
         // 从缓存中直接获取已加载的缩略图（同步，非阻塞）。
@@ -55,6 +58,13 @@ namespace LivePhotoBox.Services
         {
             if (string.IsNullOrWhiteSpace(imagePath)) return null;
             return _thumbnailCache.TryGetValue(imagePath, out var cached) ? cached : null;
+        }
+
+        /// <summary>由 ThumbnailScheduler 写入缓存（不触发 UI 回调）</summary>
+        public static void WriteCache(string imagePath, ImageSource source)
+        {
+            if (string.IsNullOrWhiteSpace(imagePath) || source == null) return;
+            _thumbnailCache[imagePath] = source;
         }
 
         // 异步加载指定文件的缩略图（走限量的并发信号量）。
@@ -78,6 +88,20 @@ namespace LivePhotoBox.Services
             int version = Volatile.Read(ref _cacheVersion);
 
             return _inflightLoads.GetOrAdd(imagePath, path => LoadCoreAsync(path, dispatcher, version));
+        }
+
+        // 取消最早的排队中照片加载——信号量满时为新请求让位，保证可见区域优先。
+        private static void CancelOldestPhotoLoad()
+        {
+            lock (_photoCtsLock)
+            {
+                var oldest = _photoLoadCts.FirstOrDefault();
+                if (!string.IsNullOrEmpty(oldest.Key) && _photoLoadCts.TryRemove(oldest.Key, out var cts))
+                {
+                    try { cts.Cancel(); } catch { }
+                    // 不 Dispose —— 由持有此 CTS 的 Task 负责清理
+                }
+            }
         }
 
         // 取消队列中等待的视频缩略图加载（已开始的 FFmpeg 不受影响）
@@ -605,10 +629,16 @@ namespace LivePhotoBox.Services
         {
             if (thumbnail == null && !isLoading && !string.IsNullOrWhiteSpace(imagePath))
             {
+                // 先查全局缓存——避免重复解码（尤其 HEIC，单次解码耗时 100-300ms）
+                if (_thumbnailCache.TryGetValue(imagePath, out var cached))
+                {
+                    assignThumbnail(cached);
+                    return cached;
+                }
+
                 isLoading = true;
                 var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
                 var path = imagePath;
-                // 在 UI 线程拿到 DPI 缩放 → 实际解码像素
                 double dpiScale = GetDpiScale();
                 uint decodeSize = (uint)Math.Max(1, targetSize * dpiScale);
 
@@ -623,6 +653,11 @@ namespace LivePhotoBox.Services
                         await _videoLoadLimiter.WaitAsync();
                         try
                         {
+                            if (_thumbnailCache.TryGetValue(path, out var vidCached))
+                            {
+                                dispatcher?.TryEnqueue(() => assignThumbnail(vidCached));
+                                return;
+                            }
                             var (data, w, h) = await LoadVideoThumbnailDataAsync(path, videoDecodeSize);
                             if (data is { Length: > 0 } && dispatcher != null)
                             {
@@ -634,23 +669,47 @@ namespace LivePhotoBox.Services
                                         bmp.DecodePixelWidth = (int)videoDecodeSize;
                                         using var ms = new MemoryStream(data);
                                         bmp.SetSource(ms.AsRandomAccessStream());
+                                        _thumbnailCache[path] = bmp;
                                         assignThumbnail(bmp);
                                     }
                                     catch { }
                                 });
                             }
                         }
-                        finally
-                        {
-                            _videoLoadLimiter.Release();
-                        }
+                        finally { _videoLoadLimiter.Release(); }
                         return;
                     }
 
-                    await _loadLimiter.WaitAsync();
+                    // 注册可取消令牌：快速滚动时新请求会取消最旧的排队请求
+                    var photoCts = new CancellationTokenSource();
+                    _photoLoadCts[path] = photoCts;
 
                     try
                     {
+                        // 信号量满 → 取消最早排队项，保证可见区域优先
+                        if (_loadLimiter.CurrentCount == 0)
+                            CancelOldestPhotoLoad();
+                        await _loadLimiter.WaitAsync(photoCts.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    finally
+                    {
+                        _photoLoadCts.TryRemove(path, out _);
+                        photoCts.Dispose();
+                    }
+
+                    try
+                    {
+                        // 双重检查：等信号量期间可能已被其他请求加载
+                        if (_thumbnailCache.TryGetValue(path, out var photoCached))
+                        {
+                            dispatcher?.TryEnqueue(() => assignThumbnail(photoCached));
+                            return;
+                        }
+
                         byte[]? imageData = null;
                         int width = (int)decodeSize;
                         int height = (int)decodeSize;
@@ -658,13 +717,9 @@ namespace LivePhotoBox.Services
                         try
                         {
                             if (HeicConverterService.IsHeicFile(path))
-                            {
-                                (imageData, width, height) = await LoadHeicThumbnailDataAsync(path, decodeSize);
-                            }
+                                (imageData, width, height) = await LoadHeicMagickThumbnailAsync(path, decodeSize);
                             else
-                            {
                                 (imageData, width, height) = await LoadSystemThumbnailDataAsync(path, decodeSize);
-                            }
                         }
                         catch
                         {
@@ -679,12 +734,19 @@ namespace LivePhotoBox.Services
                                     var bitmapImage = new BitmapImage();
                                     var stream = new MemoryStream(imageData);
                                     bitmapImage.SetSource(stream.AsRandomAccessStream());
+                                    // 写入全局缓存，后续同文件任何 EditFileItem 都能命中
+                                    _thumbnailCache[path] = bitmapImage;
                                     assignThumbnail(bitmapImage);
                                 }
                                 catch
                                 {
                                 }
                             });
+                        }
+                        else
+                        {
+                            // 加载失败 → 回调空值以重置 isLoading 标记，允许后续重试
+                            dispatcher?.TryEnqueue(() => assignThumbnail(null));
                         }
                     }
                     finally
@@ -704,49 +766,20 @@ namespace LivePhotoBox.Services
 
         private static async Task<(byte[] data, int width, int height)> LoadHeicThumbnailDataAsync(string imagePath, uint targetSize = 80)
         {
-            var file = await StorageFile.GetFileFromPathAsync(imagePath);
-            using var inputStream = await file.OpenAsync(FileAccessMode.Read);
-
-            var decoder = await BitmapDecoder.CreateAsync(inputStream);
-            uint w = decoder.PixelWidth;
-            uint h = decoder.PixelHeight;
-
-            // 以短边为准缩放：正方形 UniformToFill 框里短边决定锐度
-            uint shorterEdge = Math.Min(w, h);
-            double scale = (double)targetSize / shorterEdge;
-            uint targetWidth = Math.Max(1, (uint)(w * scale));
-            uint targetHeight = Math.Max(1, (uint)(h * scale));
-
-            // ▸▸▸ 在解码阶段直接缩放到目标尺寸，不解码全分辨率（省几十 MB 内存）
-            var decodeTransform = new BitmapTransform
-            {
-                ScaledWidth = targetWidth,
-                ScaledHeight = targetHeight,
-                InterpolationMode = BitmapInterpolationMode.Fant
-            };
-            var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
-                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
-                decodeTransform, ExifOrientationMode.IgnoreExifOrientation,
-                ColorManagementMode.DoNotColorManage);
-
-            var outputStream = new Windows.Storage.Streams.InMemoryRandomAccessStream();
-            var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.JpegEncoderId, outputStream);
-            encoder.SetSoftwareBitmap(softwareBitmap);
-            // 不用再设 BitmapTransform——已在解码阶段缩放过
-            await encoder.FlushAsync();
-
-            outputStream.Seek(0);
-            using var reader = new Windows.Storage.Streams.DataReader(outputStream);
-            var buffer = new byte[outputStream.Size];
-            await reader.LoadAsync((uint)outputStream.Size);
-            reader.ReadBytes(buffer);
-
-            softwareBitmap.Dispose();
-
-            return (buffer, (int)targetWidth, (int)targetHeight);
+            // HEIC 缩略图优先走 Windows Shell API（Explorer 缓存，已正确处理旋转，瞬时返回）
+            // 回退：BitmapDecoder 全解码 + 缩放（Shell 缓存未命中时）
+            return await LoadSystemThumbnailDataAsync(imagePath, targetSize);
         }
 
-        private static async Task<(byte[] data, int width, int height)> LoadSystemThumbnailDataAsync(string imagePath, uint targetSize = 80)
+        /// <summary>
+        /// HEIC 缩略图解码。委托给 ThumbnailProviderFactory 当前选中的提供者，
+        /// 支持在 Magick.NET / MagicScaler 之间切换对比。
+        /// </summary>
+        private static Task<(byte[] data, int width, int height)> LoadHeicMagickThumbnailAsync(
+            string imagePath, uint targetSize)
+            => ThumbnailProviderFactory.Current.LoadHeicThumbnailAsync(imagePath, targetSize);
+
+        internal static async Task<(byte[] data, int width, int height)> LoadSystemThumbnailDataAsync(string imagePath, uint targetSize = 80)
         {
             // PNG/BMP 等格式的 Shell 缩略图会返回白板图标 → 直接走自解码
             if (HasReliableShellThumbnail(imagePath))
@@ -835,7 +868,7 @@ namespace LivePhotoBox.Services
         }
 
         // 视频缩略图数据提取（用于 x:Bind 路径）：使用 FFmpeg 抽取第一帧。
-        private static async Task<(byte[] data, int width, int height)> LoadVideoThumbnailDataAsync(string videoPath, uint targetSize = 80)
+        internal static async Task<(byte[] data, int width, int height)> LoadVideoThumbnailDataAsync(string videoPath, uint targetSize = 80)
         {
             string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
@@ -845,10 +878,8 @@ namespace LivePhotoBox.Services
 
             try
             {
-                string hwaccel = GetVideoHwAccelFlag();
-                string args = string.IsNullOrEmpty(hwaccel)
-                    ? $"-i \"{videoPath}\" -vframes 1 -vf \"scale={targetSize}:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error"
-                    : $"{hwaccel} -i \"{videoPath}\" -vframes 1 -vf \"scale={targetSize}:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
+                // 缩略图只抽一帧，CPU 解码快且稳定；GPU hwaccel 可能触发 nvcuda64.dll 访问冲突
+                string args = $"-i \"{videoPath}\" -vframes 1 -vf \"scale={targetSize}:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
 
                 var psi = new ProcessStartInfo
                 {
@@ -856,7 +887,8 @@ namespace LivePhotoBox.Services
                     Arguments = args,
                     UseShellExecute = false,
                     CreateNoWindow = true,
-                    RedirectStandardError = true
+                    RedirectStandardError = true,
+                    ErrorDialog = false
                 };
 
                 using var process = new Process { StartInfo = psi };

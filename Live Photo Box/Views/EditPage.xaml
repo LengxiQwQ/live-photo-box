@@ -545,12 +545,10 @@
                                   Padding="0,0,14,0" Margin="3,5,3,0"
                                   SelectionChanged="FileItemListView_SelectionChanged">
 
-                        <!-- 最简 ItemContainer：裸 ContentPresenter，无 VSM/Transition -->
+                        <!-- 最简 ItemContainer：固定行高 76px（56px图+16px padding+4px border），便于虚拟化精确布局 -->
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                <Setter Property="Padding" Value="0"/>
-                                <Setter Property="Margin" Value="0"/>
+                                <Setter Property="Height" Value="76"/>
                                 <Setter Property="MinHeight" Value="0"/>
                                 <Setter Property="IsTabStop" Value="False"/>
                                 <Setter Property="Template">

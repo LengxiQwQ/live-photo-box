@@ -305,6 +305,26 @@
                                   x:Uid="Toggle_OnOff"/>
                 </controls:SettingsCard>
 
+                <!-- HEIC 缩略图解码方案（A/B 对比测试） -->
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_General_ThumbnailProvider" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_General_ThumbnailProvider_Desc" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE8B9;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ComboBox SelectedIndex="{x:Bind ViewModel.ThumbnailProviderIndex, Mode=TwoWay}"
+                              Loaded="AppearanceComboBox_Loaded"
+                              MinWidth="200">
+                        <ComboBoxItem x:Uid="SettingsPage_General_ThumbnailProvider_MagickNET"/>
+                        <ComboBoxItem x:Uid="SettingsPage_General_ThumbnailProvider_MagicScaler"/>
+                    </ComboBox>
+                </controls:SettingsCard>
+
             </StackPanel>
 
             <!-- ====================================================================== -->

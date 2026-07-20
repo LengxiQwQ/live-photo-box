@@ -2063,6 +2063,18 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_General_OutputPreserveSubfolder_Desc.Text" xml:space="preserve">
     <value>开启后，输出的文件将保留原始子文件夹的层级结构，不会全部平铺到输出目录根下</value>
   </data>
+  <data name="SettingsPage_General_ThumbnailProvider.Text" xml:space="preserve">
+    <value>HEIC 缩略图解码方案（对比测试）</value>
+  </data>
+  <data name="SettingsPage_General_ThumbnailProvider_Desc.Text" xml:space="preserve">
+    <value>Magick.NET 为当前方案；MagicScaler 为实验性方案，解码速度更快但 API 为预览版</value>
+  </data>
+  <data name="SettingsPage_General_ThumbnailProvider_MagickNET.Content" xml:space="preserve">
+    <value>Magick.NET（当前方案）</value>
+  </data>
+  <data name="SettingsPage_General_ThumbnailProvider_MagicScaler.Content" xml:space="preserve">
+    <value>MagicScaler（实验性，高性能）</value>
+  </data>
   <data name="SettingsPage_LivePhotoEdit_Header.Text" xml:space="preserve">
     <value>实况照片编辑</value>
   </data>

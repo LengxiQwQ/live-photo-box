@@ -2065,6 +2065,18 @@ Are you sure you want to switch?</value>
   <data name="SettingsPage_General_OutputPreserveSubfolder_Desc.Text" xml:space="preserve">
     <value>When enabled, output files retain the original subfolder hierarchy instead of being flattened into the output root directory</value>
   </data>
+  <data name="SettingsPage_General_ThumbnailProvider.Text" xml:space="preserve">
+    <value>HEIC Thumbnail Provider (A/B Test)</value>
+  </data>
+  <data name="SettingsPage_General_ThumbnailProvider_Desc.Text" xml:space="preserve">
+    <value>Magick.NET is the current solution; MagicScaler is experimental with faster decode but preview API</value>
+  </data>
+  <data name="SettingsPage_General_ThumbnailProvider_MagickNET.Content" xml:space="preserve">
+    <value>Magick.NET (Current)</value>
+  </data>
+  <data name="SettingsPage_General_ThumbnailProvider_MagicScaler.Content" xml:space="preserve">
+    <value>MagicScaler (Experimental, High Performance)</value>
+  </data>
   <data name="SettingsPage_LivePhotoEdit_Header.Text" xml:space="preserve">
     <value>Live Photo Editing</value>
   </data>
