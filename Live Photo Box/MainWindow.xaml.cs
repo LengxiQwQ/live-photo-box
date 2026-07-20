@@ -57,6 +57,9 @@ namespace LivePhotoBox
         [DllImport("user32.dll")]
         private static extern bool SetLayeredWindowAttributes(IntPtr hwnd, uint crKey, byte bAlpha, uint dwFlags);
 
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern bool SetWindowTextW(IntPtr hWnd, string lpString);
+
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_LAYERED = 0x80000;
         private const uint LWA_ALPHA = 0x2;
@@ -81,8 +84,24 @@ namespace LivePhotoBox
             InitializeComponent();
             LogService.Info("MainWindow constructed.", LogSource.UI);
 
-            // 本地化窗口标题（任务栏、Alt+Tab 显示）
+            // 本地化窗口标题。ResourceService 在非打包模式下可能尚未就绪，
+            // 这里先设一个初始值；AppTitleBar.Loaded 中会从已解析的 XAML 文字再次设置。
             Title = ResourceService.GetString("MainWindow_Title.Text");
+
+            // AppTitleBar 加载完成后（XAML x:Uid 已解析），从标题栏文字读取正确值，
+            // 确保 Alt+Tab、任务栏、Win32 窗口标题全部正确
+            AppTitleBar.Loaded += (_, _) =>
+            {
+                string localizedTitle = TitleBarText.Text;
+                if (string.IsNullOrWhiteSpace(localizedTitle)) return;
+
+                Title = localizedTitle;
+                IntPtr hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                SetWindowTextW(hwnd, localizedTitle);
+                var wid = Win32Interop.GetWindowIdFromWindow(hwnd);
+                var aw = AppWindow.GetFromWindowId(wid);
+                if (aw != null) aw.Title = localizedTitle;
+            };
 
             // 窗口关闭。
             // 行业标准做法：只做"不做就会崩"的事。OS 在进程退出时自动回收内存/句柄/子进程。
@@ -121,6 +140,15 @@ namespace LivePhotoBox
 
             if (appWindow != null)
             {
+                // 设置 AppWindow.Title 控制 Alt+Tab、任务栏中显示的窗口标题
+                // （Window.Title 只控制标题栏文字；不设 AppWindow.Title 会回退到
+                //  ms-resource:Package_DisplayName，非打包模式下无法解析，Alt+Tab 显示异常）
+                appWindow.Title = Title;
+
+                // 直接设置 Win32 窗口标题作为双保险
+                // （非打包 WinUI 3 中，Alt+Tab 最终读取的是 HWND 的窗口文字）
+                SetWindowTextW(hWnd, Title);
+
                 string iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "Icons", "AppIcon.ico");
                 if (File.Exists(iconPath))
                 {

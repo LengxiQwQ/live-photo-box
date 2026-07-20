@@ -1,6 +1,6 @@
 # Live Photo Box Changelog
 
-> Current version: **v2.0.1**
+> Current version: **v2.0.2**
 > Project started: 2026-03-27
 > Tech stack: WinUI 3 + .NET 9 + C# 13
 
@@ -8,6 +8,8 @@
 
 ## v2.0.x — LivePhotoEdit Page & Toolchain Rewrite
 
+> **v2.0.2** (2026-07-21) **[Fix]** Fixed Alt+Tab task switcher displaying resource key instead of app name
+>
 > **v2.0.1** (2026-07-21) **[Performance]** Edit page performance significantly improved — instant click response, no crash on rapid switching, faster HEIC thumbnails, timeline VRAM drastically reduced; refresh button smart-switches to clear button
 >
 > **v2.0.0** (2026-07-18) **[Major Release]** New LivePhotoEdit page — timeline, export frames, replace cover, view properties; folder drag-and-drop on all pages; timeline mode setting; enhanced log viewer; fixed packaging tools missing & language switching bug

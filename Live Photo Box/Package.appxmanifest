@@ -3,7 +3,7 @@
   <Identity Name="LengxiQwQ.58702A0DB398F" Publisher="CN=E08FA259-F14D-47DB-9306-9E776E531F86" Version="2.0.1.0" />
   <mp:PhoneIdentity PhoneProductId="3fd5d3c9-ba1b-4f99-8636-7f6e7d3c34ed" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
   <Properties>
-    <DisplayName>ms-resource:Package_DisplayName</DisplayName>
+    <DisplayName>Live Photo Box</DisplayName>
     <PublisherDisplayName>LengxiQwQ</PublisherDisplayName>
     <Logo>Assets\Icons\AppIcon-pkg.png</Logo>
   </Properties>
@@ -17,7 +17,7 @@
   </Resources>
   <Applications>
     <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$">
-      <uap:VisualElements DisplayName="ms-resource:Package_DisplayName" BackgroundColor="transparent" Square150x150Logo="Assets\Icons\Square150x150Logo.png" Description="ms-resource:Package_Description" Square44x44Logo="Assets\Icons\Square44x44Logo.png">
+      <uap:VisualElements DisplayName="Live Photo Box" BackgroundColor="transparent" Square150x150Logo="Assets\Icons\Square150x150Logo.png" Description="Display and process Apple Live Photos directly on Windows." Square44x44Logo="Assets\Icons\Square44x44Logo.png">
         <uap:DefaultTile Wide310x150Logo="Assets\Icons\AppIcon.png" />
         <uap:SplashScreen Image="Assets\Icons\AppIcon.png" />
       </uap:VisualElements>

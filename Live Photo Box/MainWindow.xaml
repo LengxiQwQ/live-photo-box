@@ -15,7 +15,7 @@
         <Grid x:Name="AppTitleBar" Grid.Row="0" Background="Transparent">
             <StackPanel Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center" Spacing="8">
                 <Image Source="/Assets/Icons/AppIcon-2D-Translucence.png" Width="16" Height="16" Stretch="Uniform" />
-                <TextBlock x:Uid="MainWindow_Title" FontSize="12" FontWeight="SemiBold"/>
+                <TextBlock x:Name="TitleBarText" x:Uid="MainWindow_Title" FontSize="12" FontWeight="SemiBold"/>
             </StackPanel>
         </Grid>
 
