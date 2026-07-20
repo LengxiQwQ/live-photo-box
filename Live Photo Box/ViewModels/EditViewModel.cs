@@ -108,6 +108,7 @@ namespace LivePhotoBox.ViewModels
             CleanupTempVideo();
             _previewCache.Clear();
             _previewCacheOrder.Clear();
+            ThumbnailScheduler.Reset();
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -366,6 +367,12 @@ namespace LivePhotoBox.ViewModels
         /// <summary>防抖武装标记：0=首次点击直接启动，1=已武装后续点击需防抖</summary>
         private int _timelineDebounceArmed;
 
+        /// <summary>初始加载自动滚动时抑制大图预览更新，避免滚过几十帧时大图疯狂切换</summary>
+        private bool _isInitialTimelineScroll;
+
+        /// <summary>时间轴正在自动滚动中（初始加载定位封面帧），View 层据此禁用用户滚轮输入</summary>
+        public bool IsTimelineAutoScrolling => _isInitialTimelineScroll;
+
         /// <summary>提前启动的 ffmpeg 帧提取任务（与 exiftool 并行，省 500-700ms）</summary>
         private Task<FrameExtractionResult?>? _earlyFfmpegTask;
         private CancellationTokenSource? _earlyFfmpegCts;
@@ -500,8 +507,9 @@ namespace LivePhotoBox.ViewModels
             }
             else
             {
-                // 用户手动点击/吸附选中 → 更新大图预览 + 同步 CurrentKeyFrame
-                _ = UpdatePreviewForTimelineFrameAsync(value);
+                // 初始加载自动滚动时不更新大图（避免滚过几十帧时大图疯狂切换）
+                if (!_isInitialTimelineScroll)
+                    _ = UpdatePreviewForTimelineFrameAsync(value);
             }
         }
 
@@ -2212,8 +2220,18 @@ namespace LivePhotoBox.ViewModels
             _earlyFfmpegTask = null;
             _exportCts?.Cancel();
             _previewLoadCts?.Cancel();
-            CleanupFrameTempFiles();
-            CleanupTempVideo();
+            // 后台线程清理旧临时文件（Directory.Delete 含 89 JPEG，同步调用阻塞 UI 200-500ms）
+            var oldFrameDir = _frameExtractDir;
+            var oldTempVid = _tempVideoPath;
+            _frameExtractDir = null;
+            _tempVideoPath = null;
+            _ = Task.Run(() =>
+            {
+                try { if (oldFrameDir != null && Directory.Exists(oldFrameDir)) Directory.Delete(oldFrameDir, recursive: true); }
+                catch { }
+                try { if (oldTempVid != null && File.Exists(oldTempVid)) File.Delete(oldTempVid); }
+                catch { }
+            });
 
             // 递增选中代数 —— 所有旧的异步回调（exiftool 查询结果、ffmpeg 提取、
             // 大图预览）在拿到执行权后检查此值，不匹配则 bail out，避免新旧操作抢占资源。
@@ -3050,7 +3068,15 @@ namespace LivePhotoBox.ViewModels
                             }
 
                             IsTimelineLoading = false;
+                            // 抑制初始滚动时的大图预览更新，保持封面图不闪烁
+                            _isInitialTimelineScroll = true;
                             SelectTimelineFrameProgrammatically(frameToSelect);
+                            // 800ms 后自动解除（滚动动画结束后恢复用户手动操作时的大图更新）
+                            _ = Task.Run(async () =>
+                            {
+                                await Task.Delay(800);
+                                dispatcher.TryEnqueue(() => _isInitialTimelineScroll = false);
+                            });
                             LogService.Debug(
                                 $"Timeline select: {(frameToSelect.IsStillPhoto ? "⭐" : $"vid #{frameToSelect.FrameIndex}")} " +
                                 $"at {frameToSelect.Timestamp.TotalSeconds:F4}s " +
@@ -3245,8 +3271,12 @@ namespace LivePhotoBox.ViewModels
         /// generation &gt; 0 时，在每次 dispatcher 回调中检查是否过期（!= _selectionGeneration），
         /// 过期则跳过 UI 更新。generation == 0 时不检查（用户手动点击时间轴帧场景）。
         /// </param>
+        // 最近一次预览请求的目标路径，用于拦截过期回调（防星标帧 HEIC 慢加载覆盖后续帧的预览）
+        private string? _latestPreviewRequestPath;
+
         private async Task LoadPreviewImageAsync(string imagePath, int generation = 0)
         {
+            _latestPreviewRequestPath = imagePath;
             _previewLoadCts?.Cancel();
             _previewLoadCts?.Dispose();
             _previewLoadCts = new CancellationTokenSource();
@@ -3266,7 +3296,11 @@ namespace LivePhotoBox.ViewModels
                 // 必须走 UI 线程设值：PreviewImageSource → x:Bind → PhotoViewer.ImageSource
                 // → SetValue(DependencyProperty) → COM 调用，非 UI 线程会抛 0x8001010E
                 var disp = App.MainWindow?.DispatcherQueue;
-                disp?.TryEnqueue(() => SetPreviewSafe(cached));
+                disp?.TryEnqueue(() =>
+                {
+                    if (_latestPreviewRequestPath != imagePath) return; // 过期请求，跳过
+                    SetPreviewSafe(cached);
+                });
                 return;
             }
 
@@ -3361,6 +3395,7 @@ namespace LivePhotoBox.ViewModels
                                 LogService.FileOp(
                                     $"KeyPhoto Preview(HEIC): set PreviewImageSource for '{Path.GetFileName(imagePath)}'",
                                     LogLevel.Info);
+                                if (_latestPreviewRequestPath != imagePath) { tcs.TrySetResult(false); return; }
                                 SetPreviewSafe(bmp);
                                 AddToPreviewCache(imagePath, bmp);
                                 tcs.TrySetResult(true);
@@ -3403,6 +3438,7 @@ namespace LivePhotoBox.ViewModels
                                 if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
                                 await bmp.SetSourceAsync(stream);
                             }
+                            if (_latestPreviewRequestPath != imagePath) { tcs.TrySetResult(false); return; }
                             SetPreviewSafe(bmp);
                             AddToPreviewCache(imagePath, bmp);
                             tcs.TrySetResult(true);
@@ -3692,6 +3728,7 @@ namespace LivePhotoBox.ViewModels
             OtherCount = 0;
             ClearFileInfo();
             ThumbnailService.ClearCache();
+            ThumbnailScheduler.Reset();
             OnPropertyChanged(nameof(HasAnyFiles));
         }
 

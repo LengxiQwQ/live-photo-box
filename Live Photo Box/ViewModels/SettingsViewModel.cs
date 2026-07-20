@@ -425,6 +425,21 @@ namespace LivePhotoBox.ViewModels
         public Visibility OutputPreserveSubfolderVisibility =>
             IsRecursiveScanEnabled ? Visibility.Visible : Visibility.Collapsed;
 
+        /// <summary>
+        /// HEIC 缩略图解码方案：0 = Magick.NET（当前方案），1 = MagicScaler（实验性，高性能）。
+        /// 切换后自动清空缩略图缓存，强制重新加载以对比效果。
+        /// </summary>
+        [ObservableProperty]
+        private int _thumbnailProviderIndex;
+
+        partial void OnThumbnailProviderIndexChanged(int value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(ThumbnailProviderIndex), value);
+            ThumbnailService.ClearCache();
+            LogService.Info($"Thumbnail provider: {(value == 0 ? "Magick.NET" : "MagicScaler")}", LogSource.Settings);
+        }
+
         #endregion
 
         #region KeyPhoto Timeline Settings
@@ -566,6 +581,7 @@ namespace LivePhotoBox.ViewModels
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), true);
             IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), true);
+            ThumbnailProviderIndex = AppSettingsService.GetValue(nameof(ThumbnailProviderIndex), 0);
             TimelineModeIndex = AppSettingsService.GetValue(nameof(TimelineModeIndex), 1);
         }
 

@@ -144,34 +144,35 @@ namespace LivePhotoBox.Models
         partial void OnFileSizeChanged(string value) => OnPropertyChanged(nameof(FileInfoSubLine));
 
         // ══════════════════════════════════════════════════════════════
-        //  缩略图（抄 SplitTask 的 TryGetOrLoad 懒加载模式）
+        //  缩略图 — 被动模式，由 ThumbnailScheduler 集中调度加载
+        //  NeedsThumbnail 直接查 Scheduler._inFlight，不用本地 bool
+        //  避免 TrimQueue 踢掉 item 后本地标记不会恢复的问题
         // ══════════════════════════════════════════════════════════════
 
-        private bool _isLoadingThumbnail;
         private ImageSource? _thumbnail;
 
         /// <summary>缩略图解码目标尺寸：匹配 UI 框 56×56</summary>
-        private const uint ThumbnailTargetSize = 112;
+        public const uint ThumbnailTargetSize = 112;
 
         /// <summary>
-        /// 文件缩略图（懒加载，按 56px 解码匹配 56×56 显示框）。
-        /// 首次访问时通过 ThumbnailService.TryGetOrLoad 触发后台加载，
-        /// 加载完成后自动回写此属性并触发 PropertyChanged → UI 刷新。
+        /// 文件缩略图。getter 只返回已加载或缓存的 ImageSource，不主动触发加载。
+        /// 加载由 EditPage → ThumbnailScheduler 集中调度。
         /// </summary>
         public ImageSource? Thumbnail
         {
-            get => ThumbnailService.TryGetOrLoad(
-                ref _thumbnail, ref _isLoadingThumbnail, FilePath,
-                value => Thumbnail = value,
-                ThumbnailTargetSize);
+            get => _thumbnail ?? ThumbnailService.GetCached(FilePath);
             set
             {
                 if (SetProperty(ref _thumbnail, value))
-                {
                     OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
-                }
             }
         }
+
+        /// <summary>是否需要加载缩略图（由 Scheduler 的 _inFlight 集合决定，TrimQueue 自动恢复可加载状态）</summary>
+        public bool NeedsThumbnail =>
+            _thumbnail == null
+            && ThumbnailService.GetCached(FilePath) == null
+            && !ThumbnailScheduler.IsInFlight(FilePath);
 
         /// <summary>缩略图占位符可见性：加载中/失败时显示占位图标，加载完成后隐藏</summary>
         public Visibility ThumbnailPlaceholderVisibility =>
@@ -180,14 +181,12 @@ namespace LivePhotoBox.Models
         /// <summary>文件路径变更时重置缩略图状态</summary>
         partial void OnFilePathChanged(string value)
         {
-            _isLoadingThumbnail = false;
             Thumbnail = null;
         }
 
         /// <summary>清除缩略图引用（扫描新目录时调用，避免旧缓存干扰）</summary>
         public void ClearThumbnail()
         {
-            _isLoadingThumbnail = false;
             Thumbnail = null;
         }
     }

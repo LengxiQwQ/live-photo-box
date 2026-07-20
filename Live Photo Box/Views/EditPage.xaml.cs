@@ -19,6 +19,7 @@ using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -689,6 +690,126 @@ namespace LivePhotoBox.Views
                 InitializeClassicTimeline();
             else
                 InitializeFilmstripTimeline();
+
+            // 初始化缩略图集中调度（可见性优先 + 方向预加载 + 200ms 批量刷新）
+            SetupThumbnailScheduling();
+        }
+
+        // ═════════════════════════════════════════════════════════════════
+        //  缩略图集中调度（替代 x:Bind getter 中不可控的 Task.Run）
+        // ═════════════════════════════════════════════════════════════════
+
+        private ScrollViewer? _fileListScrollViewer;
+        private DispatcherQueueTimer? _scrollDebounceTimer;
+        private int _lastScrollDirection = 1;  // +1=向下, -1=向上
+        private double _lastScrollOffset;
+
+        private void SetupThumbnailScheduling()
+        {
+            ThumbnailScheduler.Initialize(DispatcherQueue);
+
+            // 找 ListView 内部的 ScrollViewer
+            _fileListScrollViewer = FindVisualChild<ScrollViewer>(FileItemListView);
+            if (_fileListScrollViewer != null)
+            {
+                // 滚轮事件也需要触发调度（ViewChanged 只在惯性滚动结束时触发）
+                _fileListScrollViewer.PointerWheelChanged += (s, e) =>
+                {
+                    if (FileItemListView.Items.Count == 0) return;
+                    // 记录上一次滚动位置以便方向检测
+                    var sv = _fileListScrollViewer;
+                    if (sv != null)
+                    {
+                        _lastScrollDirection = sv.VerticalOffset > _lastScrollOffset ? 1 : -1;
+                        _lastScrollOffset = sv.VerticalOffset;
+                    }
+                    // 防抖重启
+                    _scrollDebounceTimer?.Stop();
+                    _scrollDebounceTimer?.Start();
+                };
+
+                _fileListScrollViewer.ViewChanged += (s, e) =>
+                {
+                    if (e.IsIntermediate) return;
+                    // 防抖重启
+                    _scrollDebounceTimer?.Stop();
+                    _scrollDebounceTimer?.Start();
+                };
+            }
+
+            _scrollDebounceTimer = DispatcherQueue.CreateTimer();
+            _scrollDebounceTimer.Interval = TimeSpan.FromMilliseconds(150);
+            _scrollDebounceTimer.Tick += (s, e) =>
+            {
+                _scrollDebounceTimer.Stop();
+                ScheduleVisibleThumbnails();
+            };
+
+            // ViewModel 数据加载完成后也触发一次
+            ViewModel.FileItems.CollectionChanged += (s, e) =>
+            {
+                if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add
+                    && ViewModel.FileItems.Count > 0)
+                {
+                    // 延迟一帧等布局完成
+                    DispatcherQueue.TryEnqueue(() =>
+                    {
+                        _scrollDebounceTimer?.Stop();
+                        _scrollDebounceTimer?.Start();
+                    });
+                }
+            };
+        }
+
+        private void ScheduleVisibleThumbnails()
+        {
+            var items = ViewModel.FileItems;
+            var sv = _fileListScrollViewer;
+            if (items.Count == 0 || sv == null) return;
+
+            // 固定行高 76px（XAML ListViewItem Height=76），用 ScrollViewer 偏移精确算可见范围
+            var listTransform = FileItemListView.TransformToVisual(sv);
+            double listTop = listTransform.TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
+
+            double viewTop = sv.VerticalOffset - listTop;
+            if (viewTop < 0) viewTop = 0;
+            double viewBottom = viewTop + sv.ViewportHeight;
+
+            const double itemH = 76;
+            int firstVisible = Math.Max(0, (int)(viewTop / itemH));
+            int lastVisible  = Math.Min(items.Count - 1, (int)(viewBottom / itemH) + 1);
+            if (lastVisible < firstVisible) return;
+
+            ThumbnailScheduler.NewGeneration();
+            ThumbnailScheduler.StartBackgroundFill(items);
+
+            // 预加载：可见区外按 3:1 分配算力给滚动方向和反方向，到边缘自动调整
+            int visibleCount = lastVisible - firstVisible + 1;
+            int preloadBudget = Math.Max(visibleCount, 15);
+            int forwardCount  = (int)(preloadBudget * 0.75);
+            int backwardCount = preloadBudget - forwardCount;
+            if (_lastScrollDirection <= 0) (forwardCount, backwardCount) = (backwardCount, forwardCount);
+            if (firstVisible <= 0) { forwardCount += backwardCount; backwardCount = 0; }
+            if (lastVisible >= items.Count - 1) { backwardCount += forwardCount; forwardCount = 0; }
+
+            int preloadStart = Math.Max(0, firstVisible - backwardCount);
+            int preloadEnd   = Math.Min(items.Count - 1, lastVisible + forwardCount);
+
+            for (int i = preloadStart; i <= preloadEnd; i++)
+            {
+                if (items[i] is not Models.EditFileItem item) continue;
+                if (!item.NeedsThumbnail) continue;
+
+                int priority = (i >= firstVisible && i <= lastVisible) ? 0
+                             : (_lastScrollDirection > 0
+                                 ? (i > lastVisible ? 1 : 2)
+                                 : (i < firstVisible ? 1 : 2));
+
+                ThumbnailScheduler.Enqueue(i, item.FilePath, priority,
+                    source => item.Thumbnail = source);
+            }
+
+            ThumbnailScheduler.TrimQueue(firstVisible, lastVisible);
         }
 
         // ═════════════════════════════════════════════════════════════════
@@ -989,6 +1110,8 @@ namespace LivePhotoBox.Views
         private void ScrollTimelineBy(double steps)
         {
             if (ViewModel.TimelineFrames.Count == 0) return;
+            // 初始自动滚动期间禁止用户手动操作时间轴
+            if (ViewModel.IsTimelineAutoScrolling) return;
 
             double itemWidth = 56.0;
 
@@ -1029,6 +1152,8 @@ namespace LivePhotoBox.Views
         private void OnFilmstripPointerWheelChanged(object sender, PointerRoutedEventArgs e)
         {
             if (!ViewModel.IsFilmstripTimelineMode) return;
+            // 初始自动滚动期间禁止用户手动滚时间轴，避免与自动定位冲突
+            if (ViewModel.IsTimelineAutoScrolling) { e.Handled = true; return; }
 
             double delta = e.GetCurrentPoint(FilmstripScrollViewer).Properties.MouseWheelDelta;
             // 向上滚 delta>0 → 内容左移（steps<0）
@@ -1104,10 +1229,20 @@ namespace LivePhotoBox.Views
         private void FilmstripScrollViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
         {
             if (ViewModel.TimelineFrames.Count == 0) return;
+            // 初始自动滚动期间跳过中间态事件，等停止后再同步
+            if (ViewModel.IsTimelineAutoScrolling && e.IsIntermediate) return;
 
             double offset = FilmstripScrollViewer.HorizontalOffset;
             int nearestIndex = (int)Math.Round(offset / FilmstripItemStep);
             nearestIndex = Math.Clamp(nearestIndex, 0, ViewModel.TimelineFrames.Count - 1);
+
+            // 滚动停止后强制对齐到最近帧，消除快速滚轮累积的微小偏移
+            if (!e.IsIntermediate)
+            {
+                double snapOffset = nearestIndex * FilmstripItemStep;
+                if (Math.Abs(offset - snapOffset) > 0.5)
+                    FilmstripScrollViewer.ChangeView(snapOffset, null, null, disableAnimation: true);
+            }
 
             if (nearestIndex != _filmstripCurrentFrameIndex)
             {

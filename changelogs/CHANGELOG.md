@@ -1,6 +1,6 @@
 # Live Photo Box Changelog
 
-> Current version: **v2.0.0**
+> Current version: **v2.0.1**
 > Project started: 2026-03-27
 > Tech stack: WinUI 3 + .NET 9 + C# 13
 
@@ -8,17 +8,19 @@
 
 ## v2.0.x — LivePhotoEdit Page & Toolchain Rewrite
 
-> **v2.0.0** (2026-07-18) **[Major Release]** **New LivePhotoEdit page** — timeline (extract video frames, pick any frame), export single or all frames, replace Live Photo cover, view EXIF properties, drag-and-drop files; **Folder drag-and-drop on all pages**; **Timeline mode setting** (classic/filmstrip); **Enhanced log viewer** (current + previous logs); **Fixed critical packaging defect** from v1.15.2/v1.15.3; **Fixed language switching not working in portable/installer versions** (issue present since initial release)
+> **v2.0.1** (2026-07-21) **[Performance]** Edit page performance significantly improved — instant click response, no crash on rapid switching, faster HEIC thumbnails, timeline VRAM drastically reduced; refresh button smart-switches to clear button
+>
+> **v2.0.0** (2026-07-18) **[Major Release]** New LivePhotoEdit page — timeline, export frames, replace cover, view properties; folder drag-and-drop on all pages; timeline mode setting; enhanced log viewer; fixed packaging tools missing & language switching bug
 
 ## v1.15.x — Auto Update & Pairing Enhancement
 
-> **v1.15.3** (2026-07-03) **[Fix + Optimize]** Fixed empty-queue hint not disappearing after scan (6 missing `UpdateIsQueueEmpty` calls across 3 ViewModels); **Settings page scroll-to-section fix** — replaced `BringIntoView` + `Loaded` with `ChangeView`, now reliable on cached pages; **Startup page transition removed** (sidebar navigation transitions preserved); Empty queue hint now shows icon guides (? tutorials, ? settings); Empty queue area vertically centered; Fixed Color type warnings in HistoryPage.xaml
+> **v1.15.3** (2026-07-03) **[Fix]** Empty queue hint, settings scroll-to-section, startup animation removal, empty queue UX
 >
-> **v1.15.2** (2026-07-03) **[New + Fix + Optimize]** Repair options dialog; lightbox overhaul (Live Photo playback, smart fade transitions, video transport bar); fixed GitHub Token persistence in unpackaged mode; **Installer size slashed by 80% — FFmpeg custom-built from 97 MB down to 5.8 MB** (keeps only needed features: x264/x265/AMF/NVENC/QSV, thumbnails, video repair rotation — thousands of unused components removed); **"Skipped" detailed with specific reasons** (non-Apple / HEIC/HEIF / duration>3.5s / no issue); **Diagnosis column no longer overwritten by skip markers**; **Repair dialog counts exclude skipped files**; **Fixed access violation crash on window close**; **Scroll-to-top floating button on all queue pages**
+> **v1.15.2** (2026-07-03) **[New]** Repair options dialog, lightbox overhaul, installer size 80% smaller, skipped items detailed reasons, scroll-to-top button
 >
-> **v1.15.1** (2026-07-02) **[Fix + Perf]** Fixed multiple unpackaged-mode bugs (ComboBox, language switch, settings, WebView2), auto-update UX (post-install restart, check interval, error retry), uninstall cleanup, locale stripping in CI; **startup time reduced from ~4-5s to ~1-2s** (async hardware detection + double-check locking)
+> **v1.15.1** (2026-07-02) **[Fix]** Unpackaged-mode bugs, auto-update UX, startup time reduced from 4-5s to 1-2s
 >
-> **v1.15.0** (2026-07-01) **[Release]** Auto-update, metadata matching (5 modes), Apple-only repair filter, external tool checker; fixed unpackaged-mode log path
+> **v1.15.0** (2026-07-01) **[Release]** Auto-update, metadata matching, Apple-only repair filter, external tool checker
 
 ## v1.14.x — Release Fixes
 
