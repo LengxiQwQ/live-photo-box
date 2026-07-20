@@ -423,7 +423,8 @@
                                      PlaceholderText="当前目录..."
                                      FontSize="12" MinHeight="28" Height="28" Padding="10,5,10,5"
                                      VerticalContentAlignment="Center" VerticalAlignment="Center"
-                                     LostFocus="CurrentDirTextBox_LostFocus">
+                                     LostFocus="CurrentDirTextBox_LostFocus"
+                                     TextChanged="CurrentDirTextBox_TextChanged">
                                 <TextBox.Resources>
                                     <x:Double x:Key="TextControlThemeMinHeight">28</x:Double>
                                 </TextBox.Resources>

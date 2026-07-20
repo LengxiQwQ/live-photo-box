@@ -3769,14 +3769,20 @@ namespace LivePhotoBox.ViewModels
             // ═══════════════════════════════════════════════════════════
             //  Phase 2: exiftool 批量查 ContentIdentifier + 宽高日期兜底
             // ═══════════════════════════════════════════════════════════
+            // 未分类图片（LivePhotoType == None）—— Phase 2 CID 匹配候选
             var unclassifiedImgs = new List<(int Index, string Path)>();
+            // 单文件 HEIC 实况照片（已有内嵌视频轨确认，但缺外部 MOV 配对）—— 也需 CID 匹配
+            var heicToPair = new List<(int Index, string Path)>();
             for (int i = 0; i < files.Count; i++)
             {
                 if (files[i].LivePhotoType == LivePhotoType.None)
                     unclassifiedImgs.Add((i, files[i].FilePath));
+                else if (files[i].LivePhotoType == LivePhotoType.SingleFileHeic
+                         && string.IsNullOrEmpty(files[i].PairedVideoPath))
+                    heicToPair.Add((i, files[i].FilePath));
             }
 
-            bool needImgQuery = unclassifiedImgs.Count > 0 || fallbackFiles.Count > 0;
+            bool needImgQuery = unclassifiedImgs.Count > 0 || fallbackFiles.Count > 0 || heicToPair.Count > 0;
             bool needVidQuery = videoPaths.Count > 0;
 
             if (needImgQuery)
@@ -3808,9 +3814,10 @@ namespace LivePhotoBox.ViewModels
                     // ── 查询图片：ContentIdentifier + 宽高日期（兜底 Phase 1 失败 + CID 匹配）──
                     var imgResults = new Dictionary<string, (int W, int H, string? Date, string? Cid)>(StringComparer.OrdinalIgnoreCase);
                     {
-                        // 合并：未分类图片 + Phase 1 失败的文件（去重）
+                        // 合并：未分类图片 + SingleFileHeic 待配对 + Phase 1 失败文件（去重）
                         var toQuery = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
                         foreach (var (idx, path) in unclassifiedImgs) toQuery[path] = idx;
+                        foreach (var (idx, path) in heicToPair) toQuery.TryAdd(path, idx);
                         foreach (var (idx, path) in fallbackFiles) toQuery.TryAdd(path, idx);
                         var queryList = toQuery.Select(kv => (kv.Value, kv.Key)).ToList();
 
@@ -3961,6 +3968,29 @@ namespace LivePhotoBox.ViewModels
                             liveConfirmed++;
                         }
                     }
+
+                    // ── SingleFileHeic 补 CID 配对 ──
+                    // Phase 1 的 HeicTrack 检测已确认 HEIC 内嵌视频轨（HasConfirmedProtocol=true），
+                    // 但同目录 MOV 的 ContentIdentifier 未匹配。此处用 CID 再次配对，
+                    // 把 LivePhotoType 从 SingleFileHeic 升级为 DualFile，写入 PairedVideoPath。
+                    int heicPaired = 0;
+                    foreach (var (index, imgPath) in heicToPair)
+                    {
+                        if (imgResults.TryGetValue(imgPath, out var imgInfo) &&
+                            !string.IsNullOrWhiteSpace(imgInfo.Cid) &&
+                            cidToVideo.TryGetValue(imgInfo.Cid, out var matched))
+                        {
+                            files[index].LivePhotoType = LivePhotoType.DualFile;
+                            files[index].PairedVideoPath = matched.Path;
+                            files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
+                            // HasConfirmedProtocol 已在 Phase 1 设为 true，不重复计数
+                            matchedVideoPaths.Add(matched.Path);
+                            heicPaired++;
+                        }
+                    }
+
+                    if (heicPaired > 0)
+                        LogService.FileOp($"KeyPhoto CID heic→dual: {heicPaired} HEIC paired with MOV");
 
                     // ── 未匹配视频也加入列表显示 ──
                     int addedVids = 0;

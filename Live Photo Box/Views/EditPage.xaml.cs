@@ -1297,26 +1297,32 @@ namespace LivePhotoBox.Views
             var path = ViewModel.CurrentDirectory;
             if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
             {
-                // 刷新：重新扫描当前目录
                 _lastScannedPath = path;
                 ViewModel.TriggerScan();
             }
             else
             {
-                // 清空：目录为空时点击清空一切
+                // 目录为空或路径不存在 → 清空内容（输入的无效路径也一起清掉）
                 ViewModel.ClearAll();
                 _lastScannedPath = null;
                 UpdateRefreshButtonIcon();
             }
         }
 
-        /// <summary>CurrentDirectory 变化时更新刷新/清空按钮图标和提示。</summary>
+        /// <summary>输入框文字变化时实时更新按钮图标（目录有效→↻，无效/空→✕）。</summary>
+        private void CurrentDirTextBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            UpdateRefreshButtonIcon();
+        }
+
+        /// <summary>当前路径是否有效 → ↻ 刷新；路径为空或不合法 → ✕ 清空。</summary>
         private void UpdateRefreshButtonIcon()
         {
-            var hasDir = !string.IsNullOrEmpty(ViewModel.CurrentDirectory);
-            RefreshDirIcon.Glyph = hasDir ? "" : ""; // ↻ vs ✕
+            var path = ViewModel.CurrentDirectory;
+            var isValid = !string.IsNullOrEmpty(path) && Directory.Exists(path);
+            RefreshDirIcon.Glyph = isValid ? "" : ""; // ↻ vs ✕
             ToolTipService.SetToolTip(RefreshDirBtn,
-                ResourceService.GetString(hasDir
+                ResourceService.GetString(isValid
                     ? "KeyPhotoPage_RefreshDirTooltip"
                     : "KeyPhotoPage_ClearDirTooltip"));
         }

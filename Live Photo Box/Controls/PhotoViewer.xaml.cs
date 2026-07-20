@@ -273,7 +273,7 @@ namespace LivePhotoBox.Controls
 
             UpdatePixelScale();
             bool isAtFit = Math.Abs(_currentScale - 1.0) < 0.001;
-            PerformZoom(isAtFit ? _pixelScale : 1.0, GetViewportCenter());
+            PerformZoom(isAtFit ? Math.Min(_pixelScale, 5.0) : 1.0, GetViewportCenter());
         }
 
         /// <summary>直接设置缩放比例（Viewport 中心为锚点），供外部同步缩放状态</summary>
