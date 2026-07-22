@@ -70,7 +70,7 @@
             <StackPanel Spacing="0" Margin="0,28,0,8">
                 <!-- 应用图标 220×220，圆角 30px 带边框 -->
                 <Border MaxWidth="220" MinWidth="220" Height="220" Padding="0" CornerRadius="30"
-                        HorizontalAlignment="Center" Background="{ThemeResource CardBackgroundBrush}"
+                        HorizontalAlignment="Center" Background="{ThemeResource CustomPanelAcrylicBrush}"
                         BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                     <Image Source="/Assets/Icons/AppIcon-full.png" Stretch="Uniform"/>
                 </Border>
@@ -94,7 +94,7 @@
             <!--  卡片 1：关于本应用                                         -->
             <!--  包含应用简介和开发初衷两个子区块                           -->
             <!-- ========================================================== -->
-            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+            <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                 <StackPanel Spacing="20">
                     <!-- 区块标题：图标 + "关于本应用" -->
@@ -134,7 +134,7 @@
             <!--  以列表形式展示开发者、仓库、协议、反馈等链接               -->
             <!--  每行 = [图标] [96px 标签] [可点击链接值]                  -->
             <!-- ========================================================== -->
-            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+            <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                 <StackPanel Spacing="16">
                     <!-- 区块标题：图标 + "项目信息" -->
@@ -235,7 +235,7 @@
             <!--  卡片 3：开源致谢                                           -->
             <!--  列出本应用所引用的第三方工具，点击名称可跳转官网           -->
             <!-- ========================================================== -->
-            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+            <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                 <StackPanel Spacing="10">
                     <!-- 区块标题：图标 + "开源致谢" -->
@@ -326,7 +326,7 @@
             <!--  包含隐私政策（本地处理、零收集）和免责声明两个子区块       -->
             <!--  子区块之间以分隔线隔开                                     -->
             <!-- ========================================================== -->
-            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+            <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                 <StackPanel Spacing="20">
                     <!-- 区块标题：图标 + "隐私政策" -->

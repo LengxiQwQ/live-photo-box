@@ -39,7 +39,7 @@
                     <TextBlock x:Uid="HomePage_WelcomeTitle" FontSize="20" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                     <StackPanel Spacing="16">
                         <TextBlock x:Uid="HomePage_Intro1" TextWrapping="Wrap" LineHeight="26" FontFamily="Microsoft YaHei UI" FontSize="15" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -54,7 +54,7 @@
                 </StackPanel>
 
                 <!-- 实况照片合成教程 - 左图右字布局 -->
-                <Border x:Name="MergeTutorialBorder" CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                <Border x:Name="MergeTutorialBorder" CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}" 
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                     <StackPanel Spacing="24">
                         <!-- 教程标题 + 按钮 -->
@@ -104,7 +104,7 @@
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
                             <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
-                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
                                         PointerEntered="TutorialImageBorder_PointerEntered"
@@ -114,7 +114,7 @@
                                            ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
                                 </Border>
                                 <Border x:Name="TutorialImage1Placeholder" CornerRadius="12"
-                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Visibility="Collapsed">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
@@ -159,7 +159,7 @@
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
                             <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
-                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
                                         PointerEntered="TutorialImageBorder_PointerEntered"
@@ -169,7 +169,7 @@
                                            ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
                                 </Border>
                                 <Border x:Name="TutorialImage2Placeholder" CornerRadius="12"
-                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Visibility="Collapsed">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
@@ -214,7 +214,7 @@
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
                             <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
-                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
                                         PointerEntered="TutorialImageBorder_PointerEntered"
@@ -224,7 +224,7 @@
                                            ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
                                 </Border>
                                 <Border x:Name="TutorialImage3Placeholder" CornerRadius="12"
-                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Visibility="Collapsed">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
@@ -269,7 +269,7 @@
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
                             <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
-                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
                                         PointerEntered="TutorialImageBorder_PointerEntered"
@@ -279,7 +279,7 @@
                                            ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
                                 </Border>
                                 <Border x:Name="TutorialImage4Placeholder" CornerRadius="12"
-                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Visibility="Collapsed">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
@@ -317,7 +317,7 @@
                 </Border>
 
                 <!-- 实况照片拆分教程 - 左图右字布局 -->
-                <Border x:Name="SplitTutorialBorder" CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                <Border x:Name="SplitTutorialBorder" CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}" 
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                     <StackPanel Spacing="24">
                         <!-- 教程标题 + 按钮 -->
@@ -367,7 +367,7 @@
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
                             <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
-                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
                                         PointerEntered="TutorialImageBorder_PointerEntered"
@@ -377,7 +377,7 @@
                                            ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
                                 </Border>
                                 <Border x:Name="TutorialImage5Placeholder" CornerRadius="12"
-                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Visibility="Collapsed">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
@@ -422,7 +422,7 @@
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
                             <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
-                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
                                         PointerEntered="TutorialImageBorder_PointerEntered"
@@ -432,7 +432,7 @@
                                            ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
                                 </Border>
                                 <Border x:Name="TutorialImage6Placeholder" CornerRadius="12"
-                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Visibility="Collapsed">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
@@ -477,7 +477,7 @@
 
                             <!-- 图片 - 固定宽高，图片自适应缩放 -->
                             <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
-                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
                                         PointerEntered="TutorialImageBorder_PointerEntered"
@@ -487,7 +487,7 @@
                                            ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
                                 </Border>
                                 <Border x:Name="TutorialImage7Placeholder" CornerRadius="12"
-                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Visibility="Collapsed">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
@@ -525,7 +525,7 @@
                 </Border>
 
                 <!-- 实况照片显示修复教程 -->
-                <Border x:Name="RepairTutorialBorder" CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                <Border x:Name="RepairTutorialBorder" CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                     Padding="32" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                     <StackPanel Spacing="24">
                         <!-- 教程标题 + 按钮 -->
@@ -573,7 +573,7 @@
                             </Border>
 
                             <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
-                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
                                         PointerEntered="TutorialImageBorder_PointerEntered"
@@ -583,7 +583,7 @@
                                            ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
                                 </Border>
                                 <Border x:Name="TutorialImage8Placeholder" CornerRadius="12"
-                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Visibility="Collapsed">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
@@ -626,7 +626,7 @@
                             </Border>
 
                             <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
-                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
                                         PointerEntered="TutorialImageBorder_PointerEntered"
@@ -636,7 +636,7 @@
                                            ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
                                 </Border>
                                 <Border x:Name="TutorialImage9Placeholder" CornerRadius="12"
-                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Visibility="Collapsed">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
@@ -679,7 +679,7 @@
                             </Border>
 
                             <Grid Grid.Column="1" MinHeight="200" VerticalAlignment="Center">
-                                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Padding="8"
                                         PointerEntered="TutorialImageBorder_PointerEntered"
@@ -689,7 +689,7 @@
                                            ImageOpened="TutorialImage_Opened" ImageFailed="TutorialImage_Failed"/>
                                 </Border>
                                 <Border x:Name="TutorialImage10Placeholder" CornerRadius="12"
-                                        Background="{ThemeResource CardBackgroundBrush}"
+                                        Background="{ThemeResource CustomPanelAcrylicBrush}"
                                         BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1"
                                         Visibility="Collapsed">
                                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
@@ -751,7 +751,7 @@
                 </Border>
 
                 <!-- 主图切换 -->
-                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}" 
                     Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -789,7 +789,7 @@
                 </Border>
 
                 <!-- 使用提示 -->
-                <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}" 
+                <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}" 
                     Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                     <Grid>
                         <Grid.ColumnDefinitions>

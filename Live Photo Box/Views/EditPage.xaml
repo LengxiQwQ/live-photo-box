@@ -232,21 +232,21 @@
             <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
             <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="CornerRadius" Value="4"/>
             <Setter Property="Padding" Value="12"/>
         </Style>
         <Style x:Key="InfoCardBorderStyle" TargetType="Border">
             <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
             <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="CornerRadius" Value="4"/>
             <Setter Property="Padding" Value="10"/>
         </Style>
         <Style x:Key="LeftFileListSurface" TargetType="Border">
             <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
             <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="CornerRadius" Value="4"/>
             <Setter Property="Padding" Value="0"/>
         </Style>
         <Style x:Key="CardTitleStyle" TargetType="TextBlock">
@@ -280,8 +280,16 @@
         </Grid.RowDefinitions>
 
         <!-- ============================================================ -->
-        <!-- Row 0：标题 + CommandBar（同层 Grid，标题真正垂直居中）             -->
+        <!-- Row 0：标题 + CommandBar（透明背景）                              -->
         <!-- ============================================================ -->
+        <!-- 备选：包裹卡片面板版本（想去掉上面的面板又想换回来时取消注释）
+        <Border Grid.Row="0" Style="{StaticResource CardBorderStyle}"
+                Margin="8,2,8,2" Padding="4,8,4,8">
+            <Grid x:Name="TopBarGrid">
+            ... 内容不变 ...
+            </Grid>
+        </Border>
+        -->
         <Grid x:Name="TopBarGrid" Grid.Row="0">
             <CommandBar DefaultLabelPosition="Right"
                         HorizontalAlignment="Stretch" IsDynamicOverflowEnabled="False"
@@ -364,12 +372,12 @@
         </Grid>
 
         <!-- ============================================================ -->
-        <!-- Row 2：主内容                                                   -->
+        <!-- Row 1：主内容                                                   -->
         <!-- ============================================================ -->
         <Grid x:Name="MainContentGrid" Grid.Row="1" Padding="8,0,8,6">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftPanelColumn" Width="320"/>
-                <ColumnDefinition x:Name="PanelSpacerColumn" Width="8"/>
+                <ColumnDefinition x:Name="PanelSpacerColumn" Width="2"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
 
@@ -564,7 +572,7 @@
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="models:EditFileItem">
                                 <!-- 核心修复：BorderThickness 始终 2px，未选中时透明 → 内容位置纹丝不动 -->
-                                <Border x:Name="CardRoot" CornerRadius="8" Padding="8,8,8,8"
+                                <Border x:Name="CardRoot" CornerRadius="4" Padding="8,8,8,8"
                                         Margin="0" Background="Transparent"
                                         BorderBrush="Transparent" BorderThickness="2"
                                         Loaded="CardRoot_Loaded"
@@ -657,11 +665,11 @@
                  三层结构：半透明遮罩 + 虚线描边 + 图标文字，各层独立 Opacity 互不传染。 -->
             <Grid x:Name="DragOverlay" Visibility="Collapsed" IsHitTestVisible="False">
                 <!-- Layer 0：半透明黑遮暗背景，让白色文字清晰可读 -->
-                <Border Background="#90000000" CornerRadius="10"/>
+                <Border Background="#90000000" CornerRadius="4"/>
                 <!-- Layer 1：虚线描边（强调色，{ThemeResource} 自动跟随系统变化） -->
                 <Rectangle Stroke="White"
                            StrokeThickness="2" StrokeDashArray="6,3"
-                           RadiusX="10" RadiusY="10" Margin="4"/>
+                           RadiusX="4" RadiusY="4" Margin="4"/>
                 <!-- Layer 2：文件夹图标 + 提示文字 -->
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
                     <FontIcon Glyph="&#xE838;" FontSize="36"
@@ -690,7 +698,7 @@
 
                 <!-- ── 图片预览（PhotoViewer：高性能 Image+CompositeTransform 架构）── -->
                 <Border x:Name="PreviewBorder" Grid.Row="0" Style="{StaticResource CardBorderStyle}"
-                        Padding="0" Margin="0,0,0,4">
+                        Padding="0" Margin="0,0,0,2">
                     <Grid>
                         <!-- 大图查看器：占满整个预览区 -->
                         <controls:PhotoViewer x:Name="PhotoViewer"
@@ -859,9 +867,105 @@
                                        SelectionChanged="InfoTabs_SelectionChanged">
                             <ctk:Segmented.ItemContainerStyle>
                                 <Style TargetType="ctk:SegmentedItem">
+                                    <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}"/>
                                     <Setter Property="FontSize" Value="12"/>
                                     <Setter Property="MinHeight" Value="28"/>
                                     <Setter Property="Padding" Value="8,0"/>
+                                    <!-- 基于 DefaultSegmentedItemStyle 模板，仅将 PART_Pill 指示条从底部移到顶部 -->
+                                    <Setter Property="Template">
+                                        <Setter.Value>
+                                            <ControlTemplate TargetType="ctk:SegmentedItem">
+                                                <Grid x:Name="PART_Root"
+                                                      VerticalAlignment="{TemplateBinding VerticalAlignment}"
+                                                      Background="{TemplateBinding Background}"
+                                                      BorderBrush="{TemplateBinding BorderBrush}"
+                                                      BorderThickness="{TemplateBinding BorderThickness}"
+                                                      Control.IsTemplateFocusTarget="True"
+                                                      CornerRadius="{TemplateBinding CornerRadius}">
+                                                    <VisualStateManager.VisualStateGroups>
+                                                        <VisualStateGroup x:Name="CommonStates">
+                                                            <VisualState x:Name="Normal" />
+                                                            <VisualState x:Name="PointerOver">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="PART_Hover.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                                                                    <Setter Target="PART_ContentPresenter.Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="Pressed">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="PART_Hover.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                                                                    <Setter Target="PART_ContentPresenter.Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="Selected">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="PART_Pill.Opacity" Value="1" />
+                                                                    <Setter Target="PART_Root.Background" Value="{ThemeResource ControlFillColorDefaultBrush}" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="PointerOverSelected">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="PART_Pill.Opacity" Value="1" />
+                                                                    <Setter Target="PART_Root.Background" Value="{ThemeResource ControlFillColorDefaultBrush}" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                            <VisualState x:Name="PressedSelected">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="PART_Pill.Opacity" Value="1" />
+                                                                    <Setter Target="PART_Root.Background" Value="{ThemeResource ControlFillColorDefaultBrush}" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                        </VisualStateGroup>
+                                                        <VisualStateGroup x:Name="DisabledStates">
+                                                            <VisualState x:Name="Enabled" />
+                                                            <VisualState x:Name="Disabled">
+                                                                <VisualState.Setters>
+                                                                    <Setter Target="PART_Root.Opacity" Value="0.55" />
+                                                                </VisualState.Setters>
+                                                            </VisualState>
+                                                        </VisualStateGroup>
+                                                    </VisualStateManager.VisualStateGroups>
+
+                                                    <Border x:Name="PART_Hover"
+                                                            Margin="3,3,3,3"
+                                                            Background="Transparent"
+                                                            CornerRadius="{TemplateBinding CornerRadius}"
+                                                            RenderTransformOrigin="0.5,0.5">
+                                                        <Border.RenderTransform>
+                                                            <CompositeTransform />
+                                                        </Border.RenderTransform>
+                                                    </Border>
+
+                                                    <StackPanel x:Name="ContentHolder"
+                                                                HorizontalAlignment="Center" VerticalAlignment="Stretch"
+                                                                Orientation="Horizontal" Spacing="8">
+                                                        <ContentPresenter x:Name="PART_ContentPresenter"
+                                                                          Margin="0,6,0,5"
+                                                                          VerticalAlignment="Center"
+                                                                          Content="{TemplateBinding Content}"
+                                                                          FontWeight="{TemplateBinding FontWeight}"
+                                                                          FontSize="{TemplateBinding FontSize}"
+                                                                          Foreground="{TemplateBinding Foreground}" />
+                                                    </StackPanel>
+
+                                                    <!-- ▸▸▸ PART_Pill 从 VerticalAlignment="Bottom" 改为 "Top"，RenderTransformOrigin 相应调整 -->
+                                                    <Rectangle x:Name="PART_Pill"
+                                                               Width="18" Height="3"
+                                                               HorizontalAlignment="Center"
+                                                               VerticalAlignment="Top"
+                                                               Margin="0,0,0,0"
+                                                               Fill="{ThemeResource AccentFillColorDefaultBrush}"
+                                                               Opacity="0"
+                                                               RadiusX="2" RadiusY="2"
+                                                               RenderTransformOrigin="0.5, 1">
+                                                        <Rectangle.RenderTransform>
+                                                            <CompositeTransform ScaleX="1" />
+                                                        </Rectangle.RenderTransform>
+                                                    </Rectangle>
+                                                </Grid>
+                                            </ControlTemplate>
+                                        </Setter.Value>
+                                    </Setter>
                                 </Style>
                             </ctk:Segmented.ItemContainerStyle>
                             <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabCombined" Content="组合查看" Tag="combined"/>
@@ -1132,7 +1236,7 @@
 
                                 <!-- Col 0：缩略图 80×80（1:1 方形，复用列表已加载的缩略图） -->
                                 <Border Grid.Column="0" x:Name="InfoThumbBorder"
-                                        Width="80" Height="80" CornerRadius="10" VerticalAlignment="Center"
+                                        Width="80" Height="80" CornerRadius="4" VerticalAlignment="Center"
                                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                         Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
                                     <Grid>
@@ -1231,7 +1335,7 @@
                                     </Grid.ColumnDefinitions>
 
                                     <!-- 缩略图占位（保留视觉空间 80px） -->
-                                    <Border Grid.Column="0" Width="80" Height="80" CornerRadius="10"
+                                    <Border Grid.Column="0" Width="80" Height="80" CornerRadius="4"
                                             VerticalAlignment="Center"
                                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                             Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
@@ -1297,11 +1401,11 @@
             <!-- 右侧拖拽视觉反馈覆盖层（遮罩 + 虚线 + 图标文字） -->
             <Grid x:Name="RightDragOverlay" Visibility="Collapsed" IsHitTestVisible="False">
                 <!-- Layer 0：半透明黑遮暗背景 -->
-                <Border Background="#90000000" CornerRadius="10"/>
+                <Border Background="#90000000" CornerRadius="4"/>
                 <!-- Layer 1：虚线描边（强调色） -->
                 <Rectangle Stroke="White"
                            StrokeThickness="2" StrokeDashArray="6,3"
-                           RadiusX="10" RadiusY="10" Margin="4"/>
+                           RadiusX="4" RadiusY="4" Margin="4"/>
                 <!-- Layer 2：图标 + 文字 -->
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
                     <FontIcon Glyph="&#xE8B2;" FontSize="36"

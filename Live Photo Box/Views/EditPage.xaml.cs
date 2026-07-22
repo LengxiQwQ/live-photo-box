@@ -347,12 +347,12 @@ namespace LivePhotoBox.Views
                 TopBarGrid.Visibility = Visibility.Visible;
                 LeftPanelColumn.Width = new GridLength(
                     _isLeftPanelCollapsed ? LeftPanelCollapsedWidth : LeftPanelExpandedWidth);
-                PanelSpacerColumn.Width = new GridLength(8);
+                PanelSpacerColumn.Width = new GridLength(2);
                 UnifiedInfoPanel.Visibility = Visibility.Visible;
                 MainContentGrid.Padding = new Thickness(8, 0, 8, 6);
                 PreviewBorder.CornerRadius = ViewModel.IsSelectedFileVideo
-                    ? new CornerRadius(0) : new CornerRadius(10);
-                PreviewBorder.Margin = new Thickness(0, 0, 0, 4);
+                    ? new CornerRadius(0) : new CornerRadius(4);
+                PreviewBorder.Margin = new Thickness(0, 0, 0, 2);
                 MaximizeButtonIcon.Glyph = "";
                 ToolTipService.SetToolTip(MaximizeButton, "最大化预览");
             }
@@ -1758,7 +1758,8 @@ namespace LivePhotoBox.Views
                 RightDragOverlay.Visibility = Visibility.Collapsed;
                 RightEmptyHint.ClearValue(UIElement.VisibilityProperty);
                 TimelineEmptyHint.ClearValue(UIElement.VisibilityProperty);
-                DetailPropsPlaceholder.ClearValue(UIElement.VisibilityProperty);
+                // 注意：DetailPropsPlaceholder 不能 ClearValue，它绑定了 IsDetailPropsPanelVisible，
+                // ClearValue 会移除 x:Bind 导致面板永久可见。它也不需要清——拖入文件后该面板由选项卡控制。
 
                 if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                     return;
@@ -2063,7 +2064,7 @@ namespace LivePhotoBox.Views
                 }
 
                 // 非视频文件：恢复图片预览模式 + 圆角
-                PreviewBorder.CornerRadius = new CornerRadius(10);
+                PreviewBorder.CornerRadius = new CornerRadius(4);
                 PhotoViewer.Visibility = Visibility.Visible;
                 PhotoViewer.Opacity = 1;
                 SyncLivePhotoBadgeVisibility();

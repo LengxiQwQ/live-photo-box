@@ -2292,7 +2292,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>重做</value>
   </data>
   <data name="KeyPhotoPage_PageTitle.Text" xml:space="preserve">
-    <value>实况照片主图更换 &amp; 查看属性</value>
+    <value>实况照片编辑</value>
   </data>
   <data name="KeyPhotoPage_ConvertProtocol.Label" xml:space="preserve">
     <value>转换实况照片协议</value>

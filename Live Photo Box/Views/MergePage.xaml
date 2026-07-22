@@ -74,7 +74,7 @@
                 <Expander IsExpanded="{x:Bind ViewModel.IsDirectoryPanelOpen, Mode=TwoWay}"
                           HorizontalAlignment="Stretch" 
                           HorizontalContentAlignment="Stretch"
-                          Background="{ThemeResource CardBackgroundBrush}" 
+                          Background="{ThemeResource CustomPanelAcrylicBrush}" 
                           CornerRadius="8"
                           BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                           BorderThickness="1">
@@ -114,7 +114,7 @@
                     </Expander.Content>
                 </Expander>
 
-                <Border Background="{ThemeResource CardBackgroundBrush}" CornerRadius="8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="16,10,16,10">
+                <Border Background="{ThemeResource CustomPanelAcrylicBrush}" CornerRadius="8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="16,10,16,10">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
@@ -194,7 +194,7 @@
             </Border>
 
             <!-- 任务列表（支持拖拽文件夹导入） -->
-            <Border x:Name="MergeTaskListSurface" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CardBackgroundBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="8" AllowDrop="True">
+            <Border x:Name="MergeTaskListSurface" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CustomPanelAcrylicBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="8" AllowDrop="True">
                 <Grid>
                     <Grid>
                         <Grid.RowDefinitions>

@@ -34,7 +34,7 @@ namespace LivePhotoBox.Services
         private sealed class ThumbnailRequest
         {
             public int Index;
-            public string Path;
+            public string Path = null!;
             public int Priority;
             public int Generation; // Enqueue 时的代际
         }
@@ -116,7 +116,7 @@ namespace LivePhotoBox.Services
                 return;
             }
 
-            int gen = Volatile.Read(ref _currentGeneration);
+            int gen = _currentGeneration; // volatile field — direct read has full acquire semantics
             lock (_queueLock)
             {
                 if (_inFlight.Contains(path)) return;
@@ -197,7 +197,7 @@ namespace LivePhotoBox.Services
             var bgItems = _bgItems;
             if (bgItems == null) return;
 
-            int gen = Volatile.Read(ref _currentGeneration);
+            int gen = _currentGeneration; // volatile field — direct read has full acquire semantics
             int added = 0;
             while (added < 5 && _bgNextIndex < bgItems.Count)
             {
@@ -258,7 +258,7 @@ namespace LivePhotoBox.Services
                 }
 
                 // 检查代际：已被淘汰的旧 item 直接丢弃
-                int currentGen = Volatile.Read(ref _currentGeneration);
+                int currentGen = _currentGeneration; // volatile field — direct read has full acquire semantics
                 if (request.Generation < currentGen)
                 {
                     lock (_queueLock) { _inFlight.Remove(request.Path); }

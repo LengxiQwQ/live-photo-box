@@ -1,0 +1,4 @@
+Microsoft Windows [版本 10.0.26200.8875]
+(c) Microsoft Corporation。保留所有权利。
+
+D:\Projects\live-photo-box\Live Photo Box>

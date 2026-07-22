@@ -14,7 +14,7 @@
         <Border MaxWidth="720"
                 Padding="32"
                 CornerRadius="12"
-                Background="{ThemeResource CardBackgroundBrush}"
+                Background="{ThemeResource CustomPanelAcrylicBrush}"
                 BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                 BorderThickness="1"
                 HorizontalAlignment="Center"

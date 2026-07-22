@@ -75,6 +75,13 @@
                 </NavigationViewItem>
             </NavigationView.FooterMenuItems>
 
+            <!-- 覆盖 NavigationView 默认资源：透明背景 + 零边距 + 去分隔线，让底层材质透出 -->
+            <NavigationView.Resources>
+                <SolidColorBrush x:Key="NavigationViewContentBackground" Color="Transparent" />
+                <SolidColorBrush x:Key="NavigationViewContentGridBorderBrush" Color="Transparent" />
+                <Thickness x:Key="NavigationViewContentMargin">0</Thickness>
+            </NavigationView.Resources>
+
             <!-- 内容区：Frame 加载页面 + 状态栏 + 全屏灯箱 -->
             <Grid>
                 <Frame x:Name="MainFrame" Padding="0" Background="Transparent"/>

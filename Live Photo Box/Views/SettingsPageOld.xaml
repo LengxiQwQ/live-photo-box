@@ -24,7 +24,7 @@
                         <TextBlock x:Uid="SettingsPage_Appearance_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
-                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                    <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                             Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                         <StackPanel Spacing="20">
                             <toolkit:WrapPanel x:Name="AppearanceOptionsPanel"
@@ -153,7 +153,7 @@
                         <TextBlock x:Uid="SettingsPage_Transcode_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
-                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                    <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                             Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                         <toolkit:WrapPanel HorizontalSpacing="32"
                                            VerticalSpacing="16"
@@ -241,7 +241,7 @@
                         <TextBlock x:Uid="SettingsPage_Merge_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
-                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                    <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                             Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                         <toolkit:WrapPanel HorizontalSpacing="32"
                                            VerticalSpacing="16"
@@ -356,7 +356,7 @@
                         <TextBlock x:Uid="SettingsPage_Split_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
-                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                    <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                             Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                         <toolkit:WrapPanel HorizontalSpacing="32"
                                            VerticalSpacing="16"
@@ -387,7 +387,7 @@
                         <TextBlock x:Uid="SettingsPage_Repair_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
-                    <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                    <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                             Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                         <StackPanel Spacing="12">
                             <!-- 仅修复 Apple 设备拍摄的照片 -->
@@ -527,7 +527,7 @@
                                 <TextBlock x:Uid="SettingsPage_Crash_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                             </StackPanel>
 
-                            <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                            <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                     Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                                 <StackPanel Spacing="16">
                                     <!-- 本次日志 + 上一次日志（同一排，中间留空） -->
@@ -598,7 +598,7 @@
                                    TextWrapping="Wrap"
                                    Margin="0,4,0,12"/>
 
-                        <Border CornerRadius="12" Background="{ThemeResource CardBackgroundBrush}"
+                        <Border CornerRadius="12" Background="{ThemeResource CustomPanelAcrylicBrush}"
                                 Padding="24" BorderThickness="1" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}">
                             <StackPanel Spacing="16">
                                 <toolkit:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">

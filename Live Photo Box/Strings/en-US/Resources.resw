@@ -2294,7 +2294,7 @@ Are you sure you want to switch?</value>
     <value>Redo</value>
   </data>
   <data name="KeyPhotoPage_PageTitle.Text" xml:space="preserve">
-    <value>Live Photo Key Photo &amp; Properties</value>
+    <value>Edit Live Photo</value>
   </data>
   <data name="KeyPhotoPage_ConvertProtocol.Label" xml:space="preserve">
     <value>Convert Live Photo Protocol</value>
