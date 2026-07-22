@@ -2300,7 +2300,7 @@ Are you sure you want to switch?</value>
     <value>Convert Live Photo Protocol</value>
   </data>
   <data name="KeyPhotoPage_ConvertProtocol.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Convert the Live Photo protocol of current file</value>
+    <value>Convert Protocol</value>
   </data>
   <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
     <value>Restore</value>
@@ -2309,7 +2309,7 @@ Are you sure you want to switch?</value>
     <value>Set as Cover &amp; Save Copy</value>
   </data>
   <data name="KeyPhotoPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Set current frame as the cover and save a copy</value>
+    <value>Set Cover &amp; Save As</value>
   </data>
   <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
     <value>Save As</value>
@@ -2323,8 +2323,23 @@ Are you sure you want to switch?</value>
   <data name="KeyPhotoPage_ExportAllFrames.Text" xml:space="preserve">
     <value>Export All Frames</value>
   </data>
+  <data name="KeyPhotoPage_Export.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Export frames, video, or GIF</value>
+  </data>
   <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
-    <value>Export Frames…</value>
+    <value>Export…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideo.Text" xml:space="preserve">
+    <value>Export as Video</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoMp4.Text" xml:space="preserve">
+    <value>MP4 (H.264 + AAC)</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoMov.Text" xml:space="preserve">
+    <value>MOV (H.265 QuickTime + AAC)</value>
+  </data>
+  <data name="KeyPhotoPage_ExportGif.Text" xml:space="preserve">
+    <value>Export as GIF</value>
   </data>
   <data name="KeyPhotoPage_More.Label" xml:space="preserve">
     <value>More</value>
@@ -2504,6 +2519,12 @@ Are you sure you want to switch?</value>
   <data name="KeyPhoto_Protocol_NonLive" xml:space="preserve">
     <value>Non-Live Photo</value>
   </data>
+  <data name="KeyPhoto_Protocol_MissingVideo" xml:space="preserve">
+    <value>(missing video)</value>
+  </data>
+  <data name="KeyPhoto_Protocol_MissingPhoto" xml:space="preserve">
+    <value>(missing photo)</value>
+  </data>
   <data name="KeyPhoto_FileCountSummary" xml:space="preserve">
     <value>{0} live photos, {1} other photos</value>
   </data>
@@ -2650,6 +2671,45 @@ Are you sure you want to switch?</value>
   </data>
   <data name="KeyPhotoPage_ExportComplete_Summary" xml:space="preserve">
     <value>Export completed. {0} succeeded, {1} failed, {2} total frames.</value>
+  </data>
+  <data name="KeyPhotoPage_ExportCurrentFrameInProgress" xml:space="preserve">
+    <value>Exporting current frame…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportCurrentFrameComplete" xml:space="preserve">
+    <value>Current frame exported</value>
+  </data>
+  <data name="KeyPhotoPage_ExportAllFramesInProgress" xml:space="preserve">
+    <value>Exporting all frames…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportAllFramesComplete" xml:space="preserve">
+    <value>All frames exported</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoInProgress" xml:space="preserve">
+    <value>Exporting video…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoComplete" xml:space="preserve">
+    <value>Video exported</value>
+  </data>
+  <data name="KeyPhotoPage_ExportGifInProgress" xml:space="preserve">
+    <value>Generating GIF…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportGifComplete" xml:space="preserve">
+    <value>GIF generated</value>
+  </data>
+  <data name="KeyPhotoPage_SaveCoverInProgress" xml:space="preserve">
+    <value>Saving cover…</value>
+  </data>
+  <data name="KeyPhotoPage_SaveCoverComplete" xml:space="preserve">
+    <value>Cover saved</value>
+  </data>
+  <data name="KeyPhotoPage_SaveAsInProgress" xml:space="preserve">
+    <value>Saving as…</value>
+  </data>
+  <data name="KeyPhotoPage_SaveAsComplete" xml:space="preserve">
+    <value>Saved as</value>
+  </data>
+  <data name="KeyPhotoPage_OpenOutputFolderButton" xml:space="preserve">
+    <value>Output Folder</value>
   </data>
   <data name="KeyPhotoPage_SaveInProgress" xml:space="preserve">
     <value>Saving...</value>

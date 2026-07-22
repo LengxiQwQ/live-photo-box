@@ -71,12 +71,38 @@ namespace LivePhotoBox.Models
                 if (SetProperty(ref _hasConfirmedProtocol, value))
                 {
                     OnPropertyChanged(nameof(LivePhotoBadgeVisibility));
+                    OnPropertyChanged(nameof(LiveBadgeBackground));
                     OnPropertyChanged(nameof(DisplayFileName));
                 }
             }
         }
 
-        /// <summary>LIVE 徽标可见性：仅有已确认协议的文件才显示</summary>
+        // ══════════════════════════════════════════════════════════════
+        //  LIVE 徽标颜色（写死不跟随主题色）
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>完整实况 → 蓝色 #0078D4（与左上角 LIVE 按钮图标同色）</summary>
+        private static readonly SolidColorBrush LiveCompleteBrush =
+            new(Windows.UI.Color.FromArgb(0xFF, 0x00, 0x78, 0xD4));
+
+        /// <summary>缺失配对 → 暖黄色（比纯黄偏橙，白字可读）</summary>
+        private static readonly SolidColorBrush LiveMissingBrush =
+            new(Windows.UI.Color.FromArgb(0xFF, 0xD4, 0x88, 0x0A));
+
+        /// <summary>配对是否不完整（有协议但缺对方文件）</summary>
+        private bool IsPairIncomplete =>
+            HasConfirmedProtocol
+            && LivePhotoType == LivePhotoType.DualFile
+            && (string.IsNullOrEmpty(PairedVideoPath) || !File.Exists(PairedVideoPath));
+
+        /// <summary>LIVE 徽标背景色：完整=蓝，缺失配对=暖黄</summary>
+        public SolidColorBrush LiveBadgeBackground =>
+            IsPairIncomplete ? LiveMissingBrush : LiveCompleteBrush;
+
+        /// <summary>
+        /// LIVE 徽标可见性：有已确认协议即显示。
+        /// 双文件实况即使配对文件暂时缺失，徽标仍然保留——属性面板会额外标注"(未找到配对视频)"。
+        /// </summary>
         public Visibility LivePhotoBadgeVisibility =>
             HasConfirmedProtocol ? Visibility.Visible : Visibility.Collapsed;
 

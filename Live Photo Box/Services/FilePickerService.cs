@@ -309,6 +309,48 @@ namespace LivePhotoBox.Services
             return targetFile;
         }
 
+        /// <summary>
+        /// 多格式导出另存为对话框 — 提供全部 6 种图片格式供用户选择。
+        /// </summary>
+        /// <param name="suggestedFileName">建议文件名（不含扩展名）</param>
+        /// <returns>用户选择的 StorageFile，取消则返回 null</returns>
+        public static async Task<StorageFile?> PickSaveFileForExportMultiFormatAsync(string suggestedFileName)
+        {
+            var savePicker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.PicturesLibrary,
+                SuggestedFileName = suggestedFileName
+            };
+
+            savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".JPG", ".JPEG" });
+            savePicker.FileTypeChoices.Add("PNG 图像", new List<string> { ".PNG" });
+            savePicker.FileTypeChoices.Add("WebP 图像", new List<string> { ".WEBP" });
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+            WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+
+            return await savePicker.PickSaveFileAsync();
+        }
+
+        /// <summary>
+        /// GIF 导出另存为对话框。
+        /// </summary>
+        public static async Task<StorageFile?> PickSaveFileForGifExportAsync(string suggestedFileName = "animated")
+        {
+            var savePicker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.PicturesLibrary,
+                SuggestedFileName = suggestedFileName
+            };
+
+            savePicker.FileTypeChoices.Add("GIF 动画", new List<string> { ".GIF" });
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+            WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+
+            return await savePicker.PickSaveFileAsync();
+        }
+
         // 在 Windows 资源管理器中打开指定文件夹。
         // 如果文件夹不存在则自动创建。用于快速定位日志目录、输出目录等。
         // folderPath: 要打开的文件夹路径

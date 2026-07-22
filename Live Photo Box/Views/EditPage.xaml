@@ -296,30 +296,58 @@
                         Background="Transparent">
                 <AppBarButton x:Uid="KeyPhotoPage_ConvertProtocol"
                               Command="{x:Bind ViewModel.ConvertProtocolCommand}"
-                              IsEnabled="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay}"
                               Label="转换实况照片协议">
                     <AppBarButton.Icon><ic:SymbolIcon Symbol="ArrowSwap" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
                 <AppBarSeparator/>
                 <AppBarButton x:Uid="KeyPhotoPage_Export"
-                              IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}">
+                              IsEnabled="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay}">
                     <AppBarButton.Icon><ic:SymbolIcon Symbol="ImageArrowForward" FontSize="14"/></AppBarButton.Icon>
                     <AppBarButton.Flyout>
-                        <MenuFlyout Placement="Bottom">
+                        <MenuFlyout x:Name="ExportFlyout" Placement="Bottom">
+                            <!-- 1. 导出当前帧：有照片即可（含缺失视频的实况） -->
                             <MenuFlyoutItem x:Uid="KeyPhotoPage_ExportFrame"
-                                            Command="{x:Bind ViewModel.ExportCurrentFrameCommand}">
+                                            Command="{x:Bind ViewModel.ExportCurrentFrameCommand}"
+                                            IsEnabled="{x:Bind ViewModel.CanExportCurrentFrame, Mode=OneWay}">
                                 <MenuFlyoutItem.Icon>
                                     <ic:SymbolIcon Symbol="SendCopy"/>
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
+                            <!-- 2. 导出所有帧：需有时间轴 -->
                             <MenuFlyoutItem x:Uid="KeyPhotoPage_ExportAllFrames"
-                                            Command="{x:Bind ViewModel.ExportAllFramesCommand}">
+                                            Command="{x:Bind ViewModel.ExportAllFramesCommand}"
+                                            IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}">
                                 <MenuFlyoutItem.Icon>
                                     <ic:SymbolIcon Symbol="SendCopy"/>
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+
+                            <MenuFlyoutSeparator/>
+
+                            <!-- 3. 导出为视频：需有时间轴 -->
+                            <MenuFlyoutItem x:Uid="KeyPhotoPage_ExportVideo"
+                                            Command="{x:Bind ViewModel.ExportVideoCommand}"
+                                            IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}">
+                                <MenuFlyoutItem.Icon>
+                                    <ic:SymbolIcon Symbol="VideoClip"/>
+                                </MenuFlyoutItem.Icon>
+                            </MenuFlyoutItem>
+
+                            <!-- 4. 导出为 GIF 动图：需有时间轴 -->
+                            <MenuFlyoutItem x:Uid="KeyPhotoPage_ExportGif"
+                                            Command="{x:Bind ViewModel.ExportGifCommand}"
+                                            IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}">
+                                <MenuFlyoutItem.Icon>
+                                    <ic:SymbolIcon Symbol="Gif"/>
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                         </MenuFlyout>
                     </AppBarButton.Flyout>
+                </AppBarButton>
+                <AppBarButton x:Uid="KeyPhotoPage_SaveAs" Command="{x:Bind ViewModel.SaveAsCommand}"
+                              IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"
+                              Label="另存为">
+                    <AppBarButton.Icon><FontIcon Glyph="&#xE792;" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
                 <AppBarSeparator/>
                 <AppBarButton x:Uid="KeyPhotoPage_Save" Command="{x:Bind ViewModel.SaveCommand}"
@@ -327,21 +355,16 @@
                               Label="设为封面并保存为副本">
                     <AppBarButton.Icon><FontIcon Glyph="&#xE74E;" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
-                <AppBarButton x:Uid="KeyPhotoPage_SaveAs" Command="{x:Bind ViewModel.SaveAsCommand}"
-                              IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"
-                              Label="另存为">
-                    <AppBarButton.Icon><FontIcon Glyph="&#xE792;" FontSize="14"/></AppBarButton.Icon>
-                </AppBarButton>
             </CommandBar>
 
             <!-- 标题 + 导出进度（标题栏左侧，贴着标题） -->
             <StackPanel Orientation="Horizontal"
                         VerticalAlignment="Center" HorizontalAlignment="Left"
-                        Margin="8,0,0,0"
-                        IsHitTestVisible="False">
+                        Margin="8,0,0,0">
                 <TextBlock x:Uid="KeyPhotoPage_PageTitle"
                            FontSize="16" FontWeight="SemiBold"
                            VerticalAlignment="Center" Margin="8,0,0,0"
+                           IsHitTestVisible="False"
                            Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
 
                 <StackPanel x:Name="ExportProgressPanel"
@@ -349,7 +372,7 @@
                             Orientation="Horizontal" Spacing="6"
                             Margin="12,0,0,0"
                             VerticalAlignment="Center">
-                    <Grid Width="20" Height="20">
+                    <Grid Width="20" Height="20" IsHitTestVisible="False">
                         <ProgressRing IsActive="{x:Bind ViewModel.IsExporting, Mode=OneWay}"
                                       Width="20" Height="20"
                                       Visibility="{x:Bind ViewModel.IsShowingSaveComplete, Converter={StaticResource InverseVisibilityConverter}, Mode=OneWay}"/>
@@ -360,13 +383,32 @@
                                   Foreground="{ThemeResource SystemFillColorSuccessBrush}"/>
                     </Grid>
                     <TextBlock Text="{x:Bind ViewModel.ProgressPrefixText, Mode=OneWay}"
+                               IsHitTestVisible="False"
                                FontSize="13"
                                VerticalAlignment="Center"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <TextBlock Text="{x:Bind ViewModel.ExportProgressText, Mode=OneWay}"
+                               IsHitTestVisible="False"
                                VerticalAlignment="Center"
                                FontSize="13"
                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <!-- 输出文件夹（仅完成时显示） -->
+                    <Button Command="{x:Bind ViewModel.OpenExportOutputFolderCommand}"
+                            Visibility="{x:Bind ViewModel.IsCompletionWithOutputDir, Converter={StaticResource VisibilityConverter}, Mode=OneWay}"
+                            Padding="6,2" Height="26"
+                            Margin="6,0,0,0"
+                            VerticalAlignment="Center"
+                            Background="Transparent"
+                            BorderThickness="1"
+                            BorderBrush="{ThemeResource TextFillColorSecondaryBrush}"
+                            CornerRadius="4">
+                        <StackPanel Orientation="Horizontal" Spacing="4">
+                            <FontIcon Glyph="&#xE838;" FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="KeyPhotoPage_OpenOutputFolderButton"
+                                       FontSize="12"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
                 </StackPanel>
             </StackPanel>
         </Grid>
@@ -612,7 +654,7 @@
                                                 <TextBlock Text="{x:Bind DateTaken}" FontSize="11"
                                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                            MaxLines="1" HorizontalAlignment="Left"/>
-                                                <Border Background="{ThemeResource SystemAccentColor}"
+                                                <Border Background="{x:Bind LiveBadgeBackground, Mode=OneWay}"
                                                         CornerRadius="3" Padding="4,1"
                                                         HorizontalAlignment="Right" VerticalAlignment="Center"
                                                         Visibility="{x:Bind LivePhotoBadgeVisibility, Mode=OneWay}">
@@ -721,7 +763,7 @@
                                     Height="28" Padding="8,0,10,0" CornerRadius="5"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                    Visibility="{x:Bind ViewModel.CanPlayLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
                                     Click="LivePhotoBadgeButton_Click"
                                     PointerEntered="LivePhotoBadgeButton_PointerEntered"
                                     PointerExited="LivePhotoBadgeButton_PointerExited">
@@ -749,7 +791,7 @@
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Margin="6,0,0,0"
-                                    Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                    Visibility="{x:Bind ViewModel.CanPlayLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
                                     Click="MuteButton_Click">
                                 <Grid Width="12" Height="12">
                                     <ic:SymbolIcon x:Name="MuteIconSpeaker" Symbol="Speaker2" FontSize="12"
@@ -968,8 +1010,10 @@
                                     </Setter>
                                 </Style>
                             </ctk:Segmented.ItemContainerStyle>
-                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabCombined" Content="组合查看" Tag="combined"/>
-                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabFrames" Content="实况照片帧" Tag="frames"/>
+                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabCombined" Content="组合查看" Tag="combined"
+                                               IsEnabled="{x:Bind ViewModel.IsTimelineTabDisabled, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"/>
+                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabFrames" Content="实况照片帧" Tag="frames"
+                                               IsEnabled="{x:Bind ViewModel.IsTimelineTabDisabled, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"/>
                             <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabBasicInfo" Content="文件基础信息" Tag="basicInfo"/>
                             <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabDetailProps" Content="更改文件属性" Tag="detailProps"/>
                         </ctk:Segmented>

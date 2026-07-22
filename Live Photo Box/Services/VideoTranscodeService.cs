@@ -283,6 +283,175 @@ namespace LivePhotoBox.Services
             return await TranscodeAsync(inputPath, outputPath, VideoFormat.MOV, token);
         }
 
+        // ══════════════════════════════════════════════════════════════
+        //  GIF 动图导出（palettegen/paletteuse 双 pass 管线）
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// 将视频转码为 GIF 动图，使用 palettegen/paletteuse 滤镜生成最优调色板。
+        /// </summary>
+        /// <param name="inputPath">输入视频路径</param>
+        /// <param name="outputPath">输出 GIF 路径</param>
+        /// <param name="fps">输出帧率（1-30）</param>
+        /// <param name="width">输出宽度（像素），传 0 表示保持原始宽度</param>
+        /// <param name="height">输出高度（像素），传 0 表示保持原始高度</param>
+        /// <param name="loopCount">循环次数（0=无限循环）</param>
+        /// <param name="token">取消令牌</param>
+        /// <returns>转码结果</returns>
+        public static async Task<TranscodeResult> TranscodeToGifAsync(
+            string inputPath,
+            string outputPath,
+            int fps,
+            int width,
+            int height,
+            int loopCount,
+            CancellationToken token = default)
+        {
+            var result = new TranscodeResult();
+            var stopwatch = Stopwatch.StartNew();
+
+            if (!File.Exists(inputPath))
+            {
+                result.Success = false;
+                result.ErrorMessage = $"Input file not found: {inputPath}";
+                LogService.Split($"GIF transcode failed: {result.ErrorMessage}", LogLevel.Error);
+                return result;
+            }
+
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+            if (string.IsNullOrEmpty(ffmpegPath))
+            {
+                result.Success = false;
+                result.ErrorMessage = "FFmpeg not found. Please ensure ffmpeg.exe is available.";
+                LogService.Split("GIF transcode failed: FFmpeg not found", LogLevel.Error);
+                return result;
+            }
+
+            LogService.Split(
+                $"Starting GIF transcode: {Path.GetFileName(inputPath)} -> {fps}fps {width}x{height}",
+                LogLevel.Info);
+
+            // 安全创建输出目录
+            string? outDir = Path.GetDirectoryName(outputPath);
+            if (!string.IsNullOrWhiteSpace(outDir))
+                Directory.CreateDirectory(outDir);
+
+            if (File.Exists(outputPath))
+                File.Delete(outputPath);
+
+            // ── 构建 filtergraph ────────────────────────────────────
+            // fps → scale(可选) → split → palettegen + paletteuse
+            var filters = new System.Collections.Generic.List<string> { $"fps={fps}" };
+            if (width > 0 && height > 0)
+                filters.Add($"scale={width}:{height}:flags=lanczos");
+            filters.Add("split[a][b]");
+            filters.Add("[a]palettegen=max_colors=256:stats_mode=diff[p]");
+            filters.Add("[b][p]paletteuse=dither=bayer:bayer_scale=5");
+
+            string filterGraph = string.Join(",", filters);
+
+            // -loop: 0=无限, -1=不循环, N=循环 N 次
+            string arguments =
+                $"-y -i \"{inputPath}\" " +
+                $"-vf \"{filterGraph}\" " +
+                $"-loop {loopCount} " +
+                $"\"{outputPath}\"";
+
+            LogService.Split($"ffmpeg {arguments}", LogLevel.Debug);
+
+            try
+            {
+                using var process = new Process();
+                process.StartInfo.FileName = ffmpegPath;
+                process.StartInfo.Arguments = arguments;
+                process.StartInfo.UseShellExecute = false;
+                process.StartInfo.CreateNoWindow = true;
+                process.StartInfo.RedirectStandardError = true;
+                process.StartInfo.RedirectStandardOutput = true;
+
+                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                process.EnableRaisingEvents = true;
+                process.Exited += (_, _) => tcs.TrySetResult(true);
+
+                try
+                {
+                    process.Start();
+                }
+                catch (Exception ex)
+                {
+                    result.Success = false;
+                    result.ErrorMessage = $"Failed to start FFmpeg: {ex.Message}";
+                    LogService.Split($"GIF transcode failed: {result.ErrorMessage}", LogLevel.Error, ex);
+                    return result;
+                }
+
+                using var registration = token.Register(() =>
+                {
+                    try { if (!process.HasExited) process.Kill(); } catch { }
+                    tcs.TrySetCanceled();
+                });
+
+                var errorReadTask = ReadFFmpegOutputAsync(process);
+
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+
+                try
+                {
+                    await tcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    string cancelError = await errorReadTask.ConfigureAwait(false);
+                    if (timeoutCts.Token.IsCancellationRequested)
+                    {
+                        if (!process.HasExited) { process.Kill(); }
+                        result.Success = false;
+                        result.ErrorMessage = $"GIF transcode timeout (>5 minutes). FFmpeg output: {cancelError}";
+                        LogService.Split($"GIF transcode timeout: {result.ErrorMessage}", LogLevel.Error);
+                        return result;
+                    }
+                    if (!string.IsNullOrWhiteSpace(cancelError))
+                    {
+                        LogService.Split($"[FFmpeg stderr on cancel]: {cancelError}", LogLevel.Warning);
+                    }
+                    result.Success = false;
+                    result.ErrorMessage = "GIF transcode cancelled by user";
+                    LogService.Split("GIF transcode cancelled", LogLevel.Warning);
+                    return result;
+                }
+
+                stopwatch.Stop();
+                result.Duration = stopwatch.Elapsed;
+
+                if (process.ExitCode == 0 && File.Exists(outputPath))
+                {
+                    result.Success = true;
+                    result.OutputPath = outputPath;
+                    LogService.Split(
+                        $"GIF transcode completed: {Path.GetFileName(outputPath)} ({result.Duration.TotalSeconds:F1}s)",
+                        LogLevel.Info);
+                }
+                else
+                {
+                    string errorOutput = await errorReadTask.ConfigureAwait(false);
+                    result.Success = false;
+                    result.ErrorMessage = $"FFmpeg exited with code {process.ExitCode}. Output: {errorOutput}";
+                    LogService.Split($"GIF transcode failed: {result.ErrorMessage}", LogLevel.Error);
+                }
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                result.Duration = stopwatch.Elapsed;
+                result.Success = false;
+                result.ErrorMessage = ex.Message;
+                LogService.Split($"GIF transcode error: {ex.Message}", LogLevel.Error, ex);
+            }
+
+            return result;
+        }
+
         // Ensure the source video is in MP4 format, transcoding if necessary.
         // If already MP4, returns the original path with zero overhead.
         // If MOV (or other), transcodes to a temp file in <paramref name="workDir"/>.

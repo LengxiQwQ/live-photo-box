@@ -37,8 +37,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using Windows.Graphics.Imaging;
 using Windows.Storage;
+using Windows.Storage.Pickers;
 using Windows.Storage.Streams;
 using Windows.UI;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Text;
+using Microsoft.UI.Xaml.Input;
 
 namespace LivePhotoBox.ViewModels
 {
@@ -201,7 +205,17 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnSelectedSortIndexChanged(int value) => ApplySortAndFilter();
         partial void OnSearchTextChanged(string value) => ApplySortAndFilter();
-        partial void OnSelectedFilePathChanged(string? value) => OnPropertyChanged(nameof(HasSelectedFile));
+        partial void OnSelectedFilePathChanged(string? value)
+        {
+            OnPropertyChanged(nameof(HasSelectedFile));
+            OnPropertyChanged(nameof(IsSelectedPairIncomplete));
+            OnPropertyChanged(nameof(IsTimelineTabDisabled));
+            OnPropertyChanged(nameof(IsVideoRowVisible));
+            OnPropertyChanged(nameof(CanPlayLivePhoto));
+            OnPropertyChanged(nameof(CanExportCurrentFrame));
+            OnPropertyChanged(nameof(CanExportMultiFrame));
+            ConvertProtocolCommand.NotifyCanExecuteChanged();
+        }
 
         [RelayCommand]
         private void ToggleSortDirection()
@@ -356,6 +370,7 @@ namespace LivePhotoBox.ViewModels
         partial void OnHasTimelineFramesChanged(bool value)
         {
             OnPropertyChanged(nameof(FilmstripControlsVisibility));
+            OnPropertyChanged(nameof(CanExportMultiFrame));
         }
 
         /// <summary>时间轴帧提取取消令牌</summary>
@@ -412,8 +427,85 @@ namespace LivePhotoBox.ViewModels
         /// <summary>未在导出中（XAML 绑定用，导出时禁用按钮）</summary>
         public bool IsNotExporting => !IsExporting;
 
+        /// <summary>上次导出/保存的输出目录（📂 按钮用）</summary>
+        [ObservableProperty]
+        private string? _lastExportOutputDir;
+
+        /// <summary>完成态 + 有输出目录 → 显示 📂 按钮</summary>
+        public bool IsCompletionWithOutputDir =>
+            IsShowingSaveComplete && !string.IsNullOrEmpty(LastExportOutputDir);
+
+        partial void OnIsShowingSaveCompleteChanged(bool value)
+            => OnPropertyChanged(nameof(IsCompletionWithOutputDir));
+
+        partial void OnLastExportOutputDirChanged(string? value)
+            => OnPropertyChanged(nameof(IsCompletionWithOutputDir));
+
+        // ══════════════════════════════════════════════════════════════
+        //  统一进度 Helper（替换各方法的裸写 Property 赋值）
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>开始导出/保存：清旧态、设进度文字、显示面板</summary>
+        private void BeginExportProgress(string progressText, string? progressPrefix = null)
+        {
+            _completionCts?.Cancel();
+            _completionCts?.Dispose();
+            _completionCts = null;
+            IsShowingSaveComplete = false;
+            LastExportOutputDir = null;
+            ExportProgressPercent = 0.0;
+            ProgressPrefixText = progressPrefix ?? string.Empty;
+            ExportProgressText = progressText;
+            IsExporting = true;
+        }
+
+        /// <summary>完成：绿勾 + 完成文字 + 存目录，不自动消失</summary>
+        private void CompleteExportProgress(string completionText, string? outputDir)
+        {
+            IsShowingSaveComplete = true;
+            ExportProgressText = completionText;
+            ProgressPrefixText = string.Empty;
+            LastExportOutputDir = outputDir;
+        }
+
+        /// <summary>失败：重置所有状态 → 弹错误对话框</summary>
+        private async Task FailExportProgressAsync(string errorMessage, string? outputDir = null)
+        {
+            IsShowingSaveComplete = false;
+            IsExporting = false;
+            ExportProgressText = string.Empty;
+            ExportProgressPercent = 0.0;
+            ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+            LastExportOutputDir = null;
+            _completionCts?.Cancel();
+            _completionCts?.Dispose();
+            _completionCts = null;
+            await ShowSaveErrorDialogAsync(errorMessage, outputDir);
+        }
+
+        /// <summary>finally 清理：完成态保持，非完成态隐藏面板</summary>
+        private void FinalizeExportProgress()
+        {
+            if (!IsShowingSaveComplete)
+            {
+                IsExporting = false;
+                ExportProgressText = string.Empty;
+                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+            }
+            ExportProgressPercent = 0.0;
+        }
+
+        /// <summary>打开上次导出/保存的输出文件夹</summary>
+        [RelayCommand]
+        private void OpenExportOutputFolder()
+        {
+            if (!string.IsNullOrEmpty(LastExportOutputDir))
+                FilePickerService.OpenFolderInExplorer(LastExportOutputDir);
+        }
+
         /// <summary>导出选项对话框返回模型</summary>
-        private sealed record ExportOptions(string FolderName, bool CopyExif, string ExportPath);
+        private sealed record ExportOptions(string FolderName, bool CopyExif, string ExportPath,
+            string FormatExtension = ".jpg", int Quality = 80);
 
         /// <summary>
         /// 帧缩略图内存缓存：key = "filePath|frameKey", value = ImageSource。
@@ -444,6 +536,39 @@ namespace LivePhotoBox.ViewModels
         /// 星标帧（IsStillPhoto）已为封面 → 禁用；数字角标帧 → 可用。
         /// </summary>
         public bool IsSetCoverEnabled => SelectedTimelineFrame != null && !SelectedTimelineFrame.IsStillPhoto;
+
+        /// <summary>当前选中的文件是否为"半死不活"的实况照片（有协议但缺配对文件）</summary>
+        public bool IsSelectedPairIncomplete
+        {
+            get
+            {
+                var item = FileItems.FirstOrDefault(f =>
+                    string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
+                return item != null
+                    && item.HasConfirmedProtocol
+                    && item.LivePhotoType == LivePhotoType.DualFile
+                    && (string.IsNullOrEmpty(item.PairedVideoPath)
+                        || !File.Exists(item.PairedVideoPath));
+            }
+        }
+
+        /// <summary>不完整实况 → 禁用"组合查看"和"实况照片帧"标签页</summary>
+        public bool IsTimelineTabDisabled => IsSelectedPairIncomplete;
+
+        /// <summary>ConvertProtocol 守卫：配对缺失的实况照片不允许转换协议</summary>
+        private bool CanConvertProtocol() => IsSelectedLivePhoto && !IsSelectedPairIncomplete;
+
+        /// <summary>能否播放实况：仅完全实况照片（照片+视频配对齐全）才显示播放按钮</summary>
+        public bool CanPlayLivePhoto =>
+            IsSelectedLivePhoto && !IsSelectedPairIncomplete;
+
+        /// <summary>可导出单帧：非视频的实况照片（完整的或有照片即可）</summary>
+        public bool CanExportCurrentFrame =>
+            IsSelectedLivePhoto && !IsSelectedFileVideo;
+
+        /// <summary>可导出多帧/视频/GIF：完整实况有帧，或者视频本身有帧</summary>
+        public bool CanExportMultiFrame =>
+            IsSelectedLivePhoto && (HasTimelineFrames || IsSelectedFileVideo);
 
         /// <summary>ViewModel 通知 View 层滚动到指定帧（ItemsRepeater 布局就绪后吸附定位）</summary>
         public event Action<TimelineFrame>? RequestScrollToFrame;
@@ -675,6 +800,9 @@ namespace LivePhotoBox.ViewModels
                     OnPropertyChanged(nameof(IsSelectedFileVideo));
                     OnPropertyChanged(nameof(IsPhotoRowVisible));
                     OnPropertyChanged(nameof(IsVideoRowVisible));
+                    OnPropertyChanged(nameof(CanExportCurrentFrame));
+                    OnPropertyChanged(nameof(CanExportMultiFrame));
+                    OnPropertyChanged(nameof(CanPlayLivePhoto));
                 }
             }
         }
@@ -693,6 +821,10 @@ namespace LivePhotoBox.ViewModels
                 {
                     OnPropertyChanged(nameof(IsSelectedLivePhoto));
                     OnPropertyChanged(nameof(IsVideoRowVisible));
+                    OnPropertyChanged(nameof(CanExportCurrentFrame));
+                    OnPropertyChanged(nameof(CanExportMultiFrame));
+                    OnPropertyChanged(nameof(CanPlayLivePhoto));
+                    ConvertProtocolCommand.NotifyCanExecuteChanged();
                 }
             }
         }
@@ -712,8 +844,9 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        /// <summary>视频信息行可见（实况照片或有视频数据的独立视频时显示）</summary>
-        public bool IsVideoRowVisible => IsSelectedFileVideo || IsSelectedLivePhoto;
+        /// <summary>视频信息行可见（有实际视频数据时才显示，缺失视频的实况不显示）</summary>
+        public bool IsVideoRowVisible =>
+            IsSelectedFileVideo || (IsSelectedLivePhoto && !IsSelectedPairIncomplete);
 
         /// <summary>选中文件的缩略图（信息面板用，直接复用列表已加载的）</summary>
         private Microsoft.UI.Xaml.Media.ImageSource? _selectedFileThumbnail;
@@ -804,12 +937,8 @@ namespace LivePhotoBox.ViewModels
             }
             string targetPath = savedFile.Path;
 
-            // ── 3. 显示进度（复用标题栏进度条） ─────────────────────────
-            // 清空上一次的完成状态和"正在导出帧…"前缀，改为纯"正在保存…"
-            IsShowingSaveComplete = false;
-            ProgressPrefixText = string.Empty;
-            ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveInProgress");
-            IsExporting = true;
+            // ── 3. 显示进度 ───────────────────────────────────────────
+            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_SaveCoverInProgress"));
 
             string? tempWorkDir = null;
             string? tempVideoPath = null;
@@ -926,10 +1055,10 @@ namespace LivePhotoBox.ViewModels
                                 // 修改日期设为当前时间
                     try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
 
-                // ── 11. 完成消息：显示对号 + "保存完成"，停留 5 秒后自动消失 ──
-                IsShowingSaveComplete = true;
-                ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveComplete");
-                _ = HoldSaveCompleteMessageAsync();
+                // ── 11. 完成 ──
+                CompleteExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_SaveCoverComplete"),
+                    Path.GetDirectoryName(targetPath));
             }
             catch (Exception ex)
             {
@@ -940,18 +1069,13 @@ namespace LivePhotoBox.ViewModels
                 // 清理可能不完整的输出文件
                 try { if (File.Exists(targetPath)) File.Delete(targetPath); } catch { }
 
-                // 失败时立即隐藏进度指示，弹出错误弹窗
-                IsShowingSaveComplete = false;
-                IsExporting = false;
-                ExportProgressText = string.Empty;
-                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
-                _ = ShowSaveErrorDialogAsync(
+                await FailExportProgressAsync(
                     $"{ResourceService.GetString("KeyPhotoPage_SaveError")}: {ex.Message}",
                     Path.GetDirectoryName(targetPath));
             }
             finally
             {
-                // 清理临时文件和工作目录
+                FinalizeExportProgress();
                 if (!string.IsNullOrEmpty(tempWorkDir) && Directory.Exists(tempWorkDir))
                     try { Directory.Delete(tempWorkDir, recursive: true); } catch { }
             }
@@ -1006,32 +1130,6 @@ namespace LivePhotoBox.ViewModels
         }
 
         /// <summary>
-        /// 保存完成后显示"保存完成"消息，5 秒后自动清除进度指示。
-        /// </summary>
-        private async Task HoldSaveCompleteMessageAsync()
-        {
-            _completionCts?.Cancel();
-            _completionCts?.Dispose();
-            _completionCts = new CancellationTokenSource();
-            var ct = _completionCts.Token;
-
-            try
-            {
-                await Task.Delay(4000, ct);
-
-                var dispatcher = App.MainWindow?.DispatcherQueue;
-                dispatcher?.TryEnqueue(() =>
-                {
-                    IsShowingSaveComplete = false;
-                    IsExporting = false;
-                    ExportProgressText = string.Empty;
-                    ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
-                });
-            }
-            catch (TaskCanceledException) { /* 新的保存开始，已取消旧计时器 */ }
-        }
-
-        /// <summary>
         /// 保存/导出失败时显示错误弹窗。
         /// 用户可点击"打开输出目录"在资源管理器中打开目标文件夹，或"我知道了"关闭。
         /// </summary>
@@ -1039,16 +1137,21 @@ namespace LivePhotoBox.ViewModels
         /// <param name="outputDir">可选：输出目录路径，用于"打开"按钮</param>
         private async Task ShowSaveErrorDialogAsync(string errorMessage, string? outputDir = null)
         {
-            if (App.MainWindow?.Content?.XamlRoot is not XamlRoot xamlRoot)
+            LogService.FileOp($"Export error: {errorMessage}", LogLevel.Error);
+
+            if (App.MainWindow?.Content?.XamlRoot is not XamlRoot xamlRoot) return;
+
+            var errorText = new TextBlock
             {
-                LogService.FileOp("ShowSaveErrorDialog: MainWindow XamlRoot unavailable", LogLevel.Warning);
-                return;
-            }
+                Text = errorMessage,
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+            };
 
             var openDir = await DialogService.ShowDualAsync(
                 xamlRoot,
                 ResourceService.GetString("KeyPhotoPage_SaveError"),
-                errorMessage,
+                errorText,
                 primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
                 closeText: ResourceService.GetString("Msg_GotIt"));
 
@@ -1116,10 +1219,7 @@ namespace LivePhotoBox.ViewModels
                     LogLevel.Info);
 
                 // ── 3. 显示进度 ──────────────────────────────────────────
-                IsShowingSaveComplete = false;
-                ProgressPrefixText = string.Empty;
-                ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveInProgress");
-                IsExporting = true;
+                BeginExportProgress(ResourceService.GetString("KeyPhotoPage_SaveCoverInProgress"));
 
                 // ── 3b. 读取原 HEIC 的 ContentIdentifier（Apple 配对 UUID）──
                 //     后续显式写回 HEIC 和 MOV，确保重新扫描时能识别为实况照片
@@ -1231,9 +1331,9 @@ namespace LivePhotoBox.ViewModels
                     if (proc == null)
                     {
                         LogService.FileOp("KeyPhoto Save[Apple]: heif-enc failed to start", LogLevel.Error);
-                        IsExporting = false;
-                        ExportProgressText = string.Empty;
-                        ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+                        await FailExportProgressAsync(
+                            "heif-enc failed to start",
+                            Path.GetDirectoryName(targetHeicPath));
                         return;
                     }
 
@@ -1245,9 +1345,9 @@ namespace LivePhotoBox.ViewModels
                         LogService.FileOp(
                             $"KeyPhoto Save[Apple]: heif-enc exit={proc.ExitCode}, stderr: {stderr.Trim()}",
                             LogLevel.Error);
-                        IsExporting = false;
-                        ExportProgressText = string.Empty;
-                        ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+                        await FailExportProgressAsync(
+                            $"heif-enc exited with code {proc.ExitCode}",
+                            Path.GetDirectoryName(targetHeicPath));
                         return;
                     }
                 }
@@ -1257,9 +1357,9 @@ namespace LivePhotoBox.ViewModels
                 if (heicSize == 0)
                 {
                     LogService.FileOp("KeyPhoto Save[Apple]: HEIC is 0 bytes after heif-enc", LogLevel.Error);
-                    IsExporting = false;
-                    ExportProgressText = string.Empty;
-                    ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+                    await FailExportProgressAsync(
+                        "HEIC output is 0 bytes after encoding",
+                        Path.GetDirectoryName(targetHeicPath));
                     return;
                 }
 
@@ -1398,10 +1498,10 @@ namespace LivePhotoBox.ViewModels
                     try { File.SetLastWriteTime(targetHeicPath, DateTime.Now); } catch { }
                     try { File.SetLastWriteTime(targetMovPath, DateTime.Now); } catch { }
 
-                // ── 12. 完成消息：对号 + "保存完成" → 4s 后消失 ─────────
-                IsShowingSaveComplete = true;
-                ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveComplete");
-                _ = HoldSaveCompleteMessageAsync();
+                // ── 12. 完成 ──
+                CompleteExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_SaveCoverComplete"),
+                    Path.GetDirectoryName(targetHeicPath));
             }
             catch (Exception ex)
             {
@@ -1409,19 +1509,14 @@ namespace LivePhotoBox.ViewModels
                     $"KeyPhoto Save[Apple] FAILED: {ex.GetType().Name}: {ex.Message}",
                     LogLevel.Error, ex);
 
-                IsShowingSaveComplete = false;
-                IsExporting = false;
-                ExportProgressText = string.Empty;
-                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
-
-                // 提取目标目录（可能部分完成但报错，尽量提供目录位置）
                 string? appleOutputDir = !string.IsNullOrEmpty(targetHeicPath)
                     ? Path.GetDirectoryName(targetHeicPath)
                     : null;
-                _ = ShowSaveErrorDialogAsync(ex.Message, appleOutputDir);
+                await FailExportProgressAsync(ex.Message, appleOutputDir);
             }
             finally
             {
+                FinalizeExportProgress();
                 if (!string.IsNullOrEmpty(tempWorkDir) && Directory.Exists(tempWorkDir))
                     try { Directory.Delete(tempWorkDir, recursive: true); } catch { }
             }
@@ -1443,10 +1538,7 @@ namespace LivePhotoBox.ViewModels
             if (savedPath == null) return; // 用户取消
 
             // 显示"正在保存…"状态
-            IsShowingSaveComplete = false;
-            ProgressPrefixText = string.Empty;
-            ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveInProgress");
-            IsExporting = true;
+            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_SaveAsInProgress"));
 
             try
             {
@@ -1468,52 +1560,52 @@ namespace LivePhotoBox.ViewModels
 
                 LogService.FileOp($"SaveAs: saved to '{savedPath}'", LogLevel.Info);
 
-                // 完成状态
-                IsShowingSaveComplete = true;
-                ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveComplete");
-                _ = HoldSaveCompleteMessageAsync();
+                CompleteExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_SaveAsComplete"),
+                    Path.GetDirectoryName(savedPath));
             }
             catch (Exception ex)
             {
                 LogService.FileOp($"SaveAs FAILED: {ex.GetType().Name}: {ex.Message}", LogLevel.Error, ex);
-
-                IsShowingSaveComplete = false;
-                IsExporting = false;
-                ExportProgressText = string.Empty;
-                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
-                _ = ShowSaveErrorDialogAsync(ex.Message, Path.GetDirectoryName(savedPath));
+                await FailExportProgressAsync(ex.Message, Path.GetDirectoryName(savedPath));
+            }
+            finally
+            {
+                FinalizeExportProgress();
             }
         }
         [RelayCommand] private void Export() { }
         /// <summary>
-        /// 导出当前帧：先弹出系统"另存为"窗口让用户选择格式和位置，
-        /// 选完后再按需转换（避免转换阻塞弹窗）。
-        /// 视频帧已是 JPEG 直接复制；封面（⭐）若非 JPG 则提供原格式 + JPEG 选项，
-        /// 选 JPEG 时以 quality=92 转换，文件大小合理。
+        /// 导出当前帧：弹出多格式另存为窗口，用户选格式后按需转换。
+        /// 支持 JPEG / PNG / WebP / BMP / TIFF / HEIC。
         /// </summary>
         [RelayCommand]
         private async Task ExportCurrentFrame()
         {
             var frame = SelectedTimelineFrame;
+
+            // 不完整实况（仅照片，无时间轴）：直接导出照片文件本身
+            if (frame == null && IsSelectedLivePhoto && !IsSelectedFileVideo)
+            {
+                await ExportPhotoAsSingleFrame();
+                return;
+            }
+
             if (frame == null) return;
 
-            // 1. 确定源文件路径和扩展名
+            // 1. 确定源文件路径
             string sourcePath;
-            string sourceExt;
-
             if (frame.IsStillPhoto)
             {
                 var photoPath = SelectedFilePath;
                 if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath)) return;
                 sourcePath = photoPath;
-                sourceExt = Path.GetExtension(photoPath);
             }
             else
             {
                 if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
                     return;
                 sourcePath = frame.FullFramePath;
-                sourceExt = ".JPG"; // ffmpeg 提取的帧始终是 JPEG
             }
 
             // 2. 生成建议文件名
@@ -1522,75 +1614,94 @@ namespace LivePhotoBox.ViewModels
                 ? photoBaseName
                 : $"{photoBaseName}_帧{frame.FrameIndex + 1}";
 
-            // 3. 弹出另存为窗口（先弹窗，不阻塞，用户可选手选格式）
-            var targetFile = await FilePickerService.PickSaveFileForExportAsync(
-                sourceExt, suggestedName);
-            if (targetFile == null) return; // 用户取消
+            // 3. 弹出多格式另存为窗口
+            var targetFile = await FilePickerService.PickSaveFileForExportMultiFormatAsync(suggestedName);
+            if (targetFile == null) return;
 
-            // 4. 显示"正在保存…"状态
+            // 4. 显示进度
             string targetPath = targetFile.Path;
-            IsShowingSaveComplete = false;
-            ProgressPrefixText = string.Empty;
-            ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveInProgress");
-            IsExporting = true;
-
-            // 5. 根据用户选择的格式执行导出
-            bool targetIsJpeg = targetFile.FileType is ".jpg" or ".jpeg";
-            string? tempConvertedPath = null;
+            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameInProgress"));
 
             try
             {
-                if (targetIsJpeg && HeicConverterService.IsHeicFile(sourcePath))
+                // 5. 根据用户选择的格式执行导出
+                string targetExt = Path.GetExtension(targetPath);
+                bool needsConversion = ImageFormatService.NeedsConversion(sourcePath, targetExt);
+
+                if (needsConversion)
                 {
-                    // 用户选了 JPEG + 源是 HEIC → 转换后再复制（quality=92，文件大小合理）
-                    tempConvertedPath = await HeicConverterService.ConvertToJpegAsync(
-                        sourcePath, Path.GetTempPath(), quality: 92);
-                    var jpegFile = await StorageFile.GetFileFromPathAsync(tempConvertedPath);
-                    await jpegFile.CopyAndReplaceAsync(targetFile);
+                    await ImageFormatService.ConvertImageAsync(sourcePath, targetPath, quality: 80);
                 }
                 else
                 {
-                    // 原格式导出 / 源已是 JPEG → 直接复制
                     var sourceFile = await StorageFile.GetFileFromPathAsync(sourcePath);
                     await sourceFile.CopyAndReplaceAsync(targetFile);
                 }
 
                 LogService.FileOp(
-                    $"ExportCurrentFrame: {Path.GetFileName(sourcePath)} -> {targetFile.Path}",
+                    $"ExportCurrentFrame: {Path.GetFileName(sourcePath)} -> {targetPath}",
                     LogLevel.Info);
 
-                // 6. JPEG 导出：复制原图 EXIF（相机/日期/GPS等），但排除实况照片私有协议标签
-                if (targetIsJpeg && !string.IsNullOrEmpty(SelectedFilePath)
-                    && File.Exists(SelectedFilePath))
-                {
-                    await CopyExifForExportAsync(SelectedFilePath, targetFile.Path);
-                }
+                // 6. 修改日期为当前时间
+                try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
 
-                // 修改日期设为当前时间
-                try { File.SetLastWriteTime(targetFile.Path, DateTime.Now); } catch { }
-
-                // 完成状态
-                IsShowingSaveComplete = true;
-                ExportProgressText = ResourceService.GetString("KeyPhotoPage_SaveComplete");
-                _ = HoldSaveCompleteMessageAsync();
+                // 7. 完成状态
+                CompleteExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameComplete"),
+                    Path.GetDirectoryName(targetPath));
             }
             catch (Exception ex)
             {
                 LogService.FileOp(
                     $"ExportCurrentFrame failed: {ex.Message}", LogLevel.Error, ex);
-
-                IsShowingSaveComplete = false;
-                IsExporting = false;
-                ExportProgressText = string.Empty;
-                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
-                _ = ShowSaveErrorDialogAsync(ex.Message, Path.GetDirectoryName(targetPath));
+                await FailExportProgressAsync(ex.Message, Path.GetDirectoryName(targetPath));
             }
             finally
             {
-                if (tempConvertedPath != null)
+                FinalizeExportProgress();
+            }
+        }
+
+        /// <summary>
+        /// 不完整实况（仅照片，无时间轴）：直接将照片文件作为单帧导出。
+        /// </summary>
+        private async Task ExportPhotoAsSingleFrame()
+        {
+            var photoPath = SelectedFilePath;
+            if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath)) return;
+
+            var photoBaseName = Path.GetFileNameWithoutExtension(photoPath);
+            var targetFile = await FilePickerService.PickSaveFileForExportMultiFormatAsync(photoBaseName);
+            if (targetFile == null) return;
+
+            string targetPath = targetFile.Path;
+            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameInProgress"));
+
+            try
+            {
+                string targetExt = Path.GetExtension(targetPath);
+                bool needsConversion = ImageFormatService.NeedsConversion(photoPath, targetExt);
+                if (needsConversion)
+                    await ImageFormatService.ConvertImageAsync(photoPath, targetPath, quality: 80);
+                else
                 {
-                    try { File.Delete(tempConvertedPath); } catch { }
+                    var sourceFile = await StorageFile.GetFileFromPathAsync(photoPath);
+                    await sourceFile.CopyAndReplaceAsync(targetFile);
                 }
+                try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
+                LogService.FileOp($"ExportPhotoAsSingleFrame: {Path.GetFileName(photoPath)} -> {targetPath}", LogLevel.Info);
+                CompleteExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameComplete"),
+                    Path.GetDirectoryName(targetPath));
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"ExportPhotoAsSingleFrame failed: {ex.Message}", LogLevel.Error, ex);
+                await FailExportProgressAsync(ex.Message, Path.GetDirectoryName(targetPath));
+            }
+            finally
+            {
+                FinalizeExportProgress();
             }
         }
 
@@ -1674,8 +1785,8 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private async Task ExportAllFrames()
         {
-            // 1. 防重入守卫
-            if (IsExporting)
+            // 1. 防重入守卫（完成态不阻塞新操作）
+            if (IsExporting && !IsShowingSaveComplete)
             {
                 LogService.FileOp("ExportAllFrames: already exporting", LogLevel.Warning);
                 return;
@@ -1721,9 +1832,8 @@ namespace LivePhotoBox.ViewModels
             _exportCts = new CancellationTokenSource();
             var token = _exportCts.Token;
 
-            IsExporting = true;
-            ExportProgressText = $"0/{TimelineFrames.Count}";
-            ExportProgressPercent = 0.0;
+            BeginExportProgress($"0/{TimelineFrames.Count}",
+                ResourceService.GetString("KeyPhotoPage_ExportAllFramesInProgress"));
 
             var semaphore = new SemaphoreSlim(8, 8);
             var tasks = new List<Task>();
@@ -1740,41 +1850,23 @@ namespace LivePhotoBox.ViewModels
 
                     tasks.Add(ExportOneFrameAsync(
                         frame, photoPath, photoBaseName, exportDir,
-                        options.CopyExif, token, semaphore,
-                        TimelineFrames.Count, counters));
+                        options.CopyExif, options.FormatExtension, options.Quality,
+                        token, semaphore, TimelineFrames.Count, counters));
                 }
 
                 await Task.WhenAll(tasks);
 
-                // 8. 先清除进度显示，避免"完成了还在显示进度"的重复感
-                ExportProgressText = string.Empty;
-                ExportProgressPercent = 0.0;
-
-                // 9. 汇总日志
+                // 8. 汇总日志
                 LogService.FileOp(
                     $"ExportAllFrames completed: {counters.Success} succeeded, {counters.Fail} failed -> '{exportDir}'",
                     counters.Fail > 0 ? LogLevel.Warning : LogLevel.Info);
 
-                // 10. 显示结果对话框
-                if (!token.IsCancellationRequested
-                    && App.MainWindow?.Content?.XamlRoot is XamlRoot resultXamlRoot)
+                // 9. 完成（内联，替代 ContentDialog）
+                if (!token.IsCancellationRequested)
                 {
-                    var summaryText = ResourceService.Format(
-                        "KeyPhotoPage_ExportComplete_Summary",
-                        counters.Success, counters.Fail, TimelineFrames.Count);
-
-                    var openFolder = await DialogService.ShowDualAsync(
-                        resultXamlRoot,
-                        ResourceService.GetString("KeyPhotoPage_ExportComplete_Title"),
-                        summaryText,
-                        primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
-                        closeText: ResourceService.GetString("Msg_GotIt"));
-
-                    // 用户点击"打开输出文件夹"→ 在资源管理器中打开
-                    if (openFolder)
-                    {
-                        FilePickerService.OpenFolderInExplorer(exportDir);
-                    }
+                    CompleteExportProgress(
+                        ResourceService.GetString("KeyPhotoPage_ExportAllFramesComplete"),
+                        exportDir);
                 }
             }
             catch (OperationCanceledException)
@@ -1787,9 +1879,7 @@ namespace LivePhotoBox.ViewModels
             }
             finally
             {
-                IsExporting = false;
-                ExportProgressText = string.Empty;
-                ExportProgressPercent = 0.0;
+                FinalizeExportProgress();
                 _exportCts?.Dispose();
                 _exportCts = null;
                 semaphore.Dispose();
@@ -1816,7 +1906,7 @@ namespace LivePhotoBox.ViewModels
                 return null;
 
             // 构建内容面板
-            var panel = new StackPanel { Spacing = 10 };
+            var panel = new StackPanel { Spacing = 8 };
 
             // 描述文字：告诉用户会自动创建文件夹
             panel.Children.Add(new TextBlock
@@ -1831,6 +1921,8 @@ namespace LivePhotoBox.ViewModels
             {
                 Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_FolderPathLabel"),
                 FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 12, 0, 0),
             });
 
             var pathRow = new Grid
@@ -1880,6 +1972,8 @@ namespace LivePhotoBox.ViewModels
             {
                 Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_FolderNameLabel"),
                 FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 14, 0, 0),
             });
 
             var nameRow = new Grid
@@ -1914,7 +2008,28 @@ namespace LivePhotoBox.ViewModels
 
             panel.Children.Add(nameRow);
 
-            // EXIF 勾选框（默认勾选）
+            // 输出格式选择
+            panel.Children.Add(new TextBlock
+            {
+                Text = "输出格式",
+                FontSize = 13,
+                FontWeight = FontWeights.SemiBold,
+                Margin = new Thickness(0, 14, 0, 0),
+            });
+
+            var formatComboBox = new ComboBox
+            {
+                Items =
+                {
+                    new ComboBoxItem { Content = "JPEG (.jpg)", Tag = ".jpg" },
+                    new ComboBoxItem { Content = "PNG (.png)", Tag = ".png" },
+                    new ComboBoxItem { Content = "WebP (.webp)", Tag = ".webp" },
+                },
+                SelectedIndex = 0,
+            };
+            panel.Children.Add(formatComboBox);
+
+            // EXIF 勾选框（默认勾选，JPEG 格式时生效）
             var copyExifCheckBox = new CheckBox
             {
                 Content = ResourceService.GetString("KeyPhotoPage_ExportDialog_CopyExifLabel"),
@@ -1932,6 +2047,8 @@ namespace LivePhotoBox.ViewModels
                 XamlRoot = xamlRoot,
                 RequestedTheme = App.CurrentTheme,
             };
+            dialog.Resources["ContentDialogMaxWidth"] = 440.0;
+            dialog.Resources["ContentDialogMinWidth"] = 440.0;
 
             // 重置按钮：恢复为默认文件夹名称
             var capturedDefaultName = defaultFolderName;
@@ -2035,7 +2152,8 @@ namespace LivePhotoBox.ViewModels
                 if (string.IsNullOrWhiteSpace(folderName))
                     folderName = defaultFolderName;
                 bool copyExif = copyExifCheckBox.IsChecked ?? true;
-                return new ExportOptions(folderName, copyExif, currentFolderPath);
+                string fmtExt = ((ComboBoxItem)formatComboBox.SelectedItem).Tag as string ?? ".jpg";
+                return new ExportOptions(folderName, copyExif, currentFolderPath, fmtExt, 80);
             }
 
             return null;
@@ -2047,88 +2165,58 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         private async Task ExportOneFrameAsync(
             TimelineFrame frame, string photoPath, string photoBaseName,
-            string exportDir, bool copyExif, CancellationToken token,
-            SemaphoreSlim semaphore, int totalFrames,
+            string exportDir, bool copyExif, string formatExtension, int quality,
+            CancellationToken token, SemaphoreSlim semaphore, int totalFrames,
             ExportCounters counters)
         {
-            string? tempConvertedPath = null;
             try
             {
                 token.ThrowIfCancellationRequested();
 
                 // 1. 确定源文件路径
                 string sourcePath;
-
                 if (frame.IsStillPhoto)
-                {
-                    sourcePath = photoPath; // 封面帧：原照片文件
-                }
+                    sourcePath = photoPath;
                 else
                 {
-                    // 视频帧：ffmpeg 提取的全分辨率 JPEG
-                    if (string.IsNullOrEmpty(frame.FullFramePath)
-                        || !File.Exists(frame.FullFramePath))
+                    if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
                     {
                         Interlocked.Increment(ref counters.Fail);
-                        LogService.FileOp(
-                            $"ExportAllFrames: frame {frame.FrameIndex + 1} SKIP — source not found",
-                            LogLevel.Warning);
                         return;
                     }
                     sourcePath = frame.FullFramePath;
                 }
 
-                // 2. 生成输出文件名
+                // 2. 生成输出文件名（使用选择的格式扩展名）
                 var fileName = frame.IsStillPhoto
-                    ? $"{photoBaseName}.jpg"
-                    : $"{photoBaseName}_帧{frame.FrameIndex + 1}.jpg";
+                    ? $"{photoBaseName}{formatExtension}"
+                    : $"{photoBaseName}_帧{frame.FrameIndex + 1}{formatExtension}";
 
                 // 3. 原子性预留不冲突的文件路径
                 var targetPath = PathHelper.GetUniqueFilePath(exportDir, fileName);
 
-                // 4. 执行复制/转换
-                try
+                // 4. 按需转换或直接复制
+                if (ImageFormatService.NeedsConversion(sourcePath, formatExtension))
                 {
-                    if (frame.IsStillPhoto && HeicConverterService.IsHeicFile(sourcePath))
-                    {
-                        // HEIC 封面 → 转换为 JPEG
-                        tempConvertedPath = await HeicConverterService.ConvertToJpegAsync(
-                            sourcePath, Path.GetTempPath(), quality: 92, token);
-                        File.Copy(tempConvertedPath, targetPath, overwrite: true);
-                    }
-                    else
-                    {
-                        // 直接复制：视频帧（已是 JPEG）或非 HEIC 封面
-                        File.Copy(sourcePath, targetPath, overwrite: true);
-                    }
-
-                    // 5. 复制 EXIF（从原照片复制到导出文件）
-                    if (copyExif && File.Exists(photoPath))
-                    {
-                        await CopyExifForExportAsync(photoPath, targetPath);
-                    }
-
-                    // 6. 修改日期设为当前时间（保留原始拍摄日期不变）
-                    try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
-
-                    Interlocked.Increment(ref counters.Success);
-                    LogService.FileOp(
-                        $"ExportAllFrames: frame {(frame.IsStillPhoto ? "⭐" : $"#{frame.FrameIndex + 1}")} -> {Path.GetFileName(targetPath)}",
-                        LogLevel.Info);
+                    await ImageFormatService.ConvertImageAsync(sourcePath, targetPath, quality, token);
                 }
-                finally
+                else
                 {
-                    // 清理 HEIC 转换临时文件
-                    if (tempConvertedPath != null)
-                    {
-                        try { File.Delete(tempConvertedPath); } catch { }
-                    }
+                    File.Copy(sourcePath, targetPath, overwrite: true);
                 }
+
+                // 5. 复制 EXIF（从原照片复制到导出文件，仅 JPEG 格式）
+                if (copyExif && File.Exists(photoPath))
+                {
+                    await CopyExifForExportAsync(photoPath, targetPath);
+                }
+
+                // 6. 修改日期
+                try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
+
+                Interlocked.Increment(ref counters.Success);
             }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 Interlocked.Increment(ref counters.Fail);
@@ -2139,15 +2227,492 @@ namespace LivePhotoBox.ViewModels
             finally
             {
                 int done = Interlocked.Increment(ref counters.Completed);
-
-                // 通过 DispatcherQueue 更新 UI 进度（线程安全）
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {
-                    ExportProgressText = $"{done}/{totalFrames}";
-                    ExportProgressPercent = (double)done / totalFrames * 100.0;
+                    // 完成态不覆盖——CompleteExportProgress 已经写了完成文字
+                    if (!IsShowingSaveComplete)
+                    {
+                        ExportProgressText = $"{done}/{totalFrames}";
+                        ExportProgressPercent = (double)done / totalFrames * 100.0;
+                    }
                 });
-
                 semaphore.Release();
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  视频导出
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>导出为视频 — 打开保存对话框，在文件类型中选择 MP4 或 MOV</summary>
+        [RelayCommand]
+        private async Task ExportVideo()
+        {
+            if (IsExporting && !IsShowingSaveComplete) return;
+
+            var item = FileItems.FirstOrDefault(f =>
+                string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
+            if (item == null || !item.HasConfirmedProtocol)
+            {
+                await ShowExportErrorAsync("当前所选文件不是实况照片，没有关联的视频。");
+                return;
+            }
+
+            string? videoPath = await ResolveVideoPathForExportAsync(item);
+            if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
+            {
+                await ShowExportErrorAsync("找不到此实况照片的视频来源。");
+                return;
+            }
+
+            // 保存对话框 — 两种格式在文件类型下拉中选
+            var savePicker = new FileSavePicker
+            {
+                SuggestedStartLocation = PickerLocationId.VideosLibrary,
+                SuggestedFileName = Path.GetFileNameWithoutExtension(SelectedFilePath ?? "video"),
+            };
+            savePicker.FileTypeChoices.Add("MP4 (H.264 + AAC)", new List<string> { ".mp4" });
+            savePicker.FileTypeChoices.Add("MOV (H.265 QuickTime + AAC)", new List<string> { ".mov" });
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+            WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);
+            var targetFile = await savePicker.PickSaveFileAsync();
+            if (targetFile == null) { CleanupExportTempVideo(); return; }
+
+            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_ExportVideoInProgress"));
+
+            try
+            {
+                bool isMp4 = Path.GetExtension(targetFile.Path).Equals(".mp4", StringComparison.OrdinalIgnoreCase);
+                var format = isMp4 ? VideoTranscodeService.VideoFormat.MP4 : VideoTranscodeService.VideoFormat.MOV;
+                var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                var result = format == VideoTranscodeService.VideoFormat.MP4
+                    ? await VideoTranscodeService.TranscodeToMp4Async(videoPath, targetFile.Path, cts.Token)
+                    : await VideoTranscodeService.TranscodeToMovAsync(videoPath, targetFile.Path, cts.Token);
+
+                if (result.Success)
+                {
+                    CompleteExportProgress(
+                        ResourceService.GetString("KeyPhotoPage_ExportVideoComplete"),
+                        Path.GetDirectoryName(targetFile.Path));
+                }
+                else
+                {
+                    await FailExportProgressAsync(
+                        result.ErrorMessage ?? "未知错误",
+                        Path.GetDirectoryName(targetFile.Path));
+                }
+            }
+            catch (Exception ex)
+            {
+                await FailExportProgressAsync(ex.Message, Path.GetDirectoryName(targetFile.Path));
+            }
+            finally
+            {
+                CleanupExportTempVideo();
+                FinalizeExportProgress();
+            }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  GIF 导出
+        // ══════════════════════════════════════════════════════════════
+
+        private sealed record GifOptions(
+            int Fps, int Width, int Height, bool UseOriginalSize, int LoopCount, string OutputPath);
+
+        [RelayCommand]
+        private async Task ExportGif()
+        {
+            if (IsExporting && !IsShowingSaveComplete) return;
+
+            // 1. 验证是实况照片
+            var item = FileItems.FirstOrDefault(f =>
+                string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
+            if (item == null || !item.HasConfirmedProtocol)
+            {
+                await ShowExportErrorAsync("当前所选文件不是实况照片，无法导出 GIF。");
+                return;
+            }
+
+            // 2. 获取视频源（双文件/内嵌视频/HEIC）
+            string? videoPath = await ResolveVideoPathForExportAsync(item);
+            if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
+            {
+                await ShowExportErrorAsync("找不到此实况照片的视频来源。");
+                return;
+            }
+
+            // 3. GIF 参数弹窗（UI 不变）
+            var gifOptions = await ShowGifOptionsDialogAsync();
+            if (gifOptions == null) { CleanupExportTempVideo(); return; }
+
+            string targetPath = gifOptions.OutputPath;
+            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_ExportGifInProgress"));
+
+            try
+            {
+                int w = gifOptions.UseOriginalSize ? 0 : gifOptions.Width;
+                int h = gifOptions.UseOriginalSize ? 0 : gifOptions.Height;
+
+                using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                var result = await VideoTranscodeService.TranscodeToGifAsync(
+                    videoPath, targetPath,
+                    gifOptions.Fps, w, h, gifOptions.LoopCount,
+                    cts.Token);
+
+                if (result.Success)
+                {
+                    CompleteExportProgress(
+                        ResourceService.GetString("KeyPhotoPage_ExportGifComplete"),
+                        Path.GetDirectoryName(targetPath));
+                }
+                else
+                {
+                    await FailExportProgressAsync(
+                        result.ErrorMessage ?? "未知错误",
+                        Path.GetDirectoryName(targetPath));
+                }
+            }
+            catch (Exception ex)
+            {
+                await FailExportProgressAsync(ex.Message, Path.GetDirectoryName(targetPath));
+            }
+            finally
+            {
+                CleanupExportTempVideo();
+                FinalizeExportProgress();
+            }
+        }
+
+        /// <summary>GIF 参数设置弹窗（尺寸、帧率、循环、输出路径）</summary>
+        private async Task<GifOptions?> ShowGifOptionsDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot is not XamlRoot xamlRoot)
+                return null;
+
+            var panel = new StackPanel { Spacing = 8 };
+
+            // 获取原图尺寸
+            int origW = 480, origH = 360;
+            var selectedFrame = SelectedTimelineFrame;
+            if (selectedFrame != null)
+            {
+                string? src = selectedFrame.IsStillPhoto ? SelectedFilePath : selectedFrame.FullFramePath;
+                if (src != null && File.Exists(src))
+                {
+                    try
+                    {
+                        using var probe = new ImageMagick.MagickImage(src);
+                        probe.AutoOrient();
+                        origW = (int)probe.Width;
+                        origH = (int)probe.Height;
+                    }
+                    catch { }
+                }
+            }
+            double ratio = origH / (double)origW;
+
+            // ── 尺寸 ──
+            panel.Children.Add(new TextBlock { Text = "尺寸 (像素)", FontSize = 13, FontWeight = FontWeights.SemiBold });
+
+            var widthBox = new TextBox
+            {
+                Text = "480",
+                Width = 100,
+                InputScope = new InputScope { Names = { new InputScopeName(InputScopeNameValue.Number) } },
+            };
+            var heightBox = new TextBox
+            {
+                Text = ((int)(480 * ratio)).ToString(),
+                Width = 100,
+                InputScope = new InputScope { Names = { new InputScopeName(InputScopeNameValue.Number) } },
+            };
+
+            var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            sizeRow.Children.Add(new TextBlock { Text = "宽", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+            sizeRow.Children.Add(widthBox);
+            sizeRow.Children.Add(new TextBlock { Text = "高", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 4, 0) });
+            sizeRow.Children.Add(heightBox);
+            panel.Children.Add(sizeRow);
+
+            var lockCheck = new CheckBox
+            {
+                Content = "保持原始纵横比",
+                IsChecked = true,
+                IsEnabled = false,
+            };
+
+            bool _updating = false;
+            CancellationTokenSource? _debounceCts = null;
+            var _dispatcher = DispatcherQueue.GetForCurrentThread();
+
+            // ── 焦点跟踪 + 失焦时空框自动按比例回填 ──
+            TextBox? _focusedBox = null;
+            widthBox.GotFocus += (_, _) => _focusedBox = widthBox;
+            heightBox.GotFocus += (_, _) => _focusedBox = heightBox;
+            widthBox.LostFocus += (_, _) =>
+            {
+                if (ReferenceEquals(_focusedBox, widthBox)) _focusedBox = null;
+                if (string.IsNullOrEmpty(widthBox.Text) && int.TryParse(heightBox.Text, out int h) && h > 0)
+                    widthBox.Text = Math.Clamp((int)Math.Round(h / ratio), 120, 3840).ToString();
+            };
+            heightBox.LostFocus += (_, _) =>
+            {
+                if (ReferenceEquals(_focusedBox, heightBox)) _focusedBox = null;
+                if (string.IsNullOrEmpty(heightBox.Text) && int.TryParse(widthBox.Text, out int w) && w > 0)
+                    heightBox.Text = Math.Clamp((int)Math.Round(w * ratio), 120, 3840).ToString();
+            };
+
+            // ── 纵横比自动纠正（1 秒防抖，单向：只改对方，不改自己）──
+            async void ScheduleAspectCorrection(TextBox editedBox, TextBox targetBox, bool isWidth)
+            {
+                _debounceCts?.Cancel();
+                _debounceCts?.Dispose();
+                _debounceCts = new CancellationTokenSource();
+                var token = _debounceCts.Token;
+                try
+                {
+                    await Task.Delay(1000, token);
+                    _dispatcher.TryEnqueue(() =>
+                    {
+                        if (_updating) return;
+                        if (!double.TryParse(editedBox.Text, out double newValue) || newValue <= 0) return;
+
+                        int srcVal = (int)newValue;
+                        int tgtVal = isWidth
+                            ? (int)Math.Round(newValue * ratio)
+                            : (int)Math.Round(newValue / ratio);
+
+                        // 目标越界 → 双方等比调整，保证比例不破
+                        if (tgtVal < 120)
+                        {
+                            tgtVal = 120;
+                            srcVal = isWidth
+                                ? (int)Math.Round(120.0 / ratio)
+                                : (int)Math.Round(120.0 * ratio);
+                        }
+                        else if (tgtVal > 3840)
+                        {
+                            tgtVal = 3840;
+                            srcVal = isWidth
+                                ? (int)Math.Round(3840.0 / ratio)
+                                : (int)Math.Round(3840.0 * ratio);
+                        }
+
+                        srcVal = Math.Clamp(srcVal, 120, 3840);
+                        // 用最终钳好的 srcVal 重新算 tgtVal，确保横竖版比例都对
+                        tgtVal = isWidth
+                            ? Math.Clamp((int)Math.Round(srcVal * ratio), 120, 3840)
+                            : Math.Clamp((int)Math.Round(srcVal / ratio), 120, 3840);
+
+                        _updating = true;
+                        if (srcVal.ToString() != editedBox.Text)
+                            editedBox.Text = srcVal.ToString();
+                        targetBox.Text = tgtVal.ToString();
+                        _updating = false;
+                    });
+                }
+                catch (OperationCanceledException) { }
+            }
+
+            // ── 输入过滤（只允许数字）──
+            bool _filtering = false;
+            void FilterDigits(TextBox box)
+            {
+                if (_filtering) return;
+                var digits = new string(box.Text.Where(char.IsDigit).ToArray());
+                if (digits == box.Text) return;
+                _filtering = true;
+                box.Text = digits;
+                box.SelectionStart = digits.Length;
+                _filtering = false;
+            }
+
+            // TextChanged：只有焦点所在的框才启动纠正（避免程序设值触发反弹）
+            widthBox.TextChanged += (_, _) =>
+            {
+                if (_updating) return;
+                FilterDigits(widthBox);
+                if (ReferenceEquals(_focusedBox, widthBox))
+                    ScheduleAspectCorrection(widthBox, heightBox, true);
+            };
+            heightBox.TextChanged += (_, _) =>
+            {
+                if (_updating) return;
+                FilterDigits(heightBox);
+                if (ReferenceEquals(_focusedBox, heightBox))
+                    ScheduleAspectCorrection(heightBox, widthBox, false);
+            };
+
+            // 纵横比提示 + 原始尺寸 → 同一排
+            var checkRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, Margin = new Thickness(0, 8, 0, 0) };
+            checkRow.Children.Add(lockCheck);
+            var originalSizeCheck = new CheckBox { Content = "使用原始尺寸", IsChecked = false };
+            checkRow.Children.Add(originalSizeCheck);
+            panel.Children.Add(checkRow);
+            string _savedWidth = "480", _savedHeight = ((int)(480 * ratio)).ToString();
+            originalSizeCheck.Checked += (_, _) =>
+            {
+                _debounceCts?.Cancel();
+                _savedWidth = widthBox.Text;
+                _savedHeight = heightBox.Text;
+                widthBox.Text = origW.ToString();
+                heightBox.Text = origH.ToString();
+                widthBox.IsEnabled = false;
+                heightBox.IsEnabled = false;
+            };
+            originalSizeCheck.Unchecked += (_, _) =>
+            {
+                widthBox.Text = _savedWidth;
+                heightBox.Text = _savedHeight;
+                widthBox.IsEnabled = true;
+                heightBox.IsEnabled = true;
+            };
+
+            // ── 帧率 ──
+            panel.Children.Add(new TextBlock { Text = "帧率 (fps)", FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 0) });
+            var fpsBox = new NumberBox { Value = 10, Minimum = 1, Maximum = 30 };
+            panel.Children.Add(fpsBox);
+
+            // ── 循环 ──
+            panel.Children.Add(new TextBlock { Text = "循环次数 (0 = 无限)", FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 0) });
+            var loopBox = new NumberBox { Value = 0, Minimum = 0, Maximum = 999 };
+            panel.Children.Add(loopBox);
+
+            // ── 输出路径（仿 ExportAllFrames 对话框：TextBox + 文件夹图标按钮）──
+            panel.Children.Add(new TextBlock { Text = "输出路径", FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 0) });
+
+            var defaultDir = Path.GetDirectoryName(SelectedFilePath)
+                ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            var currentFolder = defaultDir;
+            var defaultFileName = "animated.gif";
+
+            var pathRow = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                }
+            };
+
+            var pathBox = new TextBox { Text = Path.Combine(currentFolder, defaultFileName) };
+            Grid.SetColumn(pathBox, 0);
+            pathRow.Children.Add(pathBox);
+
+            var browseBtn = new Button
+            {
+                Width = 32, Height = 32, Padding = new Thickness(0),
+                Margin = new Thickness(4, 0, 0, 0),
+                Content = new FontIcon { Glyph = "", FontSize = 14 },
+            };
+            ToolTipService.SetToolTip(browseBtn, "选择输出文件夹");
+            browseBtn.Click += async (_, _) =>
+            {
+                var folder = await FilePickerService.PickFolderAsync();
+                if (folder != null)
+                {
+                    currentFolder = folder.Path;
+                    string name = Path.GetFileName(pathBox.Text);
+                    if (string.IsNullOrWhiteSpace(name)) name = defaultFileName;
+                    if (!name.EndsWith(".gif", StringComparison.OrdinalIgnoreCase))
+                        name += ".gif";
+                    pathBox.Text = Path.Combine(currentFolder, name);
+                }
+            };
+            Grid.SetColumn(browseBtn, 1);
+            pathRow.Children.Add(browseBtn);
+            panel.Children.Add(pathRow);
+
+            var dialog = new ContentDialog
+            {
+                Title = "GIF 导出设置",
+                Content = panel,
+                PrimaryButtonText = "生成 GIF",
+                CloseButtonText = ResourceService.GetString("Msg_Cancel"),
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = xamlRoot,
+            };
+            dialog.Resources["ContentDialogMaxWidth"] = 460.0;
+            dialog.Resources["ContentDialogMinWidth"] = 460.0;
+
+            var result = await dialog.ShowAsync();
+            if (result != ContentDialogResult.Primary) return null;
+
+            int.TryParse(widthBox.Text, out int w); if (w < 120) w = 120;
+            int.TryParse(heightBox.Text, out int h); if (h < 120) h = 120;
+            return new GifOptions(
+                (int)fpsBox.Value,
+                w,
+                h,
+                originalSizeCheck.IsChecked == true,
+                (int)loopBox.Value,
+                pathBox.Text);
+        }
+
+        /// <summary>解析实况照片的视频源路径</summary>
+        private async Task<string?> ResolveVideoPathForExportAsync(EditFileItem item)
+        {
+            // 双文件实况照片：直接用配对视频
+            if (!string.IsNullOrEmpty(item.PairedVideoPath) && File.Exists(item.PairedVideoPath))
+                return item.PairedVideoPath;
+
+            // 不完整实况（仅视频）：文件本身即为视频源
+            if (item.HasConfirmedProtocol && item.LivePhotoType == LivePhotoType.DualFile
+                && SupportedVideoExtensions.Contains(Path.GetExtension(item.FilePath))
+                && File.Exists(item.FilePath))
+                return item.FilePath;
+
+            // 单文件 JPEG（MicroVideo/MotionPhoto）：从末尾提取嵌入视频
+            if (item.AppendedVideoLength > 0 && File.Exists(item.FilePath))
+            {
+                var tempPath = Path.Combine(Path.GetTempPath(), $"lpb_export_vid_{Guid.NewGuid():N}.mp4");
+                _exportTempVideoPath = tempPath;
+                var fileSize = new FileInfo(item.FilePath).Length;
+                long offset = fileSize - item.AppendedVideoLength;
+                await Task.Run(() =>
+                {
+                    using var src = new FileStream(item.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    src.Seek(offset, SeekOrigin.Begin);
+                    using var dst = new FileStream(tempPath, FileMode.Create, FileAccess.Write);
+                    src.CopyTo(dst);
+                });
+                return tempPath;
+            }
+
+            // 单文件 HEIC → FFmpeg 能直接读，返回原文件路径
+            if (HeicConverterService.IsHeicFile(item.FilePath) && File.Exists(item.FilePath))
+                return item.FilePath;
+
+            return null;
+        }
+
+        private string? _exportTempVideoPath;
+
+        private void CleanupExportTempVideo()
+        {
+            if (_exportTempVideoPath != null)
+            {
+                try { if (File.Exists(_exportTempVideoPath)) File.Delete(_exportTempVideoPath); } catch { }
+                _exportTempVideoPath = null;
+            }
+        }
+
+        private static async Task ShowExportErrorAsync(string message)
+        {
+            LogService.FileOp($"Export error: {message}", LogLevel.Error);
+
+            if (App.MainWindow?.Content?.XamlRoot is XamlRoot xamlRoot)
+            {
+                var errorText = new TextBlock
+                {
+                    Text = message,
+                    TextWrapping = TextWrapping.Wrap,
+                    IsTextSelectionEnabled = true,
+                };
+                await DialogService.ShowSingleAsync(xamlRoot,
+                    ResourceService.GetString("KeyPhotoPage_SaveError"), errorText,
+                    ResourceService.GetString("Msg_GotIt"));
             }
         }
 
@@ -2171,7 +2736,8 @@ namespace LivePhotoBox.ViewModels
             return Path.Combine(parentDir, $"{baseName} ({Guid.NewGuid():N})");
         }
 
-        [RelayCommand] private void ConvertProtocol() { }
+        [RelayCommand(CanExecute = nameof(CanConvertProtocol))]
+        private void ConvertProtocol() { }
 
         /// <summary>
         /// 前往封面：滚动到星标帧（IsStillPhoto=true）。
@@ -2265,6 +2831,17 @@ namespace LivePhotoBox.ViewModels
                 string.Equals(f.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
             if (item != null)
             {
+                // 双文件实况：校验配对视频是否仍存在，若丢失则记录日志但不降级
+                // —— 属性面板会显示协议名 + "(未找到配对视频)"，LIVE 徽标保持显示
+                if (item.HasConfirmedProtocol && item.LivePhotoType == LivePhotoType.DualFile
+                    && !string.IsNullOrEmpty(item.PairedVideoPath)
+                    && !File.Exists(item.PairedVideoPath))
+                {
+                    LogService.FileOp(
+                        $"SelectFile: dual-file paired video missing: '{item.PairedVideoPath}' for '{item.FilePath}'",
+                        LogLevel.Warning);
+                }
+
                 IsSelectedLivePhoto = item.HasConfirmedProtocol;
                 PhotoFileName = EditFileItem.FormatDisplayFileName(
                     item.FileName, item.IsDualFileLivePhoto, item.VideoExtension);
@@ -2286,8 +2863,8 @@ namespace LivePhotoBox.ViewModels
                 PreviewClearRequested?.Invoke();
             }
 
-            // 时间轴：仅从实况切换到非实况时清空（实况之间保留旧帧防闪烁）
-            if (wasLivePhoto && !IsSelectedLivePhoto)
+            // 时间轴：切到非实况 或 残缺实况（无视频源）时清空
+            if ((wasLivePhoto && !IsSelectedLivePhoto) || IsSelectedPairIncomplete)
             {
                 TimelineFrames.Clear();
                 HasTimelineFrames = false;
@@ -2325,8 +2902,20 @@ namespace LivePhotoBox.ViewModels
                 && !string.IsNullOrEmpty(item.PairedVideoPath))
             {
                 videoPath = item.PairedVideoPath;
+            }
+            // 不完整实况（仅视频，缺照片）：文件本身即为视频源
+            else if (item?.LivePhotoType == LivePhotoType.DualFile
+                && item.HasConfirmedProtocol
+                && IsSelectedFileVideo
+                && File.Exists(filePath))
+            {
+                videoPath = filePath;
+            }
+
+            if (videoPath != null)
+            {
                 LogService.FileOp(
-                    $"Timeline[SelectFile]: DualFile confirmed, videoPath='{videoPath}', exists={File.Exists(videoPath)}",
+                    $"Timeline[SelectFile]: DualFile, videoPath='{videoPath}', exists={File.Exists(videoPath)}",
                     LogLevel.Info);
 
                 // 提前启动 ffmpeg：与后续 exiftool 查询并行，省 500-700ms
@@ -3645,6 +4234,21 @@ namespace LivePhotoBox.ViewModels
                 ? FormatDateTime(p.DateTimeOriginal) : item?.DateTaken ?? "";
             string? protocol = GetProtocolName(item?.LivePhotoType ?? LivePhotoType.None,
                 SelectedFilePath, p.ContentIdentifier);
+
+            // 双文件实况：配对文件缺失时附加提示，保留协议标记
+            if (item != null && item.HasConfirmedProtocol
+                && item.LivePhotoType == LivePhotoType.DualFile
+                && (string.IsNullOrEmpty(item.PairedVideoPath)
+                    || !File.Exists(item.PairedVideoPath)))
+            {
+                // 根据当前文件类型判断缺失的是视频还是照片
+                string missingKey = SupportedVideoExtensions.Contains(
+                    Path.GetExtension(SelectedFilePath ?? ""))
+                    ? "KeyPhoto_Protocol_MissingPhoto"
+                    : "KeyPhoto_Protocol_MissingVideo";
+                protocol = (protocol ?? "") + ResourceService.GetString(missingKey);
+            }
+
             ProtocolLine = protocol ?? string.Empty;
 
             // ── 摄像头位置（后置/前置 + 类型），用于 Line 1 后缀 ──
@@ -3707,13 +4311,23 @@ namespace LivePhotoBox.ViewModels
         //  扫描入口（由 View 层调用）
         // ══════════════════════════════════════════════════════════════
 
+        /// <summary>上次扫描时缓存的 CID 索引目录，用于判断目录是否切换</summary>
+        private string? _lastCachedDirectory;
+
         public void TriggerScan()
         {
             var path = CurrentDirectory;
             if (string.IsNullOrWhiteSpace(path) || !Directory.Exists(path))
                 return;
             if (IsScanning) return;
-            _cidIndexCache.Clear(); // 切换目录 → 废弃旧索引
+
+            // 仅当目录真正切换时才清除 CID 索引缓存，同目录刷新保留缓存加速拖拽
+            if (_lastCachedDirectory != null
+                && !string.Equals(_lastCachedDirectory, path, StringComparison.OrdinalIgnoreCase))
+            {
+                _cidIndexCache.Clear();
+            }
+            _lastCachedDirectory = path;
             _ = ScanDirectoryAsync(path);
         }
 
@@ -3721,6 +4335,7 @@ namespace LivePhotoBox.ViewModels
         public void ClearAll()
         {
             _cidIndexCache.Clear();
+            _lastCachedDirectory = null;
             CurrentDirectory = string.Empty;
             _allFileItems.Clear();
             FileItems.Clear();
@@ -4085,15 +4700,27 @@ namespace LivePhotoBox.ViewModels
                     foreach (var (index, imgPath) in unclassifiedImgs)
                     {
                         if (imgResults.TryGetValue(imgPath, out var imgInfo) &&
-                            !string.IsNullOrWhiteSpace(imgInfo.Cid) &&
-                            cidToVideo.TryGetValue(imgInfo.Cid, out var matched))
+                            !string.IsNullOrWhiteSpace(imgInfo.Cid))
                         {
-                            files[index].LivePhotoType = LivePhotoType.DualFile;
-                            files[index].PairedVideoPath = matched.Path;
-                            files[index].HasConfirmedProtocol = true;
-                            files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
-                            matchedVideoPaths.Add(matched.Path);
-                            liveConfirmed++;
+                            if (cidToVideo.TryGetValue(imgInfo.Cid, out var matched))
+                            {
+                                // CID 匹配成功 → 完整实况照片对
+                                files[index].LivePhotoType = LivePhotoType.DualFile;
+                                files[index].PairedVideoPath = matched.Path;
+                                files[index].HasConfirmedProtocol = true;
+                                files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
+                                matchedVideoPaths.Add(matched.Path);
+                                liveConfirmed++;
+                            }
+                            else
+                            {
+                                // 有 CID 但未找到配对视频 → 协议确认，标注缺失
+                                files[index].LivePhotoType = LivePhotoType.DualFile;
+                                files[index].HasConfirmedProtocol = true;
+                                files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
+                                // PairedVideoPath 保持 null → 属性面板显示"(未找到配对视频)"
+                                liveConfirmed++;
+                            }
                         }
                     }
 
@@ -4122,10 +4749,12 @@ namespace LivePhotoBox.ViewModels
 
                     // ── 未匹配视频也加入列表显示 ──
                     int addedVids = 0;
+                    int addedVidWithCid = 0;
                     foreach (var vPath in videoPaths)
                     {
                         if (matchedVideoPaths.Contains(vPath)) continue; // 已匹配的不重复显示
                         vidResults.TryGetValue(vPath, out var vInfo);
+                        bool vidHasCid = !string.IsNullOrWhiteSpace(vInfo.Cid);
                         files.Add(new EditFileItem
                         {
                             FileName = Path.GetFileName(vPath),
@@ -4133,17 +4762,21 @@ namespace LivePhotoBox.ViewModels
                             FileSize = FileSizeFormatter.Format(new FileInfo(vPath).Length),
                             DateTaken = new FileInfo(vPath).LastWriteTime.ToString("yyyy/MM/dd HH:mm"),
                             Resolution = vInfo.W > 0 && vInfo.H > 0 ? $"{vInfo.W} × {vInfo.H}" : string.Empty,
-                            LivePhotoType = LivePhotoType.None,
-                            HasConfirmedProtocol = false
+                            LivePhotoType = vidHasCid ? LivePhotoType.DualFile : LivePhotoType.None,
+                            HasConfirmedProtocol = vidHasCid,
+                            DetectionMethod = vidHasCid ? LivePhotoDetectionMethod.ContentIdentifier
+                                : LivePhotoDetectionMethod.FilenamePairing,
+                            // PairedVideoPath = null → 属性面板显示"（缺照片）"
                         });
                         addedVids++;
+                        if (vidHasCid) addedVidWithCid++;
                     }
 
-                    if (liveConfirmed > 0)
+                    if (liveConfirmed > 0 || addedVidWithCid > 0)
                     {
                         dispatcher.TryEnqueue(() =>
                         {
-                            LivePhotoCount += liveConfirmed;
+                            LivePhotoCount += liveConfirmed + addedVidWithCid;
                             OtherCount = files.Count - LivePhotoCount;
                         });
                     }
@@ -4158,6 +4791,7 @@ namespace LivePhotoBox.ViewModels
                         foreach (var f in Directory.EnumerateFiles(CurrentDirectory))
                             index.FilePaths.Add(f);
                         _cidIndexCache[CurrentDirectory] = index;
+                        _lastCachedDirectory = CurrentDirectory;
                     }
 
                     LogService.FileOp(
@@ -4702,7 +5336,19 @@ namespace LivePhotoBox.ViewModels
                                 myCid.Equals(oppCid, StringComparison.OrdinalIgnoreCase))
                             {
                                 quickMatched = true;
-                                if (isImage) pairedVideoPath = oppPath;
+                                if (isImage)
+                                {
+                                    // 拖入照片 → 视频为配对文件
+                                    pairedVideoPath = oppPath;
+                                }
+                                else if (isVideo)
+                                {
+                                    // 拖入视频 → 以照片为主项，视频为配对
+                                    pairedVideoPath = rawPath;
+                                    filePath = oppPath;
+                                    fileName = Path.GetFileName(oppPath);
+                                    isVideo = false;
+                                }
                             }
                         }
 
@@ -4754,6 +5400,15 @@ namespace LivePhotoBox.ViewModels
                                                 break;
                                             }
                                         }
+                                    }
+
+                                    // 有 ContentIdentifier 但未找到配对 → 协议确认，标注缺失
+                                    if (!quickMatched)
+                                    {
+                                        detectedType = LivePhotoType.DualFile;
+                                        detectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
+                                        confirmed = true;
+                                        // pairedVideoPath 保持 null → 属性面板显示"(未找到配对视频/照片)"
                                     }
                                 }
                             }

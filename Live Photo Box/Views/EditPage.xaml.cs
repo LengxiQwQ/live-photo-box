@@ -149,10 +149,21 @@ namespace LivePhotoBox.Views
         {
             var currentTag = (InfoTabs.SelectedItem as CommunityToolkit.WinUI.Controls.SegmentedItem)?.Tag as string;
 
+            // 配对缺失的实况照片：当普通照片处理，强制切到"文件基础信息"，不记录用户操作
+            if (ViewModel.IsSelectedPairIncomplete)
+            {
+                if (currentTag == "combined" || currentTag == "frames")
+                {
+                    _isAutoSwitchingTab = true;
+                    InfoTabs.SelectedItem = FindSegmentedItem("basicInfo");
+                    _isAutoSwitchingTab = false;
+                }
+                return;
+            }
+
             if (ViewModel.HasSelectedFile && !ViewModel.IsSelectedLivePhoto)
             {
                 // 非实况照片：如果当前在"组合查看"或"实况照片帧"，切到"文件基础信息"
-                // "文件基础信息"和"更改文件属性"保持不动
                 if (currentTag == "combined" || currentTag == "frames")
                 {
                     _isAutoSwitchingTab = true;
@@ -228,6 +239,9 @@ namespace LivePhotoBox.Views
 
             // 大图预览清空（实况→非实况切换）
             ViewModel.PreviewClearRequested += OnPreviewClearRequested;
+
+            // 导出 Flyout 打开时强刷 x:Bind 绑定
+            ExportFlyout.Opening += (_, _) => Bindings.Update();
 
             Loaded += KeyPhotoPage_Loaded;
             PhotoViewer.ScaleChanged += PhotoViewer_ScaleChanged;
@@ -511,7 +525,7 @@ namespace LivePhotoBox.Views
         /// </summary>
         private void SyncLivePhotoBadgeVisibility()
         {
-            var visibility = ViewModel.IsSelectedLivePhoto
+            var visibility = ViewModel.CanPlayLivePhoto
                 ? Visibility.Visible
                 : Visibility.Collapsed;
             LivePhotoBadgeButton.Visibility = visibility;
@@ -1637,7 +1651,7 @@ namespace LivePhotoBox.Views
                 e.DragUIOverride.IsGlyphVisible = true;
                 e.DragUIOverride.IsCaptionVisible = false;
                 DragOverlay.Visibility = Visibility.Visible;
-                LeftEmptyHint.Visibility = Visibility.Collapsed; // 遮罩显示时隐藏底层空提示
+                LeftEmptyHint.Visibility = Visibility.Collapsed;
             }
 
             e.Handled = true;
@@ -1646,8 +1660,8 @@ namespace LivePhotoBox.Views
         private void LeftPanel_DragLeave(object sender, DragEventArgs e)
         {
             DragOverlay.Visibility = Visibility.Collapsed;
-            LeftEmptyHint.ClearValue(UIElement.VisibilityProperty); // 恢复 x:Bind
             _isLeftDropAllFolders = false;
+            Bindings.Update();
             e.Handled = true;
         }
 
@@ -1660,7 +1674,7 @@ namespace LivePhotoBox.Views
             try
             {
                 DragOverlay.Visibility = Visibility.Collapsed;
-                LeftEmptyHint.ClearValue(UIElement.VisibilityProperty);
+                // Drop 后扫描完成会更新 HasAnyFiles，x:Bind 自动反映正确状态。
 
                 if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                     return;
@@ -1733,9 +1747,9 @@ namespace LivePhotoBox.Views
                 e.DragUIOverride.IsGlyphVisible = true;
                 e.DragUIOverride.IsCaptionVisible = false;
                 RightDragOverlay.Visibility = Visibility.Visible;
+                // 临时隐藏空状态提示文字，避免与遮罩重叠
                 RightEmptyHint.Visibility = Visibility.Collapsed;
                 TimelineEmptyHint.Visibility = Visibility.Collapsed;
-                DetailPropsPlaceholder.Visibility = Visibility.Collapsed;
             }
 
             e.Handled = true;
@@ -1744,10 +1758,9 @@ namespace LivePhotoBox.Views
         private void RightPanel_DragLeave(object sender, DragEventArgs e)
         {
             RightDragOverlay.Visibility = Visibility.Collapsed;
-            RightEmptyHint.ClearValue(UIElement.VisibilityProperty);
-            TimelineEmptyHint.ClearValue(UIElement.VisibilityProperty);
-            DetailPropsPlaceholder.ClearValue(UIElement.VisibilityProperty);
             _isRightDropHasFiles = false;
+            // 恢复空状态提示（x:Bind 重新评估恢复正确值）
+            Bindings.Update();
             e.Handled = true;
         }
 
@@ -1756,10 +1769,6 @@ namespace LivePhotoBox.Views
             try
             {
                 RightDragOverlay.Visibility = Visibility.Collapsed;
-                RightEmptyHint.ClearValue(UIElement.VisibilityProperty);
-                TimelineEmptyHint.ClearValue(UIElement.VisibilityProperty);
-                // 注意：DetailPropsPlaceholder 不能 ClearValue，它绑定了 IsDetailPropsPanelVisible，
-                // ClearValue 会移除 x:Bind 导致面板永久可见。它也不需要清——拖入文件后该面板由选项卡控制。
 
                 if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
                     return;

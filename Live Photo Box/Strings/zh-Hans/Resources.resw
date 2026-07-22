@@ -121,7 +121,7 @@
     <value>By LengxiQwQ</value>
   </data>
   <data name="MainWindow_Title.Text" xml:space="preserve">
-    <value>实况照片工具箱（Live Photo Box）</value>
+    <value>实况照片工具箱</value>
   </data>
   <data name="Nav_About.Content" xml:space="preserve">
     <value>关于</value>
@@ -2298,7 +2298,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>转换实况照片协议</value>
   </data>
   <data name="KeyPhotoPage_ConvertProtocol.ToolTipService.ToolTip" xml:space="preserve">
-    <value>转换当前实况照片的封装协议</value>
+    <value>转换协议</value>
   </data>
   <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
     <value>恢复</value>
@@ -2307,7 +2307,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>设为封面并保存为副本</value>
   </data>
   <data name="KeyPhotoPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>将当前帧设为封面并另存为新文件</value>
+    <value>设为封面并另存</value>
   </data>
   <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
     <value>另存为</value>
@@ -2322,7 +2322,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>导出所有帧</value>
   </data>
   <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
-    <value>导出帧…</value>
+    <value>导出…</value>
   </data>
   <data name="KeyPhotoPage_More.Label" xml:space="preserve">
     <value>更多</value>
@@ -2649,6 +2649,45 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_ExportComplete_Summary" xml:space="preserve">
     <value>导出已完成。成功 {0} 帧，失败 {1} 帧，共 {2} 帧。</value>
   </data>
+  <data name="KeyPhotoPage_ExportCurrentFrameInProgress" xml:space="preserve">
+    <value>正在导出当前帧…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportCurrentFrameComplete" xml:space="preserve">
+    <value>当前帧导出完成</value>
+  </data>
+  <data name="KeyPhotoPage_ExportAllFramesInProgress" xml:space="preserve">
+    <value>正在导出所有帧…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportAllFramesComplete" xml:space="preserve">
+    <value>所有帧导出完成</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoInProgress" xml:space="preserve">
+    <value>正在导出视频…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoComplete" xml:space="preserve">
+    <value>视频导出完成</value>
+  </data>
+  <data name="KeyPhotoPage_ExportGifInProgress" xml:space="preserve">
+    <value>正在生成 GIF…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportGifComplete" xml:space="preserve">
+    <value>GIF 生成完成</value>
+  </data>
+  <data name="KeyPhotoPage_SaveCoverInProgress" xml:space="preserve">
+    <value>正在保存封面…</value>
+  </data>
+  <data name="KeyPhotoPage_SaveCoverComplete" xml:space="preserve">
+    <value>封面保存完成</value>
+  </data>
+  <data name="KeyPhotoPage_SaveAsInProgress" xml:space="preserve">
+    <value>正在另存为…</value>
+  </data>
+  <data name="KeyPhotoPage_SaveAsComplete" xml:space="preserve">
+    <value>另存为完成</value>
+  </data>
+  <data name="KeyPhotoPage_OpenOutputFolderButton" xml:space="preserve">
+    <value>输出文件夹</value>
+  </data>
   <data name="KeyPhotoPage_SaveInProgress" xml:space="preserve">
     <value>正在保存...</value>
   </data>
@@ -2717,5 +2756,26 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="KeyPhotoPage_ClearDirTooltip" xml:space="preserve">
     <value>清空当前列表</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideo.Text" xml:space="preserve">
+    <value>导出为视频</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoMp4.Text" xml:space="preserve">
+    <value>MP4 (H.264 + AAC)</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoMov.Text" xml:space="preserve">
+    <value>MOV (H.265 QuickTime + AAC)</value>
+  </data>
+  <data name="KeyPhotoPage_ExportGif.Text" xml:space="preserve">
+    <value>导出为GIF动图</value>
+  </data>
+  <data name="KeyPhotoPage_Export.ToolTipService.ToolTip" xml:space="preserve">
+    <value>导出帧、视频或 GIF</value>
+  </data>
+  <data name="KeyPhoto_Protocol_MissingVideo" xml:space="preserve">
+    <value>（缺少视频）</value>
+  </data>
+  <data name="KeyPhoto_Protocol_MissingPhoto" xml:space="preserve">
+    <value>（缺少照片）</value>
   </data>
 </root>
