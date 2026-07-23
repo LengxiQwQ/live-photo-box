@@ -165,7 +165,7 @@ namespace LivePhotoBox.ViewModels
         private string _searchText = string.Empty;
 
         [ObservableProperty]
-        private int _selectedSortIndex;
+        private int _selectedSortIndex = 1; // 默认按日期排序
 
         [ObservableProperty]
         private bool _isSortAscending = true;
@@ -173,18 +173,41 @@ namespace LivePhotoBox.ViewModels
         /// <summary>排序方向图标：升序 ↑ / 降序 ↓</summary>
         public string SortDirectionGlyph => IsSortAscending ? "" : "";
 
-        /// <summary>实况照片总数（仅已确认协议的）</summary>
+        /// <summary>文件总数</summary>
+        [ObservableProperty]
+        private int _totalCount;
+
+        /// <summary>完整实况照片数（有协议且配对完整）</summary>
         [ObservableProperty]
         private int _livePhotoCount;
 
-        /// <summary>其他文件数（非实况 + 未确认协议的）</summary>
+        /// <summary>残缺实况数（有协议但缺失配对文件）</summary>
+        [ObservableProperty]
+        private int _brokenLiveCount;
+
+        /// <summary>其他文件数（非实况协议）</summary>
         [ObservableProperty]
         private int _otherCount;
 
+        partial void OnTotalCountChanged(int value) { }
         partial void OnLivePhotoCountChanged(int value) { }
+        partial void OnBrokenLiveCountChanged(int value) { }
         partial void OnOtherCountChanged(int value) { }
 
-        /// <summary>照片过滤：0=所有照片 / 1=实况照片 / 2=普通照片</summary>
+        /// <summary>有残缺实况时显示对应统计项。</summary>
+        public bool HasBrokenLive => BrokenLiveCount > 0;
+
+        /// <summary>从 _allFileItems 重新计算所有文件统计数。</summary>
+        private void RefreshCounts()
+        {
+            TotalCount = _allFileItems.Count;
+            LivePhotoCount = _allFileItems.Count(f => f.HasConfirmedProtocol && !f.IsPairIncomplete);
+            BrokenLiveCount = _allFileItems.Count(f => f.HasConfirmedProtocol && f.IsPairIncomplete);
+            OtherCount = _allFileItems.Count(f => !f.HasConfirmedProtocol);
+            OnPropertyChanged(nameof(HasBrokenLive));
+        }
+
+        /// <summary>文件过滤：0=所有文件 / 1=实况照片 / 2=残缺实况 / 3=普通照片 / 4=普通视频</summary>
         [ObservableProperty]
         private int _selectedFilterIndex;
 
@@ -249,9 +272,11 @@ namespace LivePhotoBox.ViewModels
 
             filtered = SelectedFilterIndex switch
             {
-                1 => filtered.Where(f => f.HasConfirmedProtocol),       // 仅实况照片
-                2 => filtered.Where(f => !f.HasConfirmedProtocol),     // 仅普通照片
-                _ => filtered                                          // 所有照片
+                1 => filtered.Where(f => f.HasConfirmedProtocol && !f.IsPairIncomplete),                            // 实况照片（完整配对）
+                2 => filtered.Where(f => f.HasConfirmedProtocol && f.IsPairIncomplete),                             // 残缺实况（缺配对文件）
+                3 => filtered.Where(f => !f.HasConfirmedProtocol && !IsVideoExtension(f.FilePath)),                  // 仅普通照片
+                4 => filtered.Where(f => !f.HasConfirmedProtocol && IsVideoExtension(f.FilePath)),                   // 仅普通视频
+                _ => filtered                                                                                       // 所有文件
             };
 
             var dispatcher = App.MainWindow?.DispatcherQueue;
@@ -262,6 +287,11 @@ namespace LivePhotoBox.ViewModels
                 OnPropertyChanged(nameof(HasAnyFiles));
             });
         }
+
+        /// <summary>判断文件是否为视频（.mov / .mp4）</summary>
+        private static bool IsVideoExtension(string path) =>
+            path.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase);
 
         // ══════════════════════════════════════════════════════════════
         //  选中文件信息（右下角信息面板绑定）
@@ -431,15 +461,46 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private string? _lastExportOutputDir;
 
-        /// <summary>完成态 + 有输出目录 → 显示 📂 按钮</summary>
+        /// <summary>失败时的错误详情（⚠️ 按钮气泡用）</summary>
+        [ObservableProperty]
+        private string? _lastExportError;
+
+        /// <summary>是否显示失败态（红叉 + 失败文字）</summary>
+        [ObservableProperty]
+        private bool _isShowingSaveError;
+
+        /// <summary>完成或失败 + 有输出目录 → 显示 📂 按钮</summary>
         public bool IsCompletionWithOutputDir =>
-            IsShowingSaveComplete && !string.IsNullOrEmpty(LastExportOutputDir);
+            (IsShowingSaveComplete || IsShowingSaveError) && !string.IsNullOrEmpty(LastExportOutputDir);
+
+        partial void OnIsShowingSaveErrorChanged(bool value)
+        {
+            OnPropertyChanged(nameof(IsCompletionWithError));
+            OnPropertyChanged(nameof(IsCompletionWithOutputDir));
+            OnPropertyChanged(nameof(IsSpinnerVisible));
+        }
+
+        /// <summary>失败态 + 有错误详情 → 显示 ⚠️ 按钮</summary>
+        public bool IsCompletionWithError =>
+            IsShowingSaveError && !string.IsNullOrEmpty(LastExportError);
+
+        /// <summary>进度圈可见：非完成、非失败</summary>
+        public bool IsSpinnerVisible => IsExporting && !IsShowingSaveComplete && !IsShowingSaveError;
 
         partial void OnIsShowingSaveCompleteChanged(bool value)
-            => OnPropertyChanged(nameof(IsCompletionWithOutputDir));
+        {
+            OnPropertyChanged(nameof(IsCompletionWithOutputDir));
+            OnPropertyChanged(nameof(IsSpinnerVisible));
+        }
+
+        partial void OnIsExportingChanged(bool value)
+            => OnPropertyChanged(nameof(IsSpinnerVisible));
 
         partial void OnLastExportOutputDirChanged(string? value)
             => OnPropertyChanged(nameof(IsCompletionWithOutputDir));
+
+        partial void OnLastExportErrorChanged(string? value)
+            => OnPropertyChanged(nameof(IsCompletionWithError));
 
         // ══════════════════════════════════════════════════════════════
         //  统一进度 Helper（替换各方法的裸写 Property 赋值）
@@ -452,7 +513,9 @@ namespace LivePhotoBox.ViewModels
             _completionCts?.Dispose();
             _completionCts = null;
             IsShowingSaveComplete = false;
+            IsShowingSaveError = false;
             LastExportOutputDir = null;
+            LastExportError = null;
             ExportProgressPercent = 0.0;
             ProgressPrefixText = progressPrefix ?? string.Empty;
             ExportProgressText = progressText;
@@ -463,30 +526,42 @@ namespace LivePhotoBox.ViewModels
         private void CompleteExportProgress(string completionText, string? outputDir)
         {
             IsShowingSaveComplete = true;
+            IsShowingSaveError = false;
             ExportProgressText = completionText;
             ProgressPrefixText = string.Empty;
             LastExportOutputDir = outputDir;
         }
 
-        /// <summary>失败：重置所有状态 → 弹错误对话框</summary>
-        private async Task FailExportProgressAsync(string errorMessage, string? outputDir = null)
+        /// <summary>失败：红叉 + 失败文字 + 存错误详情，不自动消失。同时写入日志。</summary>
+        private void FailExportProgress(string failureText, string errorMessage, string? outputDir = null)
         {
+            LogService.FileOp($"Export failed: {failureText} — {errorMessage}", LogLevel.Error);
+            IsShowingSaveError = true;
             IsShowingSaveComplete = false;
-            IsExporting = false;
-            ExportProgressText = string.Empty;
-            ExportProgressPercent = 0.0;
-            ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
-            LastExportOutputDir = null;
-            _completionCts?.Cancel();
-            _completionCts?.Dispose();
-            _completionCts = null;
-            await ShowSaveErrorDialogAsync(errorMessage, outputDir);
+            IsExporting = true;
+            ExportProgressText = failureText;
+            ProgressPrefixText = string.Empty;
+            LastExportError = errorMessage;
+            LastExportOutputDir = outputDir;
         }
 
-        /// <summary>finally 清理：完成态保持，非完成态隐藏面板</summary>
+        /// <summary>守卫错误：红叉 + 说明文字，无气泡、无文件夹按钮（用户操作问题，非软件故障）</summary>
+        private void ShowExportGuardError(string errorText)
+        {
+            LogService.FileOp($"Export guard: {errorText}", LogLevel.Warning);
+            IsShowingSaveError = true;
+            IsShowingSaveComplete = false;
+            IsExporting = true;
+            ExportProgressText = errorText;
+            ProgressPrefixText = string.Empty;
+            LastExportError = null;
+            LastExportOutputDir = null;
+        }
+
+        /// <summary>finally 清理：完成态/失败态保持，其他隐藏面板</summary>
         private void FinalizeExportProgress()
         {
-            if (!IsShowingSaveComplete)
+            if (!IsShowingSaveComplete && !IsShowingSaveError)
             {
                 IsExporting = false;
                 ExportProgressText = string.Empty;
@@ -788,6 +863,9 @@ namespace LivePhotoBox.ViewModels
         /// <summary>当前目录是否加载了文件（控制折叠按钮可见性）</summary>
         public bool HasAnyFiles => FileItems.Count > 0;
 
+        /// <summary>是否已加载过目录（_allFileItems 有数据），用于区分"未选择目录"和"筛选结果为空"</summary>
+        public bool HasFilesLoaded => _allFileItems.Count > 0;
+
         /// <summary>选中文件是否为独立视频（控制信息面板照片行可见性）</summary>
         private bool _isSelectedFileVideo;
         public bool IsSelectedFileVideo
@@ -1069,7 +1147,8 @@ namespace LivePhotoBox.ViewModels
                 // 清理可能不完整的输出文件
                 try { if (File.Exists(targetPath)) File.Delete(targetPath); } catch { }
 
-                await FailExportProgressAsync(
+                FailExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_SaveCoverFailed"),
                     $"{ResourceService.GetString("KeyPhotoPage_SaveError")}: {ex.Message}",
                     Path.GetDirectoryName(targetPath));
             }
@@ -1132,35 +1211,6 @@ namespace LivePhotoBox.ViewModels
         /// <summary>
         /// 保存/导出失败时显示错误弹窗。
         /// 用户可点击"打开输出目录"在资源管理器中打开目标文件夹，或"我知道了"关闭。
-        /// </summary>
-        /// <param name="errorMessage">错误描述文本</param>
-        /// <param name="outputDir">可选：输出目录路径，用于"打开"按钮</param>
-        private async Task ShowSaveErrorDialogAsync(string errorMessage, string? outputDir = null)
-        {
-            LogService.FileOp($"Export error: {errorMessage}", LogLevel.Error);
-
-            if (App.MainWindow?.Content?.XamlRoot is not XamlRoot xamlRoot) return;
-
-            var errorText = new TextBlock
-            {
-                Text = errorMessage,
-                TextWrapping = TextWrapping.Wrap,
-                IsTextSelectionEnabled = true,
-            };
-
-            var openDir = await DialogService.ShowDualAsync(
-                xamlRoot,
-                ResourceService.GetString("KeyPhotoPage_SaveError"),
-                errorText,
-                primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
-                closeText: ResourceService.GetString("Msg_GotIt"));
-
-            if (openDir && !string.IsNullOrEmpty(outputDir) && Directory.Exists(outputDir))
-            {
-                FilePickerService.OpenFolderInExplorer(outputDir);
-            }
-        }
-
         /// <summary>
         /// Apple 双文件实况照片（HEIC + MOV）的"设为封面并保存为副本"。
         ///
@@ -1331,7 +1381,8 @@ namespace LivePhotoBox.ViewModels
                     if (proc == null)
                     {
                         LogService.FileOp("KeyPhoto Save[Apple]: heif-enc failed to start", LogLevel.Error);
-                        await FailExportProgressAsync(
+                        FailExportProgress(
+                            ResourceService.GetString("KeyPhotoPage_SaveCoverFailed"),
                             "heif-enc failed to start",
                             Path.GetDirectoryName(targetHeicPath));
                         return;
@@ -1345,7 +1396,8 @@ namespace LivePhotoBox.ViewModels
                         LogService.FileOp(
                             $"KeyPhoto Save[Apple]: heif-enc exit={proc.ExitCode}, stderr: {stderr.Trim()}",
                             LogLevel.Error);
-                        await FailExportProgressAsync(
+                        FailExportProgress(
+                            ResourceService.GetString("KeyPhotoPage_SaveCoverFailed"),
                             $"heif-enc exited with code {proc.ExitCode}",
                             Path.GetDirectoryName(targetHeicPath));
                         return;
@@ -1357,7 +1409,8 @@ namespace LivePhotoBox.ViewModels
                 if (heicSize == 0)
                 {
                     LogService.FileOp("KeyPhoto Save[Apple]: HEIC is 0 bytes after heif-enc", LogLevel.Error);
-                    await FailExportProgressAsync(
+                    FailExportProgress(
+                        ResourceService.GetString("KeyPhotoPage_SaveCoverFailed"),
                         "HEIC output is 0 bytes after encoding",
                         Path.GetDirectoryName(targetHeicPath));
                     return;
@@ -1512,7 +1565,9 @@ namespace LivePhotoBox.ViewModels
                 string? appleOutputDir = !string.IsNullOrEmpty(targetHeicPath)
                     ? Path.GetDirectoryName(targetHeicPath)
                     : null;
-                await FailExportProgressAsync(ex.Message, appleOutputDir);
+                FailExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_SaveCoverFailed"),
+                    ex.Message, appleOutputDir);
             }
             finally
             {
@@ -1531,7 +1586,10 @@ namespace LivePhotoBox.ViewModels
         {
             var photoPath = SelectedFilePath;
             if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath))
+            {
+                LogService.FileOp("SaveAs: no file selected or file not found", LogLevel.Warning);
                 return;
+            }
 
             // 弹出另存为对话框保存照片
             var savedPath = await FilePickerService.SaveFileAsAsync(photoPath);
@@ -1567,7 +1625,9 @@ namespace LivePhotoBox.ViewModels
             catch (Exception ex)
             {
                 LogService.FileOp($"SaveAs FAILED: {ex.GetType().Name}: {ex.Message}", LogLevel.Error, ex);
-                await FailExportProgressAsync(ex.Message, Path.GetDirectoryName(savedPath));
+                FailExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_SaveAsFailed"),
+                    ex.Message, Path.GetDirectoryName(savedPath));
             }
             finally
             {
@@ -1654,7 +1714,9 @@ namespace LivePhotoBox.ViewModels
             {
                 LogService.FileOp(
                     $"ExportCurrentFrame failed: {ex.Message}", LogLevel.Error, ex);
-                await FailExportProgressAsync(ex.Message, Path.GetDirectoryName(targetPath));
+                FailExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameFailed"),
+                    ex.Message, Path.GetDirectoryName(targetPath));
             }
             finally
             {
@@ -1697,7 +1759,9 @@ namespace LivePhotoBox.ViewModels
             catch (Exception ex)
             {
                 LogService.FileOp($"ExportPhotoAsSingleFrame failed: {ex.Message}", LogLevel.Error, ex);
-                await FailExportProgressAsync(ex.Message, Path.GetDirectoryName(targetPath));
+                FailExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameFailed"),
+                    ex.Message, Path.GetDirectoryName(targetPath));
             }
             finally
             {
@@ -1872,10 +1936,17 @@ namespace LivePhotoBox.ViewModels
             catch (OperationCanceledException)
             {
                 LogService.FileOp("ExportAllFrames cancelled mid-operation", LogLevel.Warning);
+                FailExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_ExportAllFramesFailed"),
+                    "Operation was cancelled",
+                    exportDir);
             }
             catch (Exception ex)
             {
                 LogService.FileOp($"ExportAllFrames fatal error: {ex.Message}", LogLevel.Error, ex);
+                FailExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_ExportAllFramesFailed"),
+                    ex.Message, exportDir);
             }
             finally
             {
@@ -2182,6 +2253,9 @@ namespace LivePhotoBox.ViewModels
                     if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
                     {
                         Interlocked.Increment(ref counters.Fail);
+                        LogService.FileOp(
+                            $"ExportAllFrames: frame path missing — isStillPhoto=false, path='{frame.FullFramePath ?? "null"}'",
+                            LogLevel.Warning);
                         return;
                     }
                     sourcePath = frame.FullFramePath;
@@ -2254,14 +2328,14 @@ namespace LivePhotoBox.ViewModels
                 string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
             if (item == null || !item.HasConfirmedProtocol)
             {
-                await ShowExportErrorAsync("当前所选文件不是实况照片，没有关联的视频。");
+                ShowExportGuardError(ResourceService.GetString("KeyPhotoPage_GuardNotLivePhoto"));
                 return;
             }
 
             string? videoPath = await ResolveVideoPathForExportAsync(item);
             if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
             {
-                await ShowExportErrorAsync("找不到此实况照片的视频来源。");
+                ShowExportGuardError(ResourceService.GetString("KeyPhotoPage_GuardNoVideoSource"));
                 return;
             }
 
@@ -2297,14 +2371,17 @@ namespace LivePhotoBox.ViewModels
                 }
                 else
                 {
-                    await FailExportProgressAsync(
+                    FailExportProgress(
+                        ResourceService.GetString("KeyPhotoPage_ExportVideoFailed"),
                         result.ErrorMessage ?? "未知错误",
                         Path.GetDirectoryName(targetFile.Path));
                 }
             }
             catch (Exception ex)
             {
-                await FailExportProgressAsync(ex.Message, Path.GetDirectoryName(targetFile.Path));
+                FailExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_ExportVideoFailed"),
+                    ex.Message, Path.GetDirectoryName(targetFile.Path));
             }
             finally
             {
@@ -2330,7 +2407,7 @@ namespace LivePhotoBox.ViewModels
                 string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
             if (item == null || !item.HasConfirmedProtocol)
             {
-                await ShowExportErrorAsync("当前所选文件不是实况照片，无法导出 GIF。");
+                ShowExportGuardError(ResourceService.GetString("KeyPhotoPage_GuardNotLivePhoto"));
                 return;
             }
 
@@ -2338,7 +2415,7 @@ namespace LivePhotoBox.ViewModels
             string? videoPath = await ResolveVideoPathForExportAsync(item);
             if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
             {
-                await ShowExportErrorAsync("找不到此实况照片的视频来源。");
+                ShowExportGuardError(ResourceService.GetString("KeyPhotoPage_GuardNoVideoSource"));
                 return;
             }
 
@@ -2368,14 +2445,17 @@ namespace LivePhotoBox.ViewModels
                 }
                 else
                 {
-                    await FailExportProgressAsync(
+                    FailExportProgress(
+                        ResourceService.GetString("KeyPhotoPage_ExportGifFailed"),
                         result.ErrorMessage ?? "未知错误",
                         Path.GetDirectoryName(targetPath));
                 }
             }
             catch (Exception ex)
             {
-                await FailExportProgressAsync(ex.Message, Path.GetDirectoryName(targetPath));
+                FailExportProgress(
+                    ResourceService.GetString("KeyPhotoPage_ExportGifFailed"),
+                    ex.Message, Path.GetDirectoryName(targetPath));
             }
             finally
             {
@@ -2698,23 +2778,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        private static async Task ShowExportErrorAsync(string message)
-        {
-            LogService.FileOp($"Export error: {message}", LogLevel.Error);
-
-            if (App.MainWindow?.Content?.XamlRoot is XamlRoot xamlRoot)
-            {
-                var errorText = new TextBlock
-                {
-                    Text = message,
-                    TextWrapping = TextWrapping.Wrap,
-                    IsTextSelectionEnabled = true,
-                };
-                await DialogService.ShowSingleAsync(xamlRoot,
-                    ResourceService.GetString("KeyPhotoPage_SaveError"), errorText,
-                    ResourceService.GetString("Msg_GotIt"));
-            }
-        }
 
         /// <summary>
         /// 在指定父目录下生成不冲突的文件夹路径。
@@ -4339,8 +4402,8 @@ namespace LivePhotoBox.ViewModels
             CurrentDirectory = string.Empty;
             _allFileItems.Clear();
             FileItems.Clear();
-            LivePhotoCount = 0;
-            OtherCount = 0;
+            RefreshCounts();
+            OnPropertyChanged(nameof(HasFilesLoaded));
             ClearFileInfo();
             ThumbnailService.ClearCache();
             ThumbnailScheduler.Reset();
@@ -4381,17 +4444,29 @@ namespace LivePhotoBox.ViewModels
                 if (token.IsCancellationRequested) return;
 
                 // 分离图片和视频：列表只显示图片，视频路径单独收集供 Phase 2 CID 匹配
+                // 预建视频大小查找表，双文件实况照片的 FileSize 需合并图片+视频
+                var videoSizeLookup = discoveryResult.Items
+                    .Where(d => SupportedVideoExtensions.Contains(Path.GetExtension(d.FilePath)))
+                    .ToDictionary(d => d.FilePath, d => d.FileSizeBytes, StringComparer.OrdinalIgnoreCase);
+
                 var files = discoveryResult.Items
                     .Where(d => !SupportedVideoExtensions.Contains(Path.GetExtension(d.FilePath)))
                     .Select(d =>
                     {
                         bool confirmed = d.LivePhotoType is LivePhotoType.SingleFileJpeg
                             or LivePhotoType.SingleFileHeic;
+                        // 双文件实况照片：计算图片+视频的合并大小
+                        long totalBytes = d.FileSizeBytes;
+                        if (!string.IsNullOrEmpty(d.PairedVideoPath)
+                            && videoSizeLookup.TryGetValue(d.PairedVideoPath, out long vidBytes))
+                        {
+                            totalBytes += vidBytes;
+                        }
                         return new EditFileItem
                         {
                             FileName = Path.GetFileName(d.FilePath),
                             FilePath = d.FilePath,
-                            FileSize = FileSizeFormatter.Format(d.FileSizeBytes),
+                            FileSize = FileSizeFormatter.Format(totalBytes),
                             DateTaken = d.LastWriteTime.ToString("yyyy/MM/dd HH:mm"),
                             Resolution = string.Empty,
                             LivePhotoType = d.LivePhotoType,
@@ -4415,8 +4490,8 @@ namespace LivePhotoBox.ViewModels
                     $"Confirmed={confirmedCount}, Unclassified={files.Count - confirmedCount}");
 
                 _allFileItems = files;
-                LivePhotoCount = confirmedCount;
-                OtherCount = files.Count - confirmedCount;
+                RefreshCounts();
+                OnPropertyChanged(nameof(HasFilesLoaded));
 
                 ThumbnailService.ClearCache();
                 ClearFileInfo();
@@ -4709,6 +4784,9 @@ namespace LivePhotoBox.ViewModels
                                 files[index].PairedVideoPath = matched.Path;
                                 files[index].HasConfirmedProtocol = true;
                                 files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
+                                // 更新文件大小为图片+视频合并值
+                                files[index].FileSize = FileSizeFormatter.Format(
+                                    new FileInfo(files[index].FilePath).Length + new FileInfo(matched.Path).Length);
                                 matchedVideoPaths.Add(matched.Path);
                                 liveConfirmed++;
                             }
@@ -4738,6 +4816,9 @@ namespace LivePhotoBox.ViewModels
                             files[index].LivePhotoType = LivePhotoType.DualFile;
                             files[index].PairedVideoPath = matched.Path;
                             files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
+                            // 更新文件大小为图片+视频合并值
+                            files[index].FileSize = FileSizeFormatter.Format(
+                                new FileInfo(files[index].FilePath).Length + new FileInfo(matched.Path).Length);
                             // HasConfirmedProtocol 已在 Phase 1 设为 true，不重复计数
                             matchedVideoPaths.Add(matched.Path);
                             heicPaired++;
@@ -4776,8 +4857,7 @@ namespace LivePhotoBox.ViewModels
                     {
                         dispatcher.TryEnqueue(() =>
                         {
-                            LivePhotoCount += liveConfirmed + addedVidWithCid;
-                            OtherCount = files.Count - LivePhotoCount;
+                            RefreshCounts();
                         });
                     }
 
@@ -5424,11 +5504,16 @@ namespace LivePhotoBox.ViewModels
 
                     if (addedPaths.Contains(filePath)) continue;
 
+                    // 双文件实况照片：合并图片+视频大小
+                    long dropTotalBytes = new FileInfo(filePath).Length;
+                    if (!string.IsNullOrEmpty(pairedVideoPath) && File.Exists(pairedVideoPath))
+                        dropTotalBytes += new FileInfo(pairedVideoPath).Length;
+
                     var item = new EditFileItem
                     {
                         FileName = fileName,
                         FilePath = filePath,
-                        FileSize = FileSizeFormatter.Format(new FileInfo(filePath).Length),
+                        FileSize = FileSizeFormatter.Format(dropTotalBytes),
                         DateTaken = File.GetLastWriteTime(filePath).ToString("yyyy/MM/dd HH:mm"),
                         LivePhotoType = detectedType,
                         PairedVideoPath = pairedVideoPath,
@@ -5470,15 +5555,13 @@ namespace LivePhotoBox.ViewModels
 
                             _allFileItems.Insert(0, item);
                             FileItems.Insert(0, item);
-                            if (item.HasConfirmedProtocol) LivePhotoCount++;
-                            else OtherCount++;
 
                             if (firstNewPath == null) firstNewPath = item.FilePath;
                         }
 
-                        OnPropertyChanged(nameof(LivePhotoCount));
-                        OnPropertyChanged(nameof(OtherCount));
+                        RefreshCounts();
                         OnPropertyChanged(nameof(HasAnyFiles));
+                        OnPropertyChanged(nameof(HasFilesLoaded));
                         tcs.TrySetResult(firstNewPath);
                     }
                     catch (Exception ex)

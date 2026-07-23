@@ -95,31 +95,33 @@ namespace LivePhotoBox.Views
         //    "basicInfo"    → 仅文件基础信息
         //    "detailProps"  → 仅更改文件属性（占位）
         //
-        //  记忆规则：用户手动切换选项卡时保存到 AppSettings；
-        //           非实况照片自动切到"文件基础信息"，不保存此次自动切换。
-        //           默认值为"combined"（组合查看）。
+        //  记忆规则：用户手动切换选项卡时保存到内存（仅本次会话），
+        //           关闭窗口后恢复默认值。
+        //           完整实况照片 → 默认"组合查看"；
+        //           残缺实况 / 非实况照片 → 默认"文件基础信息"。
         // ════════════════════════════════════════════════════════════
 
-        private const string InfoTabSettingKey = "KeyPhoto_LastInfoTab";
         private const string DefaultInfoTab = "combined";
 
-        /// <summary>防止自动切换选项卡时触发保存记忆</summary>
+        /// <summary>防止自动切换选项卡时触发保存</summary>
         private bool _isAutoSwitchingTab;
 
+        /// <summary>本次会话用户手动选择的选项卡（关闭窗口后清空，恢复默认）</summary>
+        private string _lastUserSelectedTab = DefaultInfoTab;
+
         /// <summary>
-        /// InfoTabs 加载时恢复上次记忆的选项卡（默认"combined"）。
+        /// InfoTabs 加载时恢复本次会话记忆的选项卡（默认"combined"）。
         /// </summary>
         private void InfoTabs_Loaded(object sender, RoutedEventArgs e)
         {
-            var savedTag = AppSettingsService.GetValue(InfoTabSettingKey, DefaultInfoTab);
-            var item = FindSegmentedItem(savedTag) ?? FindSegmentedItem(DefaultInfoTab);
+            var item = FindSegmentedItem(_lastUserSelectedTab) ?? FindSegmentedItem(DefaultInfoTab);
             InfoTabs.SelectedItem = item;
         }
 
         /// <summary>
         /// Segmented 单选 SelectionChanged 事件处理：
         ///   1. 根据当前选项卡 Tag 决定各面板可见性
-        ///   2. 非自动切换时保存用户选择到 AppSettings（记忆功能）
+        ///   2. 非自动切换时保存用户选择到会话内存
         /// </summary>
         private void InfoTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
@@ -131,25 +133,23 @@ namespace LivePhotoBox.Views
             ViewModel.IsBasicInfoPanelVisible = selectedTag == "combined" || selectedTag == "basicInfo";
             ViewModel.IsDetailPropsPanelVisible = selectedTag == "detailProps";
 
-            // 记忆用户手动选择的选项卡（自动切换不记忆）
+            // 记忆用户手动选择的选项卡（自动切换不记忆，仅会话内存）
             if (!_isAutoSwitchingTab && selectedTag != null)
             {
-                AppSettingsService.SetValue(InfoTabSettingKey, selectedTag);
+                _lastUserSelectedTab = selectedTag;
             }
         }
 
         /// <summary>
         /// 根据当前选中文件类型自动调整底部选项卡：
-        ///   非实况照片 + 当前在"组合查看"或"实况照片帧" → 自动切到"文件基础信息"
-        ///     （这两个选项卡是为实况照片时间轴设计的，普通文件不适用；
-        ///      但"更改文件属性"例外——普通照片也可查看，保持不变）
-        ///   实况照片 → 恢复用户上次记忆的选项卡
+        ///   残缺实况 / 非实况照片 → 切到"文件基础信息"
+        ///   完整实况照片 → 恢复用户上次选择的选项卡（默认"组合查看"）
         /// </summary>
         private void ApplyInfoTabForSelectedFile()
         {
             var currentTag = (InfoTabs.SelectedItem as CommunityToolkit.WinUI.Controls.SegmentedItem)?.Tag as string;
 
-            // 配对缺失的实况照片：当普通照片处理，强制切到"文件基础信息"，不记录用户操作
+            // 配对缺失的实况照片：当普通照片处理，强制切到"文件基础信息"
             if (ViewModel.IsSelectedPairIncomplete)
             {
                 if (currentTag == "combined" || currentTag == "frames")
@@ -173,9 +173,8 @@ namespace LivePhotoBox.Views
             }
             else if (ViewModel.IsSelectedLivePhoto)
             {
-                // 实况照片：恢复记忆的选项卡
-                var savedTag = AppSettingsService.GetValue(InfoTabSettingKey, DefaultInfoTab);
-                var item = FindSegmentedItem(savedTag) ?? FindSegmentedItem(DefaultInfoTab);
+                // 完整实况照片：恢复会话记忆的选项卡（默认"combined"）
+                var item = FindSegmentedItem(_lastUserSelectedTab) ?? FindSegmentedItem(DefaultInfoTab);
                 if (!ReferenceEquals(InfoTabs.SelectedItem, item))
                 {
                     _isAutoSwitchingTab = true;
@@ -199,8 +198,8 @@ namespace LivePhotoBox.Views
 
         // ── 经典模式（ListView）时间轴状态 ──
         private CancellationTokenSource? _scrollCts;
-        private Border? _hoveredTimelineCard;
-        private Border? _pressedTimelineCard;
+        private Panel? _hoveredTimelineCard;
+        private Panel? _pressedTimelineCard;
         private bool _isClassicTimelineInitialized;
 
         // ── 胶片模式（ScrollViewer + SnapPanel 吸附）状态 ──
@@ -312,7 +311,6 @@ namespace LivePhotoBox.Views
             var collapsed = _isLeftPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
             PanelControlsArea.Visibility = collapsed;
             FileCountText.Visibility = collapsed;
-            FilterComboBox.Visibility = collapsed;
             PanelTitleText.Visibility = _isLeftPanelCollapsed
                 ? Visibility.Collapsed : Visibility.Visible;
 
@@ -695,7 +693,6 @@ namespace LivePhotoBox.Views
             Loaded -= KeyPhotoPage_Loaded;
 
             LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(SortComboBox);
-            LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(FilterComboBox);
 
             DispatcherQueue.TryEnqueue(() => ForceScrollBarsAlwaysThick());
 
@@ -926,7 +923,7 @@ namespace LivePhotoBox.Views
                     {
                         if (TimelineListView.ContainerFromItem(frame) is ListViewItem container)
                         {
-                            var card = FindVisualChild<Border>(container);
+                            var card = FindVisualChild<Grid>(container);
                             if (card != null)
                             {
                                 UpdateTimelineCardVisual(card, isSelected: true,
@@ -957,26 +954,36 @@ namespace LivePhotoBox.Views
 
         // ── 经典模式：卡片视觉（选中框+悬停）──
 
-        private bool IsTimelineCardSelected(Border card)
+        /// <summary>在 ListViewItem 容器内找到选中环 Border</summary>
+        private static Border? FindTimelineSelectionRing(DependencyObject container)
+        {
+            var grid = FindVisualChild<Grid>(container);
+            return grid?.FindName("ClassicTimelineSelectionRing") as Border;
+        }
+
+        private bool IsTimelineCardSelected(Panel card)
         {
             return TimelineListView.SelectedItem != null
                 && card.DataContext == TimelineListView.SelectedItem;
         }
 
-        private void UpdateTimelineCardVisual(Border card, bool isSelected, bool hovered, bool pressed)
+        private void UpdateTimelineCardVisual(Panel cardRoot, bool isSelected, bool hovered, bool pressed)
         {
-            card.BorderThickness = new Thickness(2);
-            card.BorderBrush = isSelected ? _selectedBorder : _transparent;
+            var ring = FindTimelineSelectionRing(cardRoot);
+            if (ring != null)
+            {
+                ring.BorderBrush = isSelected ? _selectedBorder : _transparent;
+            }
 
             if (isSelected)
             {
-                card.Background = _transparent;
+                cardRoot.Background = _transparent;
             }
             else
             {
-                if (pressed)       card.Background = _pressedBg;
-                else if (hovered)  card.Background = _hoverBg;
-                else               card.Background = _transparent;
+                if (pressed)       cardRoot.Background = _pressedBg;
+                else if (hovered)  cardRoot.Background = _hoverBg;
+                else               cardRoot.Background = _transparent;
             }
         }
 
@@ -987,7 +994,7 @@ namespace LivePhotoBox.Views
             {
                 if (args.ItemContainer is ListViewItem container)
                 {
-                    var card = FindVisualChild<Border>(container);
+                    var card = FindVisualChild<Grid>(container);
                     if (card != null)
                     {
                         card.PointerEntered -= TimelineCard_PointerEntered;
@@ -1012,7 +1019,7 @@ namespace LivePhotoBox.Views
             if (sender is ListViewItem container)
             {
                 container.Loaded -= OnTimelineContainerLoaded_WireCardEvents;
-                var card = FindVisualChild<Border>(container);
+                var card = FindVisualChild<Grid>(container);
                 if (card != null)
                 {
                     card.PointerEntered += TimelineCard_PointerEntered;
@@ -1028,7 +1035,7 @@ namespace LivePhotoBox.Views
 
         private void TimelineCard_PointerEntered(object sender, PointerRoutedEventArgs e)
         {
-            if (sender is Border card)
+            if (sender is Panel card)
             {
                 _hoveredTimelineCard = card;
                 UpdateTimelineCardVisual(card, IsTimelineCardSelected(card),
@@ -1038,7 +1045,7 @@ namespace LivePhotoBox.Views
 
         private void TimelineCard_PointerExited(object sender, PointerRoutedEventArgs e)
         {
-            if (sender is Border card)
+            if (sender is Panel card)
             {
                 if (_hoveredTimelineCard == card) _hoveredTimelineCard = null;
                 UpdateTimelineCardVisual(card, IsTimelineCardSelected(card),
@@ -1048,7 +1055,7 @@ namespace LivePhotoBox.Views
 
         private void TimelineCard_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
-            if (sender is Border card)
+            if (sender is Panel card)
             {
                 _pressedTimelineCard = card;
                 UpdateTimelineCardVisual(card, IsTimelineCardSelected(card),
@@ -1058,7 +1065,7 @@ namespace LivePhotoBox.Views
 
         private void TimelineCard_PointerReleased(object sender, PointerRoutedEventArgs e)
         {
-            if (sender is Border card)
+            if (sender is Panel card)
             {
                 if (_pressedTimelineCard == card) _pressedTimelineCard = null;
                 UpdateTimelineCardVisual(card, IsTimelineCardSelected(card),
@@ -1079,7 +1086,7 @@ namespace LivePhotoBox.Views
             if (item == null) return;
             if (TimelineListView.ContainerFromItem(item) is ListViewItem container)
             {
-                var card = FindVisualChild<Border>(container);
+                var card = FindVisualChild<Grid>(container);
                 if (card != null)
                     UpdateTimelineCardVisual(card, isSelected,
                         hovered: _hoveredTimelineCard == card,
@@ -1455,6 +1462,46 @@ namespace LivePhotoBox.Views
                 ViewModel.ClearAll();
                 _lastScannedPath = null;
                 UpdateRefreshButtonIcon();
+            }
+        }
+
+        private static FontIcon CreateFilterCheckIcon() => new() { Glyph = "", FontSize = 6 };
+
+        /// <summary>展开筛选菜单时同步选中状态、统一宽度、调整边距。</summary>
+        private void FilterFlyout_Opening(object sender, object e)
+        {
+            if (sender is not MenuFlyout flyout) return;
+
+            // 计算所有菜单项文本的最宽值，统一 MinWidth 保持边距均衡
+            double maxTextWidth = 0;
+            var measureTb = new TextBlock { FontSize = 14, TextWrapping = TextWrapping.NoWrap };
+            foreach (var item in flyout.Items)
+            {
+                if (item is not MenuFlyoutItem mi) continue;
+                measureTb.Text = mi.Text;
+                measureTb.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+                maxTextWidth = Math.Max(maxTextWidth, measureTb.DesiredSize.Width);
+            }
+            double uniformMinWidth = maxTextWidth + 76;
+
+            var currentIndex = ViewModel.SelectedFilterIndex;
+            foreach (var item in flyout.Items)
+            {
+                if (item is not MenuFlyoutItem mi || mi.Tag is not string tagStr || !int.TryParse(tagStr, out int idx))
+                    continue;
+                mi.MinWidth = uniformMinWidth;
+                mi.Padding = new Thickness(14, 10, 14, 10);
+                mi.MinHeight = 40;
+                mi.Icon = idx == currentIndex ? CreateFilterCheckIcon() : null;
+            }
+        }
+
+        /// <summary>筛选菜单项点击 → 设置过滤索引。</summary>
+        private void FilterMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuFlyoutItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int index))
+            {
+                ViewModel.SelectedFilterIndex = index;
             }
         }
 

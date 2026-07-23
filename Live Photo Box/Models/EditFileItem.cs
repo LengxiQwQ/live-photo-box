@@ -90,7 +90,7 @@ namespace LivePhotoBox.Models
             new(Windows.UI.Color.FromArgb(0xFF, 0xD4, 0x88, 0x0A));
 
         /// <summary>配对是否不完整（有协议但缺对方文件）</summary>
-        private bool IsPairIncomplete =>
+        public bool IsPairIncomplete =>
             HasConfirmedProtocol
             && LivePhotoType == LivePhotoType.DualFile
             && (string.IsNullOrEmpty(PairedVideoPath) || !File.Exists(PairedVideoPath));

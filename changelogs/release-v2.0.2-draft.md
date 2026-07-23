@@ -3,25 +3,32 @@
 - **📤 多格式导出** — 编辑页面导出功能大升级：导出当前帧或全部帧时可选择 JPEG、PNG、WebP 格式；新增导出视频（MP4 / MOV）；新增导出为 GIF 动图，可调尺寸、帧率和循环次数
   > Multi-format export: export frames as JPEG, PNG, or WebP; export video as MP4 or MOV; new GIF export with adjustable size, frame rate, and loop count.
 
-- **🖼️ 导出进度焕新** — 每次导出或保存都有清晰的中文提示（"正在导出当前帧…""正在保存封面…"等），完成后显示绿色对勾和完成文字，不再自动消失；旁边新增"输出文件夹"按钮，点击直接打开文件所在目录
-  > Export progress overhaul: every save/export now shows a clear status label; green checkmark + completion text stays visible instead of auto-hiding; new "Open Folder" button jumps directly to the output directory.
-
-- **🎨 LIVE 徽标颜色固定** — 文件列表里的 LIVE 小标签不再跟随系统主题色，统一使用醒目的蓝色，一眼就能认出实况照片
+- **🖼️ 编辑页面导出进度显示** — 每次导出或保存都有清晰的中文提示，不再自动消失；旁边新增 "输出文件夹" 按钮
   
-  > LIVE badge now uses a fixed blue color instead of following the system accent color, making live photos instantly recognizable.
+  > Export progress now shows clear status labels that stay visible instead of auto-hiding, plus a new "Open Folder" button.
 
 ## ⚡ 优化 / Optimizations
 
-- **🎨 界面视觉统一刷新** — 所有页面卡片面板现在使用更干净统一的配色；编辑页面面板间距更紧凑、选项卡选中标记移到上方更顺手；切换窗口背景模式后面板不再变糊
+- **🎨 界面视觉统一刷新** — 所有页面卡片面板现在使用更干净统一的配色，去掉原本的白色大底，和 Windows 设置一样
   
-  > Visual refresh: all card panels now use a cleaner, more consistent color scheme; edit page panels are more compact with tab indicators on top; panels stay sharp when switching backdrop modes.
+  > All card panels now use a cleaner, more consistent color scheme — no more white backgrounds, matching the Windows Settings look.
   
-- **📤 导出体验统一** — 导出所有帧不再单独弹对话框，结果直接显示在顶部进度条，和单帧导出、视频导出保持一致的完成反馈
-  > Export all frames now uses the same inline progress bar as other exports instead of a separate popup dialog.
+- **🎨 资源浏览重新设计** — 更加紧凑，统计信息更加详细
+  
+  > File browser redesigned: more compact layout with richer file statistics.
+  
+- **📊 实况照片检测优化** — 编辑页面现在能够检测到有实况照片标记的残缺照片，例如照片部分缺少视频
+  
+  > Edit page can now detect incomplete live photos — for example, photos with a live photo marker but missing the video file.
+  
+- **🎨 其他细节优化** — 选项卡根据文件类型自动切换默认视图；修复 150% DPI 缩放下时间轴缩略图白边；默认排序改为按日期
+  
+  > Other refinements: tabs auto-switch based on file type; fixed 1px white edge on timeline thumbnails at 150% DPI scaling; default sort order changed to by date.
 
 ## 🐛 修复 / Bug Fixes
 
 - **🏷️ 任务栏窗口名显示异常** — 修复按 Alt+Tab 切换窗口时应用名称显示错误的问题
+  
   > Fixed app name displaying incorrectly in Alt+Tab task switcher.
 
 ---

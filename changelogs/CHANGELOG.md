@@ -8,7 +8,7 @@
 
 ## v2.0.x — LivePhotoEdit Page & Toolchain Rewrite
 
-> **v2.0.2** (2026-07-23) **[Feature]** Multi-format export (JPEG/PNG/WebP), video/GIF export; export progress overhaul — clear per-step labels, persistent checkmark, one-click open output folder; LIVE badge now fixed blue; **[Optimize]** Visual refresh, export all frames inline instead of popup; **[Fix]** Alt+Tab window title, drag overlay overlap, export menu gray-out logic
+> **v2.0.2** (2026-07-23) **[Feature]** Multi-format export (JPEG/PNG/WebP), video/GIF export; export progress overhaul — clear per-step labels, persistent checkmark, one-click open output folder, red X + error bubble on failure; LIVE badge now fixed blue; **[Optimize]** File browser redesign, live photo detection improvements, visual refresh, export all frames inline instead of popup, unified three-state progress panel (spinner/success/error); **[Fix]** Alt+Tab window title, drag overlay overlap, export menu gray-out logic, error popups replaced with inline display
 >
 > **v2.0.1** (2026-07-21) **[Performance]** Edit page performance significantly improved — instant click response, no crash on rapid switching, faster HEIC thumbnails, timeline VRAM drastically reduced; refresh button smart-switches to clear button
 >

@@ -2528,20 +2528,47 @@ Are you sure you want to switch?</value>
   <data name="KeyPhoto_FileCountSummary" xml:space="preserve">
     <value>{0} live photos, {1} other photos</value>
   </data>
+  <data name="KeyPhoto_TotalLabel.Text" xml:space="preserve">
+    <value>Total</value>
+  </data>
   <data name="KeyPhoto_LivePhotoLabel.Text" xml:space="preserve">
-    <value>Live Photos</value>
+    <value>Live</value>
+  </data>
+  <data name="KeyPhoto_BrokenLiveLabel.Text" xml:space="preserve">
+    <value>Broken</value>
   </data>
   <data name="KeyPhoto_OtherFileLabel.Text" xml:space="preserve">
-    <value>Other Files</value>
+    <value>Other</value>
   </data>
   <data name="KeyPhoto_Filter_All.Content" xml:space="preserve">
-    <value>All Photos</value>
+    <value>All Files</value>
+  </data>
+  <data name="KeyPhoto_FilterMenu_All.Text" xml:space="preserve">
+    <value>All Files</value>
   </data>
   <data name="KeyPhoto_Filter_Live.Content" xml:space="preserve">
-    <value>Live Photos Only</value>
+    <value>Live Photos</value>
   </data>
-  <data name="KeyPhoto_Filter_Regular.Content" xml:space="preserve">
+  <data name="KeyPhoto_FilterMenu_Live.Text" xml:space="preserve">
+    <value>Live Photos</value>
+  </data>
+  <data name="KeyPhoto_Filter_BrokenLive.Content" xml:space="preserve">
+    <value>Broken Live Photos</value>
+  </data>
+  <data name="KeyPhoto_FilterMenu_BrokenLive.Text" xml:space="preserve">
+    <value>Broken Live Photos</value>
+  </data>
+  <data name="KeyPhoto_Filter_RegularPhoto.Content" xml:space="preserve">
     <value>Regular Photos Only</value>
+  </data>
+  <data name="KeyPhoto_FilterMenu_RegularPhoto.Text" xml:space="preserve">
+    <value>Regular Photos Only</value>
+  </data>
+  <data name="KeyPhoto_Filter_RegularVideo.Content" xml:space="preserve">
+    <value>Regular Videos Only</value>
+  </data>
+  <data name="KeyPhoto_FilterMenu_RegularVideo.Text" xml:space="preserve">
+    <value>Regular Videos Only</value>
   </data>
   <data name="KeyPhotoPage_PanelTitle.Text" xml:space="preserve">
     <value>File Browser</value>
@@ -2709,7 +2736,31 @@ Are you sure you want to switch?</value>
     <value>Saved as</value>
   </data>
   <data name="KeyPhotoPage_OpenOutputFolderButton" xml:space="preserve">
-    <value>Output Folder</value>
+    <value>Open output folder</value>
+  </data>
+  <data name="KeyPhotoPage_ExportCurrentFrameFailed" xml:space="preserve">
+    <value>Current frame export failed</value>
+  </data>
+  <data name="KeyPhotoPage_ExportAllFramesFailed" xml:space="preserve">
+    <value>All frames export failed</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoFailed" xml:space="preserve">
+    <value>Video export failed</value>
+  </data>
+  <data name="KeyPhotoPage_ExportGifFailed" xml:space="preserve">
+    <value>GIF generation failed</value>
+  </data>
+  <data name="KeyPhotoPage_SaveCoverFailed" xml:space="preserve">
+    <value>Cover save failed</value>
+  </data>
+  <data name="KeyPhotoPage_SaveAsFailed" xml:space="preserve">
+    <value>Save as failed</value>
+  </data>
+  <data name="KeyPhotoPage_GuardNotLivePhoto" xml:space="preserve">
+    <value>Current file is not a live photo</value>
+  </data>
+  <data name="KeyPhotoPage_GuardNoVideoSource" xml:space="preserve">
+    <value>Cannot find paired video for this live photo</value>
   </data>
   <data name="KeyPhotoPage_SaveInProgress" xml:space="preserve">
     <value>Saving...</value>
@@ -2746,6 +2797,9 @@ Are you sure you want to switch?</value>
   </data>
   <data name="KeyPhotoPage_LeftPanelEmptyHint_Line2.Text" xml:space="preserve">
     <value>or drag a folder here</value>
+  </data>
+  <data name="KeyPhotoPage_FilterEmptyHint.Text" xml:space="preserve">
+    <value>Nothing here</value>
   </data>
   <data name="KeyPhotoPage_PreviewEmptyHint_Line1.Text" xml:space="preserve">
     <value>Select a file from the left</value>

@@ -793,7 +793,7 @@
     <value>—— 让每一份回忆，都如动漫般灵动 (o・v・o)</value>
   </data>
   <data name="HomePage_WelcomeTitle.Text" xml:space="preserve">
-    <value>欢迎使用 Live Photo Box</value>
+    <value>欢迎使用 实况照片工具箱！</value>
   </data>
   <data name="HomePage_Intro1.Text" xml:space="preserve">
     <value>你好呀！Live Photo Box 是一款专为 Windows 打造的实况照片工具箱。如果你是一位 Apple 用户，用 iPhone 拍了很多实况照片，换到 Windows 或是 Android 手机后却发现它们再也动不起来了——别担心，你来对地方了。我想让每一段鲜活的回忆，无论在哪台设备上，都能原汁原味地呈现。</value>
@@ -2321,8 +2321,23 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_ExportAllFrames.Text" xml:space="preserve">
     <value>导出所有帧</value>
   </data>
+  <data name="KeyPhotoPage_Export.ToolTipService.ToolTip" xml:space="preserve">
+    <value>导出帧、视频或 GIF</value>
+  </data>
   <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
     <value>导出…</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideo.Text" xml:space="preserve">
+    <value>导出为视频</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoMp4.Text" xml:space="preserve">
+    <value>MP4 (H.264 + AAC)</value>
+  </data>
+  <data name="KeyPhotoPage_ExportVideoMov.Text" xml:space="preserve">
+    <value>MOV (H.265 QuickTime + AAC)</value>
+  </data>
+  <data name="KeyPhotoPage_ExportGif.Text" xml:space="preserve">
+    <value>导出为GIF动图</value>
   </data>
   <data name="KeyPhotoPage_More.Label" xml:space="preserve">
     <value>更多</value>
@@ -2502,23 +2517,38 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhoto_Protocol_NonLive" xml:space="preserve">
     <value>非实况照片</value>
   </data>
+  <data name="KeyPhoto_Protocol_MissingVideo" xml:space="preserve">
+    <value>（缺少视频）</value>
+  </data>
+  <data name="KeyPhoto_Protocol_MissingPhoto" xml:space="preserve">
+    <value>（缺少照片）</value>
+  </data>
   <data name="KeyPhoto_FileCountSummary" xml:space="preserve">
     <value>共 {0} 个实况照片，{1} 个其他照片</value>
   </data>
+  <data name="KeyPhoto_TotalLabel.Text" xml:space="preserve">
+    <value>总计</value>
+  </data>
   <data name="KeyPhoto_LivePhotoLabel.Text" xml:space="preserve">
-    <value>实况照片</value>
+    <value>实况</value>
+  </data>
+  <data name="KeyPhoto_BrokenLiveLabel.Text" xml:space="preserve">
+    <value>残缺</value>
   </data>
   <data name="KeyPhoto_OtherFileLabel.Text" xml:space="preserve">
-    <value>其他照片</value>
+    <value>其他</value>
   </data>
   <data name="KeyPhoto_Filter_All.Content" xml:space="preserve">
-    <value>所有照片</value>
+    <value>所有文件</value>
+  </data>
+  <data name="KeyPhoto_FilterMenu_All.Text" xml:space="preserve">
+    <value>所有文件</value>
   </data>
   <data name="KeyPhoto_Filter_Live.Content" xml:space="preserve">
-    <value>仅实况照片</value>
+    <value>实况照片</value>
   </data>
-  <data name="KeyPhoto_Filter_Regular.Content" xml:space="preserve">
-    <value>仅普通照片</value>
+  <data name="KeyPhoto_FilterMenu_Live.Text" xml:space="preserve">
+    <value>实况照片</value>
   </data>
   <data name="KeyPhotoPage_PanelTitle.Text" xml:space="preserve">
     <value>资源浏览</value>
@@ -2686,7 +2716,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>另存为完成</value>
   </data>
   <data name="KeyPhotoPage_OpenOutputFolderButton" xml:space="preserve">
-    <value>输出文件夹</value>
+    <value>打开输出文件夹</value>
   </data>
   <data name="KeyPhotoPage_SaveInProgress" xml:space="preserve">
     <value>正在保存...</value>
@@ -2757,25 +2787,49 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="KeyPhotoPage_ClearDirTooltip" xml:space="preserve">
     <value>清空当前列表</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideo.Text" xml:space="preserve">
-    <value>导出为视频</value>
+  <data name="KeyPhotoPage_ExportCurrentFrameFailed" xml:space="preserve">
+    <value>当前帧导出失败</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoMp4.Text" xml:space="preserve">
-    <value>MP4 (H.264 + AAC)</value>
+  <data name="KeyPhotoPage_ExportAllFramesFailed" xml:space="preserve">
+    <value>所有帧导出失败</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoMov.Text" xml:space="preserve">
-    <value>MOV (H.265 QuickTime + AAC)</value>
+  <data name="KeyPhotoPage_ExportVideoFailed" xml:space="preserve">
+    <value>视频导出失败</value>
   </data>
-  <data name="KeyPhotoPage_ExportGif.Text" xml:space="preserve">
-    <value>导出为GIF动图</value>
+  <data name="KeyPhotoPage_ExportGifFailed" xml:space="preserve">
+    <value>GIF 生成失败</value>
   </data>
-  <data name="KeyPhotoPage_Export.ToolTipService.ToolTip" xml:space="preserve">
-    <value>导出帧、视频或 GIF</value>
+  <data name="KeyPhotoPage_SaveCoverFailed" xml:space="preserve">
+    <value>封面保存失败</value>
   </data>
-  <data name="KeyPhoto_Protocol_MissingVideo" xml:space="preserve">
-    <value>（缺少视频）</value>
+  <data name="KeyPhotoPage_SaveAsFailed" xml:space="preserve">
+    <value>另存为失败</value>
   </data>
-  <data name="KeyPhoto_Protocol_MissingPhoto" xml:space="preserve">
-    <value>（缺少照片）</value>
+  <data name="KeyPhotoPage_GuardNotLivePhoto" xml:space="preserve">
+    <value>当前文件不是实况照片</value>
+  </data>
+  <data name="KeyPhotoPage_GuardNoVideoSource" xml:space="preserve">
+    <value>找不到此实况照片配对的视频</value>
+  </data>
+  <data name="KeyPhoto_Filter_RegularPhoto.Content" xml:space="preserve">
+    <value>仅普通照片</value>
+  </data>
+  <data name="KeyPhoto_FilterMenu_RegularPhoto.Text" xml:space="preserve">
+    <value>仅普通照片</value>
+  </data>
+  <data name="KeyPhoto_Filter_RegularVideo.Content" xml:space="preserve">
+    <value>仅普通视频</value>
+  </data>
+  <data name="KeyPhoto_FilterMenu_RegularVideo.Text" xml:space="preserve">
+    <value>仅普通视频</value>
+  </data>
+  <data name="KeyPhoto_Filter_BrokenLive.Content" xml:space="preserve">
+    <value>残缺实况</value>
+  </data>
+  <data name="KeyPhoto_FilterMenu_BrokenLive.Text" xml:space="preserve">
+    <value>残缺实况</value>
+  </data>
+  <data name="KeyPhotoPage_FilterEmptyHint.Text" xml:space="preserve">
+    <value>空空如也</value>
   </data>
 </root>
