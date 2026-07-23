@@ -242,7 +242,7 @@ namespace LivePhotoBox.Views
             // 导出 Flyout 打开时强刷 x:Bind 绑定
             ExportFlyout.Opening += (_, _) => Bindings.Update();
 
-            Loaded += KeyPhotoPage_Loaded;
+            Loaded += EditPage_Loaded;
             PhotoViewer.ScaleChanged += PhotoViewer_ScaleChanged;
             PureMediaViewer.ScaleChanged += s =>
             {
@@ -688,9 +688,9 @@ namespace LivePhotoBox.Views
                 UpdateZoomPercentDisplay();
         }
 
-        private void KeyPhotoPage_Loaded(object sender, RoutedEventArgs e)
+        private void EditPage_Loaded(object sender, RoutedEventArgs e)
         {
-            Loaded -= KeyPhotoPage_Loaded;
+            Loaded -= EditPage_Loaded;
 
             LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(SortComboBox);
 
@@ -704,6 +704,9 @@ namespace LivePhotoBox.Views
 
             // 初始化缩略图集中调度（可见性优先 + 方向预加载 + 200ms 批量刷新）
             SetupThumbnailScheduling();
+
+            // 初始化刷新/清除按钮图标（空目录时显示清除 ✕）
+            UpdateRefreshButtonIcon();
         }
 
         // ═════════════════════════════════════════════════════════════════
@@ -1519,8 +1522,8 @@ namespace LivePhotoBox.Views
             RefreshDirIcon.Glyph = isValid ? "" : ""; // ↻ vs ✕
             ToolTipService.SetToolTip(RefreshDirBtn,
                 ResourceService.GetString(isValid
-                    ? "KeyPhotoPage_RefreshDirTooltip"
-                    : "KeyPhotoPage_ClearDirTooltip"));
+                    ? "EditPage_RefreshDirTooltip"
+                    : "EditPage_ClearDirTooltip"));
         }
 
         /// <summary>浏览按钮按下时设标记（早于 LostFocus 触发），防止 LostFocus 误扫描旧路径</summary>

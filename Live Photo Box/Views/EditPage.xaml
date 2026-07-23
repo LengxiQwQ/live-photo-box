@@ -294,19 +294,19 @@
             <CommandBar DefaultLabelPosition="Right"
                         HorizontalAlignment="Stretch" IsDynamicOverflowEnabled="False"
                         Background="Transparent">
-                <AppBarButton x:Uid="KeyPhotoPage_ConvertProtocol"
+                <AppBarButton x:Uid="EditPage_ConvertProtocol"
                               Command="{x:Bind ViewModel.ConvertProtocolCommand}"
-                              Label="转换实况照片协议">
+                              Label="转换协议">
                     <AppBarButton.Icon><ic:SymbolIcon Symbol="ArrowSwap" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
                 <AppBarSeparator/>
-                <AppBarButton x:Uid="KeyPhotoPage_Export"
+                <AppBarButton x:Uid="EditPage_Export"
                               IsEnabled="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay}">
                     <AppBarButton.Icon><ic:SymbolIcon Symbol="ImageArrowForward" FontSize="14"/></AppBarButton.Icon>
                     <AppBarButton.Flyout>
                         <MenuFlyout x:Name="ExportFlyout" Placement="Bottom">
                             <!-- 1. 导出当前帧：有照片即可（含缺失视频的实况） -->
-                            <MenuFlyoutItem x:Uid="KeyPhotoPage_ExportFrame"
+                            <MenuFlyoutItem x:Uid="EditPage_ExportFrame"
                                             Command="{x:Bind ViewModel.ExportCurrentFrameCommand}"
                                             IsEnabled="{x:Bind ViewModel.CanExportCurrentFrame, Mode=OneWay}">
                                 <MenuFlyoutItem.Icon>
@@ -314,7 +314,7 @@
                                 </MenuFlyoutItem.Icon>
                             </MenuFlyoutItem>
                             <!-- 2. 导出所有帧：需有时间轴 -->
-                            <MenuFlyoutItem x:Uid="KeyPhotoPage_ExportAllFrames"
+                            <MenuFlyoutItem x:Uid="EditPage_ExportAllFrames"
                                             Command="{x:Bind ViewModel.ExportAllFramesCommand}"
                                             IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}">
                                 <MenuFlyoutItem.Icon>
@@ -325,7 +325,7 @@
                             <MenuFlyoutSeparator/>
 
                             <!-- 3. 导出为视频：需有时间轴 -->
-                            <MenuFlyoutItem x:Uid="KeyPhotoPage_ExportVideo"
+                            <MenuFlyoutItem x:Uid="EditPage_ExportVideo"
                                             Command="{x:Bind ViewModel.ExportVideoCommand}"
                                             IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}">
                                 <MenuFlyoutItem.Icon>
@@ -334,7 +334,7 @@
                             </MenuFlyoutItem>
 
                             <!-- 4. 导出为 GIF 动图：需有时间轴 -->
-                            <MenuFlyoutItem x:Uid="KeyPhotoPage_ExportGif"
+                            <MenuFlyoutItem x:Uid="EditPage_ExportGif"
                                             Command="{x:Bind ViewModel.ExportGifCommand}"
                                             IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}">
                                 <MenuFlyoutItem.Icon>
@@ -344,14 +344,14 @@
                         </MenuFlyout>
                     </AppBarButton.Flyout>
                 </AppBarButton>
-                <AppBarButton x:Uid="KeyPhotoPage_SaveAs" Command="{x:Bind ViewModel.SaveAsCommand}"
+                <AppBarButton x:Uid="EditPage_SaveAs" Command="{x:Bind ViewModel.SaveAsCommand}"
                               IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"
                               Label="另存为">
                     <AppBarButton.Icon><FontIcon Glyph="&#xE792;" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
                 <AppBarSeparator/>
-                <AppBarButton x:Uid="KeyPhotoPage_Save" Command="{x:Bind ViewModel.SaveCommand}"
-                              IsEnabled="{x:Bind ViewModel.IsSetCoverEnabled, Mode=OneWay}"
+                <AppBarButton x:Uid="EditPage_Save" Command="{x:Bind ViewModel.SaveCommand}"
+                              IsEnabled="{x:Bind ViewModel.IsSetKeyPhotoEnabled, Mode=OneWay}"
                               Label="设为封面并保存为副本">
                     <AppBarButton.Icon><FontIcon Glyph="&#xE74E;" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
@@ -361,7 +361,7 @@
             <StackPanel Orientation="Horizontal"
                         VerticalAlignment="Center" HorizontalAlignment="Left"
                         Margin="8,0,0,0">
-                <TextBlock x:Uid="KeyPhotoPage_PageTitle"
+                <TextBlock x:Uid="EditPage_PageTitle"
                            FontSize="16" FontWeight="SemiBold"
                            VerticalAlignment="Center" Margin="8,0,0,0"
                            IsHitTestVisible="False"
@@ -460,14 +460,25 @@
                             <RowDefinition Height="*"/>      <!-- ListView -->
                         </Grid.RowDefinitions>
 
-                    <!-- ── 标题行：资源浏览 + 折叠按钮 ── -->
+                    <!-- ── 标题行：资源浏览 + 加载动画 + 折叠按钮 ── -->
                     <Grid Grid.Row="0" Margin="10,14,10,10">
-                        <TextBlock x:Name="PanelTitleText" x:Uid="KeyPhotoPage_PanelTitle"
-                                   Text="资源浏览"
-                                   FontSize="14" FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                   VerticalAlignment="Center" HorizontalAlignment="Left"/>
-                        <Button x:Name="CollapsePanelButton"
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock x:Name="PanelTitleText" x:Uid="EditPage_PanelTitle"
+                                       Text="资源浏览"
+                                       FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                       VerticalAlignment="Center"/>
+                            <ProgressRing Width="12" Height="12"
+                                          IsActive="{x:Bind ViewModel.IsScanning, Mode=OneWay}"
+                                          VerticalAlignment="Center"
+                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+                        </StackPanel>
+                        <Button Grid.Column="2" x:Name="CollapsePanelButton"
                                 Width="28" Height="28" Padding="0"
                                 HorizontalAlignment="Right" VerticalAlignment="Center"
                                 Background="{ThemeResource ControlFillColorDefaultBrush}"
@@ -475,7 +486,7 @@
                                 BorderThickness="1" CornerRadius="5"
                                 Click="CollapsePanelButton_Click"
                                 Visibility="{x:Bind ViewModel.HasAnyFiles, Mode=OneWay}"
-                                x:Uid="KeyPhotoPage_CollapsePanel">
+                                x:Uid="EditPage_CollapsePanel">
                             <FontIcon x:Name="CollapseButtonIcon" Glyph="&#xE76B;"
                                       FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </Button>
@@ -489,7 +500,7 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <TextBox Grid.Column="0" x:Uid="KeyPhotoPage_CurrentDirBox"
+                            <TextBox Grid.Column="0" x:Uid="EditPage_CurrentDirBox"
                                      x:Name="CurrentDirTextBox"
                                      Text="{x:Bind ViewModel.CurrentDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                      PlaceholderText="当前目录..."
@@ -501,7 +512,7 @@
                                     <x:Double x:Key="TextControlThemeMinHeight">28</x:Double>
                                 </TextBox.Resources>
                             </TextBox>
-                            <Button Grid.Column="1" x:Uid="KeyPhotoPage_BrowseFolderBtn"
+                            <Button Grid.Column="1" x:Uid="EditPage_BrowseFolderBtn"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
@@ -518,7 +529,7 @@
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                     Click="RefreshOrClearDir_Click">
-                                <FontIcon x:Name="RefreshDirIcon" Glyph="&#xE72C;" FontSize="12"
+                                <FontIcon x:Name="RefreshDirIcon" Glyph="&#xE711;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
                         </Grid>
@@ -530,7 +541,7 @@
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            <AutoSuggestBox Grid.Column="0" x:Uid="KeyPhotoPage_SearchBox"
+                            <AutoSuggestBox Grid.Column="0" x:Uid="EditPage_SearchBox"
                                             Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                             PlaceholderText="搜索文件..."
                                             FontSize="12" Height="28" MinHeight="28" Padding="10,0,30,0"
@@ -543,11 +554,11 @@
                                       SelectedIndex="{x:Bind ViewModel.SelectedSortIndex, Mode=TwoWay}"
                                       FontSize="12" MinHeight="28" Height="28" Padding="10,3,6,3"
                                       VerticalAlignment="Center">
-                                <ComboBoxItem x:Uid="KeyPhotoPage_Sort_Name" Content="名称"/>
-                                <ComboBoxItem x:Uid="KeyPhotoPage_Sort_Date" Content="日期"/>
-                                <ComboBoxItem x:Uid="KeyPhotoPage_Sort_Size" Content="大小"/>
+                                <ComboBoxItem x:Uid="EditPage_Sort_Name" Content="名称"/>
+                                <ComboBoxItem x:Uid="EditPage_Sort_Date" Content="日期"/>
+                                <ComboBoxItem x:Uid="EditPage_Sort_Size" Content="大小"/>
                             </ComboBox>
-                            <Button Grid.Column="2" x:Uid="KeyPhotoPage_SortDirectionBtn"
+                            <Button Grid.Column="2" x:Uid="EditPage_SortDirectionBtn"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
                                     VerticalAlignment="Center"
                                     Command="{x:Bind ViewModel.ToggleSortDirectionCommand}"
@@ -557,18 +568,18 @@
                                 <FontIcon Glyph="{x:Bind ViewModel.SortDirectionGlyph, Mode=OneWay}" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
-                            <Button Grid.Column="3"
+                            <Button Grid.Column="3" x:Uid="EditPage_FilterBtn"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
                                 <Button.Flyout>
                                     <MenuFlyout Placement="Bottom" Opening="FilterFlyout_Opening">
-                                        <MenuFlyoutItem x:Uid="KeyPhoto_FilterMenu_All" Click="FilterMenuItem_Click" Tag="0"/>
-                                        <MenuFlyoutItem x:Uid="KeyPhoto_FilterMenu_Live" Click="FilterMenuItem_Click" Tag="1"/>
-                                        <MenuFlyoutItem x:Uid="KeyPhoto_FilterMenu_BrokenLive" Click="FilterMenuItem_Click" Tag="2"/>
-                                        <MenuFlyoutItem x:Uid="KeyPhoto_FilterMenu_RegularPhoto" Click="FilterMenuItem_Click" Tag="3"/>
-                                        <MenuFlyoutItem x:Uid="KeyPhoto_FilterMenu_RegularVideo" Click="FilterMenuItem_Click" Tag="4"/>
+                                        <MenuFlyoutItem x:Uid="EditPage_FilterMenu_All" Click="FilterMenuItem_Click" Tag="0"/>
+                                        <MenuFlyoutItem x:Uid="EditPage_FilterMenu_Live" Click="FilterMenuItem_Click" Tag="1"/>
+                                        <MenuFlyoutItem x:Uid="EditPage_FilterMenu_BrokenLive" Click="FilterMenuItem_Click" Tag="2"/>
+                                        <MenuFlyoutItem x:Uid="EditPage_FilterMenu_RegularPhoto" Click="FilterMenuItem_Click" Tag="3"/>
+                                        <MenuFlyoutItem x:Uid="EditPage_FilterMenu_RegularVideo" Click="FilterMenuItem_Click" Tag="4"/>
                                     </MenuFlyout>
                                 </Button.Flyout>
                                 <FontIcon Glyph="&#xE71C;" FontSize="12"
@@ -586,7 +597,7 @@
                                     Orientation="Horizontal" VerticalAlignment="Center" Spacing="16">
                             <!-- 总计 -->
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <TextBlock x:Uid="KeyPhoto_TotalLabel" Text="总计" FontSize="11"
+                                <TextBlock x:Uid="EditPage_TotalLabel" Text="总计" FontSize="11"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                 <TextBlock Text="：" FontSize="11"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
@@ -596,7 +607,7 @@
                             </StackPanel>
                             <!-- 实况 -->
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <TextBlock x:Uid="KeyPhoto_LivePhotoLabel" Text="实况" FontSize="11"
+                                <TextBlock x:Uid="EditPage_LivePhotoLabel" Text="实况" FontSize="11"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                 <TextBlock Text="：" FontSize="11"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
@@ -607,7 +618,7 @@
                             <!-- 残缺（为 0 时隐藏） -->
                             <StackPanel Orientation="Horizontal" Spacing="2"
                                         Visibility="{x:Bind ViewModel.HasBrokenLive, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
-                                <TextBlock x:Uid="KeyPhoto_BrokenLiveLabel" Text="残缺" FontSize="11"
+                                <TextBlock x:Uid="EditPage_BrokenLiveLabel" Text="残缺" FontSize="11"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                 <TextBlock Text="：" FontSize="11"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
@@ -617,7 +628,7 @@
                             </StackPanel>
                             <!-- 其他 -->
                             <StackPanel Orientation="Horizontal" Spacing="2">
-                                <TextBlock x:Uid="KeyPhoto_OtherFileLabel" Text="其他" FontSize="11"
+                                <TextBlock x:Uid="EditPage_OtherFileLabel" Text="其他" FontSize="11"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                                 <TextBlock Text="：" FontSize="11"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
@@ -626,11 +637,6 @@
                                            Text="{x:Bind ViewModel.OtherCount, Mode=OneWay}"/>
                             </StackPanel>
                         </StackPanel>
-                        <!-- 扫描加载动画 -->
-                        <ProgressRing Grid.Column="1" Width="12" Height="12"
-                                      IsActive="{x:Bind ViewModel.IsScanning, Mode=OneWay}"
-                                      VerticalAlignment="Center" Margin="0,0,4,0"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
                     </Grid>
                     <!-- ▸▸▸ ListView + 渐变遮罩（折叠时遮住文字，只露缩略图）▸▸▸ -->
                     <Grid Grid.Row="3">
@@ -703,7 +709,7 @@
                                                         CornerRadius="3" Padding="4,1"
                                                         HorizontalAlignment="Right" VerticalAlignment="Center"
                                                         Visibility="{x:Bind LivePhotoBadgeVisibility, Mode=OneWay}">
-                                                    <TextBlock x:Uid="KeyPhotoPage_ListItemLiveBadge" FontSize="8" FontWeight="Bold"
+                                                    <TextBlock x:Uid="EditPage_ListItemLiveBadge" FontSize="8" FontWeight="Bold"
                                                                Foreground="White"/>
                                                 </Border>
                                             </Grid>
@@ -730,14 +736,14 @@
                             <!-- 无目录：提示用户选择目录 -->
                             <StackPanel x:Name="NoDirHint" Spacing="12" HorizontalAlignment="Center"
                                         Visibility="{x:Bind ViewModel.HasFilesLoaded, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}">
-                                <TextBlock x:Uid="KeyPhotoPage_LeftPanelEmptyHint_Line1"
+                                <TextBlock x:Uid="EditPage_LeftPanelEmptyHint_Line1"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                            HorizontalAlignment="Center"
                                            TextWrapping="WrapWholeWords"
                                            MaxWidth="160"
                                            TextAlignment="Center"/>
-                                <TextBlock x:Uid="KeyPhotoPage_LeftPanelEmptyHint_Line2"
+                                <TextBlock x:Uid="EditPage_LeftPanelEmptyHint_Line2"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                            HorizontalAlignment="Center"
@@ -746,7 +752,7 @@
                                            TextAlignment="Center"/>
                             </StackPanel>
                             <!-- 筛选为空：目录有文件但无匹配项 -->
-                            <TextBlock x:Uid="KeyPhotoPage_FilterEmptyHint"
+                            <TextBlock x:Uid="EditPage_FilterEmptyHint"
                                        x:Name="FilterEmptyHint"
                                        FontSize="12"
                                        Foreground="{ThemeResource TextFillColorTertiaryBrush}"
@@ -773,7 +779,7 @@
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
                     <FontIcon Glyph="&#xE838;" FontSize="36"
                               Foreground="White"/>
-                    <TextBlock x:Uid="KeyPhotoPage_DropToBrowse"
+                    <TextBlock x:Uid="EditPage_DropToBrowse"
                                FontSize="14" FontWeight="SemiBold"
                                Foreground="White"
                                HorizontalAlignment="Center"/>
@@ -816,7 +822,7 @@
                         <StackPanel Orientation="Horizontal"
                                     HorizontalAlignment="Left" VerticalAlignment="Top"
                                     Margin="6,6,0,0">
-                            <Button x:Name="LivePhotoBadgeButton" x:Uid="KeyPhotoPage_PlayLivePhoto"
+                            <Button x:Name="LivePhotoBadgeButton" x:Uid="EditPage_PlayLivePhoto"
                                     Height="28" Padding="8,0,10,0" CornerRadius="5"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
@@ -836,14 +842,14 @@
                                             <CompositeTransform x:Name="LivePhotoIconTransform" ScaleX="1" ScaleY="1"/>
                                         </Image.RenderTransform>
                                     </Image>
-                                    <TextBlock x:Uid="KeyPhotoPage_LiveBadge" FontSize="10" FontWeight="Bold"
+                                    <TextBlock x:Uid="EditPage_LiveBadge" FontSize="10" FontWeight="Bold"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
 
                             <!-- 静音切换按钮：与 LIVE 按钮同显同隐，点击切换 Speaker2 ↔ SpeakerMute -->
-                            <Button x:Name="MuteButton" x:Uid="KeyPhotoPage_MuteToggle"
+                            <Button x:Name="MuteButton" x:Uid="EditPage_MuteToggle"
                                     Height="28" Width="28" Padding="0" CornerRadius="5"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
@@ -867,7 +873,7 @@
                                     HorizontalAlignment="Right" VerticalAlignment="Top"
                                     Margin="6,6,6,0"
                                     Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
-                            <Button x:Uid="KeyPhotoPage_ZoomOutBtn"
+                            <Button x:Uid="EditPage_ZoomOutBtn"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
@@ -876,7 +882,7 @@
                                 <FontIcon Glyph="&#xE949;" FontSize="12"
                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                             </Button>
-                            <Button x:Uid="KeyPhotoPage_ZoomResetBtn"
+                            <Button x:Uid="EditPage_ZoomResetBtn"
                                     x:Name="ZoomPercentButton"
                                     Width="36" Height="28" Padding="0" CornerRadius="5"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
@@ -887,7 +893,7 @@
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                            VerticalAlignment="Center" HorizontalAlignment="Center"/>
                             </Button>
-                            <Button x:Uid="KeyPhotoPage_ZoomInBtn"
+                            <Button x:Uid="EditPage_ZoomInBtn"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
@@ -900,7 +906,7 @@
                                     Background="{ThemeResource CardStrokeColorDefaultBrush}"
                                     VerticalAlignment="Center" Margin="2,0"/>
                             <Button x:Name="MaximizeButton"
-                                    x:Uid="KeyPhotoPage_MaximizeButton"
+                                    x:Uid="EditPage_MaximizeButton"
                                     Width="28" Height="28" Padding="0" CornerRadius="5"
                                     Background="{ThemeResource ControlFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
@@ -924,7 +930,7 @@
                                         <FontIcon Glyph="&#xE72B;" FontSize="14"
                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                   VerticalAlignment="Center" Margin="0,2,0,0"/>
-                                        <TextBlock x:Uid="KeyPhotoPage_PreviewEmptyHint_Line1"
+                                        <TextBlock x:Uid="EditPage_PreviewEmptyHint_Line1"
                                                    FontSize="14"
                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                    VerticalAlignment="Center"
@@ -936,7 +942,7 @@
                                                 <FontIcon Glyph="&#xE8E5;" FontSize="14"
                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                   VerticalAlignment="Center" Margin="0,2,0,0"/>
-                                        <TextBlock x:Uid="KeyPhotoPage_PreviewEmptyHint_Line2"
+                                        <TextBlock x:Uid="EditPage_PreviewEmptyHint_Line2"
                                                    FontSize="14"
                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                    VerticalAlignment="Center"
@@ -1067,12 +1073,12 @@
                                     </Setter>
                                 </Style>
                             </ctk:Segmented.ItemContainerStyle>
-                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabCombined" Content="组合查看" Tag="combined"
+                            <ctk:SegmentedItem x:Uid="EditPage_TabCombined" Content="组合查看" Tag="combined"
                                                IsEnabled="{x:Bind ViewModel.IsTimelineTabDisabled, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"/>
-                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabFrames" Content="实况照片帧" Tag="frames"
+                            <ctk:SegmentedItem x:Uid="EditPage_TabFrames" Content="实况照片帧" Tag="frames"
                                                IsEnabled="{x:Bind ViewModel.IsTimelineTabDisabled, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"/>
-                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabBasicInfo" Content="文件基础信息" Tag="basicInfo"/>
-                            <ctk:SegmentedItem x:Uid="KeyPhotoPage_TabDetailProps" Content="更改文件属性" Tag="detailProps"/>
+                            <ctk:SegmentedItem x:Uid="EditPage_TabBasicInfo" Content="文件基础信息" Tag="basicInfo"/>
+                            <ctk:SegmentedItem x:Uid="EditPage_TabDetailProps" Content="更改文件属性" Tag="detailProps"/>
                         </ctk:Segmented>
 
                         <!-- ═══════════════════════════════════════════════════════ -->
@@ -1103,7 +1109,7 @@
                                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="5">
                                                         <FontIcon Glyph="&#xE8B2;" FontSize="13" Margin="0,2,0,0"
                                                           Foreground="{ThemeResource AccentFillColorDefaultBrush}" VerticalAlignment="Center"/>
-                                                <TextBlock x:Uid="KeyPhotoPage_TimelineTitle"
+                                                <TextBlock x:Uid="EditPage_TimelineTitle"
                                                            Text="Live Photo 时间轴" FontWeight="SemiBold" FontSize="11"
                                                            Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                                                 <ProgressRing Width="12" Height="12" IsIndeterminate="True"
@@ -1114,13 +1120,13 @@
                                                         <TranslateTransform Y="2"/>
                                                     </ProgressRing.RenderTransform>
                                                 </ProgressRing>
-                                                <Button x:Uid="KeyPhotoPage_GotoCover"
+                                                <Button x:Uid="EditPage_GoToKeyPhoto"
                                                         Content="前往封面" FontSize="10"
                                                         Height="21" Padding="8,0"
                                                         VerticalAlignment="Center"
                                                         Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                                        IsEnabled="{x:Bind ViewModel.IsSetCoverEnabled, Mode=OneWay}"
-                                                        Command="{x:Bind ViewModel.GotoCoverCommand}"/>
+                                                        IsEnabled="{x:Bind ViewModel.IsSetKeyPhotoEnabled, Mode=OneWay}"
+                                                        Command="{x:Bind ViewModel.GoToKeyPhotoCommand}"/>
                                             </StackPanel>
                                             <!-- 当前帧位置（跨列叠加居中，不受左右宽度影响） -->
                                             <TextBlock Grid.ColumnSpan="3"
@@ -1283,7 +1289,7 @@
                                                     Click="FilmstripPrevButton_Click"
                                                     IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
                                                     Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"
-                                                    x:Uid="KeyPhotoPage_PrevFrame">
+                                                    x:Uid="EditPage_PrevFrame">
                                                 <FontIcon Glyph="&#xE76B;" FontSize="10"
                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                             </Button>
@@ -1296,7 +1302,7 @@
                                                     Click="FilmstripNextButton_Click"
                                                     IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
                                                     Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"
-                                                    x:Uid="KeyPhotoPage_NextFrame">
+                                                    x:Uid="EditPage_NextFrame">
                                                 <FontIcon Glyph="&#xE76C;" FontSize="10"
                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                             </Button>
@@ -1313,7 +1319,7 @@
                                 <FontIcon Glyph="&#xE8B2;" FontSize="16"
                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                           VerticalAlignment="Center"/>
-                                <TextBlock x:Uid="KeyPhotoPage_TimelineEmptyHint"
+                                <TextBlock x:Uid="EditPage_TimelineEmptyHint"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                            VerticalAlignment="Center"
@@ -1361,7 +1367,7 @@
                                                Foreground="{ThemeResource TextFillColorPrimaryBrush}"
                                                TextTrimming="CharacterEllipsis"/>
                                     <Button Style="{StaticResource InfoRowButtonStyle}"
-                                            x:Uid="KeyPhotoPage_LocatePhoto"
+                                            x:Uid="EditPage_LocatePhoto"
                                             Click="LocatePhotoFile_Click"
                                             Visibility="{x:Bind ViewModel.IsPhotoRowVisible, Mode=OneWay}">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
@@ -1374,7 +1380,7 @@
                                         </StackPanel>
                                     </Button>
                                     <Button Style="{StaticResource InfoRowButtonStyle}"
-                                            x:Uid="KeyPhotoPage_LocateVideo"
+                                            x:Uid="EditPage_LocateVideo"
                                             Click="LocateVideoFile_Click"
                                             Visibility="{x:Bind ViewModel.IsVideoRowVisible, Mode=OneWay}">
                                         <StackPanel Orientation="Horizontal" Spacing="4">
@@ -1390,7 +1396,7 @@
                                                 Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}">
                                         <Path Data="M21 32 A11 11 0 1 1 43 32 A11 11 0 1 1 21 32 M26 32 A6 6 0 1 1 38 32 A6 6 0 1 1 26 32 M29.4 13 A2.6 2.6 0 1 1 34.6 13 A2.6 2.6 0 1 1 29.4 13 M40.57 16.63 A2.6 2.6 0 1 1 45.77 16.63 A2.6 2.6 0 1 1 40.57 16.63 M47.47 26.13 A2.6 2.6 0 1 1 52.67 26.13 A2.6 2.6 0 1 1 47.47 26.13 M47.47 37.87 A2.6 2.6 0 1 1 52.67 37.87 A2.6 2.6 0 1 1 47.47 37.87 M40.57 47.37 A2.6 2.6 0 1 1 45.77 47.37 A2.6 2.6 0 1 1 40.57 47.37 M29.4 51 A2.6 2.6 0 1 1 34.6 51 A2.6 2.6 0 1 1 29.4 51 M18.23 47.37 A2.6 2.6 0 1 1 23.43 47.37 A2.6 2.6 0 1 1 18.23 47.37 M11.33 37.87 A2.6 2.6 0 1 1 16.53 37.87 A2.6 2.6 0 1 1 11.33 37.87 M11.33 26.13 A2.6 2.6 0 1 1 16.53 26.13 A2.6 2.6 0 1 1 11.33 26.13 M18.23 16.63 A2.6 2.6 0 1 1 23.43 16.63 A2.6 2.6 0 1 1 18.23 16.63"
                                               Width="12" Height="12" Stretch="Uniform"
-                                              Fill="{ThemeResource AccentFillColorDefaultBrush}"
+                                              Fill="{x:Bind ViewModel.ProtocolIconBrush, Mode=OneWay}"
                                               VerticalAlignment="Center" Margin="-0.25,2,0,0"/>
                                         <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
                                                    Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
@@ -1456,7 +1462,7 @@
                                         <FontIcon Glyph="&#xE946;" FontSize="16"
                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                   VerticalAlignment="Center" Margin="0,2,0,0"/>
-                                        <TextBlock x:Uid="KeyPhotoPage_BasicInfoLeftHint"
+                                        <TextBlock x:Uid="EditPage_BasicInfoLeftHint"
                                                    FontSize="13"
                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                    VerticalAlignment="Center"
@@ -1476,7 +1482,7 @@
                                                 <FontIcon Glyph="&#xE737;" FontSize="16"
                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                   VerticalAlignment="Center" Margin="0,2,0,0"/>
-                                                <TextBlock x:Uid="KeyPhotoPage_BasicInfoRightHint"
+                                                <TextBlock x:Uid="EditPage_BasicInfoRightHint"
                                                    FontSize="13"
                                                    Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                    VerticalAlignment="Center"
@@ -1491,7 +1497,7 @@
                             <!-- ──────────────────────────────────────────────── -->
                             <Grid x:Name="DetailPropsPlaceholder" MinHeight="100"
                                   Visibility="{x:Bind ViewModel.IsDetailPropsPanelVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
-                                <TextBlock x:Uid="KeyPhotoPage_DetailPropsPlaceholder"
+                                <TextBlock x:Uid="EditPage_DetailPropsPlaceholder"
                                            FontSize="12"
                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
@@ -1515,7 +1521,7 @@
                 <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
                     <FontIcon Glyph="&#xE8B2;" FontSize="36"
                               Foreground="White"/>
-                    <TextBlock x:Uid="KeyPhotoPage_DropToView"
+                    <TextBlock x:Uid="EditPage_DropToView"
                                FontSize="14" FontWeight="SemiBold"
                                Foreground="White"
                                HorizontalAlignment="Center"/>

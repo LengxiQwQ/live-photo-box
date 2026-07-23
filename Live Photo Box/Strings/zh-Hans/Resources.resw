@@ -261,10 +261,10 @@
   <data name="SettingsPage_CrashIssue_Button_Text.Text" xml:space="preserve">
     <value>前往 GitHub 反馈</value>
   </data>
-  <data name="KeyPhotoPage_PlaceholderTitle.Text" xml:space="preserve">
+  <data name="EditPage_PlaceholderTitle.Text" xml:space="preserve">
     <value>实况照片主图更换暂未开放</value>
   </data>
-  <data name="KeyPhotoPage_PlaceholderDescription.Text" xml:space="preserve">
+  <data name="EditPage_PlaceholderDescription.Text" xml:space="preserve">
     <value>自由更换实况照片的封面主图。通过解析实况照片的底层数据结构，从动态视频帧中选取你最满意的一刻，无损替换为新的静态封面，让每一张实况照片都能定格在最完美的瞬间。</value>
   </data>
   <data name="PhotoClassifyPage_PlaceholderTitle.Text" xml:space="preserve">
@@ -800,7 +800,7 @@
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
     <value>在这里，你可以自由地合成、拆分和修复实况照片。Apple 为优化前置拍摄性能，将实况视频的物理像素横向存储，依赖内置 Rotation 标签来判断画面方向——但 Windows 系统会忽略这个标签直接渲染原始像素，导致画面旋转；iOS 17.3 之前还存在缩略图拉伸的问题。Live Photo Box 通过底层物理级矫正，彻底根治这些跨平台兼容性顽疾。
-合成与拆分也同样拿手：任意图片 + 视频 → 标准实况照片，适配 Google、OPPO、小米等 Android 实况协议；无损提取原始素材，完整保留 EXIF 与拍摄参数。此外，封面更换功能即将上线，照片自动分类等更多智能特性也在规划中，敬请期待。</value>
+合成与拆分也同样拿手：任意图片 + 视频 → 标准实况照片，适配 Google、OPPO、小米等 Android 实况协议；无损提取原始素材，完整保留 EXIF 与拍摄参数。此外，关键照片更换功能即将上线，照片自动分类等更多智能特性也在规划中，敬请期待。</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>友情提示 :</value>
@@ -2282,452 +2282,506 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="RepairOptions_CountFormat" xml:space="preserve">
     <value>（{0}项）</value>
   </data>
-  <data name="KeyPhotoPage_Back.Label" xml:space="preserve">
+  <data name="EditPage_Back.Label" xml:space="preserve">
     <value>返回</value>
   </data>
-  <data name="KeyPhotoPage_Undo.Label" xml:space="preserve">
+  <data name="EditPage_Undo.Label" xml:space="preserve">
     <value>撤销</value>
   </data>
-  <data name="KeyPhotoPage_Redo.Label" xml:space="preserve">
+  <data name="EditPage_Redo.Label" xml:space="preserve">
     <value>重做</value>
   </data>
-  <data name="KeyPhotoPage_PageTitle.Text" xml:space="preserve">
+  <data name="EditPage_PageTitle.Text" xml:space="preserve">
     <value>实况照片编辑</value>
   </data>
-  <data name="KeyPhotoPage_ConvertProtocol.Label" xml:space="preserve">
-    <value>转换实况照片协议</value>
-  </data>
-  <data name="KeyPhotoPage_ConvertProtocol.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_ConvertProtocol.Label" xml:space="preserve">
     <value>转换协议</value>
   </data>
-  <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
+  <data name="EditPage_ConvertProtocol.ToolTipService.ToolTip" xml:space="preserve">
+    <value>暂未开放</value>
+  </data>
+  <data name="EditPage_Restore.Label" xml:space="preserve">
     <value>恢复</value>
   </data>
-  <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
-    <value>设为封面并保存为副本</value>
+  <data name="EditPage_Save.Label" xml:space="preserve">
+    <value>设为关键照片并保存为副本</value>
   </data>
-  <data name="KeyPhotoPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>设为封面并另存</value>
+  <data name="EditPage_Save.ToolTipService.ToolTip" xml:space="preserve">
+    <value>设为关键照片并另存</value>
   </data>
-  <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
+  <data name="EditPage_SaveAs.Label" xml:space="preserve">
     <value>另存为</value>
   </data>
-  <data name="KeyPhotoPage_SaveAs.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_SaveAs.ToolTipService.ToolTip" xml:space="preserve">
     <value>另存为新文件</value>
   </data>
-  <data name="KeyPhotoPage_ExportFrame.Text" xml:space="preserve">
+  <data name="EditPage_ExportFrame.Text" xml:space="preserve">
     <value>导出当前帧</value>
   </data>
-  <data name="KeyPhotoPage_ExportAllFrames.Text" xml:space="preserve">
+  <data name="EditPage_ExportAllFrames.Text" xml:space="preserve">
     <value>导出所有帧</value>
   </data>
-  <data name="KeyPhotoPage_Export.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_Export.ToolTipService.ToolTip" xml:space="preserve">
     <value>导出帧、视频或 GIF</value>
   </data>
-  <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
+  <data name="EditPage_Export.Label" xml:space="preserve">
     <value>导出…</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideo.Text" xml:space="preserve">
+  <data name="EditPage_ExportVideo.Text" xml:space="preserve">
     <value>导出为视频</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoMp4.Text" xml:space="preserve">
+  <data name="EditPage_ExportVideoMp4.Text" xml:space="preserve">
     <value>MP4 (H.264 + AAC)</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoMov.Text" xml:space="preserve">
+  <data name="EditPage_ExportVideoMov.Text" xml:space="preserve">
     <value>MOV (H.265 QuickTime + AAC)</value>
   </data>
-  <data name="KeyPhotoPage_ExportGif.Text" xml:space="preserve">
+  <data name="EditPage_ExportGif.Text" xml:space="preserve">
     <value>导出为GIF动图</value>
   </data>
-  <data name="KeyPhotoPage_More.Label" xml:space="preserve">
+  <data name="EditPage_More.Label" xml:space="preserve">
     <value>更多</value>
   </data>
-  <data name="KeyPhotoPage_CurrentDirBox.PlaceholderText" xml:space="preserve">
+  <data name="EditPage_CurrentDirBox.PlaceholderText" xml:space="preserve">
     <value>当前目录...</value>
   </data>
-  <data name="KeyPhotoPage_RefreshDirBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_RefreshDirBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>刷新目录</value>
   </data>
-  <data name="KeyPhotoPage_PrevFrame.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_PrevFrame.ToolTipService.ToolTip" xml:space="preserve">
     <value>上一帧</value>
   </data>
-  <data name="KeyPhotoPage_NextFrame.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_NextFrame.ToolTipService.ToolTip" xml:space="preserve">
     <value>下一帧</value>
   </data>
-  <data name="KeyPhotoPage_PlayLivePhoto.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_PlayLivePhoto.ToolTipService.ToolTip" xml:space="preserve">
     <value>播放实况照片</value>
   </data>
-  <data name="KeyPhotoPage_MuteToggle.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_MuteToggle.ToolTipService.ToolTip" xml:space="preserve">
     <value>切换静音</value>
   </data>
-  <data name="KeyPhotoPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>浏览文件夹</value>
   </data>
-  <data name="KeyPhotoPage_SearchBox.PlaceholderText" xml:space="preserve">
+  <data name="EditPage_SearchBox.PlaceholderText" xml:space="preserve">
     <value>搜索文件...</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Name.Content" xml:space="preserve">
+  <data name="EditPage_Sort_Name.Content" xml:space="preserve">
     <value>名称</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Date.Content" xml:space="preserve">
+  <data name="EditPage_Sort_Date.Content" xml:space="preserve">
     <value>日期</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Size.Content" xml:space="preserve">
+  <data name="EditPage_Sort_Size.Content" xml:space="preserve">
     <value>大小</value>
   </data>
-  <data name="KeyPhotoPage_ViewModeToggle.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_ViewModeToggle.ToolTipService.ToolTip" xml:space="preserve">
     <value>切换显示模式</value>
   </data>
-  <data name="KeyPhotoPage_SortDirectionBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_SortDirectionBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>排序方向</value>
   </data>
-  <data name="KeyPhotoPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_FilterBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>筛选文件</value>
+  </data>
+  <data name="EditPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>缩小</value>
   </data>
-  <data name="KeyPhotoPage_ZoomResetBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_ZoomResetBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>100%</value>
   </data>
-  <data name="KeyPhotoPage_ZoomInBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_ZoomInBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>放大</value>
   </data>
-  <data name="KeyPhotoPage_FitWindowBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_FitWindowBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>适应窗口</value>
   </data>
-  <data name="KeyPhotoPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>1:1</value>
   </data>
-  <data name="KeyPhotoPage_ExportProgressPrefixLabel" xml:space="preserve">
+  <data name="EditPage_ExportProgressPrefixLabel" xml:space="preserve">
     <value>正在导出帧…</value>
   </data>
-  <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
+  <data name="EditPage_TimelineTitle.Text" xml:space="preserve">
     <value>实况照片帧</value>
   </data>
-  <data name="KeyPhotoPage_TimelinePlaceholder.Text" xml:space="preserve">
+  <data name="EditPage_TimelinePlaceholder.Text" xml:space="preserve">
     <value>（后续版本实现）</value>
   </data>
-  <data name="KeyPhoto_TimelineInfo" xml:space="preserve">
+  <data name="EditPage_TimelineInfo" xml:space="preserve">
     <value>{0} · {1} 帧</value>
     <comment>时间轴摘要信息：{0}=时长, {1}=总帧数</comment>
   </data>
-  <data name="KeyPhoto_TimelineFramePosition" xml:space="preserve">
+  <data name="EditPage_TimelineFramePosition" xml:space="preserve">
     <value>第 {0} 帧 / 共 {1} 帧</value>
     <comment>{0}=当前帧序号, {1}=总帧数</comment>
   </data>
-  <data name="KeyPhoto_TimelineFps" xml:space="preserve">
+  <data name="EditPage_TimelineFps" xml:space="preserve">
     <value>{0} fps</value>
     <comment>{0}=帧率数值，如 30</comment>
   </data>
-  <data name="KeyPhoto_TimelineFrameKeyPhoto" xml:space="preserve">
-    <value>封面 · 共 {0} 帧</value>
+  <data name="EditPage_TimelineFrameKeyPhoto" xml:space="preserve">
+    <value>关键照片 · 共 {0} 帧</value>
     <comment>{0}=总帧数</comment>
   </data>
-  <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
+  <data name="EditPage_PhotoInfoTitle.Text" xml:space="preserve">
     <value>当前照片信息</value>
   </data>
-  <data name="KeyPhotoPage_LivePhotoInfoTitle.Text" xml:space="preserve">
+  <data name="EditPage_LivePhotoInfoTitle.Text" xml:space="preserve">
     <value>Live Photo 信息</value>
   </data>
-  <data name="KeyPhotoPage_ExifInfoTitle.Text" xml:space="preserve">
+  <data name="EditPage_ExifInfoTitle.Text" xml:space="preserve">
     <value>EXIF 信息</value>
   </data>
-  <data name="KeyPhotoPage_FileNameLabel.Text" xml:space="preserve">
+  <data name="EditPage_FileNameLabel.Text" xml:space="preserve">
     <value>文件名：</value>
   </data>
-  <data name="KeyPhotoPage_FilePathLabel.Text" xml:space="preserve">
+  <data name="EditPage_FilePathLabel.Text" xml:space="preserve">
     <value>路径：</value>
   </data>
-  <data name="KeyPhotoPage_FileSizeLabel.Text" xml:space="preserve">
+  <data name="EditPage_FileSizeLabel.Text" xml:space="preserve">
     <value>大小：</value>
   </data>
-  <data name="KeyPhotoPage_ResolutionLabel.Text" xml:space="preserve">
+  <data name="EditPage_ResolutionLabel.Text" xml:space="preserve">
     <value>分辨率：</value>
   </data>
-  <data name="KeyPhotoPage_PhotoFormatLabel.Text" xml:space="preserve">
+  <data name="EditPage_PhotoFormatLabel.Text" xml:space="preserve">
     <value>格式：</value>
   </data>
-  <data name="KeyPhotoPage_ProtocolLabel.Text" xml:space="preserve">
+  <data name="EditPage_ProtocolLabel.Text" xml:space="preserve">
     <value>协议：</value>
   </data>
-  <data name="KeyPhotoPage_VideoDurationLabel.Text" xml:space="preserve">
+  <data name="EditPage_VideoDurationLabel.Text" xml:space="preserve">
     <value>视频时长：</value>
   </data>
-  <data name="KeyPhotoPage_VideoCodecLabel.Text" xml:space="preserve">
+  <data name="EditPage_VideoCodecLabel.Text" xml:space="preserve">
     <value>编码格式：</value>
   </data>
-  <data name="KeyPhotoPage_VideoResolutionLabel.Text" xml:space="preserve">
+  <data name="EditPage_VideoResolutionLabel.Text" xml:space="preserve">
     <value>视频分辨率：</value>
   </data>
-  <data name="KeyPhotoPage_VideoFpsLabel.Text" xml:space="preserve">
+  <data name="EditPage_VideoFpsLabel.Text" xml:space="preserve">
     <value>帧率：</value>
   </data>
-  <data name="KeyPhotoPage_CameraModelLabel.Text" xml:space="preserve">
+  <data name="EditPage_CameraModelLabel.Text" xml:space="preserve">
     <value>相机型号：</value>
   </data>
-  <data name="KeyPhotoPage_LensModelLabel.Text" xml:space="preserve">
+  <data name="EditPage_LensModelLabel.Text" xml:space="preserve">
     <value>镜头：</value>
   </data>
-  <data name="KeyPhotoPage_FocalLengthLabel.Text" xml:space="preserve">
+  <data name="EditPage_FocalLengthLabel.Text" xml:space="preserve">
     <value>焦距：</value>
   </data>
-  <data name="KeyPhotoPage_ApertureLabel.Text" xml:space="preserve">
+  <data name="EditPage_ApertureLabel.Text" xml:space="preserve">
     <value>光圈：</value>
   </data>
-  <data name="KeyPhotoPage_ShutterSpeedLabel.Text" xml:space="preserve">
+  <data name="EditPage_ShutterSpeedLabel.Text" xml:space="preserve">
     <value>快门：</value>
   </data>
-  <data name="KeyPhotoPage_IsoLabel.Text" xml:space="preserve">
+  <data name="EditPage_IsoLabel.Text" xml:space="preserve">
     <value>ISO：</value>
   </data>
-  <data name="KeyPhotoPage_DateTakenLabel.Text" xml:space="preserve">
+  <data name="EditPage_DateTakenLabel.Text" xml:space="preserve">
     <value>拍摄日期：</value>
   </data>
-  <data name="KeyPhotoPage_MapPlaceholder.Text" xml:space="preserve">
+  <data name="EditPage_MapPlaceholder.Text" xml:space="preserve">
     <value>地图（后续实现）</value>
   </data>
-  <data name="KeyPhotoPage_ViewFullProps.Label" xml:space="preserve">
+  <data name="EditPage_ViewFullProps.Label" xml:space="preserve">
     <value>完整属性</value>
   </data>
-  <data name="KeyPhotoPage_ViewFullPropsText.Text" xml:space="preserve">
+  <data name="EditPage_ViewFullPropsText.Text" xml:space="preserve">
     <value>查看完整属性</value>
   </data>
-  <data name="KeyPhotoPage_Altitude" xml:space="preserve">
+  <data name="EditPage_Altitude" xml:space="preserve">
     <value>海拔</value>
   </data>
-  <data name="KeyPhoto_Protocol_Apple" xml:space="preserve">
+  <data name="EditPage_Protocol_Apple" xml:space="preserve">
     <value>Apple Live Photo</value>
   </data>
-  <data name="KeyPhoto_Protocol_GoogleV1" xml:space="preserve">
+  <data name="EditPage_Protocol_GoogleV1" xml:space="preserve">
     <value>Google Micro Video (V1)</value>
   </data>
-  <data name="KeyPhoto_Protocol_GoogleV2" xml:space="preserve">
+  <data name="EditPage_Protocol_GoogleV2" xml:space="preserve">
     <value>Google Motion Photo (V2)</value>
   </data>
-  <data name="KeyPhoto_Protocol_OPPO" xml:space="preserve">
+  <data name="EditPage_Protocol_OPPO" xml:space="preserve">
     <value>OPPO - O-Live Photo</value>
   </data>
-  <data name="KeyPhoto_Protocol_Xiaomi" xml:space="preserve">
+  <data name="EditPage_Protocol_Xiaomi" xml:space="preserve">
     <value>Xiaomi Motion Photo</value>
   </data>
-  <data name="KeyPhoto_Protocol_HeicEmbedded" xml:space="preserve">
+  <data name="EditPage_Protocol_HeicEmbedded" xml:space="preserve">
     <value>Apple HEIC 实况</value>
   </data>
-  <data name="KeyPhoto_Protocol_JpegGeneric" xml:space="preserve">
+  <data name="EditPage_Protocol_JpegGeneric" xml:space="preserve">
     <value>JPEG 内嵌实况</value>
   </data>
-  <data name="KeyPhoto_Protocol_NonLive" xml:space="preserve">
+  <data name="EditPage_Protocol_NonLive" xml:space="preserve">
     <value>非实况照片</value>
   </data>
-  <data name="KeyPhoto_Protocol_MissingVideo" xml:space="preserve">
+  <data name="EditPage_Protocol_MissingVideo" xml:space="preserve">
     <value>（缺少视频）</value>
   </data>
-  <data name="KeyPhoto_Protocol_MissingPhoto" xml:space="preserve">
+  <data name="EditPage_Protocol_MissingPhoto" xml:space="preserve">
     <value>（缺少照片）</value>
   </data>
-  <data name="KeyPhoto_FileCountSummary" xml:space="preserve">
+  <data name="EditPage_FileCountSummary" xml:space="preserve">
     <value>共 {0} 个实况照片，{1} 个其他照片</value>
   </data>
-  <data name="KeyPhoto_TotalLabel.Text" xml:space="preserve">
+  <data name="EditPage_TotalLabel.Text" xml:space="preserve">
     <value>总计</value>
   </data>
-  <data name="KeyPhoto_LivePhotoLabel.Text" xml:space="preserve">
+  <data name="EditPage_LivePhotoLabel.Text" xml:space="preserve">
     <value>实况</value>
   </data>
-  <data name="KeyPhoto_BrokenLiveLabel.Text" xml:space="preserve">
+  <data name="EditPage_BrokenLiveLabel.Text" xml:space="preserve">
     <value>残缺</value>
   </data>
-  <data name="KeyPhoto_OtherFileLabel.Text" xml:space="preserve">
+  <data name="EditPage_OtherFileLabel.Text" xml:space="preserve">
     <value>其他</value>
   </data>
-  <data name="KeyPhoto_Filter_All.Content" xml:space="preserve">
+  <data name="EditPage_Filter_All.Content" xml:space="preserve">
     <value>所有文件</value>
   </data>
-  <data name="KeyPhoto_FilterMenu_All.Text" xml:space="preserve">
+  <data name="EditPage_FilterMenu_All.Text" xml:space="preserve">
     <value>所有文件</value>
   </data>
-  <data name="KeyPhoto_Filter_Live.Content" xml:space="preserve">
+  <data name="EditPage_Filter_Live.Content" xml:space="preserve">
     <value>实况照片</value>
   </data>
-  <data name="KeyPhoto_FilterMenu_Live.Text" xml:space="preserve">
+  <data name="EditPage_FilterMenu_Live.Text" xml:space="preserve">
     <value>实况照片</value>
   </data>
-  <data name="KeyPhotoPage_PanelTitle.Text" xml:space="preserve">
+  <data name="EditPage_PanelTitle.Text" xml:space="preserve">
     <value>资源浏览</value>
   </data>
-  <data name="KeyPhotoPage_CollapsePanel.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_CollapsePanel.ToolTipService.ToolTip" xml:space="preserve">
     <value>折叠面板</value>
   </data>
-  <data name="KeyPhotoPage_LocatePhoto.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_LocatePhoto.ToolTipService.ToolTip" xml:space="preserve">
     <value>在文件夹中显示</value>
   </data>
-  <data name="KeyPhotoPage_LocateVideo.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_LocateVideo.ToolTipService.ToolTip" xml:space="preserve">
     <value>在文件夹中显示</value>
   </data>
-  <data name="KeyPhoto_CameraPosition_Rear" xml:space="preserve">
+  <data name="EditPage_CameraPosition_Rear" xml:space="preserve">
     <value>后置摄像头</value>
   </data>
-  <data name="KeyPhoto_CameraPosition_Front" xml:space="preserve">
+  <data name="EditPage_CameraPosition_Front" xml:space="preserve">
     <value>前置摄像头</value>
   </data>
-  <data name="KeyPhotoPage_MaximizeButton.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_MaximizeButton.ToolTipService.ToolTip" xml:space="preserve">
     <value>最大化预览</value>
   </data>
-  <data name="KeyPhotoPage_GotoCover.Content" xml:space="preserve">
-    <value>前往封面</value>
+  <data name="EditPage_GoToKeyPhoto.Content" xml:space="preserve">
+    <value>前往关键照片</value>
   </data>
-  <data name="KeyPhotoPage_GotoCover.ToolTipService.ToolTip" xml:space="preserve">
-    <value>跳转到当前封面对应的帧</value>
+  <data name="EditPage_GoToKeyPhoto.ToolTipService.ToolTip" xml:space="preserve">
+    <value>跳转到当前关键照片对应的帧</value>
   </data>
-  <data name="KeyPhoto_UnknownDevice" xml:space="preserve">
+  <data name="EditPage_UnknownDevice" xml:space="preserve">
     <value>未知拍摄设备</value>
   </data>
-  <data name="KeyPhoto_UnknownCamera" xml:space="preserve">
+  <data name="EditPage_UnknownCamera" xml:space="preserve">
     <value>未知摄像头</value>
   </data>
-  <data name="KeyPhoto_Lens_Rear" xml:space="preserve">
+  <data name="EditPage_Lens_Rear" xml:space="preserve">
     <value>后置</value>
   </data>
-  <data name="KeyPhoto_Lens_Front" xml:space="preserve">
+  <data name="EditPage_Lens_Front" xml:space="preserve">
     <value>前置</value>
   </data>
-  <data name="KeyPhoto_Lens_UltraWide" xml:space="preserve">
+  <data name="EditPage_Lens_UltraWide" xml:space="preserve">
     <value>超广角</value>
   </data>
-  <data name="KeyPhoto_Lens_Wide" xml:space="preserve">
+  <data name="EditPage_Lens_Wide" xml:space="preserve">
     <value>广角</value>
   </data>
-  <data name="KeyPhoto_Lens_Telephoto" xml:space="preserve">
+  <data name="EditPage_Lens_Telephoto" xml:space="preserve">
     <value>长焦</value>
   </data>
-  <data name="KeyPhoto_Lens_Macro" xml:space="preserve">
+  <data name="EditPage_Lens_Macro" xml:space="preserve">
     <value>微距</value>
   </data>
-  <data name="KeyPhoto_Lens_Main" xml:space="preserve">
+  <data name="EditPage_Lens_Main" xml:space="preserve">
     <value>主摄</value>
   </data>
-  <data name="KeyPhoto_Lens_Periscope" xml:space="preserve">
+  <data name="EditPage_Lens_Periscope" xml:space="preserve">
     <value>潜望</value>
   </data>
-  <data name="KeyPhoto_Lens_Depth" xml:space="preserve">
+  <data name="EditPage_Lens_Depth" xml:space="preserve">
     <value>景深</value>
   </data>
-  <data name="KeyPhoto_Lens_Camera" xml:space="preserve">
+  <data name="EditPage_Lens_Camera" xml:space="preserve">
     <value>摄像头</value>
   </data>
-  <data name="KeyPhotoPage_TabCombined.Content" xml:space="preserve">
+  <data name="EditPage_TabCombined.Content" xml:space="preserve">
     <value>组合查看</value>
   </data>
-  <data name="KeyPhotoPage_TabFrames.Content" xml:space="preserve">
+  <data name="EditPage_TabFrames.Content" xml:space="preserve">
     <value>实况照片帧</value>
   </data>
-  <data name="KeyPhotoPage_TabBasicInfo.Content" xml:space="preserve">
+  <data name="EditPage_TabBasicInfo.Content" xml:space="preserve">
     <value>文件基础信息</value>
   </data>
-  <data name="KeyPhotoPage_TabDetailProps.Content" xml:space="preserve">
+  <data name="EditPage_TabDetailProps.Content" xml:space="preserve">
     <value>更改文件属性</value>
   </data>
-  <data name="KeyPhotoPage_LiveBadge.Text" xml:space="preserve">
+  <data name="EditPage_LiveBadge.Text" xml:space="preserve">
     <value>LIVE</value>
   </data>
-  <data name="KeyPhotoPage_DropToBrowse.Text" xml:space="preserve">
+  <data name="EditPage_DropToBrowse.Text" xml:space="preserve">
     <value>释放以浏览此文件夹</value>
   </data>
-  <data name="KeyPhotoPage_DropToView.Text" xml:space="preserve">
+  <data name="EditPage_DropToView.Text" xml:space="preserve">
     <value>释放以查看此文件</value>
   </data>
-  <data name="KeyPhotoPage_DetailPropsPlaceholder.Text" xml:space="preserve">
+  <data name="EditPage_DetailPropsPlaceholder.Text" xml:space="preserve">
     <value>更改文件属性（即将推出）</value>
   </data>
-  <data name="KeyPhotoPage_ListItemLiveBadge.Text" xml:space="preserve">
+  <data name="EditPage_ListItemLiveBadge.Text" xml:space="preserve">
     <value>LIVE</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_Title" xml:space="preserve">
+  <data name="EditPage_ExportDialog_Title" xml:space="preserve">
     <value>导出所有帧</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_Description" xml:space="preserve">
+  <data name="EditPage_ExportDialog_Description" xml:space="preserve">
     <value>请确认导出位置以及文件夹名称，将导出所有实况照片帧为JPG图片。</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_FolderNameLabel" xml:space="preserve">
+  <data name="EditPage_ExportDialog_FolderNameLabel" xml:space="preserve">
     <value>文件夹名称</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_FolderPathLabel" xml:space="preserve">
+  <data name="EditPage_ExportDialog_FolderPathLabel" xml:space="preserve">
     <value>导出位置</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_BrowseBtn" xml:space="preserve">
+  <data name="EditPage_ExportDialog_BrowseBtn" xml:space="preserve">
     <value>浏览…</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_BrowseTip" xml:space="preserve">
+  <data name="EditPage_ExportDialog_BrowseTip" xml:space="preserve">
     <value>选择导出位置</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_ResetTip" xml:space="preserve">
+  <data name="EditPage_ExportDialog_ResetTip" xml:space="preserve">
     <value>重置为默认文件夹名称</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_CopyExifLabel" xml:space="preserve">
+  <data name="EditPage_ExportDialog_CopyExifLabel" xml:space="preserve">
     <value>为视频帧写入 EXIF 信息（拍摄设备、日期、相机参数等）</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_PathEmptyError" xml:space="preserve">
+  <data name="EditPage_ExportDialog_PathEmptyError" xml:space="preserve">
     <value>导出位置不能为空</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_PathInvalidError" xml:space="preserve">
+  <data name="EditPage_ExportDialog_PathInvalidError" xml:space="preserve">
     <value>导出位置无效，请输入有效的目录路径</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_ExportBtn" xml:space="preserve">
+  <data name="EditPage_ExportDialog_ExportBtn" xml:space="preserve">
     <value>导出</value>
   </data>
-  <data name="KeyPhotoPage_ExportComplete_Title" xml:space="preserve">
+  <data name="EditPage_ExportComplete_Title" xml:space="preserve">
     <value>导出完成</value>
   </data>
-  <data name="KeyPhotoPage_ExportComplete_Summary" xml:space="preserve">
+  <data name="EditPage_ExportComplete_Summary" xml:space="preserve">
     <value>导出已完成。成功 {0} 帧，失败 {1} 帧，共 {2} 帧。</value>
   </data>
-  <data name="KeyPhotoPage_ExportCurrentFrameInProgress" xml:space="preserve">
+  <data name="EditPage_ExportCurrentFrameInProgress" xml:space="preserve">
     <value>正在导出当前帧…</value>
   </data>
-  <data name="KeyPhotoPage_ExportCurrentFrameComplete" xml:space="preserve">
+  <data name="EditPage_ExportCurrentFrameComplete" xml:space="preserve">
     <value>当前帧导出完成</value>
   </data>
-  <data name="KeyPhotoPage_ExportAllFramesInProgress" xml:space="preserve">
+  <data name="EditPage_ExportAllFramesInProgress" xml:space="preserve">
     <value>正在导出所有帧…</value>
   </data>
-  <data name="KeyPhotoPage_ExportAllFramesComplete" xml:space="preserve">
+  <data name="EditPage_ExportAllFramesComplete" xml:space="preserve">
     <value>所有帧导出完成</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoInProgress" xml:space="preserve">
+  <data name="EditPage_ExportVideoInProgress" xml:space="preserve">
     <value>正在导出视频…</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoComplete" xml:space="preserve">
+  <data name="EditPage_ExportVideoComplete" xml:space="preserve">
     <value>视频导出完成</value>
   </data>
-  <data name="KeyPhotoPage_ExportGifInProgress" xml:space="preserve">
+  <data name="EditPage_ExportGifInProgress" xml:space="preserve">
     <value>正在生成 GIF…</value>
   </data>
-  <data name="KeyPhotoPage_ExportGifComplete" xml:space="preserve">
+  <data name="EditPage_ExportGifComplete" xml:space="preserve">
     <value>GIF 生成完成</value>
   </data>
-  <data name="KeyPhotoPage_SaveCoverInProgress" xml:space="preserve">
-    <value>正在保存封面…</value>
+  <data name="EditPage_GifDialog_Title" xml:space="preserve">
+    <value>GIF 导出设置</value>
   </data>
-  <data name="KeyPhotoPage_SaveCoverComplete" xml:space="preserve">
-    <value>封面保存完成</value>
+  <data name="EditPage_GifDialog_PrimaryButton" xml:space="preserve">
+    <value>生成 GIF</value>
   </data>
-  <data name="KeyPhotoPage_SaveAsInProgress" xml:space="preserve">
+  <data name="EditPage_GifDialog_SizeLabel" xml:space="preserve">
+    <value>尺寸 (像素)</value>
+  </data>
+  <data name="EditPage_GifDialog_WidthLabel" xml:space="preserve">
+    <value>宽</value>
+  </data>
+  <data name="EditPage_GifDialog_HeightLabel" xml:space="preserve">
+    <value>高</value>
+  </data>
+  <data name="EditPage_GifDialog_LockAspectRatio" xml:space="preserve">
+    <value>保持原始纵横比</value>
+  </data>
+  <data name="EditPage_GifDialog_UseOriginalSize" xml:space="preserve">
+    <value>使用原始尺寸</value>
+  </data>
+  <data name="EditPage_GifDialog_FpsLabel" xml:space="preserve">
+    <value>帧率 (fps)</value>
+  </data>
+  <data name="EditPage_GifDialog_LoopLabel" xml:space="preserve">
+    <value>循环次数 (0 = 无限)</value>
+  </data>
+  <data name="EditPage_GifDialog_OutputPathLabel" xml:space="preserve">
+    <value>输出路径</value>
+  </data>
+  <data name="EditPage_GifDialog_BrowseTooltip" xml:space="preserve">
+    <value>选择输出文件夹</value>
+  </data>
+  <data name="EditPage_ExportDialog_FormatLabel" xml:space="preserve">
+    <value>输出格式</value>
+  </data>
+  <data name="EditPage_ExportDialog_QualityLabel" xml:space="preserve">
+    <value>质量</value>
+  </data>
+  <data name="EditPage_ExportDialog_ShowInExplorer" xml:space="preserve">
+    <value>在资源管理器中显示</value>
+  </data>
+  <data name="EditPage_UnknownError" xml:space="preserve">
+    <value>未知错误</value>
+  </data>
+  <data name="EditPage_NoLocation" xml:space="preserve">
+    <value>无位置信息</value>
+  </data>
+  <data name="EditPage_GeoLookupFailed" xml:space="preserve">
+    <value>获取位置信息失败，请检查网络</value>
+  </data>
+  <data name="EditPage_SaveKeyPhotoInProgress" xml:space="preserve">
+    <value>正在保存关键照片…</value>
+  </data>
+  <data name="EditPage_SaveKeyPhotoComplete" xml:space="preserve">
+    <value>关键照片保存完成</value>
+  </data>
+  <data name="EditPage_SaveAsInProgress" xml:space="preserve">
     <value>正在另存为…</value>
   </data>
-  <data name="KeyPhotoPage_SaveAsComplete" xml:space="preserve">
+  <data name="EditPage_SaveAsComplete" xml:space="preserve">
     <value>另存为完成</value>
   </data>
-  <data name="KeyPhotoPage_OpenOutputFolderButton" xml:space="preserve">
+  <data name="EditPage_OpenOutputFolderButton" xml:space="preserve">
     <value>打开输出文件夹</value>
   </data>
-  <data name="KeyPhotoPage_SaveInProgress" xml:space="preserve">
+  <data name="EditPage_SaveInProgress" xml:space="preserve">
     <value>正在保存...</value>
   </data>
-  <data name="KeyPhotoPage_SaveComplete" xml:space="preserve">
+  <data name="EditPage_SaveComplete" xml:space="preserve">
     <value>保存完成</value>
   </data>
-  <data name="KeyPhotoPage_SaveAppleFilename" xml:space="preserve">
+  <data name="EditPage_SaveAppleFilename" xml:space="preserve">
     <value>{0}_封面帧{1}</value>
   </data>
-  <data name="KeyPhotoPage_SaveError" xml:space="preserve">
+  <data name="EditPage_SaveError" xml:space="preserve">
     <value>保存错误</value>
   </data>
   <data name="MergePage_DropToBrowse.Text" xml:space="preserve">
@@ -2748,25 +2802,25 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="RepairPage_EmptyQueueDragHint.Text" xml:space="preserve">
     <value>或将文件夹拖拽到此处</value>
   </data>
-  <data name="KeyPhotoPage_LeftPanelEmptyHint_Line1.Text" xml:space="preserve">
+  <data name="EditPage_LeftPanelEmptyHint_Line1.Text" xml:space="preserve">
     <value>点击上方浏览按钮选择目录</value>
   </data>
-  <data name="KeyPhotoPage_LeftPanelEmptyHint_Line2.Text" xml:space="preserve">
+  <data name="EditPage_LeftPanelEmptyHint_Line2.Text" xml:space="preserve">
     <value>或将文件夹拖拽到此处</value>
   </data>
-  <data name="KeyPhotoPage_PreviewEmptyHint_Line1.Text" xml:space="preserve">
+  <data name="EditPage_PreviewEmptyHint_Line1.Text" xml:space="preserve">
     <value>从左侧选择文件预览</value>
   </data>
-  <data name="KeyPhotoPage_PreviewEmptyHint_Line2.Text" xml:space="preserve">
+  <data name="EditPage_PreviewEmptyHint_Line2.Text" xml:space="preserve">
     <value>或将文件拖拽到此处</value>
   </data>
-  <data name="KeyPhotoPage_TimelineEmptyHint.Text" xml:space="preserve">
+  <data name="EditPage_TimelineEmptyHint.Text" xml:space="preserve">
     <value>选择实况照片后查看逐帧预览</value>
   </data>
-  <data name="KeyPhotoPage_BasicInfoLeftHint.Text" xml:space="preserve">
+  <data name="EditPage_BasicInfoLeftHint.Text" xml:space="preserve">
     <value>查看文件基本属性</value>
   </data>
-  <data name="KeyPhotoPage_BasicInfoRightHint.Text" xml:space="preserve">
+  <data name="EditPage_BasicInfoRightHint.Text" xml:space="preserve">
     <value>查看 EXIF 拍摄参数</value>
   </data>
   <data name="PureMediaViewer_Stretch_Uniform" xml:space="preserve">
@@ -2781,55 +2835,55 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="PureMediaViewer_Stretch_None" xml:space="preserve">
     <value>原始</value>
   </data>
-  <data name="KeyPhotoPage_RefreshDirTooltip" xml:space="preserve">
+  <data name="EditPage_RefreshDirTooltip" xml:space="preserve">
     <value>重新扫描当前目录</value>
   </data>
-  <data name="KeyPhotoPage_ClearDirTooltip" xml:space="preserve">
+  <data name="EditPage_ClearDirTooltip" xml:space="preserve">
     <value>清空当前列表</value>
   </data>
-  <data name="KeyPhotoPage_ExportCurrentFrameFailed" xml:space="preserve">
+  <data name="EditPage_ExportCurrentFrameFailed" xml:space="preserve">
     <value>当前帧导出失败</value>
   </data>
-  <data name="KeyPhotoPage_ExportAllFramesFailed" xml:space="preserve">
+  <data name="EditPage_ExportAllFramesFailed" xml:space="preserve">
     <value>所有帧导出失败</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoFailed" xml:space="preserve">
+  <data name="EditPage_ExportVideoFailed" xml:space="preserve">
     <value>视频导出失败</value>
   </data>
-  <data name="KeyPhotoPage_ExportGifFailed" xml:space="preserve">
+  <data name="EditPage_ExportGifFailed" xml:space="preserve">
     <value>GIF 生成失败</value>
   </data>
-  <data name="KeyPhotoPage_SaveCoverFailed" xml:space="preserve">
-    <value>封面保存失败</value>
+  <data name="EditPage_SaveKeyPhotoFailed" xml:space="preserve">
+    <value>关键照片保存失败</value>
   </data>
-  <data name="KeyPhotoPage_SaveAsFailed" xml:space="preserve">
+  <data name="EditPage_SaveAsFailed" xml:space="preserve">
     <value>另存为失败</value>
   </data>
-  <data name="KeyPhotoPage_GuardNotLivePhoto" xml:space="preserve">
+  <data name="EditPage_GuardNotLivePhoto" xml:space="preserve">
     <value>当前文件不是实况照片</value>
   </data>
-  <data name="KeyPhotoPage_GuardNoVideoSource" xml:space="preserve">
+  <data name="EditPage_GuardNoVideoSource" xml:space="preserve">
     <value>找不到此实况照片配对的视频</value>
   </data>
-  <data name="KeyPhoto_Filter_RegularPhoto.Content" xml:space="preserve">
+  <data name="EditPage_Filter_RegularPhoto.Content" xml:space="preserve">
     <value>仅普通照片</value>
   </data>
-  <data name="KeyPhoto_FilterMenu_RegularPhoto.Text" xml:space="preserve">
+  <data name="EditPage_FilterMenu_RegularPhoto.Text" xml:space="preserve">
     <value>仅普通照片</value>
   </data>
-  <data name="KeyPhoto_Filter_RegularVideo.Content" xml:space="preserve">
+  <data name="EditPage_Filter_RegularVideo.Content" xml:space="preserve">
     <value>仅普通视频</value>
   </data>
-  <data name="KeyPhoto_FilterMenu_RegularVideo.Text" xml:space="preserve">
+  <data name="EditPage_FilterMenu_RegularVideo.Text" xml:space="preserve">
     <value>仅普通视频</value>
   </data>
-  <data name="KeyPhoto_Filter_BrokenLive.Content" xml:space="preserve">
+  <data name="EditPage_Filter_BrokenLive.Content" xml:space="preserve">
     <value>残缺实况</value>
   </data>
-  <data name="KeyPhoto_FilterMenu_BrokenLive.Text" xml:space="preserve">
+  <data name="EditPage_FilterMenu_BrokenLive.Text" xml:space="preserve">
     <value>残缺实况</value>
   </data>
-  <data name="KeyPhotoPage_FilterEmptyHint.Text" xml:space="preserve">
+  <data name="EditPage_FilterEmptyHint.Text" xml:space="preserve">
     <value>空空如也</value>
   </data>
 </root>

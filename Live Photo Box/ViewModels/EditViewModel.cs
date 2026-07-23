@@ -32,6 +32,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -89,7 +90,7 @@ namespace LivePhotoBox.ViewModels
             // 从设置恢复静音状态（默认不静音）
             _isMuted = AppSettingsService.GetValue("IsLivePhotoMuted", false);
             // 进度前缀默认：导出帧
-            ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+            ProgressPrefixText = ResourceService.GetString("EditPage_ExportProgressPrefixLabel");
         }
 
         public override string? PageStatusTag => null;
@@ -233,6 +234,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(HasSelectedFile));
             OnPropertyChanged(nameof(IsSelectedPairIncomplete));
             OnPropertyChanged(nameof(IsTimelineTabDisabled));
+            OnPropertyChanged(nameof(ProtocolIconBrush));
             OnPropertyChanged(nameof(IsVideoRowVisible));
             OnPropertyChanged(nameof(CanPlayLivePhoto));
             OnPropertyChanged(nameof(CanExportCurrentFrame));
@@ -565,7 +567,7 @@ namespace LivePhotoBox.ViewModels
             {
                 IsExporting = false;
                 ExportProgressText = string.Empty;
-                ProgressPrefixText = ResourceService.GetString("KeyPhotoPage_ExportProgressPrefixLabel");
+                ProgressPrefixText = ResourceService.GetString("EditPage_ExportProgressPrefixLabel");
             }
             ExportProgressPercent = 0.0;
         }
@@ -610,7 +612,7 @@ namespace LivePhotoBox.ViewModels
         /// "设为封面并保存为副本"按钮是否可用。
         /// 星标帧（IsStillPhoto）已为封面 → 禁用；数字角标帧 → 可用。
         /// </summary>
-        public bool IsSetCoverEnabled => SelectedTimelineFrame != null && !SelectedTimelineFrame.IsStillPhoto;
+        public bool IsSetKeyPhotoEnabled => SelectedTimelineFrame != null && !SelectedTimelineFrame.IsStillPhoto;
 
         /// <summary>当前选中的文件是否为"半死不活"的实况照片（有协议但缺配对文件）</summary>
         public bool IsSelectedPairIncomplete
@@ -629,6 +631,12 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>不完整实况 → 禁用"组合查看"和"实况照片帧"标签页</summary>
         public bool IsTimelineTabDisabled => IsSelectedPairIncomplete;
+
+        /// <summary>协议图标颜色：正常实况=主题色，非实况/残缺=红色警告</summary>
+        public SolidColorBrush ProtocolIconBrush =>
+            IsSelectedLivePhoto && !IsSelectedPairIncomplete
+                ? (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"]
+                : new SolidColorBrush(Color.FromArgb(255, 239, 68, 68));
 
         /// <summary>ConvertProtocol 守卫：配对缺失的实况照片不允许转换协议</summary>
         private bool CanConvertProtocol() => IsSelectedLivePhoto && !IsSelectedPairIncomplete;
@@ -660,7 +668,7 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnSelectedTimelineFrameChanged(TimelineFrame? value)
         {
-            OnPropertyChanged(nameof(IsSetCoverEnabled));
+            OnPropertyChanged(nameof(IsSetKeyPhotoEnabled));
 
             // 更新帧位置文本
             if (value != null)
@@ -670,7 +678,7 @@ namespace LivePhotoBox.ViewModels
                     // 封面帧：显示 "Cover · 共 N 帧"
                     var videoFrames = TimelineFrames.Where(f => !f.IsStillPhoto).ToList();
                     CurrentFramePositionText = ResourceService.Format(
-                        "KeyPhoto_TimelineFrameKeyPhoto", videoFrames.Count);
+                        "EditPage_TimelineFrameKeyPhoto", videoFrames.Count);
                 }
                 else
                 {
@@ -680,7 +688,7 @@ namespace LivePhotoBox.ViewModels
                     if (idx >= 0)
                     {
                         CurrentFramePositionText = ResourceService.Format(
-                            "KeyPhoto_TimelineFramePosition", idx + 1, videoFrames.Count);
+                            "EditPage_TimelineFramePosition", idx + 1, videoFrames.Count);
                     }
                     else
                     {
@@ -807,7 +815,7 @@ namespace LivePhotoBox.ViewModels
                 // 已选中同一帧：[ObservableProperty] setter 不会触发 OnChanged，
                 // 但调用方期望触发滚动（如首次加载后定位封面帧）。
                 // 手动复现 OnSelectedTimelineFrameChanged 的程序化选中路径。
-                OnPropertyChanged(nameof(IsSetCoverEnabled));
+                OnPropertyChanged(nameof(IsSetKeyPhotoEnabled));
                 foreach (var f in TimelineFrames)
                     f.IsSelected = ReferenceEquals(f, frame);
                 RequestScrollToFrame?.Invoke(frame);
@@ -902,6 +910,7 @@ namespace LivePhotoBox.ViewModels
                     OnPropertyChanged(nameof(CanExportCurrentFrame));
                     OnPropertyChanged(nameof(CanExportMultiFrame));
                     OnPropertyChanged(nameof(CanPlayLivePhoto));
+                    OnPropertyChanged(nameof(ProtocolIconBrush));
                     ConvertProtocolCommand.NotifyCanExecuteChanged();
                 }
             }
@@ -1016,7 +1025,7 @@ namespace LivePhotoBox.ViewModels
             string targetPath = savedFile.Path;
 
             // ── 3. 显示进度 ───────────────────────────────────────────
-            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_SaveCoverInProgress"));
+            BeginExportProgress(ResourceService.GetString("EditPage_SaveKeyPhotoInProgress"));
 
             string? tempWorkDir = null;
             string? tempVideoPath = null;
@@ -1135,7 +1144,7 @@ namespace LivePhotoBox.ViewModels
 
                 // ── 11. 完成 ──
                 CompleteExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_SaveCoverComplete"),
+                    ResourceService.GetString("EditPage_SaveKeyPhotoComplete"),
                     Path.GetDirectoryName(targetPath));
             }
             catch (Exception ex)
@@ -1148,8 +1157,8 @@ namespace LivePhotoBox.ViewModels
                 try { if (File.Exists(targetPath)) File.Delete(targetPath); } catch { }
 
                 FailExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_SaveCoverFailed"),
-                    $"{ResourceService.GetString("KeyPhotoPage_SaveError")}: {ex.Message}",
+                    ResourceService.GetString("EditPage_SaveKeyPhotoFailed"),
+                    $"{ResourceService.GetString("EditPage_SaveError")}: {ex.Message}",
                     Path.GetDirectoryName(targetPath));
             }
             finally
@@ -1251,7 +1260,7 @@ namespace LivePhotoBox.ViewModels
 
                 // ── 2. 弹出保存对话框（与 Android 一样，先选位置再处理） ──
                 string sourceBaseName = Path.GetFileNameWithoutExtension(photoPath);
-                string filenameTemplate = ResourceService.GetString("KeyPhotoPage_SaveAppleFilename");
+                string filenameTemplate = ResourceService.GetString("EditPage_SaveAppleFilename");
                 string suggestedName = string.Format(filenameTemplate, sourceBaseName, frame.FrameIndex + 1);
 
                 var savedFile = await FilePickerService.PickSaveFileForExportAsync(
@@ -1269,7 +1278,7 @@ namespace LivePhotoBox.ViewModels
                     LogLevel.Info);
 
                 // ── 3. 显示进度 ──────────────────────────────────────────
-                BeginExportProgress(ResourceService.GetString("KeyPhotoPage_SaveCoverInProgress"));
+                BeginExportProgress(ResourceService.GetString("EditPage_SaveKeyPhotoInProgress"));
 
                 // ── 3b. 读取原 HEIC 的 ContentIdentifier（Apple 配对 UUID）──
                 //     后续显式写回 HEIC 和 MOV，确保重新扫描时能识别为实况照片
@@ -1382,7 +1391,7 @@ namespace LivePhotoBox.ViewModels
                     {
                         LogService.FileOp("KeyPhoto Save[Apple]: heif-enc failed to start", LogLevel.Error);
                         FailExportProgress(
-                            ResourceService.GetString("KeyPhotoPage_SaveCoverFailed"),
+                            ResourceService.GetString("EditPage_SaveKeyPhotoFailed"),
                             "heif-enc failed to start",
                             Path.GetDirectoryName(targetHeicPath));
                         return;
@@ -1397,7 +1406,7 @@ namespace LivePhotoBox.ViewModels
                             $"KeyPhoto Save[Apple]: heif-enc exit={proc.ExitCode}, stderr: {stderr.Trim()}",
                             LogLevel.Error);
                         FailExportProgress(
-                            ResourceService.GetString("KeyPhotoPage_SaveCoverFailed"),
+                            ResourceService.GetString("EditPage_SaveKeyPhotoFailed"),
                             $"heif-enc exited with code {proc.ExitCode}",
                             Path.GetDirectoryName(targetHeicPath));
                         return;
@@ -1410,7 +1419,7 @@ namespace LivePhotoBox.ViewModels
                 {
                     LogService.FileOp("KeyPhoto Save[Apple]: HEIC is 0 bytes after heif-enc", LogLevel.Error);
                     FailExportProgress(
-                        ResourceService.GetString("KeyPhotoPage_SaveCoverFailed"),
+                        ResourceService.GetString("EditPage_SaveKeyPhotoFailed"),
                         "HEIC output is 0 bytes after encoding",
                         Path.GetDirectoryName(targetHeicPath));
                     return;
@@ -1553,7 +1562,7 @@ namespace LivePhotoBox.ViewModels
 
                 // ── 12. 完成 ──
                 CompleteExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_SaveCoverComplete"),
+                    ResourceService.GetString("EditPage_SaveKeyPhotoComplete"),
                     Path.GetDirectoryName(targetHeicPath));
             }
             catch (Exception ex)
@@ -1566,7 +1575,7 @@ namespace LivePhotoBox.ViewModels
                     ? Path.GetDirectoryName(targetHeicPath)
                     : null;
                 FailExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_SaveCoverFailed"),
+                    ResourceService.GetString("EditPage_SaveKeyPhotoFailed"),
                     ex.Message, appleOutputDir);
             }
             finally
@@ -1596,7 +1605,7 @@ namespace LivePhotoBox.ViewModels
             if (savedPath == null) return; // 用户取消
 
             // 显示"正在保存…"状态
-            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_SaveAsInProgress"));
+            BeginExportProgress(ResourceService.GetString("EditPage_SaveAsInProgress"));
 
             try
             {
@@ -1619,14 +1628,14 @@ namespace LivePhotoBox.ViewModels
                 LogService.FileOp($"SaveAs: saved to '{savedPath}'", LogLevel.Info);
 
                 CompleteExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_SaveAsComplete"),
+                    ResourceService.GetString("EditPage_SaveAsComplete"),
                     Path.GetDirectoryName(savedPath));
             }
             catch (Exception ex)
             {
                 LogService.FileOp($"SaveAs FAILED: {ex.GetType().Name}: {ex.Message}", LogLevel.Error, ex);
                 FailExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_SaveAsFailed"),
+                    ResourceService.GetString("EditPage_SaveAsFailed"),
                     ex.Message, Path.GetDirectoryName(savedPath));
             }
             finally
@@ -1680,7 +1689,7 @@ namespace LivePhotoBox.ViewModels
 
             // 4. 显示进度
             string targetPath = targetFile.Path;
-            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameInProgress"));
+            BeginExportProgress(ResourceService.GetString("EditPage_ExportCurrentFrameInProgress"));
 
             try
             {
@@ -1707,7 +1716,7 @@ namespace LivePhotoBox.ViewModels
 
                 // 7. 完成状态
                 CompleteExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameComplete"),
+                    ResourceService.GetString("EditPage_ExportCurrentFrameComplete"),
                     Path.GetDirectoryName(targetPath));
             }
             catch (Exception ex)
@@ -1715,7 +1724,7 @@ namespace LivePhotoBox.ViewModels
                 LogService.FileOp(
                     $"ExportCurrentFrame failed: {ex.Message}", LogLevel.Error, ex);
                 FailExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameFailed"),
+                    ResourceService.GetString("EditPage_ExportCurrentFrameFailed"),
                     ex.Message, Path.GetDirectoryName(targetPath));
             }
             finally
@@ -1737,7 +1746,7 @@ namespace LivePhotoBox.ViewModels
             if (targetFile == null) return;
 
             string targetPath = targetFile.Path;
-            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameInProgress"));
+            BeginExportProgress(ResourceService.GetString("EditPage_ExportCurrentFrameInProgress"));
 
             try
             {
@@ -1753,14 +1762,14 @@ namespace LivePhotoBox.ViewModels
                 try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
                 LogService.FileOp($"ExportPhotoAsSingleFrame: {Path.GetFileName(photoPath)} -> {targetPath}", LogLevel.Info);
                 CompleteExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameComplete"),
+                    ResourceService.GetString("EditPage_ExportCurrentFrameComplete"),
                     Path.GetDirectoryName(targetPath));
             }
             catch (Exception ex)
             {
                 LogService.FileOp($"ExportPhotoAsSingleFrame failed: {ex.Message}", LogLevel.Error, ex);
                 FailExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_ExportCurrentFrameFailed"),
+                    ResourceService.GetString("EditPage_ExportCurrentFrameFailed"),
                     ex.Message, Path.GetDirectoryName(targetPath));
             }
             finally
@@ -1897,7 +1906,7 @@ namespace LivePhotoBox.ViewModels
             var token = _exportCts.Token;
 
             BeginExportProgress($"0/{TimelineFrames.Count}",
-                ResourceService.GetString("KeyPhotoPage_ExportAllFramesInProgress"));
+                ResourceService.GetString("EditPage_ExportAllFramesInProgress"));
 
             var semaphore = new SemaphoreSlim(8, 8);
             var tasks = new List<Task>();
@@ -1929,7 +1938,7 @@ namespace LivePhotoBox.ViewModels
                 if (!token.IsCancellationRequested)
                 {
                     CompleteExportProgress(
-                        ResourceService.GetString("KeyPhotoPage_ExportAllFramesComplete"),
+                        ResourceService.GetString("EditPage_ExportAllFramesComplete"),
                         exportDir);
                 }
             }
@@ -1937,7 +1946,7 @@ namespace LivePhotoBox.ViewModels
             {
                 LogService.FileOp("ExportAllFrames cancelled mid-operation", LogLevel.Warning);
                 FailExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_ExportAllFramesFailed"),
+                    ResourceService.GetString("EditPage_ExportAllFramesFailed"),
                     "Operation was cancelled",
                     exportDir);
             }
@@ -1945,7 +1954,7 @@ namespace LivePhotoBox.ViewModels
             {
                 LogService.FileOp($"ExportAllFrames fatal error: {ex.Message}", LogLevel.Error, ex);
                 FailExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_ExportAllFramesFailed"),
+                    ResourceService.GetString("EditPage_ExportAllFramesFailed"),
                     ex.Message, exportDir);
             }
             finally
@@ -1982,7 +1991,7 @@ namespace LivePhotoBox.ViewModels
             // 描述文字：告诉用户会自动创建文件夹
             panel.Children.Add(new TextBlock
             {
-                Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_Description"),
+                Text = ResourceService.GetString("EditPage_ExportDialog_Description"),
                 FontSize = 14,
                 TextWrapping = TextWrapping.Wrap,
             });
@@ -1990,7 +1999,7 @@ namespace LivePhotoBox.ViewModels
             // 导出位置：header + 路径文本框 + 文件夹图标按钮（Grid 保证文本框填满）
             panel.Children.Add(new TextBlock
             {
-                Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_FolderPathLabel"),
+                Text = ResourceService.GetString("EditPage_ExportDialog_FolderPathLabel"),
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 12, 0, 0),
@@ -2022,7 +2031,7 @@ namespace LivePhotoBox.ViewModels
                 Content = new FontIcon { Glyph = "", FontSize = 14 },
             };
             ToolTipService.SetToolTip(browseButton,
-                ResourceService.GetString("KeyPhotoPage_ExportDialog_BrowseTip"));
+                ResourceService.GetString("EditPage_ExportDialog_BrowseTip"));
             Grid.SetColumn(browseButton, 1);
             pathRow.Children.Add(browseButton);
 
@@ -2041,7 +2050,7 @@ namespace LivePhotoBox.ViewModels
             // 文件夹名称编辑框 + 重置按钮（圆圈箭头）
             panel.Children.Add(new TextBlock
             {
-                Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_FolderNameLabel"),
+                Text = ResourceService.GetString("EditPage_ExportDialog_FolderNameLabel"),
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 14, 0, 0),
@@ -2073,7 +2082,7 @@ namespace LivePhotoBox.ViewModels
                 Content = new FontIcon { Glyph = "", FontSize = 14 },
             };
             ToolTipService.SetToolTip(resetNameButton,
-                ResourceService.GetString("KeyPhotoPage_ExportDialog_ResetTip"));
+                ResourceService.GetString("EditPage_ExportDialog_ResetTip"));
             Grid.SetColumn(resetNameButton, 1);
             nameRow.Children.Add(resetNameButton);
 
@@ -2082,7 +2091,7 @@ namespace LivePhotoBox.ViewModels
             // 输出格式选择
             panel.Children.Add(new TextBlock
             {
-                Text = "输出格式",
+                Text = ResourceService.GetString("EditPage_ExportDialog_FormatLabel"),
                 FontSize = 13,
                 FontWeight = FontWeights.SemiBold,
                 Margin = new Thickness(0, 14, 0, 0),
@@ -2103,16 +2112,16 @@ namespace LivePhotoBox.ViewModels
             // EXIF 勾选框（默认勾选，JPEG 格式时生效）
             var copyExifCheckBox = new CheckBox
             {
-                Content = ResourceService.GetString("KeyPhotoPage_ExportDialog_CopyExifLabel"),
+                Content = ResourceService.GetString("EditPage_ExportDialog_CopyExifLabel"),
                 IsChecked = true,
             };
             panel.Children.Add(copyExifCheckBox);
 
             var dialog = new ContentDialog
             {
-                Title = ResourceService.GetString("KeyPhotoPage_ExportDialog_Title"),
+                Title = ResourceService.GetString("EditPage_ExportDialog_Title"),
                 Content = panel,
-                PrimaryButtonText = ResourceService.GetString("KeyPhotoPage_ExportDialog_ExportBtn"),
+                PrimaryButtonText = ResourceService.GetString("EditPage_ExportDialog_ExportBtn"),
                 CloseButtonText = ResourceService.GetString("Msg_Cancel"),
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = xamlRoot,
@@ -2162,7 +2171,7 @@ namespace LivePhotoBox.ViewModels
                 }
                 else
                 {
-                    errorText.Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_PathInvalidError");
+                    errorText.Text = ResourceService.GetString("EditPage_ExportDialog_PathInvalidError");
                     errorText.Visibility = Visibility.Visible;
                     dialog.IsPrimaryButtonEnabled = false;
                 }
@@ -2199,7 +2208,7 @@ namespace LivePhotoBox.ViewModels
                     var testPath = folderPathBox.Text.Trim();
                     if (!IsPathValid(testPath))
                     {
-                        errorText.Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_PathInvalidError");
+                        errorText.Text = ResourceService.GetString("EditPage_ExportDialog_PathInvalidError");
                         errorText.Visibility = Visibility.Visible;
                         args.Cancel = true;
                         return;
@@ -2209,7 +2218,7 @@ namespace LivePhotoBox.ViewModels
                 }
                 catch
                 {
-                    errorText.Text = ResourceService.GetString("KeyPhotoPage_ExportDialog_PathInvalidError");
+                    errorText.Text = ResourceService.GetString("EditPage_ExportDialog_PathInvalidError");
                     errorText.Visibility = Visibility.Visible;
                     args.Cancel = true;
                 }
@@ -2328,14 +2337,14 @@ namespace LivePhotoBox.ViewModels
                 string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
             if (item == null || !item.HasConfirmedProtocol)
             {
-                ShowExportGuardError(ResourceService.GetString("KeyPhotoPage_GuardNotLivePhoto"));
+                ShowExportGuardError(ResourceService.GetString("EditPage_GuardNotLivePhoto"));
                 return;
             }
 
             string? videoPath = await ResolveVideoPathForExportAsync(item);
             if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
             {
-                ShowExportGuardError(ResourceService.GetString("KeyPhotoPage_GuardNoVideoSource"));
+                ShowExportGuardError(ResourceService.GetString("EditPage_GuardNoVideoSource"));
                 return;
             }
 
@@ -2352,7 +2361,7 @@ namespace LivePhotoBox.ViewModels
             var targetFile = await savePicker.PickSaveFileAsync();
             if (targetFile == null) { CleanupExportTempVideo(); return; }
 
-            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_ExportVideoInProgress"));
+            BeginExportProgress(ResourceService.GetString("EditPage_ExportVideoInProgress"));
 
             try
             {
@@ -2366,21 +2375,21 @@ namespace LivePhotoBox.ViewModels
                 if (result.Success)
                 {
                     CompleteExportProgress(
-                        ResourceService.GetString("KeyPhotoPage_ExportVideoComplete"),
+                        ResourceService.GetString("EditPage_ExportVideoComplete"),
                         Path.GetDirectoryName(targetFile.Path));
                 }
                 else
                 {
                     FailExportProgress(
-                        ResourceService.GetString("KeyPhotoPage_ExportVideoFailed"),
-                        result.ErrorMessage ?? "未知错误",
+                        ResourceService.GetString("EditPage_ExportVideoFailed"),
+                        result.ErrorMessage ?? ResourceService.GetString("EditPage_UnknownError"),
                         Path.GetDirectoryName(targetFile.Path));
                 }
             }
             catch (Exception ex)
             {
                 FailExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_ExportVideoFailed"),
+                    ResourceService.GetString("EditPage_ExportVideoFailed"),
                     ex.Message, Path.GetDirectoryName(targetFile.Path));
             }
             finally
@@ -2407,7 +2416,7 @@ namespace LivePhotoBox.ViewModels
                 string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
             if (item == null || !item.HasConfirmedProtocol)
             {
-                ShowExportGuardError(ResourceService.GetString("KeyPhotoPage_GuardNotLivePhoto"));
+                ShowExportGuardError(ResourceService.GetString("EditPage_GuardNotLivePhoto"));
                 return;
             }
 
@@ -2415,7 +2424,7 @@ namespace LivePhotoBox.ViewModels
             string? videoPath = await ResolveVideoPathForExportAsync(item);
             if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
             {
-                ShowExportGuardError(ResourceService.GetString("KeyPhotoPage_GuardNoVideoSource"));
+                ShowExportGuardError(ResourceService.GetString("EditPage_GuardNoVideoSource"));
                 return;
             }
 
@@ -2424,7 +2433,7 @@ namespace LivePhotoBox.ViewModels
             if (gifOptions == null) { CleanupExportTempVideo(); return; }
 
             string targetPath = gifOptions.OutputPath;
-            BeginExportProgress(ResourceService.GetString("KeyPhotoPage_ExportGifInProgress"));
+            BeginExportProgress(ResourceService.GetString("EditPage_ExportGifInProgress"));
 
             try
             {
@@ -2440,21 +2449,21 @@ namespace LivePhotoBox.ViewModels
                 if (result.Success)
                 {
                     CompleteExportProgress(
-                        ResourceService.GetString("KeyPhotoPage_ExportGifComplete"),
+                        ResourceService.GetString("EditPage_ExportGifComplete"),
                         Path.GetDirectoryName(targetPath));
                 }
                 else
                 {
                     FailExportProgress(
-                        ResourceService.GetString("KeyPhotoPage_ExportGifFailed"),
-                        result.ErrorMessage ?? "未知错误",
+                        ResourceService.GetString("EditPage_ExportGifFailed"),
+                        result.ErrorMessage ?? ResourceService.GetString("EditPage_UnknownError"),
                         Path.GetDirectoryName(targetPath));
                 }
             }
             catch (Exception ex)
             {
                 FailExportProgress(
-                    ResourceService.GetString("KeyPhotoPage_ExportGifFailed"),
+                    ResourceService.GetString("EditPage_ExportGifFailed"),
                     ex.Message, Path.GetDirectoryName(targetPath));
             }
             finally
@@ -2493,7 +2502,7 @@ namespace LivePhotoBox.ViewModels
             double ratio = origH / (double)origW;
 
             // ── 尺寸 ──
-            panel.Children.Add(new TextBlock { Text = "尺寸 (像素)", FontSize = 13, FontWeight = FontWeights.SemiBold });
+            panel.Children.Add(new TextBlock { Text = ResourceService.GetString("EditPage_GifDialog_SizeLabel"), FontSize = 13, FontWeight = FontWeights.SemiBold });
 
             var widthBox = new TextBox
             {
@@ -2509,15 +2518,15 @@ namespace LivePhotoBox.ViewModels
             };
 
             var sizeRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-            sizeRow.Children.Add(new TextBlock { Text = "宽", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
+            sizeRow.Children.Add(new TextBlock { Text = ResourceService.GetString("EditPage_GifDialog_WidthLabel"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
             sizeRow.Children.Add(widthBox);
-            sizeRow.Children.Add(new TextBlock { Text = "高", VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 4, 0) });
+            sizeRow.Children.Add(new TextBlock { Text = ResourceService.GetString("EditPage_GifDialog_HeightLabel"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 4, 0) });
             sizeRow.Children.Add(heightBox);
             panel.Children.Add(sizeRow);
 
             var lockCheck = new CheckBox
             {
-                Content = "保持原始纵横比",
+                Content = ResourceService.GetString("EditPage_GifDialog_LockAspectRatio"),
                 IsChecked = true,
                 IsEnabled = false,
             };
@@ -2627,7 +2636,7 @@ namespace LivePhotoBox.ViewModels
             // 纵横比提示 + 原始尺寸 → 同一排
             var checkRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 16, Margin = new Thickness(0, 8, 0, 0) };
             checkRow.Children.Add(lockCheck);
-            var originalSizeCheck = new CheckBox { Content = "使用原始尺寸", IsChecked = false };
+            var originalSizeCheck = new CheckBox { Content = ResourceService.GetString("EditPage_GifDialog_UseOriginalSize"), IsChecked = false };
             checkRow.Children.Add(originalSizeCheck);
             panel.Children.Add(checkRow);
             string _savedWidth = "480", _savedHeight = ((int)(480 * ratio)).ToString();
@@ -2650,17 +2659,17 @@ namespace LivePhotoBox.ViewModels
             };
 
             // ── 帧率 ──
-            panel.Children.Add(new TextBlock { Text = "帧率 (fps)", FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 0) });
+            panel.Children.Add(new TextBlock { Text = ResourceService.GetString("EditPage_GifDialog_FpsLabel"), FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 0) });
             var fpsBox = new NumberBox { Value = 10, Minimum = 1, Maximum = 30 };
             panel.Children.Add(fpsBox);
 
             // ── 循环 ──
-            panel.Children.Add(new TextBlock { Text = "循环次数 (0 = 无限)", FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 0) });
+            panel.Children.Add(new TextBlock { Text = ResourceService.GetString("EditPage_GifDialog_LoopLabel"), FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 0) });
             var loopBox = new NumberBox { Value = 0, Minimum = 0, Maximum = 999 };
             panel.Children.Add(loopBox);
 
             // ── 输出路径（仿 ExportAllFrames 对话框：TextBox + 文件夹图标按钮）──
-            panel.Children.Add(new TextBlock { Text = "输出路径", FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 0) });
+            panel.Children.Add(new TextBlock { Text = ResourceService.GetString("EditPage_GifDialog_OutputPathLabel"), FontSize = 13, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 0) });
 
             var defaultDir = Path.GetDirectoryName(SelectedFilePath)
                 ?? Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
@@ -2686,7 +2695,7 @@ namespace LivePhotoBox.ViewModels
                 Margin = new Thickness(4, 0, 0, 0),
                 Content = new FontIcon { Glyph = "", FontSize = 14 },
             };
-            ToolTipService.SetToolTip(browseBtn, "选择输出文件夹");
+            ToolTipService.SetToolTip(browseBtn, ResourceService.GetString("EditPage_GifDialog_BrowseTooltip"));
             browseBtn.Click += async (_, _) =>
             {
                 var folder = await FilePickerService.PickFolderAsync();
@@ -2706,9 +2715,9 @@ namespace LivePhotoBox.ViewModels
 
             var dialog = new ContentDialog
             {
-                Title = "GIF 导出设置",
+                Title = ResourceService.GetString("EditPage_GifDialog_Title"),
                 Content = panel,
-                PrimaryButtonText = "生成 GIF",
+                PrimaryButtonText = ResourceService.GetString("EditPage_GifDialog_PrimaryButton"),
                 CloseButtonText = ResourceService.GetString("Msg_Cancel"),
                 DefaultButton = ContentDialogButton.Primary,
                 XamlRoot = xamlRoot,
@@ -2807,7 +2816,7 @@ namespace LivePhotoBox.ViewModels
         /// 复用首次加载实况照片时的程序化选中 + 滚动吸附管线。
         /// </summary>
         [RelayCommand]
-        private void GotoCover()
+        private void GoToKeyPhoto()
         {
             var coverFrame = TimelineFrames.FirstOrDefault(f => f.IsStillPhoto);
             if (coverFrame != null)
@@ -2830,8 +2839,9 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>反向地理编码速率限制：上次请求完成的时间戳</summary>
         private long _lastGeoRequestTicks;
-        private const long GeoCooldownTicks = 12_000_000; // 1.2 秒 (Ticks)
+        private const long GeoCooldownTicks = 5_000_000; // 0.5 秒，Mirror Earth 限速 ~1/s
         private CancellationTokenSource? _geoCts;
+        private int _geoFailureCount; // 连续失败计数，>= 3 次停止重试
 
         /// <summary>View 层选中变更时调用，异步加载 EXIF 元数据填充信息面板</summary>
         public void SelectFile(string? filePath)
@@ -2843,6 +2853,7 @@ namespace LivePhotoBox.ViewModels
             _propLoadCts?.Dispose();
             _propLoadCts = null;
             _geoCts?.Cancel();
+            _geoFailureCount = 0; // 换文件时重置失败计数
             _timelineCts?.Cancel();
             _timelineDebounceCts?.Cancel();
             _earlyFfmpegCts?.Cancel();
@@ -3307,7 +3318,7 @@ namespace LivePhotoBox.ViewModels
                     if (durSec > 0)
                     {
                         _videoFps = fps;
-                        FpsDisplayText = ResourceService.Format("KeyPhoto_TimelineFps", fps.ToString("F2"));
+                        FpsDisplayText = ResourceService.Format("EditPage_TimelineFps", fps.ToString("F2"));
 
                         LogService.FileOp(
                             $"Timeline[LoadProps] Checking trigger: durSec={durSec}, fps={fps}, " +
@@ -4307,8 +4318,8 @@ namespace LivePhotoBox.ViewModels
                 // 根据当前文件类型判断缺失的是视频还是照片
                 string missingKey = SupportedVideoExtensions.Contains(
                     Path.GetExtension(SelectedFilePath ?? ""))
-                    ? "KeyPhoto_Protocol_MissingPhoto"
-                    : "KeyPhoto_Protocol_MissingVideo";
+                    ? "EditPage_Protocol_MissingPhoto"
+                    : "EditPage_Protocol_MissingVideo";
                 protocol = (protocol ?? "") + ResourceService.GetString(missingKey);
             }
 
@@ -4320,7 +4331,7 @@ namespace LivePhotoBox.ViewModels
             // ── ExifCamera（Line 1 粗体）：拍摄设备 ──
             ExifCamera = !string.IsNullOrWhiteSpace(p.Camera)
                 ? p.Camera
-                : ResourceService.GetString("KeyPhoto_UnknownDevice");
+                : ResourceService.GetString("EditPage_UnknownDevice");
 
             // ── ExifCameraDateSuffix（Line 1 后缀）：摄像头位置替代原来的日期 ──
             ExifCameraDateSuffix = string.IsNullOrEmpty(cameraPosition)
@@ -4363,11 +4374,17 @@ namespace LivePhotoBox.ViewModels
 
             // ── ExifPlaceName：反向地理编码地名 ──
             ExifPlaceName = string.Empty;
-            // 有 GPS 坐标才查询（坐标仅用于 API 调用，不显示）
             double? lat = DmsToDecimal(p.GpsLatitude, p.GpsLatitudeRef);
             double? lon = DmsToDecimal(p.GpsLongitude, p.GpsLongitudeRef);
             if (lat != null && lon != null && SelectedFilePath != null)
+            {
                 _ = TriggerGeoLookupAsync(lat.Value, lon.Value, SelectedFilePath);
+            }
+            else
+            {
+                // 无 GPS → 占位文字
+                ExifPlaceName = ResourceService.GetString("EditPage_NoLocation");
+            }
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -5057,14 +5074,14 @@ namespace LivePhotoBox.ViewModels
         /// <summary>镜头类型关键词 → 资源键（按优先级排列，先匹配先生效）</summary>
         private static readonly (string[] Keywords, string ResourceKey)[] LensTypeMap =
         {
-            (new[] { "ultrawide", "ultra wide" }, "KeyPhoto_Lens_UltraWide"),
-            (new[] { "wide" },                  "KeyPhoto_Lens_Wide"),
-            (new[] { "telephoto" },             "KeyPhoto_Lens_Telephoto"),
-            (new[] { "tele" },                  "KeyPhoto_Lens_Telephoto"),
-            (new[] { "macro" },                 "KeyPhoto_Lens_Macro"),
-            (new[] { "main" },                  "KeyPhoto_Lens_Main"),
-            (new[] { "periscope" },             "KeyPhoto_Lens_Periscope"),
-            (new[] { "depth", "portrait" },     "KeyPhoto_Lens_Depth"),
+            (new[] { "ultrawide", "ultra wide" }, "EditPage_Lens_UltraWide"),
+            (new[] { "wide" },                  "EditPage_Lens_Wide"),
+            (new[] { "telephoto" },             "EditPage_Lens_Telephoto"),
+            (new[] { "tele" },                  "EditPage_Lens_Telephoto"),
+            (new[] { "macro" },                 "EditPage_Lens_Macro"),
+            (new[] { "main" },                  "EditPage_Lens_Main"),
+            (new[] { "periscope" },             "EditPage_Lens_Periscope"),
+            (new[] { "depth", "portrait" },     "EditPage_Lens_Depth"),
         };
 
         /// <summary>在 LensModel 字符串中按优先级匹配镜头类型关键词</summary>
@@ -5097,21 +5114,21 @@ namespace LivePhotoBox.ViewModels
                 || (!string.IsNullOrWhiteSpace(p.SensorType) && p.SensorType.Equals("front", StringComparison.OrdinalIgnoreCase));
 
             string position = isFront
-                ? ResourceService.GetString("KeyPhoto_Lens_Front")
-                : ResourceService.GetString("KeyPhoto_Lens_Rear");
+                ? ResourceService.GetString("EditPage_Lens_Front")
+                : ResourceService.GetString("EditPage_Lens_Rear");
 
             string? type = lens != null ? MatchLensType(lens) : null;
             if (type == null && p.ZoomMultiple > 0)
             {
                 type = p.ZoomMultiple switch
                 {
-                    <= 1 => ResourceService.GetString("KeyPhoto_Lens_Main"),
-                    2 or 3 => ResourceService.GetString("KeyPhoto_Lens_Telephoto"),
-                    _ => ResourceService.GetString("KeyPhoto_Lens_Periscope")
+                    <= 1 => ResourceService.GetString("EditPage_Lens_Main"),
+                    2 or 3 => ResourceService.GetString("EditPage_Lens_Telephoto"),
+                    _ => ResourceService.GetString("EditPage_Lens_Periscope")
                 };
             }
 
-            return type != null ? $"{position}{type}" : $"{position}{ResourceService.GetString("KeyPhoto_Lens_Camera")}";
+            return type != null ? $"{position}{type}" : $"{position}{ResourceService.GetString("EditPage_Lens_Camera")}";
         }
 
         /// <summary>根据 LensModel / 小米 SensorType+ZoomMultiple / 焦段+光圈构建镜头描述。</summary>
@@ -5125,15 +5142,15 @@ namespace LivePhotoBox.ViewModels
                 || !string.IsNullOrWhiteSpace(p.FNumber);
 
             if (!hasLensInfo)
-                return ResourceService.GetString("KeyPhoto_UnknownCamera");
+                return ResourceService.GetString("EditPage_UnknownCamera");
 
             // ── 位置：LensModel 关键词 → 小米 SensorType → 默认后置 ──
             bool isFront = (!string.IsNullOrWhiteSpace(lens) && lens.Contains("front", StringComparison.OrdinalIgnoreCase))
                 || (!string.IsNullOrWhiteSpace(p.SensorType) && p.SensorType.Equals("front", StringComparison.OrdinalIgnoreCase));
 
             string position = isFront
-                ? ResourceService.GetString("KeyPhoto_Lens_Front")
-                : ResourceService.GetString("KeyPhoto_Lens_Rear");
+                ? ResourceService.GetString("EditPage_Lens_Front")
+                : ResourceService.GetString("EditPage_Lens_Rear");
 
             // ── 类型：LensModel 关键词 → 小米 ZoomMultiple ──
             string? type = lens != null ? MatchLensType(lens) : null;
@@ -5142,15 +5159,15 @@ namespace LivePhotoBox.ViewModels
             {
                 type = p.ZoomMultiple switch
                 {
-                    <= 1 => ResourceService.GetString("KeyPhoto_Lens_Main"),
-                    2 or 3 => ResourceService.GetString("KeyPhoto_Lens_Telephoto"),
-                    _ => ResourceService.GetString("KeyPhoto_Lens_Periscope")
+                    <= 1 => ResourceService.GetString("EditPage_Lens_Main"),
+                    2 or 3 => ResourceService.GetString("EditPage_Lens_Telephoto"),
+                    _ => ResourceService.GetString("EditPage_Lens_Periscope")
                 };
             }
 
             var parts = new List<string>
             {
-                type != null ? $"{position}{type}" : $"{position}{ResourceService.GetString("KeyPhoto_Lens_Camera")}"
+                type != null ? $"{position}{type}" : $"{position}{ResourceService.GetString("EditPage_Lens_Camera")}"
             };
 
             if (!string.IsNullOrWhiteSpace(p.FocalLengthIn35mmFormat))
@@ -5174,11 +5191,11 @@ namespace LivePhotoBox.ViewModels
         /// <summary>JPEG 实况照片协议关键词 → 资源键（OPPO/小米优先于 Google：它们复用 Google XMP 结构）</summary>
         private static readonly (string Keyword, string ResourceKey)[] JpegProtocolMap =
         {
-            ("OpCamera:VideoLength",            "KeyPhoto_Protocol_OPPO"),
-            ("MiCamera:VideoLength",            "KeyPhoto_Protocol_Xiaomi"),
-            ("GCamera:MicroVideo",              "KeyPhoto_Protocol_GoogleV1"),
-            ("GCamera:MotionPhoto",             "KeyPhoto_Protocol_GoogleV2"),
-            ("Container:Directory",             "KeyPhoto_Protocol_GoogleV2"),
+            ("OpCamera:VideoLength",            "EditPage_Protocol_OPPO"),
+            ("MiCamera:VideoLength",            "EditPage_Protocol_Xiaomi"),
+            ("GCamera:MicroVideo",              "EditPage_Protocol_GoogleV1"),
+            ("GCamera:MotionPhoto",             "EditPage_Protocol_GoogleV2"),
+            ("Container:Directory",             "EditPage_Protocol_GoogleV2"),
         };
 
         /// <summary>根据 LivePhotoType + XMP 内容 + ContentIdentifier，确定协议显示名</summary>
@@ -5189,8 +5206,8 @@ namespace LivePhotoBox.ViewModels
             {
                 case LivePhotoType.DualFile:
                     if (!string.IsNullOrWhiteSpace(contentIdentifier))
-                        return ResourceService.GetString("KeyPhoto_Protocol_Apple");
-                    return ResourceService.GetString("KeyPhoto_Protocol_NonLive");
+                        return ResourceService.GetString("EditPage_Protocol_Apple");
+                    return ResourceService.GetString("EditPage_Protocol_NonLive");
 
                 case LivePhotoType.SingleFileJpeg:
                     if (filePath != null)
@@ -5206,13 +5223,13 @@ namespace LivePhotoBox.ViewModels
                         }
                         catch { }
                     }
-                    return ResourceService.GetString("KeyPhoto_Protocol_JpegGeneric");
+                    return ResourceService.GetString("EditPage_Protocol_JpegGeneric");
 
                 case LivePhotoType.SingleFileHeic:
-                    return ResourceService.GetString("KeyPhoto_Protocol_HeicEmbedded");
+                    return ResourceService.GetString("EditPage_Protocol_HeicEmbedded");
 
                 default:
-                    return ResourceService.GetString("KeyPhoto_Protocol_NonLive");
+                    return ResourceService.GetString("EditPage_Protocol_NonLive");
             }
         }
 
@@ -5270,6 +5287,14 @@ namespace LivePhotoBox.ViewModels
         /// <summary>反向地理编码：速率限制 1.2s，语言跟系统 CultureInfo</summary>
         private async Task TriggerGeoLookupAsync(double lat, double lon, string filePath)
         {
+            // 已经连续失败 3 次 → 显示错误提示，不再重试
+            if (_geoFailureCount >= 3)
+            {
+                var dq = App.MainWindow?.DispatcherQueue;
+                dq?.TryEnqueue(() => ExifPlaceName = ResourceService.GetString("EditPage_GeoLookupFailed"));
+                return;
+            }
+
             // 取消旧的待处理请求
             _geoCts?.Cancel();
             _geoCts = new CancellationTokenSource();
@@ -5290,29 +5315,58 @@ namespace LivePhotoBox.ViewModels
 
             try
             {
-                // 语言跟系统当前 UI 文化：中文 → zh，其余 → en
                 string lang = System.Globalization.CultureInfo.CurrentUICulture.Name.StartsWith("zh") ? "zh" : "en";
-                string url = $"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat:F6}&lon={lon:F6}&zoom=10&accept-language={lang}";
-                using var client = new System.Net.Http.HttpClient();
-                client.DefaultRequestHeaders.Add("User-Agent", "LivePhotoBox/2.0");
-                client.Timeout = TimeSpan.FromSeconds(5);
-                var response = await client.GetStringAsync(url, token);
-                if (string.IsNullOrWhiteSpace(response)) return;
+                string url = $"https://api.mirror-earth.com/nominatim/reverse?lat={lat:F6}&lon={lon:F6}&format=jsonv2&accept-language={lang}";
 
-                using var doc = JsonDocument.Parse(response);
-                string? name = doc.RootElement.TryGetProperty("display_name", out var dn)
-                    ? dn.GetString() : null;
-
-                if (!string.IsNullOrWhiteSpace(name) && !token.IsCancellationRequested)
+                // 最多重试 2 次，处理限流/临时故障
+                string? result = null;
+                for (int attempt = 0; attempt < 2 && result == null; attempt++)
                 {
+                    if (token.IsCancellationRequested) return;
+                    try
+                    {
+                        using var handler = new System.Net.Http.HttpClientHandler();
+                        using var client = new System.Net.Http.HttpClient(handler);
+                        client.DefaultRequestHeaders.Add("User-Agent", "LivePhotoBox/2.0");
+                        client.Timeout = TimeSpan.FromSeconds(8);
+                        var json = await client.GetStringAsync(url, token);
+                        if (string.IsNullOrWhiteSpace(json)) continue;
+
+                        using var doc = JsonDocument.Parse(json);
+                        result = doc.RootElement.TryGetProperty("display_name", out var dn)
+                            ? dn.GetString() : null;
+                    }
+                    catch (HttpRequestException) when (attempt < 1)
+                    {
+                        await Task.Delay(1000, token);
+                    }
+                }
+
+                if (!string.IsNullOrWhiteSpace(result) && !token.IsCancellationRequested)
+                {
+                    _geoFailureCount = 0; // 成功 → 重置计数器
                     var dispatcher = App.MainWindow?.DispatcherQueue;
-                    dispatcher?.TryEnqueue(() => ExifPlaceName = name);
+                    dispatcher?.TryEnqueue(() => ExifPlaceName = result);
+                }
+                else
+                {
+                    // 返回了空结果（非网络错误，API 查不到）
+                    _geoFailureCount = 0;
                 }
             }
-            catch (TaskCanceledException) { }
+            catch (TaskCanceledException)
+            {
+                LogService.FileOp($"Geo lookup cancelled for ({lat:F4},{lon:F4})", LogLevel.Debug);
+            }
             catch (Exception ex)
             {
-                LogService.FileOp($"Geo lookup failed: {ex.Message}", LogLevel.Warning);
+                _geoFailureCount++;
+                LogService.FileOp($"Geo lookup failed ({_geoFailureCount}/3): {ex.Message}", LogLevel.Warning);
+                if (_geoFailureCount >= 3)
+                {
+                    var dispatcher = App.MainWindow?.DispatcherQueue;
+                    dispatcher?.TryEnqueue(() => ExifPlaceName = ResourceService.GetString("EditPage_GeoLookupFailed"));
+                }
             }
         }
 

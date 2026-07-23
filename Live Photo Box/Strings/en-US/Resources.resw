@@ -262,11 +262,11 @@ Do you want to restart now?</value>
   <data name="SettingsPage_CrashIssue_Button_Text.Text" xml:space="preserve">
     <value>Report on GitHub</value>
   </data>
-  <data name="KeyPhotoPage_PlaceholderTitle.Text" xml:space="preserve">
+  <data name="EditPage_PlaceholderTitle.Text" xml:space="preserve">
     <value>Replace key photo is not available yet</value>
   </data>
-  <data name="KeyPhotoPage_PlaceholderDescription.Text" xml:space="preserve">
-    <value>Freely replace the key photo (cover image) of your Live Photos. By parsing the underlying data structure, pick your favorite frame from the motion video and losslessly swap it in as the new static cover — so every Live Photo freezes at its most perfect moment.</value>
+  <data name="EditPage_PlaceholderDescription.Text" xml:space="preserve">
+    <value>Freely replace the key photo (cover image) of your Live Photos. By parsing the underlying data structure, pick your favorite frame from the motion video and losslessly swap it in as the new static key photo — so every Live Photo freezes at its most perfect moment.</value>
   </data>
   <data name="PhotoClassifyPage_PlaceholderTitle.Text" xml:space="preserve">
     <value>Photo Organize is not available yet</value>
@@ -801,7 +801,7 @@ Do you want to restart now?</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
     <value>Here, you can freely combine, split, and repair Live Photos. To optimize front-facing camera performance, Apple stores Live Photo video pixels horizontally, relying on a built-in Rotation tag to determine the correct orientation — but Windows ignores this tag and renders the raw pixels directly, causing the image to appear rotated. Prior to iOS 17.3, there was also a thumbnail stretching issue. Live Photo Box fixes these at the physical pixel level, thoroughly resolving these cross-platform compatibility problems. 
-It's just as capable at combining and splitting: any image + video → a standard Live Photo, compatible with Google, OPPO, Xiaomi, and other Android Live Photo protocols; losslessly extract the original photo and video, preserving all EXIF data and capture parameters. Additionally, the cover change feature is coming soon, with more intelligent features like auto photo categorization also on the roadmap. Stay tuned!</value>
+It's just as capable at combining and splitting: any image + video → a standard Live Photo, compatible with Google, OPPO, Xiaomi, and other Android Live Photo protocols; losslessly extract the original photo and video, preserving all EXIF data and capture parameters. Additionally, the key photo change feature is coming soon, with more intelligent features like auto photo categorization also on the roadmap. Stay tuned!</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>Tip :</value>
@@ -1285,7 +1285,7 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>WIP 🚧</value>
   </data>
   <data name="HomePage_KeyPhotoDesc.Text" xml:space="preserve">
-    <value>Freely change the cover photo of your Live Photo, picking the perfect moment from the dynamic frame.</value>
+    <value>Freely change the key photo of your Live Photo, picking the perfect moment from the dynamic frame.</value>
   </data>
   <data name="HomePage_KeyPhotoUsage.Text" xml:space="preserve">
     <value>Stay tuned! We are working hard to build this feature and it will meet you soon.</value>
@@ -2284,494 +2284,548 @@ Are you sure you want to switch?</value>
   <data name="RepairOptions_CountFormat" xml:space="preserve">
     <value> ({0})</value>
   </data>
-  <data name="KeyPhotoPage_Back.Label" xml:space="preserve">
+  <data name="EditPage_Back.Label" xml:space="preserve">
     <value>Back</value>
   </data>
-  <data name="KeyPhotoPage_Undo.Label" xml:space="preserve">
+  <data name="EditPage_Undo.Label" xml:space="preserve">
     <value>Undo</value>
   </data>
-  <data name="KeyPhotoPage_Redo.Label" xml:space="preserve">
+  <data name="EditPage_Redo.Label" xml:space="preserve">
     <value>Redo</value>
   </data>
-  <data name="KeyPhotoPage_PageTitle.Text" xml:space="preserve">
+  <data name="EditPage_PageTitle.Text" xml:space="preserve">
     <value>Edit Live Photo</value>
   </data>
-  <data name="KeyPhotoPage_ConvertProtocol.Label" xml:space="preserve">
-    <value>Convert Live Photo Protocol</value>
-  </data>
-  <data name="KeyPhotoPage_ConvertProtocol.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_ConvertProtocol.Label" xml:space="preserve">
     <value>Convert Protocol</value>
   </data>
-  <data name="KeyPhotoPage_Restore.Label" xml:space="preserve">
+  <data name="EditPage_ConvertProtocol.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Coming soon</value>
+  </data>
+  <data name="EditPage_Restore.Label" xml:space="preserve">
     <value>Restore</value>
   </data>
-  <data name="KeyPhotoPage_Save.Label" xml:space="preserve">
-    <value>Set as Cover &amp; Save Copy</value>
+  <data name="EditPage_Save.Label" xml:space="preserve">
+    <value>Set as Key Photo &amp; Save Copy</value>
   </data>
-  <data name="KeyPhotoPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Set Cover &amp; Save As</value>
+  <data name="EditPage_Save.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Set Key Photo &amp; Save As</value>
   </data>
-  <data name="KeyPhotoPage_SaveAs.Label" xml:space="preserve">
+  <data name="EditPage_SaveAs.Label" xml:space="preserve">
     <value>Save As</value>
   </data>
-  <data name="KeyPhotoPage_SaveAs.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_SaveAs.ToolTipService.ToolTip" xml:space="preserve">
     <value>Save as a new file</value>
   </data>
-  <data name="KeyPhotoPage_ExportFrame.Text" xml:space="preserve">
+  <data name="EditPage_ExportFrame.Text" xml:space="preserve">
     <value>Export Current Frame</value>
   </data>
-  <data name="KeyPhotoPage_ExportAllFrames.Text" xml:space="preserve">
+  <data name="EditPage_ExportAllFrames.Text" xml:space="preserve">
     <value>Export All Frames</value>
   </data>
-  <data name="KeyPhotoPage_Export.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_Export.ToolTipService.ToolTip" xml:space="preserve">
     <value>Export frames, video, or GIF</value>
   </data>
-  <data name="KeyPhotoPage_Export.Label" xml:space="preserve">
+  <data name="EditPage_Export.Label" xml:space="preserve">
     <value>Export…</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideo.Text" xml:space="preserve">
+  <data name="EditPage_ExportVideo.Text" xml:space="preserve">
     <value>Export as Video</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoMp4.Text" xml:space="preserve">
+  <data name="EditPage_ExportVideoMp4.Text" xml:space="preserve">
     <value>MP4 (H.264 + AAC)</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoMov.Text" xml:space="preserve">
+  <data name="EditPage_ExportVideoMov.Text" xml:space="preserve">
     <value>MOV (H.265 QuickTime + AAC)</value>
   </data>
-  <data name="KeyPhotoPage_ExportGif.Text" xml:space="preserve">
+  <data name="EditPage_ExportGif.Text" xml:space="preserve">
     <value>Export as GIF</value>
   </data>
-  <data name="KeyPhotoPage_More.Label" xml:space="preserve">
+  <data name="EditPage_More.Label" xml:space="preserve">
     <value>More</value>
   </data>
-  <data name="KeyPhotoPage_CurrentDirBox.PlaceholderText" xml:space="preserve">
+  <data name="EditPage_CurrentDirBox.PlaceholderText" xml:space="preserve">
     <value>Current directory...</value>
   </data>
-  <data name="KeyPhotoPage_RefreshDirBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_RefreshDirBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Refresh Directory</value>
   </data>
-  <data name="KeyPhotoPage_PrevFrame.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_PrevFrame.ToolTipService.ToolTip" xml:space="preserve">
     <value>Previous Frame</value>
   </data>
-  <data name="KeyPhotoPage_NextFrame.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_NextFrame.ToolTipService.ToolTip" xml:space="preserve">
     <value>Next Frame</value>
   </data>
-  <data name="KeyPhotoPage_PlayLivePhoto.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_PlayLivePhoto.ToolTipService.ToolTip" xml:space="preserve">
     <value>Play Live Photo</value>
   </data>
-  <data name="KeyPhotoPage_MuteToggle.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_MuteToggle.ToolTipService.ToolTip" xml:space="preserve">
     <value>Toggle Mute</value>
   </data>
-  <data name="KeyPhotoPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Browse folder</value>
   </data>
-  <data name="KeyPhotoPage_SearchBox.PlaceholderText" xml:space="preserve">
+  <data name="EditPage_SearchBox.PlaceholderText" xml:space="preserve">
     <value>Search files...</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Name.Content" xml:space="preserve">
+  <data name="EditPage_Sort_Name.Content" xml:space="preserve">
     <value>Name</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Date.Content" xml:space="preserve">
+  <data name="EditPage_Sort_Date.Content" xml:space="preserve">
     <value>Date</value>
   </data>
-  <data name="KeyPhotoPage_Sort_Size.Content" xml:space="preserve">
+  <data name="EditPage_Sort_Size.Content" xml:space="preserve">
     <value>Size</value>
   </data>
-  <data name="KeyPhotoPage_ViewModeToggle.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_ViewModeToggle.ToolTipService.ToolTip" xml:space="preserve">
     <value>Toggle view mode</value>
   </data>
-  <data name="KeyPhotoPage_SortDirectionBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_SortDirectionBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Sort direction</value>
   </data>
-  <data name="KeyPhotoPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_FilterBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Filter files</value>
+  </data>
+  <data name="EditPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Zoom out</value>
   </data>
-  <data name="KeyPhotoPage_ZoomResetBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_ZoomResetBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>100%</value>
   </data>
-  <data name="KeyPhotoPage_ZoomInBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_ZoomInBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Zoom in</value>
   </data>
-  <data name="KeyPhotoPage_FitWindowBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_FitWindowBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Fit to window</value>
   </data>
-  <data name="KeyPhotoPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_OneToOneBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>1:1</value>
   </data>
-  <data name="KeyPhotoPage_ExportProgressPrefixLabel" xml:space="preserve">
+  <data name="EditPage_ExportProgressPrefixLabel" xml:space="preserve">
     <value>Exporting frames…</value>
   </data>
-  <data name="KeyPhotoPage_TimelineTitle.Text" xml:space="preserve">
+  <data name="EditPage_TimelineTitle.Text" xml:space="preserve">
     <value>Live Photo Frames</value>
   </data>
-  <data name="KeyPhotoPage_TimelinePlaceholder.Text" xml:space="preserve">
+  <data name="EditPage_TimelinePlaceholder.Text" xml:space="preserve">
     <value>(Coming in a future update)</value>
   </data>
-  <data name="KeyPhoto_TimelineInfo" xml:space="preserve">
+  <data name="EditPage_TimelineInfo" xml:space="preserve">
     <value>{0} · {1} frames</value>
     <comment>Timeline summary info: {0}=duration, {1}=total frames</comment>
   </data>
-  <data name="KeyPhoto_TimelineFramePosition" xml:space="preserve">
+  <data name="EditPage_TimelineFramePosition" xml:space="preserve">
     <value>Frame {0} of {1}</value>
     <comment>{0}=current frame index (1-based), {1}=total frames</comment>
   </data>
-  <data name="KeyPhoto_TimelineFps" xml:space="preserve">
+  <data name="EditPage_TimelineFps" xml:space="preserve">
     <value>{0} fps</value>
     <comment>{0}=frame rate number, e.g. 30</comment>
   </data>
-  <data name="KeyPhoto_TimelineFrameKeyPhoto" xml:space="preserve">
-    <value>Cover · {0} frames</value>
+  <data name="EditPage_TimelineFrameKeyPhoto" xml:space="preserve">
+    <value>Key Photo · {0} frames</value>
     <comment>{0}=total frames</comment>
   </data>
-  <data name="KeyPhotoPage_PhotoInfoTitle.Text" xml:space="preserve">
+  <data name="EditPage_PhotoInfoTitle.Text" xml:space="preserve">
     <value>Photo Info</value>
   </data>
-  <data name="KeyPhotoPage_LivePhotoInfoTitle.Text" xml:space="preserve">
+  <data name="EditPage_LivePhotoInfoTitle.Text" xml:space="preserve">
     <value>Live Photo Info</value>
   </data>
-  <data name="KeyPhotoPage_ExifInfoTitle.Text" xml:space="preserve">
+  <data name="EditPage_ExifInfoTitle.Text" xml:space="preserve">
     <value>EXIF Info</value>
   </data>
-  <data name="KeyPhotoPage_FileNameLabel.Text" xml:space="preserve">
+  <data name="EditPage_FileNameLabel.Text" xml:space="preserve">
     <value>Filename: </value>
   </data>
-  <data name="KeyPhotoPage_FilePathLabel.Text" xml:space="preserve">
+  <data name="EditPage_FilePathLabel.Text" xml:space="preserve">
     <value>Path: </value>
   </data>
-  <data name="KeyPhotoPage_FileSizeLabel.Text" xml:space="preserve">
+  <data name="EditPage_FileSizeLabel.Text" xml:space="preserve">
     <value>Size: </value>
   </data>
-  <data name="KeyPhotoPage_ResolutionLabel.Text" xml:space="preserve">
+  <data name="EditPage_ResolutionLabel.Text" xml:space="preserve">
     <value>Resolution: </value>
   </data>
-  <data name="KeyPhotoPage_PhotoFormatLabel.Text" xml:space="preserve">
+  <data name="EditPage_PhotoFormatLabel.Text" xml:space="preserve">
     <value>Format: </value>
   </data>
-  <data name="KeyPhotoPage_ProtocolLabel.Text" xml:space="preserve">
+  <data name="EditPage_ProtocolLabel.Text" xml:space="preserve">
     <value>Protocol: </value>
   </data>
-  <data name="KeyPhotoPage_VideoDurationLabel.Text" xml:space="preserve">
+  <data name="EditPage_VideoDurationLabel.Text" xml:space="preserve">
     <value>Video duration: </value>
   </data>
-  <data name="KeyPhotoPage_VideoCodecLabel.Text" xml:space="preserve">
+  <data name="EditPage_VideoCodecLabel.Text" xml:space="preserve">
     <value>Codec: </value>
   </data>
-  <data name="KeyPhotoPage_VideoResolutionLabel.Text" xml:space="preserve">
+  <data name="EditPage_VideoResolutionLabel.Text" xml:space="preserve">
     <value>Video resolution: </value>
   </data>
-  <data name="KeyPhotoPage_VideoFpsLabel.Text" xml:space="preserve">
+  <data name="EditPage_VideoFpsLabel.Text" xml:space="preserve">
     <value>Frame rate: </value>
   </data>
-  <data name="KeyPhotoPage_CameraModelLabel.Text" xml:space="preserve">
+  <data name="EditPage_CameraModelLabel.Text" xml:space="preserve">
     <value>Camera: </value>
   </data>
-  <data name="KeyPhotoPage_LensModelLabel.Text" xml:space="preserve">
+  <data name="EditPage_LensModelLabel.Text" xml:space="preserve">
     <value>Lens: </value>
   </data>
-  <data name="KeyPhotoPage_FocalLengthLabel.Text" xml:space="preserve">
+  <data name="EditPage_FocalLengthLabel.Text" xml:space="preserve">
     <value>Focal length: </value>
   </data>
-  <data name="KeyPhotoPage_ApertureLabel.Text" xml:space="preserve">
+  <data name="EditPage_ApertureLabel.Text" xml:space="preserve">
     <value>Aperture: </value>
   </data>
-  <data name="KeyPhotoPage_ShutterSpeedLabel.Text" xml:space="preserve">
+  <data name="EditPage_ShutterSpeedLabel.Text" xml:space="preserve">
     <value>Shutter: </value>
   </data>
-  <data name="KeyPhotoPage_IsoLabel.Text" xml:space="preserve">
+  <data name="EditPage_IsoLabel.Text" xml:space="preserve">
     <value>ISO: </value>
   </data>
-  <data name="KeyPhotoPage_DateTakenLabel.Text" xml:space="preserve">
+  <data name="EditPage_DateTakenLabel.Text" xml:space="preserve">
     <value>Date taken: </value>
   </data>
-  <data name="KeyPhotoPage_MapPlaceholder.Text" xml:space="preserve">
+  <data name="EditPage_MapPlaceholder.Text" xml:space="preserve">
     <value>Map (coming soon)</value>
   </data>
-  <data name="KeyPhotoPage_ViewFullProps.Label" xml:space="preserve">
+  <data name="EditPage_ViewFullProps.Label" xml:space="preserve">
     <value>Properties</value>
   </data>
-  <data name="KeyPhotoPage_ViewFullPropsText.Text" xml:space="preserve">
+  <data name="EditPage_ViewFullPropsText.Text" xml:space="preserve">
     <value>View Full Properties</value>
   </data>
-  <data name="KeyPhotoPage_Altitude" xml:space="preserve">
+  <data name="EditPage_Altitude" xml:space="preserve">
     <value>Altitude</value>
   </data>
-  <data name="KeyPhoto_Protocol_Apple" xml:space="preserve">
+  <data name="EditPage_Protocol_Apple" xml:space="preserve">
     <value>Apple Live Photo</value>
   </data>
-  <data name="KeyPhoto_Protocol_GoogleV1" xml:space="preserve">
+  <data name="EditPage_Protocol_GoogleV1" xml:space="preserve">
     <value>Google Micro Video (V1)</value>
   </data>
-  <data name="KeyPhoto_Protocol_GoogleV2" xml:space="preserve">
+  <data name="EditPage_Protocol_GoogleV2" xml:space="preserve">
     <value>Google Motion Photo (V2)</value>
   </data>
-  <data name="KeyPhoto_Protocol_OPPO" xml:space="preserve">
+  <data name="EditPage_Protocol_OPPO" xml:space="preserve">
     <value>OPPO - O-Live Photo</value>
   </data>
-  <data name="KeyPhoto_Protocol_Xiaomi" xml:space="preserve">
+  <data name="EditPage_Protocol_Xiaomi" xml:space="preserve">
     <value>Xiaomi Motion Photo</value>
   </data>
-  <data name="KeyPhoto_Protocol_HeicEmbedded" xml:space="preserve">
+  <data name="EditPage_Protocol_HeicEmbedded" xml:space="preserve">
     <value>Apple HEIC Live Photo</value>
   </data>
-  <data name="KeyPhoto_Protocol_JpegGeneric" xml:space="preserve">
+  <data name="EditPage_Protocol_JpegGeneric" xml:space="preserve">
     <value>JPEG Embedded Live Photo</value>
   </data>
-  <data name="KeyPhoto_Protocol_NonLive" xml:space="preserve">
+  <data name="EditPage_Protocol_NonLive" xml:space="preserve">
     <value>Non-Live Photo</value>
   </data>
-  <data name="KeyPhoto_Protocol_MissingVideo" xml:space="preserve">
+  <data name="EditPage_Protocol_MissingVideo" xml:space="preserve">
     <value>(missing video)</value>
   </data>
-  <data name="KeyPhoto_Protocol_MissingPhoto" xml:space="preserve">
+  <data name="EditPage_Protocol_MissingPhoto" xml:space="preserve">
     <value>(missing photo)</value>
   </data>
-  <data name="KeyPhoto_FileCountSummary" xml:space="preserve">
+  <data name="EditPage_FileCountSummary" xml:space="preserve">
     <value>{0} live photos, {1} other photos</value>
   </data>
-  <data name="KeyPhoto_TotalLabel.Text" xml:space="preserve">
+  <data name="EditPage_TotalLabel.Text" xml:space="preserve">
     <value>Total</value>
   </data>
-  <data name="KeyPhoto_LivePhotoLabel.Text" xml:space="preserve">
+  <data name="EditPage_LivePhotoLabel.Text" xml:space="preserve">
     <value>Live</value>
   </data>
-  <data name="KeyPhoto_BrokenLiveLabel.Text" xml:space="preserve">
+  <data name="EditPage_BrokenLiveLabel.Text" xml:space="preserve">
     <value>Broken</value>
   </data>
-  <data name="KeyPhoto_OtherFileLabel.Text" xml:space="preserve">
+  <data name="EditPage_OtherFileLabel.Text" xml:space="preserve">
     <value>Other</value>
   </data>
-  <data name="KeyPhoto_Filter_All.Content" xml:space="preserve">
+  <data name="EditPage_Filter_All.Content" xml:space="preserve">
     <value>All Files</value>
   </data>
-  <data name="KeyPhoto_FilterMenu_All.Text" xml:space="preserve">
+  <data name="EditPage_FilterMenu_All.Text" xml:space="preserve">
     <value>All Files</value>
   </data>
-  <data name="KeyPhoto_Filter_Live.Content" xml:space="preserve">
+  <data name="EditPage_Filter_Live.Content" xml:space="preserve">
     <value>Live Photos</value>
   </data>
-  <data name="KeyPhoto_FilterMenu_Live.Text" xml:space="preserve">
+  <data name="EditPage_FilterMenu_Live.Text" xml:space="preserve">
     <value>Live Photos</value>
   </data>
-  <data name="KeyPhoto_Filter_BrokenLive.Content" xml:space="preserve">
+  <data name="EditPage_Filter_BrokenLive.Content" xml:space="preserve">
     <value>Broken Live Photos</value>
   </data>
-  <data name="KeyPhoto_FilterMenu_BrokenLive.Text" xml:space="preserve">
+  <data name="EditPage_FilterMenu_BrokenLive.Text" xml:space="preserve">
     <value>Broken Live Photos</value>
   </data>
-  <data name="KeyPhoto_Filter_RegularPhoto.Content" xml:space="preserve">
+  <data name="EditPage_Filter_RegularPhoto.Content" xml:space="preserve">
     <value>Regular Photos Only</value>
   </data>
-  <data name="KeyPhoto_FilterMenu_RegularPhoto.Text" xml:space="preserve">
+  <data name="EditPage_FilterMenu_RegularPhoto.Text" xml:space="preserve">
     <value>Regular Photos Only</value>
   </data>
-  <data name="KeyPhoto_Filter_RegularVideo.Content" xml:space="preserve">
+  <data name="EditPage_Filter_RegularVideo.Content" xml:space="preserve">
     <value>Regular Videos Only</value>
   </data>
-  <data name="KeyPhoto_FilterMenu_RegularVideo.Text" xml:space="preserve">
+  <data name="EditPage_FilterMenu_RegularVideo.Text" xml:space="preserve">
     <value>Regular Videos Only</value>
   </data>
-  <data name="KeyPhotoPage_PanelTitle.Text" xml:space="preserve">
+  <data name="EditPage_PanelTitle.Text" xml:space="preserve">
     <value>File Browser</value>
   </data>
-  <data name="KeyPhotoPage_CollapsePanel.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_CollapsePanel.ToolTipService.ToolTip" xml:space="preserve">
     <value>Collapse Panel</value>
   </data>
-  <data name="KeyPhotoPage_LocatePhoto.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_LocatePhoto.ToolTipService.ToolTip" xml:space="preserve">
     <value>Show in folder</value>
   </data>
-  <data name="KeyPhotoPage_LocateVideo.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_LocateVideo.ToolTipService.ToolTip" xml:space="preserve">
     <value>Show in folder</value>
   </data>
-  <data name="KeyPhoto_CameraPosition_Rear" xml:space="preserve">
+  <data name="EditPage_CameraPosition_Rear" xml:space="preserve">
     <value>Rear Camera</value>
   </data>
-  <data name="KeyPhoto_CameraPosition_Front" xml:space="preserve">
+  <data name="EditPage_CameraPosition_Front" xml:space="preserve">
     <value>Front Camera</value>
   </data>
-  <data name="KeyPhotoPage_MaximizeButton.ToolTipService.ToolTip" xml:space="preserve">
+  <data name="EditPage_MaximizeButton.ToolTipService.ToolTip" xml:space="preserve">
     <value>Maximize Preview</value>
   </data>
-  <data name="KeyPhotoPage_GotoCover.Content" xml:space="preserve">
-    <value>Go to Cover</value>
+  <data name="EditPage_GoToKeyPhoto.Content" xml:space="preserve">
+    <value>Go to Key Photo</value>
   </data>
-  <data name="KeyPhotoPage_GotoCover.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Jump to the cover frame</value>
+  <data name="EditPage_GoToKeyPhoto.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Jump to the key photo frame</value>
   </data>
-  <data name="KeyPhoto_UnknownDevice" xml:space="preserve">
+  <data name="EditPage_UnknownDevice" xml:space="preserve">
     <value>Unknown Device</value>
   </data>
-  <data name="KeyPhoto_UnknownCamera" xml:space="preserve">
+  <data name="EditPage_UnknownCamera" xml:space="preserve">
     <value>Unknown Camera</value>
   </data>
-  <data name="KeyPhoto_Lens_Rear" xml:space="preserve">
+  <data name="EditPage_Lens_Rear" xml:space="preserve">
     <value>Rear</value>
   </data>
-  <data name="KeyPhoto_Lens_Front" xml:space="preserve">
+  <data name="EditPage_Lens_Front" xml:space="preserve">
     <value>Front</value>
   </data>
-  <data name="KeyPhoto_Lens_UltraWide" xml:space="preserve">
+  <data name="EditPage_Lens_UltraWide" xml:space="preserve">
     <value>Ultra Wide</value>
   </data>
-  <data name="KeyPhoto_Lens_Wide" xml:space="preserve">
+  <data name="EditPage_Lens_Wide" xml:space="preserve">
     <value>Wide</value>
   </data>
-  <data name="KeyPhoto_Lens_Telephoto" xml:space="preserve">
+  <data name="EditPage_Lens_Telephoto" xml:space="preserve">
     <value>Telephoto</value>
   </data>
-  <data name="KeyPhoto_Lens_Macro" xml:space="preserve">
+  <data name="EditPage_Lens_Macro" xml:space="preserve">
     <value>Macro</value>
   </data>
-  <data name="KeyPhoto_Lens_Main" xml:space="preserve">
+  <data name="EditPage_Lens_Main" xml:space="preserve">
     <value>Main</value>
   </data>
-  <data name="KeyPhoto_Lens_Periscope" xml:space="preserve">
+  <data name="EditPage_Lens_Periscope" xml:space="preserve">
     <value>Periscope</value>
   </data>
-  <data name="KeyPhoto_Lens_Depth" xml:space="preserve">
+  <data name="EditPage_Lens_Depth" xml:space="preserve">
     <value>Depth</value>
   </data>
-  <data name="KeyPhoto_Lens_Camera" xml:space="preserve">
+  <data name="EditPage_Lens_Camera" xml:space="preserve">
     <value>Camera</value>
   </data>
-  <data name="KeyPhotoPage_TabCombined.Content" xml:space="preserve">
+  <data name="EditPage_TabCombined.Content" xml:space="preserve">
     <value>Combined View</value>
   </data>
-  <data name="KeyPhotoPage_TabFrames.Content" xml:space="preserve">
+  <data name="EditPage_TabFrames.Content" xml:space="preserve">
     <value>Live Photo Frames</value>
   </data>
-  <data name="KeyPhotoPage_TabBasicInfo.Content" xml:space="preserve">
+  <data name="EditPage_TabBasicInfo.Content" xml:space="preserve">
     <value>File Basic Info</value>
   </data>
-  <data name="KeyPhotoPage_TabDetailProps.Content" xml:space="preserve">
+  <data name="EditPage_TabDetailProps.Content" xml:space="preserve">
     <value>Change File Properties</value>
   </data>
-  <data name="KeyPhotoPage_LiveBadge.Text" xml:space="preserve">
+  <data name="EditPage_LiveBadge.Text" xml:space="preserve">
     <value>LIVE</value>
   </data>
-  <data name="KeyPhotoPage_DropToBrowse.Text" xml:space="preserve">
+  <data name="EditPage_DropToBrowse.Text" xml:space="preserve">
     <value>Drop to browse this folder</value>
   </data>
-  <data name="KeyPhotoPage_DropToView.Text" xml:space="preserve">
+  <data name="EditPage_DropToView.Text" xml:space="preserve">
     <value>Drop to view this file</value>
   </data>
-  <data name="KeyPhotoPage_DetailPropsPlaceholder.Text" xml:space="preserve">
+  <data name="EditPage_DetailPropsPlaceholder.Text" xml:space="preserve">
     <value>Change File Properties (coming soon)</value>
   </data>
-  <data name="KeyPhotoPage_ListItemLiveBadge.Text" xml:space="preserve">
+  <data name="EditPage_ListItemLiveBadge.Text" xml:space="preserve">
     <value>LIVE</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_Title" xml:space="preserve">
+  <data name="EditPage_ExportDialog_Title" xml:space="preserve">
     <value>Export All Frames</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_Description" xml:space="preserve">
+  <data name="EditPage_ExportDialog_Description" xml:space="preserve">
     <value>Confirm the export location and folder name. All live photo frames will be exported as JPEG images.</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_FolderNameLabel" xml:space="preserve">
+  <data name="EditPage_ExportDialog_FolderNameLabel" xml:space="preserve">
     <value>Folder Name</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_FolderPathLabel" xml:space="preserve">
+  <data name="EditPage_ExportDialog_FolderPathLabel" xml:space="preserve">
     <value>Export Location</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_BrowseBtn" xml:space="preserve">
+  <data name="EditPage_ExportDialog_BrowseBtn" xml:space="preserve">
     <value>Browse…</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_BrowseTip" xml:space="preserve">
+  <data name="EditPage_ExportDialog_BrowseTip" xml:space="preserve">
     <value>Choose export location</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_ResetTip" xml:space="preserve">
+  <data name="EditPage_ExportDialog_ResetTip" xml:space="preserve">
     <value>Reset to default folder name</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_CopyExifLabel" xml:space="preserve">
+  <data name="EditPage_ExportDialog_CopyExifLabel" xml:space="preserve">
     <value>Write EXIF metadata for video frames (device, date, camera settings, etc.)</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_PathEmptyError" xml:space="preserve">
+  <data name="EditPage_ExportDialog_PathEmptyError" xml:space="preserve">
     <value>Export location cannot be empty</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_PathInvalidError" xml:space="preserve">
+  <data name="EditPage_ExportDialog_PathInvalidError" xml:space="preserve">
     <value>Invalid export location, please enter a valid directory path</value>
   </data>
-  <data name="KeyPhotoPage_ExportDialog_ExportBtn" xml:space="preserve">
+  <data name="EditPage_ExportDialog_ExportBtn" xml:space="preserve">
     <value>Export</value>
   </data>
-  <data name="KeyPhotoPage_ExportComplete_Title" xml:space="preserve">
+  <data name="EditPage_ExportComplete_Title" xml:space="preserve">
     <value>Export Complete</value>
   </data>
-  <data name="KeyPhotoPage_ExportComplete_Summary" xml:space="preserve">
+  <data name="EditPage_ExportComplete_Summary" xml:space="preserve">
     <value>Export completed. {0} succeeded, {1} failed, {2} total frames.</value>
   </data>
-  <data name="KeyPhotoPage_ExportCurrentFrameInProgress" xml:space="preserve">
+  <data name="EditPage_ExportCurrentFrameInProgress" xml:space="preserve">
     <value>Exporting current frame…</value>
   </data>
-  <data name="KeyPhotoPage_ExportCurrentFrameComplete" xml:space="preserve">
+  <data name="EditPage_ExportCurrentFrameComplete" xml:space="preserve">
     <value>Current frame exported</value>
   </data>
-  <data name="KeyPhotoPage_ExportAllFramesInProgress" xml:space="preserve">
+  <data name="EditPage_ExportAllFramesInProgress" xml:space="preserve">
     <value>Exporting all frames…</value>
   </data>
-  <data name="KeyPhotoPage_ExportAllFramesComplete" xml:space="preserve">
+  <data name="EditPage_ExportAllFramesComplete" xml:space="preserve">
     <value>All frames exported</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoInProgress" xml:space="preserve">
+  <data name="EditPage_ExportVideoInProgress" xml:space="preserve">
     <value>Exporting video…</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoComplete" xml:space="preserve">
+  <data name="EditPage_ExportVideoComplete" xml:space="preserve">
     <value>Video exported</value>
   </data>
-  <data name="KeyPhotoPage_ExportGifInProgress" xml:space="preserve">
+  <data name="EditPage_ExportGifInProgress" xml:space="preserve">
     <value>Generating GIF…</value>
   </data>
-  <data name="KeyPhotoPage_ExportGifComplete" xml:space="preserve">
+  <data name="EditPage_ExportGifComplete" xml:space="preserve">
     <value>GIF generated</value>
   </data>
-  <data name="KeyPhotoPage_SaveCoverInProgress" xml:space="preserve">
-    <value>Saving cover…</value>
+  <data name="EditPage_GifDialog_Title" xml:space="preserve">
+    <value>GIF Export Settings</value>
   </data>
-  <data name="KeyPhotoPage_SaveCoverComplete" xml:space="preserve">
-    <value>Cover saved</value>
+  <data name="EditPage_GifDialog_PrimaryButton" xml:space="preserve">
+    <value>Generate GIF</value>
   </data>
-  <data name="KeyPhotoPage_SaveAsInProgress" xml:space="preserve">
+  <data name="EditPage_GifDialog_SizeLabel" xml:space="preserve">
+    <value>Size (pixels)</value>
+  </data>
+  <data name="EditPage_GifDialog_WidthLabel" xml:space="preserve">
+    <value>Width</value>
+  </data>
+  <data name="EditPage_GifDialog_HeightLabel" xml:space="preserve">
+    <value>Height</value>
+  </data>
+  <data name="EditPage_GifDialog_LockAspectRatio" xml:space="preserve">
+    <value>Keep original aspect ratio</value>
+  </data>
+  <data name="EditPage_GifDialog_UseOriginalSize" xml:space="preserve">
+    <value>Use original size</value>
+  </data>
+  <data name="EditPage_GifDialog_FpsLabel" xml:space="preserve">
+    <value>Frame rate (fps)</value>
+  </data>
+  <data name="EditPage_GifDialog_LoopLabel" xml:space="preserve">
+    <value>Loop count (0 = infinite)</value>
+  </data>
+  <data name="EditPage_GifDialog_OutputPathLabel" xml:space="preserve">
+    <value>Output path</value>
+  </data>
+  <data name="EditPage_GifDialog_BrowseTooltip" xml:space="preserve">
+    <value>Choose output folder</value>
+  </data>
+  <data name="EditPage_ExportDialog_FormatLabel" xml:space="preserve">
+    <value>Format</value>
+  </data>
+  <data name="EditPage_ExportDialog_QualityLabel" xml:space="preserve">
+    <value>Quality</value>
+  </data>
+  <data name="EditPage_ExportDialog_ShowInExplorer" xml:space="preserve">
+    <value>Show in Explorer</value>
+  </data>
+  <data name="EditPage_UnknownError" xml:space="preserve">
+    <value>Unknown error</value>
+  </data>
+  <data name="EditPage_NoLocation" xml:space="preserve">
+    <value>No location info</value>
+  </data>
+  <data name="EditPage_GeoLookupFailed" xml:space="preserve">
+    <value>Failed to get location, check network</value>
+  </data>
+  <data name="EditPage_SaveKeyPhotoInProgress" xml:space="preserve">
+    <value>Saving key photo…</value>
+  </data>
+  <data name="EditPage_SaveKeyPhotoComplete" xml:space="preserve">
+    <value>Key Photo saved</value>
+  </data>
+  <data name="EditPage_SaveAsInProgress" xml:space="preserve">
     <value>Saving as…</value>
   </data>
-  <data name="KeyPhotoPage_SaveAsComplete" xml:space="preserve">
+  <data name="EditPage_SaveAsComplete" xml:space="preserve">
     <value>Saved as</value>
   </data>
-  <data name="KeyPhotoPage_OpenOutputFolderButton" xml:space="preserve">
+  <data name="EditPage_OpenOutputFolderButton" xml:space="preserve">
     <value>Open output folder</value>
   </data>
-  <data name="KeyPhotoPage_ExportCurrentFrameFailed" xml:space="preserve">
+  <data name="EditPage_ExportCurrentFrameFailed" xml:space="preserve">
     <value>Current frame export failed</value>
   </data>
-  <data name="KeyPhotoPage_ExportAllFramesFailed" xml:space="preserve">
+  <data name="EditPage_ExportAllFramesFailed" xml:space="preserve">
     <value>All frames export failed</value>
   </data>
-  <data name="KeyPhotoPage_ExportVideoFailed" xml:space="preserve">
+  <data name="EditPage_ExportVideoFailed" xml:space="preserve">
     <value>Video export failed</value>
   </data>
-  <data name="KeyPhotoPage_ExportGifFailed" xml:space="preserve">
+  <data name="EditPage_ExportGifFailed" xml:space="preserve">
     <value>GIF generation failed</value>
   </data>
-  <data name="KeyPhotoPage_SaveCoverFailed" xml:space="preserve">
-    <value>Cover save failed</value>
+  <data name="EditPage_SaveKeyPhotoFailed" xml:space="preserve">
+    <value>Key Photo save failed</value>
   </data>
-  <data name="KeyPhotoPage_SaveAsFailed" xml:space="preserve">
+  <data name="EditPage_SaveAsFailed" xml:space="preserve">
     <value>Save as failed</value>
   </data>
-  <data name="KeyPhotoPage_GuardNotLivePhoto" xml:space="preserve">
+  <data name="EditPage_GuardNotLivePhoto" xml:space="preserve">
     <value>Current file is not a live photo</value>
   </data>
-  <data name="KeyPhotoPage_GuardNoVideoSource" xml:space="preserve">
+  <data name="EditPage_GuardNoVideoSource" xml:space="preserve">
     <value>Cannot find paired video for this live photo</value>
   </data>
-  <data name="KeyPhotoPage_SaveInProgress" xml:space="preserve">
+  <data name="EditPage_SaveInProgress" xml:space="preserve">
     <value>Saving...</value>
   </data>
-  <data name="KeyPhotoPage_SaveComplete" xml:space="preserve">
+  <data name="EditPage_SaveComplete" xml:space="preserve">
     <value>Saved</value>
   </data>
-  <data name="KeyPhotoPage_SaveAppleFilename" xml:space="preserve">
+  <data name="EditPage_SaveAppleFilename" xml:space="preserve">
     <value>{0}_keyframe{1}</value>
   </data>
-  <data name="KeyPhotoPage_SaveError" xml:space="preserve">
+  <data name="EditPage_SaveError" xml:space="preserve">
     <value>Save Error</value>
   </data>
   <data name="MergePage_DropToBrowse.Text" xml:space="preserve">
@@ -2792,28 +2846,28 @@ Are you sure you want to switch?</value>
   <data name="RepairPage_EmptyQueueDragHint.Text" xml:space="preserve">
     <value>Or drag a folder here</value>
   </data>
-  <data name="KeyPhotoPage_LeftPanelEmptyHint_Line1.Text" xml:space="preserve">
+  <data name="EditPage_LeftPanelEmptyHint_Line1.Text" xml:space="preserve">
     <value>Click Browse above to select a folder</value>
   </data>
-  <data name="KeyPhotoPage_LeftPanelEmptyHint_Line2.Text" xml:space="preserve">
+  <data name="EditPage_LeftPanelEmptyHint_Line2.Text" xml:space="preserve">
     <value>or drag a folder here</value>
   </data>
-  <data name="KeyPhotoPage_FilterEmptyHint.Text" xml:space="preserve">
+  <data name="EditPage_FilterEmptyHint.Text" xml:space="preserve">
     <value>Nothing here</value>
   </data>
-  <data name="KeyPhotoPage_PreviewEmptyHint_Line1.Text" xml:space="preserve">
+  <data name="EditPage_PreviewEmptyHint_Line1.Text" xml:space="preserve">
     <value>Select a file from the left</value>
   </data>
-  <data name="KeyPhotoPage_PreviewEmptyHint_Line2.Text" xml:space="preserve">
+  <data name="EditPage_PreviewEmptyHint_Line2.Text" xml:space="preserve">
     <value>or drag files here</value>
   </data>
-  <data name="KeyPhotoPage_TimelineEmptyHint.Text" xml:space="preserve">
+  <data name="EditPage_TimelineEmptyHint.Text" xml:space="preserve">
     <value>Select a Live Photo to view frames</value>
   </data>
-  <data name="KeyPhotoPage_BasicInfoLeftHint.Text" xml:space="preserve">
+  <data name="EditPage_BasicInfoLeftHint.Text" xml:space="preserve">
     <value>View basic file info</value>
   </data>
-  <data name="KeyPhotoPage_BasicInfoRightHint.Text" xml:space="preserve">
+  <data name="EditPage_BasicInfoRightHint.Text" xml:space="preserve">
     <value>View EXIF camera data</value>
   </data>
   <data name="PureMediaViewer_Stretch_Uniform" xml:space="preserve">
@@ -2828,10 +2882,10 @@ Are you sure you want to switch?</value>
   <data name="PureMediaViewer_Stretch_None" xml:space="preserve">
     <value>Original</value>
   </data>
-  <data name="KeyPhotoPage_RefreshDirTooltip" xml:space="preserve">
+  <data name="EditPage_RefreshDirTooltip" xml:space="preserve">
     <value>Rescan current directory</value>
   </data>
-  <data name="KeyPhotoPage_ClearDirTooltip" xml:space="preserve">
+  <data name="EditPage_ClearDirTooltip" xml:space="preserve">
     <value>Clear current list</value>
   </data>
 </root>
