@@ -190,7 +190,7 @@
 		<HoursBetweenUpdateChecks>0</HoursBetweenUpdateChecks>
         <PackageCertificateKeyFile Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">LivePhotoBox_TemporaryKey.pfx</PackageCertificateKeyFile>
 		<AppInstallerUri>https://github.com/LengxiQwQ/live-photo-box</AppInstallerUri>
-		<GenerateTestArtifacts>True</GenerateTestArtifacts>
+		<GenerateTestArtifacts>False</GenerateTestArtifacts>
 	</PropertyGroup>
 
 	<!-- 编译时从 Package.appxmanifest 自动同步版本号到程序集，确保单一版本来源 -->

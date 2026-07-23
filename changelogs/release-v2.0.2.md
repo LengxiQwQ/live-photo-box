@@ -21,9 +21,9 @@
   
   > Edit page can now detect incomplete live photos — for example, photos with a live photo marker but missing the video file.
   
-- **🎨 其他细节优化** — 选项卡根据文件类型自动切换默认视图；修复 150% DPI 缩放下时间轴缩略图白边；默认排序改为按日期
+- **🎨 其他细节优化** — 选项卡根据文件类型自动切换默认视图；默认排序改为按日期
   
-  > Other refinements: tabs auto-switch based on file type; fixed 1px white edge on timeline thumbnails at 150% DPI scaling; default sort order changed to by date.
+  > Other refinements: tabs auto-switch based on file type; default sort order changed to by date.
 
 ## 🐛 修复 / Bug Fixes
 
