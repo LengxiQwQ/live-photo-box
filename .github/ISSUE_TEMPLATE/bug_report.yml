@@ -45,13 +45,14 @@ body:
     attributes:
       label: "Installation source / 安装来源"
       description: |
-        Where did you install the app from?
+        Where did you install the app from? You can check this in the **About** page of the app.
 
-        你从哪里安装的应用？
+        你从哪里安装的应用？可以在应用的**关于**页面查看。
       options:
         - "Microsoft Store / 微软商店"
         - "Installer (setup.exe) / 安装版"
         - "Portable (zip) / 便携版"
+        - "Not sure / 不确定"
     validations:
       required: true
   - type: input
