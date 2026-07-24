@@ -52,7 +52,6 @@ body:
         - "Microsoft Store / 微软商店"
         - "Installer (setup.exe) / 安装版"
         - "Portable (zip) / 便携版"
-        - "Not sure / 不确定"
     validations:
       required: true
   - type: input
