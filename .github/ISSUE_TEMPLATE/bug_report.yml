@@ -1,0 +1,67 @@
+name: "🐛 Bug Report / Bug 报告"
+description: |
+  Report a bug or unexpected behavior.
+
+  报告不预期的行为或 Bug。
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill in as much detail as you can.
+
+        感谢你的反馈！请尽可能详细地填写以下信息。
+  - type: textarea
+    id: description
+    attributes:
+      label: "Describe the bug / 描述 Bug"
+      description: |
+        What happened? What did you expect to happen?
+
+        发生了什么？你原本期望的结果是什么？
+      placeholder: |
+        A clear and concise description...
+
+        清晰简洁地描述问题...
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: "Steps to reproduce / 复现步骤"
+      description: |
+        How can I reproduce this issue?
+
+        我该如何重现这个问题？
+      placeholder: |
+        1. Open the app / 打开应用
+        2. Click ... / 点击 ...
+        3. See error / 看到错误
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: "App version / 应用版本"
+      placeholder: "e.g. 2.0.2"
+  - type: input
+    id: os
+    attributes:
+      label: "OS version / 操作系统版本"
+      placeholder: "e.g. Windows 11 23H2 (22631.xxxx)"
+  - type: textarea
+    id: logs
+    attributes:
+      label: "Screenshots / logs / 截图 / 日志"
+      description: |
+        Drag & drop screenshots or paste log output here.
+
+        将截图拖拽到此处或粘贴日志输出。
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: "Before submitting / 提交前确认"
+      options:
+        - label: "I searched existing Issues to avoid duplicates / 我已搜索已有 Issues，确认无重复"
+          required: true
