@@ -7,20 +7,8 @@ title: "[Question] "
 labels: ["question"]
 body:
   - type: textarea
-    id: question
+    id: description
     attributes:
-      label: "Your question / 你的问题"
-      description: |
-        What would you like to know?
-
-        你想了解什么？
+      label: "Description / 描述"
     validations:
       required: true
-  - type: textarea
-    id: context
-    attributes:
-      label: "What have you tried? / 你尝试过什么？"
-      description: |
-        Let me know what steps you've already taken, so I can help more effectively.
-
-        告诉我你已经尝试过哪些方法，这样我能更有效地帮你。
