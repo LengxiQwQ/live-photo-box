@@ -1,42 +1,48 @@
+# build.yml — GitHub Actions automatic build & release
 # build.yml — GitHub Actions 自动构建与发布
 #
-# 每次推送到 master → 自动编译验证
-# 每次推送 v* 标签  → 自动编译 + 打包 + 创建 Release
+# Push to master → automatic build verification
+# Push v* tag     → automatic build + package + create Release
+# 推送到 master → 自动编译验证
+# 推送 v* 标签  → 自动编译 + 打包 + 创建 Release
 #
-# 使用方式：
+# Usage / 使用方式：
 #   git tag v1.14.11
 #   git push --tags
+#   → GitHub auto-builds, packages zip/exe, creates Release (draft)
+#   → Check the Releases page → click Publish to release
 #   → GitHub 自动编译、打包 zip/exe、创建 Release（草稿）
 #   → 去 Releases 页面检查 → 点 Publish 发布
 
-name: Build & Release
+name: Build & Release / 构建与发布
 
-# ── 触发条件 ──────────────────────────────────────────────────
+# ── Triggers / 触发条件 ──────────────────────────────────────────
 on:
   push:
     branches: [ master ]
     tags: [ 'v*' ]           # v1.14.11, v1.14.12 ...
   pull_request:
     branches: [ master ]
-  workflow_dispatch:          # 手动触发（不创建 Release）
+  workflow_dispatch:          # Manual trigger (no Release created) / 手动触发（不创建 Release）
 
-# ── 权限 ──────────────────────────────────────────────────────
+# ── Permissions / 权限 ──────────────────────────────────────────
 permissions:
-  contents: write             # 允许创建 Release 和上传附件
-  actions: write              # 允许删除旧 artifact
+  contents: write             # Allow creating Releases and uploading assets / 允许创建 Release 和上传附件
+  actions: write              # Allow deleting old artifacts / 允许删除旧 artifact
 
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      # ── 1. 拉取代码 ──────────────────────────────────────────
-      - name: Checkout
+      # ── 1. Checkout / 拉取代码 ──────────────────────────────────
+      - name: Checkout / 拉取代码
         uses: actions/checkout@v4
 
-      # ── 1.5 清理旧 artifact ──────────────────────────────────
+      # ── 1.5 Clean old artifact / 清理旧构建产物 ─────────────────
+      # Delete old build artifact before a new one is produced, freeing Actions storage
       # 每次新构建前删掉旧的构建产物，释放 Actions 存储空间
-      - name: Clean old artifact
+      - name: Clean old artifact / 清理旧构建产物
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         run: |
           $id = gh api /repos/${{ github.repository }}/actions/artifacts --paginate -q '.artifacts[] | select(.name == "LivePhotoBox-x64-Release" and .expired == false) | .id'
@@ -45,17 +51,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
 
-      # ── 2. .NET 环境 ─────────────────────────────────────────
-      - name: Setup .NET 9
+      # ── 2. .NET environment / .NET 环境 ─────────────────────────
+      - name: Setup .NET 9 / 安装 .NET 9
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
 
-      # ── 3. 从标签提取版本号 ──────────────────────────────────
-      - name: Extract version from tag
+      # ── 3. Extract version from tag / 从标签提取版本号 ──────────
+      # Tag format v1.14.11 → version3=1.14.11, version4=1.14.11.0
+      # 标签格式 v1.14.11 → version3=1.14.11, version4=1.14.11.0
+      - name: Extract version from tag / 提取版本号
         id: version
         run: |
-          # 标签格式 v1.14.11 → version3=1.14.11, version4=1.14.11.0
           if ("${{ github.ref_type }}" -eq "tag") {
             $v = "${{ github.ref_name }}" -replace '^v', ''
           } else {
@@ -67,8 +74,8 @@ jobs:
           echo "tag=v$v" >> $env:GITHUB_OUTPUT
         shell: pwsh
 
-      # ── 4. 编译 ──────────────────────────────────────────────
-      - name: Build & Publish (x64 Release)
+      # ── 4. Build / 编译 ─────────────────────────────────────────
+      - name: Build & Publish (x64 Release) / 编译 & 发布 (x64 Release)
         run: |
           dotnet publish "Live Photo Box\Live Photo Box.csproj" `
             -c Release `
@@ -81,8 +88,8 @@ jobs:
             -o publish\portable_x64
         shell: pwsh
 
-      # ── 5. 正确性检查 ───────────────────────────────────────
-      - name: Verify build output
+      # ── 5. Verify build output / 正确性检查 ─────────────────────
+      - name: Verify build output / 检查构建输出
         run: |
           if (-not (Test-Path "publish\portable_x64\Live Photo Box.exe")) {
             Write-Host "::error::Build failed - Live Photo Box.exe not found"
@@ -90,13 +97,13 @@ jobs:
           }
         shell: pwsh
 
-      # ── 5.5 清理无用文件（参照 scripts/build-release.ps1）──
-      - name: Strip unused files
+      # ── 5.5 Strip unused files (ref: scripts/build-release.ps1) / 清理无用文件 ──
+      - name: Strip unused files / 清理无用文件
         run: |
           $outDir = "publish\portable_x64"
           $removed = 0
 
-          # ── 1. 清理多余语言文件夹（顶层，正则匹配）────────
+          # ── 1. Remove extra locale folders (top-level, regex match) / 清理多余语言文件夹 ──
           $keepLocales = @('zh-CN','en-us')
           Get-ChildItem -Path $outDir -Directory -ErrorAction SilentlyContinue | ForEach-Object {
             if ($_.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $_.Name -notin $keepLocales) {
@@ -106,13 +113,13 @@ jobs:
           }
           Write-Host "Removed $removed top-level locale folders (kept $($keepLocales -join ', '))"
 
-          # ── 2. 删除运行时生成的配置文件（开发机残留）─────
+          # ── 2. Remove runtime-generated config files (dev machine leftovers) / 删除运行时配置文件 ──
           if (Test-Path "$outDir\appsettings.json") {
             Remove-Item -Force "$outDir\appsettings.json"
             Write-Host "Removed appsettings.json"
           }
 
-          # ── 3. 删除 AI/ML 无用文件 ────────────────────────
+          # ── 3. Remove AI/ML unused files / 删除 AI/ML 无用文件 ──
           foreach ($f in @('DirectML.dll','onnxruntime.dll','onnxruntime_providers_shared.dll','Microsoft.ML.OnnxRuntime.dll')) {
             $p = Join-Path $outDir $f
             if (Test-Path $p) { Remove-Item -Force $p; Write-Host "Removed $f" }
@@ -121,17 +128,18 @@ jobs:
           Get-ChildItem $outDir -Filter 'Microsoft.Windows.AI*' -ErrorAction SilentlyContinue | Remove-Item -Force
           Get-ChildItem $outDir -Filter 'Microsoft.Windows.AI*' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 
-          # ── 4. 删除 AI 负载配置和杂项 ─────────────────────
+          # ── 4. Remove AI workload config and misc / 删除 AI 负载配置和杂项 ──
           Remove-Item -Force "$outDir\workloads.json" -ErrorAction SilentlyContinue
           Remove-Item -Force "$outDir\WindowsAppRuntime.png" -ErrorAction SilentlyContinue
 
-          # ── 5. 删除调试符号（发布版不需要）────────────────
+          # ── 5. Remove debug symbols (not needed for release) / 删除调试符号 ──
           Remove-Item -Force "$outDir\Live Photo Box.pdb" -ErrorAction SilentlyContinue
 
-          # ── 6. 删除 XML 文档 ──────────────────────────────
+          # ── 6. Remove XML docs / 删除 XML 文档 ──
           Remove-Item -Force "$outDir\*.xml" -ErrorAction SilentlyContinue
 
-          # ── 7. 递归清理 .mui 原生语言资源 ─────────────────
+          # ── 7. Recursively clean .mui native language resources / 递归清理 .mui 原生语言资源 ──
+          # Read AppSupportedNativeLocales from csproj (single source of truth)
           # 从 csproj 读取 AppSupportedNativeLocales（单一真相源）
           [xml]$csprojXml = Get-Content 'Live Photo Box\Live Photo Box.csproj'
           $nativeLocales = ($csprojXml.Project.PropertyGroup.AppSupportedNativeLocales | Where-Object { $_ }) -split ';'
@@ -145,26 +153,27 @@ jobs:
           }
           Write-Host "Removed $muiRemoved .mui resource dirs"
 
-          # ── 8. 最终大小 ────────────────────────────────────
+          # ── 8. Final size / 最终大小 ──
           $kb = (Get-ChildItem $outDir -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1KB
           Write-Host "Final publish size: $('{0:N0}' -f $kb) KB"
         shell: pwsh
 
-      # ── 6. 打包便携版 zip ────────────────────────────────────
-      - name: Package portable zip
+      # ── 6. Package portable zip / 打包便携版 ─────────────────────
+      - name: Package portable zip / 打包便携版 zip
         run: |
           $zip = "Live-Photo-Box-v${{ steps.version.outputs.version3 }}-x64-portable.zip"
           Compress-Archive -Path "publish\portable_x64\*" -DestinationPath "publish\$zip" -Force
           Write-Host "Created: $zip"
         shell: pwsh
 
-      # ── 7. 打包安装版 exe ───────────────────────────────────
-      - name: Install Inno Setup
-        # Inno Setup 只在打 Release 时需要，但提前安装省得重复下载
+      # ── 7. Build Installer / 打包安装版 ─────────────────────────
+      # Inno Setup is only needed for Release builds, but installing early saves repeated downloads
+      # Inno Setup 只在打 Release 时需要，提前安装省得重复下载
+      - name: Install Inno Setup / 安装 Inno Setup
         run: choco install innosetup -y --no-progress --limit-output
         shell: pwsh
 
-      - name: Build setup installer
+      - name: Build setup installer / 打包安装程序
         run: |
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           if (Test-Path $iscc) {
@@ -179,8 +188,8 @@ jobs:
           }
         shell: pwsh
 
-      # ── 8. 上传构建产物（非标签构建） ─────────────────────
-      - name: Upload artifacts (non-release builds)
+      # ── 8. Upload artifacts (non-release builds) / 上传构建产物 ──
+      - name: Upload artifacts (non-release) / 上传构建产物（非 Release）
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
@@ -190,8 +199,8 @@ jobs:
             publish\*.exe
           retention-days: 7
 
-      # ── 9. 创建 GitHub Release（标签构建） ─────────────────
-      - name: Create Release
+      # ── 9. Create GitHub Release (tag builds) / 创建 Release ────
+      - name: Create Release / 创建 Release
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v2
         with:

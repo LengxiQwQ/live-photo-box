@@ -1,20 +1,26 @@
+# cleanup.yml — Scheduled cleanup of old build artifacts and caches
 # cleanup.yml — 定时清理旧构建产物和缓存
 #
-# 每 7 天自动运行一次，清理过期/旧的 artifacts 和 Actions 缓存
-# 确保 GitHub Actions 存储不超限
+# Runs every 7 days automatically to remove stale artifacts and caches.
+# Keeps GitHub Actions storage usage under control.
+# 每 7 天自动运行一次，清理过期/旧的 artifacts 和 Actions 缓存。
+# 确保 GitHub Actions 存储不超限。
 #
-# 说明：
+# Notes / 说明：
+#   - Only cleans non-release artifacts (LivePhotoBox-x64-Release)
+#   - Release attachments are NOT affected
+#   - Tag-triggered release builds are excluded from this cleanup
 #   - 仅清理非 release 的 artifact（LivePhotoBox-x64-Release）
 #   - 已发布的 Release 附件不受影响
 #   - Release 用的标签构建产物不在此清理范围
 
-name: Weekly Cleanup
+name: Weekly Cleanup / 每周清理
 
 on:
   schedule:
-    # 每周日 03:00 UTC (北京时间 11:00)
+    # Every Sunday 03:00 UTC (Beijing 11:00) / 每周日 UTC 03:00（北京时间 11:00）
     - cron: '0 3 * * 0'
-  workflow_dispatch:          # 也支持手动触发
+  workflow_dispatch:          # Also supports manual trigger / 也支持手动触发
 
 permissions:
   contents: write
@@ -23,26 +29,28 @@ jobs:
   cleanup:
     runs-on: ubuntu-latest
     steps:
-      - name: Delete stale artifacts
+      - name: Delete stale artifacts / 清理旧构建产物
         run: |
-          # 找出当前 repo 中所有未过期的 LivePhotoBox artifact 并删除
-          # 保留最新一个，删除其余全部
+          # Find all non-expired LivePhotoBox artifacts, keep only the latest one, delete the rest
+          # 找出所有未过期的 LivePhotoBox artifact，保留最新一个，删除其余
           ids=$(gh api /repos/${{ github.repository }}/actions/artifacts --paginate -q             '[.artifacts[] | select(.name == "LivePhotoBox-x64-Release" and .expired == false) | .id]')
           if [ -n "$ids" ] && [ "$(echo "$ids" | jq length)" -gt 1 ]; then
-            # 保留最新一个（最后一个，因为按时间升序排列）
+            # Keep the latest one (last in list, sorted ascending by time)
+            # 保留最新一个（最后一个，按时间升序排列）
             oldest=$(echo "$ids" | jq -r '.[:-1][]')
             for id in $oldest; do
               echo "Deleting artifact $id"
               gh api -X DELETE /repos/${{ github.repository }}/actions/artifacts/$id
             done
           else
-            echo "No stale artifacts to clean"
+            echo "No stale artifacts to clean / 没有需要清理的 artifact"
           fi
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Delete stale caches
+      - name: Delete stale caches / 清理过期缓存
         run: |
+          # Delete all expired caches
           # 删除所有过期缓存
           caches=$(gh api /repos/${{ github.repository }}/actions/caches -q '.actions_caches[]? | select(.expired == true) | .id')
           if [ -n "$caches" ]; then
@@ -51,7 +59,7 @@ jobs:
               gh api -X DELETE /repos/${{ github.repository }}/actions/caches/$id
             done
           else
-            echo "No stale caches to clean"
+            echo "No stale caches to clean / 没有需要清理的缓存"
           fi
         env:
           GH_TOKEN: ${{ github.token }}
