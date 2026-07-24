@@ -40,6 +40,21 @@ body:
         3. See error / 看到错误
     validations:
       required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: "Installation source / 安装来源"
+      description: |
+        Where did you install the app from?
+
+        你从哪里安装的应用？
+      options:
+        - "Microsoft Store / 微软商店"
+        - "Installer (setup.exe) / 安装版"
+        - "Portable (zip) / 便携版"
+        - "Not sure / 不确定"
+    validations:
+      required: true
   - type: input
     id: version
     attributes:
