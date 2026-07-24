@@ -3,7 +3,7 @@ description: |
   Suggest a new feature or improvement.
 
   建议新功能或改进点。
-title: "[Feature] "
+title: "[Feature Request] "
 labels: ["enhancement"]
 body:
   - type: textarea

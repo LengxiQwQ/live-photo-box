@@ -3,7 +3,7 @@ description: |
   Report a bug or unexpected behavior.
 
   报告不预期的行为或 Bug。
-title: "[Bug] "
+title: "[Bug Report] "
 labels: ["bug"]
 body:
   - type: markdown
