@@ -2304,10 +2304,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>恢复</value>
   </data>
   <data name="EditPage_Save.Label" xml:space="preserve">
-    <value>设为关键照片并保存为副本</value>
+    <value>设为封面并保存为副本</value>
   </data>
   <data name="EditPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>设为关键照片并另存</value>
+    <value>设为封片并另存为</value>
   </data>
   <data name="EditPage_SaveAs.Label" xml:space="preserve">
     <value>另存为</value>
@@ -2421,7 +2421,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <comment>{0}=帧率数值，如 30</comment>
   </data>
   <data name="EditPage_TimelineFrameKeyPhoto" xml:space="preserve">
-    <value>关键照片 · 共 {0} 帧</value>
+    <value>封面 · 共 {0} 帧</value>
     <comment>{0}=总帧数</comment>
   </data>
   <data name="EditPage_PhotoInfoTitle.Text" xml:space="preserve">
@@ -2553,6 +2553,24 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="EditPage_FilterMenu_Live.Text" xml:space="preserve">
     <value>实况照片</value>
   </data>
+  <data name="EditPage_Filter_BrokenLive.Content" xml:space="preserve">
+    <value>残缺实况</value>
+  </data>
+  <data name="EditPage_FilterMenu_BrokenLive.Text" xml:space="preserve">
+    <value>残缺实况</value>
+  </data>
+  <data name="EditPage_Filter_RegularPhoto.Content" xml:space="preserve">
+    <value>仅普通照片</value>
+  </data>
+  <data name="EditPage_FilterMenu_RegularPhoto.Text" xml:space="preserve">
+    <value>仅普通照片</value>
+  </data>
+  <data name="EditPage_Filter_RegularVideo.Content" xml:space="preserve">
+    <value>仅普通视频</value>
+  </data>
+  <data name="EditPage_FilterMenu_RegularVideo.Text" xml:space="preserve">
+    <value>仅普通视频</value>
+  </data>
   <data name="EditPage_PanelTitle.Text" xml:space="preserve">
     <value>资源浏览</value>
   </data>
@@ -2575,10 +2593,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>最大化预览</value>
   </data>
   <data name="EditPage_GoToKeyPhoto.Content" xml:space="preserve">
-    <value>前往关键照片</value>
+    <value>前往封面</value>
   </data>
   <data name="EditPage_GoToKeyPhoto.ToolTipService.ToolTip" xml:space="preserve">
-    <value>跳转到当前关键照片对应的帧</value>
+    <value>跳转到当前封面照片对应的帧</value>
   </data>
   <data name="EditPage_UnknownDevice" xml:space="preserve">
     <value>未知拍摄设备</value>
@@ -2758,10 +2776,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>获取位置信息失败，请检查网络</value>
   </data>
   <data name="EditPage_SaveKeyPhotoInProgress" xml:space="preserve">
-    <value>正在保存关键照片…</value>
+    <value>正在保存封面…</value>
   </data>
   <data name="EditPage_SaveKeyPhotoComplete" xml:space="preserve">
-    <value>关键照片保存完成</value>
+    <value>更换封面保存完成</value>
   </data>
   <data name="EditPage_SaveAsInProgress" xml:space="preserve">
     <value>正在另存为…</value>
@@ -2771,6 +2789,30 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="EditPage_OpenOutputFolderButton" xml:space="preserve">
     <value>打开输出文件夹</value>
+  </data>
+  <data name="EditPage_ExportCurrentFrameFailed" xml:space="preserve">
+    <value>当前帧导出失败</value>
+  </data>
+  <data name="EditPage_ExportAllFramesFailed" xml:space="preserve">
+    <value>所有帧导出失败</value>
+  </data>
+  <data name="EditPage_ExportVideoFailed" xml:space="preserve">
+    <value>视频导出失败</value>
+  </data>
+  <data name="EditPage_ExportGifFailed" xml:space="preserve">
+    <value>GIF 生成失败</value>
+  </data>
+  <data name="EditPage_SaveKeyPhotoFailed" xml:space="preserve">
+    <value>更换封面保存失败</value>
+  </data>
+  <data name="EditPage_SaveAsFailed" xml:space="preserve">
+    <value>另存为失败</value>
+  </data>
+  <data name="EditPage_GuardNotLivePhoto" xml:space="preserve">
+    <value>当前文件不是实况照片</value>
+  </data>
+  <data name="EditPage_GuardNoVideoSource" xml:space="preserve">
+    <value>找不到此实况照片配对的视频</value>
   </data>
   <data name="EditPage_SaveInProgress" xml:space="preserve">
     <value>正在保存...</value>
@@ -2808,6 +2850,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="EditPage_LeftPanelEmptyHint_Line2.Text" xml:space="preserve">
     <value>或将文件夹拖拽到此处</value>
   </data>
+  <data name="EditPage_FilterEmptyHint.Text" xml:space="preserve">
+    <value>空空如也</value>
+  </data>
   <data name="EditPage_PreviewEmptyHint_Line1.Text" xml:space="preserve">
     <value>从左侧选择文件预览</value>
   </data>
@@ -2840,50 +2885,5 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="EditPage_ClearDirTooltip" xml:space="preserve">
     <value>清空当前列表</value>
-  </data>
-  <data name="EditPage_ExportCurrentFrameFailed" xml:space="preserve">
-    <value>当前帧导出失败</value>
-  </data>
-  <data name="EditPage_ExportAllFramesFailed" xml:space="preserve">
-    <value>所有帧导出失败</value>
-  </data>
-  <data name="EditPage_ExportVideoFailed" xml:space="preserve">
-    <value>视频导出失败</value>
-  </data>
-  <data name="EditPage_ExportGifFailed" xml:space="preserve">
-    <value>GIF 生成失败</value>
-  </data>
-  <data name="EditPage_SaveKeyPhotoFailed" xml:space="preserve">
-    <value>关键照片保存失败</value>
-  </data>
-  <data name="EditPage_SaveAsFailed" xml:space="preserve">
-    <value>另存为失败</value>
-  </data>
-  <data name="EditPage_GuardNotLivePhoto" xml:space="preserve">
-    <value>当前文件不是实况照片</value>
-  </data>
-  <data name="EditPage_GuardNoVideoSource" xml:space="preserve">
-    <value>找不到此实况照片配对的视频</value>
-  </data>
-  <data name="EditPage_Filter_RegularPhoto.Content" xml:space="preserve">
-    <value>仅普通照片</value>
-  </data>
-  <data name="EditPage_FilterMenu_RegularPhoto.Text" xml:space="preserve">
-    <value>仅普通照片</value>
-  </data>
-  <data name="EditPage_Filter_RegularVideo.Content" xml:space="preserve">
-    <value>仅普通视频</value>
-  </data>
-  <data name="EditPage_FilterMenu_RegularVideo.Text" xml:space="preserve">
-    <value>仅普通视频</value>
-  </data>
-  <data name="EditPage_Filter_BrokenLive.Content" xml:space="preserve">
-    <value>残缺实况</value>
-  </data>
-  <data name="EditPage_FilterMenu_BrokenLive.Text" xml:space="preserve">
-    <value>残缺实况</value>
-  </data>
-  <data name="EditPage_FilterEmptyHint.Text" xml:space="preserve">
-    <value>空空如也</value>
   </data>
 </root>
