@@ -35,7 +35,26 @@ bld/
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/
+
+# AI assistant files
 .claude/
+.codegraph/
+_ai-tmp/
+CLAUDE.md
+
+.backups/
+.tmp-ico/
+
+# VS XAML designer temp files
+*tempxaml*
+
+# Editor/merge backup files
+*.bak
+*.old
+*.oldbak
+*.keep
+*.current
+
 # Uncomment if you have tasks that create the project's static files in wwwroot
 #wwwroot/
 
