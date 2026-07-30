@@ -41,6 +41,12 @@ namespace LivePhotoBox.Models
         // 任务失败且有错误详情时返回 true（用于 UI 显示错误图标）
         public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
 
+        // 图片原始大小（字节），用于排序
+        public long ImageSizeBytes { get; set; }
+        // 视频原始大小（字节），用于排序
+        public long VideoSizeBytes { get; set; }
+        // 图片拍摄日期（EXIF DateTimeOriginal），用于排序
+        public DateTime DateTaken { get; set; }
         // 图片和视频的总大小（字节）
         public long TotalSizeBytes { get; set; }
         // 合并后输出文件的基本名称（不含扩展名）
@@ -58,17 +64,26 @@ namespace LivePhotoBox.Models
         // 缩略图占位符可见性 — 缩略图未加载时显示默认图标
         public Visibility ThumbnailPlaceholderVisibility => ThumbnailService.GetPlaceholderVisibility(_thumbnail);
 
-        private bool _isLoadingThumbnail;
         private ImageSource? _thumbnail;
 
-        // 任务缩略图（懒加载，优先使用缓存）
+        // 任务缩略图（懒加载，优先使用缓存）。
+        // TryGetOrLoad 内部用 IsBeingLoaded() 跟踪进行中的加载，
+        // 不再需要外部 _isLoadingThumbnail 字段（内部字典有 finally 保证清理，不会卡住）。
         public ImageSource? Thumbnail
         {
-            get => ThumbnailService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, ImagePath, value => Thumbnail = value);
+            get => ThumbnailService.TryGetOrLoad(ImagePath, value => Thumbnail = value);
             set
             {
                 if (SetProperty(ref _thumbnail, value))
                 {
+                    OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
+                }
+                // value 为 null 表示加载取消/失败。即使 _thumbnail 原本也是 null
+                // （SetProperty 返回 false），也必须触发 PropertyChanged 让 x:Bind
+                // 重新调用 getter → TryGetOrLoad 重试。
+                if (value == null)
+                {
+                    OnPropertyChanged(nameof(Thumbnail));
                     OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
                 }
             }
@@ -77,7 +92,6 @@ namespace LivePhotoBox.Models
         // 图片路径变更时重置缩略图加载状态
         partial void OnImagePathChanged(string value)
         {
-            _isLoadingThumbnail = false;
             Thumbnail = null;
         }
 

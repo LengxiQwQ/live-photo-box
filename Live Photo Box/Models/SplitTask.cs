@@ -39,17 +39,26 @@ namespace LivePhotoBox.Models
 
         #region Thumbnail
 
-        private bool _isLoadingThumbnail;
         private ImageSource? _thumbnail;
 
-        // 源文件缩略图（懒加载，优先使用缓存）
+        // 源文件缩略图（懒加载，优先使用缓存）。
+        // TryGetOrLoad 内部用 IsBeingLoaded() 跟踪进行中的加载，
+        // 不再需要外部 _isLoadingThumbnail 字段（内部字典有 finally 保证清理，不会卡住）。
         public ImageSource? Thumbnail
         {
-            get => ThumbnailService.TryGetOrLoad(ref _thumbnail, ref _isLoadingThumbnail, SourcePath, value => Thumbnail = value);
+            get => ThumbnailService.TryGetOrLoad(SourcePath, value => Thumbnail = value);
             set
             {
                 if (SetProperty(ref _thumbnail, value))
                 {
+                    OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
+                }
+                // value 为 null 表示加载取消/失败。即使 _thumbnail 原本也是 null
+                // （SetProperty 返回 false），也必须触发 PropertyChanged 让 x:Bind
+                // 重新调用 getter → TryGetOrLoad 重试。
+                if (value == null)
+                {
+                    OnPropertyChanged(nameof(Thumbnail));
                     OnPropertyChanged(nameof(ThumbnailPlaceholderVisibility));
                 }
             }
@@ -61,7 +70,6 @@ namespace LivePhotoBox.Models
         // 源路径变更时重置缩略图加载状态
         partial void OnSourcePathChanged(string value)
         {
-            _isLoadingThumbnail = false;
             Thumbnail = null;
         }
 

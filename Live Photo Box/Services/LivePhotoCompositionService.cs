@@ -14,12 +14,15 @@ namespace LivePhotoBox.Services
     // 内部实际委托给 <see cref="LivePhotoMergeService"/> 的共享实现。
     public static class LivePhotoCompositionService
     {
-        // 生成实况照片输出文件名（固定为 "{baseName}.jpg"）。
-        // baseName: 文件名基础部分（不含扩展名）。
-        // selectedModeIndex: 协议索引（仅用于接口一致性，当前未影响文件名）。
-        public static string CreateOutputFileName(string baseName, int selectedModeIndex)
+        // Generate the live photo output filename.
+        // Delegates to <see cref="LivePhotoMergeService.CreateOutputFileName"/>.
+        // baseName: Filename base (without extension).
+        // selectedModeIndex: Protocol index.
+        // sourceImagePath: Optional source image path for HEIC detection.
+        public static string CreateOutputFileName(string baseName, int selectedModeIndex,
+            string? sourceImagePath = null)
         {
-            return $"{baseName}.jpg";
+            return LivePhotoMergeService.CreateOutputFileName(baseName, selectedModeIndex, sourceImagePath);
         }
 
         // 将图片和视频合成为实况照片文件。

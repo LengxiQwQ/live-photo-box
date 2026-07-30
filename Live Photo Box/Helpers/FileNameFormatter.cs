@@ -13,18 +13,18 @@ namespace LivePhotoBox.Helpers
     public static class FileNameFormatter
     {
         // 截断过长的文件名，使其适应任务列表列宽。
-        // 格式：文件名前 truncateAt 个字符 + "..." + 文件名后 8 个字符 + 扩展名。
+        // 格式：文件名前 truncateAt 个字符 + "..." + 文件名后 keepTail 个字符 + 扩展名。
         // fileName: 原始文件名（可含路径或仅文件名）。
-        // maxNameLength: 不触发截断的最大名称长度，默认 30。
+        // maxNameLength: 不触发截断的最大名称长度，默认 24。
         // truncateAt: 截断处保留的前缀字符数，默认 19。
-        // è¿å: 截断后的文件名；若原始名称为 null 或空则原样返回。
-        public static string Truncate(string fileName, int maxNameLength = 30, int truncateAt = 19)
+        // keepTail: 截断处保留的后缀字符数，默认 4。
+        public static string Truncate(string fileName, int maxNameLength = 24, int truncateAt = 19, int keepTail = 4)
         {
             if (string.IsNullOrEmpty(fileName)) return fileName;
             string ext = Path.GetExtension(fileName);
             string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
             if (nameWithoutExt.Length <= maxNameLength) return fileName;
-            return $"{nameWithoutExt.Substring(0, truncateAt)}...{nameWithoutExt.Substring(nameWithoutExt.Length - 8)}{ext}";
+            return $"{nameWithoutExt.Substring(0, truncateAt)}...{nameWithoutExt.Substring(nameWithoutExt.Length - keepTail)}{ext}";
         }
     }
 }

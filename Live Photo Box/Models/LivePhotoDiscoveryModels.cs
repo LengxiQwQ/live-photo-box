@@ -32,35 +32,58 @@ namespace LivePhotoBox.Models
         FilenamePairing,
         /// <summary>通过 Apple ContentIdentifier UUID 匹配</summary>
         ContentIdentifier,
-        /// <summary>通过组合元数据（日期+GPS+设备）匹配</summary>
-        MetadataCombined,
         /// <summary>通过 JPEG 文件头 XMP 字节标记检测</summary>
         JpegByteMarkers,
         /// <summary>通过 HEIC 视频轨检测</summary>
         HeicVideoTrack,
+        /// <summary>通过 vivo JPEG 尾部 JSON / MP4 uuid box (com.android.camera.livephoto ID) 匹配</summary>
+        VivoLivePhoto,
+    }
+
+    /// <summary>实况照片协议类型 — 检测到的厂商/协议</summary>
+    public enum LivePhotoProtocolType
+    {
+        /// <summary>未知 / 非实况照片</summary>
+        Unknown = 0,
+        /// <summary>Apple Live Photo（ContentIdentifier UUID 配对）</summary>
+        Apple = 1,
+        /// <summary>Google MicroVideo V1（GCamera:MicroVideo，已弃用）</summary>
+        GoogleV1 = 2,
+        /// <summary>Google MotionPhoto V2（Container:Directory 标准）</summary>
+        GoogleV2 = 3,
+        /// <summary>OPPO / OnePlus O-Live Photo（OpCamera 命名空间）</summary>
+        OPPO = 4,
+        /// <summary>vivo Live Photo（VCamera 命名空间，X300 系列起）</summary>
+        Vivo = 6,
+        /// <summary>三星 Motion Photo（SEFH/SEFT Trailer）</summary>
+        Samsung = 7,
+        /// <summary>华为 Moving Photo（LIVE_ 尾标，无 XMP）</summary>
+        Huawei = 8,
+        /// <summary>LivePhotoBox 融合协议（自创，融合各家）</summary>
+        Fusion = 9,
     }
 
     /// <summary>扫描模式 — 控制要运行哪些检测 Pass</summary>
     [Flags]
     public enum DiscoveryScanMode
     {
-        /// <summary>Pass 1: JPEG 字节标记检测（Google/OPPO/小米）</summary>
+        /// <summary>检测：JPEG XMP 字节标记（Google/OPPO/小米/vivo X300+）</summary>
         JpegMarkers = 1 << 0,
-        /// <summary>Pass 2: HEIC 视频轨检测（exiftool ContentIdentifier + MediaDuration）</summary>
+        /// <summary>检测：HEIC 视频轨（exiftool ContentIdentifier + MediaDuration）</summary>
         HeicTrack = 1 << 1,
-        /// <summary>Pass 3: 文件名基础部分配对（图片+视频同名）</summary>
+        /// <summary>匹配：文件名 basename（图片+视频同名即配对）</summary>
         FilenamePair = 1 << 2,
-        /// <summary>Pass 4: ContentIdentifier UUID 匹配</summary>
+        /// <summary>匹配：Apple ContentIdentifier UUID（QuickTime 元数据）</summary>
         CidMatch = 1 << 3,
-        /// <summary>Pass 5: 组合元数据匹配（日期+GPS+设备）</summary>
-        MetadataMatch = 1 << 4,
+        /// <summary>匹配：vivo 双文件 ID（JPEG 尾 vivo{JSON} + MP4 uuid vivoMediaExtInfo, com.android.camera.livephoto）</summary>
+        VivoMatch = 1 << 4,
 
-        /// <summary>拆分页面专用：仅 Pass 1</summary>
+        /// <summary>拆分页面：仅 XMP 检测</summary>
         SplitOnly = JpegMarkers,
-        /// <summary>合并页面专用：Pass 3 + 4 + 5</summary>
-        MergeOnly = FilenamePair | CidMatch | MetadataMatch,
-        /// <summary>资源浏览页面：全部 Pass</summary>
-        All = JpegMarkers | HeicTrack | FilenamePair | CidMatch | MetadataMatch,
+        /// <summary>合并页面：三个匹配方法（按 UI 选择互斥运行）</summary>
+        MergeOnly = FilenamePair | CidMatch | VivoMatch,
+        /// <summary>资源浏览：检测 + 匹配全部</summary>
+        All = JpegMarkers | HeicTrack | FilenamePair | CidMatch | VivoMatch,
     }
 
     /// <summary>统一文件发现条目 — 每个被扫描到的文件对应一条</summary>

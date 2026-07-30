@@ -138,6 +138,11 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
+        /// 清空所有设置后触发的事件。各 ViewModel 订阅此事件以刷新 UI 状态。
+        /// </summary>
+        public static event Action? SettingsCleared;
+
+        /// <summary>
         /// 清空所有设置。
         /// </summary>
         public static void ClearAll()
@@ -146,11 +151,14 @@ namespace LivePhotoBox.Services
             if (settings != null)
             {
                 settings.Values.Clear();
-                return;
+            }
+            else
+            {
+                _jsonStore.Clear();
+                PersistJsonStore();
             }
 
-            _jsonStore.Clear();
-            PersistJsonStore();
+            SettingsCleared?.Invoke();
         }
 
         private static void PersistJsonStore()

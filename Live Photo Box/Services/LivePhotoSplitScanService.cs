@@ -70,14 +70,22 @@ namespace LivePhotoBox.Services
             Encoding.ASCII.GetBytes("Container:Directory"),
             Encoding.ASCII.GetBytes("MotionPhoto"),
 
-            // ━━ 第二组：OPPO / 小米 私有属性名 ━━━━━━━━━━━━━━━━━━━━━━━━━
+            // ━━ 第二组：OPPO / 小米 / vivo 私有属性名 ━━━━━━━━━━━━━━━━━━━
             Encoding.ASCII.GetBytes("OpCamera:VideoLength"),
             Encoding.ASCII.GetBytes("OpCamera:MotionPhotoOwner"),
             Encoding.ASCII.GetBytes("MiCamera:VideoLength"),
+            Encoding.ASCII.GetBytes("VCamera:VMotionPhotoVersion"),
 
             // ━━ 第三组：本应用自产标记（命名空间 URI，格式完全可控）━━━━
             Encoding.ASCII.GetBytes("xmlns:LivePhotoBox=\"https://github.com/LengxiQwQ/live-photo-box\""),
         ];
+
+        // ── 文件尾标记（华为 / 三星的私有标记不在 XMP 里，在文件尾部）──
+        private static readonly byte[] LiveUnderscoreTailMarker = "LIVE_"u8.ToArray();
+        private static readonly byte[] SefhTailMarker = "SEFH"u8.ToArray();
+        private static readonly byte[] SeftTailMarker = "SEFT"u8.ToArray();
+        /// <summary>文件尾扫描缓冲区大小（华为 60B 尾标 + 三星 SEF 区都在末尾 4KB 内）</summary>
+        private const int TailProbeBytes = 4096;
 
         // ===========================================================================
         // 视频偏移量正则（覆盖全部已知厂商格式）
@@ -277,21 +285,49 @@ namespace LivePhotoBox.Services
                 headRead = stream.Read(headBuffer, 0, probeSize);
                 if (headRead <= 0) return false;
 
-                // ── 第二步：短属性名标记匹配（核心判定）───────────────────
+                // ── 第二步：短属性名标记匹配（头部 XMP 核心判定）───────────
                 var headData = new ReadOnlySpan<byte>(headBuffer, 0, headRead);
-                bool hasMarker = false;
+                bool hasHeadMarker = false;
                 foreach (var marker in MetadataMarkers)
                 {
                     if (headData.IndexOf(marker) >= 0)
                     {
-                        hasMarker = true;
+                        hasHeadMarker = true;
                         break;
                     }
                 }
 
-                if (!hasMarker) return false;
+                // ── 第三步：文件尾扫描（华为 LIVE_ / 三星 SEFH 私有标记）─
+                bool hasTailMarker = false;
+                if (!hasHeadMarker)
+                {
+                    int tailProbe = (int)Math.Min(fileSize, TailProbeBytes);
+                    byte[] tailBuffer = ArrayPool<byte>.Shared.Rent(tailProbe);
+                    try
+                    {
+                        stream.Seek(-tailProbe, SeekOrigin.End);
+                        int tailRead = stream.Read(tailBuffer, 0, tailProbe);
+                        if (tailRead > 0)
+                        {
+                            var tailData = new ReadOnlySpan<byte>(tailBuffer, 0, tailRead);
+                            // 华为：LIVE_ 字节序列
+                            if (tailData.IndexOf(LiveUnderscoreTailMarker) >= 0)
+                                hasTailMarker = true;
+                            // 三星：SEFH + SEFT 双魔数
+                            else if (tailData.IndexOf(SefhTailMarker) >= 0
+                                     && tailData.IndexOf(SeftTailMarker) >= 0)
+                                hasTailMarker = true;
+                        }
+                    }
+                    finally
+                    {
+                        ArrayPool<byte>.Shared.Return(tailBuffer);
+                    }
+                }
 
-                // ── 第三步：偏移量复查（仅日志，不阻塞）───────────────────
+                if (!hasHeadMarker && !hasTailMarker) return false;
+
+                // ── 第四步：偏移量复查（仅日志，不阻塞）───────────────────
                 // 尝试解析视频偏移量。成功→记录合法/非法；失败→标记已命中，照常放行
                 string metadataText = Encoding.UTF8.GetString(headBuffer, 0, headRead);
                 long? parsedOffset = TryParseVideoOffset(metadataText);
@@ -308,11 +344,18 @@ namespace LivePhotoBox.Services
                             LogLevel.Debug);
                     }
                 }
-                else
+                else if (hasHeadMarker)
                 {
                     LogService.Scan(
                         $"Marker matched but offset unparsed for '{Path.GetFileName(path)}' — " +
                         "passing through (marker-only match).",
+                        LogLevel.Debug);
+                }
+                else
+                {
+                    LogService.Scan(
+                        $"Tail marker matched (non-XMP protocol) for '{Path.GetFileName(path)}' — " +
+                        "passing through.",
                         LogLevel.Debug);
                 }
 

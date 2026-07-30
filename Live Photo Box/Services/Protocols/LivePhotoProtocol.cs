@@ -4,9 +4,13 @@
 // protocols. Each concrete subclass defines the XMP metadata format and optional
 // image pre-processing for a specific platform.
 // Supported protocol implementations:
-//   - Google MicroVideo V1 (deprecated, Id=0)
-//   - Google Motion Photo V2 (Id=1)
-//   - OPPO/OnePlus O-Live Photo (Id=2)
+//   - Motion Photo Fusion (Id=0) — V2 + OPPO + VIVO + Samsung
+//   - Google MicroVideo V1 (deprecated, Id=1)
+//   - Google Motion Photo V2 (Id=2)
+//   - OPPO/OnePlus O-Live Photo (Id=3)
+//   - VIVO Live Photo (Id=4)
+//   - Samsung Motion Photo (Id=5)
+//   - HUAWEI Moving Photo (Id=6)
 // </summary>
 
 using System;
@@ -72,9 +76,13 @@ namespace LivePhotoBox.Services.Protocols
         // All registered protocol instances, ordered by Id.
         private static readonly LivePhotoProtocol[] _all =
         [
-            new MicroVideoV1Protocol(),
-            new MotionPhotoV2Protocol(),
-            new OppoLivePhotoProtocol(),
+            new MotionPhotoFusionProtocol(),  // 0 — fusion (V2 + OPPO + VIVO + Samsung)
+            new MicroVideoV1Protocol(),       // 1
+            new MotionPhotoV2Protocol(),      // 2 — default
+            new OppoLivePhotoProtocol(),      // 3
+            new VivoLivePhotoProtocol(),     // 4
+            new SamsungMotionPhotoProtocol(), // 5
+            new HuaweiMovingPhotoProtocol(),  // 6
         ];
 
         // All registered protocols ordered by Id.
@@ -89,7 +97,12 @@ namespace LivePhotoBox.Services.Protocols
             {
                 if (p.Id == index) return p;
             }
-            return _all[1]; // fallback → V2 (MotionPhoto)
+            // Fallback: find V2 by scanning (robust against reordering).
+            foreach (var p in _all)
+            {
+                if (p.Id == 2) return p; // V2 (MotionPhoto)
+            }
+            return _all[2]; // last resort
         }
 
         // ── shared helpers ─────────────────────────────────────────────

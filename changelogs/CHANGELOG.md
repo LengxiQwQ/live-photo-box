@@ -1,10 +1,14 @@
 # Live Photo Box Changelog
 
-> Current version: **v2.0.2**
+> Current version: **v2.1.0**
 > Project started: 2026-03-27
 > Tech stack: WinUI 3 + .NET 9 + C# 13
 
 ---
+
+## v2.1.x — Multi-Brand Compatibility & Page Redesign
+
+> **v2.1.0** (2026-07-30) **[Redesign]** Merge page epic redesign — left settings + right queue layout, protocol picker, format filtering, custom naming, source file management; **[Feature]** New vivo/Samsung/HUAWEI live photo support, Fusion Mode works across brands + Windows Photos; Edit page supports all protocols, OPPO dual cover modes, drag-and-drop pairing setting; About page redesigned; **[Fix]** Window title, feedback button link
 
 ## v2.0.x — LivePhotoEdit Page & Toolchain Rewrite
 

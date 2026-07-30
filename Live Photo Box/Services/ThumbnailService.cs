@@ -49,6 +49,11 @@ namespace LivePhotoBox.Services
         // 追踪可取消的照片加载（TryGetOrLoad 旧路径用，滚动时新请求取消旧请求）
         private static readonly ConcurrentDictionary<string, CancellationTokenSource> _photoLoadCts = new(StringComparer.OrdinalIgnoreCase);
         private static readonly object _photoCtsLock = new();
+        // 追踪加载失败次数，防止损坏文件无限重试
+        private static readonly ConcurrentDictionary<string, int> _failCounts = new(StringComparer.OrdinalIgnoreCase);
+        private const int MaxFailRetries = 3;
+        // 追踪 TryGetOrLoad 发起的加载（与 _photoLoadCts 分开，存在于整个加载周期而非仅信号量等待期）
+        private static readonly ConcurrentDictionary<string, byte> _tryGetOrLoadInFlight = new(StringComparer.OrdinalIgnoreCase);
         private static int _cacheVersion;
 
         // 从缓存中直接获取已加载的缩略图（同步，非阻塞）。
@@ -91,16 +96,22 @@ namespace LivePhotoBox.Services
         }
 
         // 取消最早的排队中照片加载——信号量满时为新请求让位，保证可见区域优先。
-        private static void CancelOldestPhotoLoad()
+        // excludePath: 调用者自身的路径，排除以免疫消自己。
+        private static void CancelOldestPhotoLoad(string? excludePath = null)
         {
             lock (_photoCtsLock)
             {
-                var oldest = _photoLoadCts.FirstOrDefault();
-                if (!string.IsNullOrEmpty(oldest.Key) && _photoLoadCts.TryRemove(oldest.Key, out var cts))
+                foreach (var kvp in _photoLoadCts)
                 {
-                    try { cts.Cancel(); } catch { }
-                    // 不 Dispose —— 由持有此 CTS 的 Task 负责清理
+                    if (kvp.Key == excludePath) continue;
+                    if (_photoLoadCts.TryRemove(kvp.Key, out var cts))
+                    {
+                        try { cts.Cancel(); } catch { }
+                        // 不 Dispose —— 由持有此 CTS 的 Task 负责清理
+                        return;
+                    }
                 }
+                // dict 里只有自身 → 没有任何可取消的 → 调用者正常排队等待
             }
         }
 
@@ -580,6 +591,8 @@ namespace LivePhotoBox.Services
         {
             _thumbnailCache.Clear();
             _inflightLoads.Clear();
+            _failCounts.Clear();
+            _tryGetOrLoadInFlight.Clear();
             Interlocked.Increment(ref _cacheVersion);
         }
 
@@ -617,51 +630,66 @@ namespace LivePhotoBox.Services
             return 1.0;
         }
 
+        /// <summary>
+        /// 检查指定路径是否已有进行中的加载（在 _photoLoadCts / _videoLoadCts / _inflightLoads /
+        /// _tryGetOrLoadInFlight 中）。替代之前由调用方管理的 ref bool isLoading，
+        /// 因为内部字典有 finally 保证清理，不会被卡住。
+        /// </summary>
+        private static bool IsBeingLoaded(string path) =>
+            _photoLoadCts.ContainsKey(path) ||
+            _videoLoadCts.ContainsKey(path) ||
+            _inflightLoads.ContainsKey(path) ||
+            _tryGetOrLoadInFlight.ContainsKey(path);
+
         // For x:Bind property getter usage. Non-async, returns cached or triggers background load.
         // targetSize：缩略图逻辑像素（长边），默认 80，会和 DPI 缩放相乘得到实际解码像素。
         // 例如 KeyPhoto 框 56×56，200% DPI → 实际解码 112px，保证高清不糊。
         public static ImageSource? TryGetOrLoad(
-            ref ImageSource? thumbnail,
-            ref bool isLoading,
             string? imagePath,
             Action<ImageSource?> assignThumbnail,
             uint targetSize = 80)
         {
-            if (thumbnail == null && !isLoading && !string.IsNullOrWhiteSpace(imagePath))
+            if (string.IsNullOrWhiteSpace(imagePath)) return null;
+
+            // 先查全局缓存——避免重复解码（尤其 HEIC，单次解码耗时 100-300ms）
+            if (_thumbnailCache.TryGetValue(imagePath, out var cached))
             {
-                // 先查全局缓存——避免重复解码（尤其 HEIC，单次解码耗时 100-300ms）
-                if (_thumbnailCache.TryGetValue(imagePath, out var cached))
+                assignThumbnail(cached);
+                return cached;
+            }
+
+            // 已有进行中的加载 → 不重复触发。内部字典在 finally 块中必然清理，不会永久卡住。
+            if (IsBeingLoaded(imagePath)) return null;
+
+            var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+            var path = imagePath;
+            double dpiScale = GetDpiScale();
+            uint decodeSize = (uint)Math.Max(1, targetSize * dpiScale);
+
+            // 视频：无法提前知道宽高比，1.5× 兜底，后续可加 ffprobe 取真实尺寸
+            uint videoDecodeSize = (uint)(decodeSize * 1.5);
+
+            _ = System.Threading.Tasks.Task.Run(async () =>
+            {
+                // 视频走独立慢速信号量，不阻塞照片加载
+                if (IsVideoFile(path))
                 {
-                    assignThumbnail(cached);
-                    return cached;
-                }
-
-                isLoading = true;
-                var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
-                var path = imagePath;
-                double dpiScale = GetDpiScale();
-                uint decodeSize = (uint)Math.Max(1, targetSize * dpiScale);
-
-                // 视频：无法提前知道宽高比，1.5× 兜底，后续可加 ffprobe 取真实尺寸
-                uint videoDecodeSize = (uint)(decodeSize * 1.5);
-
-                _ = System.Threading.Tasks.Task.Run(async () =>
-                {
-                    // 视频走独立慢速信号量，不阻塞照片加载
-                    if (IsVideoFile(path))
+                    // 注册到 _tryGetOrLoadInFlight（独立于 _videoLoadCts 的取消体系），防止重复加载
+                    _tryGetOrLoadInFlight[path] = 0;
+                    try
                     {
                         await _videoLoadLimiter.WaitAsync();
                         try
                         {
                             if (_thumbnailCache.TryGetValue(path, out var vidCached))
                             {
-                                dispatcher?.TryEnqueue(() => assignThumbnail(vidCached));
+                                _ = dispatcher?.TryEnqueue(() => assignThumbnail(vidCached));
                                 return;
                             }
                             var (data, w, h) = await LoadVideoThumbnailDataAsync(path, videoDecodeSize);
                             if (data is { Length: > 0 } && dispatcher != null)
                             {
-                                dispatcher.TryEnqueue(() =>
+                                _ = dispatcher.TryEnqueue(() =>
                                 {
                                     try
                                     {
@@ -672,41 +700,56 @@ namespace LivePhotoBox.Services
                                         _thumbnailCache[path] = bmp;
                                         assignThumbnail(bmp);
                                     }
-                                    catch { }
+                                    catch
+                                    {
+                                        // SetSource 失败 → 回调 null 以触发 UI 刷新，后续 getter 会自动重试
+                                        assignThumbnail(null);
+                                    }
                                 });
+                            }
+                            else
+                            {
+                                _ = dispatcher?.TryEnqueue(() => assignThumbnail(null));
                             }
                         }
                         finally { _videoLoadLimiter.Release(); }
-                        return;
                     }
+                    finally
+                    {
+                        _tryGetOrLoadInFlight.TryRemove(path, out _);
+                    }
+                    return;
+                }
 
-                    // 注册可取消令牌：快速滚动时新请求会取消最旧的排队请求
-                    var photoCts = new CancellationTokenSource();
-                    _photoLoadCts[path] = photoCts;
+                // ── 照片路径 ──
+                // 注册可取消令牌：快速滚动时新请求会取消最旧的排队请求
+                _tryGetOrLoadInFlight[path] = 0;
+                var photoCts = new CancellationTokenSource();
+                _photoLoadCts[path] = photoCts;
 
+                try // 外层 finally — 无论成功/失败/取消，都清理追踪
+                {
+                    // ── 阶段 1：获取信号量 ──
                     try
                     {
-                        // 信号量满 → 取消最早排队项，保证可见区域优先
+                        // 信号量满 → 取消最早排队项，保证可见区域优先（排除自身）
                         if (_loadLimiter.CurrentCount == 0)
-                            CancelOldestPhotoLoad();
+                            CancelOldestPhotoLoad(path);
                         await _loadLimiter.WaitAsync(photoCts.Token);
                     }
                     catch (OperationCanceledException)
                     {
-                        return;
-                    }
-                    finally
-                    {
-                        _photoLoadCts.TryRemove(path, out _);
-                        photoCts.Dispose();
+                        _ = dispatcher?.TryEnqueue(() => assignThumbnail(null));
+                        return; // 外层 finally 仍然执行
                     }
 
+                    // ── 阶段 2：加载和解码 ──
                     try
                     {
                         // 双重检查：等信号量期间可能已被其他请求加载
                         if (_thumbnailCache.TryGetValue(path, out var photoCached))
                         {
-                            dispatcher?.TryEnqueue(() => assignThumbnail(photoCached));
+                            _ = dispatcher?.TryEnqueue(() => assignThumbnail(photoCached));
                             return;
                         }
 
@@ -727,36 +770,49 @@ namespace LivePhotoBox.Services
 
                         if (imageData != null && imageData.Length > 0 && dispatcher != null)
                         {
-                            dispatcher.TryEnqueue(() =>
+                            _ = dispatcher.TryEnqueue(() =>
                             {
                                 try
                                 {
                                     var bitmapImage = new BitmapImage();
                                     var stream = new MemoryStream(imageData);
                                     bitmapImage.SetSource(stream.AsRandomAccessStream());
-                                    // 写入全局缓存，后续同文件任何 EditFileItem 都能命中
                                     _thumbnailCache[path] = bitmapImage;
+                                    _failCounts.TryRemove(path, out _); // 加载成功 → 清零失败计数
                                     assignThumbnail(bitmapImage);
                                 }
                                 catch
                                 {
+                                    // SetSource 失败 → 回调 null 触发重试
+                                    assignThumbnail(null);
                                 }
                             });
                         }
                         else
                         {
-                            // 加载失败 → 回调空值以重置 isLoading 标记，允许后续重试
-                            dispatcher?.TryEnqueue(() => assignThumbnail(null));
+                            // 加载失败 → 检查重试次数，防止损坏文件无限循环
+                            int fails = _failCounts.AddOrUpdate(path, 1, (_, c) => c + 1);
+                            if (fails <= MaxFailRetries)
+                            {
+                                _ = dispatcher?.TryEnqueue(() => assignThumbnail(null));
+                            }
+                            // 超过 MaxFailRetries 次 → 静默放弃，不再重试
                         }
                     }
                     finally
                     {
                         _loadLimiter.Release();
                     }
-                });
-            }
+                }
+                finally
+                {
+                    _photoLoadCts.TryRemove(path, out _);
+                    photoCts.Dispose();
+                    _tryGetOrLoadInFlight.TryRemove(path, out _);
+                }
+            });
 
-            return thumbnail;
+            return null;
         }
 
         // 判断缩略图占位符的可见性：缩略图未加载时显示占位符，加载后隐藏。

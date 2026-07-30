@@ -61,20 +61,42 @@ namespace LivePhotoBox.Models
         /// <summary>检测方法（区分 Apple CID 配对 vs 纯文件名配对等）</summary>
         public LivePhotoDetectionMethod DetectionMethod { get; set; }
 
-        /// <summary>是否有已确认的实况照片协议（有真实协议标记，非纯文件名碰运气）</summary>
-        private bool _hasConfirmedProtocol;
-        public bool HasConfirmedProtocol
+        /// <summary>检测到的实况照片协议类型（Unknown = 非实况或未识别）</summary>
+        private LivePhotoProtocolType _detectedProtocol;
+        public LivePhotoProtocolType DetectedProtocol
         {
-            get => _hasConfirmedProtocol;
+            get => _detectedProtocol;
             set
             {
-                if (SetProperty(ref _hasConfirmedProtocol, value))
+                if (SetProperty(ref _detectedProtocol, value))
                 {
+                    // 协议变更 → 同步刷新相关属性
+                    OnPropertyChanged(nameof(HasConfirmedProtocol));
                     OnPropertyChanged(nameof(LivePhotoBadgeVisibility));
                     OnPropertyChanged(nameof(LiveBadgeBackground));
                     OnPropertyChanged(nameof(DisplayFileName));
                 }
             }
+        }
+
+        /// <summary>是否有已确认的实况照片协议（有真实协议标记，非纯文件名碰运气）</summary>
+        public bool HasConfirmedProtocol
+        {
+            get => DetectedProtocol != LivePhotoProtocolType.Unknown;
+            set
+            {
+                // 兼容旧代码：HasConfirmedProtocol = true → 不覆盖已有协议类型
+                // HasConfirmedProtocol = false → 重置为 Unknown
+                if (!value)
+                    DetectedProtocol = LivePhotoProtocolType.Unknown;
+                // value=true 时保持现有协议类型不变（调用方应改用 SetConfirmedProtocol）
+            }
+        }
+
+        /// <summary>设置已确认协议（兼容旧代码 — 有协议类型时直接设 DetectedProtocol）</summary>
+        public void SetConfirmedProtocol(LivePhotoProtocolType protocol)
+        {
+            DetectedProtocol = protocol;
         }
 
         // ══════════════════════════════════════════════════════════════

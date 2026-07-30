@@ -10,6 +10,8 @@ namespace LivePhotoBox.Models
         // 任务处理成功
         Success,
         // 任务处理失败
-        Failed
+        Failed,
+        // 任务被用户取消
+        Cancelled
     }
 }

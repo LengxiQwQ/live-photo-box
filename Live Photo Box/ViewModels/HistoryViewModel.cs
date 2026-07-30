@@ -30,6 +30,7 @@ namespace LivePhotoBox.ViewModels
         private static readonly XNamespace Container = "http://ns.google.com/photos/1.0/container/";
         private static readonly XNamespace OpCamera = "http://ns.oplus.com/photos/1.0/camera/";
         private static readonly XNamespace LivePhotoBoxNs = "https://github.com/LengxiQwQ/live-photo-box";
+        private static readonly XNamespace VCamera = "http://ns.vivo.com/photos/1.0/camera/";
 
         // ── Observable properties ──────────────────────────────────────────
 
@@ -341,20 +342,26 @@ namespace LivePhotoBox.ViewModels
                 }
             }
 
-            // ── Detect protocol type from known XMP tags ───────────────
+            // ── Detect protocol type from known XMP tags (priority order) ──
+            // 优先级：OPPO > vivo > MicroVideo(V1) > MotionPhoto(V2)
+            // 小米直接使用 Google V2 协议，MiCamera 字段为相机数据非实况识别字段
+            // Fusion 由 LivePhotoBox 命名空间识别（info.IsLivePhotoBoxGenerated）
             bool hasMicroVideo = GetAttributeValue(desc, GCamera, "MicroVideo") == "1" ||
                                  GetAttributeValue(desc, GCamera, "MicroVideoVersion") != null;
             bool hasMotionPhoto = GetAttributeValue(desc, GCamera, "MotionPhoto") == "1" ||
                                   GetAttributeValue(desc, GCamera, "MotionPhotoVersion") != null;
             bool hasOppo = GetAttributeValue(desc, OpCamera, "OLivePhotoVersion") != null ||
                            GetAttributeValue(desc, OpCamera, "MotionPhotoOwner") != null;
+            bool hasVivo = GetAttributeValue(desc, VCamera, "VMotionPhotoVersion") != null;
 
-            info.IsLivePhoto = hasMicroVideo || hasMotionPhoto || hasOppo;
+            info.IsLivePhoto = hasMicroVideo || hasMotionPhoto || hasOppo || hasVivo;
 
-            if (hasMicroVideo)
-                info.DetectedProtocol = ResourceService.GetString("History_Protocol_MicroVideoV1");
-            else if (hasOppo)
+            if (hasOppo)
                 info.DetectedProtocol = ResourceService.GetString("History_Protocol_OPPO");
+            else if (hasVivo)
+                info.DetectedProtocol = ResourceService.GetString("History_Protocol_Vivo");
+            else if (hasMicroVideo)
+                info.DetectedProtocol = ResourceService.GetString("History_Protocol_MicroVideoV1");
             else if (hasMotionPhoto)
                 info.DetectedProtocol = ResourceService.GetString("History_Protocol_MotionPhotoV2");
 

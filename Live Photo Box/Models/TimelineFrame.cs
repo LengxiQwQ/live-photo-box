@@ -33,18 +33,25 @@ namespace LivePhotoBox.Models
         public string TimestampDisplay => Timestamp.ToString(@"s\.fff");
 
         /// <summary>是否为静态照片帧（非视频帧），显示星标而非数字</summary>
-        public bool IsStillPhoto { get; init; }
+        public bool IsStillPhoto { get; set; }
 
-        /// <summary>角标显示文本：照片帧=⭐，视频帧=数字（从1开始）</summary>
-        public string FrameBadgeText => IsStillPhoto ? "⭐" : $"{FrameIndex + 1}";
+        /// <summary>是否为原始封面帧（换封面之前的旧高清大图位置），显示 🖼 标记。OPPO/VIVO 均支持</summary>
+        public bool IsOriginalPhoto { get; set; }
 
-        /// <summary>角标背景色：照片帧=暗金色，视频帧=半透明黑</summary>
-        public SolidColorBrush FrameBadgeBackground => IsStillPhoto
-            ? _stillPhotoBadgeBg
-            : _videoFrameBadgeBg;
+        /// <summary>角标显示文本：原始封面=🖼，照片帧=⭐，视频帧=数字（从1开始）</summary>
+        public string FrameBadgeText => IsOriginalPhoto ? "🖼" : (IsStillPhoto ? "⭐" : $"{FrameIndex + 1}");
+
+        /// <summary>角标背景色：原始封面=暗紫，照片帧=暗金，视频帧=半透明黑</summary>
+        public SolidColorBrush FrameBadgeBackground => IsOriginalPhoto
+            ? _originalPhotoBadgeBg
+            : (IsStillPhoto
+                ? _stillPhotoBadgeBg
+                : _videoFrameBadgeBg);
 
         private static readonly SolidColorBrush _stillPhotoBadgeBg = new(
             Windows.UI.Color.FromArgb(0xDD, 0xD4, 0x8B, 0x00)); // 暗金
+        private static readonly SolidColorBrush _originalPhotoBadgeBg = new(
+            Windows.UI.Color.FromArgb(0xEE, 0xA7, 0x6C, 0xF5)); // 亮紫，与暗金对比明显
         private static readonly SolidColorBrush _videoFrameBadgeBg = new(
             Windows.UI.Color.FromArgb(0x80, 0x00, 0x00, 0x00)); // 半透明黑
 

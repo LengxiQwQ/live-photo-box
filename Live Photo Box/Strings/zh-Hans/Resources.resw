@@ -145,7 +145,7 @@
     <value>设置</value>
   </data>
   <data name="Nav_Split.Content" xml:space="preserve">
-    <value>实况照片拆分</value>
+    <value>拆分 &amp; 协议转换</value>
   </data>
   <data name="AboutPage_Version_Format" xml:space="preserve">
     <value>版本 {0}</value>
@@ -229,7 +229,7 @@
     <value>调整应用整体视觉配色</value>
   </data>
   <data name="SettingsPage_Merge_Header.Text" xml:space="preserve">
-    <value>实况照片合成</value>
+    <value>合成 &amp; 协议转换</value>
   </data>
   <data name="SettingsPage_Protocol_Header.Header" xml:space="preserve">
     <value>转换协议</value>
@@ -244,7 +244,7 @@
     <value>处理完成后不清理源文件</value>
   </data>
   <data name="SettingsPage_Split_Header.Text" xml:space="preserve">
-    <value>实况照片拆分</value>
+    <value>拆分 &amp; 协议转换</value>
   </data>
   <data name="SettingsPage_SplitFormat_Header.Header" xml:space="preserve">
     <value>导出视频格式</value>
@@ -402,6 +402,9 @@
   <data name="MergePage_ColStatus.Text" xml:space="preserve">
     <value>状态</value>
   </data>
+  <data name="MergePage_ColActions.Text" xml:space="preserve">
+    <value>操作</value>
+  </data>
   <data name="MergePage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
     <value>在文件夹中查看</value>
   </data>
@@ -514,7 +517,7 @@
     <value>任务已停止</value>
   </data>
   <data name="Status_Stopping" xml:space="preserve">
-    <value>正在停止...</value>
+    <value>停止中...</value>
   </data>
   <data name="Status_Error" xml:space="preserve">
     <value>出错了：{0}</value>
@@ -550,7 +553,7 @@
     <value>停止运行</value>
   </data>
   <data name="Btn_Stopping" xml:space="preserve">
-    <value>正在停止...</value>
+    <value>停止中...</value>
   </data>
   <data name="Btn_ClearList" xml:space="preserve">
     <value>清空列表</value>
@@ -651,6 +654,9 @@
   <data name="Task_Pending" xml:space="preserve">
     <value>等待处理</value>
   </data>
+  <data name="Task_Cancelled" xml:space="preserve">
+    <value>已取消</value>
+  </data>
   <data name="Task_Processing" xml:space="preserve">
     <value>正在修复...</value>
   </data>
@@ -679,10 +685,10 @@
     <value>当前没有可处理的文件。请先设置输入目录。</value>
   </data>
   <data name="MergePage_EmptyQueueTitle.Text" xml:space="preserve">
-    <value>队列为空</value>
+    <value>拖拽图片与视频到此处，自动配对加入队列</value>
   </data>
   <data name="MergePage_EmptyQueueDesc.Text" xml:space="preserve">
-    <value>请将图片（HEIC/HEIF/JPG/JPEG）与视频（MOV/MP4）放入同一文件夹，点击扫描自动配对合成。</value>
+    <value>支持 JPG / HEIC / MP4 / MOV 格式</value>
   </data>
   <data name="MergePage_EmptyQueueHint_Part1.Text" xml:space="preserve">
     <value>您可以点击 </value>
@@ -751,13 +757,19 @@
     <value>OPPO - O-Live Photo</value>
   </data>
   <data name="MergePage_Protocol_V1_Hint" xml:space="preserve">
-    <value>Windows / Pixel / 小米（旧版 MIUI）</value>
+    <value>Windows / 小米（旧版 MIUI）/ Pixel</value>
   </data>
   <data name="MergePage_Protocol_V2_Hint" xml:space="preserve">
-    <value>Windows / Pixel / 小米 / 红米</value>
+    <value>Windows / 小米 / Pixel</value>
   </data>
   <data name="MergePage_Protocol_Oppo_Hint" xml:space="preserve">
-    <value>Windows / OPPO / 一加</value>
+    <value>Windows / 小米 / OPPO</value>
+  </data>
+  <data name="MergePage_Protocol_Vivo.Content" xml:space="preserve">
+    <value>vivo - Live Photo</value>
+  </data>
+  <data name="MergePage_Protocol_Vivo_Hint" xml:space="preserve">
+    <value>Windows / 小米 / vivo (≥ X300)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
@@ -800,7 +812,7 @@
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
     <value>在这里，你可以自由地合成、拆分和修复实况照片。Apple 为优化前置拍摄性能，将实况视频的物理像素横向存储，依赖内置 Rotation 标签来判断画面方向——但 Windows 系统会忽略这个标签直接渲染原始像素，导致画面旋转；iOS 17.3 之前还存在缩略图拉伸的问题。Live Photo Box 通过底层物理级矫正，彻底根治这些跨平台兼容性顽疾。
-合成与拆分也同样拿手：任意图片 + 视频 → 标准实况照片，适配 Google、OPPO、小米等 Android 实况协议；无损提取原始素材，完整保留 EXIF 与拍摄参数。此外，关键照片更换功能即将上线，照片自动分类等更多智能特性也在规划中，敬请期待。</value>
+合成与拆分也同样拿手：任意图片 + 视频 → 标准实况照片，全面适配 Apple、Google、OPPO、vivo、小米、华为、三星等主流实况协议；无损提取原始素材，完整保留 EXIF 与拍摄参数。此外，实况照片编辑功能也已上线——进入编辑页面即可从动态视频中挑选最精彩的一帧作为封面，让每一张实况照片都定格在最完美的瞬间。</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>友情提示 :</value>
@@ -809,13 +821,13 @@
     <value>在使用合成或拆分功能前，建议先确认你拥有原照片的备份，毕竟数据安全重于泰山。(^-^*)</value>
   </data>
   <data name="AboutPage_Title.Text" xml:space="preserve">
-    <value>Live Photo Box</value>
+    <value>实况照片工具箱</value>
   </data>
   <data name="AboutPage_Header.Text" xml:space="preserve">
     <value>关于本应用</value>
   </data>
   <data name="AboutPage_Description.Text" xml:space="preserve">
-    <value>Live Photo Box 是一款开源的实况照片处理工具箱，致力于为用户提供便捷的 Android 与 iOS 实况照片制作等功能。目前支持最新的 Google 封装协议，后续将适配各家安卓厂商私有协议。</value>
+    <value>一个工具箱，统一所有实况照片协议。支持各大主流实况照片标准。集协议互转、编辑、合成、拆分与显示修复于一体，让你在一个地方处理来自任何平台的实况照片。</value>
   </data>
   <data name="AboutPage_InfoHeader.Text" xml:space="preserve">
     <value>项目信息</value>
@@ -1020,9 +1032,6 @@
   <data name="SettingsPage_CrashGenerateTest_Button_Text.Text" xml:space="preserve">
     <value>生成测试日志</value>
   </data>
-  <data name="SettingsPage_CrashPreviewDialog_Button_Text.Text" xml:space="preserve">
-    <value>预览崩溃报告</value>
-  </data>
   <data name="SettingsPage_RestartApp_Button_Text.Text" xml:space="preserve">
     <value>重启应用</value>
   </data>
@@ -1204,7 +1213,7 @@
     <value>将 Apple 实况照片转换为单文件，使用各家安卓协议，使其可在 Windows 等设备上查看。支持图片（HEIC/HEIF/JPG/JPEG）与视频（MOV/MP4）合成，以及封装为 HEIF 的实况照片。</value>
   </data>
   <data name="HomePage_MergeUsage.Text" xml:space="preserve">
-    <value>将准备好的 (照片 JPG/HEIC + MOV/MP4 视频) 放在同一文件夹，点击“开始合成”即可。</value>
+    <value>将准备好的 (照片 JPG/HEIC + MOV/MP4 视频) 放在同一文件夹，点击"开始合成"即可。</value>
   </data>
   <data name="HomePage_SplitTitle.Text" xml:space="preserve">
     <value>实况照片拆分</value>
@@ -1213,7 +1222,7 @@
     <value>将现有的单文件实况照片进行无损解包，提取出原始的静态画面与动态视频。</value>
   </data>
   <data name="HomePage_SplitUsage.Text" xml:space="preserve">
-    <value>选择你想拆分的照片文件夹，点击“开始拆分”即可。</value>
+    <value>选择你想拆分的照片文件夹，点击"开始拆分"即可。</value>
   </data>
   <data name="HomePage_RepairTitle.Text" xml:space="preserve">
     <value>实况照片显示修复</value>
@@ -1314,16 +1323,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>隐私政策</value>
   </data>
   <data name="AboutPage_Privacy_Local.Text" xml:space="preserve">
-    <value>本地化处理：本应用不包含任何网络请求代码。</value>
+    <value>本地处理：所有照片处理均在您的设备本地完成，不会上传任何图像数据至服务器。</value>
   </data>
   <data name="AboutPage_Privacy_NoCollect.Text" xml:space="preserve">
-    <value>零隐私收集：所有操作均在您的本地计算机安全完成。</value>
-  </data>
-  <data name="AboutPage_DisclaimerTitle.Text" xml:space="preserve">
-    <value>免责声明</value>
-  </data>
-  <data name="AboutPage_DisclaimerContent.Text" xml:space="preserve">
-    <value>本软件按“原样”提供，不附带任何形式的明示或暗示担保。开发者 LengxiQwQ 不对因使用本软件导致的数据损坏、丢失或硬件故障承担法律责任。请务必养成先备份、后处理的习惯。</value>
+    <value>位置查询：对于含 GPS 坐标的照片，仅将经纬度发送至 api.mirror-earth.com（OpenStreetMap Nominatim 镜像）以获取地名。您可在设置中随时关闭此功能。</value>
   </data>
   <data name="HomePage_Intro3.Text" xml:space="preserve">
     <value> </value>
@@ -1383,10 +1386,160 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>请先选择需要修复的图片文件夹。程序会自动扫描目录，识别出因设备兼容性导致在 Windows 上出现缩略图旋转或拉伸问题的图片，并进行无损修复。</value>
   </data>
   <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
-    <value>打开输入目录</value>
+    <value>打开目录</value>
   </data>
   <data name="MergePage_OpenOutputBtn.Content" xml:space="preserve">
+    <value>打开目录</value>
+  </data>
+  <data name="MergePage_PageTitle.Text" xml:space="preserve">
+    <value>实况照片批量合成 &amp; 转换协议</value>
+  </data>
+  <data name="MergePage_PageSubtitle.Text" xml:space="preserve">
+    <value>将照片与视频合成为标准实况照片，支持批量转换协议</value>
+  </data>
+  <data name="MergePage_AddFilesBtn_Text.Text" xml:space="preserve">
+    <value>添加文件</value>
+  </data>
+  <data name="MergePage_AddFolderBtn_Text.Text" xml:space="preserve">
+    <value>添加文件夹</value>
+  </data>
+  <data name="MergePage_ClearBtn_Text.Text" xml:space="preserve">
+    <value>清空列表</value>
+  </data>
+  <data name="MergePage_QueueHeader.Text" xml:space="preserve">
+    <value>任务队列</value>
+  </data>
+  <data name="MergePage_StatusProcessing" xml:space="preserve">
+    <value>处理中：{0} 个文件</value>
+  </data>
+  <data name="MergePage_StatusTotal" xml:space="preserve">
+    <value>共 {0} 个文件</value>
+  </data>
+  <data name="MergePage_StatusElapsed" xml:space="preserve">
+    <value>已用 {0}</value>
+  </data>
+  <data name="MergePage_ScanMatched" xml:space="preserve">
+    <value>匹配 {0}</value>
+  </data>
+  <data name="MergePage_ScanUnmatched" xml:space="preserve">
+    <value>未匹配 {0}</value>
+  </data>
+  <data name="MergePage_StatusElapsedIdle" xml:space="preserve">
+    <value>用时 --:--</value>
+  </data>
+  <data name="MergePage_Sort_Name.Content" xml:space="preserve">
+    <value>文件名</value>
+  </data>
+  <data name="MergePage_Sort_TotalSize.Content" xml:space="preserve">
+    <value>总大小</value>
+  </data>
+  <data name="MergePage_Sort_ImageSize.Content" xml:space="preserve">
+    <value>图片大小</value>
+  </data>
+  <data name="MergePage_Sort_VideoSize.Content" xml:space="preserve">
+    <value>视频大小</value>
+  </data>
+  <data name="MergePage_Sort_Date.Content" xml:space="preserve">
+    <value>拍摄日期</value>
+  </data>
+  <data name="MergePage_PairingMethodLabel.Text" xml:space="preserve">
+    <value>配对方式：</value>
+  </data>
+  <data name="MergePage_Pairing_Filename.Content" xml:space="preserve">
+    <value>按文件名匹配</value>
+  </data>
+  <data name="MergePage_Pairing_Apple.Content" xml:space="preserve">
+    <value>仅配对 Apple Live Photo</value>
+  </data>
+  <data name="MergePage_Pairing_Vivo.Content" xml:space="preserve">
+    <value>仅配对 vivo Live Photo（≤ X200）</value>
+  </data>
+  <data name="MergePage_Filter_All.Text" xml:space="preserve">
+    <value>全部</value>
+  </data>
+  <data name="MergePage_Filter_Pending.Text" xml:space="preserve">
+    <value>待处理</value>
+  </data>
+  <data name="MergePage_Filter_Success.Text" xml:space="preserve">
+    <value>成功</value>
+  </data>
+  <data name="MergePage_Filter_Failed.Text" xml:space="preserve">
+    <value>失败</value>
+  </data>
+  <data name="MergePage_SearchBox.PlaceholderText" xml:space="preserve">
+    <value>搜索文件名...</value>
+  </data>
+  <data name="MergePage_OpenInputBtn_Tip.ToolTipService.ToolTip" xml:space="preserve">
+    <value>打开输入目录</value>
+  </data>
+  <data name="MergePage_OpenOutputBtn_Tip.ToolTipService.ToolTip" xml:space="preserve">
     <value>打开输出目录</value>
+  </data>
+  <data name="MergePage_OutputFormatLabel.Text" xml:space="preserve">
+    <value>输出格式：</value>
+  </data>
+  <data name="MergePage_OutputFormat_JPEG_MOV.Content" xml:space="preserve">
+    <value>JPG [内嵌 MOV (H.265)]</value>
+  </data>
+  <data name="MergePage_OutputFormat_JPEG_MP4.Content" xml:space="preserve">
+    <value>JPG [内嵌 MP4 (H.264)]</value>
+  </data>
+  <data name="MergePage_FormatHint_BestCompat" xml:space="preserve">
+    <value>兼容性最佳</value>
+  </data>
+  <data name="MergePage_FormatHint_GoodCompat" xml:space="preserve">
+    <value>高效但兼容性略差</value>
+  </data>
+  <data name="MergePage_FormatHint_Efficient" xml:space="preserve">
+    <value>高效</value>
+  </data>
+  <data name="MergePage_FormatHint_GoogleOnly" xml:space="preserve">
+    <value>仅 Google 相册可识别</value>
+  </data>
+  <data name="MergePage_FormatHint_Untested" xml:space="preserve">
+    <value>⚠️ 有待测试</value>
+  </data>
+  <data name="MergePage_FormatHint_CoverFirstFrame" xml:space="preserve">
+    <value>⚠️ 待修复问题：封面总为第一帧</value>
+  </data>
+  <data name="MergePage_KeepOriginalFiles.Header" xml:space="preserve">
+    <value>保留原始文件</value>
+  </data>
+  <data name="MergePage_OverwriteExisting.Header" xml:space="preserve">
+    <value>覆盖已存在文件</value>
+  </data>
+  <data name="MergePage_StatsHeader.Text" xml:space="preserve">
+    <value>统计信息</value>
+  </data>
+  <data name="MergePage_StatTotal.Text" xml:space="preserve">
+    <value>总数</value>
+  </data>
+  <data name="MergePage_StatPending.Text" xml:space="preserve">
+    <value>等待中</value>
+  </data>
+  <data name="MergePage_StatProcessing.Text" xml:space="preserve">
+    <value>处理中</value>
+  </data>
+  <data name="MergePage_StatSuccess.Text" xml:space="preserve">
+    <value>成功</value>
+  </data>
+  <data name="MergePage_StatFailed.Text" xml:space="preserve">
+    <value>失败</value>
+  </data>
+  <data name="MergePage_FooterTotal.Text" xml:space="preserve">
+    <value>总数 </value>
+  </data>
+  <data name="MergePage_FooterSuccess.Text" xml:space="preserve">
+    <value>成功 </value>
+  </data>
+  <data name="MergePage_FooterFailed.Text" xml:space="preserve">
+    <value>失败 </value>
+  </data>
+  <data name="MergePage_Menu_ShowInFolder.Text" xml:space="preserve">
+    <value>在文件夹中查看</value>
+  </data>
+  <data name="MergePage_Menu_Preview.Text" xml:space="preserve">
+    <value>全屏预览</value>
   </data>
   <data name="SplitPage_OpenInputBtn.Content" xml:space="preserve">
     <value>打开输入目录</value>
@@ -1826,9 +1979,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_SwitchToModern_Button_Text.Text" xml:space="preserve">
     <value>切换到新版设置界面</value>
   </data>
-  <data name="SettingsPageModern_SwitchToClassic_Button_Text.Text" xml:space="preserve">
-    <value>切换到旧版设置界面</value>
-  </data>
   <data name="SettingsPageModern_SwitchConfirm_Title" xml:space="preserve">
     <value>切换设置页面</value>
   </data>
@@ -1859,9 +2009,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_SwitchToModern_Confirm_Message" xml:space="preserve">
     <value>将重启应用并切换到新版设置界面，是否继续？</value>
   </data>
-  <data name="SettingsPage_SwitchToClassic_Confirm_Title" xml:space="preserve">
-    <value>切换到旧版设置界面</value>
-  </data>
   <data name="SettingsPage_Banner_Desc.Text" xml:space="preserve">
     <value>自定义主页的背景横幅图片</value>
   </data>
@@ -1882,11 +2029,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="BannerPreset_Name_anime" xml:space="preserve">
     <value>预设 3</value>
-  </data>
-  <data name="SettingsPage_SwitchToClassic_Confirm_Message" xml:space="preserve">
-    <value>⚠️ 旧版设置界面可能存在功能缺失或 UI 异常，建议使用新版界面。
-
-确定要切换吗？</value>
   </data>
   <data name="OutputDir_SplitPhotos" xml:space="preserve">
     <value>输出_拆分照片</value>
@@ -1985,6 +2127,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="History_Protocol_OPPO" xml:space="preserve">
     <value>OPPO Live Photo</value>
   </data>
+  <data name="History_Protocol_Vivo" xml:space="preserve">
+    <value>vivo 实况照片</value>
+  </data>
   <data name="History_Summary_Generated" xml:space="preserve">
     <value>处理过 {0} 次</value>
   </data>
@@ -2051,6 +2196,12 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_General_Header.Text" xml:space="preserve">
     <value>通用</value>
   </data>
+  <data name="SettingsPage_General_DragDropAutoPair.Text" xml:space="preserve">
+    <value>拖拽时自动搜索配对视频</value>
+  </data>
+  <data name="SettingsPage_General_DragDropAutoPair_Desc.Text" xml:space="preserve">
+    <value>开启后，拖入双文件实况照片时自动在文件夹中搜索匹配内容标识符的配对视频文件，关闭可提升拖拽性能</value>
+  </data>
   <data name="SettingsPage_General_RecursiveScan.Text" xml:space="preserve">
     <value>扫描子文件夹</value>
   </data>
@@ -2085,10 +2236,16 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>重启后完全生效。「经典模式」：可拖动的水平滚动列表，带滚动条，点击缩略图切换预览。「胶片模式」：隐藏滚动条，缩略图从画面中心的固定选中框下划过，滚轮逐帧步进，适合快速浏览。</value>
   </data>
   <data name="SettingsPage_TimelineMode_Classic.Content" xml:space="preserve">
-    <value>经典模式</value>
+    <value>经典模式（实验性）</value>
   </data>
   <data name="SettingsPage_TimelineMode_Filmstrip.Content" xml:space="preserve">
     <value>胶片模式</value>
+  </data>
+  <data name="SettingsPage_GeoLocation_Header.Text" xml:space="preserve">
+    <value>位置查询</value>
+  </data>
+  <data name="SettingsPage_GeoLocation_Desc.Text" xml:space="preserve">
+    <value>根据照片 GPS 坐标联网查询位置名称（api.mirror-earth.com）</value>
   </data>
   <data name="SettingsPage_CheckTools_Button_Text.Text" xml:space="preserve">
     <value>检测外部工具</value>
@@ -2403,7 +2560,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>正在导出帧…</value>
   </data>
   <data name="EditPage_TimelineTitle.Text" xml:space="preserve">
-    <value>实况照片帧</value>
+    <value>时间轴</value>
   </data>
   <data name="EditPage_TimelinePlaceholder.Text" xml:space="preserve">
     <value>（后续版本实现）</value>
@@ -2422,6 +2579,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="EditPage_TimelineFrameKeyPhoto" xml:space="preserve">
     <value>封面 · 共 {0} 帧</value>
+    <comment>{0}=总帧数</comment>
+  </data>
+  <data name="EditPage_TimelineFrameOriginalPhoto" xml:space="preserve">
+    <value>原始封面 · 共 {0} 帧</value>
     <comment>{0}=总帧数</comment>
   </data>
   <data name="EditPage_PhotoInfoTitle.Text" xml:space="preserve">
@@ -2506,10 +2667,19 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>Google Motion Photo (V2)</value>
   </data>
   <data name="EditPage_Protocol_OPPO" xml:space="preserve">
-    <value>OPPO - O-Live Photo</value>
+    <value>OPPO O-Live Photo</value>
   </data>
-  <data name="EditPage_Protocol_Xiaomi" xml:space="preserve">
-    <value>Xiaomi Motion Photo</value>
+  <data name="EditPage_Protocol_Huawei" xml:space="preserve">
+    <value>HUAWEI Moving Photo</value>
+  </data>
+  <data name="EditPage_Protocol_Samsung" xml:space="preserve">
+    <value>Samsung Motion Photo</value>
+  </data>
+  <data name="EditPage_Protocol_Vivo" xml:space="preserve">
+    <value>vivo Live Photo</value>
+  </data>
+  <data name="EditPage_Protocol_Fusion" xml:space="preserve">
+    <value>融合 Motion Photo</value>
   </data>
   <data name="EditPage_Protocol_HeicEmbedded" xml:space="preserve">
     <value>Apple HEIC 实况</value>
@@ -2597,6 +2767,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="EditPage_GoToKeyPhoto.ToolTipService.ToolTip" xml:space="preserve">
     <value>跳转到当前封面照片对应的帧</value>
+  </data>
+  <data name="EditPage_GoToOriginalPhoto.Content" xml:space="preserve">
+    <value>前往原始封面</value>
   </data>
   <data name="EditPage_UnknownDevice" xml:space="preserve">
     <value>未知拍摄设备</value>
@@ -2769,11 +2942,17 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="EditPage_UnknownError" xml:space="preserve">
     <value>未知错误</value>
   </data>
+  <data name="EditPage_GeoLookingUp" xml:space="preserve">
+    <value>正在获取位置…</value>
+  </data>
   <data name="EditPage_NoLocation" xml:space="preserve">
     <value>无位置信息</value>
   </data>
   <data name="EditPage_GeoLookupFailed" xml:space="preserve">
     <value>获取位置信息失败，请检查网络</value>
+  </data>
+  <data name="EditPage_GeoLocationDisabled" xml:space="preserve">
+    <value>位置查询已关闭，可在设置中开启</value>
   </data>
   <data name="EditPage_SaveKeyPhotoInProgress" xml:space="preserve">
     <value>正在保存封面…</value>
@@ -2829,6 +3008,15 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="MergePage_DropToBrowse.Text" xml:space="preserve">
     <value>释放以浏览此文件夹</value>
   </data>
+  <data name="MergePage_DropFolderToReplace" xml:space="preserve">
+    <value>替换源目录并重新扫描</value>
+  </data>
+  <data name="MergePage_DropFolderToAppend" xml:space="preserve">
+    <value>追加到队列</value>
+  </data>
+  <data name="MergePage_DropFileToAppend" xml:space="preserve">
+    <value>追加到队列</value>
+  </data>
   <data name="SplitPage_DropToBrowse.Text" xml:space="preserve">
     <value>释放以浏览此文件夹</value>
   </data>
@@ -2836,7 +3024,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>释放以浏览此文件夹</value>
   </data>
   <data name="MergePage_EmptyQueueDragHint.Text" xml:space="preserve">
-    <value>或将文件夹拖拽到此处</value>
+    <value>或将文件 / 文件夹拖拽到此处</value>
   </data>
   <data name="SplitPage_EmptyQueueDragHint.Text" xml:space="preserve">
     <value>或将文件夹拖拽到此处</value>
@@ -2885,5 +3073,405 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="EditPage_ClearDirTooltip" xml:space="preserve">
     <value>清空当前列表</value>
+  </data>
+  <data name="AboutPage_VersionLabel.Text" xml:space="preserve">
+    <value>版本</value>
+  </data>
+  <data name="AboutPage_FeaturesTitle.Text" xml:space="preserve">
+    <value>功能特性</value>
+  </data>
+  <data name="AboutPage_FeatureEditTitle.Text" xml:space="preserve">
+    <value>实况照片编辑</value>
+  </data>
+  <data name="AboutPage_FeatureEditDesc.Text" xml:space="preserve">
+    <value>替换 Live Photo 的封面照片，保留视频与所有元数据。</value>
+  </data>
+  <data name="AboutPage_FeatureMergeTitle.Text" xml:space="preserve">
+    <value>实况照片合成</value>
+  </data>
+  <data name="AboutPage_FeatureMergeDesc.Text" xml:space="preserve">
+    <value>将照片与视频无缝合并，生成标准的 Live Photo 文件。</value>
+  </data>
+  <data name="AboutPage_FeatureSplitTitle.Text" xml:space="preserve">
+    <value>实况照片拆分</value>
+  </data>
+  <data name="AboutPage_FeatureSplitDesc.Text" xml:space="preserve">
+    <value>从 Live Photo 中提取照片和视频，保存为独立文件。</value>
+  </data>
+  <data name="AboutPage_FeatureRepairTitle.Text" xml:space="preserve">
+    <value>实况照片显示修复</value>
+  </data>
+  <data name="AboutPage_FeatureRepairDesc.Text" xml:space="preserve">
+    <value>修复照片方向、旋转异常、元数据损坏等显示问题。</value>
+  </data>
+  <data name="AboutPage_DeveloperTitle.Text" xml:space="preserve">
+    <value>开发者</value>
+  </data>
+  <data name="AboutPage_DeveloperName.Text" xml:space="preserve">
+    <value>LengxiQwQ (冷汐OωO)</value>
+  </data>
+  <data name="AboutPage_DeveloperBio.Text" xml:space="preserve">
+    <value>独立开发者 · 热爱开源 · 专注实用工具</value>
+  </data>
+  <data name="AboutPage_DeveloperGitHub.Text" xml:space="preserve">
+    <value>github.com/LengxiQwQ</value>
+  </data>
+  <data name="AboutPage_OpenSourceTitle.Text" xml:space="preserve">
+    <value>开源致谢</value>
+  </data>
+  <data name="AboutPage_CreditExifToolLabel.Text" xml:space="preserve">
+    <value>EXIF</value>
+  </data>
+  <data name="AboutPage_CreditExifToolName.Text" xml:space="preserve">
+    <value>ExifTool</value>
+  </data>
+  <data name="AboutPage_CreditExifToolDesc.Text" xml:space="preserve">
+    <value>全局元数据解析、注入与 XMP 结构重构</value>
+  </data>
+  <data name="AboutPage_CreditJPEGTranLabel.Text" xml:space="preserve">
+    <value>JPEG</value>
+  </data>
+  <data name="AboutPage_CreditJPEGTranName.Text" xml:space="preserve">
+    <value>JPEGTran</value>
+  </data>
+  <data name="AboutPage_CreditJPEGTranDesc.Text" xml:space="preserve">
+    <value>基于 DCT 系数空间的无损变换</value>
+  </data>
+  <data name="AboutPage_CreditFFmpegName.Text" xml:space="preserve">
+    <value>FFmpeg</value>
+  </data>
+  <data name="AboutPage_CreditFFmpegDesc.Text" xml:space="preserve">
+    <value>视频转码与流封装引擎</value>
+  </data>
+  <data name="AboutPage_CreditMagickNETName.Text" xml:space="preserve">
+    <value>Magick.NET</value>
+  </data>
+  <data name="AboutPage_CreditMagickNETDesc.Text" xml:space="preserve">
+    <value>通过 libheif 解码 HEIC/HEIF 图像</value>
+  </data>
+  <data name="AboutPage_CreditLibheifLabel.Text" xml:space="preserve">
+    <value>HEIF</value>
+  </data>
+  <data name="AboutPage_CreditLibheifName.Text" xml:space="preserve">
+    <value>libheif</value>
+  </data>
+  <data name="AboutPage_CreditLibheifDesc.Text" xml:space="preserve">
+    <value>HEIF/HEIC 图像编码与解码引擎</value>
+  </data>
+  <data name="AboutPage_CreditCommunityToolkitName.Text" xml:space="preserve">
+    <value>CommunityToolkit</value>
+  </data>
+  <data name="AboutPage_CreditCommunityToolkitDesc.Text" xml:space="preserve">
+    <value>MVVM 框架与 WinUI 控件库</value>
+  </data>
+  <data name="AboutPage_CreditMagicScalerName.Text" xml:space="preserve">
+    <value>PhotoSauce MagicScaler</value>
+  </data>
+  <data name="AboutPage_CreditMagicScalerDesc.Text" xml:space="preserve">
+    <value>高性能图像缩放与处理引擎</value>
+  </data>
+  <data name="AboutPage_CreditMarkdigName.Text" xml:space="preserve">
+    <value>Markdig</value>
+  </data>
+  <data name="AboutPage_CreditMarkdigDesc.Text" xml:space="preserve">
+    <value>快速 Markdown 解析与 HTML 渲染器</value>
+  </data>
+  <data name="AboutPage_CreditFluentIconsName.Text" xml:space="preserve">
+    <value>FluentIcons</value>
+  </data>
+  <data name="AboutPage_CreditFluentIconsDesc.Text" xml:space="preserve">
+    <value>Fluent Design 图标库 (.NET 版)</value>
+  </data>
+  <data name="AboutPage_LegalTitle.Text" xml:space="preserve">
+    <value>法律信息</value>
+  </data>
+  <data name="AboutPage_DisclaimerHeader.Text" xml:space="preserve">
+    <value>免责声明</value>
+  </data>
+  <data name="AboutPage_DisclaimerBody.Text" xml:space="preserve">
+    <value>开发者不对因使用本软件导致的任何数据损坏、丢失或硬件故障承担法律责任。处理敏感文件前，请务必养成备份的良好习惯。</value>
+  </data>
+  <data name="AboutPage_GitHubButton.Content" xml:space="preserve">
+    <value>GitHub 仓库</value>
+  </data>
+  <data name="AboutPage_IssueButton.Content" xml:space="preserve">
+    <value>问题反馈</value>
+  </data>
+  <data name="AboutPage_LicenseButton.Content" xml:space="preserve">
+    <value>GPL-3.0 许可证</value>
+  </data>
+  <data name="AboutPage_ChangelogButton.Content" xml:space="preserve">
+    <value>更新日志</value>
+  </data>
+  <data name="AboutPage_ContactAuthor.Text" xml:space="preserve">
+    <value>联系作者</value>
+  </data>
+  <data name="AboutPage_CopyEmail.Text" xml:space="preserve">
+    <value>复制邮箱</value>
+  </data>
+  <data name="AboutPage_SendEmail.Text" xml:space="preserve">
+    <value>发送邮件</value>
+  </data>
+  <data name="AboutPage_EmailCopied.Text" xml:space="preserve">
+    <value>✓ 已复制到剪贴板</value>
+  </data>
+  <data name="MergePage_InputOutputHeader.Text" xml:space="preserve">
+    <value>目录选择和匹配</value>
+  </data>
+  <data name="MergePage_KeepOriginalFiles_Label.Text" xml:space="preserve">
+    <value>保留原始文件</value>
+  </data>
+  <data name="MergePage_OverwriteExisting_Label.Text" xml:space="preserve">
+    <value>覆盖已存在文件</value>
+  </data>
+  <data name="MergePage_AfterCompletionLabel.Text" xml:space="preserve">
+    <value>完成后原始文件：</value>
+  </data>
+  <data name="MergePage_AfterCompletion_NoAction.Content" xml:space="preserve">
+    <value>无操作</value>
+  </data>
+  <data name="MergePage_AfterCompletion_NoAction_Hint" xml:space="preserve">
+    <value>不保留原始文件</value>
+  </data>
+  <data name="MergePage_AfterCompletion_MoveToDir.Content" xml:space="preserve">
+    <value>移动到目录...</value>
+  </data>
+  <data name="MergePage_AfterCompletion_MoveToDir_Hint" xml:space="preserve">
+    <value>保留到指定位置</value>
+  </data>
+  <data name="MergePage_AfterCompletion_RecycleBin.Content" xml:space="preserve">
+    <value>移至回收站</value>
+  </data>
+  <data name="MergePage_AfterCompletion_RecycleBin_Hint" xml:space="preserve">
+    <value>文件放入回收站</value>
+  </data>
+  <data name="MergePage_OriginalDirHeader.Text" xml:space="preserve">
+    <value>选择原始文件存放目录</value>
+  </data>
+  <data name="MergePage_OriginalDirLabel.Text" xml:space="preserve">
+    <value>存放位置：</value>
+  </data>
+  <data name="MergePage_OpenOriginalDirBtn.Content" xml:space="preserve">
+    <value>打开目录</value>
+  </data>
+  <data name="MergePage_BrowseOriginalDirBtn.Content" xml:space="preserve">
+    <value>浏览</value>
+  </data>
+  <data name="MergePage_ToggleOn" xml:space="preserve">
+    <value>开</value>
+  </data>
+  <data name="MergePage_ToggleOff" xml:space="preserve">
+    <value>关</value>
+  </data>
+  <data name="MergePage_MoveToRecycleBin_Label.Text" xml:space="preserve">
+    <value>完成后将原文件移至回收站</value>
+  </data>
+  <data name="MergePage_Protocol_Samsung.Content" xml:space="preserve">
+    <value>Samsung - Motion Photo</value>
+  </data>
+  <data name="MergePage_Protocol_Samsung_Hint" xml:space="preserve">
+    <value>三星</value>
+  </data>
+  <data name="MergePage_Protocol_Huawei.Content" xml:space="preserve">
+    <value>HUAWEI - Moving Photo</value>
+  </data>
+  <data name="MergePage_Protocol_Huawei_Hint" xml:space="preserve">
+    <value>华为 / 荣耀</value>
+  </data>
+  <data name="MergePage_Protocol_Fusion.Content" xml:space="preserve">
+    <value>融合 - Motion Photo</value>
+  </data>
+  <data name="MergePage_Protocol_Fusion_Hint" xml:space="preserve">
+    <value>Windows / Pixel / 小米 / OPPO / vivo / 三星 ⚠️ 作者自创融合协议</value>
+  </data>
+  <data name="MergePage_OutputFormat_HEIC_MOV.Content" xml:space="preserve">
+    <value>HEIC [内嵌 MOV (H.265)]</value>
+  </data>
+  <data name="MergePage_OutputFormat_HEIC_MP4.Content" xml:space="preserve">
+    <value>HEIC [内嵌 MP4 (H.264)]</value>
+  </data>
+  <data name="OriginalDir_SubfolderName" xml:space="preserve">
+    <value>原始照片</value>
+    <comment>合成页完成后操作 - 原始文件移动目标子文件夹名</comment>
+  </data>
+  <data name="MergePage_NamingTemplate_Header.Text" xml:space="preserve">
+    <value>命名格式：（拖拽排列）</value>
+  </data>
+  <data name="MergePage_NamingTemplate_EmptyHint.Text" xml:space="preserve">
+    <value>点击下方「添加片段」自定义命名，或「选择模板」快速套用预设。支持拖拽排列顺序。</value>
+  </data>
+  <data name="MergePage_NamingTemplate_HelpBtn.Content" xml:space="preserve">
+    <value>帮助</value>
+  </data>
+  <data name="MergePage_NamingTemplate_ResetBtn_Text.Text" xml:space="preserve">
+    <value>默认</value>
+  </data>
+  <data name="MergePage_NamingTemplate_ClearBtn_Text.Text" xml:space="preserve">
+    <value>清除</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddBtnText.Text" xml:space="preserve">
+    <value>添加片段</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddName.Text" xml:space="preserve">
+    <value>原文件名</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddProtocol.Text" xml:space="preserve">
+    <value>协议后缀</value>
+  </data>
+  <data name="MergePage_NamingTemplate_SeparatorLabel.Text" xml:space="preserve">
+    <value>片段分隔符：</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Separator_Underscore.Content" xml:space="preserve">
+    <value>下划线："_"</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Separator_Dash.Content" xml:space="preserve">
+    <value>横杠："-"</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Separator_Space.Content" xml:space="preserve">
+    <value>空格：" "</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Separator_Plus.Content" xml:space="preserve">
+    <value>加号："+"</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Separator_None.Content" xml:space="preserve">
+    <value>无</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddDate.Text" xml:space="preserve">
+    <value>当前日期</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddTime.Text" xml:space="preserve">
+    <value>当前时间</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddExifDate.Text" xml:space="preserve">
+    <value>拍摄日期</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddExifTime.Text" xml:space="preserve">
+    <value>拍摄时间</value>
+  </data>
+  <data name="NamingSegment_SystemDate" xml:space="preserve">
+    <value>当前日期</value>
+  </data>
+  <data name="NamingSegment_SystemTime" xml:space="preserve">
+    <value>当前时间</value>
+  </data>
+  <data name="NamingSegment_CaptureDate" xml:space="preserve">
+    <value>拍摄日期</value>
+  </data>
+  <data name="NamingSegment_CaptureTime" xml:space="preserve">
+    <value>拍摄时间</value>
+  </data>
+  <data name="NamingSegment_CaptureDate_Desc" xml:space="preserve">
+    <value>拍摄日期</value>
+  </data>
+  <data name="NamingSegment_CaptureTime_Desc" xml:space="preserve">
+    <value>拍摄时间</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddCounter.Text" xml:space="preserve">
+    <value>计数器</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddLiteral.Text" xml:space="preserve">
+    <value>自定义文字</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddLiteral_Placeholder" xml:space="preserve">
+    <value>输入要插入的文字...</value>
+  </data>
+  <data name="MergePage_NamingTemplate_PresetsBtn_Text.Text" xml:space="preserve">
+    <value>选择模板</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Presets_Header.Text" xml:space="preserve">
+    <value>预设模板</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Preset_Default.Text" xml:space="preserve">
+    <value>原文件名 + 协议名</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Preset_LivePhoto.Text" xml:space="preserve">
+    <value>LivePhoto + 日期 + 序号</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Preset_Timestamp.Text" xml:space="preserve">
+    <value>日期 + 时间 + 序号</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Preset_Full.Text" xml:space="preserve">
+    <value>全部信息（文件名 + 日期 + 时间 + 协议）</value>
+  </data>
+  <data name="MergePage_NamingTemplate_PreviewLabel.Text" xml:space="preserve">
+    <value>预览：</value>
+  </data>
+  <data name="NamingPreview_PlaceholderName" xml:space="preserve">
+    <value>原文件名</value>
+  </data>
+  <data name="MergePage_NamingTemplate_HelpTitle" xml:space="preserve">
+    <value>命名模板帮助</value>
+  </data>
+  <data name="MergePage_NamingTemplate_HelpText" xml:space="preserve">
+    <value>{name} — 原始文件名（不含扩展名）
+{protocol} — 协议后缀（microvideo, motionphoto, oppo, vivo, samsung, huawei）
+{date} 或 {date:yyMMdd} — 当前日期（支持自定义格式）
+{time} 或 {time:HH-mm} — 当前时间（支持自定义格式）
+{counter} 或 {counter:D3} — 递增任务序号
+
+提示：拖拽 ≡ 手柄可调整片段顺序。</value>
+  </data>
+  <data name="NamingSegment_OriginalName" xml:space="preserve">
+    <value>原文件名</value>
+  </data>
+  <data name="NamingSegment_Literal" xml:space="preserve">
+    <value>文字</value>
+  </data>
+  <data name="NamingSegment_Protocol" xml:space="preserve">
+    <value>协议名</value>
+  </data>
+  <data name="NamingSegment_OriginalName_Desc" xml:space="preserve">
+    <value>文件基本名（不含扩展名）</value>
+  </data>
+  <data name="NamingSegment_Literal_Desc" xml:space="preserve">
+    <value>固定文字原样输出</value>
+  </data>
+  <data name="NamingSegment_Date_Desc" xml:space="preserve">
+    <value>当前系统日期</value>
+  </data>
+  <data name="NamingSegment_Time_Desc" xml:space="preserve">
+    <value>当前系统时间</value>
+  </data>
+  <data name="NamingSegment_Counter_Desc" xml:space="preserve">
+    <value>递增计数器（从1开始）</value>
+  </data>
+  <data name="NamingSegment_Protocol_Desc" xml:space="preserve">
+    <value>协议缩写</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddLiteral_Title" xml:space="preserve">
+    <value>自定义文字</value>
+  </data>
+  <data name="NamingSegment_Date" xml:space="preserve">
+    <value>日期</value>
+  </data>
+  <data name="NamingSegment_Time" xml:space="preserve">
+    <value>时间</value>
+  </data>
+  <data name="NamingSegment_Counter" xml:space="preserve">
+    <value>计数器</value>
+  </data>
+  <data name="AboutPage_DevBilibili.Text" xml:space="preserve">
+    <value>B站</value>
+  </data>
+  <data name="AboutPage_DevYouTube.Text" xml:space="preserve">
+    <value>YouTube</value>
+  </data>
+  <data name="AboutPage_DevWebsite.Text" xml:space="preserve">
+    <value>个人网站</value>
+  </data>
+  <data name="AboutPage_DevWebsite_ToolTip.Content" xml:space="preserve">
+    <value>开发中…</value>
+  </data>
+  <data name="Status_DoneSimple" xml:space="preserve">
+    <value>处理完成</value>
+  </data>
+  <data name="Status_StoppedSimple" xml:space="preserve">
+    <value>已停止</value>
+  </data>
+  <data name="MergePage_FooterUnprocessed.Text" xml:space="preserve">
+    <value>未处理 </value>
+  </data>
+  <data name="MergePage_FooterCancelled.Text" xml:space="preserve">
+    <value>已取消 </value>
   </data>
 </root>

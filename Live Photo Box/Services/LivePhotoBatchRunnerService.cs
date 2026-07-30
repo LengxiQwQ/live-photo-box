@@ -107,8 +107,16 @@ namespace LivePhotoBox.Services
 
                 if (HeicConverterService.IsHeicFile(imagePath))
                 {
-                    workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, tempDir, token);
-                    tempFiles.Add(workingImagePath);
+                    if (protocol is MotionPhotoV2Protocol or HuaweiMovingPhotoProtocol)
+                    {
+                        // Native HEIC path — no JPEG conversion needed.
+                        // V2: XMP + mpvd box.  HUAWEI: ftyp tmap patch + LIVE_ tail.
+                    }
+                    else
+                    {
+                        workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, tempDir, token);
+                        tempFiles.Add(workingImagePath);
+                    }
                 }
 
                 (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token);
@@ -121,7 +129,7 @@ namespace LivePhotoBox.Services
                     tempFiles.Add(workingImagePath);
                 }
 
-                string outputName = LivePhotoCompositionService.CreateOutputFileName(baseName, options.SelectedModeIndex);
+                string outputName = LivePhotoCompositionService.CreateOutputFileName(baseName, options.SelectedModeIndex, imagePath);
                 string finalOutputPath = PathHelper.GetUniqueFilePath(options.OutputDirectory, outputName);
 
                 await LivePhotoCompositionService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token);

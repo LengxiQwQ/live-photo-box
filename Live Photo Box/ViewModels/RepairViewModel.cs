@@ -1,12 +1,14 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Collections;
+using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -345,7 +347,7 @@ namespace LivePhotoBox.ViewModels
         private IRelayCommand? _openRepairOutputFolderCommand;
 
         // 在文件管理器中打开输入文件夹的命令。
-        public IAsyncRelayCommand OpenRepairInputFolderCommand => _openRepairInputFolderCommand ??= new AsyncRelayCommand(OpenRepairInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
+        public IAsyncRelayCommand OpenRepairInputFolderCommand => _openRepairInputFolderCommand ??= new AsyncRelayCommand(OpenRepairInputFolderAsync, () => DirectoryHelper.CanOpenFolder(InputDirectory));
         // 在文件管理器中打开输出文件夹的命令。
         public IRelayCommand OpenRepairOutputFolderCommand => _openRepairOutputFolderCommand ??= new RelayCommand(OpenRepairOutputFolder, CanOpenRepairOutputFolder);
 
@@ -412,7 +414,6 @@ namespace LivePhotoBox.ViewModels
 
             SetDirectStatus(ProcessingStatusText);
             OnPropertyChanged(nameof(ActionBtnText));
-            OnPropertyChanged(nameof(IsProcessingAllowed));
             _uiUpdateTimer.Start();
         }
 
@@ -454,7 +455,6 @@ namespace LivePhotoBox.ViewModels
                 }
             }
             OnPropertyChanged(nameof(ActionBtnText));
-            OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         protected override void OnClearState()
@@ -479,7 +479,6 @@ namespace LivePhotoBox.ViewModels
             SetStatus("RepairPage_Status_Cleared");
             IsDirectoryPanelOpen = true;
             OnPropertyChanged(nameof(ActionBtnText));
-            OnPropertyChanged(nameof(IsProcessingAllowed));
             UpdateFilterEnabled();
         }
 
@@ -497,7 +496,6 @@ namespace LivePhotoBox.ViewModels
             base.OnScanningEnded();
             _scanCancellationTokenSource?.Dispose();
             _scanCancellationTokenSource = null;
-            OnPropertyChanged(nameof(IsProcessingAllowed));
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(ViewGroupVisibility));
             UpdateFilterEnabled();
@@ -537,6 +535,17 @@ namespace LivePhotoBox.ViewModels
         }
 
         public override bool IsProcessingAllowed => !IsScanning;
+
+        // IsScanning / IsProcessing 变更时级联通知派生类计算属性
+        protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+        {
+            base.OnPropertyChanged(e);
+            if (e.PropertyName == nameof(IsScanning) || e.PropertyName == nameof(IsProcessing))
+            {
+                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(ViewGroupVisibility)));
+                UpdateFilterEnabled();
+            }
+        }
 
         // 弹出一个 ContentDialog 窗口展示修复被取消时的汇总信息。
         private async Task ShowRepairCancelledDialogAsync()
@@ -777,22 +786,6 @@ namespace LivePhotoBox.ViewModels
                     standaloneWorkItems.Add((img, null, name, false));
                 foreach (var (vid, name) in standaloneVidList)
                     standaloneWorkItems.Add((null, vid, name, false));
-
-                // CidOnly / MetadataOnly 模式：跳过文件名匹配，全部放入独立列表走元数据匹配
-                int matchingMode = AppSettingsService.GetValue("MetadataMatchingModeIndex", 0);
-                bool skipFilenameMatch = matchingMode == (int)MetadataMatchingMode.CidOnly
-                                      || matchingMode == (int)MetadataMatchingMode.MetadataOnly;
-                if (skipFilenameMatch)
-                {
-                    foreach (var item in pairedWorkItems)
-                    {
-                        if (item.imagePath != null)
-                            standaloneWorkItems.Add((item.imagePath, null, item.baseName, false));
-                        if (item.videoPath != null)
-                            standaloneWorkItems.Add((null, item.videoPath, item.baseName, false));
-                    }
-                    pairedWorkItems.Clear();
-                }
 
                 // ── Apple 设备预检测：收集 Apple 文件路径集，不跳过文件 ──
                 bool appleOnlyScan = AppSettingsService.GetValue("IsAppleOnlyScanEnabled", true);
@@ -1118,13 +1111,8 @@ namespace LivePhotoBox.ViewModels
                     // （第二遍循环中已通过临时独立 Task 逐步显示到 UI，元数据匹配后可能需要重组）
                     var finalStandaloneTasks = new List<RepairTask>();
                     bool metadataMatchesFound = false;
-                    // 组合匹配：FilenameCidAndMetadata 或 MetadataOnly 模式时启用
-                    // 注：Repair 页面 GPS/设备暂未支持 (Phase 2)，仅日期匹配生效
-                    bool runCombined = matchingMode == (int)MetadataMatchingMode.FilenameCidAndMetadata
-                                    || matchingMode == (int)MetadataMatchingMode.MetadataOnly;
-                    bool runCid = matchingMode != (int)MetadataMatchingMode.MetadataOnly;
-                    if (matchingMode != (int)MetadataMatchingMode.FilenameOnly
-                        && pendingStandaloneImages.Count > 0 && pendingStandaloneVideos.Count > 0
+                    // Always run ContentIdentifier UUID matching for remaining standalone files
+                    if (pendingStandaloneImages.Count > 0 && pendingStandaloneVideos.Count > 0
                         && !token.IsCancellationRequested)
                     {
                         try
@@ -1140,7 +1128,7 @@ namespace LivePhotoBox.ViewModels
 
                             if (imgAnalysisList.Count > 0 && vidAnalysisList.Count > 0)
                             {
-                                var matchOutput = LivePhotoMetadataMatcher.MatchFromAnalysis(imgAnalysisList, vidAnalysisList, runCombined, runCid);
+                                var matchOutput = LivePhotoMetadataMatcher.MatchFromAnalysis(imgAnalysisList, vidAnalysisList);
 
                                 if (matchOutput.Pairs.Count > 0)
                                 {
@@ -1916,8 +1904,7 @@ namespace LivePhotoBox.ViewModels
         // 判断是否可以打开修复输出文件夹。
         private bool CanOpenRepairOutputFolder()
         {
-            var folderPath = GetRepairResultFolderPath();
-            return !string.IsNullOrWhiteSpace(folderPath);
+            return DirectoryHelper.CanOpenFolder(GetRepairResultFolderPath());
         }
 
         // 获取修复结果所在的文件夹路径（依据 IsOutputToDirectory 决定）。

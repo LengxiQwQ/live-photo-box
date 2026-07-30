@@ -145,7 +145,7 @@
     <value>Settings</value>
   </data>
   <data name="Nav_Split.Content" xml:space="preserve">
-    <value>Split Live Photo</value>
+    <value>Split &amp; Convert</value>
   </data>
   <data name="AboutPage_Version_Format" xml:space="preserve">
     <value>Version {0}</value>
@@ -230,7 +230,7 @@ Do you want to restart now?</value>
     <value>Adjust the overall visual color scheme</value>
   </data>
   <data name="SettingsPage_Merge_Header.Text" xml:space="preserve">
-    <value>Live Photo Merge</value>
+    <value>Merge &amp; Convert</value>
   </data>
   <data name="SettingsPage_Protocol_Header.Header" xml:space="preserve">
     <value>Conversion Protocol</value>
@@ -245,7 +245,7 @@ Do you want to restart now?</value>
     <value>Do not delete source files after processing</value>
   </data>
   <data name="SettingsPage_Split_Header.Text" xml:space="preserve">
-    <value>Live Photo Split</value>
+    <value>Split &amp; Convert</value>
   </data>
   <data name="SettingsPage_SplitFormat_Header.Header" xml:space="preserve">
     <value>Export Video Format</value>
@@ -402,6 +402,9 @@ Do you want to restart now?</value>
   </data>
   <data name="MergePage_ColStatus.Text" xml:space="preserve">
     <value>Status</value>
+  </data>
+  <data name="MergePage_ColActions.Text" xml:space="preserve">
+    <value>Actions</value>
   </data>
   <data name="MergePage_TipFolder.ToolTipService.ToolTip" xml:space="preserve">
     <value>Show in folder</value>
@@ -652,6 +655,9 @@ Do you want to restart now?</value>
   <data name="Task_Pending" xml:space="preserve">
     <value>Pending</value>
   </data>
+  <data name="Task_Cancelled" xml:space="preserve">
+    <value>Cancelled</value>
+  </data>
   <data name="Task_Processing" xml:space="preserve">
     <value>Repairing...</value>
   </data>
@@ -680,10 +686,10 @@ Do you want to restart now?</value>
     <value>No files available to process. Please set an input directory first.</value>
   </data>
   <data name="MergePage_EmptyQueueTitle.Text" xml:space="preserve">
-    <value>Queue Empty</value>
+    <value>Drop images &amp; videos here to auto-pair and add to queue</value>
   </data>
   <data name="MergePage_EmptyQueueDesc.Text" xml:space="preserve">
-    <value>Place images (HEIC/HEIF/JPG/JPEG) and videos (MOV/MP4) in the same folder, then click Scan to auto-pair and merge.</value>
+    <value>Supports JPG / HEIC / MP4 / MOV formats</value>
   </data>
   <data name="MergePage_EmptyQueueHint_Part1.Text" xml:space="preserve">
     <value>Click </value>
@@ -752,13 +758,19 @@ Do you want to restart now?</value>
     <value>OPPO/OnePlus - O Live Photo</value>
   </data>
   <data name="MergePage_Protocol_V1_Hint" xml:space="preserve">
-    <value>Windows / Pixel / Xiaomi (older MIUI)</value>
+    <value>Windows / Xiaomi (older MIUI) / Pixel</value>
   </data>
   <data name="MergePage_Protocol_V2_Hint" xml:space="preserve">
-    <value>Windows / Pixel / Xiaomi / Redmi</value>
+    <value>Windows / Xiaomi / Pixel</value>
   </data>
   <data name="MergePage_Protocol_Oppo_Hint" xml:space="preserve">
-    <value>Windows / OPPO / OnePlus</value>
+    <value>Windows / Xiaomi / OPPO</value>
+  </data>
+  <data name="MergePage_Protocol_Vivo.Content" xml:space="preserve">
+    <value>vivo - Live Photo</value>
+  </data>
+  <data name="MergePage_Protocol_Vivo_Hint" xml:space="preserve">
+    <value>Windows / Xiaomi / vivo (≥ X300)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
@@ -801,7 +813,7 @@ Do you want to restart now?</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
     <value>Here, you can freely combine, split, and repair Live Photos. To optimize front-facing camera performance, Apple stores Live Photo video pixels horizontally, relying on a built-in Rotation tag to determine the correct orientation — but Windows ignores this tag and renders the raw pixels directly, causing the image to appear rotated. Prior to iOS 17.3, there was also a thumbnail stretching issue. Live Photo Box fixes these at the physical pixel level, thoroughly resolving these cross-platform compatibility problems. 
-It's just as capable at combining and splitting: any image + video → a standard Live Photo, compatible with Google, OPPO, Xiaomi, and other Android Live Photo protocols; losslessly extract the original photo and video, preserving all EXIF data and capture parameters. Additionally, the key photo change feature is coming soon, with more intelligent features like auto photo categorization also on the roadmap. Stay tuned!</value>
+It's just as capable at combining and splitting: any image + video → a standard Live Photo, fully compatible with Apple, Google, OPPO, vivo, Xiaomi, Huawei, Samsung, and other major Live Photo protocols; losslessly extract the original photo and video, preserving all EXIF data and capture parameters. The Live Photo editing page is also now available — pick your favorite frame from the motion video and set it as the key photo, so every Live Photo freezes at its most perfect moment.</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>Tip :</value>
@@ -816,7 +828,7 @@ It's just as capable at combining and splitting: any image + video → a standar
     <value>About This App</value>
   </data>
   <data name="AboutPage_Description.Text" xml:space="preserve">
-    <value>Live Photo Box is an open-source toolkit for creating live photos, designed to provide users with convenient features for creating live photos on Android and iOS. It currently supports the latest Google encapsulation protocol and will be adapted to the proprietary protocols of various Android manufacturers in the future.</value>
+    <value>One Toolbox to Unite Every Live Photo Protocol. Supports all major live photo standards. It handles protocol conversion, editing, merging, splitting, and display repair — letting you work with live photos from any platform in one place.</value>
   </data>
   <data name="AboutPage_InfoHeader.Text" xml:space="preserve">
     <value>Project Information</value>
@@ -1020,9 +1032,6 @@ You can open the log folder or export the latest log now to help diagnose the is
   </data>
   <data name="SettingsPage_CrashGenerateTest_Button_Text.Text" xml:space="preserve">
     <value>Generate Test Log</value>
-  </data>
-  <data name="SettingsPage_CrashPreviewDialog_Button_Text.Text" xml:space="preserve">
-    <value>Preview Crash Dialog</value>
   </data>
   <data name="SettingsPage_RestartApp_Button_Text.Text" xml:space="preserve">
     <value>Restart App</value>
@@ -1315,16 +1324,10 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Privacy Policy</value>
   </data>
   <data name="AboutPage_Privacy_Local.Text" xml:space="preserve">
-    <value>Fully Localized: This application contains no network request code.</value>
+    <value>Local Processing: All photo processing is performed entirely on your device. No image data is uploaded to any server.</value>
   </data>
   <data name="AboutPage_Privacy_NoCollect.Text" xml:space="preserve">
-    <value>Zero Data Collection: All operations are performed safely on your local machine.</value>
-  </data>
-  <data name="AboutPage_DisclaimerTitle.Text" xml:space="preserve">
-    <value>Disclaimer</value>
-  </data>
-  <data name="AboutPage_DisclaimerContent.Text" xml:space="preserve">
-    <value>This software is provided "as-is" without any warranty. LengxiQwQ shall not be liable for any data corruption, loss, or hardware failure resulting from the use of this software. Always back up your files before processing.</value>
+    <value>Location Lookup: For photos with GPS coordinates, only the latitude and longitude are sent to api.mirror-earth.com (an OpenStreetMap Nominatim mirror) to retrieve location names. This feature can be disabled in Settings at any time.</value>
   </data>
   <data name="HomePage_Intro3.Text" xml:space="preserve">
     <value> </value>
@@ -1384,10 +1387,160 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Please select a folder containing images to be repaired. The app will automatically scan for images with thumbnail rotation or stretching issues caused by device compatibility and perform a lossless repair.</value>
   </data>
   <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
-    <value>Open Input Folder</value>
+    <value>Open Folder</value>
   </data>
   <data name="MergePage_OpenOutputBtn.Content" xml:space="preserve">
-    <value>Open Output Folder</value>
+    <value>Open Folder</value>
+  </data>
+  <data name="MergePage_PageTitle.Text" xml:space="preserve">
+    <value>Batch Live Photo Merge &amp; Protocol Conversion</value>
+  </data>
+  <data name="MergePage_PageSubtitle.Text" xml:space="preserve">
+    <value>Combine photos and videos into standard Live Photos with batch protocol conversion</value>
+  </data>
+  <data name="MergePage_AddFilesBtn_Text.Text" xml:space="preserve">
+    <value>Add Files</value>
+  </data>
+  <data name="MergePage_AddFolderBtn_Text.Text" xml:space="preserve">
+    <value>Add Folder</value>
+  </data>
+  <data name="MergePage_ClearBtn_Text.Text" xml:space="preserve">
+    <value>Clear List</value>
+  </data>
+  <data name="MergePage_QueueHeader.Text" xml:space="preserve">
+    <value>Task Queue</value>
+  </data>
+  <data name="MergePage_StatusProcessing" xml:space="preserve">
+    <value>Processing: {0} files</value>
+  </data>
+  <data name="MergePage_StatusTotal" xml:space="preserve">
+    <value>Total: {0} files</value>
+  </data>
+  <data name="MergePage_StatusElapsed" xml:space="preserve">
+    <value>Elapsed: {0}</value>
+  </data>
+  <data name="MergePage_ScanMatched" xml:space="preserve">
+    <value>Matched {0}</value>
+  </data>
+  <data name="MergePage_ScanUnmatched" xml:space="preserve">
+    <value>Unmatched {0}</value>
+  </data>
+  <data name="MergePage_StatusElapsedIdle" xml:space="preserve">
+    <value>Time --:--</value>
+  </data>
+  <data name="MergePage_Sort_Name.Content" xml:space="preserve">
+    <value>File Name</value>
+  </data>
+  <data name="MergePage_Sort_TotalSize.Content" xml:space="preserve">
+    <value>Total Size</value>
+  </data>
+  <data name="MergePage_Sort_ImageSize.Content" xml:space="preserve">
+    <value>Image Size</value>
+  </data>
+  <data name="MergePage_Sort_VideoSize.Content" xml:space="preserve">
+    <value>Video Size</value>
+  </data>
+  <data name="MergePage_Sort_Date.Content" xml:space="preserve">
+    <value>Date Taken</value>
+  </data>
+  <data name="MergePage_PairingMethodLabel.Text" xml:space="preserve">
+    <value>Pairing method:</value>
+  </data>
+  <data name="MergePage_Pairing_Filename.Content" xml:space="preserve">
+    <value>By filename</value>
+  </data>
+  <data name="MergePage_Pairing_Apple.Content" xml:space="preserve">
+    <value>Apple Live Photo only</value>
+  </data>
+  <data name="MergePage_Pairing_Vivo.Content" xml:space="preserve">
+    <value>vivo Live Photo only (≤ X200)</value>
+  </data>
+  <data name="MergePage_Filter_All.Text" xml:space="preserve">
+    <value>All</value>
+  </data>
+  <data name="MergePage_Filter_Pending.Text" xml:space="preserve">
+    <value>Pending</value>
+  </data>
+  <data name="MergePage_Filter_Success.Text" xml:space="preserve">
+    <value>Success</value>
+  </data>
+  <data name="MergePage_Filter_Failed.Text" xml:space="preserve">
+    <value>Failed</value>
+  </data>
+  <data name="MergePage_SearchBox.PlaceholderText" xml:space="preserve">
+    <value>Search filenames...</value>
+  </data>
+  <data name="MergePage_OpenInputBtn_Tip.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Open input folder</value>
+  </data>
+  <data name="MergePage_OpenOutputBtn_Tip.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Open output folder</value>
+  </data>
+  <data name="MergePage_OutputFormatLabel.Text" xml:space="preserve">
+    <value>Format:</value>
+  </data>
+  <data name="MergePage_OutputFormat_JPEG_MOV.Content" xml:space="preserve">
+    <value>JPG [Embedded MOV (H.265)]</value>
+  </data>
+  <data name="MergePage_OutputFormat_JPEG_MP4.Content" xml:space="preserve">
+    <value>JPG [Embedded MP4 (H.264)]</value>
+  </data>
+  <data name="MergePage_FormatHint_BestCompat" xml:space="preserve">
+    <value>Best compatibility</value>
+  </data>
+  <data name="MergePage_FormatHint_GoodCompat" xml:space="preserve">
+    <value>Efficient but less compatible</value>
+  </data>
+  <data name="MergePage_FormatHint_Efficient" xml:space="preserve">
+    <value>Efficient</value>
+  </data>
+  <data name="MergePage_FormatHint_GoogleOnly" xml:space="preserve">
+    <value>Google Photos only</value>
+  </data>
+  <data name="MergePage_FormatHint_Untested" xml:space="preserve">
+    <value>⚠️ Untested</value>
+  </data>
+  <data name="MergePage_FormatHint_CoverFirstFrame" xml:space="preserve">
+    <value>⚠️ Known issue: cover is always first frame</value>
+  </data>
+  <data name="MergePage_KeepOriginalFiles.Header" xml:space="preserve">
+    <value>Keep Original Files</value>
+  </data>
+  <data name="MergePage_OverwriteExisting.Header" xml:space="preserve">
+    <value>Overwrite Existing Files</value>
+  </data>
+  <data name="MergePage_StatsHeader.Text" xml:space="preserve">
+    <value>Statistics</value>
+  </data>
+  <data name="MergePage_StatTotal.Text" xml:space="preserve">
+    <value>Total</value>
+  </data>
+  <data name="MergePage_StatPending.Text" xml:space="preserve">
+    <value>Pending</value>
+  </data>
+  <data name="MergePage_StatProcessing.Text" xml:space="preserve">
+    <value>Processing</value>
+  </data>
+  <data name="MergePage_StatSuccess.Text" xml:space="preserve">
+    <value>Success</value>
+  </data>
+  <data name="MergePage_StatFailed.Text" xml:space="preserve">
+    <value>Failed</value>
+  </data>
+  <data name="MergePage_FooterTotal.Text" xml:space="preserve">
+    <value>Total </value>
+  </data>
+  <data name="MergePage_FooterSuccess.Text" xml:space="preserve">
+    <value>Success </value>
+  </data>
+  <data name="MergePage_FooterFailed.Text" xml:space="preserve">
+    <value>Failed </value>
+  </data>
+  <data name="MergePage_Menu_ShowInFolder.Text" xml:space="preserve">
+    <value>Show in Folder</value>
+  </data>
+  <data name="MergePage_Menu_Preview.Text" xml:space="preserve">
+    <value>Fullscreen Preview</value>
   </data>
   <data name="SplitPage_OpenInputBtn.Content" xml:space="preserve">
     <value>Open Input Folder</value>
@@ -1622,7 +1775,7 @@ Place any of these files into the same folder.</value>
     <value>EXIF angle mismatch</value>
   </data>
   <data name="SettingsPage_Repair_Header.Text" xml:space="preserve">
-    <value>Live Photo Display Repair</value>
+    <value>Repair Live Photo</value>
   </data>
   <data name="SettingsPage_Repair_HeicLabel.Text" xml:space="preserve">
     <value>HEIC/HEIF Photo Repair</value>
@@ -1828,9 +1981,6 @@ Place any of these files into the same folder.</value>
   <data name="SettingsPage_SwitchToModern_Button_Text.Text" xml:space="preserve">
     <value>Switch to Modern Settings UI</value>
   </data>
-  <data name="SettingsPageModern_SwitchToClassic_Button_Text.Text" xml:space="preserve">
-    <value>Switch to Legacy Settings UI</value>
-  </data>
   <data name="SettingsPageModern_SwitchConfirm_Title" xml:space="preserve">
     <value>Switch Settings Page</value>
   </data>
@@ -1861,9 +2011,6 @@ Place any of these files into the same folder.</value>
   <data name="SettingsPage_SwitchToModern_Confirm_Message" xml:space="preserve">
     <value>The app will restart and switch to the modern settings UI. Continue?</value>
   </data>
-  <data name="SettingsPage_SwitchToClassic_Confirm_Title" xml:space="preserve">
-    <value>Switch to Legacy Settings UI</value>
-  </data>
   <data name="SettingsPage_Banner_Desc.Text" xml:space="preserve">
     <value>Customize the homepage banner background image</value>
   </data>
@@ -1884,11 +2031,6 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="BannerPreset_Name_anime" xml:space="preserve">
     <value>Preset 3</value>
-  </data>
-  <data name="SettingsPage_SwitchToClassic_Confirm_Message" xml:space="preserve">
-    <value>⚠️ The legacy settings UI may have missing features or display anomalies. The modern UI is recommended. 
-
-Are you sure you want to switch?</value>
   </data>
   <data name="OutputDir_SplitPhotos" xml:space="preserve">
     <value>Output_SplitPhotos</value>
@@ -1987,6 +2129,9 @@ Are you sure you want to switch?</value>
   <data name="History_Protocol_OPPO" xml:space="preserve">
     <value>OPPO Live Photo</value>
   </data>
+  <data name="History_Protocol_Vivo" xml:space="preserve">
+    <value>vivo Live Photo</value>
+  </data>
   <data name="History_Summary_Generated" xml:space="preserve">
     <value>{0} operations</value>
   </data>
@@ -2053,6 +2198,12 @@ Are you sure you want to switch?</value>
   <data name="SettingsPage_General_Header.Text" xml:space="preserve">
     <value>General</value>
   </data>
+  <data name="SettingsPage_General_DragDropAutoPair.Text" xml:space="preserve">
+    <value>Auto-Pair When Dragging (Apple Live Photo)</value>
+  </data>
+  <data name="SettingsPage_General_DragDropAutoPair_Desc.Text" xml:space="preserve">
+    <value>When enabled, dragging a dual-file Live Photo will automatically search the folder for the paired video by ContentIdentifier UUID. Supports Apple Live Photo and vivo Live Photo. Disable to improve drag-and-drop performance.</value>
+  </data>
   <data name="SettingsPage_General_RecursiveScan.Text" xml:space="preserve">
     <value>Scan Subfolders</value>
   </data>
@@ -2078,7 +2229,7 @@ Are you sure you want to switch?</value>
     <value>MagicScaler (Experimental, High Performance)</value>
   </data>
   <data name="SettingsPage_LivePhotoEdit_Header.Text" xml:space="preserve">
-    <value>Live Photo Editing</value>
+    <value>Edit Live Photo</value>
   </data>
   <data name="SettingsPage_TimelineMode_Header.Text" xml:space="preserve">
     <value>Timeline Mode</value>
@@ -2087,10 +2238,16 @@ Are you sure you want to switch?</value>
     <value>Requires restart to take full effect. 「Classic」: draggable horizontal scroll list with scrollbar, click thumbnails to switch preview. 「Filmstrip」: no scrollbar, thumbnails slide under a fixed center frame, scroll wheel steps frame by frame — ideal for quick browsing.</value>
   </data>
   <data name="SettingsPage_TimelineMode_Classic.Content" xml:space="preserve">
-    <value>Classic</value>
+    <value>Classic (Experimental)</value>
   </data>
   <data name="SettingsPage_TimelineMode_Filmstrip.Content" xml:space="preserve">
     <value>Filmstrip</value>
+  </data>
+  <data name="SettingsPage_GeoLocation_Header.Text" xml:space="preserve">
+    <value>Location Lookup</value>
+  </data>
+  <data name="SettingsPage_GeoLocation_Desc.Text" xml:space="preserve">
+    <value>Look up location names from GPS coordinates via reverse geocoding (api.mirror-earth.com)</value>
   </data>
   <data name="SettingsPage_CheckTools_Button_Text.Text" xml:space="preserve">
     <value>Check External Tools</value>
@@ -2405,7 +2562,7 @@ Are you sure you want to switch?</value>
     <value>Exporting frames…</value>
   </data>
   <data name="EditPage_TimelineTitle.Text" xml:space="preserve">
-    <value>Live Photo Frames</value>
+    <value>Timeline</value>
   </data>
   <data name="EditPage_TimelinePlaceholder.Text" xml:space="preserve">
     <value>(Coming in a future update)</value>
@@ -2424,6 +2581,10 @@ Are you sure you want to switch?</value>
   </data>
   <data name="EditPage_TimelineFrameKeyPhoto" xml:space="preserve">
     <value>Key Photo · {0} frames</value>
+    <comment>{0}=total frames</comment>
+  </data>
+  <data name="EditPage_TimelineFrameOriginalPhoto" xml:space="preserve">
+    <value>Original · {0} frames</value>
     <comment>{0}=total frames</comment>
   </data>
   <data name="EditPage_PhotoInfoTitle.Text" xml:space="preserve">
@@ -2508,10 +2669,19 @@ Are you sure you want to switch?</value>
     <value>Google Motion Photo (V2)</value>
   </data>
   <data name="EditPage_Protocol_OPPO" xml:space="preserve">
-    <value>OPPO - O-Live Photo</value>
+    <value>OPPO O-Live Photo</value>
   </data>
-  <data name="EditPage_Protocol_Xiaomi" xml:space="preserve">
-    <value>Xiaomi Motion Photo</value>
+  <data name="EditPage_Protocol_Huawei" xml:space="preserve">
+    <value>HUAWEI Moving Photo</value>
+  </data>
+  <data name="EditPage_Protocol_Samsung" xml:space="preserve">
+    <value>Samsung Motion Photo</value>
+  </data>
+  <data name="EditPage_Protocol_Vivo" xml:space="preserve">
+    <value>vivo Live Photo</value>
+  </data>
+  <data name="EditPage_Protocol_Fusion" xml:space="preserve">
+    <value>Fusion Motion Photo</value>
   </data>
   <data name="EditPage_Protocol_HeicEmbedded" xml:space="preserve">
     <value>Apple HEIC Live Photo</value>
@@ -2599,6 +2769,9 @@ Are you sure you want to switch?</value>
   </data>
   <data name="EditPage_GoToKeyPhoto.ToolTipService.ToolTip" xml:space="preserve">
     <value>Jump to the key photo frame</value>
+  </data>
+  <data name="EditPage_GoToOriginalPhoto.Content" xml:space="preserve">
+    <value>Go to Original</value>
   </data>
   <data name="EditPage_UnknownDevice" xml:space="preserve">
     <value>Unknown Device</value>
@@ -2771,11 +2944,17 @@ Are you sure you want to switch?</value>
   <data name="EditPage_UnknownError" xml:space="preserve">
     <value>Unknown error</value>
   </data>
+  <data name="EditPage_GeoLookingUp" xml:space="preserve">
+    <value>Looking up location…</value>
+  </data>
   <data name="EditPage_NoLocation" xml:space="preserve">
     <value>No location info</value>
   </data>
   <data name="EditPage_GeoLookupFailed" xml:space="preserve">
     <value>Failed to get location, check network</value>
+  </data>
+  <data name="EditPage_GeoLocationDisabled" xml:space="preserve">
+    <value>Location lookup is disabled in Settings</value>
   </data>
   <data name="EditPage_SaveKeyPhotoInProgress" xml:space="preserve">
     <value>Saving key photo…</value>
@@ -2831,6 +3010,15 @@ Are you sure you want to switch?</value>
   <data name="MergePage_DropToBrowse.Text" xml:space="preserve">
     <value>Drop to browse this folder</value>
   </data>
+  <data name="MergePage_DropFolderToReplace" xml:space="preserve">
+    <value>Replace &amp; re-scan</value>
+  </data>
+  <data name="MergePage_DropFolderToAppend" xml:space="preserve">
+    <value>Append to queue</value>
+  </data>
+  <data name="MergePage_DropFileToAppend" xml:space="preserve">
+    <value>Append to queue</value>
+  </data>
   <data name="SplitPage_DropToBrowse.Text" xml:space="preserve">
     <value>Drop to browse this folder</value>
   </data>
@@ -2838,7 +3026,7 @@ Are you sure you want to switch?</value>
     <value>Drop to browse this folder</value>
   </data>
   <data name="MergePage_EmptyQueueDragHint.Text" xml:space="preserve">
-    <value>Or drag a folder here</value>
+    <value>Or drag files / folders here</value>
   </data>
   <data name="SplitPage_EmptyQueueDragHint.Text" xml:space="preserve">
     <value>Or drag a folder here</value>
@@ -2887,5 +3075,405 @@ Are you sure you want to switch?</value>
   </data>
   <data name="EditPage_ClearDirTooltip" xml:space="preserve">
     <value>Clear current list</value>
+  </data>
+  <data name="AboutPage_VersionLabel.Text" xml:space="preserve">
+    <value>Version </value>
+  </data>
+  <data name="AboutPage_FeaturesTitle.Text" xml:space="preserve">
+    <value>Features</value>
+  </data>
+  <data name="AboutPage_FeatureEditTitle.Text" xml:space="preserve">
+    <value>Live Photo Edit</value>
+  </data>
+  <data name="AboutPage_FeatureEditDesc.Text" xml:space="preserve">
+    <value>Replace the cover photo of a Live Photo while preserving the video and all metadata.</value>
+  </data>
+  <data name="AboutPage_FeatureMergeTitle.Text" xml:space="preserve">
+    <value>Live Photo Merge</value>
+  </data>
+  <data name="AboutPage_FeatureMergeDesc.Text" xml:space="preserve">
+    <value>Seamlessly merge photos and videos into standard Live Photo files.</value>
+  </data>
+  <data name="AboutPage_FeatureSplitTitle.Text" xml:space="preserve">
+    <value>Live Photo Split</value>
+  </data>
+  <data name="AboutPage_FeatureSplitDesc.Text" xml:space="preserve">
+    <value>Extract photos and videos from Live Photos and save them as independent files.</value>
+  </data>
+  <data name="AboutPage_FeatureRepairTitle.Text" xml:space="preserve">
+    <value>Live Photo Display Repair</value>
+  </data>
+  <data name="AboutPage_FeatureRepairDesc.Text" xml:space="preserve">
+    <value>Fix photo orientation, rotation anomalies, metadata corruption, and other display issues.</value>
+  </data>
+  <data name="AboutPage_DeveloperTitle.Text" xml:space="preserve">
+    <value>Developer</value>
+  </data>
+  <data name="AboutPage_DeveloperName.Text" xml:space="preserve">
+    <value>LengxiQwQ (冷汐OωO)</value>
+  </data>
+  <data name="AboutPage_DeveloperBio.Text" xml:space="preserve">
+    <value>Independent Developer · Open Source Enthusiast · Utility Focused</value>
+  </data>
+  <data name="AboutPage_DeveloperGitHub.Text" xml:space="preserve">
+    <value>github.com/LengxiQwQ</value>
+  </data>
+  <data name="AboutPage_OpenSourceTitle.Text" xml:space="preserve">
+    <value>Open Source Credits</value>
+  </data>
+  <data name="AboutPage_CreditExifToolLabel.Text" xml:space="preserve">
+    <value>EXIF</value>
+  </data>
+  <data name="AboutPage_CreditExifToolName.Text" xml:space="preserve">
+    <value>ExifTool</value>
+  </data>
+  <data name="AboutPage_CreditExifToolDesc.Text" xml:space="preserve">
+    <value>Global metadata parsing, injection, and XMP structure reconstruction</value>
+  </data>
+  <data name="AboutPage_CreditJPEGTranLabel.Text" xml:space="preserve">
+    <value>JPEG</value>
+  </data>
+  <data name="AboutPage_CreditJPEGTranName.Text" xml:space="preserve">
+    <value>JPEGTran</value>
+  </data>
+  <data name="AboutPage_CreditJPEGTranDesc.Text" xml:space="preserve">
+    <value>Lossless transformation based on DCT coefficient space</value>
+  </data>
+  <data name="AboutPage_CreditFFmpegName.Text" xml:space="preserve">
+    <value>FFmpeg</value>
+  </data>
+  <data name="AboutPage_CreditFFmpegDesc.Text" xml:space="preserve">
+    <value>Video transcoding and stream muxing engine</value>
+  </data>
+  <data name="AboutPage_CreditMagickNETName.Text" xml:space="preserve">
+    <value>Magick.NET</value>
+  </data>
+  <data name="AboutPage_CreditMagickNETDesc.Text" xml:space="preserve">
+    <value>HEIC/HEIF image decoding via libheif</value>
+  </data>
+  <data name="AboutPage_CreditLibheifLabel.Text" xml:space="preserve">
+    <value>HEIF</value>
+  </data>
+  <data name="AboutPage_CreditLibheifName.Text" xml:space="preserve">
+    <value>libheif</value>
+  </data>
+  <data name="AboutPage_CreditLibheifDesc.Text" xml:space="preserve">
+    <value>HEIF/HEIC image encoding and decoding engine</value>
+  </data>
+  <data name="AboutPage_CreditCommunityToolkitName.Text" xml:space="preserve">
+    <value>CommunityToolkit</value>
+  </data>
+  <data name="AboutPage_CreditCommunityToolkitDesc.Text" xml:space="preserve">
+    <value>MVVM framework and WinUI control library</value>
+  </data>
+  <data name="AboutPage_CreditMagicScalerName.Text" xml:space="preserve">
+    <value>PhotoSauce MagicScaler</value>
+  </data>
+  <data name="AboutPage_CreditMagicScalerDesc.Text" xml:space="preserve">
+    <value>High-performance image scaling and processing</value>
+  </data>
+  <data name="AboutPage_CreditMarkdigName.Text" xml:space="preserve">
+    <value>Markdig</value>
+  </data>
+  <data name="AboutPage_CreditMarkdigDesc.Text" xml:space="preserve">
+    <value>Fast Markdown processor and HTML renderer</value>
+  </data>
+  <data name="AboutPage_CreditFluentIconsName.Text" xml:space="preserve">
+    <value>FluentIcons</value>
+  </data>
+  <data name="AboutPage_CreditFluentIconsDesc.Text" xml:space="preserve">
+    <value>Fluent System Icons collection for .NET</value>
+  </data>
+  <data name="AboutPage_LegalTitle.Text" xml:space="preserve">
+    <value>Legal Information</value>
+  </data>
+  <data name="AboutPage_DisclaimerHeader.Text" xml:space="preserve">
+    <value>Disclaimer</value>
+  </data>
+  <data name="AboutPage_DisclaimerBody.Text" xml:space="preserve">
+    <value>The developer assumes no legal liability for any data corruption, loss, or hardware failure resulting from the use of this software. Please develop the habit of backing up your data before processing sensitive files.</value>
+  </data>
+  <data name="AboutPage_GitHubButton.Content" xml:space="preserve">
+    <value>GitHub Repository</value>
+  </data>
+  <data name="AboutPage_IssueButton.Content" xml:space="preserve">
+    <value>Feedback</value>
+  </data>
+  <data name="AboutPage_LicenseButton.Content" xml:space="preserve">
+    <value>GPL-3.0 License</value>
+  </data>
+  <data name="AboutPage_ChangelogButton.Content" xml:space="preserve">
+    <value>Changelog</value>
+  </data>
+  <data name="AboutPage_ContactAuthor.Text" xml:space="preserve">
+    <value>Contact Author</value>
+  </data>
+  <data name="AboutPage_CopyEmail.Text" xml:space="preserve">
+    <value>Copy Email</value>
+  </data>
+  <data name="AboutPage_SendEmail.Text" xml:space="preserve">
+    <value>Send Email</value>
+  </data>
+  <data name="AboutPage_EmailCopied.Text" xml:space="preserve">
+    <value>✓ Copied to clipboard</value>
+  </data>
+  <data name="MergePage_InputOutputHeader.Text" xml:space="preserve">
+    <value>Directory Selection</value>
+  </data>
+  <data name="MergePage_KeepOriginalFiles_Label.Text" xml:space="preserve">
+    <value>Keep Original Files</value>
+  </data>
+  <data name="MergePage_OverwriteExisting_Label.Text" xml:space="preserve">
+    <value>Overwrite Existing Files</value>
+  </data>
+  <data name="MergePage_AfterCompletionLabel.Text" xml:space="preserve">
+    <value>After completion:</value>
+  </data>
+  <data name="MergePage_AfterCompletion_NoAction.Content" xml:space="preserve">
+    <value>No Action</value>
+  </data>
+  <data name="MergePage_AfterCompletion_NoAction_Hint" xml:space="preserve">
+    <value>Originals not kept</value>
+  </data>
+  <data name="MergePage_AfterCompletion_MoveToDir.Content" xml:space="preserve">
+    <value>Move to Directory...</value>
+  </data>
+  <data name="MergePage_AfterCompletion_MoveToDir_Hint" xml:space="preserve">
+    <value>Save to custom folder</value>
+  </data>
+  <data name="MergePage_AfterCompletion_RecycleBin.Content" xml:space="preserve">
+    <value>Move to Recycle Bin</value>
+  </data>
+  <data name="MergePage_AfterCompletion_RecycleBin_Hint" xml:space="preserve">
+    <value>Move originals to trash</value>
+  </data>
+  <data name="MergePage_OriginalDirHeader.Text" xml:space="preserve">
+    <value>Original file directory</value>
+  </data>
+  <data name="MergePage_OriginalDirLabel.Text" xml:space="preserve">
+    <value>Storage location:</value>
+  </data>
+  <data name="MergePage_OpenOriginalDirBtn.Content" xml:space="preserve">
+    <value>Open</value>
+  </data>
+  <data name="MergePage_BrowseOriginalDirBtn.Content" xml:space="preserve">
+    <value>Browse</value>
+  </data>
+  <data name="MergePage_ToggleOn" xml:space="preserve">
+    <value>On</value>
+  </data>
+  <data name="MergePage_ToggleOff" xml:space="preserve">
+    <value>Off</value>
+  </data>
+  <data name="MergePage_MoveToRecycleBin_Label.Text" xml:space="preserve">
+    <value>Move Originals to Recycle Bin</value>
+  </data>
+  <data name="MergePage_Protocol_Samsung.Content" xml:space="preserve">
+    <value>Samsung - Motion Photo</value>
+  </data>
+  <data name="MergePage_Protocol_Samsung_Hint" xml:space="preserve">
+    <value>Samsung</value>
+  </data>
+  <data name="MergePage_Protocol_Huawei.Content" xml:space="preserve">
+    <value>HUAWEI - Moving Photo</value>
+  </data>
+  <data name="MergePage_Protocol_Huawei_Hint" xml:space="preserve">
+    <value>HUAWEI / Honor</value>
+  </data>
+  <data name="MergePage_Protocol_Fusion.Content" xml:space="preserve">
+    <value>Fusion - Motion Photo</value>
+  </data>
+  <data name="MergePage_Protocol_Fusion_Hint" xml:space="preserve">
+    <value>Windows / Pixel / Xiaomi / OPPO / vivo / Samsung ⚠️ Custom fusion protocol</value>
+  </data>
+  <data name="MergePage_OutputFormat_HEIC_MOV.Content" xml:space="preserve">
+    <value>HEIC [Embedded MOV (H.265)]</value>
+  </data>
+  <data name="MergePage_OutputFormat_HEIC_MP4.Content" xml:space="preserve">
+    <value>HEIC [Embedded MP4 (H.264)]</value>
+  </data>
+  <data name="OriginalDir_SubfolderName" xml:space="preserve">
+    <value>original_photos</value>
+    <comment>Subfolder name for original file move destination after merge</comment>
+  </data>
+  <data name="MergePage_NamingTemplate_Header.Text" xml:space="preserve">
+    <value>Name Format (Drag to Reorder)</value>
+  </data>
+  <data name="MergePage_NamingTemplate_EmptyHint.Text" xml:space="preserve">
+    <value>Tap "+ Add Segment" to customize, or choose a preset from "Templates". Drag to reorder.</value>
+  </data>
+  <data name="MergePage_NamingTemplate_HelpBtn.Content" xml:space="preserve">
+    <value>Help</value>
+  </data>
+  <data name="MergePage_NamingTemplate_ResetBtn_Text.Text" xml:space="preserve">
+    <value />
+  </data>
+  <data name="MergePage_NamingTemplate_ClearBtn_Text.Text" xml:space="preserve">
+    <value />
+  </data>
+  <data name="MergePage_NamingTemplate_AddBtnText.Text" xml:space="preserve">
+    <value>Add Segment</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddName.Text" xml:space="preserve">
+    <value>File Name</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddProtocol.Text" xml:space="preserve">
+    <value>Protocol</value>
+  </data>
+  <data name="MergePage_NamingTemplate_SeparatorLabel.Text" xml:space="preserve">
+    <value>Segment Separator: </value>
+  </data>
+  <data name="MergePage_NamingTemplate_Separator_Underscore.Content" xml:space="preserve">
+    <value>Underscore: "_"</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Separator_Dash.Content" xml:space="preserve">
+    <value>Dash: "-"</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Separator_Space.Content" xml:space="preserve">
+    <value>Space: " "</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Separator_Plus.Content" xml:space="preserve">
+    <value>Plus: "+"</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Separator_None.Content" xml:space="preserve">
+    <value>None</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddDate.Text" xml:space="preserve">
+    <value>Current Date</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddTime.Text" xml:space="preserve">
+    <value>Current Time</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddExifDate.Text" xml:space="preserve">
+    <value>Capture Date</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddExifTime.Text" xml:space="preserve">
+    <value>Capture Time</value>
+  </data>
+  <data name="NamingSegment_SystemDate" xml:space="preserve">
+    <value>System Date</value>
+  </data>
+  <data name="NamingSegment_SystemTime" xml:space="preserve">
+    <value>System Time</value>
+  </data>
+  <data name="NamingSegment_CaptureDate" xml:space="preserve">
+    <value>Capture Date</value>
+  </data>
+  <data name="NamingSegment_CaptureTime" xml:space="preserve">
+    <value>Capture Time</value>
+  </data>
+  <data name="NamingSegment_CaptureDate_Desc" xml:space="preserve">
+    <value>Capture Date</value>
+  </data>
+  <data name="NamingSegment_CaptureTime_Desc" xml:space="preserve">
+    <value>Capture Time</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddCounter.Text" xml:space="preserve">
+    <value>Counter</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddLiteral.Text" xml:space="preserve">
+    <value>Custom Text</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddLiteral_Placeholder" xml:space="preserve">
+    <value>Enter text to insert...</value>
+  </data>
+  <data name="MergePage_NamingTemplate_PresetsBtn_Text.Text" xml:space="preserve">
+    <value>Templates</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Presets_Header.Text" xml:space="preserve">
+    <value>Presets</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Preset_Default.Text" xml:space="preserve">
+    <value>Name + Protocol</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Preset_LivePhoto.Text" xml:space="preserve">
+    <value>LivePhoto + Date + Seq</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Preset_Timestamp.Text" xml:space="preserve">
+    <value>Date + Time + Seq</value>
+  </data>
+  <data name="MergePage_NamingTemplate_Preset_Full.Text" xml:space="preserve">
+    <value>Full (Name + Date + Time + Protocol)</value>
+  </data>
+  <data name="MergePage_NamingTemplate_PreviewLabel.Text" xml:space="preserve">
+    <value>Preview:</value>
+  </data>
+  <data name="NamingPreview_PlaceholderName" xml:space="preserve">
+    <value>OriginalName</value>
+  </data>
+  <data name="MergePage_NamingTemplate_HelpTitle" xml:space="preserve">
+    <value>Naming Template Help</value>
+  </data>
+  <data name="MergePage_NamingTemplate_HelpText" xml:space="preserve">
+    <value>{name} — Original file name (without extension)
+{protocol} — Protocol suffix (microvideo, motionphoto, oppo, vivo, samsung, huawei)
+{date} or {date:yyMMdd} — Current date in custom format
+{time} or {time:HH-mm} — Current time in custom format
+{counter} or {counter:D3} — Task sequence number
+
+Tip: Drag ☰ handles to reorder segments.</value>
+  </data>
+  <data name="NamingSegment_OriginalName" xml:space="preserve">
+    <value>Original Name</value>
+  </data>
+  <data name="NamingSegment_Literal" xml:space="preserve">
+    <value>Text</value>
+  </data>
+  <data name="NamingSegment_Protocol" xml:space="preserve">
+    <value>Protocol</value>
+  </data>
+  <data name="NamingSegment_OriginalName_Desc" xml:space="preserve">
+    <value>Base file name without extension</value>
+  </data>
+  <data name="NamingSegment_Literal_Desc" xml:space="preserve">
+    <value>Fixed text inserted as-is</value>
+  </data>
+  <data name="NamingSegment_Date_Desc" xml:space="preserve">
+    <value>Current system date</value>
+  </data>
+  <data name="NamingSegment_Time_Desc" xml:space="preserve">
+    <value>Current system time</value>
+  </data>
+  <data name="NamingSegment_Counter_Desc" xml:space="preserve">
+    <value>Incrementing counter (1-based)</value>
+  </data>
+  <data name="NamingSegment_Protocol_Desc" xml:space="preserve">
+    <value>Protocol abbreviation</value>
+  </data>
+  <data name="MergePage_NamingTemplate_AddLiteral_Title" xml:space="preserve">
+    <value>Custom Text</value>
+  </data>
+  <data name="NamingSegment_Date" xml:space="preserve">
+    <value>Date</value>
+  </data>
+  <data name="NamingSegment_Time" xml:space="preserve">
+    <value>Time</value>
+  </data>
+  <data name="NamingSegment_Counter" xml:space="preserve">
+    <value>Counter</value>
+  </data>
+  <data name="AboutPage_DevBilibili.Text" xml:space="preserve">
+    <value>Bilibili</value>
+  </data>
+  <data name="AboutPage_DevYouTube.Text" xml:space="preserve">
+    <value>YouTube</value>
+  </data>
+  <data name="AboutPage_DevWebsite.Text" xml:space="preserve">
+    <value>Website</value>
+  </data>
+  <data name="AboutPage_DevWebsite_ToolTip.Content" xml:space="preserve">
+    <value>In Development</value>
+  </data>
+  <data name="Status_DoneSimple" xml:space="preserve">
+    <value>Done</value>
+  </data>
+  <data name="Status_StoppedSimple" xml:space="preserve">
+    <value>Stopped</value>
+  </data>
+  <data name="MergePage_FooterUnprocessed.Text" xml:space="preserve">
+    <value>Pending </value>
+  </data>
+  <data name="MergePage_FooterCancelled.Text" xml:space="preserve">
+    <value>Cancelled </value>
   </data>
 </root>

@@ -1,74 +1,54 @@
-/*
- * AboutPage.xaml.cs
- *
- * 关于页面的代码后置。
- * 负责对外链接的点击跳转和版本号的展示。
- *
- * 对应 ViewModel：AboutViewModel
- *
- * 生命周期：
- *   - 构造函数中初始化版本号（通过 App.AppVersion）
- *   - 各链接按钮统一通过 FilePickerService / Launcher 打开 Uri
- */
+// ******************************************************************
+// 文件名: AboutPage.xaml.cs
+// 作者: LengxiQwQ
+// 描述: AboutPage 的后台代码，负责绑定 ViewModel
+// ******************************************************************
 
-using LivePhotoBox.Services;
-using LivePhotoBox.ViewModels;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using System;
-using System.Reflection;
-using Windows.ApplicationModel;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Data;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Navigation;
+using Windows.Foundation;
+using Windows.Foundation.Collections;
+using LivePhotoBox.ViewModels;
 
 namespace LivePhotoBox.Views
 {
+    /// <summary>
+    /// 可用于自身或导航至 Frame 内部的关于页面。
+    /// </summary>
     public sealed partial class AboutPage : Page
     {
-        // 开发者主页链接
-        private static readonly Uri DeveloperUri = new("https://github.com/LengxiQwQ");
+        public AboutViewModel ViewModel { get; }
 
-        // 项目仓库链接
-        private static readonly Uri RepositoryUri = new("https://github.com/LengxiQwQ/live-photo-box");
-
-        // 项目许可证链接
-        private static readonly Uri LicenseUri = new("https://github.com/LengxiQwQ/live-photo-box/blob/master/LICENSE");
-
-        // 关联的 AboutViewModel
-        public AboutViewModel ViewModel => AppViewModel.Instance.About;
-
-        // 构造函数：初始化组件并显示应用版本号及部署模式
         public AboutPage()
         {
-            InitializeComponent();
-
-            // 版本号 + 部署模式（商店版 / 安装版 / 便携版）
-            string versionText = ResourceService.Format("AboutPage_Version_Format", App.AppVersion);
-            string modeLabel = ResourceService.GetString(App.DeploymentModeResourceKey);
-            VersionTextBlock.Text = $"{versionText} · {modeLabel}";
+            this.InitializeComponent();
+            ViewModel = new AboutViewModel();
         }
 
-        // 打开开发者 GitHub 链接
-        private async void DeveloperLinkButton_Click(object sender, RoutedEventArgs e) => await FilePickerService.OpenUriAsync(DeveloperUri);
+        /// <summary>
+        /// 复制邮箱地址到剪贴板，并显示反馈。
+        /// </summary>
+        private async void OnCopyEmailClick(object sender, RoutedEventArgs e)
+        {
+            var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            dataPackage.SetText("lengxiowo@gmail.com");
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
 
-        // 打开项目仓库链接
-        private async void RepositoryLinkButton_Click(object sender, RoutedEventArgs e) => await FilePickerService.OpenUriAsync(RepositoryUri);
-
-        // 打开项目许可证链接
-        private async void LicenseLinkButton_Click(object sender, RoutedEventArgs e) => await FilePickerService.OpenUriAsync(LicenseUri);
-
-        // 打开反馈/问题页面链接
-        private async void IssueLinkButton_Click(object sender, RoutedEventArgs e) => await FilePickerService.OpenUriAsync(FeedbackService.GetIssuesUri());
-
-        // 打开 ExifTool 官网
-        private async void ExifTool_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://exiftool.org/"));
-
-        // 打开 JPEGTran 工具官网
-        private async void JpegTran_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://www.ijg.org/"));
-
-        // 打开 FFmpeg 官网
-        private async void FFmpeg_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://ffmpeg.org/"));
-
-        // 打开 ImageMagick 官网
-        private async void ImageMagick_Click(object sender, RoutedEventArgs e) => await Windows.System.Launcher.LaunchUriAsync(new Uri("https://imagemagick.org/"));
-
+            // 显示"已复制"反馈
+            CopiedFeedback.Visibility = Visibility.Visible;
+            await Task.Delay(2000);
+            CopiedFeedback.Visibility = Visibility.Collapsed;
+        }
     }
 }

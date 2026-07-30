@@ -36,6 +36,9 @@ namespace LivePhotoBox.Services
 
         /// <summary>OPPO 改封面后原始高清图被移到 Original item，需要单独提取</summary>
         public bool HasOriginalPhoto { get; init; }
+
+        /// <summary>该文件是否为 OPPO O-Live Photo 协议（用于判断去重策略）</summary>
+        public bool IsOppo { get; init; }
     }
 
     public static class EditTimingService
@@ -43,6 +46,12 @@ namespace LivePhotoBox.Services
         // OPPO XMP 中的原始照片时间戳标签（OpCamera 命名空间）
         private static readonly Regex OppoPrimaryTimestampRegex = new(
             @"MotionPhotoPrimaryPresentationTimestampUs[""=\s]+(\d+)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // Google V2 / Samsung XMP 封面时间戳（GCamera 命名空间）
+        // exiftool 无法从 HEIC 可靠读取 GCamera 标签，需直接从 XMP 文本解析
+        private static readonly Regex GcameraTimestampRegex = new(
+            @"MotionPhotoPresentationTimestampUs[""=\s-]+(-?\d+)",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         // OPPO 协议检测关键字（与 JpegProtocolMap 一致）
@@ -64,13 +73,17 @@ namespace LivePhotoBox.Services
             double photoTime = standardKeyPhotoTimeSeconds;
             double coverTime = standardKeyPhotoTimeSeconds;
             bool hasOriginal = false;
+            bool isOppo = false;
 
             if (!string.IsNullOrWhiteSpace(xmpText))
             {
-                // ── OPPO O-Live Photo ──
+                // ── OPPO O-Live Photo / Fusion ──
+                // OPPO 和 Fusion 都使用 OpCamera 双时间戳：
+                //   MotionPhotoPresentationTimestampUs = 当前封面帧
+                //   MotionPhotoPrimaryPresentationTimestampUs = 原始拍摄帧（换封面后不变）
                 if (xmpText.Contains(OppoMarker))
                 {
-                    // 检测是否改过封面（有 Original item）
+                    isOppo = true;
                     hasOriginal = xmpText.Contains("Item:Semantic=\"Original\"");
 
                     var match = OppoPrimaryTimestampRegex.Match(xmpText);
@@ -84,7 +97,7 @@ namespace LivePhotoBox.Services
                             photoTime = primarySec;
                             coverTime = standardKeyPhotoTimeSeconds;
                             LogService.FileOp(
-                                $"KeyPhotoTiming[OPPO] Split: Photo={photoTime:F4}s (Primary), " +
+                                $"KeyPhotoTiming[OPPO/Fusion] Split: Photo={photoTime:F4}s (Primary), " +
                                 $"Cover={coverTime:F4}s (MotionPhoto), HasOriginal={hasOriginal}",
                                 Models.LogLevel.Info);
                         }
@@ -93,8 +106,29 @@ namespace LivePhotoBox.Services
                     if (hasOriginal)
                     {
                         LogService.FileOp(
-                            $"KeyPhotoTiming[OPPO] Original photo detected in container — " +
+                            $"KeyPhotoTiming[OPPO/Fusion] Original photo detected in container — " +
                             "star thumbnail will use Original item",
+                            Models.LogLevel.Info);
+                    }
+                }
+
+                // ── Google V2 / Samsung — exiftool 无法从 HEIC 读取 GCamera 标签 ──
+                // 当 standardKeyPhotoTimeSeconds 为 0 且 XMP 包含 GCamera:MotionPhoto 时，
+                // 直接从 XMP 文本解析 MotionPhotoPresentationTimestampUs（和 OPPO 一样的兜底模式）
+                if (standardKeyPhotoTimeSeconds <= 0 &&
+                    xmpText.Contains("GCamera:MotionPhoto"))
+                {
+                    var gcMatch = GcameraTimestampRegex.Match(xmpText);
+                    if (gcMatch.Success &&
+                        long.TryParse(gcMatch.Groups[1].Value, out long gcUs) &&
+                        gcUs > 0)
+                    {
+                        double gcSec = gcUs / 1_000_000.0;
+                        photoTime = gcSec;
+                        coverTime = gcSec;
+                        LogService.FileOp(
+                            $"KeyPhotoTiming[GCamera] Read from XMP: {gcSec:F4}s " +
+                            $"(MotionPhotoPresentationTimestampUs={gcUs})",
                             Models.LogLevel.Info);
                     }
                 }
@@ -104,7 +138,8 @@ namespace LivePhotoBox.Services
             {
                 PhotoTimeSeconds = photoTime,
                 CoverTimeSeconds = coverTime,
-                HasOriginalPhoto = hasOriginal
+                HasOriginalPhoto = hasOriginal,
+                IsOppo = isOppo
             };
         }
 
@@ -170,10 +205,16 @@ namespace LivePhotoBox.Services
                     string currentTrack = trackMatch.Groups[1].Value;
                     string valuePart = line.Substring(trackMatch.Index + trackMatch.Length).Trim();
 
-                    // 如果这一行是 StillImageTime，记录轨编号
+                    // 如果这一行是 StillImageTime，记录轨编号（排除无效值 - 或 -1）
                     if (valuePart.StartsWith("StillImageTime"))
                     {
-                        trackWithStill = currentTrack;
+                        // 排除 "StillImageTime : -" 和 "StillImageTime : -1" 等无意义值
+                        var valMatch = Regex.Match(valuePart, @"([\d.]+)");
+                        if (valMatch.Success && double.TryParse(valMatch.Groups[1].Value,
+                            System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            out double stVal) && stVal >= 0)
+                            trackWithStill = currentTrack;
                     }
                     // 如果这一行是 TrackDuration，并且这是我们要找的轨，取值
                     else if (valuePart.StartsWith("TrackDuration") && currentTrack == trackWithStill)
@@ -206,6 +247,52 @@ namespace LivePhotoBox.Services
             {
                 LogService.FileOp(
                     $"KeyPhotoTiming[Apple] Failed to read MOV still time: {ex.Message}",
+                    Models.LogLevel.Warning);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 从华为 Moving Photo 的 60 字节尾部读取封面帧序号（v6_fXX）。
+        /// 华为的封面帧就是文件前半段的静态图片，对应视频第 0 帧。
+        /// 换封面后 Gallery 更新 fXX 为新封面帧号，编辑器进度条据此定位。
+        /// </summary>
+        /// <param name="filePath">华为实况照片文件路径（JPEG 或 HEIC）</param>
+        /// <returns>封面帧序号（0-based），读取失败返回 null</returns>
+        public static int? ReadHuaweiCoverFrameNumber(string filePath)
+        {
+            try
+            {
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                if (fs.Length < 60) return null;
+
+                fs.Seek(-60, SeekOrigin.End);
+                byte[] tail = new byte[60];
+                fs.ReadExactly(tail, 0, 60);
+
+                // Format: "v6_fXX" at [+0..+5]
+                // "v6_f" = bytes 0-3, frame number = bytes 4-5
+                if (tail[0] != 'v' || tail[1] < '0' || tail[1] > '9'
+                    || tail[2] != '_' || tail[3] != 'f')
+                    return null;
+
+                // Parse XX after "v6_f"
+                int frameNum = 0;
+                for (int i = 4; i < 6; i++)
+                {
+                    if (tail[i] >= '0' && tail[i] <= '9')
+                        frameNum = frameNum * 10 + (tail[i] - '0');
+                }
+
+                LogService.FileOp(
+                    $"KeyPhotoTiming[HUAWEI] Cover frame number: {frameNum}",
+                    Models.LogLevel.Info);
+                return frameNum;
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"KeyPhotoTiming[HUAWEI] Failed to read cover frame: {ex.Message}",
                     Models.LogLevel.Warning);
                 return null;
             }

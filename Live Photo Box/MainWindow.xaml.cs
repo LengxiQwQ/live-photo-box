@@ -450,8 +450,7 @@ namespace LivePhotoBox
 
             if (args.IsSettingsSelected)
             {
-                bool useClassic = AppSettingsService.GetValue("UseClassicSettingsPage", false);
-                NavigateToPage(useClassic ? typeof(Views.SettingsPageOld) : typeof(Views.SettingsPage), null, transitionInfo);
+                NavigateToPage(typeof(Views.SettingsPage), null, transitionInfo);
                 return;
             }
 
@@ -463,7 +462,7 @@ namespace LivePhotoBox
             switch (tag)
             {
                 case "Home": NavigateToPage(typeof(Views.HomePage), null, transitionInfo); break;
-                case "Merge": NavigateToPage(typeof(Views.MergePage), "Merge", transitionInfo); break;
+                case "Merge": NavigateToPage(typeof(Views.MergePage), null, transitionInfo); break;
                 case "Split": NavigateToPage(typeof(Views.SplitPage), "Split", transitionInfo); break;
                 case "History": NavigateToPage(typeof(Views.HistoryPage), null, transitionInfo); break;
                 case "Edit": NavigateToPage(typeof(Views.EditPage), null, transitionInfo); break;
@@ -507,10 +506,8 @@ namespace LivePhotoBox
         {
             if (NavView == null) return;
 
-            bool useClassic = AppSettingsService.GetValue("UseClassicSettingsPage", false);
-            var pageType = useClassic ? typeof(Views.SettingsPageOld) : typeof(Views.SettingsPage);
             ViewModel.SetCurrentStatusPage(null);
-            MainFrame.Navigate(pageType, parameter);
+            MainFrame.Navigate(typeof(Views.SettingsPage), parameter);
 
             // 更新侧栏，但不触发重复导航
             if (NavView.SelectedItem != NavView.SettingsItem)

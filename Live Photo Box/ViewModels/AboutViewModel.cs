@@ -1,91 +1,81 @@
-// <copyright file="AboutViewModel.cs" company="Live Photo Box">
-// Copyright (c) Live Photo Box. All rights reserved.
-// </copyright>
+// ******************************************************************
+// 文件名: AboutViewModel.cs
+// 作者: LengxiQwQ
+// 描述: AboutPage 的视图模型，提供版本信息、链接跳转与 GitHub 头像缓存
+// ******************************************************************
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using System;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Globalization;
 using System.IO;
-using System.Linq;
+using System.Net.Http;
+using System.Text.Json;
 using System.Threading.Tasks;
-using LogLevel = LivePhotoBox.Models.LogLevel;
-using LogSource = LivePhotoBox.Models.LogSource;
+using Windows.ApplicationModel;
+using Windows.System;
 
 namespace LivePhotoBox.ViewModels
 {
-    // 关于页面的 ViewModel，对应 AboutPage。
-    // 管理崩溃日志的查看、导出、清除以及反馈跳转等操作。
+    /// <summary>
+    /// 关于页面的视图模型。
+    /// 为 AboutPage 提供版本信息、链接跳转与 GitHub 头像自动加载。
+    /// </summary>
     public partial class AboutViewModel : ViewModelBase
     {
-        #region Fields
-
-        // 上一次会话的日志文件路径（已校验存在性）。
-        private string? _latestLogPath;
-
-        // 上一次会话的转储文件路径（已校验存在性）。
-        private string? _latestDumpPath;
-
-        #endregion
-
         #region Properties
 
         // <inheritdoc/>
         public override string? PageStatusTag => null;
 
-        // 是否存在可用的崩溃产物（日志或转储文件）。
-        public bool HasCrashArtifacts => GetLatestCrashArtifactPath() != null;
+        // 当前应用版本号
+        public string AppVersion { get; }
 
-        // 本次会话日志文件显示名称。
-        public string CurrentLogFileNameText
-        {
-            get
-            {
-                string? path = LogService.CurrentLogPath;
-                if (!string.IsNullOrEmpty(path) && File.Exists(path))
-                    return Path.GetFileName(path);
-                return ResourceService.GetString("SettingsPage_CrashNoCrashValue");
-            }
-        }
+        // 当前应用分发渠道（商店版 / 安装版 / 便携版）
+        public string AppDistribution { get; }
 
-        // 上一次日志文件的显示名称，无可用时显示"暂无"。
-        public string PreviousLogFileNameText => GetLatestCrashArtifactPath() is string latestPath
-            ? Path.GetFileName(latestPath)
-            : ResourceService.GetString("SettingsPage_CrashNoCrashValue");
+        // 更新记录链接（中英文跳不同页面）
+        public string ChangelogUrl =>
+            CultureInfo.CurrentUICulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
+                ? "https://github.com/LengxiQwQ/live-photo-box/blob/master/changelogs/CHANGELOG.zh-CN.md"
+                : "https://github.com/LengxiQwQ/live-photo-box/blob/master/changelogs/CHANGELOG.md";
+
+        // GitHub 用户头像（自动下载并缓存到本地）
+        [ObservableProperty]
+        private ImageSource? _avatarSource;
 
         #endregion
 
         #region Commands
 
-        // 打开崩溃日志文件夹的命令。
-        public IRelayCommand OpenCrashLogFolderActionCommand => _openCrashLogFolderActionCommand ??= new RelayCommand(OpenCrashLogFolder);
-
-        // 打开本次日志文件的命令。
-        public IAsyncRelayCommand OpenCurrentLogActionCommand => _openCurrentLogActionCommand ??= new AsyncRelayCommand(OpenCurrentLogAsync, () => HasCurrentLog);
-
-        // 打开上一次崩溃日志文件的命令。
-        public IAsyncRelayCommand OpenPreviousLogActionCommand => _openPreviousLogActionCommand ??= new AsyncRelayCommand(OpenPreviousLogAsync, () => HasCrashArtifacts);
-
-        // 导出本次日志文件到用户指定位置的命令。
-        public IAsyncRelayCommand ExportCurrentLogActionCommand => _exportCurrentLogActionCommand ??= new AsyncRelayCommand(ExportCurrentLogAsync, () => HasCurrentLog);
-
-        // 导出上一次崩溃日志文件到用户指定位置的命令。
-        public IAsyncRelayCommand ExportPreviousLogActionCommand => _exportPreviousLogActionCommand ??= new AsyncRelayCommand(ExportPreviousLogAsync, CanExportPreviousLog);
-
-        // 清除所有崩溃日志文件的命令。
-        public IRelayCommand ClearCrashLogsActionCommand => _clearCrashLogsActionCommand ??= new RelayCommand(ClearCrashLogs, CanClearCrashLogs);
-
-        // 在浏览器中打开 GitHub Issues 反馈页面的命令。
-        public IAsyncRelayCommand OpenIssueFeedbackActionCommand => _openIssueFeedbackActionCommand ??= new AsyncRelayCommand(OpenIssueFeedbackAsync);
-
-        private IRelayCommand? _openCrashLogFolderActionCommand;
-        private IAsyncRelayCommand? _openCurrentLogActionCommand;
-        private IAsyncRelayCommand? _openPreviousLogActionCommand;
-        private IAsyncRelayCommand? _exportCurrentLogActionCommand;
-        private IAsyncRelayCommand? _exportPreviousLogActionCommand;
-        private IRelayCommand? _clearCrashLogsActionCommand;
-        private IAsyncRelayCommand? _openIssueFeedbackActionCommand;
+        // 在默认浏览器中打开指定链接。
+        // 使用 System.Diagnostics.Process.Start（原生 Win32 进程启动）
+        // 替代 Windows.System.Launcher.LaunchUriAsync（WinRT COM 跨进程调用），
+        // 彻底避免 WinRT 异步边界导致的 Composition 渲染闪烁。
+        [RelayCommand]
+        private void OpenLink(string url)
+        {
+            if (!string.IsNullOrEmpty(url))
+            {
+                try
+                {
+                    Process.Start(new ProcessStartInfo
+                    {
+                        FileName = url,
+                        UseShellExecute = true
+                    });
+                }
+                catch
+                {
+                    // 静默——打开链接失败不影响应用功能
+                }
+            }
+        }
 
         #endregion
 
@@ -93,161 +83,183 @@ namespace LivePhotoBox.ViewModels
 
         public AboutViewModel()
         {
-            RefreshCrashLogs();
+            AppVersion = GetAppVersion();
+            AppDistribution = GetAppDistribution();
+
+            // 后台自动加载 GitHub 头像
+            _ = LoadAvatarAsync();
         }
 
         #endregion
 
         #region Methods
 
-        // 刷新崩溃日志列表，重新检测日志文件和转储文件的存在性，
-        // 并更新相关命令的可执行状态及绑定属性。
-        public void RefreshCrashLogs()
+        /// <summary>
+        /// 获取当前应用版本号
+        /// </summary>
+        private static string GetAppVersion()
         {
-            _latestLogPath = LogService.GetLatestLogPath();
-            _latestDumpPath = LogService.GetLatestDumpPath();
-
-            if (!string.IsNullOrWhiteSpace(_latestLogPath) && !File.Exists(_latestLogPath))
+            try
             {
-                _latestLogPath = null;
+                PackageVersion version = Package.Current.Id.Version;
+                return $"{version.Major}.{version.Minor}.{version.Build}";
             }
-
-            if (!string.IsNullOrWhiteSpace(_latestDumpPath) && !File.Exists(_latestDumpPath))
+            catch
             {
-                _latestDumpPath = null;
-            }
-
-            OpenCurrentLogActionCommand.NotifyCanExecuteChanged();
-            OpenPreviousLogActionCommand.NotifyCanExecuteChanged();
-            ExportCurrentLogActionCommand.NotifyCanExecuteChanged();
-            ExportPreviousLogActionCommand.NotifyCanExecuteChanged();
-            ClearCrashLogsActionCommand.NotifyCanExecuteChanged();
-            OnPropertyChanged(nameof(HasCrashArtifacts));
-            OnPropertyChanged(nameof(CurrentLogFileNameText));
-            OnPropertyChanged(nameof(PreviousLogFileNameText));
-        }
-
-        // 本次日志文件是否存在。
-        private bool HasCurrentLog
-        {
-            get
-            {
-                string? path = LogService.CurrentLogPath;
-                return !string.IsNullOrEmpty(path) && File.Exists(path);
+                // 开发环境或未打包运行时的后备显示
+                return "1.3.5";
             }
         }
 
-        // 在文件资源管理器中打开日志文件夹。
-        private void OpenCrashLogFolder()
+        /// <summary>
+        /// 判断当前应用的分发渠道
+        /// </summary>
+        private static string GetAppDistribution()
         {
-            string logDirectory = LogService.LogDirectory;
-            LogService.Info($"OpenCrashLogFolder requested. Path='{logDirectory}'", LogSource.App);
-            FilePickerService.OpenFolderInExplorer(logDirectory);
-        }
-
-        // 用默认程序打开本次日志文件。
-        private async Task OpenCurrentLogAsync()
-        {
-            string? path = LogService.CurrentLogPath;
-            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            try
             {
-                RefreshCrashLogs();
-                return;
+                if (Package.Current.SignatureKind == PackageSignatureKind.Store)
+                {
+                    return ResourceService.GetString("AboutPage_Mode_Store");
+                }
+                return ResourceService.GetString("AboutPage_Mode_Installer");
             }
-            LogService.Info($"OpenCurrentLog requested. File='{Path.GetFileName(path)}'", LogSource.App);
-            await FilePickerService.OpenFileAsync(path);
-        }
-
-        // 用默认程序打开上一次的日志文件。
-        private async Task OpenPreviousLogAsync()
-        {
-            string? latestPath = GetLatestCrashArtifactPath();
-            if (string.IsNullOrWhiteSpace(latestPath) || !File.Exists(latestPath))
+            catch
             {
-                RefreshCrashLogs();
-                return;
+                // 如果获取不到 Package 信息，大概率为免安装的便携版
+                return ResourceService.GetString("AboutPage_Mode_Portable");
             }
-            LogService.Info($"OpenPreviousLog requested. File='{Path.GetFileName(latestPath)}'", LogSource.App);
-            await FilePickerService.OpenFileAsync(latestPath);
         }
 
-        // 将本次日志文件导出到用户指定位置。
-        private async Task ExportCurrentLogAsync()
+        /// <summary>
+        /// 从 GitHub 获取用户头像并缓存到本地。
+        /// 缓存与当前版本绑定，版本变化时自动重新下载。
+        /// 覆盖所有边界情况：
+        ///   - 首次运行 / 缓存缺失 → 下载
+        ///   - App 更新（版本对不上）→ 重新下载
+        ///   - 缓存文件损坏（解码失败）→ 删除缓存，下次启动重试
+        ///   - 下载中途失败 → 不写缓存文件，下次启动重试
+        ///   - 下载成功但版本文件写入失败 → 不写版本文件，下次启动重试
+        ///   - 网络不可用 → 静默降级显示占位头像
+        /// </summary>
+        private async Task LoadAvatarAsync()
         {
-            string? path = LogService.CurrentLogPath;
-            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            try
             {
-                RefreshCrashLogs();
-                return;
-            }
-            LogService.Info($"ExportCurrentLog requested. File='{Path.GetFileName(path)}'", LogSource.App);
-            await FilePickerService.ExportFileCopyAsync(path, Path.GetFileName(path));
-        }
+                string cacheDir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "LivePhotoBox", "Cache");
+                Directory.CreateDirectory(cacheDir);
 
-        // 将上一次日志文件导出到用户指定位置。
-        private async Task ExportPreviousLogAsync()
-        {
-            string? latestPath = GetLatestCrashArtifactPath();
-            if (string.IsNullOrWhiteSpace(latestPath) || !File.Exists(latestPath))
+                string avatarPath = Path.Combine(cacheDir, "avatar.png");
+                string versionPath = Path.Combine(cacheDir, "avatar.version");
+
+                // 读取缓存版本号（文件不存在 = null → 触发下载）
+                string? cachedVersion = File.Exists(versionPath)
+                    ? await File.ReadAllTextAsync(versionPath)
+                    : null;
+
+                // 条件：版本不匹配 或 头像文件缺失 → 下载
+                // 下载失败不会留下缓存文件，下次启动条件仍成立 → 自动重试
+                if (cachedVersion != AppVersion || !File.Exists(avatarPath))
+                {
+                    await DownloadAvatarAsync(avatarPath, versionPath);
+                }
+
+                // 尝试加载缓存头像
+                if (File.Exists(avatarPath))
+                {
+                    // 快速完整性检查：空文件直接删掉走重试
+                    if (new FileInfo(avatarPath).Length == 0)
+                    {
+                        CleanCache(avatarPath, versionPath);
+                        return;
+                    }
+
+                    var dispatcher = Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
+                    if (dispatcher != null)
+                    {
+                        dispatcher.TryEnqueue(async () =>
+                        {
+                            try
+                            {
+                                using var fileStream = File.OpenRead(avatarPath);
+                                using var randomAccessStream = fileStream.AsRandomAccessStream();
+                                var bitmap = new BitmapImage();
+                                // 指定解码宽度为 160（2× 显示尺寸），
+                                // 避免大图直接压缩到 80×80 时产生锯齿边缘
+                                bitmap.DecodePixelWidth = 160;
+                                await bitmap.SetSourceAsync(randomAccessStream);
+                                AvatarSource = bitmap;
+                            }
+                            catch
+                            {
+                                // 解码失败 → 缓存文件损坏，清除缓存让下次启动重新下载
+                                CleanCache(avatarPath, versionPath);
+                            }
+                        });
+                    }
+                }
+            }
+            catch
             {
-                RefreshCrashLogs();
-                return;
+                // 完全静默——头像加载失败不影响任何功能
             }
-            LogService.Info($"ExportPreviousLog requested. File='{Path.GetFileName(latestPath)}'", LogSource.App);
-            await FilePickerService.ExportFileCopyAsync(latestPath, Path.GetFileName(latestPath));
         }
 
-        // 清除所有日志文件并刷新状态。
-        private void ClearCrashLogs()
+        /// <summary>
+        /// 删除损坏的头像缓存，确保下次启动触发重新下载。
+        /// </summary>
+        private static void CleanCache(string avatarPath, string versionPath)
         {
-            LogService.Info("ClearCrashLogs requested.", LogSource.App);
-            LogService.DeleteAllLogFiles();
-            RefreshCrashLogs();
+            try { if (File.Exists(avatarPath)) File.Delete(avatarPath); } catch { }
+            try { if (File.Exists(versionPath)) File.Delete(versionPath); } catch { }
         }
 
-        // 在默认浏览器中打开 GitHub Issues 反馈页面。
-        private async Task OpenIssueFeedbackAsync()
+        /// <summary>
+        /// 通过 GitHub API 下载用户头像并写入缓存（原子写入）。
+        /// 先下载到 .tmp 临时文件，全部成功后原子替换，避免写入一半时崩溃留下残缺文件。
+        /// 任何步骤失败都不会留下缓存文件 → 下次启动自动重试。
+        /// </summary>
+        private static async Task DownloadAvatarAsync(string avatarPath, string versionPath)
         {
-            LogService.Info("OpenIssueFeedback requested.", LogSource.App);
-            await FeedbackService.OpenIssuePageAsync();
-        }
-
-        // 是否有上一次日志可导出。
-        private bool CanExportPreviousLog() => HasCrashArtifacts;
-
-        // 是否有崩溃产物可清除。
-        private bool CanClearCrashLogs() => HasCrashArtifacts;
-
-        // Returns the previous session's log file (not the currently active one).
-        // Falls back to the most recent non-current log, then to dump file.
-        private string? GetLatestCrashArtifactPath()
-        {
-            // Priority 1: PreviousLogPath — set during LogService init to the previous session's file
-            string? previousLog = LogService.PreviousLogPath;
-            if (!string.IsNullOrWhiteSpace(previousLog) && File.Exists(previousLog))
+            string tempPath = avatarPath + ".tmp";
+            try
             {
-                return previousLog;
-            }
+                // 清理上次残留的临时文件
+                try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
 
-            // Priority 2: any old log that isn't the current active one
-            string? currentLog = LogService.CurrentLogPath;
-            string logDir = LogService.LogDirectory;
-            if (!string.IsNullOrEmpty(logDir) && Directory.Exists(logDir))
+                using var httpClient = new HttpClient();
+                httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("LivePhotoBox");
+                httpClient.DefaultRequestHeaders.TryAddWithoutValidation("Accept", "application/vnd.github.v3+json");
+
+                // 先获取 avatar_url
+                string json = await httpClient.GetStringAsync("https://api.github.com/users/LengxiQwQ");
+                string? avatarUrl = null;
+                using (var doc = JsonDocument.Parse(json))
+                {
+                    avatarUrl = doc.RootElement.GetProperty("avatar_url").GetString();
+                }
+
+                if (string.IsNullOrEmpty(avatarUrl))
+                    return;
+
+                // 下载头像到临时文件
+                byte[] imageBytes = await httpClient.GetByteArrayAsync(avatarUrl);
+                await File.WriteAllBytesAsync(tempPath, imageBytes);
+
+                // 先写版本文件，再原子替换头像文件。
+                // 顺序：版本文件写入成功后才交换，避免写出半截的残缺缓存。
+                string currentVersion = GetAppVersion();
+                await File.WriteAllTextAsync(versionPath, currentVersion);
+                File.Move(tempPath, avatarPath, overwrite: true);
+
+            }
+            catch
             {
-                var logs = Directory.GetFiles(logDir, "app-*.log")
-                    .Where(f => !string.Equals(f, currentLog, StringComparison.OrdinalIgnoreCase))
-                    .OrderByDescending(File.GetLastWriteTimeUtc)
-                    .ToList();
-
-                if (logs.Count > 0)
-                    return logs[0];
+                // 任何步骤失败 → 清理可能留下的残缺文件 → 下次启动自动重试
+                try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
             }
-
-            // Priority 3: dump file (very rare — only for native crashes)
-            return new[] { _latestDumpPath }
-                .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
-                .OrderByDescending(path => File.GetLastWriteTimeUtc(path!))
-                .FirstOrDefault();
         }
 
         #endregion

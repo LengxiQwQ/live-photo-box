@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -254,17 +255,6 @@ namespace LivePhotoBox.ViewModels
             if (MergeThreadCount > 1) MergeThreadCount--;
         }
 
-        // 实况照片配对方式：文件名+元数据 / 仅文件名 / 仅元数据
-        [ObservableProperty]
-        private int _metadataMatchingModeIndex;
-
-        partial void OnMetadataMatchingModeIndexChanged(int value)
-        {
-            if (_isInitializing) return;
-            AppSettingsService.SetValue(nameof(MetadataMatchingModeIndex), value);
-            LogService.Info($"Metadata matching mode changed to index: {value}", LogSource.Settings);
-        }
-
         #endregion
 
         #region Split Settings
@@ -410,6 +400,17 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(OutputPreserveSubfolderVisibility));
         }
 
+        // 拖拽时自动搜索配对视频（Apple 双文件实况照片 CID 匹配）
+        [ObservableProperty]
+        private bool _isDragDropAutoPairEnabled;
+
+        partial void OnIsDragDropAutoPairEnabledChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsDragDropAutoPairEnabled), value);
+            LogService.Info($"Drag-drop auto pair: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
         // 输出目录按照子文件夹结构 — 仅在递归扫描开启时可见
         [ObservableProperty]
         private bool _isOutputPreserveSubfolderStructure;
@@ -495,6 +496,17 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Apple-only scan: {(value ? "ON" : "OFF")}", LogSource.Settings);
         }
 
+        // 位置查询 — 开启后根据照片 GPS 坐标联网获取地名（逆地理编码）
+        [ObservableProperty]
+        private bool _isGeoLocationEnabled = true;
+
+        partial void OnIsGeoLocationEnabledChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsGeoLocationEnabled), value);
+            LogService.Info($"Geo location lookup: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
         // 详细操作记录开关（默认关闭）
         // 关闭后仅标记经本软件处理过（合成/拆分/修复），不通过 dc:subject 写入具体更改内容
         [ObservableProperty]
@@ -512,6 +524,7 @@ namespace LivePhotoBox.ViewModels
         public SettingsViewModel()
         {
             LoadSettings();
+            RefreshCrashLogs();
             // 硬件信息异步加载（Banner 预加载延迟到打开设置页面时再触发）
             _ = LoadHardwareInfoAsync();
         }
@@ -564,22 +577,19 @@ namespace LivePhotoBox.ViewModels
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             IsGoogleProtocolForceMp4 = AppSettingsService.GetValue(nameof(IsGoogleProtocolForceMp4), false);
             MergeThreadCount = AppSettingsService.GetValue("MergeThreadCount", 4);
-            // 迁移旧匹配模式值（旧版 4 选项 → 新版 5 选项，值可直接映射）
-            // 旧: 0=Both, 1=BothWithDate, 2=FilenameOnly, 3=MetadataOnly
-            // 新: 0=FilenameAndCid, 1=FilenameCidAndMetadata, 2=FilenameOnly, 3=CidOnly, 4=MetadataOnly
-            int oldMode = AppSettingsService.GetValue(nameof(MetadataMatchingModeIndex), 0);
-            MetadataMatchingModeIndex = oldMode;  // 直接映射，0→0, 1→1, 2→2, 3→3
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
             IsRepairScanLoadThumbnail = AppSettingsService.GetValue(nameof(IsRepairScanLoadThumbnail), false);
             IsStrictLivePhotoScanEnabled = AppSettingsService.GetValue(nameof(IsStrictLivePhotoScanEnabled), false);
             IsAppleOnlyScanEnabled = AppSettingsService.GetValue(nameof(IsAppleOnlyScanEnabled), true);
+            IsGeoLocationEnabled = AppSettingsService.GetValue(nameof(IsGeoLocationEnabled), true);
             IsNonLivePhotoVideoRepairEnabled = AppSettingsService.GetValue(nameof(IsNonLivePhotoVideoRepairEnabled), false);
             IsCopyPerfectToOutput = AppSettingsService.GetValue(nameof(IsCopyPerfectToOutput), false);
             SplitFormatIndex = AppSettingsService.GetValue("SelectedFormatIndex", 0);
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), true);
+            IsDragDropAutoPairEnabled = AppSettingsService.GetValue(nameof(IsDragDropAutoPairEnabled), false);
             IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), true);
             ThumbnailProviderIndex = AppSettingsService.GetValue(nameof(ThumbnailProviderIndex), 0);
             TimelineModeIndex = AppSettingsService.GetValue(nameof(TimelineModeIndex), 1);
@@ -730,14 +740,12 @@ namespace LivePhotoBox.ViewModels
             AppSettingsService.SetValue("SplitEncoder_hevc", string.Empty);
 
             AppViewModel.Instance.Split.SelectedFormatIndex = 0;
-            AppViewModel.Instance.Merge.SelectedModeIndex = 1;
+            AppViewModel.Instance.Merge.SelectedModeIndex = 2;
+            AppViewModel.Instance.Merge.OutputFormatIndex = 0;
             AppViewModel.Instance.Repair.IsOutputToDirectory = false;
             AppViewModel.Instance.Edit.IsMuted = false;
 
-            // 4. 重置页面偏好为现代版
-            AppSettingsService.SetValue("UseClassicSettingsPage", false);
-
-            // 5. 重新选择最佳硬件
+            // 4. 重新选择最佳硬件
             _isInitializing = true;
             var gpu = AvailableHardware.FirstOrDefault(h => h.Type == HardwareService.HardwareType.Gpu && h.IsHardwareEncodingSupported);
             if (gpu != null)
@@ -956,6 +964,193 @@ namespace LivePhotoBox.ViewModels
                     Error = ex.Message
                 };
             }
+        }
+
+        #endregion
+
+        #region Crash Log Management
+
+        // 上一次会话的日志文件路径（已校验存在性）。
+        private string? _latestLogPath;
+
+        // 上一次会话的转储文件路径（已校验存在性）。
+        private string? _latestDumpPath;
+
+        // 是否存在可用的崩溃产物（日志或转储文件）。
+        public bool HasCrashArtifacts => GetLatestCrashArtifactPath() != null;
+
+        // 本次会话日志文件显示名称。
+        public string CurrentLogFileNameText
+        {
+            get
+            {
+                string? path = LogService.CurrentLogPath;
+                if (!string.IsNullOrEmpty(path) && File.Exists(path))
+                    return Path.GetFileName(path);
+                return ResourceService.GetString("SettingsPage_CrashNoCrashValue");
+            }
+        }
+
+        // 上一次日志文件的显示名称，无可用时显示"暂无"。
+        public string PreviousLogFileNameText => GetLatestCrashArtifactPath() is string latestPath
+            ? Path.GetFileName(latestPath)
+            : ResourceService.GetString("SettingsPage_CrashNoCrashValue");
+
+        // ── 命令 ──
+
+        // 打开崩溃日志文件夹的命令。
+        [RelayCommand]
+        private void OpenCrashLogFolderAction()
+        {
+            string logDirectory = LogService.LogDirectory;
+            LogService.Info($"OpenCrashLogFolder requested. Path='{logDirectory}'", LogSource.App);
+            FilePickerService.OpenFolderInExplorer(logDirectory);
+        }
+
+        // 打开本次日志文件的命令。
+        [RelayCommand(CanExecute = nameof(HasCurrentLog))]
+        private async Task OpenCurrentLogActionAsync()
+        {
+            string? path = LogService.CurrentLogPath;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                RefreshCrashLogs();
+                return;
+            }
+            LogService.Info($"OpenCurrentLog requested. File='{Path.GetFileName(path)}'", LogSource.App);
+            await FilePickerService.OpenFileAsync(path);
+        }
+
+        // 打开上一次崩溃日志文件的命令。
+        [RelayCommand(CanExecute = nameof(HasCrashArtifacts))]
+        private async Task OpenPreviousLogActionAsync()
+        {
+            string? latestPath = GetLatestCrashArtifactPath();
+            if (string.IsNullOrWhiteSpace(latestPath) || !File.Exists(latestPath))
+            {
+                RefreshCrashLogs();
+                return;
+            }
+            LogService.Info($"OpenPreviousLog requested. File='{Path.GetFileName(latestPath)}'", LogSource.App);
+            await FilePickerService.OpenFileAsync(latestPath);
+        }
+
+        // 导出本次日志文件到用户指定位置的命令。
+        [RelayCommand(CanExecute = nameof(HasCurrentLog))]
+        private async Task ExportCurrentLogActionAsync()
+        {
+            string? path = LogService.CurrentLogPath;
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                RefreshCrashLogs();
+                return;
+            }
+            LogService.Info($"ExportCurrentLog requested. File='{Path.GetFileName(path)}'", LogSource.App);
+            await FilePickerService.ExportFileCopyAsync(path, Path.GetFileName(path));
+        }
+
+        // 导出上一次崩溃日志文件到用户指定位置的命令。
+        [RelayCommand(CanExecute = nameof(CanExportPreviousLog))]
+        private async Task ExportPreviousLogActionAsync()
+        {
+            string? latestPath = GetLatestCrashArtifactPath();
+            if (string.IsNullOrWhiteSpace(latestPath) || !File.Exists(latestPath))
+            {
+                RefreshCrashLogs();
+                return;
+            }
+            LogService.Info($"ExportPreviousLog requested. File='{Path.GetFileName(latestPath)}'", LogSource.App);
+            await FilePickerService.ExportFileCopyAsync(latestPath, Path.GetFileName(latestPath));
+        }
+
+        // 清除所有崩溃日志文件的命令。
+        [RelayCommand(CanExecute = nameof(CanClearCrashLogs))]
+        private void ClearCrashLogsAction()
+        {
+            LogService.Info("ClearCrashLogs requested.", LogSource.App);
+            LogService.DeleteAllLogFiles();
+            RefreshCrashLogs();
+        }
+
+        // 在浏览器中打开 GitHub Issues 反馈页面的命令。
+        [RelayCommand]
+        private async Task OpenIssueFeedbackActionAsync()
+        {
+            LogService.Info("OpenIssueFeedback requested.", LogSource.App);
+            await FeedbackService.OpenIssuePageAsync();
+        }
+
+        // ── 公开方法 ──
+
+        // 刷新崩溃日志状态，重新检测日志文件和转储文件的存在性，
+        // 并更新相关命令的可执行状态及绑定属性。
+        public void RefreshCrashLogs()
+        {
+            _latestLogPath = LogService.GetLatestLogPath();
+            _latestDumpPath = LogService.GetLatestDumpPath();
+
+            if (!string.IsNullOrWhiteSpace(_latestLogPath) && !File.Exists(_latestLogPath))
+                _latestLogPath = null;
+
+            if (!string.IsNullOrWhiteSpace(_latestDumpPath) && !File.Exists(_latestDumpPath))
+                _latestDumpPath = null;
+
+            OpenCurrentLogActionCommand.NotifyCanExecuteChanged();
+            OpenPreviousLogActionCommand.NotifyCanExecuteChanged();
+            ExportCurrentLogActionCommand.NotifyCanExecuteChanged();
+            ExportPreviousLogActionCommand.NotifyCanExecuteChanged();
+            ClearCrashLogsActionCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(HasCrashArtifacts));
+            OnPropertyChanged(nameof(CurrentLogFileNameText));
+            OnPropertyChanged(nameof(PreviousLogFileNameText));
+        }
+
+        // ── 私有辅助方法 ──
+
+        // 本次日志文件是否存在。
+        private bool HasCurrentLog
+        {
+            get
+            {
+                string? path = LogService.CurrentLogPath;
+                return !string.IsNullOrEmpty(path) && File.Exists(path);
+            }
+        }
+
+        // 是否有上一次日志可导出。
+        private bool CanExportPreviousLog() => HasCrashArtifacts;
+
+        // 是否有崩溃产物可清除。
+        private bool CanClearCrashLogs() => HasCrashArtifacts;
+
+        // Returns the previous session's log file (not the currently active one).
+        // Falls back to the most recent non-current log, then to dump file.
+        private string? GetLatestCrashArtifactPath()
+        {
+            // Priority 1: PreviousLogPath — set during LogService init to the previous session's file
+            string? previousLog = LogService.PreviousLogPath;
+            if (!string.IsNullOrWhiteSpace(previousLog) && File.Exists(previousLog))
+                return previousLog;
+
+            // Priority 2: any old log that isn't the current active one
+            string? currentLog = LogService.CurrentLogPath;
+            string logDir = LogService.LogDirectory;
+            if (!string.IsNullOrEmpty(logDir) && Directory.Exists(logDir))
+            {
+                var logs = Directory.GetFiles(logDir, "app-*.log")
+                    .Where(f => !string.Equals(f, currentLog, StringComparison.OrdinalIgnoreCase))
+                    .OrderByDescending(File.GetLastWriteTimeUtc)
+                    .ToList();
+
+                if (logs.Count > 0)
+                    return logs[0];
+            }
+
+            // Priority 3: dump file (very rare — only for native crashes)
+            return new[] { _latestDumpPath }
+                .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                .OrderByDescending(path => File.GetLastWriteTimeUtc(path!))
+                .FirstOrDefault();
         }
 
         #endregion

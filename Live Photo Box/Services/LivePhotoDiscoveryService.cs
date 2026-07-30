@@ -3,15 +3,10 @@
  *
  * 统一实况照片发现服务。
  *
- * 按 DiscoveryScanMode 指定的 Pass 组合，对目录中的文件进行多轮检测：
- *   Pass 1 — JPEG 字节标记扫描（调用 LivePhotoSplitScanService.IsLikelyLivePhoto）
- *   Pass 2 — HEIC 视频轨检测（exiftool ContentIdentifier + MediaDuration）
- *   Pass 3 — 文件名配对（PathHelper.GetPairingKey）
- *   Pass 4 — ContentIdentifier UUID 匹配（LivePhotoMetadataMatcher）
- *   Pass 5 — 组合元数据匹配（LivePhotoMetadataMatcher）
- *
- * 优先级规则：Pass 1 > 2 > 3 > 4 > 5。一旦文件被某 Pass 分类为实况照片，
- * 后续 Pass 不再处理该文件。
+ * 按 DiscoveryScanMode 标志位运行对应检测/匹配步骤。
+ * 检测步骤（拆分/资源浏览页面）：JPEG XMP 扫描 + HEIC 视频轨。
+ * 匹配步骤（合并页面，三选一互斥）：文件名 / Apple CID / vivo ID。
+ * 文件只被第一个命中它的步骤分类。
  *
  * 被 MergePage、SplitPage、KeyPhoto、RepairPage 共用。
  */
@@ -60,10 +55,10 @@ namespace LivePhotoBox.Services
         // ══════════════════════════════════════════════════════════════
 
         /// <summary>
-        /// 扫描目录，按 scanMode 指定的 Pass 识别实况照片。
+        /// 扫描目录，按 scanMode 指定的步骤识别/匹对实况照片。
         /// </summary>
         /// <param name="inputDirectory">要扫描的目录</param>
-        /// <param name="scanMode">要运行的检测 Pass（默认 All）</param>
+        /// <param name="scanMode">要运行的检测/匹配步骤（默认 All）</param>
         /// <param name="ct">取消令牌</param>
         /// <param name="progress">批量进度报告（total, completed, livePhotoCount）</param>
         /// <param name="itemProgress">逐项进度报告（每发现一个实况照片时触发，支持流式 UI 加载）</param>
@@ -96,7 +91,7 @@ namespace LivePhotoBox.Services
 
             ct.ThrowIfCancellationRequested();
 
-            // ── 跟踪已分类文件（已确定为实况照片的，后续 Pass 跳过）──
+            // ── 跟踪已分类文件（已被某步骤标记的，后续步骤跳过）──
             var classifiedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             // 获取按扩展名分类的未分类文件
@@ -107,15 +102,15 @@ namespace LivePhotoBox.Services
                 return q.ToList();
             }
 
-            // ── Step 2: 运行各 Pass ──
+            // ── Step 2: 运行各步骤 ──
 
-            // Pass 1: JPEG 字节标记
+            // ── 检测: JPEG XMP 字节标记 ──
             if (scanMode.HasFlag(DiscoveryScanMode.JpegMarkers))
             {
                 var jpegs = GetUnclassified(i => JpegExtensions.Contains(Path.GetExtension(i.FilePath)));
                 if (jpegs.Count > 0)
                 {
-                    LogService.Scan($"Pass 1 (JPEG markers): scanning {jpegs.Count} files");
+                    LogService.Scan($"JPEG XMP scan: {jpegs.Count} files");
                     int found = 0;
                     foreach (var item in jpegs)
                     {
@@ -131,6 +126,11 @@ namespace LivePhotoBox.Services
                             }
                             catch { videoLen = 0; }
 
+                            // XMP 无有效视频偏移 → 回落检查尾部标记（华为 LIVE_ / 三星 SEFH）
+                            // 避免空 XMP 壳（如荣耀相机 GainMap 的 Container:Directory）被误判
+                            if (videoLen <= 0 && !HasHuaweiLiveTail(item.FilePath))
+                                continue;
+
                             item.LivePhotoType = LivePhotoType.SingleFileJpeg;
                             item.DetectionMethod = LivePhotoDetectionMethod.JpegByteMarkers;
                             item.AppendedVideoLength = videoLen > 0 ? videoLen : 0;
@@ -141,19 +141,19 @@ namespace LivePhotoBox.Services
                             itemProgress?.Report(item);
                         }
                     }
-                    LogService.Scan($"Pass 1 complete: {found} single-file JPEG live photos found");
+                    LogService.Scan($"JPEG XMP scan done: {found} single-file JPEG live photos found");
                 }
             }
 
             ct.ThrowIfCancellationRequested();
 
-            // Pass 2: HEIC 视频轨检测
+            // ── 检测: HEIC 视频轨 ──
             if (scanMode.HasFlag(DiscoveryScanMode.HeicTrack))
             {
                 var heics = GetUnclassified(i => HeicExtensions.Contains(Path.GetExtension(i.FilePath)));
                 if (heics.Count > 0)
                 {
-                    LogService.Scan($"Pass 2 (HEIC track): scanning {heics.Count} files");
+                    LogService.Scan($"HEIC track scan: {heics.Count} files");
                     var found = await DetectHeicLivePhotosAsync(heics, ct);
                     foreach (var item in found)
                     {
@@ -161,43 +161,99 @@ namespace LivePhotoBox.Services
                         item.DetectionMethod = LivePhotoDetectionMethod.HeicVideoTrack;
                         classifiedPaths.Add(item.FilePath);
                     }
-                    LogService.Scan($"Pass 2 complete: {found.Count} single-file HEIC live photos found");
+                    LogService.Scan($"HEIC track scan done: {found.Count} single-file HEIC live photos found");
                 }
             }
 
             ct.ThrowIfCancellationRequested();
 
-            // Pass 3: 文件名配对
+            // ── 匹配: 文件名 ──
             bool hasFilenamePair = scanMode.HasFlag(DiscoveryScanMode.FilenamePair);
             if (hasFilenamePair)
             {
-                var unclassified = GetUnclassified();
-                var result = FilenamePairing(unclassified, inputDirectory, ct);
+                var candidates = allItems.Where(i =>
+                    ImageExtensions.Contains(Path.GetExtension(i.FilePath)) ||
+                    VideoExtensions.Contains(Path.GetExtension(i.FilePath))).ToList();
+                var result = FilenamePairing(candidates, inputDirectory, ct);
                 foreach (var item in result)
                 {
                     item.LivePhotoType = LivePhotoType.DualFile;
                     item.DetectionMethod = LivePhotoDetectionMethod.FilenamePairing;
                     classifiedPaths.Add(item.FilePath);
                 }
-                LogService.Scan($"Pass 3 complete: {result.Count} files paired by filename");
+                LogService.Scan($"Filename pairing complete: {result.Count} pairs");
             }
 
             ct.ThrowIfCancellationRequested();
 
-            // Pass 4 & 5: 元数据匹配（CID + 组合元数据）
-            bool hasCidMatch = scanMode.HasFlag(DiscoveryScanMode.CidMatch);
-            bool hasMetadataMatch = scanMode.HasFlag(DiscoveryScanMode.MetadataMatch);
-
-            if (hasCidMatch || hasMetadataMatch)
+            // ── 匹配: vivo ID ──
+            bool hasVivoMatch = scanMode.HasFlag(DiscoveryScanMode.VivoMatch);
+            if (hasVivoMatch)
             {
-                // 确定匹配输入：
-                // - 如果 FilenamePair 在 scanMode 中：仅未配对的独立文件
-                // - 如果 FilenamePair 不在 scanMode 中：全部文件
-                var remainingUnclassified = GetUnclassified();
-                var standaloneImages = remainingUnclassified
+                var vivoImages = allItems
                     .Where(i => ImageExtensions.Contains(Path.GetExtension(i.FilePath)))
                     .Select(i => i.FilePath).ToList();
-                var standaloneVideos = remainingUnclassified
+                var vivoVideos = allItems
+                    .Where(i => VideoExtensions.Contains(Path.GetExtension(i.FilePath)))
+                    .Select(i => i.FilePath).ToList();
+
+                if (vivoImages.Count > 0 && vivoVideos.Count > 0)
+                {
+                    LogService.Scan(
+                        $"vivo ID match: {vivoImages.Count} images, {vivoVideos.Count} videos");
+
+                    try
+                    {
+                        var vivoOutput = await Task.Run(
+                            () => LivePhotoMetadataMatcher.MatchVivo(vivoImages, vivoVideos),
+                            ct);
+
+                        foreach (var pair in vivoOutput.Pairs)
+                        {
+                            var imgItem = allItems.FirstOrDefault(i =>
+                                string.Equals(i.FilePath, pair.ImagePath, StringComparison.OrdinalIgnoreCase));
+                            if (imgItem != null && !classifiedPaths.Contains(imgItem.FilePath))
+                            {
+                                imgItem.LivePhotoType = LivePhotoType.DualFile;
+                                imgItem.DetectionMethod = LivePhotoDetectionMethod.VivoLivePhoto;
+                                imgItem.PairedVideoPath = pair.VideoPath;
+                                classifiedPaths.Add(imgItem.FilePath);
+                            }
+
+                            var vidItem = allItems.FirstOrDefault(i =>
+                                string.Equals(i.FilePath, pair.VideoPath, StringComparison.OrdinalIgnoreCase));
+                            if (vidItem != null && !classifiedPaths.Contains(vidItem.FilePath))
+                            {
+                                vidItem.LivePhotoType = LivePhotoType.DualFile;
+                                vidItem.DetectionMethod = LivePhotoDetectionMethod.VivoLivePhoto;
+                                vidItem.PairedImagePath = pair.ImagePath;
+                                classifiedPaths.Add(vidItem.FilePath);
+                            }
+                        }
+
+                        LogService.Scan($"vivo ID match done: {vivoOutput.Pairs.Count} vivo pairs");
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        LogService.Scan($"vivo matching failed: {ex.Message}", LogLevel.Warning);
+                    }
+                }
+                else
+                {
+                    LogService.Scan("vivo match: no files to match, skipped");
+                }
+            }
+
+            ct.ThrowIfCancellationRequested();
+
+            // ── 匹配: Apple ContentIdentifier ── (Apple Live Photo) — processes all files
+            if (scanMode.HasFlag(DiscoveryScanMode.CidMatch))
+            {
+                var standaloneImages = allItems
+                    .Where(i => ImageExtensions.Contains(Path.GetExtension(i.FilePath)))
+                    .Select(i => i.FilePath).ToList();
+                var standaloneVideos = allItems
                     .Where(i => VideoExtensions.Contains(Path.GetExtension(i.FilePath)))
                     .Select(i => i.FilePath).ToList();
 
@@ -209,58 +265,49 @@ namespace LivePhotoBox.Services
                     if (File.Exists(exifToolPath))
                     {
                         LogService.Scan(
-                            $"Pass 4/5 (metadata): {standaloneImages.Count} images, {standaloneVideos.Count} videos, " +
-                            $"cid={hasCidMatch}, combined={hasMetadataMatch}");
+                            $"CID match: {standaloneImages.Count} images, {standaloneVideos.Count} videos");
 
                         try
                         {
                             var matchOutput = await Task.Run(
                                 () => LivePhotoMetadataMatcher.MatchAsync(
-                                    standaloneImages, standaloneVideos, exifToolPath, ct,
-                                    enableCombinedMatching: hasMetadataMatch,
-                                    runContentIdentifier: hasCidMatch),
+                                    standaloneImages, standaloneVideos, exifToolPath, ct),
                                 ct);
 
                             foreach (var pair in matchOutput.Pairs)
                             {
-                                // 标记图片
                                 var imgItem = allItems.FirstOrDefault(i =>
                                     string.Equals(i.FilePath, pair.ImagePath, StringComparison.OrdinalIgnoreCase));
                                 if (imgItem != null && !classifiedPaths.Contains(imgItem.FilePath))
                                 {
                                     imgItem.LivePhotoType = LivePhotoType.DualFile;
-                                    imgItem.DetectionMethod = pair.Source == MatchSource.ContentIdentifier
-                                        ? LivePhotoDetectionMethod.ContentIdentifier
-                                        : LivePhotoDetectionMethod.MetadataCombined;
+                                    imgItem.DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
                                     imgItem.PairedVideoPath = pair.VideoPath;
                                     classifiedPaths.Add(imgItem.FilePath);
                                 }
 
-                                // 标记视频
                                 var vidItem = allItems.FirstOrDefault(i =>
                                     string.Equals(i.FilePath, pair.VideoPath, StringComparison.OrdinalIgnoreCase));
                                 if (vidItem != null && !classifiedPaths.Contains(vidItem.FilePath))
                                 {
                                     vidItem.LivePhotoType = LivePhotoType.DualFile;
-                                    vidItem.DetectionMethod = pair.Source == MatchSource.ContentIdentifier
-                                        ? LivePhotoDetectionMethod.ContentIdentifier
-                                        : LivePhotoDetectionMethod.MetadataCombined;
+                                    vidItem.DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
                                     vidItem.PairedImagePath = pair.ImagePath;
                                     classifiedPaths.Add(vidItem.FilePath);
                                 }
                             }
 
-                            LogService.Scan($"Pass 4/5 complete: {matchOutput.Pairs.Count} additional pairs");
+                            LogService.Scan($"CID match done: {matchOutput.Pairs.Count} CID pairs");
                         }
                         catch (OperationCanceledException) { throw; }
                         catch (Exception ex)
                         {
-                            LogService.Scan($"Metadata matching failed: {ex.Message}", LogLevel.Warning);
+                            LogService.Scan($"CID matching failed: {ex.Message}", LogLevel.Warning);
                         }
                     }
                     else
                     {
-                        LogService.Scan("Pass 4/5 skipped: exiftool not found");
+                        LogService.Scan("CID match skipped: exiftool not found");
                     }
                 }
             }
@@ -334,12 +381,14 @@ namespace LivePhotoBox.Services
         }
 
         // ══════════════════════════════════════════════════════════════
-        //  Pass 2: HEIC 视频轨检测
+        // ── 检测: HEIC 视频轨 ──
         // ══════════════════════════════════════════════════════════════
 
         /// <summary>
         /// 使用 exiftool 批量检测 HEIC/HEIF 文件是否包含视频轨。
-        /// 判定条件：ContentIdentifier 非空 且 MediaDuration > 0。
+        /// 判定条件：ContentIdentifier 非空 且 MediaDuration > 0（Apple 标准），
+        /// 或文件尾部含 LIVE_ 标记（华为/荣耀 Moving Photo）。
+        /// 注意：不改动 Apple ContentIdentifier 检测逻辑，华为仅在 Apple 路径失败时回退。
         /// </summary>
         private static async Task<List<LivePhotoDiscoveryItem>> DetectHeicLivePhotosAsync(
             List<LivePhotoDiscoveryItem> heicItems, CancellationToken ct)
@@ -350,7 +399,7 @@ namespace LivePhotoBox.Services
                 ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
             if (!File.Exists(exifToolPath))
             {
-                LogService.Scan("Pass 2 (HEIC) skipped: exiftool not found");
+                LogService.Scan("HEIC track scan skipped: exiftool not found");
                 return result;
             }
 
@@ -377,14 +426,37 @@ namespace LivePhotoBox.Services
                         var tool = pool[i % HeicDetectionPoolSize];
                         tasks[i] = Task.Run(async () =>
                         {
+                            // ── 快速检查（无进程启动，O(1) 文件 I/O）──
+                            // 放到 exiftool 查询之前：即使 exiftool 崩溃、超时、
+                            // 文件被锁定，这些检查仍然能命中 Google V2 / Samsung / 华为 HEIC。
+                            try
+                            {
+                                // 华为 LIVE_ 尾标（60 字节固定布局）
+                                if (HasHuaweiLiveTail(item.FilePath))
+                                    return true;
+
+                                // XMP MotionPhoto 标记（Google V2 HEIC / Samsung HEIC）
+                                // 谷歌/三星 HEIC 实况照片使用 MotionPhoto V2 XMP + mpvd box
+                                string xmpText = LivePhotoSplitService.ReadMetadataTextSync(item.FilePath);
+                                if (xmpText.Contains("GCamera:MotionPhoto", StringComparison.Ordinal) ||
+                                    xmpText.Contains("Container:Directory", StringComparison.Ordinal) ||
+                                    xmpText.Contains("GContainer:Directory", StringComparison.Ordinal))
+                                    return true;
+                            }
+                            catch { /* 回退检查失败 → 继续 exiftool 路径 */ }
+
+                            // ── exiftool 查询（Apple ContentIdentifier + MediaDuration）──
                             try
                             {
                                 string json = await tool.SendCommandAsync(
                                     ct, "-j", "-ContentIdentifier", "-MediaDuration", item.FilePath);
-                                return ParseHeicHasVideoTrack(json);
+                                if (ParseHeicHasVideoTrack(json))
+                                    return true;
                             }
                             catch (OperationCanceledException) { throw; }
-                            catch { return false; }
+                            catch { /* exiftool 失败 → 已经检查过快速路径，返回 false */ }
+
+                            return false;
                         }, ct);
                     }
 
@@ -446,8 +518,24 @@ namespace LivePhotoBox.Services
             catch { return false; }
         }
 
+        /// <summary>检查文件尾部是否有华为 LIVE_ 标记（实况照片判定）</summary>
+        private static bool HasHuaweiLiveTail(string filePath)
+        {
+            try
+            {
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                if (fs.Length < 60) return false;
+                int readSize = (int)Math.Min(fs.Length, 4096);
+                byte[] buf = new byte[readSize];
+                fs.Seek(-readSize, SeekOrigin.End);
+                fs.ReadExactly(buf, 0, readSize);
+                return buf.AsSpan().IndexOf("LIVE_"u8) >= 0;
+            }
+            catch { return false; }
+        }
+
         // ══════════════════════════════════════════════════════════════
-        //  Pass 3: 文件名配对
+        // ── 匹配: 文件名配对 ──
         // ══════════════════════════════════════════════════════════════
 
         /// <summary>

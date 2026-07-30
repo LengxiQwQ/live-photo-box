@@ -306,6 +306,112 @@ namespace LivePhotoBox.Services
                 "See debug log for metadata preview.");
         }
 
+        // ══════════════════════════════════════════════════════════════
+        //  华为/荣耀 嵌入视频定位
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// 从华为/荣耀实况照片二进制格式中定位嵌入的 MP4 视频段。
+        /// 华为/荣耀协议 = [静态图] + [嵌入MP4(ftyp..mdat..moov)] + [可变长尾(荣耀有 uuidextend_type_matrix + 60B尾)]。
+        /// 使用 moov box 结构定位 MP4 终点（而非硬编码减去固定尾长），对华为和荣耀均正确。
+        /// </summary>
+        /// <returns>(videoStart, videoEnd, videoLength) 或 null（定位失败）</returns>
+        public static (long videoStart, long videoEnd, long videoLength)? GetHuaweiEmbeddedVideoRange(
+            string filePath)
+        {
+            try
+            {
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                long fileSize = fs.Length;
+                if (fileSize < 4096) return null;
+
+                // ── Step 1: 从文件末 256KB 找到最后一个 moov box ──
+                const int tailProbe = 256 * 1024;
+                int readSize = (int)Math.Min(fileSize, tailProbe);
+                byte[] tailBuf = new byte[readSize];
+                fs.Seek(-readSize, SeekOrigin.End);
+                fs.ReadExactly(tailBuf, 0, readSize);
+
+                int moovRelIdx = LastIndexOf(tailBuf, "moov"u8);
+                if (moovRelIdx < 4) return null;
+
+                long moovPos = fileSize - readSize + moovRelIdx;
+                uint moovSize = ReadBigEndianU32(tailBuf, moovRelIdx - 4);
+                if (moovSize < 8 || moovSize > fileSize) return null;
+
+                long moovEnd = moovPos + moovSize;
+                if (moovEnd > fileSize) return null;
+
+                // ── Step 2: 在 moov 之前找最后一个 ftyp box（即嵌入 MP4 起点）──
+                long ftypPos = FindLastFtypBefore(fs, moovPos);
+                if (ftypPos < 4) return null;
+
+                long videoStart = ftypPos - 4; // ftyp box 的 size 字段
+                long videoEnd = moovEnd;
+
+                if (videoStart <= 0 || videoStart >= videoEnd || videoEnd > fileSize)
+                    return null;
+
+                long videoLength = videoEnd - videoStart;
+                return (videoStart, videoEnd, videoLength);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>在字节数组中从后往前搜索子序列，返回最后一个匹配的偏移</summary>
+        private static int LastIndexOf(byte[] data, ReadOnlySpan<byte> pattern)
+        {
+            for (int i = data.Length - pattern.Length; i >= 0; i--)
+            {
+                if (data.AsSpan(i, pattern.Length).SequenceEqual(pattern))
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>在 FileStream 中从后往前搜索最后一个 ftyp box（在 limit 之前），返回其绝对位置</summary>
+        private static long FindLastFtypBefore(FileStream fs, long limit)
+        {
+            const int chunkSize = 64 * 1024;
+            byte[] buf = new byte[chunkSize + 4];
+            byte[] ftypPattern = "ftyp"u8.ToArray();
+            long searchEnd = limit;
+
+            while (searchEnd > 0)
+            {
+                int toRead = (int)Math.Min(chunkSize, searchEnd);
+                long readPos = searchEnd - toRead;
+                fs.Seek(readPos, SeekOrigin.Begin);
+                int actual = fs.Read(buf, 0, toRead);
+                if (actual < 4) { searchEnd = readPos; continue; }
+
+                // 从后往前找
+                for (int i = actual - 4; i >= 0; i--)
+                {
+                    if (buf[i] == ftypPattern[0] && buf[i + 1] == ftypPattern[1]
+                        && buf[i + 2] == ftypPattern[2] && buf[i + 3] == ftypPattern[3])
+                    {
+                        return readPos + i;
+                    }
+                }
+                searchEnd = readPos + 3; // overlap 3 bytes for cross-chunk ftyp
+            }
+
+            return -1;
+        }
+
+        /// <summary>从字节数组中读取 big-endian uint32</summary>
+        private static uint ReadBigEndianU32(byte[] data, int offset)
+        {
+            return ((uint)data[offset] << 24)
+                 | ((uint)data[offset + 1] << 16)
+                 | ((uint)data[offset + 2] << 8)
+                 | data[offset + 3];
+        }
+
         private static async Task<string> ResolveVideoExtensionAsync(FileStream sourceStream, long videoStartOffset, string metadataText, int selectedSplitFormatIndex, CancellationToken token)
         {
             return selectedSplitFormatIndex switch

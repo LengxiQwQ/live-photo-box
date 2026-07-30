@@ -113,8 +113,8 @@ namespace LivePhotoBox.ViewModels
 
         // 输入配置是否可编辑（处理中和扫描中不可编辑）。
         public bool CanEditInputConfiguration => !IsProcessing && !IsScanning;
-        // 输出配置是否可编辑（处理中不可编辑）。
-        public bool CanEditOutputConfiguration => !IsProcessing;
+        // 输出配置是否可编辑（处理中和扫描中不可编辑）。
+        public bool CanEditOutputConfiguration => !IsProcessing && !IsScanning;
 
         // 是否可以开始处理（默认 true，子类可重写限制）。
         public virtual bool IsProcessingAllowed => true;
@@ -181,6 +181,7 @@ namespace LivePhotoBox.ViewModels
         {
             OnPropertyChanged(nameof(Status));
             OnPropertyChanged(nameof(SecondaryBtnText));
+            OnPropertyChanged(nameof(SecondaryBtnGlyph));
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
             OnPropertyChanged(nameof(CanEditInputConfiguration));
@@ -193,6 +194,13 @@ namespace LivePhotoBox.ViewModels
             ? ResourceService.GetString("Btn_ClearList")
             : (_isPausing ? ResourceService.GetString("Btn_Pausing")
                : (IsPaused ? ResourceService.GetString("Btn_Resume") : ResourceService.GetString("Btn_Pause")));
+
+        // 次要按钮图标：随状态切换 —— 空闲: 垃圾桶 / 暂停: 暂停⏸ / 继续: 播放▶
+        public string SecondaryBtnGlyph => !IsProcessing
+            ? ""                           // Delete (clear list)
+            : (_isPausing || !IsPaused
+                ? ""                        // Pause ⏸
+                : "");                      // Play ▶ (resume)
 
         // 用于日志的状态文本（英语）。
         protected string StatusForLog => _statusForLog;
@@ -213,9 +221,9 @@ namespace LivePhotoBox.ViewModels
         protected bool _scanCancelledByUser = false;
 
         // 开始一次扫描会话，重置进度状态并调用子类钩子。
+        // 注意：ProgressBarState 已由 OnIsScanningChanged(true) 设为 Scanning，此处不覆盖。
         protected void BeginScanSession()
         {
-            ProgressBarState = Models.ProgressBarState.Idle;
             _scanCancelledByUser = false;
             _scanProcessed = 0;
             _scanTotal = 0;
@@ -512,7 +520,7 @@ namespace LivePhotoBox.ViewModels
             if (_defaultButtonStyle != null && _scanCancelButtonStyle != null) return;
             if (Application.Current?.Resources == null) return;
             var resources = Application.Current.Resources;
-            if (_defaultButtonStyle == null && resources.TryGetValue("DefaultButtonStyle", out var defaultStyle) && defaultStyle is Style dbs)
+            if (_defaultButtonStyle == null && resources.TryGetValue("AccentButtonStyle", out var defaultStyle) && defaultStyle is Style dbs)
                 _defaultButtonStyle = dbs;
             if (_scanCancelButtonStyle == null && resources.TryGetValue("ScanCancelButtonStyle", out var cancelStyle) && cancelStyle is Style cbs)
                 _scanCancelButtonStyle = cbs;

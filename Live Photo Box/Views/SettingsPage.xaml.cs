@@ -5,7 +5,7 @@
  * 应用的主要设置界面，包含外观、语言、功能开关、调试工具等配置项。
  * 支持从其他页面带参数导航并自动滚动到指定设置区域。
  *
- * 对应 ViewModel：SettingsViewModel / AboutViewModel
+ * 对应 ViewModel：SettingsViewModel
  *
  * 生命周期：
  *   - 构造函数 → 初始化组件 → Loaded 中预加载 Banner 和崩溃检测
@@ -47,9 +47,6 @@ namespace LivePhotoBox.Views
         // 关联的 SettingsViewModel
         public SettingsViewModel ViewModel => AppViewModel.Instance.Settings;
 
-        // 关联的 AboutViewModel（用于崩溃日志等功能）
-        public AboutViewModel AboutViewModel => AppViewModel.Instance.About;
-
         // 调试工具区域的可见性
         public Visibility TestToolsVisibility => IsTestToolsVisible ? Visibility.Visible : Visibility.Collapsed;
 
@@ -78,7 +75,7 @@ namespace LivePhotoBox.Views
                 {
                     _isTestToolsVisible = value;
                     AppSettingsService.SetValue(nameof(IsTestToolsVisible), value);
-                    AboutViewModel.RefreshCrashLogs();
+                    ViewModel.RefreshCrashLogs();
                     NotifyPropertyChanged(nameof(TestToolsVisibility));
                     NotifyPropertyChanged(nameof(CrashNoticeVisibility));
                     NotifyPropertyChanged(nameof(IsTestToolsVisible));
@@ -250,18 +247,6 @@ namespace LivePhotoBox.Views
             Application.Current.Exit();
         }
 
-        // 预览崩溃对话框按钮点击：模拟显示崩溃报告弹窗
-        private async void PreviewCrashDialogButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (XamlRoot == null) return;
-            string? logPath = LogService.PreviousLogPath;
-            if (!string.IsNullOrWhiteSpace(logPath) && !System.IO.File.Exists(logPath))
-                logPath = null;
-
-            LogService.Info($"PreviewCrashDialog requested. File='{System.IO.Path.GetFileName(logPath)}'", LogSource.UI);
-            await CrashHandler.ShowCrashDialogAsync(XamlRoot, logPath);
-        }
-
         // 打开 Microsoft Store 应用页面，优先唤起 Store 应用，降级到浏览器
         private static async Task OpenStoreLinkAsync(string productId)
         {
@@ -323,40 +308,6 @@ namespace LivePhotoBox.Views
                 ViewModel.RestoreDefaultSettingsCommand.Execute(null);
                 PageScrollViewer.ChangeView(null, 0, null, true);
             }
-        }
-
-        // 切换到旧版设置页面（需重启生效）
-        private async void SwitchToClassic_Click(object sender, RoutedEventArgs e)
-        {
-            if (App.MainWindow?.Content?.XamlRoot == null) return;
-
-            bool confirmed = await DialogService.ShowDualAsync(
-                App.MainWindow.Content.XamlRoot,
-                ResourceService.GetString("SettingsPage_SwitchToClassic_Confirm_Title"),
-                ResourceService.GetString("SettingsPage_SwitchToClassic_Confirm_Message"),
-                primaryText: ResourceService.GetString("Msg_Confirm"),
-                closeText: ResourceService.GetString("Msg_Cancel"));
-            if (!confirmed) return;
-
-            // Save preference: switch back to classic
-            AppSettingsService.SetValue("UseClassicSettingsPage", true);
-
-            string? processPath = Environment.ProcessPath;
-            if (!string.IsNullOrWhiteSpace(processPath))
-            {
-                try
-                {
-                    LogService.MarkCleanShutdown();
-                    Process.Start(new ProcessStartInfo(processPath) { UseShellExecute = true });
-                }
-                catch (Exception ex)
-                {
-                    LogService.Error($"Failed to restart app: {ex.Message}", ex, LogSource.UI);
-                    return;
-                }
-            }
-
-            Application.Current.Exit();
         }
 
         // ── 自动更新 ────────────────────────────────────────────────

@@ -629,8 +629,58 @@ namespace LivePhotoBox.Controls
         {
             await Task.Yield();
             string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_live_{Guid.NewGuid():N}.mp4");
+
+            // 检测是否为华为协议：读尾 4096 查 LIVE_ 标记
+            // 华为的视频嵌在文件中间，不能用 fs.Length - videoLength 定位
+            bool isHuawei = false;
+            long hwVideoStart = 0;
+            try
+            {
+                using var probeFs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                if (probeFs.Length > 60)
+                {
+                    int readSize = (int)Math.Min(probeFs.Length, 4096);
+                    byte[] tailBuf = new byte[readSize];
+                    probeFs.Seek(-readSize, SeekOrigin.End);
+                    probeFs.ReadExactly(tailBuf, 0, readSize);
+                    if (tailBuf.AsSpan().IndexOf("LIVE_"u8) >= 0)
+                    {
+                        var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(filePath);
+                        if (range.HasValue)
+                        {
+                            isHuawei = true;
+                            hwVideoStart = range.Value.videoStart;
+                        }
+                    }
+                }
+            }
+            catch { /* best-effort, fall back to standard extraction */ }
+
+            // Google V2 HEIC：mpvd box 视频不在末尾，需单独定位
+            long mpvdStart = 0;
+            if (!isHuawei && LivePhotoMergeService.GetMpvdVideoLength(filePath) > 0)
+            {
+                // 搜索 mpvd box 找到视频起点
+                mpvdStart = LivePhotoMergeService.GetMpvdVideoStart(filePath);
+            }
+
             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            fs.Seek(fs.Length - videoLength, SeekOrigin.Begin);
+            if (isHuawei)
+            {
+                // 华为：从文件中间的 videoStart 开始提取
+                fs.Seek(hwVideoStart, SeekOrigin.Begin);
+            }
+            else if (mpvdStart > 0)
+            {
+                // Google V2 HEIC：从 mpvd box 内提取视频
+                fs.Seek(mpvdStart, SeekOrigin.Begin);
+            }
+            else
+            {
+                // 标准协议：视频在文件尾部
+                fs.Seek(fs.Length - videoLength, SeekOrigin.Begin);
+            }
+
             using var outFs = new FileStream(tempPath, FileMode.Create);
             byte[] buffer = new byte[81920];
             long remaining = videoLength;

@@ -1107,10 +1107,10 @@
                                                 <ColumnDefinition Width="Auto"/>
                                             </Grid.ColumnDefinitions>
                                             <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="5">
-                                                        <FontIcon Glyph="&#xE8B2;" FontSize="13" Margin="0,2,0,0"
+                                                        <FontIcon Glyph="&#xE8B2;" FontSize="13" Margin="0,1,0,0"
                                                           Foreground="{ThemeResource AccentFillColorDefaultBrush}" VerticalAlignment="Center"/>
                                                 <TextBlock x:Uid="EditPage_TimelineTitle"
-                                                           Text="Live Photo 时间轴" FontWeight="SemiBold" FontSize="11"
+                                                           Text="时间轴" FontWeight="SemiBold" FontSize="11"
                                                            Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                                                 <ProgressRing Width="12" Height="12" IsIndeterminate="True"
                                                               VerticalAlignment="Center" Margin="0,0,0,0"
@@ -1125,8 +1125,15 @@
                                                         Height="21" Padding="8,0"
                                                         VerticalAlignment="Center"
                                                         Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                                        IsEnabled="{x:Bind ViewModel.IsSetKeyPhotoEnabled, Mode=OneWay}"
+                                                        IsEnabled="{x:Bind ViewModel.IsGoToKeyPhotoEnabled, Mode=OneWay}"
                                                         Command="{x:Bind ViewModel.GoToKeyPhotoCommand}"/>
+                                                <Button x:Uid="EditPage_GoToOriginalPhoto"
+                                                        Content="前往原始封面" FontSize="10"
+                                                        Height="21" Padding="8,0"
+                                                        VerticalAlignment="Center"
+                                                        Visibility="{x:Bind ViewModel.HasOriginalPhotoFrame, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                                        IsEnabled="{x:Bind ViewModel.IsGoToOriginalPhotoEnabled, Mode=OneWay}"
+                                                        Command="{x:Bind ViewModel.GoToOriginalPhotoCommand}"/>
                                             </StackPanel>
                                             <!-- 当前帧位置（跨列叠加居中，不受左右宽度影响） -->
                                             <TextBlock Grid.ColumnSpan="3"
@@ -1211,10 +1218,11 @@
                                                                 </Grid>
                                                             </Border>
                                                             <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
-                                                                    Margin="2,0,0,2" CornerRadius="2" Padding="3,1"
+                                                                    Margin="2,0,0,2" CornerRadius="2" Padding="2"
                                                                     Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
                                                                 <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
-                                                                           FontSize="8" Foreground="White"/>
+                                                                           FontSize="10" Foreground="White"
+                                                                           MinWidth="12" TextAlignment="Center"/>
                                                             </Border>
                                                         </Grid>
                                                     </DataTemplate>
@@ -1262,10 +1270,11 @@
                                                                             </Grid>
                                                                         </Border>
                                                                         <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
-                                                                                Margin="2,0,0,2" CornerRadius="2" Padding="3,1"
+                                                                                Margin="2,0,0,2" CornerRadius="2" Padding="2"
                                                                                 Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
                                                                             <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
-                                                                                       FontSize="8" Foreground="White"/>
+                                                                                       FontSize="8" Foreground="White"
+                                                                                       MinWidth="10" TextAlignment="Center"/>
                                                                         </Border>
                                                                     </Grid>
                                                                 </Border>
@@ -1275,8 +1284,8 @@
                                                 </Border>
                                             </ScrollViewer>
                                             <Border x:Name="FilmstripSelectionHighlight"
-                                                    Width="56" Height="56" CornerRadius="5"
-                                                    BorderThickness="2"
+                                                    Width="58" Height="58" CornerRadius="5"
+                                                    BorderThickness="3"
                                                     HorizontalAlignment="Center" VerticalAlignment="Center"
                                                     IsHitTestVisible="False"
                                                     Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"/>
@@ -1373,7 +1382,7 @@
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <FontIcon Glyph="&#xE722;" FontSize="11"
                                                       Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                                      VerticalAlignment="Center" Margin="0,2,0,0"
+                                                      VerticalAlignment="Center" Margin="0,1,0,0"
                                                       Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
                                             <TextBlock Text="{x:Bind ViewModel.PhotoInfoLine, Mode=OneWay}"
                                                        Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
@@ -1386,7 +1395,7 @@
                                         <StackPanel Orientation="Horizontal" Spacing="4">
                                             <FontIcon Glyph="&#xE714;" FontSize="11"
                                                       Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                                      VerticalAlignment="Center" Margin="0,2,0,0"
+                                                      VerticalAlignment="Center" Margin="0,1,0,0"
                                                       Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
                                             <TextBlock Text="{x:Bind ViewModel.VideoInfoLine, Mode=OneWay}"
                                                        Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
@@ -1397,7 +1406,7 @@
                                         <Path Data="M21 32 A11 11 0 1 1 43 32 A11 11 0 1 1 21 32 M26 32 A6 6 0 1 1 38 32 A6 6 0 1 1 26 32 M29.4 13 A2.6 2.6 0 1 1 34.6 13 A2.6 2.6 0 1 1 29.4 13 M40.57 16.63 A2.6 2.6 0 1 1 45.77 16.63 A2.6 2.6 0 1 1 40.57 16.63 M47.47 26.13 A2.6 2.6 0 1 1 52.67 26.13 A2.6 2.6 0 1 1 47.47 26.13 M47.47 37.87 A2.6 2.6 0 1 1 52.67 37.87 A2.6 2.6 0 1 1 47.47 37.87 M40.57 47.37 A2.6 2.6 0 1 1 45.77 47.37 A2.6 2.6 0 1 1 40.57 47.37 M29.4 51 A2.6 2.6 0 1 1 34.6 51 A2.6 2.6 0 1 1 29.4 51 M18.23 47.37 A2.6 2.6 0 1 1 23.43 47.37 A2.6 2.6 0 1 1 18.23 47.37 M11.33 37.87 A2.6 2.6 0 1 1 16.53 37.87 A2.6 2.6 0 1 1 11.33 37.87 M11.33 26.13 A2.6 2.6 0 1 1 16.53 26.13 A2.6 2.6 0 1 1 11.33 26.13 M18.23 16.63 A2.6 2.6 0 1 1 23.43 16.63 A2.6 2.6 0 1 1 18.23 16.63"
                                               Width="12" Height="12" Stretch="Uniform"
                                               Fill="{x:Bind ViewModel.ProtocolIconBrush, Mode=OneWay}"
-                                              VerticalAlignment="Center" Margin="-0.25,2,0,0"/>
+                                              VerticalAlignment="Center" Margin="-0.25,1,0,0"/>
                                         <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
                                                    Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
                                     </StackPanel>

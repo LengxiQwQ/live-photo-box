@@ -194,6 +194,28 @@ namespace LivePhotoBox
             System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Initializing log service...");
             LogService.Initialize();
 
+            // ── CLI 模式：--export-all-protocols ──────────────────────
+            string[] cliArgs = Environment.GetCommandLineArgs();
+            if (cliArgs.Length >= 4 && cliArgs[1] == "--export-all-protocols")
+            {
+                string srcJpg = cliArgs[2];
+                string srcMov = cliArgs[3];
+                string outDir = cliArgs.Length > 4 ? cliArgs[4]
+                    : System.IO.Path.Combine(AppContext.BaseDirectory, "ProtocolTestOutput");
+                // Run on thread pool to avoid sync-over-async deadlock on UI thread
+                Task.Run(async () =>
+                {
+                    try
+                    {
+                        await ProtocolTestExporter.Run(srcJpg, srcMov, outDir);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.IO.File.WriteAllText(System.IO.Path.Combine(outDir, "EXPORT_ERROR.txt"), ex.ToString());
+                    }
+                }).GetAwaiter().GetResult();
+            }
+
             // 尽早检测硬件（后台线程，不阻塞 UI）。
             // 硬件信息被缓存后所有页面均可用；SettingsViewModel 侧也有独立的异步加载逻辑。
             System.Diagnostics.Debug.WriteLine("[LivePhotoBox] Detecting hardware (background)...");

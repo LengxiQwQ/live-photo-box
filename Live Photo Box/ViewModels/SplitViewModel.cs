@@ -8,6 +8,7 @@ using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
 using System.Collections.Concurrent;
+using System.ComponentModel;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -82,6 +83,17 @@ namespace LivePhotoBox.ViewModels
         // 输出格式选择是否可编辑（扫描/处理中不可编辑）。
         public bool CanEditSelectedFormat => !IsScanning && !IsProcessing;
 
+        // IsScanning / IsProcessing 变更时级联通知派生类计算属性
+        protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+        {
+            base.OnPropertyChanged(e);
+            if (e.PropertyName == nameof(IsScanning) || e.PropertyName == nameof(IsProcessing))
+            {
+                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(CanClickScanButton)));
+                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(CanEditSelectedFormat)));
+            }
+        }
+
         // 所有拆分任务的集合。
         public BulkObservableCollection<SplitTask> Tasks { get; } = [];
 
@@ -92,8 +104,8 @@ namespace LivePhotoBox.ViewModels
         private IAsyncRelayCommand? _openSplitInputFolderCommand;
         private IRelayCommand? _openSplitOutputFolderCommand;
 
-        public IAsyncRelayCommand OpenSplitInputFolderCommand => _openSplitInputFolderCommand ??= new AsyncRelayCommand(OpenSplitInputFolderAsync, () => !string.IsNullOrWhiteSpace(InputDirectory));
-        public IRelayCommand OpenSplitOutputFolderCommand => _openSplitOutputFolderCommand ??= new RelayCommand(OpenSplitOutputFolder, () => !string.IsNullOrWhiteSpace(OutputDirectory));
+        public IAsyncRelayCommand OpenSplitInputFolderCommand => _openSplitInputFolderCommand ??= new AsyncRelayCommand(OpenSplitInputFolderAsync, () => DirectoryHelper.CanOpenFolder(InputDirectory));
+        public IRelayCommand OpenSplitOutputFolderCommand => _openSplitOutputFolderCommand ??= new RelayCommand(OpenSplitOutputFolder, () => DirectoryHelper.CanOpenFolder(OutputDirectory));
 
         #endregion
 
@@ -146,9 +158,6 @@ namespace LivePhotoBox.ViewModels
             ProgressText = $"0/{QueuedCount}";
             SetDirectStatus(ProcessingStatusText);
             OnPropertyChanged(nameof(ActionBtnText));
-            OnPropertyChanged(nameof(IsProcessingAllowed));
-            OnPropertyChanged(nameof(CanClickScanButton));
-            OnPropertyChanged(nameof(CanEditSelectedFormat));
 
             _uiUpdateTimer.Start();
         }
@@ -187,9 +196,6 @@ namespace LivePhotoBox.ViewModels
                 }
             }
             OnPropertyChanged(nameof(ActionBtnText));
-            OnPropertyChanged(nameof(IsProcessingAllowed));
-            OnPropertyChanged(nameof(CanClickScanButton));
-            OnPropertyChanged(nameof(CanEditSelectedFormat));
         }
 
         protected override void OnClearState()
@@ -208,9 +214,6 @@ namespace LivePhotoBox.ViewModels
             SetStatus("SplitPage_Status_Cleared");
             IsDirectoryPanelOpen = true;
             OnPropertyChanged(nameof(ActionBtnText));
-            OnPropertyChanged(nameof(IsProcessingAllowed));
-            OnPropertyChanged(nameof(CanClickScanButton));
-            OnPropertyChanged(nameof(CanEditSelectedFormat));
         }
 
         protected override void OnCleanup()
@@ -443,9 +446,6 @@ namespace LivePhotoBox.ViewModels
                     SkippedCount = 0;
                     Progress = 0;
                     ProgressText = "0/0";
-                    OnPropertyChanged(nameof(IsProcessingAllowed));
-                    OnPropertyChanged(nameof(CanClickScanButton));
-                    OnPropertyChanged(nameof(CanEditSelectedFormat));
                 });
 
                 AppViewModel.Instance.ResetFooterScanCounters();
@@ -460,8 +460,6 @@ namespace LivePhotoBox.ViewModels
                 IsScanning = false;
                 OnScanningEnded();
                 NotifyStatusChanged();
-                OnPropertyChanged(nameof(CanClickScanButton));
-                OnPropertyChanged(nameof(CanEditSelectedFormat));
             }
         }
 

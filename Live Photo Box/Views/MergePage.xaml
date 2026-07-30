@@ -1,3 +1,4 @@
+<!-- MergePage.xaml — 统一面板布局 -->
 <Page
     x:Class="LivePhotoBox.Views.MergePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -5,225 +6,885 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoBox.Models"
+    xmlns:converters="using:LivePhotoBox.Converters"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
-    <!-- 实况照片合成页：将照片和视频合成为实况照片 -->
     <Page.Resources>
-        <Style x:Key="HelpIconButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Width" Value="32"/>
-            <Setter Property="Height" Value="32"/>
-            <Setter Property="HorizontalAlignment" Value="Center"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
+        <!-- ═══ SurfaceCardStyle：所有面板统一风格 ═══ -->
+        <Style x:Key="SurfaceCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
             <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+        <Style x:Key="IconButtonStyle" TargetType="Button">
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="CornerRadius" Value="5"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Background" Value="{ThemeResource ControlFillColorDefaultBrush}"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+
+        <!-- ═══ 滚动条常驻粗态（复制自 EditPage，移除 ConsciousStates） ═══ -->
+        <Style x:Key="AlwaysThickScrollBarStyle" TargetType="ScrollBar"
+               BasedOn="{StaticResource DefaultScrollBarStyle}">
             <Setter Property="Template">
                 <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="RootBorder"
-                                Background="{TemplateBinding Background}"
-                                BorderBrush="{TemplateBinding BorderBrush}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="{TemplateBinding CornerRadius}"
-                                Padding="{TemplateBinding Padding}">
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid x:Name="Root">
+                            <Grid.Resources>
+                                <ControlTemplate x:Key="RepeatButtonTemplate" TargetType="RepeatButton">
+                                    <Grid x:Name="Root" Background="Transparent" />
+                                </ControlTemplate>
+                                <ControlTemplate x:Key="HorizontalIncrementTemplate" TargetType="RepeatButton">
+                                    <Grid x:Name="Root" Background="{ThemeResource ScrollBarButtonBackground}" BorderBrush="{ThemeResource ScrollBarButtonBorderBrush}" Padding="{ThemeResource ScrollBarHorizontalIncreaseMargin}">
+                                        <FontIcon x:Name="Arrow" RenderTransformOrigin="0.5,0.5" FontFamily="{ThemeResource SymbolThemeFontFamily}" Glyph="&#xEDDA;" Foreground="{ThemeResource ScrollBarButtonArrowForeground}" FontSize="{StaticResource ScrollBarButtonArrowIconFontSize}" MirroredWhenRightToLeft="True">
+                                            <FontIcon.RenderTransform><ScaleTransform x:Name="ScaleTransform" ScaleX="1" ScaleY="1"/></FontIcon.RenderTransform>
+                                        </FontIcon>
+                                    </Grid>
+                                </ControlTemplate>
+                                <ControlTemplate x:Key="HorizontalDecrementTemplate" TargetType="RepeatButton">
+                                    <Grid x:Name="Root" Background="{ThemeResource ScrollBarButtonBackground}" BorderBrush="{ThemeResource ScrollBarButtonBorderBrush}" Padding="{ThemeResource ScrollBarHorizontalDecreaseMargin}">
+                                        <FontIcon x:Name="Arrow" RenderTransformOrigin="0.5,0.5" FontFamily="{ThemeResource SymbolThemeFontFamily}" Glyph="&#xEDD9;" Foreground="{ThemeResource ScrollBarButtonArrowForeground}" FontSize="{StaticResource ScrollBarButtonArrowIconFontSize}" MirroredWhenRightToLeft="True">
+                                            <FontIcon.RenderTransform><ScaleTransform x:Name="ScaleTransform" ScaleX="1" ScaleY="1"/></FontIcon.RenderTransform>
+                                        </FontIcon>
+                                    </Grid>
+                                </ControlTemplate>
+                                <ControlTemplate x:Key="VerticalIncrementTemplate" TargetType="RepeatButton">
+                                    <Grid x:Name="Root" Background="{ThemeResource ScrollBarButtonBackground}" BorderBrush="{ThemeResource ScrollBarButtonBorderBrush}" Padding="{ThemeResource ScrollBarVerticalIncreaseMargin}">
+                                        <FontIcon x:Name="Arrow" RenderTransformOrigin="0.5,0.5" FontFamily="{ThemeResource SymbolThemeFontFamily}" Glyph="&#xEDDC;" Foreground="{ThemeResource ScrollBarButtonArrowForeground}" FontSize="{StaticResource ScrollBarButtonArrowIconFontSize}">
+                                            <FontIcon.RenderTransform><ScaleTransform x:Name="ScaleTransform" ScaleX="1" ScaleY="1"/></FontIcon.RenderTransform>
+                                        </FontIcon>
+                                    </Grid>
+                                </ControlTemplate>
+                                <ControlTemplate x:Key="VerticalDecrementTemplate" TargetType="RepeatButton">
+                                    <Grid x:Name="Root" Background="{ThemeResource ScrollBarButtonBackground}" BorderBrush="{ThemeResource ScrollBarButtonBorderBrush}" Padding="{ThemeResource ScrollBarVerticalDecreaseMargin}">
+                                        <FontIcon x:Name="Arrow" RenderTransformOrigin="0.5,0.5" FontFamily="{ThemeResource SymbolThemeFontFamily}" Glyph="&#xEDDB;" Foreground="{ThemeResource ScrollBarButtonArrowForeground}" FontSize="{StaticResource ScrollBarButtonArrowIconFontSize}">
+                                            <FontIcon.RenderTransform><ScaleTransform x:Name="ScaleTransform" ScaleX="1" ScaleY="1"/></FontIcon.RenderTransform>
+                                        </FontIcon>
+                                    </Grid>
+                                </ControlTemplate>
+                                <ControlTemplate x:Key="VerticalThumbTemplate" TargetType="Thumb">
+                                    <Rectangle x:Name="ThumbVisual" Fill="{TemplateBinding Background}" Stroke="{TemplateBinding BorderBrush}" StrokeThickness="{ThemeResource ScrollBarThumbStrokeThickness}" RadiusX="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource TopLeftCornerRadiusDoubleValueConverter}}" RadiusY="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BottomRightCornerRadiusDoubleValueConverter}}" />
+                                </ControlTemplate>
+                                <ControlTemplate x:Key="HorizontalThumbTemplate" TargetType="Thumb">
+                                    <Rectangle x:Name="ThumbVisual" Fill="{TemplateBinding Background}" Stroke="{TemplateBinding BorderBrush}" StrokeThickness="{ThemeResource ScrollBarThumbStrokeThickness}" RadiusX="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource TopLeftCornerRadiusDoubleValueConverter}}" RadiusY="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BottomRightCornerRadiusDoubleValueConverter}}" />
+                                </ControlTemplate>
+                            </Grid.Resources>
                             <VisualStateManager.VisualStateGroups>
                                 <VisualStateGroup x:Name="CommonStates">
                                     <VisualState x:Name="Normal" />
-                                    <VisualState x:Name="PointerOver">
+                                    <VisualState x:Name="Disabled">
                                         <VisualState.Setters>
-                                            <Setter Target="RootBorder.Background" Value="{ThemeResource ButtonHoverBrush}" />
+                                            <Setter Target="Root.Background" Value="{ThemeResource ScrollBarBackgroundDisabled}" />
+                                            <Setter Target="Root.BorderBrush" Value="{ThemeResource ScrollBarBorderBrushDisabled}" />
+                                            <Setter Target="Root.Opacity" Value="0.5" />
+                                            <Setter Target="HorizontalTrackRect.Stroke" Value="{ThemeResource ScrollBarTrackStrokeDisabled}" />
+                                            <Setter Target="VerticalTrackRect.Stroke" Value="{ThemeResource ScrollBarTrackStrokeDisabled}" />
+                                            <Setter Target="HorizontalTrackRect.Fill" Value="{ThemeResource ScrollBarTrackFillDisabled}" />
+                                            <Setter Target="VerticalTrackRect.Fill" Value="{ThemeResource ScrollBarTrackFillDisabled}" />
+                                            <Setter Target="HorizontalPanningThumb.Background" Value="{ThemeResource ScrollBarPanningThumbBackgroundDisabled}" />
+                                            <Setter Target="VerticalPanningThumb.Background" Value="{ThemeResource ScrollBarPanningThumbBackgroundDisabled}" />
                                         </VisualState.Setters>
                                     </VisualState>
-                                    <VisualState x:Name="Pressed">
-                                        <VisualState.Setters>
-                                            <Setter Target="RootBorder.Background" Value="{ThemeResource ButtonHoverBrush}" />
-                                            <Setter Target="RootBorder.Opacity" Value="0.6" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="Disabled" />
                                 </VisualStateGroup>
+                                <VisualStateGroup x:Name="ScrollingIndicatorStates">
+                                    <VisualState x:Name="TouchIndicator">
+                                        <VisualState.Setters>
+                                            <Setter Target="HorizontalRoot.Visibility" Value="Collapsed" />
+                                            <Setter Target="VerticalRoot.Visibility" Value="Collapsed" />
+                                            <Setter Target="HorizontalPanningRoot.Opacity" Value="1" />
+                                            <Setter Target="VerticalPanningRoot.Opacity" Value="1" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="MouseIndicator">
+                                        <VisualState.Setters>
+                                            <Setter Target="HorizontalPanningRoot.Visibility" Value="Collapsed" />
+                                            <Setter Target="VerticalPanningRoot.Visibility" Value="Collapsed" />
+                                            <Setter Target="HorizontalRoot.IsHitTestVisible" Value="True" />
+                                            <Setter Target="VerticalRoot.IsHitTestVisible" Value="True" />
+                                            <Setter Target="HorizontalThumb.Opacity" Value="1" />
+                                            <Setter Target="VerticalThumb.Opacity" Value="1" />
+                                        </VisualState.Setters>
+                                    </VisualState>
+                                    <VisualState x:Name="NoIndicator">
+                                        <VisualState.Setters>
+                                            <Setter Target="HorizontalThumb.Background" Value="{ThemeResource ScrollBarPanningThumbBackground}" />
+                                            <Setter Target="VerticalThumb.Background" Value="{ThemeResource ScrollBarPanningThumbBackground}" />
+                                        </VisualState.Setters>
+                                        <Storyboard>
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalSmallIncrease" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalLargeIncrease" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalLargeDecrease" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalThumb" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalSmallDecrease" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalTrackRect" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalSmallIncrease" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalLargeIncrease" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalLargeDecrease" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalThumb" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalSmallDecrease" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalTrackRect" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="HorizontalRoot" Storyboard.TargetProperty="Visibility">
+                                                <DiscreteObjectKeyFrame KeyTime="{StaticResource ScrollBarOpacityChangeDuration}"><DiscreteObjectKeyFrame.Value><Visibility>Collapsed</Visibility></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>
+                                            </ObjectAnimationUsingKeyFrames>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="VerticalRoot" Storyboard.TargetProperty="Visibility">
+                                                <DiscreteObjectKeyFrame KeyTime="{StaticResource ScrollBarOpacityChangeDuration}"><DiscreteObjectKeyFrame.Value><Visibility>Collapsed</Visibility></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>
+                                            </ObjectAnimationUsingKeyFrames>
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalPanningRoot" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalPanningRoot" Storyboard.TargetProperty="Opacity" To="0" />
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="HorizontalPanningRoot" Storyboard.TargetProperty="Visibility">
+                                                <DiscreteObjectKeyFrame KeyTime="{StaticResource ScrollBarContractDuration}"><DiscreteObjectKeyFrame.Value><Visibility>Collapsed</Visibility></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>
+                                            </ObjectAnimationUsingKeyFrames>
+                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="VerticalPanningRoot" Storyboard.TargetProperty="Visibility">
+                                                <DiscreteObjectKeyFrame KeyTime="{StaticResource ScrollBarContractDuration}"><DiscreteObjectKeyFrame.Value><Visibility>Collapsed</Visibility></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>
+                                            </ObjectAnimationUsingKeyFrames>
+                                        </Storyboard>
+                                    </VisualState>
+                                </VisualStateGroup>
+                                <!-- ConsciousStates 已移除：ScrollBar 始终维持展开外观 -->
                             </VisualStateManager.VisualStateGroups>
-                            <FontIcon Glyph="&#xE897;" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
+                            <!-- 横向 -->
+                            <Grid x:Name="HorizontalRoot" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" IsHitTestVisible="False" CornerRadius="{TemplateBinding CornerRadius}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Rectangle x:Name="HorizontalTrackRect" RadiusX="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource TopLeftCornerRadiusDoubleValueConverter2x}}" RadiusY="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BottomRightCornerRadiusDoubleValueConverter2x}}" Opacity="1" Grid.ColumnSpan="5" Margin="0" StrokeThickness="{ThemeResource ScrollBarTrackBorderThemeThickness}">
+                                    <Rectangle.Fill><SolidColorBrush Color="{ThemeResource SystemBaseMediumLowColor}" Opacity="0.10" /></Rectangle.Fill>
+                                    <Rectangle.Stroke><SolidColorBrush Color="{ThemeResource SystemBaseMediumLowColor}" Opacity="0.16" /></Rectangle.Stroke>
+                                </Rectangle>
+                                <RepeatButton x:Name="HorizontalSmallDecrease" Grid.Column="0" Opacity="1" MinHeight="{StaticResource ScrollBarSize}" IsTabStop="False" Interval="50" Padding="{ThemeResource ScrollBarHorizontalDecreaseMargin}" Template="{StaticResource HorizontalDecrementTemplate}" Width="{StaticResource ScrollBarSize}" AllowFocusOnInteraction="False" VerticalAlignment="Center" />
+                                <RepeatButton x:Name="HorizontalLargeDecrease" Opacity="1" Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsTabStop="False" Interval="50" Template="{StaticResource RepeatButtonTemplate}" Width="0" AllowFocusOnInteraction="False" />
+                                <Thumb x:Name="HorizontalThumb" Opacity="1" Grid.Column="2" Background="{ThemeResource ScrollBarPanningThumbBackground}" BorderBrush="{ThemeResource ScrollBarThumbBorderBrush}" Template="{StaticResource HorizontalThumbTemplate}" Height="{StaticResource ScrollBarSize}" MinWidth="{StaticResource ScrollBarHorizontalThumbMinWidth}" AutomationProperties.AccessibilityView="Raw" RenderTransformOrigin="0.5,1" CornerRadius="{TemplateBinding CornerRadius}">
+                                    <Thumb.RenderTransform><TranslateTransform x:Name="HorizontalThumbTransform" Y="0" /></Thumb.RenderTransform>
+                                </Thumb>
+                                <RepeatButton x:Name="HorizontalLargeIncrease" Opacity="1" Grid.Column="3" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsTabStop="False" Interval="50" AllowFocusOnInteraction="False" Template="{StaticResource RepeatButtonTemplate}" />
+                                <RepeatButton x:Name="HorizontalSmallIncrease" Grid.Column="4" Opacity="1" MinHeight="{StaticResource ScrollBarSize}" IsTabStop="False" Interval="50" Padding="{ThemeResource ScrollBarHorizontalIncreaseMargin}" Template="{StaticResource HorizontalIncrementTemplate}" Width="{StaticResource ScrollBarSize}" AllowFocusOnInteraction="False" VerticalAlignment="Center" />
+                            </Grid>
+                            <!-- 触控指示器 -->
+                            <Grid x:Name="HorizontalPanningRoot" MinWidth="24" Visibility="Collapsed" Opacity="0" CornerRadius="{TemplateBinding CornerRadius}">
+                                <Border x:Name="HorizontalPanningThumb" VerticalAlignment="Bottom" HorizontalAlignment="Left" Background="{ThemeResource ScrollBarPanningThumbBackground}" BorderThickness="0" Height="2" MinWidth="32" Margin="0,2,0,2" />
+                            </Grid>
+                            <!-- 纵向 -->
+                            <Grid x:Name="VerticalRoot" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" IsHitTestVisible="False">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <Rectangle x:Name="VerticalTrackRect" RadiusX="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource TopLeftCornerRadiusDoubleValueConverter2x}}" RadiusY="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BottomRightCornerRadiusDoubleValueConverter2x}}" Opacity="1" Grid.RowSpan="5" Margin="0" StrokeThickness="{ThemeResource ScrollBarTrackBorderThemeThickness}">
+                                    <Rectangle.Fill><SolidColorBrush Color="{ThemeResource SystemBaseMediumLowColor}" Opacity="0.10" /></Rectangle.Fill>
+                                    <Rectangle.Stroke><SolidColorBrush Color="{ThemeResource SystemBaseMediumLowColor}" Opacity="0.16" /></Rectangle.Stroke>
+                                </Rectangle>
+                                <RepeatButton x:Name="VerticalSmallDecrease" Grid.Row="0" Opacity="1" Height="{StaticResource ScrollBarSize}" MinWidth="{StaticResource ScrollBarSize}" IsTabStop="False" Interval="50" Padding="{ThemeResource ScrollBarVerticalDecreaseMargin}" Template="{StaticResource VerticalDecrementTemplate}" HorizontalAlignment="Center" />
+                                <RepeatButton x:Name="VerticalLargeDecrease" Opacity="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Height="0" IsTabStop="False" Interval="50" Grid.Row="1" AllowFocusOnInteraction="False" Template="{StaticResource RepeatButtonTemplate}" />
+                                <Thumb x:Name="VerticalThumb" Opacity="1" Grid.Row="2" Background="{ThemeResource ScrollBarPanningThumbBackground}" BorderBrush="{ThemeResource ScrollBarThumbBorderBrush}" Template="{StaticResource VerticalThumbTemplate}" Width="{StaticResource ScrollBarSize}" MinHeight="{StaticResource ScrollBarVerticalThumbMinHeight}" AutomationProperties.AccessibilityView="Raw" RenderTransformOrigin="1,0.5" CornerRadius="{TemplateBinding CornerRadius}">
+                                    <Thumb.RenderTransform><TranslateTransform x:Name="VerticalThumbTransform" X="0" /></Thumb.RenderTransform>
+                                </Thumb>
+                                <RepeatButton x:Name="VerticalLargeIncrease" Opacity="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsTabStop="False" Interval="50" Grid.Row="3" AllowFocusOnInteraction="False" Template="{StaticResource RepeatButtonTemplate}" />
+                                <RepeatButton x:Name="VerticalSmallIncrease" Grid.Row="4" Opacity="1" Height="{StaticResource ScrollBarSize}" MinWidth="{StaticResource ScrollBarSize}" IsTabStop="False" Interval="50" Padding="{ThemeResource ScrollBarVerticalIncreaseMargin}" Template="{StaticResource VerticalIncrementTemplate}" HorizontalAlignment="Center" />
+                            </Grid>
+                            <Grid x:Name="VerticalPanningRoot" MinHeight="24" Visibility="Collapsed" Opacity="0" CornerRadius="{TemplateBinding CornerRadius}">
+                                <Border x:Name="VerticalPanningThumb" VerticalAlignment="Top" HorizontalAlignment="Right" Background="{ThemeResource ScrollBarPanningThumbBackground}" BorderThickness="0" Width="2" MinHeight="32" Margin="2,0,2,0" />
+                            </Grid>
+                        </Grid>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
+        <Style TargetType="ScrollBar" BasedOn="{StaticResource AlwaysThickScrollBarStyle}" />
+
+        <converters:VisibilityConverter x:Key="VisibilityConverter"/>
+        <converters:InverseVisibilityConverter x:Key="InverseVisibilityConverter"/>
     </Page.Resources>
 
-    <Grid>
-        <Grid Padding="24,24,24,40">
+    <!-- ═══ 根 Grid：统一 12px 外边距 ═══ -->
+    <Grid Padding="8,6,8,6" RowSpacing="2">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- 顶部面板 -->
+            <RowDefinition Height="*"/>       <!-- 主内容（左右分栏） -->
+            <RowDefinition Height="Auto"/>   <!-- 底部状态面板 -->
+        </Grid.RowDefinitions>
 
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
+        <!-- ═══════════ Row 0：顶部面板 ═══════════ -->
+        <Border Grid.Row="0" Style="{StaticResource SurfaceCardStyle}" Padding="12,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                    <FontIcon Glyph="&#xE8B1;" FontSize="18" VerticalAlignment="Center"
+                              Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+                    <StackPanel VerticalAlignment="Center" Spacing="2">
+                        <TextBlock x:Uid="MergePage_PageTitle" FontSize="16" FontWeight="SemiBold"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                        <TextBlock x:Uid="MergePage_PageSubtitle" FontSize="11"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button x:Uid="MergePage_HelpBtn" Height="34" Width="34" Padding="0"
+                            Background="Transparent" BorderBrush="Transparent"
+                            Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Merge">
+                        <FontIcon Glyph="&#xE9CE;" FontSize="16"
+                                  Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                    <Button x:Uid="MergePage_SettingsBtn" Height="34" Width="34" Padding="0"
+                            Background="Transparent" BorderBrush="Transparent"
+                            Click="GoToMergeSettings_Click">
+                        <FontIcon Glyph="&#xE90F;" FontSize="16"
+                                  Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Button>
+                    <Border Width="1" Height="20" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                            VerticalAlignment="Center" Margin="4,0"/>
+                    <Button x:Uid="MergePage_AddFilesBtn" Height="32" FontSize="14" Padding="12,0" CornerRadius="5"
+                            Click="AddFiles_Click"
+                            IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"
+                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8E5;" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Uid="MergePage_AddFilesBtn_Text" FontSize="14" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Uid="MergePage_ClearBtn"
+                            Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}"
+                            IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"
+                            Height="32" MinWidth="116" FontSize="14" Padding="14,0" CornerRadius="5"
+                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="{x:Bind ViewModel.SecondaryBtnGlyph, Mode=OneWay}" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button Command="{x:Bind ViewModel.ToggleProcessCommand}"
+                            IsEnabled="{x:Bind ViewModel.IsProcessingAllowed, Mode=OneWay}"
+                            Height="32" MinWidth="118" FontSize="14" Padding="16,0" CornerRadius="5"
+                            Style="{ThemeResource AccentButtonStyle}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="{x:Bind ViewModel.ActionBtnGlyph, Mode=OneWay}" FontSize="14"/>
+                            <TextBlock Text="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
 
+        <!-- ═══════════ Row 1：主内容 ═══════════ -->
+        <Grid Grid.Row="1" ColumnSpacing="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="320"/>
                 <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
 
-            <StackPanel Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" Spacing="12">
+            <!-- ▼ 左侧面板 ▼ -->
+            <Border x:Name="LeftConfigPanel" Grid.Column="0"
+                    Style="{StaticResource SurfaceCardStyle}" Padding="0"
+                    AllowDrop="True">
+                <Grid>
+                    <ScrollViewer x:Name="LeftPanelScrollViewer"
+                                  VerticalScrollBarVisibility="Visible"
+                                  VerticalScrollMode="Auto" HorizontalScrollMode="Disabled">
+                        <StackPanel Spacing="0" Margin="12,10,22,10">
 
-                <!-- 配置面板 -->
-                <Expander IsExpanded="{x:Bind ViewModel.IsDirectoryPanelOpen, Mode=TwoWay}"
-                          HorizontalAlignment="Stretch" 
-                          HorizontalContentAlignment="Stretch"
-                          Background="{ThemeResource CustomPanelAcrylicBrush}" 
-                          CornerRadius="8"
-                          BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                          BorderThickness="1">
+                        <!-- 1. 输入输出目录 -->
+                        <StackPanel Spacing="14" Margin="0,0,0,8">
+                            <!-- 分区标题 + 扫描按钮 -->
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE838;" FontSize="14" VerticalAlignment="Center"
+                                              Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+                                    <TextBlock x:Uid="MergePage_InputOutputHeader" FontSize="14" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                </StackPanel>
+                                <Button Grid.Column="1"
+                                        Command="{x:Bind ViewModel.ScanDirectoryCommand}"
+                                        Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
+                                        Style="{x:Bind ViewModel.ScanButtonStyle, Mode=OneWay}"
+                                        IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
+                                        Height="26" FontSize="12" Padding="10,0" CornerRadius="4"
+                                        VerticalAlignment="Center" />
+                            </Grid>
 
-                    <Expander.Header>
-                        <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center" Height="32">
-                            <FontIcon Glyph="&#xE8B1;" FontSize="16" Foreground="{ThemeResource SystemAccentColor}"/>
-                            <TextBlock x:Uid="MergePage_ConfigHeader" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Expander.Header>
+                            <!-- 输入 -->
+                            <StackPanel Spacing="6">
+                                <Grid ColumnSpacing="6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" x:Uid="MergePage_InputLabel" FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                               VerticalAlignment="Center"/>
+                                    <Button Grid.Column="2" x:Uid="MergePage_OpenInputBtn" FontSize="12"
+                                            Height="26" Padding="10,0" CornerRadius="4"
+                                            Command="{x:Bind ViewModel.OpenMergeInputFolderCommand}"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            VerticalAlignment="Center"/>
+                                    <Button Grid.Column="3" x:Uid="MergePage_BrowseBtn1" FontSize="12"
+                                            Height="26" Padding="10,0" CornerRadius="4"
+                                            Click="BrowseInput_Click"
+                                            IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"
+                                            Margin="4,0,0,0"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            VerticalAlignment="Center"/>
+                                </Grid>
+                                <TextBox x:Uid="MergePage_InputBox" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"
+                                         FontSize="12" MinHeight="28" Height="28" MinWidth="0" HorizontalAlignment="Stretch" Padding="10,5"
+                                         VerticalContentAlignment="Center"/>
+                            </StackPanel>
 
-                    <Expander.Content>
-                        <StackPanel Padding="0,4,0,0">
-                            <Grid ColumnSpacing="8" RowSpacing="12">
+                            <!-- 输出 -->
+                            <StackPanel Spacing="6">
+                                <Grid ColumnSpacing="6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" x:Uid="MergePage_OutputLabel" FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                               VerticalAlignment="Center"/>
+                                    <Button Grid.Column="2" x:Uid="MergePage_OpenOutputBtn" FontSize="12"
+                                            Height="26" Padding="10,0" CornerRadius="4"
+                                            Command="{x:Bind ViewModel.OpenMergeOutputFolderCommand}"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            VerticalAlignment="Center"/>
+                                    <Button Grid.Column="3" x:Uid="MergePage_BrowseBtn2" FontSize="12"
+                                            Height="26" Padding="10,0" CornerRadius="4"
+                                            Click="BrowseOutput_Click"
+                                            IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"
+                                            Margin="4,0,0,0"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            VerticalAlignment="Center"/>
+                                </Grid>
+                                <TextBox x:Uid="MergePage_OutputBox" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"
+                                         FontSize="12" MinHeight="28" Height="28" MinWidth="0" HorizontalAlignment="Stretch" Padding="10,5"
+                                         VerticalContentAlignment="Center"/>
+                            </StackPanel>
+
+                            <!-- 配对方式 -->
+                            <Grid Height="32" ColumnSpacing="8">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-
-                                <TextBlock x:Uid="MergePage_InputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                                <TextBox x:Uid="MergePage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
-                                <Button x:Uid="MergePage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Click="BrowseInput_Click" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
-                                <Button x:Uid="MergePage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenMergeInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
-
-                                <TextBlock x:Uid="MergePage_OutputLabel" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75"/>
-                                <TextBox x:Uid="MergePage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
-                                <Button x:Uid="MergePage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Click="BrowseOutput_Click" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
-                                <Button x:Uid="MergePage_OpenOutputBtn" Grid.Row="1" Grid.Column="3" Command="{x:Bind ViewModel.OpenMergeOutputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch"/>
+                                <TextBlock Grid.Column="0" x:Uid="MergePage_PairingMethodLabel" FontSize="12"
+                                           VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" FontSize="12" MinHeight="28" Height="28" MinWidth="0"
+                                          HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                          SelectedIndex="{x:Bind ViewModel.PairingMethodIndex, Mode=TwoWay}"
+                                          IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}">
+                                    <ComboBoxItem x:Uid="MergePage_Pairing_Filename"/>
+                                    <ComboBoxItem x:Uid="MergePage_Pairing_Apple"/>
+                                    <ComboBoxItem x:Uid="MergePage_Pairing_Vivo"/>
+                                </ComboBox>
                             </Grid>
                         </StackPanel>
-                    </Expander.Content>
-                </Expander>
 
-                <Border Background="{ThemeResource CustomPanelAcrylicBrush}" CornerRadius="8" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="16,10,16,10">
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}" Margin="0,10,0,10"/>
+
+                        <!-- 3. 转换设置 -->
+                        <StackPanel Spacing="6" Margin="0,8,0,8">
+                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,0,0,4">
+                                <FontIcon Glyph="&#xE90F;" FontSize="14" VerticalAlignment="Center"
+                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
+                                <TextBlock x:Uid="MergePage_ConfigHeader" FontSize="14" FontWeight="SemiBold"
+                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                            </StackPanel>
+                            <Grid Height="32" ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" x:Uid="MergePage_ProtocolLabel" FontSize="12"
+                                           VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" x:Name="ProtocolComboBox" FontSize="12" VerticalAlignment="Center"
+                                          MinHeight="28" Height="28" MinWidth="0" HorizontalAlignment="Stretch"
+                                          SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}"
+                                          IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                          Loaded="ProtocolComboBox_Loaded">
+                                    <ComboBoxItem x:Uid="MergePage_Protocol_Fusion"/>
+                                    <ComboBoxItem x:Uid="MergePage_Protocol_V1"/>
+                                    <ComboBoxItem x:Uid="MergePage_Protocol_V2"/>
+                                    <ComboBoxItem x:Uid="MergePage_Protocol_Oppo"/>
+                                    <ComboBoxItem x:Uid="MergePage_Protocol_Vivo"/>
+                                    <ComboBoxItem x:Uid="MergePage_Protocol_Samsung"/>
+                                    <ComboBoxItem x:Uid="MergePage_Protocol_Huawei"/>
+                                </ComboBox>
+                            </Grid>
+                            <Grid Height="32" ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" x:Uid="MergePage_OutputFormatLabel" FontSize="12"
+                                           VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" x:Name="OutputFormatComboBox" FontSize="12" MinHeight="28" Height="28" MinWidth="0" HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                          SelectedIndex="{x:Bind ViewModel.OutputFormatIndex, Mode=TwoWay}"
+                                          IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                          Loaded="OutputFormatComboBox_Loaded">
+                                    <ComboBoxItem x:Uid="MergePage_OutputFormat_JPEG_MP4"/>
+                                    <ComboBoxItem x:Uid="MergePage_OutputFormat_JPEG_MOV"/>
+                                    <ComboBoxItem x:Uid="MergePage_OutputFormat_HEIC_MP4"/>
+                                    <ComboBoxItem x:Uid="MergePage_OutputFormat_HEIC_MOV"/>
+                                </ComboBox>
+                            </Grid>
+                            <!-- 自定义命名模板区域（始终显示，仅支持自定义模式） -->
+                            <StackPanel x:Name="CustomNamingSection"
+                                        Spacing="4" Margin="0,6,0,0">
+
+                                <!-- 标题行：清除 + 默认按钮 -->
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" x:Uid="MergePage_NamingTemplate_Header" FontSize="12"
+                                               VerticalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                    <Button Grid.Column="2"
+                                            Height="24" Padding="6,0" CornerRadius="4"
+                                            Margin="0,0,6,0"
+                                            IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            VerticalAlignment="Center" Click="NamingClear_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <FontIcon Glyph="&#xE74D;" FontSize="11"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <TextBlock x:Name="NamingClearBtnText" x:Uid="MergePage_NamingTemplate_ClearBtn_Text" FontSize="11"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                    <Button Grid.Column="3"
+                                            Height="24" Padding="6,0" CornerRadius="4"
+                                            IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            VerticalAlignment="Center" Click="NamingReset_Click">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <FontIcon Glyph="&#xE72C;" FontSize="11"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <TextBlock x:Name="NamingResetBtnText" x:Uid="MergePage_NamingTemplate_ResetBtn_Text" FontSize="11"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                    </Button>
+                                </Grid>
+
+                                <!-- 片段 ListView（支持拖拽排序，空时显示引导提示） -->
+                                <Grid>
+                                    <ListView x:Name="NamingSegmentList"
+                                              ItemsSource="{x:Bind ViewModel.NamingSegments, Mode=OneWay}"
+                                              CanReorderItems="True" AllowDrop="True"
+                                              IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                              SelectionMode="None"
+                                              DragItemsCompleted="NamingSegmentList_DragItemsCompleted">
+                                    <ListView.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <ItemsStackPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ListView.ItemsPanel>
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="models:NamingSegment">
+                                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                    BorderThickness="1" CornerRadius="4"
+                                                    Padding="8,4" MinHeight="32">
+                                                <Grid ColumnSpacing="6">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <!-- 片段类型图标 -->
+                                                    <FontIcon Grid.Column="0" Glyph="{x:Bind DisplayIcon}" FontSize="12"
+                                                              VerticalAlignment="Center"/>
+                                                    <!-- 片段标签 -->
+                                                    <TextBlock Grid.Column="1" Text="{x:Bind DisplayLabel}"
+                                                               FontSize="12" VerticalAlignment="Center"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                    <!-- 删除按钮 -->
+                                                    <Button Grid.Column="2" Width="22" Height="22" Padding="0"
+                                                            Background="Transparent" BorderThickness="0"
+                                                            VerticalAlignment="Center"
+                                                            Click="NamingSegmentDelete_Click"
+                                                            Tag="{x:Bind}">
+                                                        <FontIcon Glyph="&#xE74D;" FontSize="10"
+                                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                    </Button>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                    <ListView.ItemContainerStyle>
+                                        <Style TargetType="ListViewItem">
+                                            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                            <Setter Property="Margin" Value="0,0,0,4"/>
+                                            <Setter Property="Padding" Value="0"/>
+                                            <Setter Property="MinHeight" Value="0"/>
+                                        </Style>
+                                    </ListView.ItemContainerStyle>
+                                </ListView>
+
+                                    <!-- 空片段时的引导提示 -->
+                                    <TextBlock x:Uid="MergePage_NamingTemplate_EmptyHint"
+                                               Visibility="{x:Bind ViewModel.IsNamingEmpty, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                               FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Padding="12,16" TextAlignment="Center"/>
+                                </Grid>
+
+                                <!-- 添加片段 + 选择模板（两个按钮并排） -->
+                                <Grid ColumnSpacing="6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- 添加片段 -->
+                                    <Button Grid.Column="0" x:Uid="MergePage_NamingTemplate_AddBtn" FontSize="11"
+                                            Height="28" Padding="6,0" CornerRadius="4"
+                                            HorizontalAlignment="Stretch"
+                                            IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <FontIcon Glyph="&#xE710;" FontSize="11"/>
+                                            <TextBlock x:Uid="MergePage_NamingTemplate_AddBtnText" FontSize="11"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_AddName" Tag="OriginalName"
+                                                                Click="NamingAddSegment_Click"/>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_AddProtocol" Tag="Protocol"
+                                                                Click="NamingAddSegment_Click"/>
+                                                <MenuFlyoutSeparator/>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_AddDate" Tag="Date"
+                                                                Click="NamingAddSegment_Click"/>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_AddTime" Tag="Time"
+                                                                Click="NamingAddSegment_Click"/>
+                                                <MenuFlyoutSeparator/>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_AddExifDate" Tag="ExifDate"
+                                                                Click="NamingAddSegment_Click"/>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_AddExifTime" Tag="ExifTime"
+                                                                Click="NamingAddSegment_Click"/>
+                                                <MenuFlyoutSeparator/>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_AddCounter" Tag="Counter"
+                                                                Click="NamingAddSegment_Click"/>
+                                                <MenuFlyoutSeparator/>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_AddLiteral" Tag="Literal"
+                                                                Click="NamingAddSegment_Click"/>
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
+
+                                    <!-- 选择模板 -->
+                                    <Button Grid.Column="1" x:Uid="MergePage_NamingTemplate_PresetsBtn" FontSize="11"
+                                            Height="28" Padding="6,0" CornerRadius="4"
+                                            HorizontalAlignment="Stretch"
+                                            IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            VerticalAlignment="Center">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <FontIcon Glyph="&#xE8F1;" FontSize="11"/>
+                                            <TextBlock x:Uid="MergePage_NamingTemplate_PresetsBtn_Text" FontSize="11"
+                                                       VerticalAlignment="Center"/>
+                                        </StackPanel>
+                                        <Button.Flyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_Preset_Default"
+                                                                Tag="Default" Click="NamingPreset_Click"/>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_Preset_LivePhoto"
+                                                                Tag="LivePhoto" Click="NamingPreset_Click"/>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_Preset_Timestamp"
+                                                                Tag="Timestamp" Click="NamingPreset_Click"/>
+                                                <MenuFlyoutItem x:Uid="MergePage_NamingTemplate_Preset_Full"
+                                                                Tag="Full" Click="NamingPreset_Click"/>
+                                            </MenuFlyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                </Grid>
+
+                                <!-- 片段分隔符 -->
+                                <Grid Height="32" ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" x:Uid="MergePage_NamingTemplate_SeparatorLabel" FontSize="12"
+                                               VerticalAlignment="Center"/>
+                                    <ComboBox Grid.Column="1" FontSize="12" MinHeight="28" Height="28" MinWidth="0"
+                                              HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                                              IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                              SelectedIndex="{x:Bind ViewModel.NamingSeparatorIndex, Mode=TwoWay}">
+                                        <ComboBoxItem x:Uid="MergePage_NamingTemplate_Separator_Underscore"/>
+                                        <ComboBoxItem x:Uid="MergePage_NamingTemplate_Separator_Dash"/>
+                                        <ComboBoxItem x:Uid="MergePage_NamingTemplate_Separator_Space"/>
+                                        <ComboBoxItem x:Uid="MergePage_NamingTemplate_Separator_Plus"/>
+                                        <ComboBoxItem x:Uid="MergePage_NamingTemplate_Separator_None"/>
+                                    </ComboBox>
+                                </Grid>
+
+                                <!-- 实时预览 -->
+                                <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                        BorderThickness="0" CornerRadius="4"
+                                        Padding="8,5">
+                                    <Grid RowSpacing="2">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" x:Uid="MergePage_NamingTemplate_PreviewLabel" FontSize="11"
+                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                        <TextBlock Grid.Row="1" Text="{x:Bind ViewModel.NamingPreviewText, Mode=OneWay}"
+                                                   FontSize="12"
+                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                                                   TextWrapping="Wrap"
+                                                   IsTextSelectionEnabled="True"/>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+
+                            <Grid Height="32" ColumnSpacing="8" Tapped="ToggleRow_Tapped">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" x:Uid="MergePage_OverwriteExisting_Label" FontSize="12"
+                                           VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                    <TextBlock x:Name="OverwriteStatus" FontSize="12"
+                                               VerticalAlignment="Center"
+                                               Text="{x:Bind ViewModel.OverwriteStatusText, Mode=OneWay}"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <ToggleSwitch x:Name="OverwriteToggle"
+                                                  IsOn="{x:Bind ViewModel.OverwriteExisting, Mode=TwoWay}"
+                                                  MinHeight="0" MinWidth="0" Padding="0" VerticalAlignment="Center"
+                                                  RenderTransformOrigin="2.3,0"
+                                                  IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                                  Toggled="Toggle_Toggled">
+                                        <ToggleSwitch.RenderTransform>
+                                            <ScaleTransform ScaleX="0.85" ScaleY="0.85"/>
+                                        </ToggleSwitch.RenderTransform>
+                                    </ToggleSwitch>
+                                </StackPanel>
+                            </Grid>
+                            <Grid Height="32" ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" x:Uid="MergePage_AfterCompletionLabel" FontSize="12"
+                                           VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" x:Name="AfterCompletionCombo" FontSize="12"
+                                          MinHeight="28" Height="28" MinWidth="0" HorizontalAlignment="Stretch"
+                                          IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                          SelectedIndex="{x:Bind ViewModel.AfterCompletionActionIndex, Mode=TwoWay}">
+                                    <ComboBoxItem x:Uid="MergePage_AfterCompletion_NoAction"/>
+                                    <ComboBoxItem x:Uid="MergePage_AfterCompletion_MoveToDir"/>
+                                    <ComboBoxItem x:Uid="MergePage_AfterCompletion_RecycleBin"/>
+                                </ComboBox>
+                            </Grid>
+                            <StackPanel x:Name="OriginalDirSection"
+                                        Visibility="{x:Bind ViewModel.IsOriginalDirSectionVisible, Mode=OneWay}"
+                                        Spacing="6" Margin="0,6,0,0">
+                                <Grid ColumnSpacing="6">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" x:Uid="MergePage_OriginalDirHeader" FontSize="11"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                               VerticalAlignment="Center"/>
+                                    <Button Grid.Column="2" x:Uid="MergePage_OpenOriginalDirBtn" FontSize="12"
+                                            Height="26" Padding="10,0" CornerRadius="4"
+                                            Command="{x:Bind ViewModel.OpenMergeOriginalDirCommand}"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            VerticalAlignment="Center"/>
+                                    <Button Grid.Column="3" x:Uid="MergePage_BrowseOriginalDirBtn" FontSize="12"
+                                            Height="26" Padding="10,0" CornerRadius="4"
+                                            Click="BrowseOriginalDir_Click"
+                                            IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                            Margin="4,0,0,0"
+                                            Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            VerticalAlignment="Center"/>
+                                </Grid>
+                                <TextBox x:Name="OriginalDirTextBox"
+                                         Text="{x:Bind ViewModel.OriginalDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                         FontSize="12" MinHeight="28" Height="28" MinWidth="0"
+                                         HorizontalAlignment="Stretch" Padding="10,5" VerticalContentAlignment="Center"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- 4. 统计信息 -->
+                    </StackPanel>
+                </ScrollViewer>
+                <Grid x:Name="LeftDragOverlay" Visibility="Collapsed" IsHitTestVisible="False">
+                    <Border Background="#90000000" CornerRadius="4"/>
+                    <Rectangle Stroke="White" StrokeThickness="2" StrokeDashArray="6,3"
+                               RadiusX="4" RadiusY="4" Margin="4"/>
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+                        <FontIcon Glyph="&#xE838;" FontSize="36" Foreground="White"/>
+                        <TextBlock x:Name="LeftDragOverlayText" FontSize="14" FontWeight="SemiBold"
+                                   Foreground="White" HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+
+            <!-- ▼ 右侧面板：任务队列 ▼ -->
+            <Border x:Name="MergeTaskListSurface" Grid.Column="1"
+                    Style="{StaticResource SurfaceCardStyle}" Padding="0" AllowDrop="True">
+                <Grid>
                     <Grid>
+                        <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 队列头部：搜索 + 排序 + 筛选（参照 EditPage 模式） -->
+                    <Grid Grid.Row="0" Padding="10,4,10,4"
+                          BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" ColumnSpacing="6">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="24" VerticalAlignment="Center">
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="MergePage_StatPaired" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="MergePage_StatImg" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.StandaloneImagesCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
-                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                <TextBlock x:Uid="MergePage_StatVid" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind ViewModel.StandaloneVideosCount, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                            </StackPanel>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock x:Uid="MergePage_QueueHeader" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock FontSize="11" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                       Text="{x:Bind ViewModel.ScanStatsText, Mode=OneWay}"/>
                         </StackPanel>
-
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock x:Uid="MergePage_ProtocolLabel" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <ComboBox x:Name="ProtocolComboBox" SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}" Loaded="ProtocolComboBox_Loaded">
-                                <ComboBoxItem x:Uid="MergePage_Protocol_V1"/>
-                                <ComboBoxItem x:Uid="MergePage_Protocol_V2"/>
-                                <ComboBoxItem x:Uid="MergePage_Protocol_Oppo"/>
-                            </ComboBox>
-                            <Button x:Uid="MergePage_HelpBtn" Height="34" Width="34" Padding="0"
-                                    Background="Transparent" BorderBrush="Transparent"
-                                    Command="{x:Bind ViewModel.GoToTutorialCommand}" CommandParameter="Merge">
-                                <FontIcon Glyph="&#xE9CE;" FontSize="16"
-                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Button>
-                            <Button x:Uid="MergePage_SettingsBtn" Height="34" Width="34" Padding="0"
-                                    Background="Transparent" BorderBrush="Transparent"
-                                    Click="GoToMergeSettings_Click">
-                                <FontIcon Glyph="&#xE90F;" FontSize="16"
-                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Button>
-                            <Button
-                                Command="{x:Bind ViewModel.ScanDirectoryCommand}"
-                                Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
-                                Style="{x:Bind ViewModel.ScanButtonStyle, Mode=OneWay}"
-                                IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
-                                VerticalAlignment="Center" />
-                        </StackPanel>
+                        <AutoSuggestBox Grid.Column="1" x:Name="QueueSearchBox"
+                                        Width="160" Height="28" MinHeight="28"
+                                        FontSize="12" Padding="10,0,30,0"
+                                        HorizontalAlignment="Right" Margin="0,0,8,0"
+                                        x:Uid="MergePage_SearchBox"
+                                        Text="{x:Bind ViewModel.SearchFilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                        VerticalContentAlignment="Center" VerticalAlignment="Center"
+                                        IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}">
+                            <AutoSuggestBox.Resources>
+                                <x:Double x:Key="TextControlThemeMinHeight">28</x:Double>
+                            </AutoSuggestBox.Resources>
+                        </AutoSuggestBox>
+                        <ComboBox Grid.Column="2" x:Name="QueueSortCombo"
+                                  SelectedIndex="{x:Bind ViewModel.SortIndex, Mode=TwoWay}"
+                                  FontSize="12" MinHeight="28" Height="28" Padding="10,3,6,3"
+                                  Loaded="QueueSortCombo_Loaded"
+                                  IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                  VerticalAlignment="Center">
+                            <ComboBoxItem x:Uid="MergePage_Sort_Name"/>
+                            <ComboBoxItem x:Uid="MergePage_Sort_TotalSize"/>
+                            <ComboBoxItem x:Uid="MergePage_Sort_ImageSize"/>
+                            <ComboBoxItem x:Uid="MergePage_Sort_VideoSize"/>
+                            <ComboBoxItem x:Uid="MergePage_Sort_Date"/>
+                        </ComboBox>
+                        <Button Grid.Column="3"
+                                Width="28" Height="28" Padding="0" CornerRadius="5"
+                                VerticalAlignment="Center"
+                                IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                Command="{x:Bind ViewModel.ToggleSortDirectionCommand}"
+                                Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                            <FontIcon Glyph="{x:Bind ViewModel.SortDirectionGlyph, Mode=OneWay}" FontSize="12"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </Button>
+                        <Button Grid.Column="4"
+                                Width="28" Height="28" Padding="0" CornerRadius="5"
+                                VerticalAlignment="Center"
+                                IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
+                                Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
+                            <Button.Flyout>
+                                <MenuFlyout Placement="Bottom" Opening="QueueFilterFlyout_Opening">
+                                    <MenuFlyoutItem x:Uid="MergePage_Filter_All" Click="QueueFilter_Click" Tag="All"/>
+                                    <MenuFlyoutItem x:Uid="MergePage_Filter_Pending" Click="QueueFilter_Click" Tag="Pending"/>
+                                    <MenuFlyoutItem x:Uid="MergePage_Filter_Success" Click="QueueFilter_Click" Tag="Success"/>
+                                    <MenuFlyoutItem x:Uid="MergePage_Filter_Failed" Click="QueueFilter_Click" Tag="Failed"/>
+                                </MenuFlyout>
+                            </Button.Flyout>
+                            <FontIcon Glyph="&#xE71C;" FontSize="12"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </Button>
                     </Grid>
-                </Border>
-            </StackPanel>
 
-            <Border Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="3" Padding="16,10,16,10">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
-                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Spacing="4">
-                        <TextBlock FontWeight="SemiBold" FontSize="13" Foreground="{ThemeResource TextFillColorPrimaryBrush}">
-                            <Run x:Uid="MergePage_QueueProgress"/>
-                            <Run Text="{x:Bind ViewModel.ProgressText, Mode=OneWay}"/>
-                        </TextBlock>
-                        <ProgressBar Value="{x:Bind ViewModel.MergeProgress, Mode=OneWay}" Maximum="100" Height="4" CornerRadius="2" Foreground="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarForegroundConverter}, Mode=OneWay}" IsIndeterminate="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarIndeterminateConverter}, Mode=OneWay}" MaxWidth="400" HorizontalAlignment="Left"/>
-                    </StackPanel>
-
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center" HorizontalAlignment="Right">
-
-                        <Button Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}" IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}" MinWidth="80" Height="34" FontSize="14"/>
-                        <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}" Command="{x:Bind ViewModel.ToggleProcessCommand}" Style="{StaticResource AccentButtonStyle}" IsEnabled="{x:Bind ViewModel.IsProcessingAllowed, Mode=OneWay}" MinWidth="100" Height="36" FontSize="14" Margin="16,0,0,0"/>
-                    </StackPanel>
-                </Grid>
-            </Border>
-
-            <!-- 任务列表（支持拖拽文件夹导入） -->
-            <Border x:Name="MergeTaskListSurface" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CustomPanelAcrylicBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="8" AllowDrop="True">
-                <Grid>
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="*"/>
-                        </Grid.RowDefinitions>
-
-                        <Grid Grid.Row="0" Padding="12,0,12,6" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,4">
+                    <!-- 列表列标题 -->
+                    <Grid Grid.Row="1" Padding="20,5,20,5"
+                          BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1"
+                          ColumnSpacing="8">
                         <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="44"/>
                             <ColumnDefinition Width="56"/>
-                            <ColumnDefinition Width="62"/>
-                            <ColumnDefinition Width="2.7*"/>
-                            <ColumnDefinition Width="1.15*"/>
-                            <ColumnDefinition Width="1.85*"/>
+                            <ColumnDefinition Width="2.5*"/>
+                            <ColumnDefinition Width="1*"/>
+                            <ColumnDefinition Width="1.7*"/>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="36"/>
                         </Grid.ColumnDefinitions>
-
-                        <TextBlock x:Uid="MergePage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                        <TextBlock x:Uid="MergePage_ColFile" Grid.Column="1" Grid.ColumnSpan="2" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                        <TextBlock x:Uid="MergePage_ColSize" Grid.Column="3" Margin="14,0,0,0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                        <TextBlock x:Uid="MergePage_ColStatus" Grid.Column="4" Margin="32,0,0,0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="0" x:Uid="MergePage_ColSeq"
+                                   FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="2" x:Uid="MergePage_ColFile"
+                                   FontWeight="SemiBold" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="3" x:Uid="MergePage_ColSize"
+                                   FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="4" x:Uid="MergePage_ColStatus"
+                                   FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="5" Grid.ColumnSpan="2" x:Uid="MergePage_ColActions"
+                                   FontWeight="SemiBold" FontSize="12" HorizontalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                     </Grid>
 
-                    <ListView x:Name="MergeTaskListView" Grid.Row="1" ItemsSource="{x:Bind ViewModel.Tasks}" SelectionMode="None" ShowsScrollingPlaceholders="False" ContainerContentChanging="MergeTaskListView_ContainerContentChanging">
+                    <!-- ListView -->
+                    <ListView x:Name="MergeTaskListView" Grid.Row="2"
+                              ItemsSource="{x:Bind ViewModel.DisplayTasks}"
+                              SelectionMode="None" ShowsScrollingPlaceholders="False"
+                              Padding="10,8,10,8">
                         <ListView.ItemsPanel>
                             <ItemsPanelTemplate>
-                                <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="4" />
+                                <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="4"/>
                             </ItemsPanelTemplate>
                         </ListView.ItemsPanel>
-
                         <ListView.ItemContainerStyle>
                             <Style TargetType="ListViewItem">
                                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
@@ -232,151 +893,297 @@
                                 <Setter Property="MinHeight" Value="0"/>
                             </Style>
                         </ListView.ItemContainerStyle>
-
                         <ListView.ItemTemplate>
                             <DataTemplate x:DataType="models:MergeTask">
-                                <Border Background="{ThemeResource LayerFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="10,6,10,6" Height="68">
-                                <Grid ColumnSpacing="0">
+                                <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                        BorderThickness="1" CornerRadius="6"
+                                        Padding="10,6,10,6" Height="64">
+                                    <Grid ColumnSpacing="8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="44"/>
+                                            <ColumnDefinition Width="56"/>
+                                            <ColumnDefinition Width="2.5*"/>
+                                            <ColumnDefinition Width="1.2*"/>
+                                            <ColumnDefinition Width="1.2*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="36"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <!-- 序号 -->
+                                        <TextBlock Grid.Column="0" Text="{x:Bind Index}"
+                                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                   FontWeight="Bold" FontSize="13"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                                        <!-- 缩略图 -->
+                                        <Button Grid.Column="1" VerticalAlignment="Center"
+                                                Click="ThumbnailButton_Click" Tag="{x:Bind ImagePath}"
+                                                Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6">
+                                            <Border Width="52" Height="52" CornerRadius="6"
+                                                    Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                                <Grid>
+                                                    <TextBlock x:Uid="MergePage_ThumbnailLoadingText"
+                                                               Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
+                                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                               TextAlignment="Center" TextWrapping="WrapWholeWords"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="9" Margin="4"/>
+                                                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                                                </Grid>
+                                            </Border>
+                                        </Button>
+
+                                        <!-- 文件名（图片 + 视频） -->
+                                        <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
+                                            <Button Click="FileGroupButton_Click" Tag="{x:Bind ImagePath}"
+                                                    Background="Transparent" BorderThickness="0" Padding="3,1" CornerRadius="4"
+                                                    HorizontalAlignment="Left" HorizontalContentAlignment="Left"
+                                                    ToolTipService.ToolTip="{x:Bind ImageFileName}">
+                                                <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
+                                                    <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="13" VerticalAlignment="Center"/>
+                                                    <TextBlock FontSize="11" VerticalAlignment="Center"
+                                                               Text="{x:Bind DisplayImageName}" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                            </Button>
+                                            <Button Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}"
+                                                    Background="Transparent" BorderThickness="0" Padding="3,1" CornerRadius="4"
+                                                    HorizontalAlignment="Left" HorizontalContentAlignment="Left"
+                                                    ToolTipService.ToolTip="{x:Bind VideoFileName}">
+                                                <StackPanel Orientation="Horizontal" Spacing="5" Height="20">
+                                                    <FontIcon Glyph="&#xE714;" Foreground="#A855F7" FontSize="13" VerticalAlignment="Center"/>
+                                                    <TextBlock FontSize="11" VerticalAlignment="Center"
+                                                               Text="{x:Bind DisplayVideoName}" TextTrimming="CharacterEllipsis"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+
+                                        <!-- 文件大小（图片 + 视频） -->
+                                        <StackPanel Grid.Column="3" VerticalAlignment="Center" Spacing="3"
+                                                    HorizontalAlignment="Center">
+                                            <TextBlock FontSize="11" VerticalAlignment="Center"
+                                                       Text="{x:Bind ImageSize}"
+                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                            <TextBlock FontSize="11" VerticalAlignment="Center"
+                                                       Text="{x:Bind VideoSize}"
+                                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                        </StackPanel>
+
+                                        <!-- 状态指示点 + 文本 -->
+                                        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="6"
+                                                    VerticalAlignment="Center" HorizontalAlignment="Center">
+                                            <Border Width="8" Height="8" CornerRadius="4"
+                                                    Background="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
+                                                    VerticalAlignment="Center"/>
+                                            <TextBlock Text="{x:Bind Details, Mode=OneWay}"
+                                                       Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
+                                                       FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       IsTapEnabled="True" Tapped="StatusTextBlock_Tapped"/>
+                                        </StackPanel>
+
+                                        <!-- 删除任务 -->
+                                        <Button Grid.Column="5" Width="28" Height="28" Padding="0"
+                                                VerticalAlignment="Center" CornerRadius="5"
+                                                Background="Transparent" BorderThickness="0"
+                                                Click="DeleteTask_Click" Tag="{x:Bind}">
+                                            <FontIcon Glyph="&#xE74D;" FontSize="12"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </Button>
+
+                                        <!-- 更多操作菜单 -->
+                                        <Button Grid.Column="6" Width="28" Height="28" Padding="0"
+                                                VerticalAlignment="Center" CornerRadius="5"
+                                                Background="Transparent" BorderThickness="0">
+                                            <FontIcon Glyph="&#xE712;" FontSize="12"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            <Button.Flyout>
+                                                <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                    <MenuFlyoutItem x:Uid="MergePage_Menu_ShowInFolder"
+                                                                    Click="Flyout_ShowInFolder_Click">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE838;" FontSize="12"/>
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                    <MenuFlyoutItem x:Uid="MergePage_Menu_Preview"
+                                                                    Click="Flyout_Preview_Click">
+                                                        <MenuFlyoutItem.Icon>
+                                                            <FontIcon Glyph="&#xE8B2;" FontSize="12"/>
+                                                        </MenuFlyoutItem.Icon>
+                                                    </MenuFlyoutItem>
+                                                </MenuFlyout>
+                                            </Button.Flyout>
+                                        </Button>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+
+                    <Grid x:Name="EmptyQueueHint" Grid.Row="2"
+                          Visibility="{x:Bind ViewModel.EmptyQueueVisibility, Mode=OneWay}"
+                          IsHitTestVisible="False"
+                          VerticalAlignment="Center" HorizontalAlignment="Center">
+                        <StackPanel Spacing="24" HorizontalAlignment="Center">
+                            <FontIcon Glyph="&#xE8B1;" FontSize="42"
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      HorizontalAlignment="Center"/>
+                            <StackPanel Spacing="8" HorizontalAlignment="Center">
+                                <Grid ColumnSpacing="6" HorizontalAlignment="Center">
                                     <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="56"/>
-                                        <ColumnDefinition Width="62"/>
-                                        <ColumnDefinition Width="2.7*"/>
-                                        <ColumnDefinition Width="1.15*"/>
-                                        <ColumnDefinition Width="1.85*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-
-                                    <TextBlock Grid.Column="0" Text="{x:Bind Index}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-
-                                    <Button x:Uid="MergePage_TipApp" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="0,0,8,0" Click="ThumbnailButton_Click" Tag="{x:Bind ImagePath}" Background="Transparent" BorderThickness="0" Padding="0" CornerRadius="6">
-                                        <Border Width="52" Height="52" CornerRadius="7" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
-                                            <Grid>
-                                                <TextBlock x:Uid="MergePage_ThumbnailLoadingText" Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}" HorizontalAlignment="Center" VerticalAlignment="Center" TextAlignment="Center" TextWrapping="WrapWholeWords" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="9" Margin="4"/>
-                                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
-                                            </Grid>
-                                        </Border>
-                                    </Button>
-
-                                    <StackPanel Grid.Column="2" VerticalAlignment="Center" Spacing="1">
-                                        <Button x:Uid="MergePage_TipFolder" Click="FileGroupButton_Click" Tag="{x:Bind ImagePath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
-                                            <StackPanel Orientation="Horizontal" Spacing="5" Height="22">
-                                                <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="14" VerticalAlignment="Center"/>
-                                                <TextBlock FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center" Text="{x:Bind DisplayImageName}"/>
-                                            </StackPanel>
-                                        </Button>
-                                        <Button x:Uid="MergePage_TipFolder" Click="FileGroupButton_Click" Tag="{x:Bind VideoPath}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
-                                            <StackPanel Orientation="Horizontal" Spacing="5" Height="22">
-                                                <FontIcon Glyph="&#xE714;" Foreground="#A855F7" FontSize="14" VerticalAlignment="Center"/>
-                                                <TextBlock FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center" Text="{x:Bind DisplayVideoName}"/>
-                                            </StackPanel>
-                                        </Button>
-                                    </StackPanel>
-
-                                    <StackPanel Grid.Column="3" Margin="14,0,0,0" VerticalAlignment="Center" Spacing="4">
-                                        <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind ImageSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}" Margin="0,2,0,0"/>
-                                        <TextBlock Height="20" FontSize="13" VerticalAlignment="Center" Text="{x:Bind VideoSize}" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                    </StackPanel>
-
-                                    <TextBlock Grid.Column="4" Margin="32,0,0,0" Text="{x:Bind Details, Mode=OneWay}" Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="Wrap" MaxLines="5" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped"/>
+                                    <FontIcon Grid.Column="0" Glyph="&#xE8E5;" FontSize="15"
+                                              Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                              VerticalAlignment="Top" Margin="0,3,0,0"/>
+                                    <TextBlock Grid.Column="1" x:Uid="MergePage_EmptyQueueTitle" FontSize="14"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                               TextWrapping="WrapWholeWords" MaxWidth="500"/>
                                 </Grid>
-                            </Border>
-                        </DataTemplate>
-                    </ListView.ItemTemplate>
-                </ListView>
-
-                    <!-- 队列为空占位提示。拖拽时代码隐藏 -->
-                    <StackPanel x:Name="EmptyQueueHint" Grid.Row="1"
-                                Visibility="{x:Bind ViewModel.EmptyQueueVisibility, Mode=OneWay}"
-                                VerticalAlignment="Center" HorizontalAlignment="Center"
-                                Spacing="14" Margin="0">
-                        <TextBlock x:Uid="MergePage_EmptyQueueTitle"
-                                   FontSize="20" FontWeight="SemiBold"
-                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                   HorizontalAlignment="Center"/>
-                        <TextBlock x:Uid="MergePage_EmptyQueueDesc"
-                                   FontSize="14"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   HorizontalAlignment="Center" TextWrapping="WrapWholeWords"
-                                   MaxWidth="520" TextAlignment="Center"/>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center"
-                                    Margin="0,28,0,0">
-                            <TextBlock x:Uid="MergePage_EmptyQueueHint_Part1" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                       VerticalAlignment="Center"/>
-                            <FontIcon Glyph="&#xE9CE;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                      VerticalAlignment="Center" Margin="5,0,2,0"/>
-                            <TextBlock x:Uid="MergePage_EmptyQueueHint_Part2" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                       VerticalAlignment="Center"/>
-                            <FontIcon Glyph="&#xE90F;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                      VerticalAlignment="Center" Margin="5,0,2,0"/>
-                            <TextBlock x:Uid="MergePage_EmptyQueueHint_Part3" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                       VerticalAlignment="Center"/>
+                                <Grid ColumnSpacing="6" HorizontalAlignment="Center">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <FontIcon Grid.Column="0" Glyph="&#xE91B;" FontSize="15"
+                                              Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                              VerticalAlignment="Top" Margin="0,3,0,0"/>
+                                    <TextBlock Grid.Column="1" x:Uid="MergePage_EmptyQueueDesc" FontSize="14"
+                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                               TextWrapping="WrapWholeWords" MaxWidth="500"/>
+                                </Grid>
+                            </StackPanel>
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Spacing="6" Margin="0,8,0,0">
-                            <FontIcon Glyph="&#xE838;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                      VerticalAlignment="Center"/>
-                            <TextBlock x:Uid="MergePage_EmptyQueueDragHint" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                       VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </StackPanel>
-
-                    <!-- 回到顶部悬浮按钮 — 滚动超过 200px 后出现 -->
-                    <Button x:Name="ScrollToTopButton"
-                            Grid.Row="1"
-                            Canvas.ZIndex="100"
-                            HorizontalAlignment="Right"
-                            VerticalAlignment="Bottom"
-                            Width="32" Height="32"
-                            Margin="0,0,12,12"
-                            CornerRadius="16"
-                            Visibility="Collapsed"
-                            IsTabStop="False"
-                            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1"
-                            Padding="0"
-                            ToolTipService.ToolTip="回到顶部">
-                        <Button.Resources>
-                            <SolidColorBrush x:Key="ButtonBackgroundPointerOver"
-                                             Color="{ThemeResource SolidBackgroundFillColorSecondary}"/>
-                            <SolidColorBrush x:Key="ButtonBackgroundPressed"
-                                             Color="{ThemeResource SolidBackgroundFillColorTertiary}"/>
-                        </Button.Resources>
-                        <Button.Transitions>
-                            <TransitionCollection>
-                                <EntranceThemeTransition FromVerticalOffset="8"/>
-                            </TransitionCollection>
-                        </Button.Transitions>
-                        <FontIcon Glyph="&#xE70E;" FontSize="14"
-                                  Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                    </Button>
                     </Grid>
 
-                    <!-- 拖拽文件夹视觉反馈覆盖层（后渲染 → 始终在列表之上） -->
+                    <Button x:Name="ScrollToTopButton" Grid.Row="2"
+                            HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                            Width="32" Height="32" Margin="0,0,12,12" CornerRadius="16"
+                            Visibility="Collapsed" IsTabStop="False"
+                            Background="{ThemeResource AcrylicInAppFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" Padding="0">
+                        <FontIcon Glyph="&#xE70E;" FontSize="14" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </Button>
+
+                    </Grid>
+
                     <Grid x:Name="DragOverlay" Visibility="Collapsed" IsHitTestVisible="False">
                         <Border Background="#90000000" CornerRadius="10"/>
                         <Rectangle Stroke="White" StrokeThickness="2" StrokeDashArray="6,3" RadiusX="10" RadiusY="10" Margin="4"/>
                         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
                             <FontIcon Glyph="&#xE838;" FontSize="36" Foreground="White"/>
-                            <TextBlock x:Uid="MergePage_DropToBrowse" FontSize="14" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center"/>
+                            <TextBlock x:Name="RightDragOverlayText" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="White" HorizontalAlignment="Center"/>
                         </StackPanel>
                     </Grid>
                 </Grid>
             </Border>
-
         </Grid>
 
-        <TeachingTip x:Name="ErrorDetailTip"
-                     IsLightDismissEnabled="False"
-                     PreferredPlacement="Left"
+        <!-- ═══════════ Row 2：底部状态面板 ═══════════ -->
+        <Border Grid.Row="2" Style="{StaticResource SurfaceCardStyle}" Padding="14,5,14,6" CornerRadius="4">
+            <Grid RowSpacing="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- 进度条区域：底层轨道线（始终可见）+ 上层填充（透明背景，让轨道线透出） -->
+                <!-- 进度条空闲时 (Value=0, 非 Indeterminate) 无填充，轨道线完全可见；
+                     活动时填充色覆盖轨道线，未填充部分透出轨道线 -->
+                <Rectangle Grid.Row="0" Height="4" VerticalAlignment="Center"
+                           Margin="0,4,0,4" RadiusX="2" RadiusY="2"
+                           Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                           HorizontalAlignment="Stretch"/>
+                <ProgressBar Grid.Row="0" Height="4" CornerRadius="2"
+                             Margin="0,4,0,4" VerticalAlignment="Center"
+                             Value="{x:Bind ViewModel.FooterProgressValue, Mode=OneWay}" Maximum="100"
+                             IsIndeterminate="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarIndeterminateConverter}, Mode=OneWay}"
+                             Foreground="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarForegroundConverter}, Mode=OneWay}"
+                             Background="Transparent"
+                             BorderThickness="0" Padding="0" HorizontalAlignment="Stretch"/>
+
+                <!-- 状态文字（左）+ 统计 + 耗时（右） -->
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- 左侧：状态文字 -->
+                    <TextBlock Grid.Column="0" FontSize="11" FontWeight="SemiBold"
+                               VerticalAlignment="Center" HorizontalAlignment="Left"
+                               TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                               Text="{x:Bind ViewModel.FooterStatusText, Mode=OneWay}"
+                               Foreground="{ThemeResource TextFillColorPrimaryBrush}" Opacity="0.9"/>
+
+                    <!-- 右侧：统计圆点 + 耗时 -->
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                        <!-- 总计（始终可见，有任务时） -->
+                        <StackPanel Orientation="Horizontal" Spacing="3"
+                                    Visibility="{x:Bind ViewModel.FooterTotalVisible, Mode=OneWay}">
+                            <Border Width="7" Height="7" CornerRadius="4" Background="#888888" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="MergePage_FooterTotal" FontSize="10" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontSize="10"
+                                       VerticalAlignment="Center" Margin="1,0,0,0"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <!-- 成功 -->
+                        <StackPanel Orientation="Horizontal" Spacing="3"
+                                    Visibility="{x:Bind ViewModel.FooterSuccessVisible, Mode=OneWay}">
+                            <Border Width="7" Height="7" CornerRadius="4" Background="#10B981" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="MergePage_FooterSuccess" FontSize="10" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="{x:Bind ViewModel.SuccessCount, Mode=OneWay}" FontSize="10"
+                                       VerticalAlignment="Center" Margin="1,0,0,0"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <!-- 失败 -->
+                        <StackPanel Orientation="Horizontal" Spacing="3"
+                                    Visibility="{x:Bind ViewModel.FooterFailedVisible, Mode=OneWay}">
+                            <Border Width="7" Height="7" CornerRadius="4" Background="#EF4444" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="MergePage_FooterFailed" FontSize="10" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="{x:Bind ViewModel.FailedCount, Mode=OneWay}" FontSize="10"
+                                       VerticalAlignment="Center" Margin="1,0,0,0"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <!-- 未处理（处理中/暂停时 >0 可见） -->
+                        <StackPanel Orientation="Horizontal" Spacing="3"
+                                    Visibility="{x:Bind ViewModel.FooterUnprocessedVisible, Mode=OneWay}">
+                            <Border Width="7" Height="7" CornerRadius="4" Background="#F59E0B" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="MergePage_FooterUnprocessed" FontSize="10" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="{x:Bind ViewModel.PendingCount, Mode=OneWay}" FontSize="10"
+                                       VerticalAlignment="Center" Margin="1,0,0,0"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <!-- 已取消（停止后 >0 可见） -->
+                        <StackPanel Orientation="Horizontal" Spacing="3"
+                                    Visibility="{x:Bind ViewModel.FooterCancelledVisible, Mode=OneWay}">
+                            <Border Width="7" Height="7" CornerRadius="4" Background="#EF4444" VerticalAlignment="Center"/>
+                            <TextBlock x:Uid="MergePage_FooterCancelled" FontSize="10" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock Text="{x:Bind ViewModel.CancelledCount, Mode=OneWay}" FontSize="10"
+                                       VerticalAlignment="Center" Margin="1,0,0,0"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <!-- 耗时 -->
+                        <TextBlock FontSize="10" VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                   Text="{x:Bind ViewModel.ElapsedTimeText, Mode=OneWay}"/>
+                    </StackPanel>
+                </Grid>
+            </Grid>
+        </Border>
+
+        <!-- TeachingTip（必须在 Grid 内部） -->
+        <TeachingTip x:Name="ErrorDetailTip" IsLightDismissEnabled="False" PreferredPlacement="Left"
                      Closed="ErrorDetailTip_Closed">
             <TeachingTip.Content>
-                <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap" IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
+                <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap"
+                           IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
             </TeachingTip.Content>
         </TeachingTip>
     </Grid>

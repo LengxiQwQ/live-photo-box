@@ -407,7 +407,7 @@ namespace LivePhotoBox.Services
                 .FirstOrDefault();
         }
 
-        // Deletes all app-*.log files (used by "Clear All Logs" in settings).
+        // Deletes all app-*.log files and crash dump files (used by "Clear All Logs" in settings).
         // The current log file will be recreated.
         public static int DeleteAllLogFiles()
         {
@@ -425,6 +425,18 @@ namespace LivePhotoBox.Services
                 try { File.Delete(path); deleted++; }
                 catch { }
             }
+
+            // Also delete crash dump files (*.dmp) in the Dumps subdirectory
+            var dumpDir = Path.Combine(_logDirectory, "Dumps");
+            if (Directory.Exists(dumpDir))
+            {
+                foreach (var path in Directory.GetFiles(dumpDir, "*.dmp"))
+                {
+                    try { File.Delete(path); deleted++; }
+                    catch { }
+                }
+            }
+
             return deleted;
         }
 

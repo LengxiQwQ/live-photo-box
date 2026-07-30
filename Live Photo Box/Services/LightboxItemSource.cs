@@ -131,12 +131,33 @@ namespace LivePhotoBox.Services
                             string ext = Path.GetExtension(path)?.ToLowerInvariant() ?? "";
                             if (ext == ".jpg" || ext == ".jpeg" || ext == ".heic")
                             {
+                                string meta = "";
                                 try
                                 {
-                                    string meta = await LivePhotoSplitService.ReadMetadataFromFileAsync(path);
+                                    meta = await LivePhotoSplitService.ReadMetadataFromFileAsync(path);
                                     videoLen = LivePhotoSplitService.GetAppendedVideoLength(meta);
                                 }
                                 catch { videoLen = 0; }
+
+                                // XMP 解析失败 → 回退检查华为 LIVE_ 尾标 / Google V2 HEIC mpvd box
+                                if (videoLen == 0)
+                                {
+                                    try
+                                    {
+                                        var hwRange = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(path);
+                                        if (hwRange.HasValue)
+                                        {
+                                            videoLen = hwRange.Value.videoLength;
+                                        }
+                                        else if (meta.Contains("GCamera:MotionPhoto") ||
+                                                 meta.Contains("GContainer:Directory"))
+                                        {
+                                            // Google V2 HEIC：mpvd box 内嵌视频
+                                            videoLen = LivePhotoMergeService.GetMpvdVideoLength(path);
+                                        }
+                                    }
+                                    catch { /* best-effort */ }
+                                }
                             }
                         }
                     }

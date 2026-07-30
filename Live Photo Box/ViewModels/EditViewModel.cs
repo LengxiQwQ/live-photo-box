@@ -91,6 +91,10 @@ namespace LivePhotoBox.ViewModels
             _isMuted = AppSettingsService.GetValue("IsLivePhotoMuted", false);
             // 进度前缀默认：导出帧
             ProgressPrefixText = ResourceService.GetString("EditPage_ExportProgressPrefixLabel");
+
+            // 时间轴集合变化时同步 HasOriginalPhotoFrame
+            TimelineFrames.CollectionChanged += (_, _) =>
+                OnPropertyChanged(nameof(HasOriginalPhotoFrame));
         }
 
         public override string? PageStatusTag => null;
@@ -291,6 +295,20 @@ namespace LivePhotoBox.ViewModels
         }
 
         /// <summary>判断文件是否为视频（.mov / .mp4）</summary>
+        /// <summary>在字节数组中搜索子序列</summary>
+        private static bool ContainsBytes(byte[] data, ReadOnlySpan<byte> pattern)
+        {
+            if (pattern.Length == 0) return false;
+            for (int i = 0; i <= data.Length - pattern.Length; i++)
+            {
+                int j;
+                for (j = 0; j < pattern.Length; j++)
+                    if (data[i + j] != pattern[j]) break;
+                if (j == pattern.Length) return true;
+            }
+            return false;
+        }
+
         private static bool IsVideoExtension(string path) =>
             path.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
             path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase);
@@ -414,6 +432,9 @@ namespace LivePhotoBox.ViewModels
         /// <summary>防抖武装标记：0=首次点击直接启动，1=已武装后续点击需防抖</summary>
         private int _timelineDebounceArmed;
 
+        /// <summary>ffmpeg 实际提取的帧数，用于帧位置文字"共 N 帧"显示</summary>
+        private int _timelineActualFrameCount;
+
         /// <summary>初始加载自动滚动时抑制大图预览更新，避免滚过几十帧时大图疯狂切换</summary>
         private bool _isInitialTimelineScroll;
 
@@ -426,6 +447,8 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>单文件实况照片的内嵌视频临时文件路径（帧提取完成后清理）</summary>
         private string? _tempVideoPath;
+        /// <summary>选文件时已提取的华为/嵌入式临时视频，供 EditPage 播放复用，避免重复提取</summary>
+        internal string? CachedTempVideoPath => _tempVideoPath;
 
         /// <summary>ffmpeg 提取的帧 JPEG 临时目录</summary>
         private string? _frameExtractDir;
@@ -610,9 +633,23 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>
         /// "设为封面并保存为副本"按钮是否可用。
-        /// 星标帧（IsStillPhoto）已为封面 → 禁用；数字角标帧 → 可用。
+        /// 星标帧（IsStillPhoto）已为封面 → 禁用；🖼 原始封面帧 → 可用（可改回原始封面）。
         /// </summary>
         public bool IsSetKeyPhotoEnabled => SelectedTimelineFrame != null && !SelectedTimelineFrame.IsStillPhoto;
+
+        /// <summary>
+        /// "前往封面"按钮是否可用（跳转到 ⭐ 封面帧）。
+        /// 当前已选中封面帧时禁用（已在目标位置），选中 🖼 原始帧时仍然可用。
+        /// </summary>
+        public bool IsGoToKeyPhotoEnabled =>
+            SelectedTimelineFrame != null && !SelectedTimelineFrame.IsStillPhoto;
+
+        /// <summary>
+        /// "前往原始封面"按钮是否可用（跳转到 🖼 原始帧）。
+        /// 当前已选中原始帧时禁用（已在目标位置）。
+        /// </summary>
+        public bool IsGoToOriginalPhotoEnabled =>
+            SelectedTimelineFrame != null && !SelectedTimelineFrame.IsOriginalPhoto;
 
         /// <summary>当前选中的文件是否为"半死不活"的实况照片（有协议但缺配对文件）</summary>
         public bool IsSelectedPairIncomplete
@@ -669,26 +706,41 @@ namespace LivePhotoBox.ViewModels
         partial void OnSelectedTimelineFrameChanged(TimelineFrame? value)
         {
             OnPropertyChanged(nameof(IsSetKeyPhotoEnabled));
+            OnPropertyChanged(nameof(IsGoToKeyPhotoEnabled));
+            OnPropertyChanged(nameof(IsGoToOriginalPhotoEnabled));
 
             // 更新帧位置文本
             if (value != null)
             {
-                if (value.IsStillPhoto)
+                // 使用 ffmpeg 实际提取帧数作为总数，避免 OPPO 合并帧时计数不一致
+                // FrameIndex >= 0 表示真实视频帧（含 OPPO 合并模式下打标的 ⭐ 封面帧），
+                // FrameIndex == -1 表示插入的特殊帧（⭐ 独立封面 / 🖼 原始封面），不计入总数。
+                int totalFrameCount = _timelineActualFrameCount > 0
+                    ? _timelineActualFrameCount
+                    : TimelineFrames.Count(f => f.FrameIndex >= 0);
+
+                if (value.IsOriginalPhoto)
+                {
+                    // 原始帧：不显示在视频帧计数中，显示为 "Original"
+                    CurrentFramePositionText = ResourceService.Format(
+                        "EditPage_TimelineFrameOriginalPhoto", totalFrameCount);
+                }
+                else if (value.IsStillPhoto)
                 {
                     // 封面帧：显示 "Cover · 共 N 帧"
-                    var videoFrames = TimelineFrames.Where(f => !f.IsStillPhoto).ToList();
                     CurrentFramePositionText = ResourceService.Format(
-                        "EditPage_TimelineFrameKeyPhoto", videoFrames.Count);
+                        "EditPage_TimelineFrameKeyPhoto", totalFrameCount);
                 }
                 else
                 {
-                    // 普通视频帧：排除封面帧后计算序号和总数
-                    var videoFrames = TimelineFrames.Where(f => !f.IsStillPhoto).ToList();
+                    // 普通视频帧：用 FrameIndex >= 0 判定真实视频帧（含 OPPO 合并的 ⭐），
+                    // FrameIndex == -1 的特殊帧（独立插入的 ⭐/🖼）不参与排序。
+                    var videoFrames = TimelineFrames.Where(f => f.FrameIndex >= 0).ToList();
                     int idx = videoFrames.IndexOf(value);
                     if (idx >= 0)
                     {
                         CurrentFramePositionText = ResourceService.Format(
-                            "EditPage_TimelineFramePosition", idx + 1, videoFrames.Count);
+                            "EditPage_TimelineFramePosition", idx + 1, totalFrameCount);
                     }
                     else
                     {
@@ -976,6 +1028,26 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
+            // 🖼 原始封面帧：FullFramePath 已指向高清原图临时文件；回退到重新提取
+            if (frame.IsOriginalPhoto && (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath)))
+            {
+                byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(photoPath);
+                if (origBytes == null || origBytes.Length == 0)
+                {
+                    LogService.FileOp("KeyPhoto Save: 🖼 original photo bytes unavailable", LogLevel.Warning);
+                    return;
+                }
+                string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_save_orig_{Guid.NewGuid():N}.jpg");
+                File.WriteAllBytes(tempPath, origBytes);
+                frame = new TimelineFrame
+                {
+                    FrameIndex = frame.FrameIndex,
+                    Timestamp = frame.Timestamp,
+                    FullFramePath = tempPath,
+                    IsOriginalPhoto = true
+                };
+            }
+
             if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
             {
                 LogService.FileOp("KeyPhoto Save: frame FullFramePath not available", LogLevel.Warning);
@@ -991,9 +1063,53 @@ namespace LivePhotoBox.ViewModels
             }
 
             // Apple 双文件实况照片（HEIC + MOV）→ 单独分支
-            if (item.LivePhotoType == LivePhotoType.DualFile && item.HasConfirmedProtocol)
+            // 必须精确匹配 Apple 协议，避免 vivo old 等 DualFile 协议误入
+            if (item.LivePhotoType == LivePhotoType.DualFile
+                && item.DetectedProtocol == LivePhotoProtocolType.Apple)
             {
                 await SaveAppleAsync(frame, item, photoPath);
+                return;
+            }
+
+            // Huawei / Honor Moving Photo（SingleFileHeic / SingleFileJpeg）→ 单独分支
+            // 华为/荣耀没有 XMP，使用 LIVE_ 二进制尾标，需走专用导出流程
+            if (item.DetectedProtocol == LivePhotoProtocolType.Huawei)
+            {
+                await SaveHuaweiAsync(frame, item, photoPath);
+                return;
+            }
+
+            // Motion Photo Fusion（融合协议：V2 + OPPO + VIVO + Samsung Trailer）
+            // 必须出现在 Samsung 专属检查之前：Fusion 继承 Samsung 二进制布局，
+            // 但需要全量多命名空间 XMP（GCamera+OpCamera+VCamera）+ OPPO EXIF 预处理。
+            if (item.DetectedProtocol == LivePhotoProtocolType.Fusion)
+            {
+                await SaveSamsungAsync(frame, item, photoPath, protocolIndex: 0);
+                return;
+            }
+
+            // Samsung Motion Photo（JPEG / HEIC）→ 单独分支
+            // 三星需要同时写 V2 XMP + Samsung Trailer（SEFH/SEFT），缺一不可
+            if (item.DetectedProtocol == LivePhotoProtocolType.Samsung)
+            {
+                await SaveSamsungAsync(frame, item, photoPath);
+                return;
+            }
+
+            // vivo 旧格式双文件（≤X200, JPEG+MP4, vivo JSON 尾标配对）
+            if (item.DetectedProtocol == LivePhotoProtocolType.Vivo
+                && item.LivePhotoType == LivePhotoType.DualFile)
+            {
+                await SaveVivoOldAsync(frame, item, photoPath);
+                return;
+            }
+
+            // Google V2 HEIC（单文件 HEIC 实况照片：HEIC + mpvd box + XMP）
+            // 需要用 heif-enc 生成 HEIC + WriteLivePhotoAsync 的 HEIC 管线
+            if (item.DetectedProtocol == LivePhotoProtocolType.GoogleV2
+                && item.LivePhotoType == LivePhotoType.SingleFileHeic)
+            {
+                await SaveGoogleV2HeicAsync(frame, item, photoPath);
                 return;
             }
 
@@ -1014,7 +1130,9 @@ namespace LivePhotoBox.ViewModels
 
             // ── 2. 先弹出保存对话框，让用户选位置 ────────────────────────
             var photoBaseName = Path.GetFileNameWithoutExtension(photoPath);
-            var suggestedName = $"{photoBaseName}_封面帧{frame.FrameIndex + 1}";
+            var suggestedName = frame.IsOriginalPhoto
+                ? $"{photoBaseName}_原始封面"
+                : $"{photoBaseName}_封面帧{frame.FrameIndex + 1}";
 
             var savedFile = await FilePickerService.PickSaveFileForExportAsync(".JPG", suggestedName);
             if (savedFile == null)
@@ -1032,16 +1150,21 @@ namespace LivePhotoBox.ViewModels
 
             try
             {
-                // ── 4. 检测协议（从 XMP 文本判断） ──────────────────────
-                string metadataText = LivePhotoSplitService.ReadMetadataTextSync(photoPath);
+                // ── 4. 协议选择（直接使用 item.DetectedProtocol） ─────────
+                // item.DetectedProtocol 在文件加载时已由 LivePhotoProtocolDetector.Detect() 检测好，
+                // 属性面板显示的正是这个值。无需重新从 XMP 文本检测。
+                int protocolIndex = item.DetectedProtocol switch
+                {
+                    LivePhotoProtocolType.Fusion => 0,
+                    LivePhotoProtocolType.GoogleV1 => 1,
+                    LivePhotoProtocolType.GoogleV2 => 2,
+                    LivePhotoProtocolType.OPPO => 3,
+                    LivePhotoProtocolType.Vivo => 4,
+                    LivePhotoProtocolType.Samsung => 5,
+                    _ => 2, // default to V2
+                };
 
-                LivePhotoProtocol protocol;
-                if (metadataText.Contains("OpCamera:", StringComparison.Ordinal))
-                    protocol = LivePhotoProtocol.FromIndex(2); // OPPO O-Live Photo
-                else if (metadataText.Contains("GCamera:MicroVideoOffset", StringComparison.Ordinal))
-                    protocol = LivePhotoProtocol.FromIndex(0); // Google MicroVideo V1
-                else
-                    protocol = LivePhotoProtocol.FromIndex(1); // Google Motion Photo V2（兜底）
+                LivePhotoProtocol protocol = LivePhotoProtocol.FromIndex(protocolIndex);
 
                 LogService.FileOp(
                     $"KeyPhoto Save: protocol={protocol.Key}, frame=#{frame.FrameIndex} @ {frame.Timestamp}",
@@ -1090,24 +1213,47 @@ namespace LivePhotoBox.ViewModels
                 long actualVideoSize = new FileInfo(tempVideoPath).Length;
                 LogService.FileOp($"KeyPhoto Save: video extracted ({actualVideoSize} bytes)", LogLevel.Info);
 
-                // ── 9. 构建协议 XMP（含选中帧时间戳）并合成到临时文件 ──
+                // ── 9. 构建输出文件 ─────────────────────────────────────
                 long presentationTimestampUs = (long)(frame.Timestamp.TotalSeconds * 1_000_000);
-                byte[] xmpBytes = protocol.BuildXmpMetadata(actualVideoSize, presentationTimestampUs);
 
-                // 日志：输出生成的 XMP 文本（前 600 字符），便于排查时间戳是否写入
-                string xmpText = System.Text.Encoding.UTF8.GetString(xmpBytes);
-                LogService.FileOp(
-                    $"KeyPhoto Save: XMP generated ({xmpText.Length} chars), " +
-                    $"presentationTimestampUs={presentationTimestampUs}μs (≈{frame.Timestamp.TotalSeconds:F4}s). " +
-                    $"XMP preview: [{xmpText[..Math.Min(xmpText.Length, 600)]}]",
-                    LogLevel.Info);
+                string tempOutputPath;
+                if (protocol is SamsungMotionPhotoProtocol)
+                {
+                    // Samsung 家族协议（Samsung / Fusion）：需要完整管线
+                    // XMP 注入 + Samsung Trailer（SEFH/SEFT）+ OPPO EXIF（Fusion）。
+                    // WriteLivePhotoAsync 根据 protocolIndex 自动路由到正确的 BuildXmpMetadata。
+                    tempOutputPath = Path.Combine(tempWorkDir, "output_samsung.jpg");
+                    await LivePhotoMergeService.WriteLivePhotoAsync(
+                        processedImagePath, tempVideoPath, tempOutputPath,
+                        selectedModeIndex: protocolIndex,
+                        CancellationToken.None,
+                        presentationTimestampUs);
+
+                    LogService.FileOp(
+                        $"KeyPhoto Save: Samsung-family output written via WriteLivePhotoAsync, " +
+                        $"protocol={protocol.Key}, timestampUs={presentationTimestampUs}",
+                        LogLevel.Info);
+                }
+                else
+                {
+                    // 标准协议（V1, V2, OPPO, Vivo standalone）：SOI + APP1 XMP + JPEG + video
+                    byte[] xmpBytes = protocol.BuildXmpMetadata(actualVideoSize, presentationTimestampUs);
+
+                    // 日志：输出生成的 XMP 文本（前 600 字符），便于排查时间戳是否写入
+                    string xmpText = System.Text.Encoding.UTF8.GetString(xmpBytes);
+                    LogService.FileOp(
+                        $"KeyPhoto Save: XMP generated ({xmpText.Length} chars), " +
+                        $"presentationTimestampUs={presentationTimestampUs}μs (≈{frame.Timestamp.TotalSeconds:F4}s). " +
+                        $"XMP preview: [{xmpText[..Math.Min(xmpText.Length, 600)]}]",
+                        LogLevel.Info);
+
+                    tempOutputPath = Path.Combine(tempWorkDir, "output.jpg");
+                    await LivePhotoMergeService.WriteNativeAsync(
+                        processedImagePath, tempVideoPath, tempOutputPath, xmpBytes, CancellationToken.None);
+                }
 
                 // 先写到临时文件，再用 WinRT API 复制到用户选择的路径
                 // （直接 FileMode.Create 写入 FileSavePicker 返回的路径可能会因系统句柄导致 0 字节）
-                string tempOutputPath = Path.Combine(tempWorkDir, "output.jpg");
-                await LivePhotoMergeService.WriteNativeAsync(
-                    processedImagePath, tempVideoPath, tempOutputPath, xmpBytes, CancellationToken.None);
-
                 var tempFile = await StorageFile.GetFileFromPathAsync(tempOutputPath);
                 await tempFile.CopyAndReplaceAsync(savedFile);
 
@@ -1214,6 +1360,792 @@ namespace LivePhotoBox.ViewModels
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// Huawei / Honor Moving Photo 的"设为封面并保存为副本"。
+        ///
+        /// === 整体流程 ===
+        /// 1. 用户选帧 → 提取嵌入 MP4 → 读原尾部 PPP:QQQQ → 构造新尾部
+        /// 2. 帧 JPEG 注入原图 EXIF（exiftool -TagsFromFile --xmp:all）
+        /// 3. HEIC 输出：帧 JPEG → heif-enc → HEIC → InsertTmapBrand → [HEIC] + [MP4] + [tail]
+        /// 4. JPEG 输出：[帧JPEG] + [MP4] + [tail] → exiftool -Make=HUAWEI
+        /// 5. 新尾部：v6_fXX=选中帧、PPP:QQQQ=原始值保留、LIVE_=新MP4字节数+16
+        /// </summary>
+        private async Task SaveHuaweiAsync(TimelineFrame frame, EditFileItem item, string photoPath)
+        {
+            string? tempWorkDir = null;
+            string? targetPath = null;
+            try
+            {
+                // ── 1. 守卫 ──────────────────────────────────────────────
+                if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
+                {
+                    LogService.FileOp("KeyPhoto Save[Huawei]: frame FullFramePath not available", LogLevel.Warning);
+                    return;
+                }
+
+                bool isHeicInput = HeicConverterService.IsHeicFile(photoPath);
+
+                // HEIC 输出需要 heif-enc.exe
+                if (isHeicInput)
+                {
+                    string heifEncPath = Path.Combine(AppContext.BaseDirectory, "Tools", "heif-enc.exe");
+                    if (!File.Exists(heifEncPath))
+                    {
+                        LogService.FileOp("KeyPhoto Save[Huawei]: heif-enc.exe not found", LogLevel.Warning);
+                        return;
+                    }
+                }
+
+                // ── 2. 弹出保存对话框 ───────────────────────────────────
+                string photoBaseName = Path.GetFileNameWithoutExtension(photoPath);
+                string suggestedName = frame.IsOriginalPhoto
+                    ? $"{photoBaseName}_原始封面"
+                    : $"{photoBaseName}_封面帧{frame.FrameIndex + 1}";
+
+                string saveExt = isHeicInput ? ".HEIC" : ".JPG";
+                var savedFile = await FilePickerService.PickSaveFileForExportAsync(
+                    saveExt, suggestedName, jpegOption: isHeicInput);
+                if (savedFile == null)
+                {
+                    LogService.FileOp("KeyPhoto Save[Huawei]: cancelled by user", LogLevel.Info);
+                    return;
+                }
+                targetPath = savedFile.Path;
+                bool isHeicOutput = targetPath.EndsWith(".heic", StringComparison.OrdinalIgnoreCase)
+                                 || targetPath.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[Huawei]: start — frame=#{frame.FrameIndex + 1} @ {frame.Timestamp.TotalSeconds:F3}s, " +
+                    $"target='{targetPath}', heicOut={isHeicOutput}",
+                    LogLevel.Info);
+
+                // ── 3. 显示进度 ──────────────────────────────────────────
+                BeginExportProgress(ResourceService.GetString("EditPage_SaveKeyPhotoInProgress"));
+
+                // ── 4. 读取原文件尾部 PPP:QQQQ ──────────────────────────
+                int originalCoverMs = 0, originalDurationMs = 0;
+                var tailInfo = HuaweiMovingPhotoProtocol.ReadTail(photoPath);
+                if (tailInfo.HasValue)
+                {
+                    originalCoverMs = tailInfo.Value.coverMs;
+                    originalDurationMs = tailInfo.Value.durationMs;
+                    LogService.FileOp(
+                        $"KeyPhoto Save[Huawei]: original tail — coverMs={originalCoverMs}, durationMs={originalDurationMs}",
+                        LogLevel.Info);
+                }
+
+                // ── 5. 创建 temp 工作目录 ────────────────────────────────
+                tempWorkDir = Path.Combine(Path.GetTempPath(), $"lpb_hw_save_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(tempWorkDir);
+
+                // ── 6. 帧 JPEG 注入原图 EXIF ────────────────────────────
+                string workImagePath = Path.Combine(tempWorkDir, $"frame_{Guid.NewGuid():N}.jpg");
+                File.Copy(frame.FullFramePath, workImagePath, overwrite: true);
+
+                await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                    "-TagsFromFile", photoPath,
+                    "-all:all",
+                    "--xmp:all",
+                    "-Orientation=",
+                    "-ExifImageWidth=",
+                    "-ExifImageHeight=",
+                    "-ThumbnailImage=",
+                    "-overwrite_original",
+                    "-quiet",
+                    workImagePath);
+
+                LogService.FileOp("KeyPhoto Save[Huawei]: EXIF copied to frame JPEG", LogLevel.Info);
+
+                // ── 7. 提取嵌入 MP4 ─────────────────────────────────────
+                var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(photoPath);
+                if (range == null)
+                    throw new InvalidDataException("Cannot locate embedded MP4 in Huawei file");
+
+                var (videoStart, videoEnd, videoLength) = range.Value;
+                string tempVideoPath = Path.Combine(tempWorkDir, "video.mp4");
+
+                using (var src = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var dst = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    src.Seek(videoStart, SeekOrigin.Begin);
+                    var buf = new byte[81920];
+                    long remain = videoLength;
+                    while (remain > 0)
+                    {
+                        int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                        if (r == 0) break;
+                        dst.Write(buf, 0, r);
+                        remain -= r;
+                    }
+                }
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[Huawei]: embedded MP4 extracted — {videoLength} bytes",
+                    LogLevel.Info);
+
+                // ── 8. 获取视频总帧数、计算封面帧 ──────────────────────
+                int totalFrames = await LivePhotoMergeService.DetectVideoFrameCountAsync(
+                    tempVideoPath, CancellationToken.None);
+                int coverFrame = frame.FrameIndex; // 0-based timeline frame index
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[Huawei]: coverFrame={coverFrame}, totalFrames={totalFrames}",
+                    LogLevel.Info);
+
+                // ── 9. 构建新尾部 ───────────────────────────────────────
+                long actualVideoSize = new FileInfo(tempVideoPath).Length;
+                byte[] tail = originalDurationMs > 0
+                    ? HuaweiMovingPhotoProtocol.BuildTail(coverFrame, totalFrames, actualVideoSize,
+                        originalCoverMs, originalDurationMs)
+                    : HuaweiMovingPhotoProtocol.BuildTail(coverFrame, totalFrames, actualVideoSize);
+
+                // ── 10. 组装输出文件 ────────────────────────────────────
+                if (isHeicOutput)
+                {
+                    // 帧 JPEG → HEIC（heif-enc）
+                    string tempHeicPath = Path.Combine(tempWorkDir, $"keyframe_{Guid.NewGuid():N}.heic");
+                    string heifEncPath = Path.Combine(AppContext.BaseDirectory, "Tools", "heif-enc.exe");
+
+                    var heifPsi = new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = heifEncPath,
+                        Arguments = $"-o \"{tempHeicPath}\" -q 90 \"{workImagePath}\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    using var heifProc = System.Diagnostics.Process.Start(heifPsi);
+                    if (heifProc == null)
+                        throw new InvalidOperationException("Failed to start heif-enc.exe");
+                    await heifProc.WaitForExitAsync();
+                    if (heifProc.ExitCode != 0 || new FileInfo(tempHeicPath).Length == 0)
+                        throw new InvalidOperationException(
+                            $"heif-enc failed with exit code {heifProc.ExitCode}");
+
+                    // Patch ftyp → 插入 tmap brand
+                    byte[] heicData = await File.ReadAllBytesAsync(tempHeicPath);
+                    byte[] patched = LivePhotoMergeService.InsertTmapBrand(heicData);
+
+                    // 写入: HEIC + MP4 + tail
+                    using (var targetFs = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        await targetFs.WriteAsync(patched, 0, patched.Length);
+                        using var vidFs = new FileStream(tempVideoPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        await vidFs.CopyToAsync(targetFs);
+                        await targetFs.WriteAsync(tail, 0, tail.Length);
+                    }
+
+                    LogService.FileOp(
+                        $"KeyPhoto Save[Huawei]: HEIC written — {patched.Length} + {actualVideoSize} + 60 tail",
+                        LogLevel.Info);
+                }
+                else
+                {
+                    // JPEG 输出: 帧 JPEG + MP4 + tail
+                    using (var targetFs = new FileStream(targetPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        using var imgFs = new FileStream(workImagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        await imgFs.CopyToAsync(targetFs);
+                        using var vidFs = new FileStream(tempVideoPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        await vidFs.CopyToAsync(targetFs);
+                        await targetFs.WriteAsync(tail, 0, tail.Length);
+                    }
+
+                    // 写入 HUAWEI EXIF Make 标记
+                    try
+                    {
+                        await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                            "-overwrite_original", "-Make=HUAWEI", targetPath);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.FileOp(
+                            $"KeyPhoto Save[Huawei]: HUAWEI EXIF Make write failed (non-fatal): {ex.Message}",
+                            LogLevel.Warning);
+                    }
+
+                    LogService.FileOp(
+                        $"KeyPhoto Save[Huawei]: JPEG written with HUAWEI EXIF",
+                        LogLevel.Info);
+                }
+
+                IsModified = false;
+
+                // ── 11. 修改日期为当前时间 ────────────────────────────────
+                try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[Huawei] SUCCESS: {Path.GetFileName(photoPath)} " +
+                    $"frame#{frame.FrameIndex} -> '{targetPath}'",
+                    LogLevel.Info);
+
+                string? outputDir = Path.GetDirectoryName(targetPath);
+                CompleteExportProgress(
+                    ResourceService.GetString("EditPage_SaveKeyPhotoComplete"), outputDir);
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"KeyPhoto Save[Huawei] FAILED: {ex.GetType().Name}: {ex.Message}",
+                    LogLevel.Error, ex);
+
+                try { if (targetPath != null && File.Exists(targetPath)) File.Delete(targetPath); } catch { }
+
+                FailExportProgress(
+                    ResourceService.GetString("EditPage_SaveKeyPhotoFailed"),
+                    $"{ResourceService.GetString("EditPage_SaveError")}: {ex.Message}",
+                    targetPath != null ? Path.GetDirectoryName(targetPath) : null);
+            }
+            finally
+            {
+                FinalizeExportProgress();
+                if (!string.IsNullOrEmpty(tempWorkDir) && Directory.Exists(tempWorkDir))
+                    try { Directory.Delete(tempWorkDir, recursive: true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// Samsung Motion Photo 的"设为封面并保存为副本"。
+        ///
+        /// === 整体流程 ===
+        /// 1. 用 exiftool -b -EmbeddedVideoFile 提取嵌入视频（MotionPhoto_Data tag / mpvd box）
+        /// 2. 帧 JPEG 注入原图 EXIF
+        /// 3. 调用 WriteLivePhotoAsync(protocol=5) → WriteSamsungJpegAsync
+        ///    → 写入 V2 XMP + Samsung Trailer(SEFH/SEFT + MotionPhoto_Data) → 完整三星格式
+        /// </summary>
+        private async Task SaveSamsungAsync(TimelineFrame frame, EditFileItem item, string photoPath, int protocolIndex = 5)
+        {
+            string logTag = protocolIndex switch { 0 => "Fusion", _ => "Samsung" };
+            string? tempWorkDir = null;
+            string? targetPath = null;
+            try
+            {
+                // ── 1. 守卫 ──────────────────────────────────────────────
+                if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
+                {
+                    LogService.FileOp($"KeyPhoto Save[{logTag}]: frame FullFramePath not available", LogLevel.Warning);
+                    return;
+                }
+
+                // ── 2. 弹出保存对话框 ───────────────────────────────────
+                string photoBaseName = Path.GetFileNameWithoutExtension(photoPath);
+                string suggestedName = frame.IsOriginalPhoto
+                    ? $"{photoBaseName}_原始封面"
+                    : $"{photoBaseName}_封面帧{frame.FrameIndex + 1}";
+
+                var savedFile = await FilePickerService.PickSaveFileForExportAsync(
+                    ".JPG", suggestedName, jpegOption: false);
+                if (savedFile == null)
+                {
+                    LogService.FileOp($"KeyPhoto Save[{logTag}]: cancelled by user", LogLevel.Info);
+                    return;
+                }
+                targetPath = savedFile.Path;
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[{logTag}]: start — frame=#{frame.FrameIndex + 1} @ {frame.Timestamp.TotalSeconds:F3}s",
+                    LogLevel.Info);
+
+                // ── 3. 显示进度 ──────────────────────────────────────────
+                BeginExportProgress(ResourceService.GetString("EditPage_SaveKeyPhotoInProgress"));
+
+                // ── 4. 创建 temp 工作目录 ────────────────────────────────
+                tempWorkDir = Path.Combine(Path.GetTempPath(), $"lpb_{logTag.ToLowerInvariant()}_save_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(tempWorkDir);
+
+                // ── 5. 提取嵌入视频（从文件尾部，跟通用 SingleFileJpeg 流程一致） ──
+                // Samsung JPEG: video 在 Samsung Trailer 的 MotionPhoto_Data tag 内。
+                // AppendedVideoLength = trailerSize - 24 (tag header)，即从 tag data 到 EOF。
+                // 提取出的数据 = raw MP4 + 尾部残留（MotionPhoto_Version tag + SEFH/SEFT），
+                // WriteSamsungJpegAsync 会用 BuildTrailer 重新包装成干净的 Trailer。
+                if (item.AppendedVideoLength <= 0)
+                    throw new InvalidDataException("Samsung AppendedVideoLength not available");
+                string tempVideoPath = Path.Combine(tempWorkDir, "video.mp4");
+                var fileSize = new FileInfo(photoPath).Length;
+                long videoOffset = fileSize - item.AppendedVideoLength;
+                using (var src = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var dst = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    src.Seek(videoOffset, SeekOrigin.Begin);
+                    await src.CopyToAsync(dst);
+                }
+
+                if (new FileInfo(tempVideoPath).Length == 0)
+                    throw new InvalidDataException("Cannot extract embedded video from Samsung file");
+
+                long videoSize = new FileInfo(tempVideoPath).Length;
+                LogService.FileOp(
+                    $"KeyPhoto Save[{logTag}]: video extracted — {videoSize} bytes",
+                    LogLevel.Info);
+
+                // ── 6. 帧 JPEG 注入原图 EXIF ────────────────────────────
+                string workImagePath = Path.Combine(tempWorkDir, $"frame_{Guid.NewGuid():N}.jpg");
+                File.Copy(frame.FullFramePath, workImagePath, overwrite: true);
+
+                await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                    "-TagsFromFile", photoPath,
+                    "-all:all",
+                    "--xmp:all",
+                    "-Orientation=",
+                    "-ExifImageWidth=",
+                    "-ExifImageHeight=",
+                    "-ThumbnailImage=",
+                    "-overwrite_original",
+                    "-quiet",
+                    workImagePath);
+
+                LogService.FileOp($"KeyPhoto Save[{logTag}]: EXIF copied to frame JPEG", LogLevel.Info);
+
+                // ── 6.5. 协议特定的图片预处理 ─────────────────────────
+                // Fusion (protocolIndex=0) 需要注入 OPPO oplus_ EXIF 标记，
+                // 以通过 OPPO Gallery 识别。Samsung (protocolIndex=5) 基类 PrepareImageAsync 为 no-op。
+                var resolvedProtocol = LivePhotoProtocol.FromIndex(protocolIndex);
+                string preparedPath = await resolvedProtocol.PrepareImageAsync(
+                    workImagePath, tempWorkDir, CancellationToken.None);
+                if (preparedPath != workImagePath)
+                {
+                    workImagePath = preparedPath;
+                    LogService.FileOp($"KeyPhoto Save[{logTag}]: protocol-specific image preparation done", LogLevel.Info);
+                }
+
+                // ── 7. 调用 WriteLivePhotoAsync（自动路由到 WriteSamsungJpegAsync） ──
+                long presentationTimestampUs = (long)(frame.Timestamp.TotalSeconds * 1_000_000);
+
+                await LivePhotoMergeService.WriteLivePhotoAsync(
+                    workImagePath, tempVideoPath, targetPath,
+                    selectedModeIndex: protocolIndex,
+                    CancellationToken.None,
+                    presentationTimestampUs);
+
+                IsModified = false;
+
+                try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[{logTag}] SUCCESS: {Path.GetFileName(photoPath)} " +
+                    $"frame#{frame.FrameIndex} -> '{targetPath}'",
+                    LogLevel.Info);
+
+                string? outputDir = Path.GetDirectoryName(targetPath);
+                CompleteExportProgress(
+                    ResourceService.GetString("EditPage_SaveKeyPhotoComplete"), outputDir);
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"KeyPhoto Save[{logTag}] FAILED: {ex.GetType().Name}: {ex.Message}",
+                    LogLevel.Error, ex);
+
+                try { if (targetPath != null && File.Exists(targetPath)) File.Delete(targetPath); } catch { }
+
+                FailExportProgress(
+                    ResourceService.GetString("EditPage_SaveKeyPhotoFailed"),
+                    $"{ResourceService.GetString("EditPage_SaveError")}: {ex.Message}",
+                    targetPath != null ? Path.GetDirectoryName(targetPath) : null);
+            }
+            finally
+            {
+                FinalizeExportProgress();
+                if (!string.IsNullOrEmpty(tempWorkDir) && Directory.Exists(tempWorkDir))
+                    try { Directory.Delete(tempWorkDir, recursive: true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// Google V2 HEIC 单文件实况照片的"设为封面并保存为副本"。
+        /// Google HEIC 格式：静态 HEIC 图片 + mpvd box（视频）+ XMP MotionPhoto V2 元数据。
+        /// 与 Samsung HEIC 共享 mpvd box 二进制布局，但 XMP 仅需 GCamera 命名空间。
+        ///
+        /// === 整体流程 ===
+        /// 1. 从原始 HEIC 的 mpvd box 提取嵌入视频
+        /// 2. 帧 JPEG → heif-enc → HEIC（新封面图 + 原始 EXIF）
+        /// 3. WriteLivePhotoAsync(V2 HEIC + video) → 输出
+        /// </summary>
+        private async Task SaveGoogleV2HeicAsync(TimelineFrame frame, EditFileItem item, string photoPath)
+        {
+            string? tempWorkDir = null;
+            string? targetPath = null;
+            try
+            {
+                if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
+                {
+                    LogService.FileOp("KeyPhoto Save[V2-Heic]: frame FullFramePath not available", LogLevel.Warning);
+                    return;
+                }
+
+                string photoBaseName = Path.GetFileNameWithoutExtension(photoPath);
+                string suggestedName = frame.IsOriginalPhoto
+                    ? $"{photoBaseName}_原始封面"
+                    : $"{photoBaseName}_封面帧{frame.FrameIndex + 1}";
+
+                var savedFile = await FilePickerService.PickSaveFileForExportAsync(
+                    ".HEIC", suggestedName, jpegOption: false);
+                if (savedFile == null)
+                {
+                    LogService.FileOp("KeyPhoto Save[V2-Heic]: cancelled by user", LogLevel.Info);
+                    return;
+                }
+                targetPath = savedFile.Path;
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[V2-Heic]: start — frame=#{frame.FrameIndex + 1} @ {frame.Timestamp.TotalSeconds:F3}s",
+                    LogLevel.Info);
+
+                BeginExportProgress(ResourceService.GetString("EditPage_SaveKeyPhotoInProgress"));
+
+                tempWorkDir = Path.Combine(Path.GetTempPath(), $"lpb_v2heic_save_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(tempWorkDir);
+
+                // ── 从 mpvd box 提取嵌入视频 ──────────────────────────────
+                var videoRange = GetMpvdVideoRange(photoPath);
+                if (videoRange == null)
+                    throw new InvalidDataException("Cannot locate mpvd box / embedded video in Google HEIC file");
+
+                var (videoStart, videoLength) = videoRange.Value;
+                string tempVideoPath = Path.Combine(tempWorkDir, "video.mp4");
+
+                using (var src = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var dst = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    src.Seek(videoStart, SeekOrigin.Begin);
+                    var buf = new byte[81920];
+                    long remain = videoLength;
+                    while (remain > 0)
+                    {
+                        int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                        if (r == 0) break;
+                        dst.Write(buf, 0, r);
+                        remain -= r;
+                    }
+                }
+
+                long videoSize = new FileInfo(tempVideoPath).Length;
+                LogService.FileOp(
+                    $"KeyPhoto Save[V2-Heic]: video extracted — {videoSize} bytes",
+                    LogLevel.Info);
+
+                // ── 帧 JPEG 注入原图 EXIF ───────────────────────────────
+                string workImagePath = Path.Combine(tempWorkDir, $"frame_{Guid.NewGuid():N}.jpg");
+                File.Copy(frame.FullFramePath, workImagePath, overwrite: true);
+
+                await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                    "-TagsFromFile", photoPath,
+                    "-all:all",
+                    "--xmp:all",
+                    "-Orientation=",
+                    "-ExifImageWidth=",
+                    "-ExifImageHeight=",
+                    "-ThumbnailImage=",
+                    "-overwrite_original",
+                    "-quiet",
+                    workImagePath);
+
+                LogService.FileOp("KeyPhoto Save[V2-Heic]: EXIF copied to frame JPEG", LogLevel.Info);
+
+                // ── heif-enc: JPEG → HEIC ────────────────────────────────
+                string frameHeicPath = Path.Combine(tempWorkDir, $"keyframe_{Guid.NewGuid():N}.heic");
+                string heifEncPath = Path.Combine(AppContext.BaseDirectory, "Tools", "heif-enc.exe");
+
+                if (!File.Exists(heifEncPath))
+                    throw new InvalidOperationException("heif-enc.exe not found");
+
+                var heifPsi = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = heifEncPath,
+                    Arguments = $"-o \"{frameHeicPath}\" -q 90 \"{workImagePath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                using var heifProc = System.Diagnostics.Process.Start(heifPsi);
+                if (heifProc == null)
+                    throw new InvalidOperationException("Failed to start heif-enc.exe");
+                await heifProc.WaitForExitAsync();
+                if (heifProc.ExitCode != 0 || new FileInfo(frameHeicPath).Length == 0)
+                    throw new InvalidOperationException($"heif-enc failed (exit {heifProc.ExitCode})");
+
+                LogService.FileOp("KeyPhoto Save[V2-Heic]: frame JPEG converted to HEIC", LogLevel.Info);
+
+                // ── heif-enc 不保留 EXIF，手动从 enriched JPEG 拷贝 ──
+                // WriteHeicNativeAsync 会注入新的 XMP，此处拷贝全部 EXIF 但排除 XMP
+                await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                    "-TagsFromFile", workImagePath,
+                    "-all:all",
+                    "--xmp:all",
+                    "-Orientation=",
+                    "-ExifImageWidth=",
+                    "-ExifImageHeight=",
+                    "-ThumbnailImage=",
+                    "-overwrite_original",
+                    "-quiet",
+                    frameHeicPath);
+                LogService.FileOp("KeyPhoto Save[V2-Heic]: EXIF copied to HEIC", LogLevel.Info);
+
+                // ── 调用 WriteLivePhotoAsync ──
+                // V2 HEIC → is HEIC + is MotionPhotoV2Protocol
+                // → WriteHeicNativeAsync（exiftool 注入 XMP + mpvd box video）
+                long presentationTimestampUs = (long)(frame.Timestamp.TotalSeconds * 1_000_000);
+
+                await LivePhotoMergeService.WriteLivePhotoAsync(
+                    frameHeicPath, tempVideoPath, targetPath,
+                    selectedModeIndex: 2,
+                    CancellationToken.None,
+                    presentationTimestampUs);
+
+                IsModified = false;
+                try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[V2-Heic] SUCCESS: {Path.GetFileName(photoPath)} " +
+                    $"frame#{frame.FrameIndex} -> '{targetPath}'",
+                    LogLevel.Info);
+
+                string? outputDir = Path.GetDirectoryName(targetPath);
+                CompleteExportProgress(
+                    ResourceService.GetString("EditPage_SaveKeyPhotoComplete"), outputDir);
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"KeyPhoto Save[V2-Heic] FAILED: {ex.GetType().Name}: {ex.Message}",
+                    LogLevel.Error, ex);
+                try { if (targetPath != null && File.Exists(targetPath)) File.Delete(targetPath); } catch { }
+                FailExportProgress(
+                    ResourceService.GetString("EditPage_SaveKeyPhotoFailed"),
+                    $"{ResourceService.GetString("EditPage_SaveError")}: {ex.Message}",
+                    targetPath != null ? Path.GetDirectoryName(targetPath) : null);
+            }
+            finally
+            {
+                FinalizeExportProgress();
+                if (!string.IsNullOrEmpty(tempWorkDir) && Directory.Exists(tempWorkDir))
+                    try { Directory.Delete(tempWorkDir, recursive: true); } catch { }
+            }
+        }
+
+        /// <summary>
+        /// 从 HEIC 文件的 mpvd box 中定位嵌入视频的字节范围。
+        /// 返回 (videoStart, videoLength) 或 null。
+        /// </summary>
+        private static (long videoStart, long videoLength)? GetMpvdVideoRange(string heicPath)
+        {
+            byte[] data;
+            try { data = File.ReadAllBytes(heicPath); }
+            catch { return null; }
+
+            for (int i = 0; i < data.Length - 8; i++)
+            {
+                if (data[i] == 'm' && data[i + 1] == 'p' &&
+                    data[i + 2] == 'v' && data[i + 3] == 'd')
+                {
+                    if (i < 4) continue;
+                    uint boxSize = (uint)(data[i - 4] << 24 | data[i - 3] << 16 |
+                                          data[i - 2] << 8 | data[i - 1]);
+                    long payloadStart = i + 4;
+                    long boxEnd = i - 4 + boxSize;
+                    if (boxEnd > data.Length) boxEnd = data.Length;
+
+                    long videoEnd = boxEnd;
+                    for (int j = (int)payloadStart; j < Math.Min(boxEnd, data.Length - 4); j++)
+                    {
+                        if (data[j] == 's' && data[j + 1] == 'e' &&
+                            data[j + 2] == 'f' && data[j + 3] == 'd')
+                        {
+                            if (j >= 4) videoEnd = j - 4;
+                            break;
+                        }
+                    }
+
+                    long videoLength = videoEnd - payloadStart;
+                    if (videoLength > 0)
+                        return (payloadStart, videoLength);
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// vivo 旧格式双文件实况照片（≤X200, JPEG+MP4）的"设为封面并保存为副本"。
+        ///
+        /// === 整体流程 ===
+        /// 1. 帧 JPEG 替换原 JPEG → 注入原图 EXIF → 追加 vivo JSON 尾标
+        /// 2. 原 MP4 静默复制到同目录（保持 com.android.camera.livephoto 配对）
+        /// 3. vivo JSON 尾标中的配对 ID 保持不变，vivo 相册通过文件名 + vivo ID 识别配对
+        /// </summary>
+        private async Task SaveVivoOldAsync(TimelineFrame frame, EditFileItem item, string photoPath)
+        {
+            string? tempWorkDir = null;
+            string? targetJpgPath = null;
+            try
+            {
+                // ── 1. 守卫 ──────────────────────────────────────────────
+                if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
+                {
+                    LogService.FileOp("KeyPhoto Save[vivo-old]: frame FullFramePath not available", LogLevel.Warning);
+                    return;
+                }
+
+                string? pairedVideoPath = item.PairedVideoPath;
+                if (string.IsNullOrEmpty(pairedVideoPath) || !File.Exists(pairedVideoPath))
+                {
+                    LogService.FileOp("KeyPhoto Save[vivo-old]: paired MP4 not found", LogLevel.Warning);
+                    return;
+                }
+
+                // ── 2. 弹出保存对话框 ───────────────────────────────────
+                string photoBaseName = Path.GetFileNameWithoutExtension(photoPath);
+                string suggestedName = frame.IsOriginalPhoto
+                    ? $"{photoBaseName}_原始封面"
+                    : $"{photoBaseName}_封面帧{frame.FrameIndex + 1}";
+
+                var savedFile = await FilePickerService.PickSaveFileForExportAsync(
+                    ".JPG", suggestedName, jpegOption: false);
+                if (savedFile == null)
+                {
+                    LogService.FileOp("KeyPhoto Save[vivo-old]: cancelled by user", LogLevel.Info);
+                    return;
+                }
+                targetJpgPath = savedFile.Path;
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[vivo-old]: start — frame=#{frame.FrameIndex + 1} @ {frame.Timestamp.TotalSeconds:F3}s",
+                    LogLevel.Info);
+
+                // ── 3. 显示进度 ──────────────────────────────────────────
+                BeginExportProgress(ResourceService.GetString("EditPage_SaveKeyPhotoInProgress"));
+
+                // ── 4. 创建 temp 工作目录 ────────────────────────────────
+                tempWorkDir = Path.Combine(Path.GetTempPath(), $"lpb_vivo_save_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(tempWorkDir);
+
+                // ── 5. 读原始 vivo JSON 尾标 ────────────────────────────
+                byte[]? vivoTail = null;
+                try
+                {
+                    // vivo 尾标格式: vivo{...JSON...}cameralbum!
+                    // 位于 JPEG 文件末尾，cameralbum! 之后无额外数据
+                    const int tailProbe = 8192;
+                    using var srcFs = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    int probeSize = (int)Math.Min(srcFs.Length, tailProbe);
+                    byte[] probe = new byte[probeSize];
+                    srcFs.Seek(-probeSize, SeekOrigin.End);
+                    srcFs.ReadExactly(probe, 0, probeSize);
+
+                    // 从后往前搜 "vivo{"
+                    int vivoIdx = -1;
+                    for (int i = probeSize - 6; i >= 0; i--)
+                    {
+                        if (probe[i] == 'v' && probe[i + 1] == 'i'
+                            && probe[i + 2] == 'v' && probe[i + 3] == 'o'
+                            && probe[i + 4] == '{')
+                        { vivoIdx = i; break; }
+                    }
+
+                    if (vivoIdx >= 0)
+                    {
+                        // 搜 "cameralbum!" 结尾
+                        byte[] endMarker = "cameralbum!"u8.ToArray();
+                        int endIdx = -1;
+                        for (int i = vivoIdx; i <= probeSize - endMarker.Length; i++)
+                        {
+                            bool match = true;
+                            for (int j = 0; j < endMarker.Length; j++)
+                            {
+                                if (probe[i + j] != endMarker[j]) { match = false; break; }
+                            }
+                            if (match) { endIdx = i + endMarker.Length; break; }
+                        }
+
+                        if (endIdx > vivoIdx)
+                        {
+                            int tailLen = endIdx - vivoIdx;
+                            vivoTail = new byte[tailLen];
+                            Array.Copy(probe, vivoIdx, vivoTail, 0, tailLen);
+                            LogService.FileOp(
+                                $"KeyPhoto Save[vivo-old]: vivo tail extracted — {tailLen} bytes",
+                                LogLevel.Info);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp(
+                        $"KeyPhoto Save[vivo-old]: vivo tail read failed (non-fatal): {ex.Message}",
+                        LogLevel.Warning);
+                }
+
+                // ── 6. 帧 JPEG 注入原图 EXIF ────────────────────────────
+                string tempJpgPath = Path.Combine(tempWorkDir, $"frame_{Guid.NewGuid():N}.jpg");
+                File.Copy(frame.FullFramePath, tempJpgPath, overwrite: true);
+
+                await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
+                    "-TagsFromFile", photoPath,
+                    "-all:all",
+                    "--xmp:all",
+                    "-Orientation=",
+                    "-ExifImageWidth=",
+                    "-ExifImageHeight=",
+                    "-ThumbnailImage=",
+                    "-overwrite_original",
+                    "-quiet",
+                    tempJpgPath);
+
+                LogService.FileOp("KeyPhoto Save[vivo-old]: EXIF copied to frame JPEG", LogLevel.Info);
+
+                // ── 7. 追加 vivo 尾标到新 JPEG ───────────────────────────
+                if (vivoTail != null && vivoTail.Length > 0)
+                {
+                    using var dstFs = new FileStream(tempJpgPath, FileMode.Append, FileAccess.Write, FileShare.None);
+                    await dstFs.WriteAsync(vivoTail, 0, vivoTail.Length);
+                    LogService.FileOp("KeyPhoto Save[vivo-old]: vivo tail appended to new JPEG", LogLevel.Info);
+                }
+
+                // ── 8. 复制新 JPEG 到用户选择的位置 ──────────────────────
+                var tempFile = await StorageFile.GetFileFromPathAsync(tempJpgPath);
+                await tempFile.CopyAndReplaceAsync(savedFile);
+
+                // ── 9. 静默复制配对 MP4 到同目录 ─────────────────────────
+                string outputDir = Path.GetDirectoryName(targetJpgPath)!;
+                string targetBaseName = Path.GetFileNameWithoutExtension(targetJpgPath);
+                string targetMovPath = Path.Combine(outputDir, targetBaseName + ".MP4");
+
+                File.Copy(pairedVideoPath, targetMovPath, overwrite: true);
+                LogService.FileOp(
+                    $"KeyPhoto Save[vivo-old]: paired MP4 copied → '{Path.GetFileName(targetMovPath)}'",
+                    LogLevel.Info);
+
+                // ── 10. 修改日期 ─────────────────────────────────────────
+                try { File.SetLastWriteTime(targetJpgPath, DateTime.Now); } catch { }
+
+                IsModified = false;
+
+                LogService.FileOp(
+                    $"KeyPhoto Save[vivo-old] SUCCESS: {Path.GetFileName(photoPath)} " +
+                    $"frame#{frame.FrameIndex} -> '{targetJpgPath}' (+ '{Path.GetFileName(targetMovPath)}')",
+                    LogLevel.Info);
+
+                CompleteExportProgress(
+                    ResourceService.GetString("EditPage_SaveKeyPhotoComplete"), outputDir);
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"KeyPhoto Save[vivo-old] FAILED: {ex.GetType().Name}: {ex.Message}",
+                    LogLevel.Error, ex);
+
+                try { if (targetJpgPath != null && File.Exists(targetJpgPath)) File.Delete(targetJpgPath); } catch { }
+
+                FailExportProgress(
+                    ResourceService.GetString("EditPage_SaveKeyPhotoFailed"),
+                    $"{ResourceService.GetString("EditPage_SaveError")}: {ex.Message}",
+                    targetJpgPath != null ? Path.GetDirectoryName(targetJpgPath) : null);
+            }
+            finally
+            {
+                FinalizeExportProgress();
+                if (!string.IsNullOrEmpty(tempWorkDir) && Directory.Exists(tempWorkDir))
+                    try { Directory.Delete(tempWorkDir, recursive: true); } catch { }
             }
         }
 
@@ -1664,11 +2596,33 @@ namespace LivePhotoBox.ViewModels
 
             // 1. 确定源文件路径
             string sourcePath;
-            if (frame.IsStillPhoto)
+            if (frame.IsStillPhoto || frame.IsOriginalPhoto)
             {
-                var photoPath = SelectedFilePath;
-                if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath)) return;
-                sourcePath = photoPath;
+                // 封面帧 ⭐ 和原始帧 🖼 都使用其专属的源路径（FullFramePath 或原文件）
+                if (frame.IsOriginalPhoto)
+                {
+                    if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
+                    {
+                        // 回退：从容器重新提取 Original JPEG
+                        var photoPath = SelectedFilePath;
+                        if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath)) return;
+                        byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(photoPath);
+                        if (origBytes == null || origBytes.Length == 0) return;
+                        string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_orig_export_{Guid.NewGuid():N}.jpg");
+                        await File.WriteAllBytesAsync(tempPath, origBytes);
+                        sourcePath = tempPath;
+                    }
+                    else
+                    {
+                        sourcePath = frame.FullFramePath;
+                    }
+                }
+                else
+                {
+                    var photoPath = SelectedFilePath;
+                    if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath)) return;
+                    sourcePath = photoPath;
+                }
             }
             else
             {
@@ -1681,7 +2635,9 @@ namespace LivePhotoBox.ViewModels
             var photoBaseName = Path.GetFileNameWithoutExtension(SelectedFilePath ?? "photo");
             var suggestedName = frame.IsStillPhoto
                 ? photoBaseName
-                : $"{photoBaseName}_帧{frame.FrameIndex + 1}";
+                : frame.IsOriginalPhoto
+                    ? $"{photoBaseName}_原始帧"
+                    : $"{photoBaseName}_帧{frame.FrameIndex + 1}";
 
             // 3. 弹出多格式另存为窗口
             var targetFile = await FilePickerService.PickSaveFileForExportMultiFormatAsync(suggestedName);
@@ -2255,8 +3211,36 @@ namespace LivePhotoBox.ViewModels
 
                 // 1. 确定源文件路径
                 string sourcePath;
-                if (frame.IsStillPhoto)
-                    sourcePath = photoPath;
+                if (frame.IsStillPhoto || frame.IsOriginalPhoto)
+                {
+                    if (frame.IsOriginalPhoto)
+                    {
+                        if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
+                        {
+                            byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(photoPath);
+                            if (origBytes == null || origBytes.Length == 0)
+                            {
+                                Interlocked.Increment(ref counters.Fail);
+                                LogService.FileOp(
+                                    "ExportAllFrames: 🖼 original photo bytes unavailable",
+                                    LogLevel.Warning);
+                                return;
+                            }
+                            string tempPath = Path.Combine(Path.GetTempPath(),
+                                $"lpb_orig_export_{Guid.NewGuid():N}.jpg");
+                            await File.WriteAllBytesAsync(tempPath, origBytes, token);
+                            sourcePath = tempPath;
+                        }
+                        else
+                        {
+                            sourcePath = frame.FullFramePath;
+                        }
+                    }
+                    else
+                    {
+                        sourcePath = photoPath;
+                    }
+                }
                 else
                 {
                     if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
@@ -2273,7 +3257,9 @@ namespace LivePhotoBox.ViewModels
                 // 2. 生成输出文件名（使用选择的格式扩展名）
                 var fileName = frame.IsStillPhoto
                     ? $"{photoBaseName}{formatExtension}"
-                    : $"{photoBaseName}_帧{frame.FrameIndex + 1}{formatExtension}";
+                    : frame.IsOriginalPhoto
+                        ? $"{photoBaseName}_原始帧{formatExtension}"
+                        : $"{photoBaseName}_帧{frame.FrameIndex + 1}{formatExtension}";
 
                 // 3. 原子性预留不冲突的文件路径
                 var targetPath = PathHelper.GetUniqueFilePath(exportDir, fileName);
@@ -2304,7 +3290,7 @@ namespace LivePhotoBox.ViewModels
             {
                 Interlocked.Increment(ref counters.Fail);
                 LogService.FileOp(
-                    $"ExportAllFrames: frame {(frame.IsStillPhoto ? "⭐" : $"#{frame.FrameIndex + 1}")} FAILED: {ex.Message}",
+                    $"ExportAllFrames: frame {(frame.IsOriginalPhoto ? "🖼" : frame.IsStillPhoto ? "⭐" : $"#{frame.FrameIndex + 1}")} FAILED: {ex.Message}",
                     LogLevel.Error, ex);
             }
             finally
@@ -2827,6 +3813,23 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        /// <summary>
+        /// 前往原始封面 🖼：滚动到原始封面帧（IsOriginalPhoto=true）。
+        /// 仅在 OPPO 换过封面（存在原始帧）时可见。
+        /// </summary>
+        [RelayCommand]
+        private void GoToOriginalPhoto()
+        {
+            var origFrame = TimelineFrames.FirstOrDefault(f => f.IsOriginalPhoto);
+            if (origFrame != null)
+            {
+                SelectTimelineFrameProgrammatically(origFrame);
+            }
+        }
+
+        /// <summary>时间轴中是否存在原始封面帧 🖼（OPPO 换过封面时）</summary>
+        public bool HasOriginalPhotoFrame => TimelineFrames.Any(f => f.IsOriginalPhoto);
+
         [RelayCommand] private void BrowseFolder() { }
 
 
@@ -2841,8 +3844,6 @@ namespace LivePhotoBox.ViewModels
         private long _lastGeoRequestTicks;
         private const long GeoCooldownTicks = 5_000_000; // 0.5 秒，Mirror Earth 限速 ~1/s
         private CancellationTokenSource? _geoCts;
-        private int _geoFailureCount; // 连续失败计数，>= 3 次停止重试
-
         /// <summary>View 层选中变更时调用，异步加载 EXIF 元数据填充信息面板</summary>
         public void SelectFile(string? filePath)
         {
@@ -2853,7 +3854,6 @@ namespace LivePhotoBox.ViewModels
             _propLoadCts?.Dispose();
             _propLoadCts = null;
             _geoCts?.Cancel();
-            _geoFailureCount = 0; // 换文件时重置失败计数
             _timelineCts?.Cancel();
             _timelineDebounceCts?.Cancel();
             _earlyFfmpegCts?.Cancel();
@@ -3146,6 +4146,112 @@ namespace LivePhotoBox.ViewModels
                     return;
                 }
 
+                // 华为实况照片：视频嵌在文件中间（非尾部），需特殊提取
+                // 华为没有 XMP，embeddedVideoLen 始终为 0。先读文件尾检查是否有 LIVE_ 标记。
+                if (videoPath == null && embeddedVideoLen == 0)
+                {
+                    bool isHuawei = false;
+                    try
+                    {
+                        using var probeFs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        if (probeFs.Length > 60)
+                        {
+                            probeFs.Seek(-60, SeekOrigin.End);
+                            byte[] tail = new byte[60];
+                            probeFs.ReadExactly(tail, 0, 60);
+                            // Check for LIVE_ marker
+                            for (int i = 0; i <= 55; i++)
+                            {
+                                if (tail[i] == 'L' && tail[i + 1] == 'I' && tail[i + 2] == 'V'
+                                    && tail[i + 3] == 'E' && tail[i + 4] == '_')
+                                { isHuawei = true; break; }
+                            }
+                        }
+                    }
+                    catch { /* best-effort */ }
+
+                    if (isHuawei)
+                    {
+                        LogService.FileOp(
+                            $"Timeline[LoadProps] Extracting HUAWEI embedded video from '{Path.GetFileName(imagePath)}'",
+                            LogLevel.Info);
+                        tempVideoPath = Path.Combine(Path.GetTempPath(), $"lpb_vid_{Guid.NewGuid():N}.mp4");
+                        await Task.Run(() =>
+                        {
+                            var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(imagePath);
+                            if (range == null)
+                                throw new InvalidDataException("HUAWEI: cannot locate embedded MP4 (moov/ftyp not found)");
+
+                            var (videoStart, videoEnd, videoLen) = range.Value;
+                            // Streaming extraction from middle of file
+                            using var src = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                            src.Seek(videoStart, SeekOrigin.Begin);
+                            using var dst = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                            var buf = new byte[81920];
+                            long remain = videoLen;
+                            while (remain > 0)
+                            {
+                                int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                                if (r == 0) break;
+                                dst.Write(buf, 0, r);
+                                remain -= r;
+                            }
+                        }, token);
+                        videoPath = tempVideoPath;
+                        LogService.FileOp(
+                            $"HUAWEI video extracted: size={new FileInfo(tempVideoPath).Length} bytes",
+                            LogLevel.Info);
+                    }
+
+                    // Google V2 HEIC（mpvd box 内嵌视频）：没有 LIVE_ 尾标也不是华为格式，
+                    // 但 mpvd box 包含完整 MP4。用 GetMpvdVideoRange 提取。
+                    if (!isHuawei && videoPath == null
+                        && HeicConverterService.IsHeicFile(imagePath))
+                    {
+                        try
+                        {
+                            var mpvdRange = GetMpvdVideoRange(imagePath);
+                            if (mpvdRange != null)
+                            {
+                                var (mpvdStart, mpvdLen) = mpvdRange.Value;
+                                LogService.FileOp(
+                                    $"Timeline[LoadProps] Extracting Google V2 HEIC video via mpvd box " +
+                                    $"(offset={mpvdStart}, len={mpvdLen}) from '{Path.GetFileName(imagePath)}'",
+                                    LogLevel.Info);
+                                tempVideoPath = Path.Combine(
+                                    Path.GetTempPath(), $"lpb_vid_{Guid.NewGuid():N}.mp4");
+                                await Task.Run(() =>
+                                {
+                                    using var src = new FileStream(
+                                        imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                                    src.Seek(mpvdStart, SeekOrigin.Begin);
+                                    using var dst = new FileStream(
+                                        tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None);
+                                    var buf = new byte[81920];
+                                    long remain = mpvdLen;
+                                    while (remain > 0)
+                                    {
+                                        int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                                        if (r == 0) break;
+                                        dst.Write(buf, 0, r);
+                                        remain -= r;
+                                    }
+                                }, token);
+                                videoPath = tempVideoPath;
+                                LogService.FileOp(
+                                    $"Google V2 HEIC video extracted: size={new FileInfo(tempVideoPath).Length} bytes",
+                                    LogLevel.Info);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.FileOp(
+                                $"Google V2 HEIC video extraction failed: {ex.Message}",
+                                LogLevel.Warning);
+                        }
+                    }
+                }
+
                 // 单文件实况照片：从 JPEG 尾部提取视频段到临时文件
                 if (videoPath == null && embeddedVideoLen > 0)
                 {
@@ -3197,8 +4303,12 @@ namespace LivePhotoBox.ViewModels
                         "-VideoFrameRate", "-PosterTime", "-Duration", videoPath)
                     : Task.FromResult(string.Empty);
 
-                // Apple 查询使用独立 exiftool 进程，可与其他查询真正并行
-                var appleTask = (!string.IsNullOrEmpty(videoPath))
+                // Apple StillImageTime 查询 — 仅对 Apple Live Photo (.mov) 有意义
+                // Google V2 / Samsung / Huawei HEIC 提取出的 MP4 视频不应走此路径：
+                // ReadAppleStillImageTime 在普通 MP4 上会错误地返回视频总时长，
+                // 覆盖正确读到的 MotionPhotoPresentationTimestampUs。
+                var appleTask = (!string.IsNullOrEmpty(videoPath) &&
+                                 videoPath.EndsWith(".mov", StringComparison.OrdinalIgnoreCase))
                     ? Task.Run(() => EditTimingService.ReadAppleStillImageTime(videoPath))
                     : Task.FromResult<double?>(null);
 
@@ -3258,15 +4368,81 @@ namespace LivePhotoBox.ViewModels
 
                 // 计算关键帧时间偏移（各协议标签，纯 CPU 计算）
                 double keyPhotoTimeSeconds = 0;
+                // 跟踪是否从协议中成功读取了封面位置（即使值为 0）。
+                // 用于阻止兜底逻辑覆盖合法的 0（如 Huawei v6_f0 / Samsung 封面）。
+                bool coverFromProtocol = false;
                 if (imgProps.MotionPhotoPresentationTimestampUs > 0)
+                {
                     keyPhotoTimeSeconds = imgProps.MotionPhotoPresentationTimestampUs / 1_000_000.0;
+                    coverFromProtocol = true;
+                }
                 else if (imgProps.MicroVideoPresentationTimestampUs > 0)
+                {
                     keyPhotoTimeSeconds = imgProps.MicroVideoPresentationTimestampUs / 1_000_000.0;
+                    coverFromProtocol = true;
+                }
                 else if (!string.IsNullOrWhiteSpace(vidProps.PosterTime))
+                {
                     keyPhotoTimeSeconds = ParseExifDuration(vidProps.PosterTime);
+                    coverFromProtocol = true;
+                }
 
-                if (keyPhotoTimeSeconds <= 0 && durSec > 0)
-                    keyPhotoTimeSeconds = durSec / 2.0;
+                // 视频 FPS 解析（提前，供 Huawei/Samsung 等无 XMP 协议使用）
+                double fps = double.TryParse(vidProps.VideoFrameRate,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var f)
+                    ? f : 30.0;
+
+                // Huawei / Honor Moving Photo — 封面帧位置从 v6_fXX 尾部字段读取
+                // 华为/荣耀没有 XMP 时间戳，封面帧序号存在文件尾 60B 的 v6_fXX 字段
+                // 必须在 midpoint 兜底之前执行，否则 keyPhotoTimeSeconds 已被覆盖为 durSec/2
+                if (keyPhotoTimeSeconds <= 0 && embeddedVideoLen <= 0)
+                {
+                    int? hwFrame = EditTimingService.ReadHuaweiCoverFrameNumber(imagePath);
+                    if (hwFrame.HasValue && fps > 0)
+                    {
+                        double hwTime = hwFrame.Value / fps;
+                        LogService.FileOp(
+                            $"Timeline[LoadProps] KeyPhoto from HUAWEI/Honor tail v6_f{hwFrame.Value}: " +
+                            $"{hwTime:F4}s (fps={fps:F2})",
+                            LogLevel.Info);
+                        keyPhotoTimeSeconds = hwTime;
+                        coverFromProtocol = true;
+                    }
+                }
+
+                // Samsung Motion Photo — 三星相册完全不读 XMP，只读 Trailer
+                // 封面帧 = JPEG 静态图本身 = 视频 frame 0
+                if (keyPhotoTimeSeconds <= 0)
+                {
+                    bool isSamsung = false;
+                    try
+                    {
+                        using var probeFs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                        if (probeFs.Length > 4096)
+                        {
+                            probeFs.Seek(-4096, SeekOrigin.End);
+                            byte[] tailBytes = new byte[4096];
+                            probeFs.ReadExactly(tailBytes, 0, 4096);
+                            isSamsung = ContainsBytes(tailBytes, "SEFH"u8)
+                                     && ContainsBytes(tailBytes, "SEFT"u8);
+                        }
+                    }
+                    catch { }
+                    if (isSamsung)
+                    {
+                        LogService.FileOp(
+                            $"Timeline[LoadProps] Samsung: cover = still image (frame 0)",
+                            LogLevel.Info);
+                        keyPhotoTimeSeconds = 0;
+                        coverFromProtocol = true;
+                    }
+                }
+
+                // 兜底：所有协议都未能确定封面位置时，默认放到视频开头（frame 0）
+                // 而非中间，避免误导用户以为封面帧在某个实际不是的位置。
+                if (!coverFromProtocol && keyPhotoTimeSeconds <= 0 && durSec > 0)
+                    keyPhotoTimeSeconds = 0;
 
                 // Apple MOV StillImageTime — 已与 PersistentExifTool 并行执行，直接取结果
                 double? appleTime = appleTask.Result;
@@ -3289,12 +4465,6 @@ namespace LivePhotoBox.ViewModels
                 byte[]? originalPhotoBytes = null;
                 if (timing.HasOriginalPhoto)
                     originalPhotoBytes = EditTimingService.ReadOriginalPhotoBytes(imagePath);
-
-                // 视频 FPS 解析
-                double fps = double.TryParse(vidProps.VideoFrameRate,
-                    System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture, out var f)
-                    ? f : 30.0;
 
                 // 视频路径确认（单文件实况 → 临时视频，双文件 → 配对视频）
                 string? actualVideoPath = tempVideoPath ?? videoPath;
@@ -3332,7 +4502,8 @@ namespace LivePhotoBox.ViewModels
                             TriggerTimelineExtractionDebounced(actualVideoPath!, durSec, fps,
                                 timing.PhotoTimeSeconds, timing.CoverTimeSeconds,
                                 generation,
-                                originalPhotoBytes);
+                                originalPhotoBytes,
+                                timing.IsOppo);
                         }
                         else
                         {
@@ -3442,7 +4613,7 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         private void TriggerTimelineExtractionDebounced(string videoPath, double durationSeconds,
             double fps, double photoTimeSeconds, double coverTimeSeconds,
-            int generation, byte[]? originalPhotoBytes)
+            int generation, byte[]? originalPhotoBytes, bool isOppo = false)
         {
             _timelineDebounceCts?.Cancel();
             _timelineDebounceCts = new CancellationTokenSource();
@@ -3452,7 +4623,7 @@ namespace LivePhotoBox.ViewModels
             {
                 // 首次点击：直接启动，零延迟
                 TriggerTimelineExtraction(videoPath, durationSeconds, fps,
-                    photoTimeSeconds, coverTimeSeconds, generation, originalPhotoBytes);
+                    photoTimeSeconds, coverTimeSeconds, generation, originalPhotoBytes, isOppo);
 
                 // 预设 200ms 后解除武装，期间的新点击会走防抖路径
                 _ = Task.Run(async () =>
@@ -3473,7 +4644,7 @@ namespace LivePhotoBox.ViewModels
                     if (generation != Volatile.Read(ref _selectionGeneration))
                         return;
                     TriggerTimelineExtraction(videoPath, durationSeconds, fps,
-                        photoTimeSeconds, coverTimeSeconds, generation, originalPhotoBytes);
+                        photoTimeSeconds, coverTimeSeconds, generation, originalPhotoBytes, isOppo);
                 }
                 catch (OperationCanceledException)
                 {
@@ -3499,13 +4670,14 @@ namespace LivePhotoBox.ViewModels
         {
             // 兼容旧调用（没传 photo/cover 时，两者都等于 keyPhotoTimeSeconds）
             TriggerTimelineExtraction(videoPath, durationSeconds, fps,
-                keyPhotoTimeSeconds, keyPhotoTimeSeconds, generation);
+                keyPhotoTimeSeconds, keyPhotoTimeSeconds, generation, null, false);
         }
 
         private void TriggerTimelineExtraction(string videoPath, double durationSeconds, double fps,
             double photoTimeSeconds, double coverTimeSeconds,
             int generation = 0,
-            byte[]? originalPhotoBytes = null)
+            byte[]? originalPhotoBytes = null,
+            bool isOppo = false)
         {
             bool split = Math.Abs(coverTimeSeconds - photoTimeSeconds) > 0.001;
             LogService.FileOp(
@@ -3635,6 +4807,7 @@ namespace LivePhotoBox.ViewModels
                             }
 
                             // 1. 用 ffmpeg 实际提取到的帧数创建视频帧（同步保存 FullFramePath）
+                            _timelineActualFrameCount = actualFrameCount;
                             for (int i = 0; i < actualFrameCount; i++)
                             {
                                 TimelineFrames.Add(new TimelineFrame
@@ -3647,16 +4820,14 @@ namespace LivePhotoBox.ViewModels
                                 });
                             }
 
-                            // 2. 插入静态照片帧 ⭐（用 photoTimeSeconds 定位）
+                            // 2. 插入静态照片帧 ⭐（当前封面，用 coverTimeSeconds 定位）
+                            //    找最接近 coverTime 的视频帧位置，而非用 >=（避免系统性偏后）
+                            var coverTimestamp = TimeSpan.FromSeconds(coverTimeSeconds);
                             var photoTimestamp = TimeSpan.FromSeconds(photoTimeSeconds);
-                            int insertPos = 0;
-                            for (; insertPos < TimelineFrames.Count; insertPos++)
-                            {
-                                if (TimelineFrames[insertPos].Timestamp >= photoTimestamp)
-                                    break;
-                            }
+                            double frameInterval = 1.0 / fps;
+                            double dupThreshold = frameInterval * 0.45; // 半帧以内视为重复
 
-                            // ⭐ 帧缩略图：先查内存缓存，避免重复解码 HEIC
+                            // ⭐ 帧缩略图：用 SelectedFileThumbnail（Primary item = 当前封面）
                             Microsoft.UI.Xaml.Media.ImageSource? starThumbnail = SelectedFileThumbnail;
                             string starKey = $"{sourcePath}|star";
                             if (_thumbnailCache.TryGetValue(starKey, out var cachedStar))
@@ -3664,51 +4835,137 @@ namespace LivePhotoBox.ViewModels
                                 starThumbnail = cachedStar;
                                 LogService.FileOp("Timeline[Extract] ⭐ thumbnail from cache", LogLevel.Info);
                             }
-                            else if (originalPhotoBytes != null && originalPhotoBytes.Length > 0)
+                            else if (starThumbnail != null)
                             {
+                                AddToThumbnailCache(starKey, starThumbnail);
+                            }
+
+                            // ── 查找 coverTime 最近帧 ──
+                            int starInsertPos = 0;
+                            double starMinDiff = double.MaxValue;
+                            for (int i = 0; i < TimelineFrames.Count; i++)
+                            {
+                                double diff = (TimelineFrames[i].Timestamp - coverTimestamp).Duration().TotalSeconds;
+                                if (diff < starMinDiff) { starMinDiff = diff; starInsertPos = i; }
+                            }
+
+                            // OPPO 已换封面：⭐ 来自视频中选中的一帧 → 合并到视频帧上（打标，不删帧）
+                            // 其他协议 / OPPO 未修改：⭐ 是相机拍摄的高清大图 → 独立插入
+                            if (isOppo && split && starMinDiff < dupThreshold)
+                            {
+                                var mergedFrame = TimelineFrames[starInsertPos];
+                                mergedFrame.IsStillPhoto = true;
+                                // 不预设 Thumbnail — 排水泵从 JPEG 加载视频帧缩略图，天然正确
+                                stillFrame = mergedFrame;
+                                LogService.FileOp(
+                                    $"Timeline[Extract] Still photo ⭐ merged onto vid frame #{mergedFrame.FrameIndex} " +
+                                    $"(OPPO split, diff={starMinDiff * 1000:F2}ms, time={coverTimeSeconds}s)",
+                                    LogLevel.Info);
+                            }
+                            else
+                            {
+                                if (starInsertPos < TimelineFrames.Count &&
+                                    TimelineFrames[starInsertPos].Timestamp < coverTimestamp)
+                                    starInsertPos++;
+
+                                stillFrame = new TimelineFrame
+                                {
+                                    FrameIndex = -1,
+                                    Timestamp = coverTimestamp,
+                                    IsStillPhoto = true,
+                                    Thumbnail = starThumbnail
+                                };
+                                TimelineFrames.Insert(starInsertPos, stillFrame);
+
+                                LogService.FileOp(
+                                    $"Timeline[Extract] Still photo ⭐ at pos={starInsertPos}/{TimelineFrames.Count}, " +
+                                    $"time={coverTimeSeconds}s, isOppo={isOppo}, split={split}",
+                                    LogLevel.Info);
+                            }
+
+                            // 2b. 原始封面帧 🖼（用 photoTimeSeconds，仅 split 时显示）
+                            //     永远独立插入，不与视频帧合并——🖼 是相机拍摄的高清大图，不是视频帧。
+                            //     把 Original item 的 JPEG 字节写入临时文件，确保导出和大图预览有源路径可用。
+                            string? origTempPath = null;
+                            if (split && originalPhotoBytes != null && originalPhotoBytes.Length > 0)
+                            {
+                                Microsoft.UI.Xaml.Media.ImageSource? origThumbnail = null;
+                                string origKey = $"{sourcePath}|orig";
+                                if (_thumbnailCache.TryGetValue(origKey, out var cachedOrig))
+                                {
+                                    origThumbnail = cachedOrig;
+                                    LogService.FileOp("Timeline[Extract] 🖼 thumbnail from cache", LogLevel.Info);
+                                }
+                                else
+                                {
+                                    try
+                                    {
+                                        var ms = new MemoryStream(originalPhotoBytes);
+                                        ms.Position = 0;
+                                        var decoder = await BitmapDecoder.CreateAsync(ms.AsRandomAccessStream());
+                                        var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
+                                            BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+                                        var source = new SoftwareBitmapSource();
+                                        await source.SetBitmapAsync(softwareBitmap);
+                                        origThumbnail = source;
+                                        AddToThumbnailCache(origKey, source);
+                                        LogService.FileOp(
+                                            $"Timeline[Extract] 🖼 using Original photo ({originalPhotoBytes.Length} bytes)",
+                                            LogLevel.Info);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        LogService.FileOp(
+                                            $"Timeline[Extract] Failed to decode Original photo: {ex.Message}",
+                                            LogLevel.Warning);
+                                    }
+                                }
+
+                                // 将 Original JPEG 写到临时文件，供导出和 PhotoViewer 大图预览
                                 try
                                 {
-                                    // SoftwareBitmap + SoftwareBitmapSource，杜绝 BitmapImage
-                                    var ms = new MemoryStream(originalPhotoBytes);
-                                    ms.Position = 0;
-                                    var decoder = await BitmapDecoder.CreateAsync(ms.AsRandomAccessStream());
-                                    var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
-                                        BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
-                                    var source = new SoftwareBitmapSource();
-                                    await source.SetBitmapAsync(softwareBitmap);
-                                    starThumbnail = source;
-                                    AddToThumbnailCache(starKey, source);
-                                    LogService.FileOp(
-                                        $"Timeline[Extract] ⭐ using Original photo ({originalPhotoBytes.Length} bytes)",
-                                        LogLevel.Info);
+                                    origTempPath = Path.Combine(result.TempDirectory,
+                                        $"_original_{Path.GetFileNameWithoutExtension(sourcePath)}.jpg");
+                                    await File.WriteAllBytesAsync(origTempPath, originalPhotoBytes, ct);
                                 }
                                 catch (Exception ex)
                                 {
                                     LogService.FileOp(
-                                        $"Timeline[Extract] Failed to decode Original photo: {ex.Message}",
+                                        $"Timeline[Extract] Failed to write Original temp file: {ex.Message}",
                                         LogLevel.Warning);
+                                    origTempPath = null;
                                 }
-                            }
-                            else if (starThumbnail != null)
-                            {
-                                // SelectedFileThumbnail 已可用，加入缓存供后续复用
-                                AddToThumbnailCache(starKey, starThumbnail);
-                            }
 
-                            stillFrame = new TimelineFrame
-                            {
-                                FrameIndex = -1,     // 哨兵值，照片帧不是视频帧
-                                Timestamp = photoTimestamp,
-                                IsStillPhoto = true,
-                                Thumbnail = starThumbnail
-                            };
-                            TimelineFrames.Insert(insertPos, stillFrame);
+                                // 查找 photoTime 最近的可插入位置（跳过已有特殊帧）
+                                int origInsertPos = 0;
+                                double origMinDiff = double.MaxValue;
+                                for (int i = 0; i < TimelineFrames.Count; i++)
+                                {
+                                    if (TimelineFrames[i].IsStillPhoto || TimelineFrames[i].IsOriginalPhoto)
+                                        continue;
+                                    double diff = (TimelineFrames[i].Timestamp - photoTimestamp).Duration().TotalSeconds;
+                                    if (diff < origMinDiff) { origMinDiff = diff; origInsertPos = i; }
+                                }
+                                if (origInsertPos < TimelineFrames.Count &&
+                                    TimelineFrames[origInsertPos].Timestamp < photoTimestamp)
+                                    origInsertPos++;
 
-                            LogService.FileOp(
-                                $"Timeline[Extract] Still photo ⭐ at pos={insertPos}/{TimelineFrames.Count}, " +
-                                $"time={photoTimeSeconds}s, split={split}, " +
-                                $"thumbnail={(starThumbnail != null ? "ok" : "null")}",
-                                LogLevel.Info);
+                                var origFrame = new TimelineFrame
+                                {
+                                    FrameIndex = -1,
+                                    Timestamp = photoTimestamp,
+                                    IsOriginalPhoto = true,
+                                    Thumbnail = origThumbnail,
+                                    FullFramePath = origTempPath
+                                };
+                                TimelineFrames.Insert(origInsertPos, origFrame);
+
+                                LogService.FileOp(
+                                    $"Timeline[Extract] Original photo 🖼 at pos={origInsertPos}/{TimelineFrames.Count}, " +
+                                    $"time={photoTimeSeconds}s, thumbnail={(origThumbnail != null ? "ok" : "null")}",
+                                    LogLevel.Info);
+                                OnPropertyChanged(nameof(HasOriginalPhotoFrame));
+                            }
 
                             // 3. TimelineInfo 只存时长（帧计数移到中间显示）
                             TimelineInfo = $"{durationSeconds:F2}s";
@@ -3741,7 +4998,7 @@ namespace LivePhotoBox.ViewModels
                                 dispatcher.TryEnqueue(() => _isInitialTimelineScroll = false);
                             });
                             LogService.Debug(
-                                $"Timeline select: {(frameToSelect.IsStillPhoto ? "⭐" : $"vid #{frameToSelect.FrameIndex}")} " +
+                                $"Timeline select: {(frameToSelect.IsOriginalPhoto ? "🖼" : frameToSelect.IsStillPhoto ? "⭐" : $"vid #{frameToSelect.FrameIndex}")} " +
                                 $"at {frameToSelect.Timestamp.TotalSeconds:F4}s " +
                                 $"(cover={coverTimeSeconds:F4}s, photo={photoTimeSeconds:F4}s, split={split})",
                                 LogSource.UI);
@@ -3757,9 +5014,12 @@ namespace LivePhotoBox.ViewModels
                                 ct.ThrowIfCancellationRequested();  // 快速切换时立即停止缩略图加载
                                 try
                                 {
-                                // 跳过照片帧
+                                // 跳过纯特殊帧（FrameIndex < 0，独立插入的 ⭐ 和 🖼）
+                                // 合并帧（FrameIndex >= 0，OPPO 换封面后 ⭐ 打标在原视频帧上）不跳过
                                 while (timelineIdx < TimelineFrames.Count
-                                       && TimelineFrames[timelineIdx].IsStillPhoto)
+                                       && (TimelineFrames[timelineIdx].IsStillPhoto
+                                           || TimelineFrames[timelineIdx].IsOriginalPhoto)
+                                       && TimelineFrames[timelineIdx].FrameIndex < 0)
                                     timelineIdx++;
                                 if (timelineIdx >= TimelineFrames.Count) break;
                                     string frameKey = $"{sourcePath}|{jpegIdx}";
@@ -3843,14 +5103,16 @@ namespace LivePhotoBox.ViewModels
                     // 等待 UI 线程帧创建完成（确保 stillFrame 已赋值）
                     await uiTimelineDone.Task;
 
-                    // ⭐ 帧缩略图未就绪（SelectedFileThumbnail 可能异步加载中）→ 主动等待并回填
+                    // ⭐ 帧缩略图未就绪（SelectedFileThumbnail 可能异步加载中）→ 主动独立加载
+                    // 不依赖列表缩略图管道（Magick.NET 对华为 HEIC 可能失败），
+                    // 用 Windows BitmapDecoder 直接解码，与大图预览一致。
                     if (stillFrame != null && stillFrame.Thumbnail == null
-                        && !string.IsNullOrEmpty(sourcePath))
+                        && !string.IsNullOrEmpty(sourcePath) && File.Exists(sourcePath))
                     {
                         string starKey = $"{sourcePath}|star";
                         try
                         {
-                            var loaded = await ThumbnailService.LoadAsync(sourcePath, dispatcher);
+                            var loaded = await LoadTimelineCoverThumbnailAsync(sourcePath);
                             if (loaded != null)
                             {
                                 AddToThumbnailCache(starKey, loaded);
@@ -3858,7 +5120,7 @@ namespace LivePhotoBox.ViewModels
                                 {
                                     if (stillFrame != null) stillFrame.Thumbnail = loaded;
                                 });
-                                LogService.FileOp("Timeline[Extract] ⭐ thumbnail loaded post-fetch", LogLevel.Info);
+                                LogService.FileOp("Timeline[Extract] ⭐ thumbnail loaded independently", LogLevel.Info);
                             }
                         }
                         catch { /* 加载失败不影响核心功能 */ }
@@ -3936,6 +5198,56 @@ namespace LivePhotoBox.ViewModels
         /// </param>
         // 最近一次预览请求的目标路径，用于拦截过期回调（防星标帧 HEIC 慢加载覆盖后续帧的预览）
         private string? _latestPreviewRequestPath;
+
+        /// <summary>
+        /// 独立加载时间轴封面帧缩略图（不依赖列表缩略图管道）。
+        /// 对 HEIC 使用 Windows BitmapDecoder（与大图预览一致），JPEG 用 BitmapImage 缩放。
+        /// </summary>
+        private static async Task<ImageSource?> LoadTimelineCoverThumbnailAsync(string imagePath)
+        {
+            try
+            {
+                bool isHeic = HeicConverterService.IsHeicFile(imagePath);
+                const uint thumbSize = 112;
+
+                if (isHeic)
+                {
+                    // 与大图预览相同：Windows BitmapDecoder 解码 + 缩放到 112px
+                    var file = await StorageFile.GetFileFromPathAsync(imagePath);
+                    using var inputStream = await file.OpenAsync(FileAccessMode.Read);
+                    var decoder = await BitmapDecoder.CreateAsync(inputStream);
+
+                    double scale = Math.Min((double)thumbSize / decoder.PixelWidth,
+                                            (double)thumbSize / decoder.PixelHeight);
+                    uint tw = scale < 1.0 ? (uint)Math.Max(1, decoder.PixelWidth * scale) : decoder.PixelWidth;
+                    uint th = scale < 1.0 ? (uint)Math.Max(1, decoder.PixelHeight * scale) : decoder.PixelHeight;
+
+                    var transform = new BitmapTransform
+                    {
+                        ScaledWidth = tw,
+                        ScaledHeight = th,
+                        InterpolationMode = BitmapInterpolationMode.Fant
+                    };
+                    using var swBmp = await decoder.GetSoftwareBitmapAsync(
+                        BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
+                        transform, ExifOrientationMode.IgnoreExifOrientation,
+                        ColorManagementMode.DoNotColorManage);
+
+                    var source = new SoftwareBitmapSource();
+                    await source.SetBitmapAsync(swBmp);
+                    return source;
+                }
+                else
+                {
+                    // JPEG/PNG 等：直接用 BitmapImage 缩放
+                    var bmp = new BitmapImage { DecodePixelWidth = (int)thumbSize };
+                    using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    await bmp.SetSourceAsync(fs.AsRandomAccessStream());
+                    return bmp;
+                }
+            }
+            catch { return null; }
+        }
 
         private async Task LoadPreviewImageAsync(string imagePath, int generation = 0)
         {
@@ -4170,8 +5482,24 @@ namespace LivePhotoBox.ViewModels
 
             if (frame.IsStillPhoto)
             {
-                // 静态照片帧：使用原始照片文件
+                // 静态照片帧 ⭐：使用原始照片文件（Primary item）
                 imagePath = SelectedFilePath;
+            }
+            else if (frame.IsOriginalPhoto)
+            {
+                // 原始帧 🖼：优先使用 FullFramePath（已写入临时文件），回退到重新提取
+                if (!string.IsNullOrEmpty(frame.FullFramePath) && File.Exists(frame.FullFramePath))
+                    imagePath = frame.FullFramePath;
+                else if (!string.IsNullOrEmpty(SelectedFilePath) && File.Exists(SelectedFilePath))
+                {
+                    byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(SelectedFilePath);
+                    if (origBytes != null && origBytes.Length > 0)
+                    {
+                        string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_preview_orig_{Guid.NewGuid():N}.jpg");
+                        await File.WriteAllBytesAsync(tempPath, origBytes);
+                        imagePath = tempPath;
+                    }
+                }
             }
             else if (!string.IsNullOrEmpty(frame.FullFramePath) && File.Exists(frame.FullFramePath))
             {
@@ -4310,8 +5638,18 @@ namespace LivePhotoBox.ViewModels
                 SelectedFilePath, p.ContentIdentifier);
 
             // 双文件实况：配对文件缺失时附加提示，保留协议标记
+            // 明确是单文件打包的协议（华为/三星/OPPO/GoogleV1/GoogleV2/Fusion），
+            // 即使被 CID 误标为 DualFile，也不应显示"缺少视频"
+            bool isDefinitelySingleFile = item != null && item.DetectedProtocol is
+                LivePhotoProtocolType.Huawei or
+                LivePhotoProtocolType.Samsung or
+                LivePhotoProtocolType.OPPO or
+                LivePhotoProtocolType.GoogleV1 or
+                LivePhotoProtocolType.GoogleV2 or
+                LivePhotoProtocolType.Fusion;
             if (item != null && item.HasConfirmedProtocol
                 && item.LivePhotoType == LivePhotoType.DualFile
+                && !isDefinitelySingleFile
                 && (string.IsNullOrEmpty(item.PairedVideoPath)
                     || !File.Exists(item.PairedVideoPath)))
             {
@@ -4376,8 +5714,16 @@ namespace LivePhotoBox.ViewModels
             ExifPlaceName = string.Empty;
             double? lat = DmsToDecimal(p.GpsLatitude, p.GpsLatitudeRef);
             double? lon = DmsToDecimal(p.GpsLongitude, p.GpsLongitudeRef);
+
+            LogService.FileOp(
+                $"GPS parsed: lat={lat?.ToString("F6") ?? "null"}, lon={lon?.ToString("F6") ?? "null"}, " +
+                $"rawLat='{p.GpsLatitude ?? "null"}', rawLon='{p.GpsLongitude ?? "null"}'",
+                LogLevel.Info);
+
             if (lat != null && lon != null && SelectedFilePath != null)
             {
+                // 立即显示加载态，让用户知道正在查询
+                ExifPlaceName = ResourceService.GetString("EditPage_GeoLookingUp");
                 _ = TriggerGeoLookupAsync(lat.Value, lon.Value, SelectedFilePath);
             }
             else
@@ -4479,6 +5825,24 @@ namespace LivePhotoBox.ViewModels
                         {
                             totalBytes += vidBytes;
                         }
+
+                        // 协议检测：单文件实况照片在此阶段即可确定协议
+                        var protocol = LivePhotoProtocolType.Unknown;
+                        if (confirmed)
+                        {
+                            try
+                            {
+                                protocol = LivePhotoProtocolDetector.Detect(
+                                    d.FilePath, d.LivePhotoType, d.ContentIdentifier);
+                            }
+                            catch (Exception ex)
+                            {
+                                LogService.Scan(
+                                    $"Protocol detection failed for '{Path.GetFileName(d.FilePath)}': {ex.Message}",
+                                    LogLevel.Warning);
+                            }
+                        }
+
                         return new EditFileItem
                         {
                             FileName = Path.GetFileName(d.FilePath),
@@ -4490,7 +5854,7 @@ namespace LivePhotoBox.ViewModels
                             PairedVideoPath = d.PairedVideoPath,
                             AppendedVideoLength = d.AppendedVideoLength,
                             DetectionMethod = d.DetectionMethod,
-                            HasConfirmedProtocol = confirmed
+                            DetectedProtocol = protocol,
                         };
                     }).ToList();
 
@@ -4505,6 +5869,41 @@ namespace LivePhotoBox.ViewModels
                 LogService.FileOp($"KeyPhoto scan done: {files.Count} images + {videoPaths.Count} videos, " +
                     $"SingleFileJpeg={singleJpegCount}, SingleFileHeic={singleHeicCount}, " +
                     $"Confirmed={confirmedCount}, Unclassified={files.Count - confirmedCount}");
+
+                // ── 阶段 1.5: 同名配对（VIVO 旧格式 / Apple 双文件未在 Phase 1 命中）──
+                if (videoPaths.Count > 0)
+                {
+                    var vidByBase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var vp in videoPaths)
+                    {
+                        string baseName = Path.GetFileNameWithoutExtension(vp);
+                        vidByBase[baseName] = vp;
+                    }
+                    int pairedCount = 0;
+                    foreach (var file in files)
+                    {
+                        if (file.LivePhotoType != LivePhotoType.None) continue;
+                        string baseName = Path.GetFileNameWithoutExtension(file.FilePath);
+                        if (vidByBase.TryGetValue(baseName, out var vidPath))
+                        {
+                            file.LivePhotoType = LivePhotoType.DualFile;
+                            file.PairedVideoPath = vidPath;
+                            file.DetectionMethod = LivePhotoDetectionMethod.FilenamePairing;
+                            var detected = LivePhotoProtocolDetector.Detect(
+                                file.FilePath, LivePhotoType.DualFile, null);
+                            // 双文件无标记 → 兜底 Apple（最常见双文件格式）
+                            file.DetectedProtocol = detected != LivePhotoProtocolType.Unknown
+                                ? detected : LivePhotoProtocolType.Apple;
+                            videoPaths.Remove(vidPath);
+                            vidByBase.Remove(baseName);
+                            pairedCount++;
+                        }
+                    }
+                    if (pairedCount > 0)
+                        LogService.FileOp(
+                            $"KeyPhoto scan: basename-paired {pairedCount} dual-file photo(s)",
+                            LogLevel.Info);
+                }
 
                 _allFileItems = files;
                 RefreshCounts();
@@ -4792,31 +6191,22 @@ namespace LivePhotoBox.ViewModels
                     foreach (var (index, imgPath) in unclassifiedImgs)
                     {
                         if (imgResults.TryGetValue(imgPath, out var imgInfo) &&
-                            !string.IsNullOrWhiteSpace(imgInfo.Cid))
+                            !string.IsNullOrWhiteSpace(imgInfo.Cid) &&
+                            cidToVideo.TryGetValue(imgInfo.Cid, out var matched))
                         {
-                            if (cidToVideo.TryGetValue(imgInfo.Cid, out var matched))
-                            {
-                                // CID 匹配成功 → 完整实况照片对
-                                files[index].LivePhotoType = LivePhotoType.DualFile;
-                                files[index].PairedVideoPath = matched.Path;
-                                files[index].HasConfirmedProtocol = true;
-                                files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
-                                // 更新文件大小为图片+视频合并值
-                                files[index].FileSize = FileSizeFormatter.Format(
-                                    new FileInfo(files[index].FilePath).Length + new FileInfo(matched.Path).Length);
-                                matchedVideoPaths.Add(matched.Path);
-                                liveConfirmed++;
-                            }
-                            else
-                            {
-                                // 有 CID 但未找到配对视频 → 协议确认，标注缺失
-                                files[index].LivePhotoType = LivePhotoType.DualFile;
-                                files[index].HasConfirmedProtocol = true;
-                                files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
-                                // PairedVideoPath 保持 null → 属性面板显示"(未找到配对视频)"
-                                liveConfirmed++;
-                            }
+                            // CID 匹配成功 → 完整的 Apple 实况照片对
+                            files[index].LivePhotoType = LivePhotoType.DualFile;
+                            files[index].PairedVideoPath = matched.Path;
+                            files[index].HasConfirmedProtocol = true;
+                            files[index].DetectedProtocol = LivePhotoProtocolType.Apple;
+                            files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
+                            // 更新文件大小为图片+视频合并值
+                            files[index].FileSize = FileSizeFormatter.Format(
+                                new FileInfo(files[index].FilePath).Length + new FileInfo(matched.Path).Length);
+                            matchedVideoPaths.Add(matched.Path);
+                            liveConfirmed++;
                         }
+                        // 有 CID 但未找到配对视频 → 不认定为实况照片（损坏的 Apple 对）
                     }
 
                     // ── SingleFileHeic 补 CID 配对 ──
@@ -4826,12 +6216,19 @@ namespace LivePhotoBox.ViewModels
                     int heicPaired = 0;
                     foreach (var (index, imgPath) in heicToPair)
                     {
+                        // 跳过已识别为其他协议的文件（如华为 HEIC 有 LIVE_ 尾标），
+                        // 它们不是 Apple 格式，不该被 CID 匹配改写成 DualFile
+                        if (files[index].DetectedProtocol != LivePhotoProtocolType.Unknown
+                            && files[index].DetectedProtocol != LivePhotoProtocolType.Apple)
+                            continue;
+
                         if (imgResults.TryGetValue(imgPath, out var imgInfo) &&
                             !string.IsNullOrWhiteSpace(imgInfo.Cid) &&
                             cidToVideo.TryGetValue(imgInfo.Cid, out var matched))
                         {
                             files[index].LivePhotoType = LivePhotoType.DualFile;
                             files[index].PairedVideoPath = matched.Path;
+                            files[index].DetectedProtocol = LivePhotoProtocolType.Apple;
                             files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
                             // 更新文件大小为图片+视频合并值
                             files[index].FileSize = FileSizeFormatter.Format(
@@ -4845,14 +6242,12 @@ namespace LivePhotoBox.ViewModels
                     if (heicPaired > 0)
                         LogService.FileOp($"KeyPhoto CID heic→dual: {heicPaired} HEIC paired with MOV");
 
-                    // ── 未匹配视频也加入列表显示 ──
+                    // ── 未匹配视频也加入列表显示（全部作为普通文件）──
                     int addedVids = 0;
-                    int addedVidWithCid = 0;
                     foreach (var vPath in videoPaths)
                     {
                         if (matchedVideoPaths.Contains(vPath)) continue; // 已匹配的不重复显示
                         vidResults.TryGetValue(vPath, out var vInfo);
-                        bool vidHasCid = !string.IsNullOrWhiteSpace(vInfo.Cid);
                         files.Add(new EditFileItem
                         {
                             FileName = Path.GetFileName(vPath),
@@ -4860,17 +6255,15 @@ namespace LivePhotoBox.ViewModels
                             FileSize = FileSizeFormatter.Format(new FileInfo(vPath).Length),
                             DateTaken = new FileInfo(vPath).LastWriteTime.ToString("yyyy/MM/dd HH:mm"),
                             Resolution = vInfo.W > 0 && vInfo.H > 0 ? $"{vInfo.W} × {vInfo.H}" : string.Empty,
-                            LivePhotoType = vidHasCid ? LivePhotoType.DualFile : LivePhotoType.None,
-                            HasConfirmedProtocol = vidHasCid,
-                            DetectionMethod = vidHasCid ? LivePhotoDetectionMethod.ContentIdentifier
-                                : LivePhotoDetectionMethod.FilenamePairing,
-                            // PairedVideoPath = null → 属性面板显示"（缺照片）"
+                            LivePhotoType = LivePhotoType.None,
+                            HasConfirmedProtocol = false,
+                            DetectedProtocol = LivePhotoProtocolType.Unknown,
+                            DetectionMethod = LivePhotoDetectionMethod.FilenamePairing,
                         });
                         addedVids++;
-                        if (vidHasCid) addedVidWithCid++;
                     }
 
-                    if (liveConfirmed > 0 || addedVidWithCid > 0)
+                    if (liveConfirmed > 0)
                     {
                         dispatcher.TryEnqueue(() =>
                         {
@@ -5188,49 +6581,46 @@ namespace LivePhotoBox.ViewModels
             return val.Trim().Length >= 16 ? val.Trim()[..16] : val.Trim();
         }
 
-        /// <summary>JPEG 实况照片协议关键词 → 资源键（OPPO/小米优先于 Google：它们复用 Google XMP 结构）</summary>
-        private static readonly (string Keyword, string ResourceKey)[] JpegProtocolMap =
+        /// <summary>协议类型 → 资源键映射（供 UI 显示用）</summary>
+        private static readonly Dictionary<LivePhotoProtocolType, string> ProtocolResourceMap = new()
         {
-            ("OpCamera:VideoLength",            "EditPage_Protocol_OPPO"),
-            ("MiCamera:VideoLength",            "EditPage_Protocol_Xiaomi"),
-            ("GCamera:MicroVideo",              "EditPage_Protocol_GoogleV1"),
-            ("GCamera:MotionPhoto",             "EditPage_Protocol_GoogleV2"),
-            ("Container:Directory",             "EditPage_Protocol_GoogleV2"),
+            [LivePhotoProtocolType.Apple]    = "EditPage_Protocol_Apple",
+            [LivePhotoProtocolType.GoogleV1] = "EditPage_Protocol_GoogleV1",
+            [LivePhotoProtocolType.GoogleV2] = "EditPage_Protocol_GoogleV2",
+            [LivePhotoProtocolType.OPPO]     = "EditPage_Protocol_OPPO",
+            [LivePhotoProtocolType.Vivo]     = "EditPage_Protocol_Vivo",
+            [LivePhotoProtocolType.Samsung]  = "EditPage_Protocol_Samsung",
+            [LivePhotoProtocolType.Huawei]   = "EditPage_Protocol_Huawei",
+            [LivePhotoProtocolType.Fusion]   = "EditPage_Protocol_Fusion",
         };
 
-        /// <summary>根据 LivePhotoType + XMP 内容 + ContentIdentifier，确定协议显示名</summary>
+        /// <summary>
+        /// 根据 LivePhotoType + 文件内容，使用优先级检测确定协议显示名。
+        /// 检测优先级：私有尾标（华为/三星）→ 厂商 XMP（Fusion/OPPO/vivo/小米）→ 通用 XMP（V1/V2）→ 双文件（Apple/vivo 旧格式）
+        /// </summary>
         private static string? GetProtocolName(LivePhotoType type, string? filePath,
             string? contentIdentifier = null)
         {
-            switch (type)
+            if (type == LivePhotoType.None || string.IsNullOrWhiteSpace(filePath))
+                return ResourceService.GetString("EditPage_Protocol_NonLive");
+
+            try
             {
-                case LivePhotoType.DualFile:
-                    if (!string.IsNullOrWhiteSpace(contentIdentifier))
-                        return ResourceService.GetString("EditPage_Protocol_Apple");
-                    return ResourceService.GetString("EditPage_Protocol_NonLive");
-
-                case LivePhotoType.SingleFileJpeg:
-                    if (filePath != null)
-                    {
-                        try
-                        {
-                            var text = LivePhotoSplitService.ReadMetadataTextSync(filePath);
-                            foreach (var (keyword, resourceKey) in JpegProtocolMap)
-                            {
-                                if (text.Contains(keyword))
-                                    return ResourceService.GetString(resourceKey);
-                            }
-                        }
-                        catch { }
-                    }
-                    return ResourceService.GetString("EditPage_Protocol_JpegGeneric");
-
-                case LivePhotoType.SingleFileHeic:
-                    return ResourceService.GetString("EditPage_Protocol_HeicEmbedded");
-
-                default:
-                    return ResourceService.GetString("EditPage_Protocol_NonLive");
+                var protocol = LivePhotoProtocolDetector.Detect(filePath, type, contentIdentifier);
+                if (protocol != LivePhotoProtocolType.Unknown
+                    && ProtocolResourceMap.TryGetValue(protocol, out var resourceKey))
+                    return ResourceService.GetString(resourceKey);
             }
+            catch { }
+
+            // 兜底：按文件类型给一个粗略描述
+            return type switch
+            {
+                LivePhotoType.SingleFileJpeg => ResourceService.GetString("EditPage_Protocol_JpegGeneric"),
+                LivePhotoType.SingleFileHeic => ResourceService.GetString("EditPage_Protocol_HeicEmbedded"),
+                LivePhotoType.DualFile => ResourceService.GetString("EditPage_Protocol_NonLive"),
+                _ => ResourceService.GetString("EditPage_Protocol_NonLive"),
+            };
         }
 
         /// <summary>获取照片部分的大小（单文件实况照片需扣除视频段）</summary>
@@ -5284,14 +6674,14 @@ namespace LivePhotoBox.ViewModels
             catch { return null; }
         }
 
-        /// <summary>反向地理编码：速率限制 1.2s，语言跟系统 CultureInfo</summary>
+        /// <summary>反向地理编码：Mirror Earth 主 API → Nominatim OSM 兜底。单次调用内跑完两段。</summary>
         private async Task TriggerGeoLookupAsync(double lat, double lon, string filePath)
         {
-            // 已经连续失败 3 次 → 显示错误提示，不再重试
-            if (_geoFailureCount >= 3)
+            // 位置查询被用户关闭 → 显示"已禁用"提示
+            if (!AppSettingsService.GetValue("IsGeoLocationEnabled", true))
             {
                 var dq = App.MainWindow?.DispatcherQueue;
-                dq?.TryEnqueue(() => ExifPlaceName = ResourceService.GetString("EditPage_GeoLookupFailed"));
+                dq?.TryEnqueue(() => ExifPlaceName = ResourceService.GetString("EditPage_GeoLocationDisabled"));
                 return;
             }
 
@@ -5313,61 +6703,103 @@ namespace LivePhotoBox.ViewModels
             if (token.IsCancellationRequested) return;
             _lastGeoRequestTicks = DateTime.UtcNow.Ticks;
 
-            try
+            string lang = System.Globalization.CultureInfo.CurrentUICulture.Name.StartsWith("zh") ? "zh" : "en";
+
+            //  中文用户 → Mirror Earth 主（返回中文），Nominatim 兜底
+            //  英文/其他 → Nominatim 主（尊重 accept-language），Mirror Earth 兜底
+            //  主 API 重试 3 次，兜底重试 2 次
+            if (lang == "zh")
             {
-                string lang = System.Globalization.CultureInfo.CurrentUICulture.Name.StartsWith("zh") ? "zh" : "en";
-                string url = $"https://api.mirror-earth.com/nominatim/reverse?lat={lat:F6}&lon={lon:F6}&format=jsonv2&accept-language={lang}";
+                bool ok = await TryGeoApiAsync(
+                    $"https://api.mirror-earth.com/nominatim/reverse?lat={lat:F6}&lon={lon:F6}&format=jsonv2&accept-language={lang}",
+                    token, apiName: "MirrorEarth", maxRetries: 3);
+                if (ok) return;
 
-                // 最多重试 2 次，处理限流/临时故障
-                string? result = null;
-                for (int attempt = 0; attempt < 2 && result == null; attempt++)
+                ok = await TryGeoApiAsync(
+                    $"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat:F6}&lon={lon:F6}&zoom=10&accept-language={lang}",
+                    token, apiName: "Nominatim", maxRetries: 2);
+                if (ok) return;
+            }
+            else
+            {
+                bool ok = await TryGeoApiAsync(
+                    $"https://nominatim.openstreetmap.org/reverse?format=json&lat={lat:F6}&lon={lon:F6}&zoom=10&accept-language={lang}",
+                    token, apiName: "Nominatim", maxRetries: 3);
+                if (ok) return;
+
+                ok = await TryGeoApiAsync(
+                    $"https://api.mirror-earth.com/nominatim/reverse?lat={lat:F6}&lon={lon:F6}&format=jsonv2&accept-language={lang}",
+                    token, apiName: "MirrorEarth", maxRetries: 2);
+                if (ok) return;
+            }
+
+            // 两个 API 都失败 → 显示"无位置信息"
+            var dq2 = App.MainWindow?.DispatcherQueue;
+            dq2?.TryEnqueue(() => ExifPlaceName = ResourceService.GetString("EditPage_NoLocation"));
+        }
+
+        /// <summary>调用一次逆地理编码 API，成功时更新 ExifPlaceName。</summary>
+        /// <param name="apiName">API 名称（用于日志区分，如 "Nominatim" / "MirrorEarth"）</param>
+        /// <param name="maxRetries">最多尝试次数（含首次，默认 2）</param>
+        /// <returns>true = 成功获取地名；false = 网络错误或空结果。</returns>
+        private async Task<bool> TryGeoApiAsync(string url, CancellationToken token, string? apiName = null, int maxRetries = 2)
+        {
+            string? result = null;
+            Exception? lastError = null;
+
+            for (int attempt = 0; attempt < maxRetries && result == null; attempt++)
+            {
+                if (token.IsCancellationRequested) return false;
+                try
                 {
-                    if (token.IsCancellationRequested) return;
-                    try
+                    using var handler = new System.Net.Http.HttpClientHandler();
+                    using var client = new System.Net.Http.HttpClient(handler);
+                    client.DefaultRequestHeaders.Add("User-Agent", "LivePhotoBox/2.0");
+                    client.Timeout = TimeSpan.FromSeconds(8);
+                    var json = await client.GetStringAsync(url, token);
+                    if (!string.IsNullOrWhiteSpace(json))
                     {
-                        using var handler = new System.Net.Http.HttpClientHandler();
-                        using var client = new System.Net.Http.HttpClient(handler);
-                        client.DefaultRequestHeaders.Add("User-Agent", "LivePhotoBox/2.0");
-                        client.Timeout = TimeSpan.FromSeconds(8);
-                        var json = await client.GetStringAsync(url, token);
-                        if (string.IsNullOrWhiteSpace(json)) continue;
-
                         using var doc = JsonDocument.Parse(json);
                         result = doc.RootElement.TryGetProperty("display_name", out var dn)
                             ? dn.GetString() : null;
-                    }
-                    catch (HttpRequestException) when (attempt < 1)
-                    {
-                        await Task.Delay(1000, token);
+                        if (!string.IsNullOrWhiteSpace(result))
+                            lastError = null; // 成功 → 清除错误
                     }
                 }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    return false; // 用户切文件导致的取消 → 静默退出
+                }
+                catch (OperationCanceledException)
+                {
+                    // token 未取消但抛了取消异常 → HttpClient 超时/连接拒绝
+                    lastError = new TimeoutException($"HTTP request timed out after {8}s");
+                    if (attempt < maxRetries - 1)
+                        await Task.Delay(1000, CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    lastError = ex;
+                    if (attempt < maxRetries - 1)
+                        await Task.Delay(1000, CancellationToken.None);
+                }
+            }
 
-                if (!string.IsNullOrWhiteSpace(result) && !token.IsCancellationRequested)
-                {
-                    _geoFailureCount = 0; // 成功 → 重置计数器
-                    var dispatcher = App.MainWindow?.DispatcherQueue;
-                    dispatcher?.TryEnqueue(() => ExifPlaceName = result);
-                }
-                else
-                {
-                    // 返回了空结果（非网络错误，API 查不到）
-                    _geoFailureCount = 0;
-                }
-            }
-            catch (TaskCanceledException)
+            if (token.IsCancellationRequested) return false;
+
+            if (!string.IsNullOrWhiteSpace(result))
             {
-                LogService.FileOp($"Geo lookup cancelled for ({lat:F4},{lon:F4})", LogLevel.Debug);
+                var dispatcher = App.MainWindow?.DispatcherQueue;
+                dispatcher?.TryEnqueue(() => ExifPlaceName = result);
+                return true;
             }
-            catch (Exception ex)
+
+            if (lastError != null)
             {
-                _geoFailureCount++;
-                LogService.FileOp($"Geo lookup failed ({_geoFailureCount}/3): {ex.Message}", LogLevel.Warning);
-                if (_geoFailureCount >= 3)
-                {
-                    var dispatcher = App.MainWindow?.DispatcherQueue;
-                    dispatcher?.TryEnqueue(() => ExifPlaceName = ResourceService.GetString("EditPage_GeoLookupFailed"));
-                }
+                LogService.FileOp($"Geo lookup [{apiName ?? "?"}] failed: {lastError.Message}", LogLevel.Warning);
             }
+            // else: API 正常返回但无 display_name → 由调用方决定兜底策略
+            return false;
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -5400,20 +6832,106 @@ namespace LivePhotoBox.ViewModels
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
 
+                bool autoPair = AppSettingsService.GetValue("IsDragDropAutoPairEnabled", false);
+
                 var discoveryMap = new Dictionary<string, LivePhotoDiscoveryItem>(StringComparer.OrdinalIgnoreCase);
-                foreach (var dir in dirs)
+                if (autoPair)
                 {
-                    try
+                    // 自动配对开启 → 全目录扫描（供 CID 配对索引使用）
+                    foreach (var dir in dirs)
                     {
-                        var result = await Task.Run(() =>
-                            LivePhotoDiscoveryService.ScanAsync(dir,
-                                DiscoveryScanMode.JpegMarkers | DiscoveryScanMode.HeicTrack));
-                        foreach (var di in result.Items)
-                            discoveryMap[di.FilePath] = di;
+                        try
+                        {
+                            var result = await Task.Run(() =>
+                                LivePhotoDiscoveryService.ScanAsync(dir,
+                                    DiscoveryScanMode.JpegMarkers | DiscoveryScanMode.HeicTrack));
+                            foreach (var di in result.Items)
+                                discoveryMap[di.FilePath] = di;
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.FileOp($"Drop[Scan] Failed for '{dir}': {ex.Message}", LogLevel.Warning);
+                        }
                     }
-                    catch (Exception ex)
+                }
+                else
+                {
+                    // 自动配对关闭 → 仅检测拖入的文件本身（不扫目录）
+                    foreach (var fp in filePaths)
                     {
-                        LogService.FileOp($"Drop[Scan] Failed for '{dir}': {ex.Message}", LogLevel.Warning);
+                        if (!File.Exists(fp)) continue;
+                        string ext = Path.GetExtension(fp);
+                        bool isJpeg = ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+                                   || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase);
+                        if (!isJpeg) continue;
+
+                        long fileSize = new FileInfo(fp).Length;
+                        if (!LivePhotoSplitScanService.IsLikelyLivePhoto(fp, fileSize))
+                            continue;
+
+                        long videoLen = 0;
+                        try
+                        {
+                            var metaText = LivePhotoSplitService.ReadMetadataTextSync(fp);
+                            videoLen = LivePhotoSplitService.GetAppendedVideoLength(metaText);
+                        }
+                        catch { videoLen = 0; }
+
+                        discoveryMap[fp] = new LivePhotoDiscoveryItem
+                        {
+                            FilePath = fp,
+                            FileSizeBytes = fileSize,
+                            LivePhotoType = LivePhotoType.SingleFileJpeg,
+                            DetectionMethod = LivePhotoDetectionMethod.JpegByteMarkers,
+                            AppendedVideoLength = videoLen > 0 ? videoLen : 0,
+                        };
+                    }
+
+                    // HEIC 实况照片检测：华为 LIVE_ 尾标 或 Google V2 XMP 标记
+                    foreach (var fp in filePaths)
+                    {
+                        if (!File.Exists(fp)) continue;
+                        string ext = Path.GetExtension(fp);
+                        bool isHeic = ext.Equals(".heic", StringComparison.OrdinalIgnoreCase)
+                                   || ext.Equals(".heif", StringComparison.OrdinalIgnoreCase);
+                        if (!isHeic) continue;
+
+                        // 检查华为格式（LIVE_ 尾标 + 嵌入 MP4）
+                        var hwRange = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(fp);
+                        if (hwRange != null)
+                        {
+                            discoveryMap[fp] = new LivePhotoDiscoveryItem
+                            {
+                                FilePath = fp,
+                                FileSizeBytes = new FileInfo(fp).Length,
+                                LivePhotoType = LivePhotoType.SingleFileHeic,
+                                DetectionMethod = LivePhotoDetectionMethod.HeicVideoTrack,
+                                AppendedVideoLength = hwRange.Value.videoLength,
+                            };
+                            continue;
+                        }
+
+                        // 检查 Google V2 / Samsung HEIC（XMP MotionPhoto 标记 + mpvd box）
+                        // 没有 LIVE_ 尾标也不嵌入 ftypmp42，但 XMP 里有 GCamera:MotionPhoto
+                        try
+                        {
+                            string xmpText = LivePhotoSplitService.ReadMetadataTextSync(fp);
+                            if (xmpText.Contains("GCamera:MotionPhoto", StringComparison.Ordinal) ||
+                                xmpText.Contains("Container:Directory", StringComparison.Ordinal) ||
+                                xmpText.Contains("GContainer:Directory", StringComparison.Ordinal))
+                            {
+                                long fileSize = new FileInfo(fp).Length;
+                                discoveryMap[fp] = new LivePhotoDiscoveryItem
+                                {
+                                    FilePath = fp,
+                                    FileSizeBytes = fileSize,
+                                    LivePhotoType = LivePhotoType.SingleFileHeic,
+                                    DetectionMethod = LivePhotoDetectionMethod.HeicVideoTrack,
+                                    AppendedVideoLength = 0,
+                                };
+                            }
+                        }
+                        catch { /* best-effort */ }
                     }
                 }
 
@@ -5421,13 +6939,47 @@ namespace LivePhotoBox.ViewModels
                     ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
                 bool hasExifTool = File.Exists(exifToolPath);
 
-                // ── Step 2: 处理每个拖入文件 ──
+                // ── Step 2: 拖入文件之间快速同名配对（不依赖文件夹扫描） ──
+                // Apple HEIC+MOV、VIVO 双文件实况照片：同名异类文件自动配对
+                var dropPairs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // image→video
+                var dropPairedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                {
+                    var imgsByBase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    var vidsByBase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var fp in filePaths)
+                    {
+                        if (!File.Exists(fp)) continue;
+                        string baseName = Path.GetFileNameWithoutExtension(fp);
+                        string ext = Path.GetExtension(fp);
+                        if (SupportedImageExtensions.Contains(ext))
+                            imgsByBase[baseName] = fp;
+                        else if (SupportedVideoExtensions.Contains(ext))
+                            vidsByBase[baseName] = fp;
+                    }
+                    foreach (var (baseName, imgPath) in imgsByBase)
+                    {
+                        if (vidsByBase.TryGetValue(baseName, out var vidPath))
+                        {
+                            dropPairs[imgPath] = vidPath;
+                            dropPairedVideos.Add(vidPath);
+                        }
+                    }
+                }
+                if (dropPairs.Count > 0)
+                    LogService.FileOp(
+                        $"Drop[Pair] Basename-matched {dropPairs.Count} dual-file pair(s) within dropped batch",
+                        LogLevel.Info);
+
+                // ── Step 3: 处理每个拖入文件 ──
                 var toAdd = new List<EditFileItem>();
                 var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var rawPath in filePaths)
                 {
                     if (!File.Exists(rawPath) || addedPaths.Contains(rawPath)) continue;
+
+                    // 视频已由同批图片配对 → 跳过（图片为主项）
+                    if (dropPairedVideos.Contains(rawPath)) continue;
 
                     var filePath = rawPath;
                     var fileName = Path.GetFileName(filePath);
@@ -5440,23 +6992,47 @@ namespace LivePhotoBox.ViewModels
                     long appendedVideoLength = 0;
                     bool confirmed = false;
 
-                    if (discoveryMap.TryGetValue(filePath, out var match))
+                    bool isVideo = SupportedVideoExtensions.Contains(ext);
+                    bool isImage = SupportedImageExtensions.Contains(ext);
+
+                    // ── 拖入批内同名配对（优先级最高，覆盖 discoveryMap 的单文件判定）──
+                    if (isImage && dropPairs.TryGetValue(filePath, out var dropVidPath))
+                    {
+                        // 校验配对视频确实存在（防止路径格式差异导致后续 File.Exists 失败）
+                        if (!File.Exists(dropVidPath))
+                        {
+                            LogService.FileOp(
+                                $"Drop[Pair] WARNING: paired video NOT FOUND at '{dropVidPath}' — " +
+                                $"falling back to single-file detection",
+                                LogLevel.Warning);
+                            // 回退：让 discoveryMap 继续处理
+                        }
+                        else
+                        {
+                            detectedType = LivePhotoType.DualFile;
+                            pairedVideoPath = dropVidPath;
+                            detectionMethod = LivePhotoDetectionMethod.FilenamePairing;
+                            confirmed = true;
+                            LogService.FileOp(
+                                $"Drop[Pair] Dual-file matched: {Path.GetFileName(filePath)} ↔ {Path.GetFileName(dropVidPath)}",
+                                LogLevel.Info);
+                        }
+                    }
+                    if (detectedType == LivePhotoType.None && discoveryMap.TryGetValue(filePath, out var match))
                     {
                         detectedType = match.LivePhotoType;
                         detectionMethod = match.DetectionMethod;
                         pairedVideoPath = match.PairedVideoPath;
                         appendedVideoLength = match.AppendedVideoLength;
                     }
-
-                    bool isVideo = SupportedVideoExtensions.Contains(ext);
-                    bool isImage = SupportedImageExtensions.Contains(ext);
+                    // 视频侧的配对信息由照片侧主导（照片为主项）；视频本身作为独立文件添加时仅跳过
 
                     // ── 单文件实况已确认 ──
                     if (detectedType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic)
                         confirmed = true;
 
                     // ── 未分类 → 尝试双文件配对 ──
-                    if (detectedType == LivePhotoType.None && hasExifTool)
+                    if (detectedType == LivePhotoType.None && hasExifTool && autoPair)
                     {
                         // 策略 1: 同名速查 — 同目录找同名异类文件，各读一次 CID O(1)
                         string? oppPath = FindOppositeTypeFile(dir, filePath, isImage, isVideo);
@@ -5563,6 +7139,23 @@ namespace LivePhotoBox.ViewModels
                     if (!string.IsNullOrEmpty(pairedVideoPath) && File.Exists(pairedVideoPath))
                         dropTotalBytes += new FileInfo(pairedVideoPath).Length;
 
+                    // Protocol detection for non-CID files (single-file JPEG/HEIC)
+                    var protocol = LivePhotoProtocolType.Unknown;
+                    if (confirmed && detectionMethod != LivePhotoDetectionMethod.ContentIdentifier)
+                    {
+                        try
+                        {
+                            protocol = LivePhotoProtocolDetector.Detect(
+                                filePath, detectedType, contentIdentifier: null);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.FileOp(
+                                $"Drop protocol detection failed for '{fileName}': {ex.Message}",
+                                LogLevel.Warning);
+                        }
+                    }
+
                     var item = new EditFileItem
                     {
                         FileName = fileName,
@@ -5574,6 +7167,12 @@ namespace LivePhotoBox.ViewModels
                         AppendedVideoLength = appendedVideoLength,
                         DetectionMethod = detectionMethod,
                         HasConfirmedProtocol = confirmed,
+                        DetectedProtocol = (confirmed && detectionMethod == LivePhotoDetectionMethod.ContentIdentifier)
+                            || (confirmed && detectionMethod == LivePhotoDetectionMethod.FilenamePairing
+                                && detectedType == LivePhotoType.DualFile
+                                && protocol == LivePhotoProtocolType.Unknown)
+                            ? LivePhotoProtocolType.Apple
+                            : protocol,
                         Resolution = string.Empty
                     };
 
@@ -5601,8 +7200,24 @@ namespace LivePhotoBox.ViewModels
                         string? firstNewPath = null;
                         foreach (var item in toAdd)
                         {
-                            if (FileItems.Any(f => string.Equals(f.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase)))
+                            var existing = FileItems.FirstOrDefault(f =>
+                                string.Equals(f.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
+                            if (existing != null)
                             {
+                                // 升级已有条目：之前可能是单独拖入（无配对），
+                                // 现在同批拖入同名视频 → 升级为双文件实况照片
+                                if (existing.LivePhotoType == LivePhotoType.None
+                                    && item.LivePhotoType == LivePhotoType.DualFile)
+                                {
+                                    existing.LivePhotoType = item.LivePhotoType;
+                                    existing.PairedVideoPath = item.PairedVideoPath;
+                                    existing.HasConfirmedProtocol = item.HasConfirmedProtocol;
+                                    existing.DetectionMethod = item.DetectionMethod;
+                                    existing.DetectedProtocol = item.DetectedProtocol;
+                                    LogService.FileOp(
+                                        $"Drop[Pair] Upgraded existing item to dual-file: {Path.GetFileName(item.FilePath)}",
+                                        LogLevel.Info);
+                                }
                                 if (firstNewPath == null) firstNewPath = item.FilePath;
                                 continue;
                             }

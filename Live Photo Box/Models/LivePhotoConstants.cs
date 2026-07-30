@@ -3,21 +3,6 @@ using System.Text.RegularExpressions;
 
 namespace LivePhotoBox.Models
 {
-    // 实况照片配对方式。
-    public enum MetadataMatchingMode
-    {
-        // 文件名 + ContentIdentifier 标识符匹配（默认）。
-        FilenameAndCid = 0,
-        // 文件名 + 标识符 + 元数据组合（日期 + GPS + 设备 + iOS 版本）。
-        FilenameCidAndMetadata = 1,
-        // 仅按文件名匹配。
-        FilenameOnly = 2,
-        // 仅按 ContentIdentifier 标识符匹配。
-        CidOnly = 3,
-        // 仅按元数据组合匹配（日期 + GPS + 设备 + iOS 版本）。
-        MetadataOnly = 4
-    }
-
     // Shared constants for Live Photo detection / splitting.
     public static class LivePhotoConstants
     {

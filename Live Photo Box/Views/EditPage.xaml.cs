@@ -432,8 +432,7 @@ namespace LivePhotoBox.Views
 
             try
             {
-                var storageFile = await StorageFile.GetFileFromPathAsync(videoPath);
-                var mediaSource = MediaSource.CreateFromStorageFile(storageFile);
+                var mediaSource = MediaSource.CreateFromUri(new Uri(videoPath));
 
                 PureMediaViewer.AutoCloseOnEnd = true;
                 PureMediaViewer.ShowCloseButton = true;
@@ -574,7 +573,13 @@ namespace LivePhotoBox.Views
                 return item.PairedVideoPath;
             }
 
-            // SingleFileJpeg：从 JPEG 文件尾部提取嵌入式视频
+            // SingleFile：优先复用 LoadPropertiesAsync 已提取的 temp 视频
+            // （所有单文件协议——Google V2、OPPO、华为——选文件时都已提取过）
+            var cachedVideo = ViewModel.CachedTempVideoPath;
+            if (!string.IsNullOrEmpty(cachedVideo) && File.Exists(cachedVideo))
+                return cachedVideo;
+
+            // SingleFileJpeg：从文件尾部提取嵌入式视频（标准 XMP 协议，缓存未命中时回退）
             if (item.LivePhotoType == LivePhotoType.SingleFileJpeg
                 && item.AppendedVideoLength > 0
                 && File.Exists(item.FilePath))
@@ -609,6 +614,56 @@ namespace LivePhotoBox.Views
                 {
                     System.Diagnostics.Debug.WriteLine(
                         $"[EditPage] 嵌入式视频提取失败: {ex.Message}");
+                }
+            }
+
+            // 华为/荣耀实况照片：视频嵌在文件中间（缓存未命中时回退）
+            if ((item.LivePhotoType == LivePhotoType.SingleFileHeic
+                 || item.LivePhotoType == LivePhotoType.SingleFileJpeg)
+                && File.Exists(item.FilePath))
+            {
+                try
+                {
+                    var tempPath = Path.Combine(
+                        Path.GetTempPath(),
+                        $"lpb_preview_{Guid.NewGuid():N}.mp4");
+
+                    var imagePath = item.FilePath;
+
+                    await Task.Run(() =>
+                    {
+                        var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(imagePath);
+                        if (range == null)
+                            throw new InvalidOperationException("HUAWEI: cannot locate embedded MP4");
+
+                        var (videoStart, _, videoLen) = range.Value;
+                        using var src = new FileStream(imagePath, FileMode.Open,
+                            FileAccess.Read, FileShare.ReadWrite);
+                        src.Seek(videoStart, SeekOrigin.Begin);
+
+                        using var dst = new FileStream(tempPath, FileMode.Create,
+                            FileAccess.Write, FileShare.None);
+                        var buf = new byte[81920];
+                        long remain = videoLen;
+                        while (remain > 0)
+                        {
+                            int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                            if (r == 0) break;
+                            dst.Write(buf, 0, r);
+                            remain -= r;
+                        }
+                    });
+
+                    if (File.Exists(tempPath))
+                    {
+                        _previewTempVideoPath = tempPath;
+                        return tempPath;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[EditPage] 华为嵌入式视频提取失败: {ex.Message}");
                 }
             }
 
@@ -1348,7 +1403,7 @@ namespace LivePhotoBox.Views
         {
             if (FilmstripSelectionHighlight == null) return;
             FilmstripSelectionHighlight.BorderBrush = _selectedBorder;
-            FilmstripSelectionHighlight.Background = _selectedBg;
+            FilmstripSelectionHighlight.Background = null; // 透明，不对中心帧图片叠加强调色蒙版
         }
 
         // ═════════════════════════════════════════════════════════════════

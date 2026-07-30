@@ -19,7 +19,7 @@ namespace LivePhotoBox.Services.Protocols
     public sealed class MicroVideoV1Protocol : LivePhotoProtocol
     {
         // Protocol index for UI ComboBox selection (0 = MicroVideo V1).
-        public override int Id => 0;
+        public override int Id => 1;
 
         // Short identifier for logging and protocol identification.
         public override string Key => "MicroVideoV1";

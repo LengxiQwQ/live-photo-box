@@ -28,7 +28,7 @@ namespace LivePhotoBox.Services.Protocols
     public sealed class OppoLivePhotoProtocol : LivePhotoProtocol
     {
         // Protocol index for UI ComboBox selection (2 = OPPO Live Photo).
-        public override int Id => 2;
+        public override int Id => 3;
 
         // Short identifier for logging and protocol identification.
         public override string Key => "OppoLivePhoto";

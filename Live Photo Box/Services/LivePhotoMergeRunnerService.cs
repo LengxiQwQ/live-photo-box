@@ -16,6 +16,12 @@ namespace LivePhotoBox.Services
         public required string OutputDirectory { get; init; }
         // 选中的合成协议索引。
         public required int SelectedModeIndex { get; init; }
+        // 输出格式索引（0=JPG+MP4, 1=JPG+MOV, 2=HEIC+MP4, 3=HEIC+MOV）。
+        public int OutputFormatIndex { get; init; } = 0;
+        // 命名规则索引（0=保留原名, 1=添加协议后缀, 2=自定义模板）。
+        public int NamingRuleIndex { get; init; } = 0;
+        // 自定义命名模板字符串（NamingRuleIndex==2 时使用）。
+        public string? CustomNamingPattern { get; init; }
         // 最大并行任务数。
         public int MaxDegreeOfParallelism { get; init; } = Math.Min(Environment.ProcessorCount, 5);
         // 每批任务的启动间隔。
@@ -76,7 +82,7 @@ namespace LivePhotoBox.Services
                         onTaskStarted?.Invoke(task);
 
                         var result = await ProcessSinglePairAsync(
-                            task.ImagePath, task.VideoPath, task.BaseName, options, tempDir,
+                            task.ImagePath, task.VideoPath, task.BaseName, task.Index, options, tempDir,
                             pauseEvent, cancellationToken)
                             .ConfigureAwait(false);
                         int currentCompleted = Interlocked.Increment(ref completedCount);
@@ -126,6 +132,7 @@ namespace LivePhotoBox.Services
             string imagePath,
             string videoPath,
             string baseName,
+            int taskIndex,
             LivePhotoMergeRunOptions options,
             string tempDir,
             ManualResetEventSlim pauseEvent,
@@ -139,15 +146,34 @@ namespace LivePhotoBox.Services
             {
                 token.ThrowIfCancellationRequested();
 
-                if (HeicConverterService.IsHeicFile(imagePath))
+                // HEIC → JPEG conversion: skip when using Motion Photo V2 protocol
+                // (V2 supports native HEIC primary images per Google spec).
+                // Also skip when the user selected HEIC output format (indices 2/3).
+                bool keepHeic = (options.OutputFormatIndex == 2 || options.OutputFormatIndex == 3)
+                    && HeicConverterService.IsHeicFile(imagePath);
+                if (!keepHeic && HeicConverterService.IsHeicFile(imagePath))
                 {
-                    workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, tempDir, token);
-                    tempFiles.Add(workingImagePath);
-                    await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
-                    token.ThrowIfCancellationRequested();
+                    if (protocol is MotionPhotoV2Protocol)
+                    {
+                        // Native HEIC path — no JPEG conversion needed.
+                        // The HEIC will be written directly with XMP injected via exiftool
+                        // into the ISOBMFF meta box, followed by an mpvd box with the video.
+                    }
+                    else
+                    {
+                        workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, tempDir, token);
+                        tempFiles.Add(workingImagePath);
+                        await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
+                        token.ThrowIfCancellationRequested();
+                    }
                 }
 
-                bool forceMp4 = ComputeForceMp4(options.SelectedModeIndex);
+                // Read cover frame timestamp before ffmpeg transcode —
+                // the Apple mebx track (StillImageTime) and vivo uuid box are
+                // discarded by ffmpeg's -map 0:V:0 selector.
+                long coverTimestampUs = LivePhotoMergeService.ReadSourceCoverTimestamp(videoPath);
+
+                bool forceMp4 = ComputeForceMp4(options.SelectedModeIndex, options.OutputFormatIndex);
                 (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token, forceMp4);
                 if (vt) tempFiles.Add(workingVideoPath);
 
@@ -158,12 +184,16 @@ namespace LivePhotoBox.Services
                     tempFiles.Add(workingImagePath);
                 }
 
-                string outputName = LivePhotoMergeService.CreateOutputFileName(baseName, options.SelectedModeIndex);
+                string outputName = LivePhotoMergeService.CreateOutputFileName(
+                    baseName, options.SelectedModeIndex, imagePath,
+                    options.OutputFormatIndex, options.NamingRuleIndex,
+                    customPattern: options.NamingRuleIndex == 2 ? options.CustomNamingPattern : null,
+                    taskIndex: options.NamingRuleIndex == 2 ? taskIndex : null);
                 string finalOutputPath = PathHelper.GetUniqueFilePath(options.OutputDirectory, outputName);
 
                 await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
-                await LivePhotoMergeService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token);
+                await LivePhotoMergeService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token, coverTimestampUs);
 
                 return (true, ResourceService.GetString("Task_Success"));
             }
@@ -184,12 +214,17 @@ namespace LivePhotoBox.Services
         }
 
         // Determine whether to force MP4 conversion.
-        // Google protocols (V1/V2) respect the user setting; OPPO always forces MP4.
-        private static bool ComputeForceMp4(int selectedModeIndex)
+        // Selected MP4 output (indices 0/2) → always convert.
+        // Selected MOV output (indices 1/3) → keep MOV unless Samsung/vivo/toggle override.
+        // Samsung (4) / vivo (3) always force MP4 regardless of output format.
+        private static bool ComputeForceMp4(int selectedModeIndex, int outputFormatIndex)
         {
-            // OPPO protocol (Id=2) always needs MP4
-            if (selectedModeIndex == 2) return true;
-            // Google V1 (Id=0) / V2 (Id=1) respect user's toggle (default false / off)
+            // Samsung / vivo / Huawei always need MP4
+            if (selectedModeIndex == 4 || selectedModeIndex == 3 || selectedModeIndex == 5) return true;
+            // User selected MP4 output → always convert to MP4
+            bool wantMp4 = outputFormatIndex == 0 || outputFormatIndex == 2;
+            if (wantMp4) return true;
+            // User selected MOV output → respect the force-MP4 toggle
             return AppSettingsService.GetValue("IsGoogleProtocolForceMp4", false);
         }
     }
