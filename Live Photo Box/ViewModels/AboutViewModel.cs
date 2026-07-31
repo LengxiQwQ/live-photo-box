@@ -17,7 +17,6 @@ using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
-using Windows.ApplicationModel;
 using Windows.System;
 
 namespace LivePhotoBox.ViewModels
@@ -99,36 +98,22 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         private static string GetAppVersion()
         {
-            try
-            {
-                PackageVersion version = Package.Current.Id.Version;
-                return $"{version.Major}.{version.Minor}.{version.Build}";
-            }
-            catch
-            {
-                // 开发环境或未打包运行时的后备显示
-                return "1.3.5";
-            }
+            // 统一走 App.AppVersion：打包版读 MSIX 清单，便携/安装版回退到程序集版本
+            var version = App.AppVersion;
+            // "0.0.0" 是 App.AppVersion 的最后兜底——程序集版本也读不到时返回，
+            // 不应向用户展示一个假版本号
+            if (version == "0.0.0")
+                return ResourceService.GetString("AboutPage_VersionUnknown");
+            return version;
         }
 
         /// <summary>
-        /// 判断当前应用的分发渠道
+        /// 判断当前应用的分发渠道，统一走 App.DeploymentModeResourceKey。
+        /// 商店版 / 安装版（Inno Setup）/ 便携版 三者由 App 层用 unins000 文件区分。
         /// </summary>
         private static string GetAppDistribution()
         {
-            try
-            {
-                if (Package.Current.SignatureKind == PackageSignatureKind.Store)
-                {
-                    return ResourceService.GetString("AboutPage_Mode_Store");
-                }
-                return ResourceService.GetString("AboutPage_Mode_Installer");
-            }
-            catch
-            {
-                // 如果获取不到 Package 信息，大概率为免安装的便携版
-                return ResourceService.GetString("AboutPage_Mode_Portable");
-            }
+            return ResourceService.GetString(App.DeploymentModeResourceKey);
         }
 
         /// <summary>

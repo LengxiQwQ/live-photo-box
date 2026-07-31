@@ -150,6 +150,9 @@
   <data name="AboutPage_Version_Format" xml:space="preserve">
     <value>Version {0}</value>
   </data>
+  <data name="AboutPage_VersionUnknown" xml:space="preserve">
+    <value>Version unavailable</value>
+  </data>
   <data name="AboutPage_Mode_Store" xml:space="preserve">
     <value>Store</value>
   </data>
