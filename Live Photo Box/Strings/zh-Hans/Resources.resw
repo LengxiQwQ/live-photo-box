@@ -1619,6 +1619,12 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="Error_HeicConversionFailed" xml:space="preserve">
     <value>HEIC/HEIF 文件 "{0}" 转换失败：{1}</value>
   </data>
+  <data name="Error_HeifEncMissing" xml:space="preserve">
+    <value>缺少内置工具：Tools\heif-enc.exe</value>
+  </data>
+  <data name="Error_HeifDecMissing" xml:space="preserve">
+    <value>缺少内置工具：Tools\heif-dec.exe</value>
+  </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
     <value>将 Apple 实况照片或任意图片 + 视频组合为标准实况照片（单文件格式），方便在 Windows 及 Android 设备上查看</value>
   </data>
@@ -1664,11 +1670,11 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_Merge_HeicDecoder_MagickNET.Content" xml:space="preserve">
     <value>Magick.NET（ImageMagick + libheif）</value>
   </data>
-  <data name="SettingsPage_Merge_HeicDecoder_BitmapDecoder.Content" xml:space="preserve">
-    <value>BitmapDecoder（Windows 系统内置）</value>
+  <data name="SettingsPage_Merge_HeicDecoder_HeifDec.Content" xml:space="preserve">
+    <value>heif-dec（外部工具）</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_Desc.Text" xml:space="preserve">
-    <value>Magick.NET 方案软件已自带；BitmapDecoder 方案更快，但依赖系统的 HEIC/HEIF 扩展（Win11 已内置，Win10 需安装以下两个扩展）</value>
+    <value>两个解码方案均为应用内置工具，无需安装 Windows HEIC/HEIF 扩展；HEIC 编码统一使用 heif-enc</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_HeifLink.Content" xml:space="preserve">
     <value>安装 HEIF 图像扩展 →</value>

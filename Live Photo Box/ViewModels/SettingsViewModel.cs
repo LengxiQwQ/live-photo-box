@@ -214,7 +214,7 @@ namespace LivePhotoBox.ViewModels
         {
             if (_isInitializing) return;
             AppSettingsService.SetValue(nameof(HeicDecoderIndex), value);
-            LogService.Info($"HEIC decoder changed to: {(value == 0 ? "Magick.NET" : "Windows BitmapDecoder")}", LogSource.Settings);
+            LogService.Info($"HEIC decoder changed to: {(value == 0 ? "Magick.NET" : "heif-dec")}", LogSource.Settings);
         }
 
         [ObservableProperty]

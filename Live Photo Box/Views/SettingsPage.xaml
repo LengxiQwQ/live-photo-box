@@ -501,7 +501,7 @@
                               Loaded="AppearanceComboBox_Loaded"
                               MinWidth="200">
                         <ComboBoxItem x:Uid="SettingsPage_Merge_HeicDecoder_MagickNET"/>
-                        <ComboBoxItem x:Uid="SettingsPage_Merge_HeicDecoder_BitmapDecoder"/>
+                        <ComboBoxItem x:Uid="SettingsPage_Merge_HeicDecoder_HeifDec"/>
                     </ComboBox>
                 </controls:SettingsCard>
 

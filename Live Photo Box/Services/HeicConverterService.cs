@@ -1,13 +1,9 @@
 using ImageMagick;
 using System;
+using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading;
 using System.Threading.Tasks;
-using Windows.Foundation;
-using Windows.Graphics.Imaging;
-using Windows.Storage;
-using Windows.Storage.Streams;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
@@ -15,21 +11,22 @@ namespace LivePhotoBox.Services
     // HEIC/HEIF → JPEG 转码服务
     // 支持两种解码器，可在设置页面中切换：
     // 0 — Magick.NET (ImageMagick + libheif)，默认
-    // 1 — Windows BitmapDecoder（系统内置 HEIC 解码器）
-    // 两种方案各有利弊，用户可根据实际效果选择。
+    // 1 — heif-dec.exe（libheif + libde265，外部工具）
+    // 编码统一使用 heif-enc.exe（libheif + x265，外部工具）。
+    // 核心转码不依赖 WinRT / Windows 商店扩展。
     // 转换后均通过 ExifTool 复制元数据（排除 Orientation 以避免双重旋转）。
     public static class HeicConverterService
     {
         // 判断指定文件是否为 HEIC 或 HEIF 格式（仅检查扩展名，不读取文件头）。
         // path: 文件路径
-        // è¿å: 是 HEIC/HEIF 文件返回 true
+        // 返回: 是 HEIC/HEIF 文件返回 true
         public static bool IsHeicFile(string path)
         {
             return path.EndsWith(".heic", StringComparison.OrdinalIgnoreCase)
                 || path.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
         }
 
-        // 读取用户选择的解码器：0=Magick.NET, 1=Windows BitmapDecoder
+        // 读取用户选择的解码器：0=Magick.NET, 1=heif-dec
         public static int DecoderIndex => AppSettingsService.GetValue("HeicDecoderIndex", 0);
 
         // ── 公开 API ──────────────────────────────────────
@@ -70,10 +67,10 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 将任意图片（JPEG/PNG 等）转换为 HEIC 格式，用于 CLI 全协议导出时生成 HEIC 变体。
-        /// 依赖 Windows WIC HEIF 编码器（Windows 11 内置，Windows 10 需安装 HEIF 扩展）。
+        /// 将 JPEG 图片转换为 HEIC 格式，用于合并导出时生成 HEIC 变体。
+        /// 使用项目内置的 heif-enc.exe（libheif + x265），自包含、零 Windows 商店扩展。
         /// </summary>
-        /// <param name="sourcePath">源图片文件路径</param>
+        /// <param name="sourcePath">源图片文件路径（仅 JPEG）</param>
         /// <param name="outputDirectory">输出目录</param>
         /// <param name="token">取消令牌</param>
         /// <returns>转换后的 HEIC 文件路径；若输入已是 HEIC 则直接返回原路径</returns>
@@ -88,28 +85,45 @@ namespace LivePhotoBox.Services
             try
             {
                 token.ThrowIfCancellationRequested();
-                LogService.Merge($"Converting to HEIC (WIC): {Path.GetFileName(sourcePath)}");
+                LogService.Merge($"Converting to HEIC (heif-enc): {Path.GetFileName(sourcePath)}");
 
-                // Use FileStream → IRandomAccessStream to avoid StorageFile,
-                // which requires the WinUI application to be fully initialized.
-                // (CLI export runs before InitializeComponent in App.xaml.cs.)
-                using var sourceStream = new FileStream(
-                    sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var sourceRas = sourceStream.AsRandomAccessStream();
-                var decoder = await BitmapDecoder.CreateAsync(sourceRas);
+                string? heifEncPath = ExternalToolLocator.FindHeifEnc();
+                if (string.IsNullOrEmpty(heifEncPath))
+                    throw new InvalidOperationException(ResourceService.GetString("Error_HeifEncMissing"));
 
-                using var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
-                    BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+                var psi = new ProcessStartInfo
+                {
+                    FileName = heifEncPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+                psi.ArgumentList.Add("-o");
+                psi.ArgumentList.Add(heicPath);
+                psi.ArgumentList.Add("-q");
+                psi.ArgumentList.Add("90");
+                psi.ArgumentList.Add(sourcePath);
 
-                var propertySet = new BitmapPropertySet();
-                propertySet.Add("ImageQuality", new BitmapTypedValue(0.9f, PropertyType.Single));
+                using var process = new Process { StartInfo = psi };
+                process.Start();
 
-                using var fileStream = new FileStream(heicPath, FileMode.Create, FileAccess.Write);
-                using var randomAccessStream = fileStream.AsRandomAccessStream();
-                var encoder = await BitmapEncoder.CreateAsync(
-                    BitmapEncoder.HeifEncoderId, randomAccessStream, propertySet);
-                encoder.SetSoftwareBitmap(softwareBitmap);
-                await encoder.FlushAsync();
+                try
+                {
+                    await process.WaitForExitAsync(token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    process.Kill();
+                    throw;
+                }
+
+                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+
+                if (process.ExitCode != 0 || !File.Exists(heicPath) || new FileInfo(heicPath).Length == 0)
+                {
+                    throw new InvalidOperationException(
+                        $"heif-enc failed (exit {process.ExitCode}): {stderr.Trim()}");
+                }
 
                 LogService.Merge($"HEIC conversion successful: {Path.GetFileName(heicPath)}");
                 return heicPath;
@@ -130,12 +144,12 @@ namespace LivePhotoBox.Services
         // heicPath: 源 HEIC 文件路径
         // outputPath: 目标 JPEG 文件路径
         // token: 取消令牌
-        // è¿å: 转换后的 JPEG 文件路径
+        // 返回: 转换后的 JPEG 文件路径
         private static async Task<string> ConvertInternalAsync(string heicPath, string outputPath, int quality, CancellationToken token)
         {
             // 一次读取解码器索引，避免多次调 AppSettingsService（IO 开销）
             int decoderIndex = DecoderIndex;
-            var decoderName = decoderIndex == 1 ? "BitmapDecoder" : "Magick.NET";
+            var decoderName = decoderIndex == 1 ? "heif-dec" : "Magick.NET";
             LogService.Merge($"Converting HEIC to JPEG ({decoderName}, q={quality}): {heicPath}");
 
             try
@@ -143,8 +157,8 @@ namespace LivePhotoBox.Services
                 token.ThrowIfCancellationRequested();
 
                 if (decoderIndex == 1)
-                    // BitmapDecoder：WinRT I/O，天然异步
-                    await ConvertWithBitmapDecoderAsync(heicPath, outputPath, quality).ConfigureAwait(false);
+                    // heif-dec：外部进程解码，天然异步
+                    await ConvertWithHeifDecAsync(heicPath, outputPath, quality, token).ConfigureAwait(false);
                 else
                     // Magick.NET：CPU 密集型，放线程池
                     await Task.Run(() => ConvertWithMagickNET(heicPath, outputPath, quality), token).ConfigureAwait(false);
@@ -188,40 +202,47 @@ namespace LivePhotoBox.Services
             image.Write(outputPath);
         }
 
-        // ── 方案 B：Windows BitmapDecoder ──────────────────
+        // ── 方案 B：heif-dec ───────────────────────────────
 
-        // 使用 Windows 内置 BitmapDecoder 解码 HEIC。
-        // 优点：系统原生解码，色彩还原最准确，HDR 色调映射由系统完成。
-        // 缺点：依赖 Windows HEIC 扩展（Win10 需手动安装，Win11 内置）。
-        private static async Task ConvertWithBitmapDecoderAsync(string heicPath, string outputPath, int quality)
+        // 使用项目内置的 heif-dec.exe（libheif + libde265）解码 HEIC。
+        // 优点：自包含，无需 Windows HEIF/HEVC 商店扩展；进程天然异步。
+        private static async Task ConvertWithHeifDecAsync(string heicPath, string outputPath, int quality, CancellationToken token)
         {
-            StorageFile sourceFile = await StorageFile.GetFileFromPathAsync(heicPath);
+            string? heifDecPath = ExternalToolLocator.FindHeifDec();
+            if (string.IsNullOrEmpty(heifDecPath))
+                throw new InvalidOperationException(ResourceService.GetString("Error_HeifDecMissing"));
 
-            SoftwareBitmap? softwareBitmap = null;
+            var psi = new ProcessStartInfo
+            {
+                FileName = heifDecPath,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true
+            };
+            psi.ArgumentList.Add(heicPath);
+            psi.ArgumentList.Add("-o");
+            psi.ArgumentList.Add(outputPath);
+            psi.ArgumentList.Add("-q");
+            psi.ArgumentList.Add(quality.ToString());
+
+            using var process = new Process { StartInfo = psi };
+            process.Start();
+
             try
             {
-                using var inputStream = await sourceFile.OpenAsync(FileAccessMode.Read);
-                var decoder = await BitmapDecoder.CreateAsync(inputStream);
-
-                // Bgra8 + Premultiplied：系统内部完成瓦片拼接、色彩空间转换、HDR 色调映射
-                softwareBitmap = await decoder.GetSoftwareBitmapAsync(
-                    BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
-
-                using var fileStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write);
-                using var randomAccessStream = fileStream.AsRandomAccessStream();
-
-                var propertySet = new BitmapPropertySet();
-                propertySet.Add("ImageQuality", new BitmapTypedValue(quality / 100f, PropertyType.Single));
-
-                var encoder = await BitmapEncoder.CreateAsync(
-                    BitmapEncoder.JpegEncoderId, randomAccessStream, propertySet);
-
-                encoder.SetSoftwareBitmap(softwareBitmap);
-                await encoder.FlushAsync();
+                await process.WaitForExitAsync(token).ConfigureAwait(false);
             }
-            finally
+            catch (OperationCanceledException)
             {
-                softwareBitmap?.Dispose();
+                process.Kill();
+                throw;
+            }
+
+            if (process.ExitCode != 0)
+            {
+                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                throw new InvalidOperationException(
+                    $"heif-dec failed (exit {process.ExitCode}): {stderr.Trim()}");
             }
         }
 
@@ -237,7 +258,7 @@ namespace LivePhotoBox.Services
         }
 
         // 复制所有标签但排除 Orientation。
-        // AutoOrient / BitmapDecoder 已把方向应用到像素上，再复制 Orientation 会导致双重旋转。
+        // AutoOrient / heif-dec 已把方向应用到像素上，再复制 Orientation 会导致双重旋转。
         private static async Task CopyTagsAsync(string sourcePath, string targetPath, CancellationToken token)
         {
             // 使用 RunExifToolAsync（stdin 管道，UTF-8 编码），兼容所有语言文件名

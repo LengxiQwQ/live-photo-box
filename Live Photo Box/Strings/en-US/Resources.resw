@@ -1620,6 +1620,12 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="Error_HeicConversionFailed" xml:space="preserve">
     <value>HEIC/HEIF file "{0}" conversion failed: {1}</value>
   </data>
+  <data name="Error_HeifEncMissing" xml:space="preserve">
+    <value>Missing built-in tool: Tools\heif-enc.exe</value>
+  </data>
+  <data name="Error_HeifDecMissing" xml:space="preserve">
+    <value>Missing built-in tool: Tools\heif-dec.exe</value>
+  </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
     <value>Combine Apple Live Photos or any image + video into standard Live Photos (single-file format), viewable on Windows and Android devices</value>
   </data>
@@ -1665,12 +1671,11 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="SettingsPage_Merge_HeicDecoder_MagickNET.Content" xml:space="preserve">
     <value>Magick.NET (ImageMagick + libheif)</value>
   </data>
-  <data name="SettingsPage_Merge_HeicDecoder_BitmapDecoder.Content" xml:space="preserve">
-    <value>Windows BitmapDecoder (system built-in)</value>
+  <data name="SettingsPage_Merge_HeicDecoder_HeifDec.Content" xml:space="preserve">
+    <value>heif-dec (bundled tool)</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_Desc.Text" xml:space="preserve">
-    <value>Magick.NET is self-contained; BitmapDecoder requires HEIC/HEIF extensions.
-(built-in on Win11, Win10 requires both extensions below)</value>
+    <value>Both decoders are bundled tools; no Windows HEIC/HEIF extensions required. HEIC encoding uses heif-enc</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_HeifLink.Content" xml:space="preserve">
     <value>Install HEIF Image Extensions →</value>
