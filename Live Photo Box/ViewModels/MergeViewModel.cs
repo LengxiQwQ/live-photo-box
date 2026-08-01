@@ -1431,9 +1431,12 @@ namespace LivePhotoBox.ViewModels
                                 // Apple mebx 轨和 vivo uuid box 会被 ffmpeg -map 0:V:0 丢弃
                                 long coverTimestampUs = LivePhotoMergeService.ReadSourceCoverTimestamp(task.VideoPath);
 
+                                // Huawei 协议 (index 6) 需要 moov 在文件尾 +
+                                // MP4 ftyp brand = mp42，而非 +faststart 的 isom
+                                bool hwFaststart = modeIndex != 6;
                                 (workingVideoPath, bool vt) =
                                     await VideoTranscodeService.EnsureMp4Async(
-                                        task.VideoPath, tempDir, token, forceMp4);
+                                        task.VideoPath, tempDir, token, forceMp4, hwFaststart);
                                 if (vt) tempFiles.Add(workingVideoPath);
 
                                 string prepared = await protocol.PrepareImageAsync(

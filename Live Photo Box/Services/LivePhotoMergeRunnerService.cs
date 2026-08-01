@@ -186,7 +186,9 @@ namespace LivePhotoBox.Services
                 long coverTimestampUs = LivePhotoMergeService.ReadSourceCoverTimestamp(videoPath);
 
                 bool forceMp4 = ComputeForceMp4(options.SelectedModeIndex, options.OutputFormatIndex);
-                (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token, forceMp4);
+                // Huawei 协议 (index 6) 需要 moov 在文件尾，不使用 +faststart
+                bool hwFaststart = options.SelectedModeIndex != 6;
+                (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token, forceMp4, hwFaststart);
                 if (vt) tempFiles.Add(workingVideoPath);
 
                 string prepared = await protocol.PrepareImageAsync(workingImagePath, tempDir, token);

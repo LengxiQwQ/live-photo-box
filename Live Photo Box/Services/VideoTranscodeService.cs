@@ -135,7 +135,8 @@ namespace LivePhotoBox.Services
         public static async Task<TranscodeResult> RemuxAsync(
             string inputPath,
             string outputPath,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            bool useFaststart = true)
         {
             var result = new TranscodeResult { WasRemux = true };
             var stopwatch = Stopwatch.StartNew();
@@ -174,16 +175,24 @@ namespace LivePhotoBox.Services
                 }
 
                 string extension = Path.GetExtension(outputPath).ToLowerInvariant();
-                string movflags = extension == ".mp4" ? "+faststart" : "";
+                // movflags: +faststart 把 moov 移到文件头。华为协议需要 moov 在文件尾，
+                // 否则华为相册找不到 moov → 显示已损坏。华为模式还额外设置 mp42 brand 和 ©too。
+                string movflags = (useFaststart && extension == ".mp4") ? "+faststart" : "";
+                string brandMeta = (!useFaststart && extension == ".mp4")
+                    ? " -brand mp42 -metadata too=\"Openharmony6.1\"" : "";
 
                 // Remux 参数说明:
                 // -c copy: 无损拷贝
                 // -map 0:V:0 -> 【神级参数】大写 V 表示提取第1个"真正的视频轨"，完美避开Apple的 128x96 缩略图轨和安卓的 MJPEG 封面轨
                 // -map 0:a:0? -> 提取第1个音频轨（问号表示如果没有音频也不报错，防止静音视频闪退）
                 // -map_metadata 0: 保留源文件时间、GPS等元数据
-                string arguments = string.IsNullOrEmpty(movflags)
-                    ? $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0 \"{outputPath}\""
-                    : $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0 -movflags {movflags} \"{outputPath}\"";
+                string arguments;
+                if (!string.IsNullOrEmpty(movflags))
+                    arguments = $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0 -movflags {movflags} \"{outputPath}\"";
+                else if (!string.IsNullOrEmpty(brandMeta))
+                    arguments = $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0{brandMeta} \"{outputPath}\"";
+                else
+                    arguments = $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0 \"{outputPath}\"";
 
                 using var process = new Process();
                 process.StartInfo.FileName = ffmpegPath;
@@ -269,9 +278,10 @@ namespace LivePhotoBox.Services
         public static async Task<TranscodeResult> TranscodeToMp4Async(
             string inputPath,
             string outputPath,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            bool useFaststart = true)
         {
-            return await TranscodeAsync(inputPath, outputPath, VideoFormat.MP4, token);
+            return await TranscodeAsync(inputPath, outputPath, VideoFormat.MP4, token, useFaststart);
         }
 
         // 将视频转换为 MOV 格式 (H.264/AAC)
@@ -458,11 +468,14 @@ namespace LivePhotoBox.Services
         // è¿å: (pathToUse, wasTranscoded):pathToUse — original or temp file path;wasTranscoded — true when a temp file was created (caller must clean up).
         // <param name="forceMp4">When true, always transcode to MP4. When false, only transcode if
         // the container is not MP4-compatible (e.g. AVI, MKV). MOV files are left as-is.</param>
+        // <param name="useFaststart">When true (default), use +faststart to move moov to beginning
+        // for streaming. When false (Huawei protocol), keep moov at end and set mp42 brand + ©too.</param>
         public static async Task<(string Path, bool WasTranscoded)> EnsureMp4Async(
             string inputPath,
             string workDir,
             CancellationToken token = default,
-            bool forceMp4 = true)
+            bool forceMp4 = true,
+            bool useFaststart = true)
         {
             // Already MP4? No-op.
             if (DetectContainerFormat(inputPath) == "mp4")
@@ -489,7 +502,7 @@ namespace LivePhotoBox.Services
             if (File.Exists(tempPath))
                 try { File.Delete(tempPath); } catch { }
 
-            var result = await TranscodeToMp4Async(inputPath, tempPath, token);
+            var result = await TranscodeToMp4Async(inputPath, tempPath, token, useFaststart);
 
             if (!result.Success)
             {
@@ -565,7 +578,8 @@ namespace LivePhotoBox.Services
             string inputPath,
             string outputPath,
             VideoFormat targetFormat,
-            CancellationToken token)
+            CancellationToken token,
+            bool useFaststart = true)
         {
             var result = new TranscodeResult();
             var stopwatch = Stopwatch.StartNew();
@@ -610,7 +624,7 @@ namespace LivePhotoBox.Services
             {
                 try
                 {
-                    string arguments = BuildFFmpegArguments(inputPath, outputPath, targetFormat, !useHardwareEncoder);
+                    string arguments = BuildFFmpegArguments(inputPath, outputPath, targetFormat, !useHardwareEncoder, useFaststart);
 
                     LogService.Split($"ffmpeg {arguments}", LogLevel.Debug);
 
@@ -1087,7 +1101,8 @@ namespace LivePhotoBox.Services
             return $"-c:a aac -b:a {targetBitrate}k";
         }
 
-        private static string BuildFFmpegArguments(string inputPath, string outputPath, VideoFormat targetFormat, bool forceSoftwareEncoder = false)
+        private static string BuildFFmpegArguments(string inputPath, string outputPath,
+            VideoFormat targetFormat, bool forceSoftwareEncoder = false, bool useFaststart = true)
         {
             var (videoEncoder, videoParams) = GetEncoderForFormat(targetFormat, forceSoftwareEncoder);
             int threadCount = GetThreadCount(videoEncoder);
@@ -1097,30 +1112,19 @@ namespace LivePhotoBox.Services
 
             string audioArgs = BuildAudioArgsForMp4(inputPath);
 
-            // ── 参数说明 ──────────────────────────────────────────────
-            //
-            // -apply_cropping 0
-            //   关闭 FFmpeg 所有自动裁切（SPS conformance window + MOV clap 原子）。
-            //   必须为 0，因为旧 iPhone MOV 的 clap (CleanAperture) 数据错误，
-            //   若让 FFmpeg 自动裁会严重过裁（1440→980）。详见 CropFilterForConformanceWindow 注释。
-            //   裁切补偿由 -vf crop 滤镜完成。
-            //
-            // -map 0:V:0 (大写 V)
-            //   只选真正的视频轨，跳过 iPhone MOV 里的 128×96 / 256×192 缩略图轨。
-            //   小写 v 会选中缩略图，导致分辨率错乱和音频丢失。
-            //
-            // -map 0:a:0?
-            //   提取第一个音频轨，? 表示没有也不报错（静音视频兼容）。
-            //
-            // {audioArgs}
-            //   自适应音频策略（BuildAudioArgsForMp4）：
-            //   · AAC/MP3 等已压缩格式 → -c:a copy（零质量损失）
-            //   · PCM（lpcm）→ AAC 编码，码率按声道自适应（单声道 128k / 立体声 256k）
-            //   · 检测失败 → AAC 192k 保守兜底
-            //
-            // 不加 -noautorotate
-            //   让 FFmpeg 读取 QuickTime 旋转矩阵并物理旋转像素，
-            //   输出始终正立，不依赖播放器解析旋转标签。
+            // movflags: +faststart 把 moov box 从文件尾移到文件头（利于流式播放）。
+            // 但华为 Moving Photo 协议要求 moov 在文件尾，+
+            // 否则华为相册通过 LIVE_ 尾标定位视频后找不到 moov → 显示"已损坏"。
+            string movflags = useFaststart ? "+faststart" : "";
+
+            // HUAWEI protocol: set MP4 major brand to mp42 and add ©too udta atom.
+            // ffmpeg default brand without +faststart is already mp42 for re-encode,
+            // but we set it explicitly for safety. ©too = "Openharmony6.1" matches
+            // real Huawei camera output and is required by Huawei Gallery.
+            string brandAndMeta = useFaststart
+                ? ""
+                : " -brand mp42 -metadata too=\"Openharmony6.1\"";
+
             return targetFormat switch
             {
                 VideoFormat.MP4 => $"-apply_cropping 0 -y -i \"{inputPath}\" " +
@@ -1131,7 +1135,7 @@ namespace LivePhotoBox.Services
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} " +
                     $"{audioArgs} " +
-                    $"-movflags +faststart " +
+                    (useFaststart ? $"-movflags +faststart " : brandAndMeta + " ") +
                     $"\"{outputPath}\"",
 
                 VideoFormat.MOV => $"-apply_cropping 0 -y -i \"{inputPath}\" " +
@@ -1142,7 +1146,7 @@ namespace LivePhotoBox.Services
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} -tag:v hvc1 " +
                     $"-c:a copy " +
-                    $"-movflags +faststart " +
+                    (useFaststart ? $"-movflags +faststart " : brandAndMeta + " ") +
                     $"\"{outputPath}\"",
 
                 _ => $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? \"{outputPath}\""

@@ -119,7 +119,8 @@ namespace LivePhotoBox.Services
                     }
                 }
 
-                (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token);
+                bool hwFaststart = options.SelectedModeIndex != 6; // Huawei needs moov at end
+                (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token, useFaststart: hwFaststart);
                 if (vt) tempFiles.Add(workingVideoPath);
 
                 string prepared = await protocol.PrepareImageAsync(workingImagePath, tempDir, token);
