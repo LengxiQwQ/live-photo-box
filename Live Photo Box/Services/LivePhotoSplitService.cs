@@ -333,13 +333,39 @@ namespace LivePhotoBox.Services
                 fs.ReadExactly(tailBuf, 0, readSize);
 
                 int moovRelIdx = LastIndexOf(tailBuf, "moov"u8);
-                if (moovRelIdx < 4) return null;
+                long moovPos;
+                uint moovSize;
 
-                long moovPos = fileSize - readSize + moovRelIdx;
-                uint moovSize = ReadBigEndianU32(tailBuf, moovRelIdx - 4);
+                if (moovRelIdx >= 4)
+                {
+                    // 标准华为布局：moov 在嵌入 MP4 末尾（接近文件尾部）
+                    moovPos = fileSize - readSize + moovRelIdx;
+                    moovSize = ReadBigEndianU32(tailBuf, moovRelIdx - 4);
+                }
+                else
+                {
+                    // ── 回退：moov 不在文件尾部（嵌入 MP4 采用 moov-before-mdat 布局）──
+                    // 例如：Apple MOV（moov 在开头）被直接作为 MP4 嵌入时，
+                    // moov 距离文件尾部可能超过 256KB，上述搜索会失败。
+                    // 此时从文件头跳过 HEIC ftyp 后搜索第二个 ftyp（嵌入 MP4 的 ftyp），
+                    // 再向该位置之后搜索 moov box。
+                    long secondFtypPos = FindSecondFtyp(fs, fileSize);
+                    if (secondFtypPos < 4) return null;
+
+                    moovPos = FindFourCCForward(fs, secondFtypPos, "moov"u8, fileSize);
+                    if (moovPos < 0) return null;
+
+                    // 读取 moov box size
+                    fs.Seek(moovPos - 4, SeekOrigin.Begin);
+                    Span<byte> size4 = stackalloc byte[4];
+                    fs.ReadExactly(size4);
+                    moovSize = ReadBigEndianU32(size4);
+                }
+
                 if (moovSize < 8 || moovSize > fileSize) return null;
 
-                long moovEnd = moovPos + moovSize;
+                // moovEnd: box 起始 = moovPos - 4（size 字段），终止 = 起始 + moovSize
+                long moovEnd = moovPos - 4 + moovSize;
                 if (moovEnd > fileSize) return null;
 
                 // ── Step 2: 在 moov 之前找最后一个 ftyp box（即嵌入 MP4 起点）──
@@ -347,7 +373,21 @@ namespace LivePhotoBox.Services
                 if (ftypPos < 4) return null;
 
                 long videoStart = ftypPos - 4; // ftyp box 的 size 字段
-                long videoEnd = moovEnd;
+
+                // ── Step 3: 确定视频终点 ──
+                // 若 moov 在文件末尾附近（标准布局：ftyp→mdat→moov），moovEnd 即为 MP4 终点；
+                // 若 moov 远离文件尾（如 ftyp→moov→mdat 布局），MP4 终点为 LIVE_ 尾标之前。
+                long videoEnd;
+                if (moovEnd >= fileSize - 1024)
+                {
+                    // moov 在文件尾部 1KB 以内 → 标准布局
+                    videoEnd = moovEnd;
+                }
+                else
+                {
+                    // moov 在 mdat 之前 → MP4 延伸到文件末的 60 字节 LIVE_ 尾标之前
+                    videoEnd = fileSize - 60;
+                }
 
                 if (videoStart <= 0 || videoStart >= videoEnd || videoEnd > fileSize)
                     return null;
@@ -410,6 +450,81 @@ namespace LivePhotoBox.Services
                  | ((uint)data[offset + 1] << 16)
                  | ((uint)data[offset + 2] << 8)
                  | data[offset + 3];
+        }
+
+        /// <summary>从 Span 读取 big-endian uint32</summary>
+        private static uint ReadBigEndianU32(ReadOnlySpan<byte> data)
+        {
+            return ((uint)data[0] << 24)
+                 | ((uint)data[1] << 16)
+                 | ((uint)data[2] << 8)
+                 | data[3];
+        }
+
+        /// <summary>
+        /// 定位嵌入 MP4 的 ftyp box，返回 'f' 字符的绝对偏移。
+        /// HEIC 文件：跳过文件头部的第一个 ftyp，返回第二个（即嵌入 MP4 的）ftyp。
+        /// JPEG 文件：文件头不是 ISOBMFF box，直接搜索第一个 ftyp。
+        /// 返回 -1 表示未找到。
+        /// </summary>
+        private static long FindSecondFtyp(FileStream fs, long fileSize)
+        {
+            // 读取文件头部 4 字节，判断是否为 ISOBMFF box size
+            Span<byte> header = stackalloc byte[4];
+            fs.Seek(0, SeekOrigin.Begin);
+            int read = fs.Read(header);
+            if (read < 4) return -1;
+
+            uint firstFour = ReadBigEndianU32(header);
+            bool isIsobmff = (firstFour >= 8 && firstFour <= fileSize);
+
+            long searchFrom;
+            if (isIsobmff)
+            {
+                // HEIC / MP4：第一个 ftyp 在 offset 0，跳过它找第二个
+                searchFrom = firstFour;
+            }
+            else
+            {
+                // JPEG / 其他：文件头不是 ISOBMFF box（如 JPEG SOI 0xFFD8），
+                // 从文件开头搜索第一个（也是唯一一个）ftyp
+                searchFrom = 0;
+            }
+
+            return FindFourCCForward(fs, searchFrom, "ftyp"u8, fileSize);
+        }
+
+        /// <summary>
+        /// 在 FileStream 中从 startPos 向后搜索指定的 fourcc 标记，返回其绝对偏移。
+        /// 使用分块扫描避免大内存分配。
+        /// </summary>
+        private static long FindFourCCForward(FileStream fs, long startPos,
+            ReadOnlySpan<byte> fourcc, long endLimit)
+        {
+            const int chunkSize = 64 * 1024;
+            byte[] buf = new byte[chunkSize + 4];
+            long searchPos = startPos;
+
+            while (searchPos < endLimit)
+            {
+                int toRead = (int)Math.Min(chunkSize, endLimit - searchPos);
+                fs.Seek(searchPos, SeekOrigin.Begin);
+                int actual = fs.Read(buf, 0, toRead);
+                if (actual < 4) break;
+
+                for (int i = 0; i <= actual - 4; i++)
+                {
+                    if (buf[i] == fourcc[0] && buf[i + 1] == fourcc[1]
+                        && buf[i + 2] == fourcc[2] && buf[i + 3] == fourcc[3])
+                    {
+                        return searchPos + i;
+                    }
+                }
+                // 重叠 3 字节防止 fourcc 跨块
+                searchPos += actual - 3;
+            }
+
+            return -1;
         }
 
         private static async Task<string> ResolveVideoExtensionAsync(FileStream sourceStream, long videoStartOffset, string metadataText, int selectedSplitFormatIndex, CancellationToken token)

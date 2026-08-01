@@ -128,7 +128,7 @@ namespace LivePhotoBox.Services
         // pauseEvent: 暂停信号量。
         // token: 取消令牌。
         // è¿å: (是否成功, 结果描述)
-        private static async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
+        internal static async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
             string imagePath,
             string videoPath,
             string baseName,
@@ -168,6 +168,18 @@ namespace LivePhotoBox.Services
                     }
                 }
 
+                // JPG/PNG → HEIC conversion: when user selects HEIC output format
+                // (indices 2/3) but the source image is not HEIC, convert it so the
+                // output container matches the user's format selection.
+                // This is the inverse of the HEIC→JPEG block above.
+                if ((options.OutputFormatIndex == 2 || options.OutputFormatIndex == 3)
+                    && !HeicConverterService.IsHeicFile(workingImagePath))
+                {
+                    workingImagePath = await HeicConverterService.ConvertToHeicAsync(
+                        workingImagePath, tempDir, token);
+                    tempFiles.Add(workingImagePath);
+                }
+
                 // Read cover frame timestamp before ffmpeg transcode —
                 // the Apple mebx track (StillImageTime) and vivo uuid box are
                 // discarded by ffmpeg's -map 0:V:0 selector.
@@ -185,7 +197,7 @@ namespace LivePhotoBox.Services
                 }
 
                 string outputName = LivePhotoMergeService.CreateOutputFileName(
-                    baseName, options.SelectedModeIndex, imagePath,
+                    baseName, options.SelectedModeIndex, workingImagePath,
                     options.OutputFormatIndex, options.NamingRuleIndex,
                     customPattern: options.NamingRuleIndex == 2 ? options.CustomNamingPattern : null,
                     taskIndex: options.NamingRuleIndex == 2 ? taskIndex : null);

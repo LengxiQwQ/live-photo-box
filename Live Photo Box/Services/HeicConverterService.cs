@@ -69,6 +69,60 @@ namespace LivePhotoBox.Services
             return ConvertInternalAsync(heicPath, tempPath, quality, token);
         }
 
+        /// <summary>
+        /// 将任意图片（JPEG/PNG 等）转换为 HEIC 格式，用于 CLI 全协议导出时生成 HEIC 变体。
+        /// 依赖 Windows WIC HEIF 编码器（Windows 11 内置，Windows 10 需安装 HEIF 扩展）。
+        /// </summary>
+        /// <param name="sourcePath">源图片文件路径</param>
+        /// <param name="outputDirectory">输出目录</param>
+        /// <param name="token">取消令牌</param>
+        /// <returns>转换后的 HEIC 文件路径；若输入已是 HEIC 则直接返回原路径</returns>
+        public static async Task<string> ConvertToHeicAsync(
+            string sourcePath, string outputDirectory, CancellationToken token = default)
+        {
+            if (IsHeicFile(sourcePath)) return sourcePath;
+
+            string baseName = Path.GetFileNameWithoutExtension(sourcePath);
+            string heicPath = Path.Combine(outputDirectory, baseName + ".heic");
+
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                LogService.Merge($"Converting to HEIC (WIC): {Path.GetFileName(sourcePath)}");
+
+                // Use FileStream → IRandomAccessStream to avoid StorageFile,
+                // which requires the WinUI application to be fully initialized.
+                // (CLI export runs before InitializeComponent in App.xaml.cs.)
+                using var sourceStream = new FileStream(
+                    sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var sourceRas = sourceStream.AsRandomAccessStream();
+                var decoder = await BitmapDecoder.CreateAsync(sourceRas);
+
+                using var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
+                    BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied);
+
+                var propertySet = new BitmapPropertySet();
+                propertySet.Add("ImageQuality", new BitmapTypedValue(0.9f, PropertyType.Single));
+
+                using var fileStream = new FileStream(heicPath, FileMode.Create, FileAccess.Write);
+                using var randomAccessStream = fileStream.AsRandomAccessStream();
+                var encoder = await BitmapEncoder.CreateAsync(
+                    BitmapEncoder.HeifEncoderId, randomAccessStream, propertySet);
+                encoder.SetSoftwareBitmap(softwareBitmap);
+                await encoder.FlushAsync();
+
+                LogService.Merge($"HEIC conversion successful: {Path.GetFileName(heicPath)}");
+                return heicPath;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                LogService.Merge($"HEIC conversion failed: {ex.Message}", LogLevel.Error, ex);
+                TryDelete(heicPath);
+                throw new InvalidOperationException(
+                    $"HEIC encoding failed for {Path.GetFileName(sourcePath)}: {ex.Message}", ex);
+            }
+        }
+
         // ── 调度 ──────────────────────────────────────────
 
         // 核心转换逻辑 — 根据用户选择的解码器方案分派到不同的实现。

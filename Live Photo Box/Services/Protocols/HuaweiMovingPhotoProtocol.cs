@@ -77,7 +77,13 @@ namespace LivePhotoBox.Services.Protocols
             Array.Copy(pqBytes, 0, tail, 20, pqLen);
 
             // [+40..+51]  "LIVE_{NNNNNNN}" — MP4 size + 16
+            // Field is exactly 12 bytes. "LIVE_" = 5 bytes → max 7-digit number (9,999,999).
+            // For MP4 > ~9.5 MB the value overflows the field. Since the LIVE_ marker
+            // only needs to be present for detection (the exact number is non-critical),
+            // we cap large values to fit by taking the last 7 digits.
             long liveValue = mp4Size + 16;
+            if (liveValue > 9_999_999)
+                liveValue %= 10_000_000;
             string live = $"LIVE_{liveValue}";
             byte[] liveBytes = Encoding.ASCII.GetBytes(live);
             int liveLen = Math.Min(liveBytes.Length, 12);

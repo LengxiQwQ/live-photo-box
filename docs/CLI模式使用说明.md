@@ -42,41 +42,39 @@ CLI 模式内嵌在 `Live Photo Box.exe` 中，通过命令行参数触发。
 
 ### 输出结构
 
+所有文件平铺在输出目录下，以 `{协议名}_{格式}.{ext}` 命名：
+
 ```
 输出目录/
-├── V1_MicroVideo/
-│   └── JPEG+MP4/merge_sample_01.jpg
-├── V2_MotionPhoto/
-│   ├── JPEG+MP4/merge_sample_01.jpg
-│   └── JPEG+MOV/merge_sample_01.jpg
-├── OPPO_OLive/
-│   └── JPEG+MP4/merge_sample_01.jpg
-├── vivo_LivePhoto/
-│   ├── JPEG+MP4/merge_sample_01.jpg
-│   └── JPEG+MOV/merge_sample_01.jpg
-├── Samsung_MotionPhoto/
-│   ├── JPEG+MP4/merge_sample_01.jpg
-│   └── JPEG+MOV/merge_sample_01.jpg
-├── HUAWEI_MovingPhoto/
-│   └── JPEG+MP4/merge_sample_01.jpg
-├── Fusion/
-│   ├── JPEG+MP4/merge_sample_01.jpg
-│   └── JPEG+MOV/merge_sample_01.jpg
+├── Fusion_JPEG+MP4.jpg
+├── Fusion_JPEG+MOV.jpg
+├── V1_MicroVideo_JPEG+MP4.jpg
+├── V1_MicroVideo_JPEG+MOV.jpg
+├── V2_MotionPhoto_JPEG+MP4.jpg
+├── V2_MotionPhoto_JPEG+MOV.jpg
+├── V2_MotionPhoto_HEIC+MOV.heic
+├── OPPO_OLive_JPEG+MP4.jpg
+├── vivo_LivePhoto_JPEG+MP4.jpg
+├── Samsung_MotionPhoto_JPEG+MP4.jpg
+├── Samsung_MotionPhoto_HEIC+MP4.heic
+├── HUAWEI_MovingPhoto_JPEG+MP4.jpg
+├── HUAWEI_MovingPhoto_HEIC+MP4.heic
 └── _progress.txt          ← 导出进度日志
 ```
 
-共 11 个文件，覆盖 6 大协议体系的所有 JPEG 变体。
+共 13 个文件，覆盖 7 大协议体系的所有 JPEG 和 HEIC 变体。
+格式矩阵与 GUI 合并页完全一致（见 `MergePage.xaml.cs` 的 `ProtocolFormatMap`）。
 
 ### 进度查看
 
 导出过程中，`_progress.txt` 实时记录每个文件的导出状态：
 
 ```
-Starting 11 jobs...
-[1/11] V1 JPEG+MP4 ... OK (5839517 bytes)
-[2/11] V2 JPEG+MP4 ... OK (5839974 bytes)
+Starting 13 jobs...
+[1/13] Fusion JPEG+MP4 ... OK (5839517 bytes)
+[2/13] Fusion JPEG+MOV ... OK (5840123 bytes)
 ...
-Done: 11 OK, 0 FAIL
+Done: 13 OK, 0 FAIL
 ```
 
 ### 退出码
@@ -93,10 +91,10 @@ Done: 11 OK, 0 FAIL
 1. 如果存在 → 在线程池上运行 `ProtocolTestExporter.Run()`，完成后正常回到 GUI
 2. 如果不存在 → 正常启动图形界面
 
-导出逻辑位于 `Services/ProtocolTestExporter.cs`，直接调用项目内的 `LivePhotoMergeService.WriteLivePhotoAsync()`，与 GUI 合并页使用完全相同的代码路径。
+导出逻辑通过 `LivePhotoMergeRunnerService.ProcessSinglePairAsync()` 为每个协议×格式组合执行完整合并管道（HEIC 转换、视频转码、协议预处理、写入），与 GUI 合并页使用完全相同的代码路径。
 
 ## 注意
 
 - 当前版本为测试工具，仅支持从 Apple 双文件实况照片导出全协议变体
 - 暂不支持单独指定协议、单独指定格式
-- 完整的 CLI 模式（所有软件功能）计划在后续版本实现
+- HEIC 变体通过管道内置的 JPG→HEIC 转换生成（依赖系统 HEIF 图像扩展；Windows 11 内置，Windows 10 需手动安装）
