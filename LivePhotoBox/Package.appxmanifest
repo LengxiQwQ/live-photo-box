@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10" xmlns:mp="http://schemas.microsoft.com/appx/2014/phone/manifest" xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10" xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities" IgnorableNamespaces="uap rescap">
+  <Identity Name="LengxiQwQ.58702A0DB398F" Publisher="CN=E08FA259-F14D-47DB-9306-9E776E531F86" Version="2.1.1.0" />
+  <mp:PhoneIdentity PhoneProductId="3fd5d3c9-ba1b-4f99-8636-7f6e7d3c34ed" PhonePublisherId="00000000-0000-0000-0000-000000000000" />
+  <Properties>
+    <DisplayName>Live Photo Box</DisplayName>
+    <PublisherDisplayName>LengxiQwQ</PublisherDisplayName>
+    <Logo>Assets\Icons\AppIcon-pkg.png</Logo>
+  </Properties>
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Universal" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
+  </Dependencies>
+  <Resources>
+    <Resource Language="en-US" />
+    <Resource Language="zh-Hans" />
+  </Resources>
+  <Applications>
+    <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$">
+      <uap:VisualElements DisplayName="Live Photo Box" BackgroundColor="transparent" Square150x150Logo="Assets\Icons\Square150x150Logo.png" Description="Display and process Apple Live Photos directly on Windows." Square44x44Logo="Assets\Icons\Square44x44Logo.png">
+        <uap:DefaultTile Wide310x150Logo="Assets\Icons\AppIcon.png" />
+        <uap:SplashScreen Image="Assets\Icons\AppIcon.png" />
+      </uap:VisualElements>
+    </Application>
+  </Applications>
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

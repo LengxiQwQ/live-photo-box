@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = "Continue"
-$toolsDir = "D:/Projects/live-photo-box/Live Photo Box/Tools"
+$toolsDir = "D:/Projects/live-photo-box/LivePhotoBox/Tools"
 $exifTool = "$toolsDir/exiftool.exe"
 $ffmpeg = "$toolsDir/ffmpeg.exe"
 

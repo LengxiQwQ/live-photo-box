@@ -1,100 +1,183 @@
 # CLI 模式使用说明
 
-> 版本：v2.0.3+ | 状态：测试工具
+> 版本：v2.1.0+ | 架构：LivePhotoBox.Core + LivePhotoBox.Cli
 
 ## 概述
 
-CLI 模式内嵌在 `Live Photo Box.exe` 中，通过命令行参数触发。
-不加参数正常启动图形界面，加 `--export-all-protocols` 进入批量导出模式。
+CLI 工具 `lpb` 是一个独立的控制台程序，和 GUI 共享 100% 后端代码（合并管道、协议处理、视频转码）。
+改 bug 一处修，两边都生效。
 
-## 全协议导出
+## 快速开始
 
-将一个 Apple 实况照片（JPG + MOV 双文件）转换为所有单文件协议的变体。
-
-### 命令
+### 开发时（源码运行）
 
 ```powershell
-& "路径\Live Photo Box.exe" --export-all-protocols <源图JPG> <源视频MOV> [输出目录]
+# 用 lpb.cmd 快捷脚本（推荐）
+.\lpb.cmd --version
+.\lpb.cmd protocols
+.\lpb.cmd merge -i "a.jpg" -vid "a.mov" -p v2
+
+# 或者直接用 dotnet run
+dotnet run --project LivePhotoBox.Cli -- --version
 ```
 
-### 参数
-
-| 参数 | 必填 | 说明 |
-|------|:---:|------|
-| `--export-all-protocols` | ✅ | CLI 模式标识 |
-| 源图 JPG | ✅ | Apple 实况照片的图片文件（.jpg） |
-| 源视频 MOV | ✅ | Apple 实况照片的视频文件（.mov） |
-| 输出目录 | ❌ | 输出目录，默认 `程序目录/ProtocolTestOutput` |
-
-### 示例
+### 编译后（发布产物）
 
 ```powershell
-# 基本用法
-& "D:\Projects\live-photo-box\Live Photo Box\bin\Debug\net9.0-windows10.0.19041.0\win-x64\Live Photo Box.exe" `
-  --export-all-protocols `
-  "D:\photos\IMG_6891.JPG" `
-  "D:\photos\IMG_6891.MOV" `
-  "D:\output"
+# 编译 CLI 项目
+dotnet build LivePhotoBox.Cli
 
-# 省略输出目录（使用默认路径）
-& "Live Photo Box.exe" --export-all-protocols "photo.jpg" "video.mov"
+# 产物路径
+.\LivePhotoBox.Cli\bin\Debug\net9.0-windows10.0.19041.0\lpb.exe
+
+# 直接运行
+.\LivePhotoBox.Cli\bin\Debug\net9.0-windows10.0.19041.0\lpb.exe --version
+.\LivePhotoBox.Cli\bin\Debug\net9.0-windows10.0.19041.0\lpb.exe protocols
 ```
 
-### 输出结构
+### 安装后（便携版 / 安装版）
 
-所有文件平铺在输出目录下，以 `{协议名}_{格式}.{ext}` 命名：
+安装版（Inno Setup）会自动将 `lpb.exe` 所在目录注册到系统 PATH。
+安装后在任意终端直接输入：
 
-```
-输出目录/
-├── Fusion_JPEG+MP4.jpg
-├── Fusion_JPEG+MOV.jpg
-├── V1_MicroVideo_JPEG+MP4.jpg
-├── V1_MicroVideo_JPEG+MOV.jpg
-├── V2_MotionPhoto_JPEG+MP4.jpg
-├── V2_MotionPhoto_JPEG+MOV.jpg
-├── V2_MotionPhoto_HEIC+MOV.heic
-├── OPPO_OLive_JPEG+MP4.jpg
-├── vivo_LivePhoto_JPEG+MP4.jpg
-├── Samsung_MotionPhoto_JPEG+MP4.jpg
-├── Samsung_MotionPhoto_HEIC+MP4.heic
-├── HUAWEI_MovingPhoto_JPEG+MP4.jpg
-├── HUAWEI_MovingPhoto_HEIC+MP4.heic
-└── _progress.txt          ← 导出进度日志
+```powershell
+lpb --version
+lpb protocols
+lpb merge -i "a.jpg" -vid "a.mov" -p v2
 ```
 
-共 13 个文件，覆盖 7 大协议体系的所有 JPEG 和 HEIC 变体。
-格式矩阵与 GUI 合并页完全一致（见 `MergePage.xaml.cs` 的 `ProtocolFormatMap`）。
+便携版需要手动加 PATH，或把 `lpb.exe` 复制到已在 PATH 中的目录。
 
-### 进度查看
+## 命令列表
 
-导出过程中，`_progress.txt` 实时记录每个文件的导出状态：
+### `lpb --version`
+输出版本号。
 
 ```
-Starting 13 jobs...
-[1/13] Fusion JPEG+MP4 ... OK (5839517 bytes)
-[2/13] Fusion JPEG+MOV ... OK (5840123 bytes)
-...
-Done: 13 OK, 0 FAIL
+lpb --version
+→ 2.1.0.0
 ```
 
-### 退出码
+### `lpb --help`
+显示所有可用命令。
+
+### `lpb protocols`
+列出 7 种协议 × 4 种输出格式的兼容矩阵。
+
+```
+lpb protocols
+→ 表格形式，✅ 表示支持，── 表示不支持
+
+lpb protocols --json
+→ JSON 格式，供 AI Agent / 脚本消费
+```
+
+### `lpb merge`
+将图片+视频合成为实况照片。
+
+#### 单对合成
+```powershell
+lpb merge -i "photo.jpg" -vid "video.mp4" [选项]
+```
+
+| 选项 | 简写 | 说明 | 默认值 |
+|------|:---:|------|:---:|
+| `--image` | `-i` | 源图片路径 | 必填 |
+| `--video` | `-vid` | 源视频路径 | 必填 |
+| `--protocol` | `-p` | 协议：fusion\|v1\|v2\|oppo\|vivo\|samsung\|huawei | v2 |
+| `--output` | `-o` | 输出目录 | 当前目录 |
+| `--format` | `-f` | 格式：jpg+mp4\|jpg+mov\|heic+mp4\|heic+mov | 自动选第一个可用 |
+| `--naming` | `-n` | 命名：keep\|suffix\|custom:<模板> | keep |
+| `--parallel` | `-j` | 并行数 | min(CPU, 5) |
+| `--yes` | `-y` | 跳过确认 | false |
+| `--dry-run` | | 预览不执行 | false |
+| `--verbose` | `-v` | 详细输出 | false |
+
+#### 示例
+
+```powershell
+# 最简单的用法：默认 V2 协议，输出到当前目录
+lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -y
+
+# 指定协议和输出目录
+lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p oppo -o "D:\Output" -y
+
+# 指定格式（注意：不是所有协议都支持所有格式）
+lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p samsung -f heic+mp4 -y
+
+# HUAWEI 协议 + 自定义命名模板
+lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p huawei -n "custom:华为_{date}" -y
+
+# 预览模式（不实际执行）
+lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p v2 --dry-run
+
+# 交互模式（不加 -y，会提示确认）
+lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p v2
+→ Proceed? [y/N]
+```
+
+#### 批量合成（待实现）
+```powershell
+lpb merge -d "D:\Photos\LivePhotos" -p v2 -o "D:\Output" -j 8 -y
+```
+
+## 协议索引
+
+| 索引 | 名称 | 简写 | 支持格式 |
+|:---:|------|------|----------|
+| 0 | Fusion | `f` | JPEG+MP4, JPEG+MOV |
+| 1 | V1 (MicroVideo) | `v1` | JPEG+MP4, JPEG+MOV |
+| 2 | V2 (MotionPhoto) | `v2`, `mp` | JPEG+MP4, JPEG+MOV, HEIC+MOV |
+| 3 | OPPO (O-Live) | `oppo`, `o` | JPEG+MP4 |
+| 4 | vivo (LivePhoto) | `vivo`, `v` | JPEG+MP4 |
+| 5 | Samsung (MotionPhoto) | `ss`, `sam` | JPEG+MP4, HEIC+MP4 |
+| 6 | HUAWEI (MovingPhoto) | `hw`, `h` | JPEG+MP4, HEIC+MP4 |
+
+## 格式名称
+
+| 格式 | 说明 |
+|------|------|
+| `jpg+mp4` | JPEG 图片 + MP4 视频容器 |
+| `jpg+mov` | JPEG 图片 + MOV 视频容器 |
+| `heic+mp4` | HEIC 图片 + MP4 视频容器 |
+| `heic+mov` | HEIC 图片 + MOV 视频容器 |
+
+## 退出码
 
 | 退出码 | 含义 |
 |:---:|------|
-| 0 | 全部导出成功 |
-| 非 0 | 有文件导出失败（详见 `EXPORT_ERROR.txt`） |
+| 0 | 成功 |
+| 1 | 参数错误 / 合成失败 |
+| 130 | 用户取消 (Ctrl+C) |
 
-## 实现原理
+## 系统 PATH 配置
 
-`App.xaml.cs` 构造函数中检测 `--export-all-protocols` 参数：
+### 便携版
+解压后将 `lpb.exe` 所在目录添加到 PATH：
 
-1. 如果存在 → 在线程池上运行 `ProtocolTestExporter.Run()`，完成后正常回到 GUI
-2. 如果不存在 → 正常启动图形界面
+```powershell
+# 临时（当前终端窗口）
+$env:Path += ";D:\live-photo-box"
 
-导出逻辑通过 `LivePhotoMergeRunnerService.ProcessSinglePairAsync()` 为每个协议×格式组合执行完整合并管道（HEIC 转换、视频转码、协议预处理、写入），与 GUI 合并页使用完全相同的代码路径。
+# 永久（用户级别）
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";D:\live-photo-box", "User")
+```
 
-## 注意
+### 安装版
+Inno Setup 安装程序自动注册。无需手动配置。
 
-- 当前版本为测试工具，仅支持从 Apple 双文件实况照片导出全协议变体
-- 暂不支持单独指定协议、单独指定格式
-- HEIC 变体通过管道内置的 JPG→HEIC 转换生成（依赖系统 HEIF 图像扩展；Windows 11 内置，Windows 10 需手动安装）
+### 商店版
+MSIX 沙盒限制，不支持 CLI。仅通过 GUI 操作。
+
+## 技术架构
+
+```
+LivePhotoBox.Core     ← 纯类库（所有合并管道、协议、服务）
+    ↑               ↑
+    │               │
+Live Photo Box    LivePhotoBox.Cli
+(WinUI GUI)       (控制台 CLI)
+```
+
+CLI 和 GUI 调用完全相同的 `LivePhotoMergeRunnerService.ProcessSinglePairAsync()`，
+走同一套 HEIC 转换 → 视频转码 → 协议预处理 → 写入目标的管道。

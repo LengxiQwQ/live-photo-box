@@ -1,6 +1,6 @@
 <div align="center">
 <h1>
-  <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
+  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
   Live Photo Box（实况照片工具箱）
 </h1>
 <p><em>A toolbox for managing, repairing, and converting Apple Live Photos on Windows &amp; Android</em></p>
@@ -159,10 +159,10 @@ cd live-photo-box
 dotnet restore
 
 # Build the project
-dotnet build "Live Photo Box/Live Photo Box.csproj"
+dotnet build "LivePhotoBox/LivePhotoBox.csproj"
 
 # Run
-dotnet run --project "Live Photo Box/Live Photo Box.csproj"
+dotnet run --project "LivePhotoBox/LivePhotoBox.csproj"
 ```
 
 ---
@@ -171,7 +171,7 @@ dotnet run --project "Live Photo Box/Live Photo Box.csproj"
 
 ```
 live-photo-box/
-├── Live Photo Box/            # Main project (WinUI 3 MSIX app)
+├── LivePhotoBox/            # Main project (WinUI 3 MSIX app)
 │   ├── Assets/                # Icons, screenshots, static resources
 │   ├── Controls/              # Custom controls (fullscreen lightbox, status bar)
 │   ├── Converters/            # XAML value converters

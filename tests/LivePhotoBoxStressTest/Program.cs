@@ -37,7 +37,7 @@ string exifTool = "exiftool.exe";
 string ffmpeg = "ffmpeg.exe";
 string[] searchDirs = {
     Path.Combine(AppContext.BaseDirectory, "Tools"),
-    Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../Live Photo Box/Tools"))
+    Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../LivePhotoBox/Tools"))
 };
 foreach (var d in searchDirs) {
     if (!File.Exists(exifTool)) { var p = Path.Combine(d, "exiftool.exe"); if (File.Exists(p)) exifTool = p; }
