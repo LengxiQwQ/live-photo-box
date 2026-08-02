@@ -25,6 +25,7 @@ namespace LivePhotoBox.Cli.Infrastructure
             ["jpeg+mov"] = Services.ProtocolFormatMatrix.FormatJpgMov,
             ["heic+mp4"] = Services.ProtocolFormatMatrix.FormatHeicMp4,
             ["heic+mov"] = Services.ProtocolFormatMatrix.FormatHeicMov,
+            ["jpg+mp4-hmos4"] = Services.ProtocolFormatMatrix.FormatJpgMp4HarmonyOS4,
         };
 
         public static bool TryResolveProtocol(string name, out int index) =>
@@ -42,11 +43,13 @@ namespace LivePhotoBox.Cli.Infrastructure
             4 => "vivo Live Photo",
             5 => "Samsung Motion Photo",
             6 => "HUAWEI Moving Photo",
+            7 => "HUAWEI Moving Photo (HarmonyOS 4.0)",
             _ => $"Unknown ({index})"
         };
 
         public static string[] ProtocolNames { get; } =
             ["Fusion", "V1_MicroVideo", "V2_MotionPhoto",
-             "OPPO_OLive", "vivo_LivePhoto", "Samsung_MotionPhoto", "HUAWEI_MovingPhoto"];
+             "OPPO_OLive", "vivo_LivePhoto", "Samsung_MotionPhoto",
+             "HUAWEI_MovingPhoto", "HUAWEI_MovingPhoto_V3"];
     }
 }

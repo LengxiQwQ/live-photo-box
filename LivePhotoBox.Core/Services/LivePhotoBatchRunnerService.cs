@@ -16,6 +16,8 @@ namespace LivePhotoBox.Services
         public required string OutputDirectory { get; init; }
         // 选中的合成协议索引。
         public required int SelectedModeIndex { get; init; }
+        // 输出格式索引（0=JPG+MP4, 2=HEIC+MP4, 等）。
+        public int OutputFormatIndex { get; init; }
         // 最大并行任务数（默认取 CPU 核心数与 5 的较小值）。
         public int MaxDegreeOfParallelism { get; init; } = Math.Min(Environment.ProcessorCount, 5);
         // 每批任务启动的间隔时间。
@@ -119,7 +121,7 @@ namespace LivePhotoBox.Services
                     }
                 }
 
-                bool hwFaststart = options.SelectedModeIndex != 6; // Huawei needs moov at end
+                bool hwFaststart = options.SelectedModeIndex != 6;
                 (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token, useFaststart: hwFaststart);
                 if (vt) tempFiles.Add(workingVideoPath);
 
@@ -133,7 +135,7 @@ namespace LivePhotoBox.Services
                 string outputName = LivePhotoCompositionService.CreateOutputFileName(baseName, options.SelectedModeIndex, imagePath);
                 string finalOutputPath = PathHelper.GetUniqueFilePath(options.OutputDirectory, outputName);
 
-                await LivePhotoCompositionService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token);
+                await LivePhotoCompositionService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token, options.OutputFormatIndex);
 
                 return (true, ResourceService.GetString("Task_Success"));
             }

@@ -215,7 +215,8 @@ namespace LivePhotoBox.Services
             string targetPath,
             int selectedModeIndex,
             CancellationToken token,
-            long presentationTimestampUs = 0)
+            long presentationTimestampUs = 0,
+            int outputFormatIndex = 0)
         {
             var protocol = LivePhotoProtocol.FromIndex(selectedModeIndex);
             long videoSize = new FileInfo(sourceVid).Length;
@@ -248,12 +249,16 @@ namespace LivePhotoBox.Services
             // ── HUAWEI native path (no XMP, uses LIVE_ tail marker) ──
             if (protocol is HuaweiMovingPhotoProtocol)
             {
-                bool isHeicOutput = HeicConverterService.IsHeicFile(sourceImg);
+                bool isHarmonyOS4 = outputFormatIndex == ProtocolFormatMatrix.FormatJpgMp4HarmonyOS4;
+                bool isHeicOutput = !isHarmonyOS4 && HeicConverterService.IsHeicFile(sourceImg);
                 int coverFrame = presentationTimestampUs > 0
                     ? (int)Math.Round(presentationTimestampUs / 1_000_000.0 * 30)
-                    : 0; // The still image itself is frame 0
+                    : 0;
+                string tailPrefix = isHarmonyOS4 ? "v3_f" : "v6_f";
                 await WriteHuaweiNativeAsync(sourceImg, sourceVid, targetPath,
-                    isHeicOutput, coverFrame, token);
+                    isHeicOutput, coverFrame, token,
+                    tailPrefix: tailPrefix,
+                    patchToHarmonyOS4: isHarmonyOS4);
                 return;
             }
 
@@ -330,7 +335,9 @@ namespace LivePhotoBox.Services
             int coverFrame,
             CancellationToken token,
             int originalCoverMs = 0,
-            int originalDurationMs = 0)
+            int originalDurationMs = 0,
+            string tailPrefix = "v6_f",
+            bool patchToHarmonyOS4 = false)
         {
             long videoSize = new FileInfo(sourceVid).Length;
 
@@ -340,8 +347,8 @@ namespace LivePhotoBox.Services
             // 2. Build 60-byte tail (preserve original PPP:QQQQ when provided)
             byte[] tail = originalDurationMs > 0
                 ? HuaweiMovingPhotoProtocol.BuildTail(coverFrame, totalFrames, videoSize,
-                    originalCoverMs, originalDurationMs)
-                : HuaweiMovingPhotoProtocol.BuildTail(coverFrame, totalFrames, videoSize);
+                    originalCoverMs, originalDurationMs, tailPrefix)
+                : HuaweiMovingPhotoProtocol.BuildTail(coverFrame, totalFrames, videoSize, tailPrefix);
 
             // 3. Write still image → target
             if (isHeicOutput)
@@ -363,31 +370,56 @@ namespace LivePhotoBox.Services
                 await imgFs.CopyToAsync(targetFs, token);
             }
 
-            // 4. Append MP4 video (raw, no modification)
+            // 3.5 HMOS4: pre-process source MP4 (strip mdat header + fix ftyp)
+            if (patchToHarmonyOS4)
+            {
+                try
+                {
+                    videoSize = PatchSourceMp4ForHarmonyOS4(sourceVid);
+                    LogService.Merge($"HMOS4: patched MP4 → {videoSize}B", LogLevel.Info);
+
+                    // HMOS4 tail format differs from standard v6:
+                    // [+0..+7]  "v3_f{XX}_c"   (8 chars, _c suffix = cover frame marker)
+                    // [+20..+27] "{PPP}:{QQQQ}" (milliseconds — read-only history)
+                    // For a fresh export, the original cover is at time 0 (the still image
+                    // is the first frame). The _c suffix already tells the phone which
+                    // frame to use as the cover — PPP:QQQQ records the original source.
+                    int durationMs = totalFrames > 0
+                        ? (int)Math.Round(totalFrames * 1000.0 / 30) : 0;
+
+                    tail = HuaweiMovingPhotoProtocol.BuildTail(
+                        coverFrame, totalFrames, videoSize,
+                        originalCoverMs: 0, durationMs, tailPrefix);
+
+                    // Overwrite [+0..+7] with "v3_f{XX}_c" — 8 chars with _c suffix
+                    string vfWithSuffix = $"{tailPrefix}{coverFrame}_c";
+                    byte[] vfBytes = Encoding.ASCII.GetBytes(vfWithSuffix);
+                    int vfLen = Math.Min(vfBytes.Length, 8);
+                    for (int i = 0; i < vfLen; i++) tail[i] = vfBytes[i];
+                }
+                catch (Exception ex)
+                {
+                    LogService.Merge(
+                        $"HMOS4 MP4 pre-patch failed: {ex.GetType().Name}: {ex.Message}",
+                        LogLevel.Error);
+                }
+            }
+
+            // 4. Append MP4 video
+            long videoSizeBeforeAppend = new FileInfo(sourceVid).Length;
+            System.Console.Error.WriteLine(
+                $"[DEBUG AppendMP4] measured={videoSize} actual_now={videoSizeBeforeAppend}");
             using (var targetFs = new FileStream(
                 targetPath, FileMode.Append, FileAccess.Write, FileShare.None,
                 bufferSize: 8192, useAsync: true))
+            using (var vidFs = new FileStream(
+                sourceVid, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 8192, useAsync: true))
             {
-                using var vidFs = new FileStream(
-                    sourceVid, FileMode.Open, FileAccess.Read, FileShare.Read,
-                    bufferSize: 8192, useAsync: true);
                 await vidFs.CopyToAsync(targetFs, token);
-
-                // 5. Append 60-byte LIVE_ tail
+                System.Console.Error.WriteLine(
+                    $"[DEBUG WriteTail] tailLen={tail.Length} tail48={Encoding.ASCII.GetString(tail, 0, Math.Min(tail.Length, 48))}");
                 await targetFs.WriteAsync(tail, 0, tail.Length, token);
-            }
-
-            // 5.5 Patch MP4 ©too atom: ffmpeg writes "LavfXX" as the encoder string;
-            // Huawei Gallery expects "Openharmony6.1" (protocol doc §MP4 内 udta 元数据).
-            // "openharmony6" fits the exact 12-byte value slot — no size changes needed.
-            try
-            {
-                PatchMp4TooAtom(targetPath);
-            }
-            catch (Exception ex)
-            {
-                LogService.Merge(
-                    $"©too patch failed (non-fatal): {ex.Message}", LogLevel.Debug);
             }
 
             // 6. JPEG post-processing: write HUAWEI EXIF Make tag
@@ -410,13 +442,48 @@ namespace LivePhotoBox.Services
             LogService.Merge(
                 $"HUAWEI Moving Photo written: {Path.GetFileName(targetPath)} " +
                 $"(format={(isHeicOutput ? "HEIC" : "JPEG")}, " +
-                $"video={videoSize} bytes, tail=LIVE_{videoSize + 16})");
+                $"video={videoSize} bytes, tail=LIVE_{videoSize + 20})");
         }
 
-        // Estimate total video frame count from exiftool MediaDuration.
-        // Falls back to 1 if exiftool is unavailable or duration cannot be read.
+        // Estimate total video frame count. Prefers ffprobe nb_frames (exact),
+        // then exiftool MediaDuration (30fps approximation), then falls back to 1.
         public static async Task<int> DetectVideoFrameCountAsync(string videoPath, CancellationToken token)
         {
+            // 1. Try ffprobe nb_frames (exact, matches Python pipeline)
+            try
+            {
+                string? ffprobePath = null;
+                string? ffmpegDir = ExternalToolLocator.FindFFmpeg();
+                if (!string.IsNullOrEmpty(ffmpegDir))
+                {
+                    string candidate = Path.Combine(Path.GetDirectoryName(ffmpegDir)!, "ffprobe.exe");
+                    if (File.Exists(candidate)) ffprobePath = candidate;
+                }
+
+                if (!string.IsNullOrEmpty(ffprobePath))
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = ffprobePath,
+                        Arguments = $"-v error -select_streams v:0 -show_entries stream=nb_frames -of csv=p=0 \"{videoPath}\"",
+                        UseShellExecute = false, CreateNoWindow = true,
+                        RedirectStandardOutput = true, RedirectStandardError = true
+                    };
+                    using var process = Process.Start(psi);
+                    if (process != null)
+                    {
+                        string output = await process.StandardOutput.ReadToEndAsync(token);
+                        await process.WaitForExitAsync(token);
+                        string raw = output.Trim();
+                        if (!string.IsNullOrWhiteSpace(raw) && int.TryParse(raw, out int nb) && nb > 0)
+                            return nb;
+                    }
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { /* fall through to exiftool */ }
+
+            // 2. Fallback: exiftool MediaDuration × 30fps (legacy)
             try
             {
                 string? exifToolPath = ExternalToolLocator.FindExifTool();
@@ -441,18 +508,16 @@ namespace LivePhotoBox.Services
                 string raw = output.Trim();
                 if (string.IsNullOrWhiteSpace(raw)) return 1;
 
-                // Parse using the same logic as LivePhotoRepairService.ParseMediaDuration
                 double duration = ParseMediaDuration(raw);
                 if (duration <= 0) return 1;
 
-                // Approximate frame count at 30fps
                 int frames = (int)Math.Ceiling(duration * 30);
                 return Math.Max(1, frames);
             }
             catch (OperationCanceledException) { throw; }
             catch
             {
-                return 1; // Best-effort fallback
+                return 1;
             }
         }
 
@@ -560,6 +625,287 @@ namespace LivePhotoBox.Services
             fs.Flush();
 
             LogService.Merge("©too patched: Lavf → openharmony6", LogLevel.Debug);
+        }
+
+        // ── HarmonyOS 4.0 MP4 source pre-processing ──
+
+        // Modify a standalone MP4 file to match HarmonyOS 4.0 format:
+        // 1. ftyp: 32→24B (2 compat brands)
+        // 2. Remove mdat box header (8B) — video data becomes raw
+        // 3. Adjust all stco/co64 offsets in moov by -(8 + ftypDiff)
+        // Returns the new file size.
+        internal static long PatchSourceMp4ForHarmonyOS4(string mp4Path)
+        {
+            long fileSize = new FileInfo(mp4Path).Length;
+            byte[] all = File.ReadAllBytes(mp4Path);
+
+
+            // Find ftyp
+            int ftypOff = -1;
+            for (int i = 0; i < Math.Min(all.Length, 65536); i++)
+            {
+                if (all[i] == 'f' && all[i+1] == 't' && all[i+2] == 'y' && all[i+3] == 'p')
+                { ftypOff = i - 4; break; }
+            }
+
+            uint origFtypSize = BinaryPrimitives.ReadUInt32BigEndian(
+                new ReadOnlySpan<byte>(all, ftypOff, 4));
+            int ftypDiff = (int)origFtypSize - 24;
+            if (ftypDiff < 0) return fileSize;
+
+            // Parse boxes to find mdat and moov
+            int pos = ftypOff + (int)origFtypSize;
+            int mdatOff = -1, moovOff = -1;
+            uint moovSize = 0;
+            while (pos < all.Length - 8)
+            {
+                uint bs = BinaryPrimitives.ReadUInt32BigEndian(
+                    new ReadOnlySpan<byte>(all, pos, 4));
+                if (bs < 8) break;
+                string cc = Encoding.ASCII.GetString(all, pos + 4, 4);
+                if (cc == "mdat") { mdatOff = pos; }
+                if (cc == "moov") { moovOff = pos; moovSize = bs; }
+                if (cc == "free" || cc == "wide") { pos += (int)bs; continue; }
+                pos += (int)bs;
+                if (pos > all.Length - 100) break;
+            }
+            if (mdatOff < 0 || moovOff < 0) return fileSize;
+
+            int totalGap = ftypDiff; // ftyp shrink only — keep mdat box intact (Mate 60 requires it)
+
+            // Adjust stco/co64 offsets in moov
+            for (int mi = moovOff + 8; mi < moovOff + (int)moovSize - 12; mi++)
+            {
+                bool isStco = all[mi] == 's' && all[mi+1] == 't' && all[mi+2] == 'c' && all[mi+3] == 'o';
+                bool isCo64 = all[mi] == 'c' && all[mi+1] == 'o' && all[mi+2] == '6' && all[mi+3] == '4';
+                if (!isStco && !isCo64) continue;
+
+                int ec = BinaryPrimitives.ReadInt32BigEndian(
+                    new ReadOnlySpan<byte>(all, mi + 8, 4));
+                if (ec <= 0 || ec > 100000) continue;
+
+                if (isStco)
+                {
+                    for (int e = 0; e < ec; e++)
+                    {
+                        int o = mi + 12 + e * 4;
+                        if (o + 4 > all.Length) break;
+                        uint v = BinaryPrimitives.ReadUInt32BigEndian(
+                            new ReadOnlySpan<byte>(all, o, 4));
+                        v = (uint)(v - totalGap);
+                        all[o] = (byte)(v >> 24); all[o+1] = (byte)(v >> 16);
+                        all[o+2] = (byte)(v >> 8); all[o+3] = (byte)v;
+                    }
+                }
+                else
+                {
+                    for (int e = 0; e < ec; e++)
+                    {
+                        int o = mi + 12 + e * 8;
+                        if (o + 8 > all.Length) break;
+                        ulong v = BinaryPrimitives.ReadUInt64BigEndian(
+                            new ReadOnlySpan<byte>(all, o, 8));
+                        v -= (ulong)totalGap;
+                        all[o] = (byte)(v >> 56); all[o+1] = (byte)(v >> 48);
+                        all[o+2] = (byte)(v >> 40); all[o+3] = (byte)(v >> 32);
+                        all[o+4] = (byte)(v >> 24); all[o+5] = (byte)(v >> 16);
+                        all[o+6] = (byte)(v >> 8); all[o+7] = (byte)v;
+                    }
+                }
+                mi += 8 + ec * (isStco ? 4 : 8);
+            }
+
+            // Build new file: [24B ftyp] + [everything after old ftyp, including mdat box]
+            // Mate 60 reference samples wrap video data in an mdat box (with extended size).
+            // Stripping it breaks playback — the phone expects to find an mdat box after moov.
+            int restLen = (int)(fileSize - (ftypOff + (int)origFtypSize));
+            int newSize = 24 + restLen;
+
+            byte[] result = new byte[newSize];
+            Array.Copy(HarmonyOS4Ftyp, 0, result, 0, 24);
+            Array.Copy(all, ftypOff + (int)origFtypSize, result, 24, restLen);
+
+            File.WriteAllBytes(mp4Path, result);
+
+            // HMOS4: remove ©too atom (reference samples have none; our ffmpeg encodes "Lavf…")
+            RemoveMp4TooAtom(mp4Path);
+
+            return newSize;
+        }
+
+        // ── HarmonyOS 4.0 MP4 ©too removal ──
+
+        internal static void RemoveMp4TooAtom(string targetPath)
+        {
+            using var fs = new FileStream(targetPath, FileMode.Open,
+                FileAccess.ReadWrite, FileShare.None, bufferSize: 4096);
+            long fileSize = fs.Length;
+            if (fileSize < 1024) return;
+
+            // ©too marker: 0xA9 + "too"
+            byte[] tooMarker = { 0xA9, (byte)'t', (byte)'o', (byte)'o' };
+            byte[] scanBuf = new byte[65536];
+            long pos = 0;
+            long tooFilePos = -1;
+            int tooAtomSize = 0;
+
+            // Scan entire file for ©too (it's in the MP4 moov/udta, anywhere in the file)
+            while (pos < fileSize - 4)
+            {
+                int toRead = (int)Math.Min(scanBuf.Length, fileSize - pos);
+                fs.Seek(pos, SeekOrigin.Begin);
+                int actual = fs.Read(scanBuf, 0, toRead);
+
+                for (int i = 0; i <= actual - 4; i++)
+                {
+                    if (scanBuf[i] == tooMarker[0] && scanBuf[i + 1] == tooMarker[1]
+                        && scanBuf[i + 2] == tooMarker[2] && scanBuf[i + 3] == tooMarker[3])
+                    {
+                        tooFilePos = pos + i - 4; // atom starts at size field
+                        tooAtomSize = BinaryPrimitives.ReadInt32BigEndian(
+                            new ReadOnlySpan<byte>(scanBuf, i - 4, 4));
+                        break;
+                    }
+                }
+                if (tooFilePos >= 0) break;
+                pos += actual - 3;
+            }
+
+            if (tooFilePos < 0 || tooAtomSize < 8) return;
+
+            // Zero out the ©too atom
+            byte[] zeros = new byte[tooAtomSize];
+            fs.Seek(tooFilePos, SeekOrigin.Begin);
+            fs.Write(zeros, 0, tooAtomSize);
+            fs.Flush();
+
+            LogService.Merge("©too removed for HarmonyOS 4.0", LogLevel.Debug);
+        }
+
+        // ── HarmonyOS 4.0 MP4 format patch ──
+
+        // Pre-built 24-byte HarmonyOS 4.0 ftyp box: mp42, minor=0, compat=[isom, mp42]
+        private static readonly byte[] HarmonyOS4Ftyp = new byte[24]
+        {
+            0x00, 0x00, 0x00, 0x18, // size = 24
+            0x66, 0x74, 0x79, 0x70, // "ftyp"
+            0x6D, 0x70, 0x34, 0x32, // major brand: "mp42"
+            0x00, 0x00, 0x00, 0x00, // minor version: 0
+            0x69, 0x73, 0x6F, 0x6D, // compat 1: "isom"
+            0x6D, 0x70, 0x34, 0x32, // compat 2: "mp42"
+        };
+
+        // Patch MP4 ftyp to match HarmonyOS 4.0: 24 bytes, 2 compat brands.
+        // Rebuilds the file: [JPEG] + [new ftyp(24) + rest of old MP4 after ftyp] + [tail(60)]
+        internal static void PatchMp4ToHarmonyOS4Format(string targetPath)
+        {
+            long fileSize = new FileInfo(targetPath).Length;
+            if (fileSize < 1024) return;
+
+            string tempPath = targetPath + ".hw4tmp";
+
+            using (var src = new FileStream(targetPath, FileMode.Open,
+                FileAccess.Read, FileShare.None, bufferSize: 4096))
+            using (var dst = new FileStream(tempPath, FileMode.Create,
+                FileAccess.Write, FileShare.None, bufferSize: 4096))
+            {
+                // Find MP4 ftyp
+                byte[] scanBuf = new byte[65536];
+                long searchPos = 0;
+
+                Span<byte> first4 = stackalloc byte[4];
+                src.Seek(0, SeekOrigin.Begin);
+                src.ReadExactly(first4);
+                uint firstVal = BinaryPrimitives.ReadUInt32BigEndian(first4);
+                searchPos = (firstVal >= 8 && firstVal <= fileSize) ? firstVal : 0;
+
+                long mp4FtypOff = -1;
+                while (searchPos < fileSize - 8)
+                {
+                    int toRead = (int)Math.Min(scanBuf.Length, fileSize - searchPos);
+                    src.Seek(searchPos, SeekOrigin.Begin);
+                    int actual = src.Read(scanBuf, 0, toRead);
+                    bool found = false;
+                    for (int i = 0; i <= actual - 8; i++)
+                    {
+                        if (scanBuf[i] == 'f' && scanBuf[i + 1] == 't'
+                            && scanBuf[i + 2] == 'y' && scanBuf[i + 3] == 'p')
+                        {
+                            mp4FtypOff = searchPos + i - 4;
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (found) break;
+                    searchPos += actual - 3;
+                }
+
+                if (mp4FtypOff < 0)
+                {
+                    // Fallback: just copy the file unchanged
+                    src.Seek(0, SeekOrigin.Begin);
+                    src.CopyTo(dst);
+                    File.Move(tempPath, targetPath, true);
+                    return;
+                }
+
+                // Read original ftyp size
+                src.Seek(mp4FtypOff, SeekOrigin.Begin);
+                Span<byte> sz4 = stackalloc byte[4];
+                src.ReadExactly(sz4);
+                long origFtypSize = BinaryPrimitives.ReadUInt32BigEndian(sz4);
+                if (origFtypSize < 24)
+                {
+                    src.Seek(0, SeekOrigin.Begin);
+                    src.CopyTo(dst);
+                    File.Move(tempPath, targetPath, true);
+                    return;
+                }
+
+                // Build new file:
+                // [0 .. mp4FtypOff)  = JPEG image (unchanged)
+                // [24B new ftyp]
+                // [mp4FtypOff + origFtypSize .. fileSize - 60) = rest of MP4 after old ftyp
+                // [fileSize - 60 .. fileSize) = 60B tail (unchanged)
+
+                // Part 1: JPEG image
+                src.Seek(0, SeekOrigin.Begin);
+                CopyBytes(src, dst, mp4FtypOff);
+
+                // Part 2: New 24-byte ftyp
+                dst.Write(HarmonyOS4Ftyp, 0, 24);
+
+                // Part 3: Rest of MP4 (skip old ftyp, include up to tail start)
+                long afterFtypStart = mp4FtypOff + origFtypSize;
+                long tailStart = fileSize - 60;
+                long mp4RestLen = tailStart - afterFtypStart;
+                src.Seek(afterFtypStart, SeekOrigin.Begin);
+                CopyBytes(src, dst, mp4RestLen);
+
+                // Part 4: Tail
+                src.Seek(tailStart, SeekOrigin.Begin);
+                CopyBytes(src, dst, 60);
+            }
+
+            File.Move(tempPath, targetPath, true);
+
+            LogService.Merge(
+                "HarmonyOS 4.0 MP4 patch: rebuilt file, ftyp 32→24B",
+                LogLevel.Debug);
+        }
+
+        private static void CopyBytes(FileStream src, FileStream dst, long count)
+        {
+            byte[] buf = new byte[65536];
+            long remain = count;
+            while (remain > 0)
+            {
+                int toRead = (int)Math.Min(buf.Length, remain);
+                int actual = src.Read(buf, 0, toRead);
+                if (actual <= 0) break;
+                dst.Write(buf, 0, actual);
+                remain -= actual;
+            }
         }
 
         // Write the combined JPEG + XMP + video file.

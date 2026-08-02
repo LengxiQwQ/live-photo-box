@@ -84,13 +84,13 @@ namespace LivePhotoBox.Services.Protocols
         // All registered protocol instances, ordered by Id.
         private static readonly LivePhotoProtocol[] _all =
         [
-            new MotionPhotoFusionProtocol(),  // 0 — fusion (V2 + OPPO + VIVO + Samsung)
-            new MicroVideoV1Protocol(),       // 1
-            new MotionPhotoV2Protocol(),      // 2 — default
-            new OppoLivePhotoProtocol(),      // 3
-            new VivoLivePhotoProtocol(),     // 4
-            new SamsungMotionPhotoProtocol(), // 5
-            new HuaweiMovingPhotoProtocol(),  // 6
+            new MotionPhotoFusionProtocol(),     // 0 — fusion (V2 + OPPO + VIVO + Samsung)
+            new MicroVideoV1Protocol(),          // 1
+            new MotionPhotoV2Protocol(),         // 2 — default
+            new OppoLivePhotoProtocol(),         // 3
+            new VivoLivePhotoProtocol(),         // 4
+            new SamsungMotionPhotoProtocol(),    // 5
+            new HuaweiMovingPhotoProtocol(),     // 6 — HUAWEI (HarmonyOS 5+ v6_f / HarmonyOS 4.0 v3_f)
         ];
 
         // All registered protocols ordered by Id.

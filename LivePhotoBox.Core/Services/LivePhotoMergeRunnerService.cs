@@ -195,7 +195,7 @@ namespace LivePhotoBox.Services
                 long coverTimestampUs = LivePhotoMergeService.ReadSourceCoverTimestamp(videoPath);
 
                 bool forceMp4 = ComputeForceMp4(options.SelectedModeIndex, options.OutputFormatIndex);
-                // Huawei 协议 (index 6) 需要 moov 在文件尾，不使用 +faststart
+                // Huawei V6 (6) and V3 (7): use brand mp42 + ©too via hwFaststart=false
                 bool hwFaststart = options.SelectedModeIndex != 6;
                 (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token, forceMp4, hwFaststart);
                 if (vt) tempFiles.Add(workingVideoPath);
@@ -244,7 +244,7 @@ namespace LivePhotoBox.Services
 
                 await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
-                await LivePhotoMergeService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token, coverTimestampUs);
+                await LivePhotoMergeService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token, coverTimestampUs, options.OutputFormatIndex);
 
                 // WriteNativeAsync may lose EXIF UserComment tags injected by
                 // PrepareImageAsync (e.g. OPPO/Fusion "oplus_10485792").
@@ -280,10 +280,11 @@ namespace LivePhotoBox.Services
         // Samsung (4) / vivo (3) always force MP4 regardless of output format.
         private static bool ComputeForceMp4(int selectedModeIndex, int outputFormatIndex)
         {
-            // Samsung / vivo / Huawei always need MP4
+            // Samsung / vivo always need MP4
             if (selectedModeIndex == 4 || selectedModeIndex == 3 || selectedModeIndex == 5) return true;
-            // User selected MP4 output → always convert to MP4
-            bool wantMp4 = outputFormatIndex == 0 || outputFormatIndex == 2;
+            // User selected MP4 output (including HMOS 4 JPG+MP4) → always convert to MP4
+            bool wantMp4 = outputFormatIndex == 0 || outputFormatIndex == 2
+                || outputFormatIndex == ProtocolFormatMatrix.FormatJpgMp4HarmonyOS4;
             if (wantMp4) return true;
             // User selected MOV output → respect the force-MP4 toggle
             return AppSettingsService.GetValue("IsGoogleProtocolForceMp4", false);

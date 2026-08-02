@@ -175,9 +175,9 @@ namespace LivePhotoBox.Services
                 }
 
                 string extension = Path.GetExtension(outputPath).ToLowerInvariant();
-                // movflags: +faststart 把 moov 移到文件头。华为协议需要 moov 在文件尾，
-                // 否则华为相册找不到 moov → 显示已损坏。华为模式还额外设置 mp42 brand 和 ©too。
-                string movflags = (useFaststart && extension == ".mp4") ? "+faststart" : "";
+                // Mate 60/Mate 80 实拍文件 moov 均在头部（紧跟 ftyp），华为相册期望此布局。
+                // Huawei mode: set mp42 brand + ©too metadata.
+                string movflags = extension == ".mp4" ? "+faststart" : "";
                 string brandMeta = (!useFaststart && extension == ".mp4")
                     ? " -brand mp42 -metadata too=\"Openharmony6.1\"" : "";
 
@@ -1112,16 +1112,9 @@ namespace LivePhotoBox.Services
 
             string audioArgs = BuildAudioArgsForMp4(inputPath);
 
-            // movflags: +faststart 把 moov box 从文件尾移到文件头（利于流式播放）。
-            // 但华为 Moving Photo 协议要求 moov 在文件尾，+
-            // 否则华为相册通过 LIVE_ 尾标定位视频后找不到 moov → 显示"已损坏"。
-            string movflags = useFaststart ? "+faststart" : "";
-
-            // HUAWEI protocol: set MP4 major brand to mp42 and add ©too udta atom.
-            // ffmpeg default brand without +faststart is already mp42 for re-encode,
-            // but we set it explicitly for safety. ©too = "Openharmony6.1" matches
-            // real Huawei camera output.
-            // -fflags +bitexact prevents ffmpeg from overwriting our ©too with "LavfXX".
+            // +faststart: moov at beginning (matches Mate 60/80 real files).
+            // Huawei protocol (useFaststart=false): additionally set mp42 brand + ©too.
+            // NON-Huawei: just +faststart, brandAndMeta is empty.
             string brandAndMeta = useFaststart
                 ? ""
                 : " -brand mp42 -metadata too=\"Openharmony6.1\"";
@@ -1136,7 +1129,7 @@ namespace LivePhotoBox.Services
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} " +
                     $"{audioArgs} " +
-                    (useFaststart ? $"-movflags +faststart " : brandAndMeta + " ") +
+                    $"-movflags +faststart{brandAndMeta} " +
                     $"\"{outputPath}\"",
 
                 VideoFormat.MOV => $"-apply_cropping 0 -y -i \"{inputPath}\" " +
@@ -1147,7 +1140,7 @@ namespace LivePhotoBox.Services
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} -tag:v hvc1 " +
                     $"-c:a copy " +
-                    (useFaststart ? $"-movflags +faststart " : brandAndMeta + " ") +
+                    $"-movflags +faststart{brandAndMeta} " +
                     $"\"{outputPath}\"",
 
                 _ => $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? \"{outputPath}\""

@@ -448,6 +448,7 @@
                                     <ComboBoxItem x:Uid="MergePage_OutputFormat_JPEG_MOV"/>
                                     <ComboBoxItem x:Uid="MergePage_OutputFormat_HEIC_MP4"/>
                                     <ComboBoxItem x:Uid="MergePage_OutputFormat_HEIC_MOV"/>
+                                    <ComboBoxItem x:Uid="MergePage_OutputFormat_HW4"/>
                                 </ComboBox>
                             </Grid>
                             <!-- 自定义命名模板区域（始终显示，仅支持自定义模式） -->

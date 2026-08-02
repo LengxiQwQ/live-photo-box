@@ -1487,6 +1487,12 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="MergePage_OutputFormat_JPEG_MP4.Content" xml:space="preserve">
     <value>JPG [内嵌 MP4 (H.264)]</value>
   </data>
+  <data name="MergePage_OutputFormat_HW4.Content" xml:space="preserve">
+    <value>JPG [内嵌 MP4] (HMOS 4)</value>
+  </data>
+  <data name="MergePage_FormatHint_HMOS4" xml:space="preserve">
+    <value>鸿蒙4.0 实拍格式</value>
+  </data>
   <data name="MergePage_FormatHint_BestCompat" xml:space="preserve">
     <value>兼容性最佳</value>
   </data>

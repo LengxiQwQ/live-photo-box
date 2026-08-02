@@ -37,11 +37,13 @@ namespace LivePhotoBox.Services
             string sourceVid,
             string targetPath,
             int selectedModeIndex,
-            CancellationToken token)
+            CancellationToken token,
+            int outputFormatIndex = 0)
         {
             // Delegate to the shared implementation — same logic, same protocol support.
             await LivePhotoMergeService.WriteLivePhotoAsync(
-                sourceImg, sourceVid, targetPath, selectedModeIndex, token);
+                sourceImg, sourceVid, targetPath, selectedModeIndex, token,
+                outputFormatIndex: outputFormatIndex);
         }
     }
 }

@@ -255,7 +255,9 @@ namespace LivePhotoBox.Views
                 "MergePage_FormatHint_GoodCompat",
                 "MergePage_FormatHint_Efficient",
                 "MergePage_FormatHint_GoogleOnly",
+                "MergePage_FormatHint_HMOS4",
             ];
+            // Adding hintKeys for future format items (keep in sync with XAML ComboBoxItems)
 
             for (int i = 0; i < comboBox.Items.Count && i < hintKeys.Length; i++)
             {

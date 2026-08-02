@@ -1488,6 +1488,12 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="MergePage_OutputFormat_JPEG_MP4.Content" xml:space="preserve">
     <value>JPG [Embedded MP4 (H.264)]</value>
   </data>
+  <data name="MergePage_OutputFormat_HW4.Content" xml:space="preserve">
+    <value>JPG [Embedded MP4] (HMOS 4)</value>
+  </data>
+  <data name="MergePage_FormatHint_HMOS4" xml:space="preserve">
+    <value>HarmonyOS 4.0 native format</value>
+  </data>
   <data name="MergePage_FormatHint_BestCompat" xml:space="preserve">
     <value>Best compatibility</value>
   </data>

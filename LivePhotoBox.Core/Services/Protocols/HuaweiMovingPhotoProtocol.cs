@@ -17,7 +17,7 @@
 //   [+6..+19] spaces          Padding
 //   [+20..+27] "{PPP}:{QQQQ}" Cover frame : Total frames (read-only history)
 //   [+28..+39] spaces          Padding
-//   [+40..+51] "LIVE_{NNNN}"  MP4 size + 16 (live-photo detection marker)
+//   [+40..+51] "LIVE_{NNNN}"  MP4 size + 20 (live-photo detection marker)
 //   [+52..+59] spaces          Padding
 //
 // Reference: docs/实况照片协议完整分析报告.md, scripts/Python_Scripts/convert_apple_to_huawei.py
@@ -57,18 +57,21 @@ namespace LivePhotoBox.Services.Protocols
         /// The still image itself is frame 0.</param>
         /// <param name="totalFrames">Total video frame count.</param>
         /// <param name="mp4Size">Size of the MP4 video payload in bytes.</param>
+        /// <param name="tailPrefix">Tail version prefix. Default "v6_f" for HarmonyOS 5+,
+        /// "v3_f" for HarmonyOS 4.0 (Mate 60).</param>
         /// <returns>Exactly 60 bytes, space-padded, ASCII-encoded.</returns>
-        public static byte[] BuildTail(int coverFrame, int totalFrames, long mp4Size)
+        public static byte[] BuildTail(int coverFrame, int totalFrames, long mp4Size,
+            string tailPrefix = "v6_f")
         {
             byte[] tail = new byte[60];
             // Fill entire buffer with spaces (0x20)
             for (int i = 0; i < 60; i++) tail[i] = 0x20;
 
-            // [+0..+5]  "v6_f{XX}" — cover frame number
-            string v6 = $"v6_f{coverFrame}";
-            byte[] v6Bytes = Encoding.ASCII.GetBytes(v6);
-            int v6Len = Math.Min(v6Bytes.Length, 6);
-            Array.Copy(v6Bytes, 0, tail, 0, v6Len);
+            // [+0..+5]  "{prefix}{XX}" — cover frame number
+            string vf = $"{tailPrefix}{coverFrame}";
+            byte[] vfBytes = Encoding.ASCII.GetBytes(vf);
+            int vfLen = Math.Min(vfBytes.Length, 6);
+            Array.Copy(vfBytes, 0, tail, 0, vfLen);
 
             // [+20..+27]  "{PPP}:{QQQQ}" — cover frame : total frames
             string pq = $"{coverFrame}:{totalFrames}";
@@ -76,17 +79,13 @@ namespace LivePhotoBox.Services.Protocols
             int pqLen = Math.Min(pqBytes.Length, 8);
             Array.Copy(pqBytes, 0, tail, 20, pqLen);
 
-            // [+40..+51]  "LIVE_{NNNNNNN}" — MP4 size + 16
-            // Field is exactly 12 bytes. "LIVE_" = 5 bytes → max 7-digit number (9,999,999).
-            // For MP4 > ~9.5 MB the value overflows the field. Since the LIVE_ marker
-            // only needs to be present for detection (the exact number is non-critical),
-            // we cap large values to fit by taking the last 7 digits.
-            long liveValue = mp4Size + 16;
-            if (liveValue > 9_999_999)
-                liveValue %= 10_000_000;
+            // [+40..+51]  "LIVE_{NNNNNNN}" — MP4 size + 20
+            // Field target is 12 bytes, but for larger MP4 the value can extend
+            // into trailing space padding (bytes 52-59), matching Python behavior.
+            long liveValue = mp4Size + 20;
             string live = $"LIVE_{liveValue}";
             byte[] liveBytes = Encoding.ASCII.GetBytes(live);
-            int liveLen = Math.Min(liveBytes.Length, 12);
+            int liveLen = Math.Min(liveBytes.Length, 14); // up to 14 bytes, extends into trailing padding
             Array.Copy(liveBytes, 0, tail, 40, liveLen);
 
             return tail;
@@ -98,9 +97,9 @@ namespace LivePhotoBox.Services.Protocols
         /// video duration (PPP:QQQQ) should be kept as read-only history.
         /// </summary>
         public static byte[] BuildTail(int coverFrame, int totalFrames, long mp4Size,
-            int originalCoverMs, int originalDurationMs)
+            int originalCoverMs, int originalDurationMs, string tailPrefix = "v6_f")
         {
-            byte[] tail = BuildTail(coverFrame, totalFrames, mp4Size);
+            byte[] tail = BuildTail(coverFrame, totalFrames, mp4Size, tailPrefix);
 
             // Overwrite [+20..+27] with original PPP:QQQQ instead of coverFrame:totalFrames
             string pq = $"{originalCoverMs}:{originalDurationMs}";

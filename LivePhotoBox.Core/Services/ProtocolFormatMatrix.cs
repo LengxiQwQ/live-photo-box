@@ -12,22 +12,23 @@ namespace LivePhotoBox.Services
         public const int FormatJpgMov = 1;
         public const int FormatHeicMp4 = 2;
         public const int FormatHeicMov = 3;
+        public const int FormatJpgMp4HarmonyOS4 = 4; // HUAWEI only
 
         // 格式显示名称
         public static readonly string[] FormatNames =
-            ["JPEG+MP4", "JPEG+MOV", "HEIC+MP4", "HEIC+MOV"];
+            ["JPEG+MP4", "JPEG+MOV", "HEIC+MP4", "HEIC+MOV", "JPEG+MP4 (鸿蒙4.0)"];
 
         // 协议索引: 0=Fusion, 1=V1, 2=V2, 3=OPPO, 4=VIVO, 5=Samsung, 6=HUAWEI
-        // 格式索引: 0=JPG_MP4, 1=JPG_MOV, 2=HEIC_MP4, 3=HEIC_MOV
+        // 格式索引: 0=JPG_MP4, 1=JPG_MOV, 2=HEIC_MP4, 3=HEIC_MOV, 4=JPG_MP4_HW4
         public static readonly bool[][] Matrix =
         [
-            [true,  true,  false, false], // Fusion:  JPG MP4, JPG MOV
-            [true,  true,  false, false], // V1:      JPG MP4, JPG MOV
-            [true,  true,  false, true ], // V2:      JPG MP4, JPG MOV, HEIC MOV
-            [true,  false, false, false], // OPPO:    JPG MP4 only
-            [true,  false, false, false], // VIVO:    JPG MP4 only
-            [true,  false, true,  false], // Samsung: JPG MP4, HEIC MP4
-            [true,  false, true,  false], // HUAWEI:  JPG MP4, HEIC MP4
+            [true,  true,  false, false, false], // Fusion
+            [true,  true,  false, false, false], // V1
+            [true,  true,  false, true,  false], // V2
+            [true,  false, false, false, false], // OPPO
+            [true,  false, false, false, false], // VIVO
+            [true,  false, true,  false, false], // Samsung
+            [true,  false, true,  false, true ], // HUAWEI: + HarmonyOS 4.0 JPG
         ];
 
         // 检查指定协议索引和格式索引的组合是否可用

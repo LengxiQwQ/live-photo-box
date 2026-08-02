@@ -1380,8 +1380,23 @@ namespace LivePhotoBox.ViewModels
                             string detailMessage = string.Empty;
                             bool isCanceled = false;
 
+                            // Determine the image path that will actually be written (after HEIC→JPEG / JPEG→HEIC conversion).
+                            // Must match the runner's internal workingImagePath, otherwise IsHeicFile check
+                            // produces the wrong file extension for JPG→HEIC conversions.
+                            bool guiHeicOutput = OutputFormatIndex is 2 or 3;
+                            string imgForExt = task.ImagePath;
+                            if (guiHeicOutput && !HeicConverterService.IsHeicFile(task.ImagePath))
+                            {
+                                // Source is JPG/PNG but user wants HEIC — extension should be .heic
+                                imgForExt = Path.ChangeExtension(task.ImagePath, ".heic");
+                            }
+                            else if (!guiHeicOutput && HeicConverterService.IsHeicFile(task.ImagePath))
+                            {
+                                // Source is HEIC but user wants JPG — extension should be .jpg
+                                imgForExt = Path.ChangeExtension(task.ImagePath, ".jpg");
+                            }
                             string outputName = LivePhotoMergeService.CreateOutputFileName(
-                                task.BaseName, modeIndex, task.ImagePath, OutputFormatIndex, NamingRuleIndex,
+                                task.BaseName, modeIndex, imgForExt, OutputFormatIndex, NamingRuleIndex,
                                 customPattern: CustomNamingPattern,
                                 taskIndex: task.Index);
                             string? mergeSubDir = null;
