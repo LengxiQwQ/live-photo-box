@@ -1367,16 +1367,19 @@ namespace LivePhotoBox.ViewModels
         /// Huawei / Honor Moving Photo 的"设为封面并保存为副本"。
         ///
         /// === 整体流程 ===
-        /// 1. 用户选帧 → 提取嵌入 MP4 → 读原尾部 PPP:QQQQ → 构造新尾部
-        /// 2. 帧 JPEG 注入原图 EXIF（exiftool -TagsFromFile --xmp:all）
-        /// 3. HEIC 输出：帧 JPEG → heif-enc → HEIC → InsertTmapBrand → [HEIC] + [MP4] + [tail]
-        /// 4. JPEG 输出：[帧JPEG] + [MP4] + [tail] → exiftool -Make=HUAWEI
-        /// 5. 新尾部：v6_fXX=选中帧、PPP:QQQQ=原始值保留、LIVE_=新MP4字节数+16
+        /// 1. 用户选帧 → 提取嵌入 MP4 → 注入 covertime 元数据（新版相册封面定位）
+        /// 2. 读原尾部 PPP:QQQQ → 构造新尾部（旧版兼容）
+        /// 3. 帧 JPEG 注入原图 EXIF（exiftool -TagsFromFile --xmp:all）
+        /// 4. HEIC 输出：帧 JPEG → heif-enc → HEIC → InsertTmapBrand → [HEIC] + [MP4] + [tail]
+        /// 5. JPEG 输出：[帧JPEG] + [MP4] + [tail] → exiftool -Make=HUAWEI
+        /// 6. 新尾部：v6_fXX=选中帧（旧版相册）、PPP:QQQQ=原始值保留、LIVE_=新MP4字节数+20
+        /// 7. MP4 udta：com.openharmony.covertime=帧时间戳(ms)（新版相册封面定位）
         /// </summary>
         private async Task SaveHuaweiAsync(TimelineFrame frame, EditFileItem item, string photoPath)
         {
             string? tempWorkDir = null;
             string? targetPath = null;
+            string? tempVideoPath = null;
             try
             {
                 // ── 1. 守卫 ──────────────────────────────────────────────
@@ -1465,7 +1468,7 @@ namespace LivePhotoBox.ViewModels
                     throw new InvalidDataException("Cannot locate embedded MP4 in Huawei file");
 
                 var (videoStart, videoEnd, videoLength) = range.Value;
-                string tempVideoPath = Path.Combine(tempWorkDir, "video.mp4");
+                tempVideoPath = Path.Combine(tempWorkDir, "video.mp4");
 
                 using (var src = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 using (var dst = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None))
@@ -1484,6 +1487,14 @@ namespace LivePhotoBox.ViewModels
 
                 LogService.FileOp(
                     $"KeyPhoto Save[Huawei]: embedded MP4 extracted — {videoLength} bytes",
+                    LogLevel.Info);
+
+                // ── 7.5 注入 covertime 元数据（新版华为相册封面帧定位）───
+                int covertimeMs = (int)frame.Timestamp.TotalMilliseconds;
+                tempVideoPath = await LivePhotoMergeService.WriteMp4CovertimeMetadataAsync(
+                    tempVideoPath, targetPath, covertimeMs, CancellationToken.None);
+                LogService.FileOp(
+                    $"KeyPhoto Save[Huawei]: covertime injected — {covertimeMs}ms",
                     LogLevel.Info);
 
                 // ── 8. 获取视频总帧数、计算封面帧 ──────────────────────
@@ -1603,6 +1614,8 @@ namespace LivePhotoBox.ViewModels
                 FinalizeExportProgress();
                 if (!string.IsNullOrEmpty(tempWorkDir) && Directory.Exists(tempWorkDir))
                     try { Directory.Delete(tempWorkDir, recursive: true); } catch { }
+                try { if (File.Exists(tempVideoPath) && tempVideoPath.Contains("lpb_ct_"))
+                    File.Delete(tempVideoPath); } catch { }
             }
         }
 
@@ -4393,21 +4406,34 @@ namespace LivePhotoBox.ViewModels
                     System.Globalization.CultureInfo.InvariantCulture, out var f)
                     ? f : 30.0;
 
-                // Huawei / Honor Moving Photo — 封面帧位置从 v6_fXX 尾部字段读取
-                // 华为/荣耀没有 XMP 时间戳，封面帧序号存在文件尾 60B 的 v6_fXX 字段
-                // 必须在 midpoint 兜底之前执行，否则 keyPhotoTimeSeconds 已被覆盖为 durSec/2
+                // Huawei / Honor Moving Photo — 封面帧位置
+                // 优先读新版 covertime（MP4 udta 毫秒时间戳），fallback 旧版 v6_fXX（尾部帧序号）
                 if (keyPhotoTimeSeconds <= 0 && embeddedVideoLen <= 0)
                 {
-                    int? hwFrame = EditTimingService.ReadHuaweiCoverFrameNumber(imagePath);
-                    if (hwFrame.HasValue && fps > 0)
+                    // 1. 新版：com.openharmony.covertime（毫秒 → 秒）
+                    double? covertimeSec = EditTimingService.ReadHuaweiCovertimeSeconds(imagePath);
+                    if (covertimeSec.HasValue) // field exists → use it (0 = first frame, valid)
                     {
-                        double hwTime = hwFrame.Value / fps;
                         LogService.FileOp(
-                            $"Timeline[LoadProps] KeyPhoto from HUAWEI/Honor tail v6_f{hwFrame.Value}: " +
-                            $"{hwTime:F4}s (fps={fps:F2})",
+                            $"Timeline[LoadProps] KeyPhoto from HUAWEI covertime: {covertimeSec.Value:F4}s",
                             LogLevel.Info);
-                        keyPhotoTimeSeconds = hwTime;
+                        keyPhotoTimeSeconds = covertimeSec.Value;
                         coverFromProtocol = true;
+                    }
+                    // 2. Fallback 旧版：v6_fXX（帧序号 / fps → 秒）
+                    else
+                    {
+                        int? hwFrame = EditTimingService.ReadHuaweiCoverFrameNumber(imagePath);
+                        if (hwFrame.HasValue && fps > 0)
+                        {
+                            double hwTime = hwFrame.Value / fps;
+                            LogService.FileOp(
+                                $"Timeline[LoadProps] KeyPhoto from HUAWEI tail v6_f{hwFrame.Value} (fallback): " +
+                                $"{hwTime:F4}s (fps={fps:F2})",
+                                LogLevel.Info);
+                            keyPhotoTimeSeconds = hwTime;
+                            coverFromProtocol = true;
+                        }
                     }
                 }
 

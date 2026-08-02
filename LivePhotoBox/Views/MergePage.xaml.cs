@@ -708,8 +708,21 @@ namespace LivePhotoBox.Views
                 // 文件 → 追加到队列
                 if (files.Count > 0)
                 {
+                    var wasEmpty = ViewModel.Tasks.Count == 0;
                     var paths = files.Select(f => f.Path).ToList();
                     await ViewModel.AddFilesToQueueAsync(paths);
+
+                    // 队列从空变为有内容时，自动设置输出目录为第一个文件所在目录下的子文件夹
+                    if (wasEmpty && ViewModel.Tasks.Count > 0)
+                    {
+                        var firstFileDir = Path.GetDirectoryName(paths[0]);
+                        if (!string.IsNullOrEmpty(firstFileDir))
+                        {
+                            ViewModel.OutputDirectory = Path.Combine(
+                                firstFileDir,
+                                ResourceService.GetString("OutputDir_LivePhotos"));
+                        }
+                    }
                 }
             }
             catch (Exception ex)

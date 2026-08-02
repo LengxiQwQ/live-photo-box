@@ -251,12 +251,11 @@ namespace LivePhotoBox.Services
             {
                 bool isHarmonyOS4 = outputFormatIndex == ProtocolFormatMatrix.FormatJpgMp4HarmonyOS4;
                 bool isHeicOutput = !isHarmonyOS4 && HeicConverterService.IsHeicFile(sourceImg);
-                int coverFrame = presentationTimestampUs > 0
-                    ? (int)Math.Round(presentationTimestampUs / 1_000_000.0 * 30)
-                    : 0;
                 string tailPrefix = isHarmonyOS4 ? "v3_f" : "v6_f";
+                // Pass raw presentation timestamp (microseconds) — WriteHuaweiNativeAsync
+                // converts it to a frame number using the actual video FPS from ffprobe.
                 await WriteHuaweiNativeAsync(sourceImg, sourceVid, targetPath,
-                    isHeicOutput, coverFrame, token,
+                    isHeicOutput, presentationTimestampUs, token,
                     tailPrefix: tailPrefix,
                     patchToHarmonyOS4: isHarmonyOS4);
                 return;
@@ -325,14 +324,15 @@ namespace LivePhotoBox.Services
         // sourceVid: MP4 video path (caller ensures MP4 container).
         // targetPath: Output file path.
         // isHeicOutput: Whether the still image is HEIC (vs JPEG).
-        // coverFrame: Cover frame number (0 = still image itself).
+        // presentationTimestampUs: Cover frame timestamp in microseconds (0 = still image itself).
+        //   Converted to a frame number using actual video FPS inside this method.
         // token: Cancellation token.
         internal static async Task WriteHuaweiNativeAsync(
             string sourceImg,
             string sourceVid,
             string targetPath,
             bool isHeicOutput,
-            int coverFrame,
+            long presentationTimestampUs,
             CancellationToken token,
             int originalCoverMs = 0,
             int originalDurationMs = 0,
@@ -341,8 +341,31 @@ namespace LivePhotoBox.Services
         {
             long videoSize = new FileInfo(sourceVid).Length;
 
-            // 1. Get total video frame count (exiftool MediaDuration × 30fps)
+            // 1. Get total video frame count (ffprobe nb_frames preferred, exiftool fallback)
             int totalFrames = await DetectVideoFrameCountAsync(sourceVid, token);
+
+            // 1.5 Convert presentation timestamp (µs) to frame number using actual video FPS
+            int coverFrame = 0;
+            if (presentationTimestampUs > 0)
+            {
+                double fps = await DetectVideoFpsAsync(sourceVid, token);
+                if (fps > 0)
+                {
+                    double timestampSec = presentationTimestampUs / 1_000_000.0;
+                    coverFrame = (int)Math.Round(timestampSec * fps);
+                    coverFrame = Math.Clamp(coverFrame, 0, totalFrames);
+                }
+            }
+
+            // 1.6 Write com.openharmony.covertime to MP4 metadata.
+            // Huawei Gallery reads this tag (in milliseconds) to position the cover frame.
+            // Without it, the cover defaults to the first frame regardless of the tail values.
+            if (presentationTimestampUs > 0)
+            {
+                int covertimeMs = (int)(presentationTimestampUs / 1000);
+                sourceVid = await WriteMp4CovertimeMetadataAsync(sourceVid, targetPath, covertimeMs, token);
+                videoSize = new FileInfo(sourceVid).Length; // remux may change MP4 size
+            }
 
             // 2. Build 60-byte tail (preserve original PPP:QQQQ when provided)
             byte[] tail = originalDurationMs > 0
@@ -406,9 +429,7 @@ namespace LivePhotoBox.Services
             }
 
             // 4. Append MP4 video
-            long videoSizeBeforeAppend = new FileInfo(sourceVid).Length;
-            System.Console.Error.WriteLine(
-                $"[DEBUG AppendMP4] measured={videoSize} actual_now={videoSizeBeforeAppend}");
+            string? taggedMp4ToCleanup = (presentationTimestampUs > 0) ? sourceVid : null;
             using (var targetFs = new FileStream(
                 targetPath, FileMode.Append, FileAccess.Write, FileShare.None,
                 bufferSize: 8192, useAsync: true))
@@ -417,9 +438,12 @@ namespace LivePhotoBox.Services
                 bufferSize: 8192, useAsync: true))
             {
                 await vidFs.CopyToAsync(targetFs, token);
-                System.Console.Error.WriteLine(
-                    $"[DEBUG WriteTail] tailLen={tail.Length} tail48={Encoding.ASCII.GetString(tail, 0, Math.Min(tail.Length, 48))}");
                 await targetFs.WriteAsync(tail, 0, tail.Length, token);
+            }
+            // Clean up temp tagged MP4 created by covertime injection
+            if (taggedMp4ToCleanup != null)
+            {
+                try { if (File.Exists(taggedMp4ToCleanup)) File.Delete(taggedMp4ToCleanup); } catch { }
             }
 
             // 6. JPEG post-processing: write HUAWEI EXIF Make tag
@@ -453,10 +477,10 @@ namespace LivePhotoBox.Services
             try
             {
                 string? ffprobePath = null;
-                string? ffmpegDir = ExternalToolLocator.FindFFmpeg();
-                if (!string.IsNullOrEmpty(ffmpegDir))
+                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+                if (!string.IsNullOrEmpty(ffmpegPath))
                 {
-                    string candidate = Path.Combine(Path.GetDirectoryName(ffmpegDir)!, "ffprobe.exe");
+                    string candidate = Path.Combine(Path.GetDirectoryName(ffmpegPath)!, "ffprobe.exe");
                     if (File.Exists(candidate)) ffprobePath = candidate;
                 }
 
@@ -518,6 +542,101 @@ namespace LivePhotoBox.Services
             catch
             {
                 return 1;
+            }
+        }
+
+        // Detect actual video FPS from exiftool VideoFrameRate tag.
+        // Returns frames per second as double, or 30.0 on failure.
+        private static async Task<double> DetectVideoFpsAsync(string videoPath, CancellationToken token)
+        {
+            try
+            {
+                string? exifToolPath = ExternalToolLocator.FindExifTool();
+                if (string.IsNullOrEmpty(exifToolPath)) return 30.0;
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    Arguments = $"-VideoFrameRate -s -s -S \"{videoPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using var process = Process.Start(psi);
+                if (process == null) return 30.0;
+
+                string output = await process.StandardOutput.ReadToEndAsync(token);
+                await process.WaitForExitAsync(token);
+                string raw = output.Trim();
+                if (double.TryParse(raw,
+                    System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out double fps) && fps > 0)
+                    return fps;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { /* fall through to default */ }
+
+            return 30.0; // fallback: assume 30fps
+        }
+
+        // Write com.openharmony.covertime (milliseconds) to MP4 udta metadata.
+        // Uses ffmpeg -c copy remux to inject the tag without re-encoding.
+        // Returns the path to the tagged MP4 (temp file — caller should clean up after use).
+        public static async Task<string> WriteMp4CovertimeMetadataAsync(
+            string mp4Path, string targetPath, int covertimeMs, CancellationToken token)
+        {
+            string taggedPath = Path.Combine(Path.GetTempPath(),
+                $"lpb_ct_{Guid.NewGuid():N}.mp4");
+
+            try
+            {
+                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+                if (string.IsNullOrEmpty(ffmpegPath))
+                {
+                    LogService.Merge("covertime: ffmpeg not found, keeping original MP4", LogLevel.Warning);
+                    return mp4Path;
+                }
+
+                // Remux with -c copy, injecting the covertime metadata tag into udta.
+                // -movflags use_metadata_tags is required for custom tag names to be written.
+                var psi = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = $"-y -v error -i \"{mp4Path}\" -c copy " +
+                                $"-movflags use_metadata_tags " +
+                                $"-metadata com.openharmony.covertime=\"{covertimeMs}.000000\" " +
+                                $"\"{taggedPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+
+                using var proc = Process.Start(psi);
+                if (proc == null) return mp4Path;
+
+                string stderr = await proc.StandardError.ReadToEndAsync(token);
+                await proc.WaitForExitAsync(token);
+
+                if (proc.ExitCode == 0 && File.Exists(taggedPath) && new FileInfo(taggedPath).Length > 0)
+                {
+                    LogService.Merge(
+                        $"covertime: wrote {covertimeMs}ms → {Path.GetFileName(taggedPath)}",
+                        LogLevel.Info);
+                    return taggedPath;
+                }
+
+                LogService.Merge(
+                    $"covertime: ffmpeg failed (exit {proc.ExitCode}): {stderr.Trim()}",
+                    LogLevel.Warning);
+                return mp4Path;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Merge($"covertime: error: {ex.Message}", LogLevel.Warning);
+                return mp4Path;
             }
         }
 

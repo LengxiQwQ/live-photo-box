@@ -299,6 +299,132 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
+        /// Read the cover frame position from a Huawei Moving Photo file
+        /// using the NEW Gallery format: com.openharmony.covertime in MP4 udta.
+        /// Returns the cover time in seconds, or null if not found.
+        /// </summary>
+        public static double? ReadHuaweiCovertimeSeconds(string filePath)
+        {
+            try
+            {
+                // 1. Locate the embedded MP4
+                var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(filePath);
+                if (range == null) return null;
+                var (videoStart, videoEnd, videoLength) = range.Value;
+
+                // 2. Extract MP4 to temp file
+                string tempPath = Path.Combine(Path.GetTempPath(),
+                    $"lpb_hw_ct_{Guid.NewGuid():N}.mp4");
+                try
+                {
+                    using (var src = new FileStream(filePath, FileMode.Open,
+                        FileAccess.Read, FileShare.ReadWrite))
+                    using (var dst = new FileStream(tempPath, FileMode.Create,
+                        FileAccess.Write, FileShare.None))
+                    {
+                        src.Seek(videoStart, SeekOrigin.Begin);
+                        var buf = new byte[81920];
+                        long remain = videoLength;
+                        while (remain > 0)
+                        {
+                            int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                            if (r == 0) break;
+                            dst.Write(buf, 0, r);
+                            remain -= r;
+                        }
+                    }
+
+                    // 3. Read covertime via ffprobe
+                    string? ffprobePath = null;
+                    string? ffmpegDir = ExternalToolLocator.FindFFmpeg();
+                    if (!string.IsNullOrEmpty(ffmpegDir))
+                    {
+                        string candidate = Path.Combine(
+                            Path.GetDirectoryName(ffmpegDir)!, "ffprobe.exe");
+                        if (File.Exists(candidate)) ffprobePath = candidate;
+                    }
+                    // Fallback: try PATH
+                    if (string.IsNullOrEmpty(ffprobePath))
+                    {
+                        try
+                        {
+                            var wherePsi = new ProcessStartInfo
+                            {
+                                FileName = "where", Arguments = "ffprobe",
+                                UseShellExecute = false, CreateNoWindow = true,
+                                RedirectStandardOutput = true
+                            };
+                            using var whereProc = Process.Start(wherePsi);
+                            if (whereProc != null)
+                            {
+                                string whereOut = whereProc.StandardOutput.ReadToEnd();
+                                whereProc.WaitForExit(1000);
+                                string? firstLine = null;
+                                foreach (var line in whereOut.Split('\n',
+                                    StringSplitOptions.RemoveEmptyEntries))
+                                {
+                                    var trimmed = line.Trim();
+                                    if (!string.IsNullOrEmpty(trimmed))
+                                    {
+                                        firstLine = trimmed;
+                                        break;
+                                    }
+                                }
+                                if (!string.IsNullOrEmpty(firstLine) && File.Exists(firstLine))
+                                    ffprobePath = firstLine;
+                            }
+                        }
+                        catch { }
+                    }
+
+                    if (!string.IsNullOrEmpty(ffprobePath))
+                    {
+                        var psi = new ProcessStartInfo
+                        {
+                            FileName = ffprobePath,
+                            Arguments = $"-v error -show_entries format_tags=com.openharmony.covertime " +
+                                        $"-of csv=p=0 \"{tempPath}\"",
+                            UseShellExecute = false, CreateNoWindow = true,
+                            RedirectStandardOutput = true, RedirectStandardError = true
+                        };
+                        using var proc = Process.Start(psi);
+                        if (proc != null)
+                        {
+                            string output = proc.StandardOutput.ReadToEnd();
+                            proc.WaitForExit(5000);
+                            string raw = output.Trim();
+                            if (!string.IsNullOrWhiteSpace(raw) &&
+                                double.TryParse(raw,
+                                    System.Globalization.NumberStyles.Any,
+                                    System.Globalization.CultureInfo.InvariantCulture,
+                                    out double covertimeMs) && covertimeMs >= 0)
+                            {
+                                double seconds = covertimeMs / 1000.0;
+                                LogService.FileOp(
+                                    $"KeyPhotoTiming[HUAWEI] covertime: {covertimeMs}ms = {seconds:F4}s",
+                                    Models.LogLevel.Info);
+                                return seconds;
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"KeyPhotoTiming[HUAWEI] covertime read failed: {ex.Message}",
+                    Models.LogLevel.Warning);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// 二进制 patch Apple Live Photo MOV 的封面时间戳。
         ///
         /// === 背景 ===
