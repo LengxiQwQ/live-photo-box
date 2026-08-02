@@ -1,4 +1,4 @@
-# LivePhotoBox Release Build — 编译 + 打包 3 个产物: 便携版 zip + CLI zip + 安装包
+﻿# LivePhotoBox Release Build — 编译 + 打包 3 个产物: 便携版 zip + CLI zip + 安装包
 # 用法: powershell -ExecutionPolicy Bypass -File build-release.ps1
 #       powershell -ExecutionPolicy Bypass -File build-release.ps1 -CI  (GitHub Actions)
 
