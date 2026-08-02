@@ -1,6 +1,6 @@
 Add-Type -AssemblyName System.Drawing
 
-$assetsPath = Join-Path $PSScriptRoot "..\Live Photo Box\Assets"
+$assetsPath = Join-Path $PSScriptRoot "..\LivePhotoBox\Assets"
 $sourcePath = Join-Path $assetsPath "AppIcon.png"
 
 if (-not (Test-Path $sourcePath)) {

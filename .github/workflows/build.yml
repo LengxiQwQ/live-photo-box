@@ -66,7 +66,7 @@ jobs:
           if ("${{ github.ref_type }}" -eq "tag") {
             $v = "${{ github.ref_name }}" -replace '^v', ''
           } else {
-            $xml = [xml](Get-Content "Live Photo Box\Package.appxmanifest" -Raw)
+            $xml = [xml](Get-Content "LivePhotoBox\Package.appxmanifest" -Raw)
             $v = ($xml.Package.Identity.Version) -replace '\.0$', ''
           }
           echo "version3=$v" >> $env:GITHUB_OUTPUT
@@ -77,7 +77,7 @@ jobs:
       # ── 4. Build / 编译 ─────────────────────────────────────────
       - name: Build & Publish (x64 Release) / 编译 & 发布 (x64 Release)
         run: |
-          dotnet publish "Live Photo Box\Live Photo Box.csproj" `
+          dotnet publish "LivePhotoBox\LivePhotoBox.csproj" `
             -c Release `
             -r win-x64 `
             --self-contained true `
@@ -141,7 +141,7 @@ jobs:
           # ── 7. Recursively clean .mui native language resources / 递归清理 .mui 原生语言资源 ──
           # Read AppSupportedNativeLocales from csproj (single source of truth)
           # 从 csproj 读取 AppSupportedNativeLocales（单一真相源）
-          [xml]$csprojXml = Get-Content 'Live Photo Box\Live Photo Box.csproj'
+          [xml]$csprojXml = Get-Content 'LivePhotoBox\LivePhotoBox.csproj'
           $nativeLocales = ($csprojXml.Project.PropertyGroup.AppSupportedNativeLocales | Where-Object { $_ }) -split ';'
           Write-Host "AppSupportedNativeLocales from csproj: $($nativeLocales -join ', ')"
           $muiRemoved = 0

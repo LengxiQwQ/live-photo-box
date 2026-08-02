@@ -17,7 +17,7 @@
 
   <Target Name="CopyTools" AfterTargets="Build">
     <PropertyGroup>
-      <_Tools>..\..\Live Photo Box\Tools</_Tools>
+      <_Tools>..\..\LivePhotoBox\Tools</_Tools>
     </PropertyGroup>
     <ItemGroup>
       <_Files Include="$(_Tools)\**\*" Condition="Exists('$(_Tools)')" />

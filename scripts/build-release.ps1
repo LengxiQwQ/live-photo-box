@@ -7,7 +7,7 @@ Set-Location $projectRoot
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 chcp 65001 > $null
 
-$manifest = Get-Content 'Live Photo Box\Package.appxmanifest' -Raw -Encoding UTF8
+$manifest = Get-Content 'LivePhotoBox\Package.appxmanifest' -Raw -Encoding UTF8
 $versionFull = if ($manifest -match 'Identity.*Version\s*=\s*"([^"]+)"') { $Matches[1] } else { '0.0.0.0' }
 $version = $versionFull -replace '\.0$', ''
 
@@ -23,7 +23,7 @@ Write-Host '[1/4] Building Release x64 (SelfContained)...' -ForegroundColor Yell
 
 $outDir = 'publish\portable_x64'
 $publishArgs = @(
-    'publish', 'Live Photo Box\Live Photo Box.csproj',
+    'publish', 'LivePhotoBox\LivePhotoBox.csproj',
     '-c', 'Release',
     '-r', 'win-x64',
     '--self-contained', 'true',
@@ -91,7 +91,7 @@ Write-Host "       Final size: $('{0:N0}' -f $kb) KB" -ForegroundColor Green
 Write-Host '       Build OK' -ForegroundColor Green
 
 # 从 csproj 读取要保留的原生语言列表（单一真相源）
-[xml]$csprojXml = Get-Content 'Live Photo Box\Live Photo Box.csproj'
+[xml]$csprojXml = Get-Content 'LivePhotoBox\LivePhotoBox.csproj'
 $keepLocales = ($csprojXml.Project.PropertyGroup.AppSupportedNativeLocales | Where-Object { $_ }) -split ';'
 
 Write-Host '[2/4] Cleaning locale folders...' -ForegroundColor Yellow
