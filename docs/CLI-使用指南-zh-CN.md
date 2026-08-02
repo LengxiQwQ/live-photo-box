@@ -396,7 +396,7 @@ CID 配对需要 `exiftool.exe` 位于可执行文件旁的 `Tools\` 目录中�
 
 ## 获取帮助
 
-- **使用文档：** [CLI-User-Guide-en.md](https://github.com/lengxiqwq/live-photo-box/blob/main/CLI-User-Guide-en.md)（英文） · [CLI-使用指南-zh-CN.md](https://github.com/lengxiqwq/live-photo-box/blob/main/CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97-zh-CN.md)（简体中文）
+- **使用文档：** [CLI-User-Guide-en.md](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-User-Guide-en.md)（英文） · [CLI-使用指南-zh-CN.md](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97-zh-CN.md)（简体中文）
 - **Bug 反馈 / 功能建议：** [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
 - **最新版本下载：** [GitHub Releases](https://github.com/lengxiqwq/live-photo-box/releases)
 - **项目仓库：** [github.com/lengxiqwq/live-photo-box](https://github.com/lengxiqwq/live-photo-box)

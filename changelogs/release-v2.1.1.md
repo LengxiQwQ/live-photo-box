@@ -7,7 +7,7 @@ The biggest highlight: Live Photo Box is no longer just a GUI app — it now inc
 > ⚠️ **注意 / Note**：命令行模式目前**只支持合成（Merge）**，拆分（Split）和修复（Repair）请继续使用图形界面。  
 > The CLI currently supports **merge only** — split and repair remain in the GUI.
 
-> 📖 **使用方法 / How to use**  →  [English](https://github.com/LengxiQwQ/live-photo-box/blob/v2.1.1/CLI-User-Guide-en.md)  ·  [中文](https://github.com/LengxiQwQ/live-photo-box/blob/v2.1.1/CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97-zh-CN.md)
+> 📖 **使用方法 / How to use**  →  [English](https://github.com/LengxiQwQ/live-photo-box/blob/v2.1.1/docs/CLI-User-Guide-en.md)  ·  [中文](https://github.com/LengxiQwQ/live-photo-box/blob/v2.1.1/docs/CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97-zh-CN.md)
 
 - **📦 独立命令行工具** — 新增 `livephotobox` 命令，支持单对合成（指定一张图片+一个视频）和整文件夹批量处理两种模式，终端实时显示进度与结果
   

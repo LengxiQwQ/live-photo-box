@@ -397,7 +397,7 @@ Close gallery apps or file explorers that may be accessing the source files. Loc
 
 ## Getting Help
 
-- **Documentation:** [CLI-User-Guide-en.md](https://github.com/lengxiqwq/live-photo-box/blob/main/CLI-User-Guide-en.md) (English) · [CLI-使用指南-zh-CN.md](https://github.com/lengxiqwq/live-photo-box/blob/main/CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97-zh-CN.md) (简体中文)
+- **Documentation:** [CLI-User-Guide-en.md](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-User-Guide-en.md) (English) · [CLI-使用指南-zh-CN.md](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97-zh-CN.md) (简体中文)
 - **Bug reports & feature requests:** [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
 - **Latest release:** [GitHub Releases](https://github.com/lengxiqwq/live-photo-box/releases)
 - **Repository:** [github.com/lengxiqwq/live-photo-box](https://github.com/lengxiqwq/live-photo-box)
