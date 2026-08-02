@@ -1383,7 +1383,8 @@ namespace LivePhotoBox.ViewModels
                             // Determine the image path that will actually be written (after HEIC→JPEG / JPEG→HEIC conversion).
                             // Must match the runner's internal workingImagePath, otherwise IsHeicFile check
                             // produces the wrong file extension for JPG→HEIC conversions.
-                            bool guiHeicOutput = OutputFormatIndex is 2 or 3;
+                            bool guiHeicOutput = OutputFormatIndex is 2 or 3
+                                or ProtocolFormatMatrix.FormatHeicMp4H265;
                             string imgForExt = task.ImagePath;
                             if (guiHeicOutput && !HeicConverterService.IsHeicFile(task.ImagePath))
                             {

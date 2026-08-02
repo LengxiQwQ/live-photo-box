@@ -487,7 +487,7 @@ namespace LivePhotoBox.Views
                 LogService.Info(
                     $"Update UI: No new version. Current={App.AppVersion}, Latest={release.TagName}",
                     LogSource.System);
-                var currentVersionFull = App.AppVersion;
+                var currentVersionFull = App.DisplayVersion;
                 var msg = string.Format(
                     ResourceService.GetString("Update_NoNewVersion_Message"), currentVersionFull);
                 await ShowInfoDialogAsync(
@@ -523,7 +523,7 @@ namespace LivePhotoBox.Views
         {
             // 格式化版本号显示：去掉 tag 前缀 v
             var latestVersion = release.TagName.TrimStart('v', 'V');
-            var currentVersion = App.AppVersion;
+            var currentVersion = App.DisplayVersion;
 
             // 构建内容：新版本号 + 当前版本号 + 更新日志
             var contentStack = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };

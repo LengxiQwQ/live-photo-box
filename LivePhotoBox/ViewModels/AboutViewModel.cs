@@ -98,8 +98,9 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         private static string GetAppVersion()
         {
-            // 统一走 App.AppVersion：打包版读 MSIX 清单，便携/安装版回退到程序集版本
-            var version = App.AppVersion;
+            // 统一走 App.DisplayVersion：展示用版本只保留前 3 段（主.次.修订）。
+            // 完整 4 段 App.AppVersion 仍用于读取与更新比较，UI 一律显示 3 位。
+            var version = App.DisplayVersion;
             // "0.0.0" 是 App.AppVersion 的最后兜底——程序集版本也读不到时返回，
             // 不应向用户展示一个假版本号
             if (version == "0.0.0")

@@ -2,7 +2,10 @@
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
-    <AssemblyName>lpb</AssemblyName>
+    <AssemblyName>livephotobox</AssemblyName>
+
+    <!-- CLI aliases: these names all invoke the same tool -->
+    <_CliAliases>livebox;lipbox;lpb;lpbx;livephoto</_CliAliases>
     <LangVersion>13.0</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
@@ -28,5 +31,26 @@
       <FileVersion>$(_ManifestVersion)</FileVersion>
     </PropertyGroup>
     <Message Importance="high" Text="CLI version synced from Package.appxmanifest: $(_ManifestVersion)" Condition="$(_ManifestVersion) != ''" />
+  </Target>
+
+  <!-- 构建后为每个别名复制 exe 及配套文件（Windows 专用） -->
+  <Target Name="CreateAliases" AfterTargets="AfterBuild" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <ItemGroup>
+      <_CliAliasItem Include="$(_CliAliases)" />
+    </ItemGroup>
+    <Message Importance="high" Text="[CLI] Creating aliases: @(_CliAliasItem, ', ')" />
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).exe"
+          DestinationFiles="$(OutputPath)%(_CliAliasItem.Identity).exe"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).runtimeconfig.json"
+          DestinationFiles="$(OutputPath)%(_CliAliasItem.Identity).runtimeconfig.json"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).deps.json"
+          DestinationFiles="$(OutputPath)%(_CliAliasItem.Identity).deps.json"
+          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).pdb"
+          DestinationFiles="$(OutputPath)%(_CliAliasItem.Identity).pdb"
+          SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="[CLI] Aliases ready: @(_CliAliasItem, ', ')" />
   </Target>
 </Project>

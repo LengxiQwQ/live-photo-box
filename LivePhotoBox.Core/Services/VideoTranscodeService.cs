@@ -279,9 +279,10 @@ namespace LivePhotoBox.Services
             string inputPath,
             string outputPath,
             CancellationToken token = default,
-            bool useFaststart = true)
+            bool useFaststart = true,
+            string videoCodec = "h264")
         {
-            return await TranscodeAsync(inputPath, outputPath, VideoFormat.MP4, token, useFaststart);
+            return await TranscodeAsync(inputPath, outputPath, VideoFormat.MP4, token, useFaststart, videoCodec);
         }
 
         // 将视频转换为 MOV 格式 (H.264/AAC)
@@ -470,20 +471,32 @@ namespace LivePhotoBox.Services
         // the container is not MP4-compatible (e.g. AVI, MKV). MOV files are left as-is.</param>
         // <param name="useFaststart">When true (default), use +faststart to move moov to beginning
         // for streaming. When false (Huawei protocol), keep moov at end and set mp42 brand + ©too.</param>
+        // <param name="videoCodec">"h264" (default) or "hevc" for HEVC/H.265 encoding.</param>
         public static async Task<(string Path, bool WasTranscoded)> EnsureMp4Async(
             string inputPath,
             string workDir,
             CancellationToken token = default,
             bool forceMp4 = true,
-            bool useFaststart = true)
+            bool useFaststart = true,
+            string videoCodec = "h264")
         {
-            // Already MP4? No-op.
-            if (DetectContainerFormat(inputPath) == "mp4")
+            // Already MP4? No-op (but remux if HEVC copy needed to add brand/metadata).
+            string container = DetectContainerFormat(inputPath);
+            if (container == "mp4" && videoCodec != "copy")
                 return (inputPath, false);
+
+            // HEVC passthrough: if target is HEVC, check if source video is also HEVC.
+            // Apple MOV always has HEVC; other sources checked via ffprobe.
+            if (videoCodec == "hevc")
+            {
+                string ext = Path.GetExtension(inputPath).ToLowerInvariant();
+                if (ext == ".mov" || IsHevcVideo(inputPath))
+                    videoCodec = "copy";
+            }
 
             // When forceMp4 is disabled, only transcode incompatible formats (AVI, MKV, etc.).
             // MOV files are compatible with Live Photo protocols — skip transcode.
-            if (!forceMp4 && DetectContainerFormat(inputPath) == "mov")
+            if (!forceMp4 && container == "mov" && videoCodec != "copy")
             {
                 LogService.Merge(
                     $"Skipping MP4 conversion (forceMp4=off): '{Path.GetFileName(inputPath)}'",
@@ -491,8 +504,9 @@ namespace LivePhotoBox.Services
                 return (inputPath, false);
             }
 
+            string actionLabel = videoCodec == "copy" ? "Remuxing (HEVC passthrough)" : "Auto-transcoding";
             LogService.Merge(
-                $"Auto-transcoding to MP4: '{Path.GetFileName(inputPath)}'",
+                $"{actionLabel} to MP4: '{Path.GetFileName(inputPath)}'",
                 LogLevel.Debug);
 
             string tempPath = Path.Combine(
@@ -502,7 +516,7 @@ namespace LivePhotoBox.Services
             if (File.Exists(tempPath))
                 try { File.Delete(tempPath); } catch { }
 
-            var result = await TranscodeToMp4Async(inputPath, tempPath, token, useFaststart);
+            var result = await TranscodeToMp4Async(inputPath, tempPath, token, useFaststart, videoCodec);
 
             if (!result.Success)
             {
@@ -565,6 +579,73 @@ namespace LivePhotoBox.Services
             }
         }
 
+        // Quick check: does the source video use HEVC codec?
+        // Falls back to extension-based heuristic if ffprobe is not available.
+        private static bool IsHevcVideo(string path)
+        {
+            try
+            {
+                string? ffprobePath = ResolveFfprobePath();
+                if (!string.IsNullOrEmpty(ffprobePath))
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = ffprobePath,
+                        Arguments = $"-v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 \"{path}\"",
+                        UseShellExecute = false, CreateNoWindow = true,
+                        RedirectStandardOutput = true, RedirectStandardError = true
+                    };
+                    using var proc = Process.Start(psi);
+                    if (proc != null)
+                    {
+                        string output = proc.StandardOutput.ReadToEnd();
+                        proc.WaitForExit(5000);
+                        return output.Trim() == "hevc";
+                    }
+                }
+            }
+            catch { /* fall through to extension heuristic */ }
+
+            // Fallback: Apple MOV files are always HEVC
+            string ext = Path.GetExtension(path).ToLowerInvariant();
+            return ext == ".mov";
+        }
+
+        // Resolve ffprobe.exe: try Tools dir next to ffmpeg, then system PATH.
+        private static string? ResolveFfprobePath()
+        {
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+            if (!string.IsNullOrEmpty(ffmpegPath))
+            {
+                string candidate = Path.Combine(Path.GetDirectoryName(ffmpegPath)!, "ffprobe.exe");
+                if (File.Exists(candidate)) return candidate;
+            }
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = "where", Arguments = "ffprobe",
+                    UseShellExecute = false, CreateNoWindow = true,
+                    RedirectStandardOutput = true
+                };
+                using var proc = Process.Start(psi);
+                if (proc != null)
+                {
+                    string output = proc.StandardOutput.ReadToEnd();
+                    proc.WaitForExit(1000);
+                    foreach (var line in output.Split('\n',
+                        StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        var trimmed = line.Trim();
+                        if (!string.IsNullOrEmpty(trimmed) && File.Exists(trimmed))
+                            return trimmed;
+                    }
+                }
+            }
+            catch { }
+            return null;
+        }
+
         private static string ExtToFormat(string ext) => ext switch
         {
             ".mp4" => "mp4",
@@ -579,7 +660,8 @@ namespace LivePhotoBox.Services
             string outputPath,
             VideoFormat targetFormat,
             CancellationToken token,
-            bool useFaststart = true)
+            bool useFaststart = true,
+            string videoCodec = "h264")
         {
             var result = new TranscodeResult();
             var stopwatch = Stopwatch.StartNew();
@@ -615,7 +697,7 @@ namespace LivePhotoBox.Services
                 File.Delete(outputPath);
             }
 
-            string codec = targetFormat == VideoFormat.MP4 ? "h264" : "hevc";
+            string codec = videoCodec;
             bool useHardwareEncoder = !string.IsNullOrEmpty(GetEncoderForCodec(codec));
             bool transcodeCompleted = false;
             string? lastError = null;
@@ -624,7 +706,7 @@ namespace LivePhotoBox.Services
             {
                 try
                 {
-                    string arguments = BuildFFmpegArguments(inputPath, outputPath, targetFormat, !useHardwareEncoder, useFaststart);
+                    string arguments = BuildFFmpegArguments(inputPath, outputPath, targetFormat, !useHardwareEncoder, useFaststart, codec);
 
                     LogService.Split($"ffmpeg {arguments}", LogLevel.Debug);
 
@@ -766,9 +848,9 @@ namespace LivePhotoBox.Services
         // targetFormat: 目标视频格式。
         // forceSoftware: 是否强制使用软件编码器。
         // è¿å: (编码器名, 编码参数)。
-        private static (string encoder, string encoderParams) GetEncoderForFormat(VideoFormat targetFormat, bool forceSoftware = false)
+        private static (string encoder, string encoderParams) GetEncoderForCodecAndFormat(
+            string codec, VideoFormat targetFormat, bool forceSoftware = false)
         {
-            string codec = targetFormat == VideoFormat.MP4 ? "h264" : "hevc";
 
             if (forceSoftware)
             {
@@ -1102,9 +1184,22 @@ namespace LivePhotoBox.Services
         }
 
         private static string BuildFFmpegArguments(string inputPath, string outputPath,
-            VideoFormat targetFormat, bool forceSoftwareEncoder = false, bool useFaststart = true)
+            VideoFormat targetFormat, bool forceSoftwareEncoder = false, bool useFaststart = true,
+            string videoCodec = "h264")
         {
-            var (videoEncoder, videoParams) = GetEncoderForFormat(targetFormat, forceSoftwareEncoder);
+            // HEVC passthrough: copy video stream, transcode audio to AAC (MP4 doesn't support PCM)
+            if (videoCodec == "copy")
+            {
+                string movflags = useFaststart ? "+faststart" : "";
+                return $"-y -v error -apply_cropping 0 -i \"{inputPath}\" " +
+                       $"-map 0:V:0 -map 0:a:0 " +
+                       $"-c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 " +
+                       $"-brand mp42 -metadata too=\"Openharmony6.1\" " +
+                       (string.IsNullOrEmpty(movflags) ? "" : $"-movflags {movflags} ") +
+                       $"\"{outputPath}\"";
+            }
+
+            var (videoEncoder, videoParams) = GetEncoderForCodecAndFormat(videoCodec, targetFormat, forceSoftwareEncoder);
             int threadCount = GetThreadCount(videoEncoder);
 
             string pixelFormat = GetPixelFormatParams(videoEncoder, targetFormat);

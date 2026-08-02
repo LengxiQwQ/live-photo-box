@@ -25,7 +25,7 @@ namespace LivePhotoBox.Cli.Infrastructure
             ["jpeg+mov"] = Services.ProtocolFormatMatrix.FormatJpgMov,
             ["heic+mp4"] = Services.ProtocolFormatMatrix.FormatHeicMp4,
             ["heic+mov"] = Services.ProtocolFormatMatrix.FormatHeicMov,
-            ["jpg+mp4-hmos4"] = Services.ProtocolFormatMatrix.FormatJpgMp4HarmonyOS4,
+            ["heic+mp4-h265"] = Services.ProtocolFormatMatrix.FormatHeicMp4H265,
         };
 
         public static bool TryResolveProtocol(string name, out int index) =>

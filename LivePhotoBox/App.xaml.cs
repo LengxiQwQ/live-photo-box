@@ -89,6 +89,20 @@ namespace LivePhotoBox
             }
         }
 
+        // 用户界面展示用版本号：只保留前 3 段（主.次.修订）。
+        // 读取与版本比较仍用 AppVersion 的完整 4 段；GitHub 发布 tag 只有 3 位，
+        // System.Version 逐段比较（缺失段按 -1），同一版本不会误报更新。
+        public static string DisplayVersion
+        {
+            get
+            {
+                var parts = AppVersion.Split('.');
+                return parts.Length > 3
+                    ? string.Join(".", parts[0], parts[1], parts[2])
+                    : AppVersion;
+            }
+        }
+
         // Refreshes <see cref="CachedBannerImage"/> to the given preset.
         // The home page picks this up on next render.
         public static void RefreshBannerImage(BannerPreset preset)

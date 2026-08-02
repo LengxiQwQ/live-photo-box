@@ -158,7 +158,8 @@ namespace LivePhotoBox.Services
                 // HEIC → JPEG conversion: skip when using Motion Photo V2 protocol
                 // (V2 supports native HEIC primary images per Google spec).
                 // Also skip when the user selected HEIC output format (indices 2/3).
-                bool keepHeic = (options.OutputFormatIndex == 2 || options.OutputFormatIndex == 3)
+                bool keepHeic = (options.OutputFormatIndex == 2 || options.OutputFormatIndex == 3
+                    || options.OutputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265)
                     && HeicConverterService.IsHeicFile(imagePath);
                 if (!keepHeic && HeicConverterService.IsHeicFile(imagePath))
                 {
@@ -181,7 +182,8 @@ namespace LivePhotoBox.Services
                 // (indices 2/3) but the source image is not HEIC, convert it so the
                 // output container matches the user's format selection.
                 // This is the inverse of the HEIC→JPEG block above.
-                if ((options.OutputFormatIndex == 2 || options.OutputFormatIndex == 3)
+                if ((options.OutputFormatIndex == 2 || options.OutputFormatIndex == 3
+                    || options.OutputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265)
                     && !HeicConverterService.IsHeicFile(workingImagePath))
                 {
                     workingImagePath = await HeicConverterService.ConvertToHeicAsync(
@@ -195,9 +197,13 @@ namespace LivePhotoBox.Services
                 long coverTimestampUs = LivePhotoMergeService.ReadSourceCoverTimestamp(videoPath);
 
                 bool forceMp4 = ComputeForceMp4(options.SelectedModeIndex, options.OutputFormatIndex);
-                // Huawei V6 (6) and V3 (7): use brand mp42 + ©too via hwFaststart=false
+                // Huawei V6 (6): use brand mp42 + ©too via hwFaststart=false
                 bool hwFaststart = options.SelectedModeIndex != 6;
-                (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(videoPath, tempDir, token, forceMp4, hwFaststart);
+                // H.265 format: use HEVC codec (native Huawei camera format)
+                string videoCodec = options.OutputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265
+                    ? "hevc" : "h264";
+                (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(
+                    videoPath, tempDir, token, forceMp4, hwFaststart, videoCodec);
                 if (vt) tempFiles.Add(workingVideoPath);
 
                 string prepared = await protocol.PrepareImageAsync(workingImagePath, tempDir, token);
@@ -282,9 +288,9 @@ namespace LivePhotoBox.Services
         {
             // Samsung / vivo always need MP4
             if (selectedModeIndex == 4 || selectedModeIndex == 3 || selectedModeIndex == 5) return true;
-            // User selected MP4 output (including HMOS 4 JPG+MP4) → always convert to MP4
+            // User selected MP4 output → always convert to MP4
             bool wantMp4 = outputFormatIndex == 0 || outputFormatIndex == 2
-                || outputFormatIndex == ProtocolFormatMatrix.FormatJpgMp4HarmonyOS4;
+                || outputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265;
             if (wantMp4) return true;
             // User selected MOV output → respect the force-MP4 toggle
             return AppSettingsService.GetValue("IsGoogleProtocolForceMp4", false);

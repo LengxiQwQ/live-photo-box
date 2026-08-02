@@ -4,53 +4,58 @@
 
 ## 概述
 
-CLI 工具 `lpb` 是一个独立的控制台程序，和 GUI 共享 100% 后端代码（合并管道、协议处理、视频转码）。
+CLI 工具 `livephotobox` 是一个独立的控制台程序，和 GUI 共享 100% 后端代码（合并管道、协议处理、视频转码）。
 改 bug 一处修，两边都生效。
+
+别名：`livebox` `lipbox` `lpb` `lpbx` `livephoto`，任意名字均可调用。下文统一用 `livephotobox` 示例。
+
+开发时提供两个 `.cmd` 启动器：`livephotobox.cmd`（主）和 `lpb.cmd`（别名）。
 
 ## 快速开始
 
 ### 开发时（源码运行）
 
 ```powershell
-# 用 lpb.cmd 快捷脚本（推荐）
-.\lpb.cmd --version
-.\lpb.cmd protocols
-.\lpb.cmd merge -i "a.jpg" -vid "a.mov" -p v2
+# 用 .cmd 快捷脚本（推荐，任意名字均可）
+.\livephotobox.cmd --version
+.\livephotobox.cmd protocols
+.\livephotobox.cmd merge -i "a.jpg" -vid "a.mov" -p v2
 
 # 或者直接用 dotnet run
-dotnet run --project LivePhotoBox.Cli -- --version
+dotnet run --project LivePhotoBox.CLI -- --version
 ```
 
 ### 编译后（发布产物）
 
 ```powershell
 # 编译 CLI 项目
-dotnet build LivePhotoBox.Cli
+dotnet build LivePhotoBox.CLI
 
-# 产物路径
-.\LivePhotoBox.Cli\bin\Debug\net9.0-windows10.0.19041.0\lpb.exe
+# 产物路径（主名 + 别名 exe）
+.\LivePhotoBox.CLI\bin\Debug\net9.0-windows10.0.19041.0\livephotobox.exe
+.\LivePhotoBox.CLI\bin\Debug\net9.0-windows10.0.19041.0\lpb.exe         # 别名
 
 # 直接运行
-.\LivePhotoBox.Cli\bin\Debug\net9.0-windows10.0.19041.0\lpb.exe --version
-.\LivePhotoBox.Cli\bin\Debug\net9.0-windows10.0.19041.0\lpb.exe protocols
+.\LivePhotoBox.CLI\bin\Debug\net9.0-windows10.0.19041.0\livephotobox.exe --version
+.\LivePhotoBox.CLI\bin\Debug\net9.0-windows10.0.19041.0\livephotobox.exe protocols
 ```
 
 ### 安装后（便携版 / 安装版）
 
-安装版（Inno Setup）会自动将 `lpb.exe` 所在目录注册到系统 PATH。
+安装版（Inno Setup）会自动将 `livephotobox.exe` 所在目录注册到系统 PATH。
 安装后在任意终端直接输入：
 
 ```powershell
-lpb --version
-lpb protocols
-lpb merge -i "a.jpg" -vid "a.mov" -p v2
+livephotobox --version
+livephotobox protocols
+livephotobox merge -i "a.jpg" -vid "a.mov" -p v2
 ```
 
-便携版需要手动加 PATH，或把 `lpb.exe` 复制到已在 PATH 中的目录。
+便携版需要手动加 PATH，或把 `livephotobox.exe`（及别名 exe）复制到已在 PATH 中的目录。
 
 ## 命令列表
 
-### `lpb --version`
+### `livephotobox --version`
 输出版本号。
 
 ```
@@ -58,10 +63,10 @@ lpb --version
 → 2.1.0.0
 ```
 
-### `lpb --help`
+### `livephotobox --help`
 显示所有可用命令。
 
-### `lpb protocols`
+### `livephotobox protocols`
 列出 7 种协议 × 4 种输出格式的兼容矩阵。
 
 ```
@@ -72,12 +77,12 @@ lpb protocols --json
 → JSON 格式，供 AI Agent / 脚本消费
 ```
 
-### `lpb merge`
+### `livephotobox merge`
 将图片+视频合成为实况照片。
 
 #### 单对合成
 ```powershell
-lpb merge -i "photo.jpg" -vid "video.mp4" [选项]
+livephotobox merge -i "photo.jpg" -vid "video.mp4" [选项]
 ```
 
 | 选项 | 简写 | 说明 | 默认值 |
@@ -97,28 +102,28 @@ lpb merge -i "photo.jpg" -vid "video.mp4" [选项]
 
 ```powershell
 # 最简单的用法：默认 V2 协议，输出到当前目录
-lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -y
+livephotobox merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -y
 
 # 指定协议和输出目录
-lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p oppo -o "D:\Output" -y
+livephotobox merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p oppo -o "D:\Output" -y
 
 # 指定格式（注意：不是所有协议都支持所有格式）
-lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p samsung -f heic+mp4 -y
+livephotobox merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p samsung -f heic+mp4 -y
 
 # HUAWEI 协议 + 自定义命名模板
-lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p huawei -n "custom:华为_{date}" -y
+livephotobox merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p huawei -n "custom:华为_{date}" -y
 
 # 预览模式（不实际执行）
-lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p v2 --dry-run
+livephotobox merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p v2 --dry-run
 
 # 交互模式（不加 -y，会提示确认）
-lpb merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p v2
+livephotobox merge -i "IMG_001.JPG" -vid "IMG_001.MOV" -p v2
 → Proceed? [y/N]
 ```
 
 #### 批量合成（待实现）
 ```powershell
-lpb merge -d "D:\Photos\LivePhotos" -p v2 -o "D:\Output" -j 8 -y
+livephotobox merge -d "D:\Photos\LivePhotos" -p v2 -o "D:\Output" -j 8 -y
 ```
 
 ## 协议索引
@@ -153,7 +158,7 @@ lpb merge -d "D:\Photos\LivePhotos" -p v2 -o "D:\Output" -j 8 -y
 ## 系统 PATH 配置
 
 ### 便携版
-解压后将 `lpb.exe` 所在目录添加到 PATH：
+解压后将 `livephotobox.exe` 所在目录添加到 PATH：
 
 ```powershell
 # 临时（当前终端窗口）
@@ -175,7 +180,7 @@ MSIX 沙盒限制，不支持 CLI。仅通过 GUI 操作。
 LivePhotoBox.Core     ← 纯类库（所有合并管道、协议、服务）
     ↑               ↑
     │               │
-Live Photo Box    LivePhotoBox.Cli
+Live Photo Box    LivePhotoBox.CLI
 (WinUI GUI)       (控制台 CLI)
 ```
 

@@ -68,7 +68,8 @@ namespace LivePhotoBox.Services
             name = SanitizeFileName(name).Trim('_', '-', ' ', '+');
 
             // HEIC 输出：需 HEIC 源 + V2/Huawei 协议 + 用户选了 HEIC 格式
-            bool wantHeic = outputFormatIndex is 2 or 3;
+            bool wantHeic = outputFormatIndex is 2 or 3
+                or ProtocolFormatMatrix.FormatHeicMp4H265;
             if (wantHeic && sourceImagePath != null
                 && HeicConverterService.IsHeicFile(sourceImagePath)
                 && LivePhotoProtocol.FromIndex(selectedModeIndex) is MotionPhotoV2Protocol or HuaweiMovingPhotoProtocol)
@@ -249,15 +250,13 @@ namespace LivePhotoBox.Services
             // ── HUAWEI native path (no XMP, uses LIVE_ tail marker) ──
             if (protocol is HuaweiMovingPhotoProtocol)
             {
-                bool isHarmonyOS4 = outputFormatIndex == ProtocolFormatMatrix.FormatJpgMp4HarmonyOS4;
-                bool isHeicOutput = !isHarmonyOS4 && HeicConverterService.IsHeicFile(sourceImg);
-                string tailPrefix = isHarmonyOS4 ? "v3_f" : "v6_f";
+                // HEIC+H.265: force HEIC output regardless of source format
+                bool isHeicOutput = outputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265
+                    || HeicConverterService.IsHeicFile(sourceImg);
                 // Pass raw presentation timestamp (microseconds) — WriteHuaweiNativeAsync
-                // converts it to a frame number using the actual video FPS from ffprobe.
+                // converts it to a frame number using the actual video FPS.
                 await WriteHuaweiNativeAsync(sourceImg, sourceVid, targetPath,
-                    isHeicOutput, presentationTimestampUs, token,
-                    tailPrefix: tailPrefix,
-                    patchToHarmonyOS4: isHarmonyOS4);
+                    isHeicOutput, presentationTimestampUs, token);
                 return;
             }
 

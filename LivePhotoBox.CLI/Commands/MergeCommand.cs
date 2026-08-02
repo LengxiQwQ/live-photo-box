@@ -30,7 +30,7 @@ namespace LivePhotoBox.Cli.Commands
             var outputOpt = new Option<DirectoryInfo?>("--output", "Output directory (default: current directory)");
             outputOpt.AddAlias("-o");
 
-            var formatOpt = new Option<string?>("--format", "Output format: jpg+mp4|jpg+mov|heic+mp4|heic+mov (default: first available)");
+            var formatOpt = new Option<string?>("--format", "Output format: jpg+mp4|jpg+mov|heic+mp4|heic+mov|heic+mp4-h265 (default: first available)");
             formatOpt.AddAlias("-f");
 
             var namingOpt = new Option<string>("--naming", () => "keep", "Naming rule: keep|suffix|custom:<pattern>");
@@ -100,7 +100,7 @@ namespace LivePhotoBox.Cli.Commands
             // Resolve protocol
             if (!ProtocolNameResolver.TryResolveProtocol(protocolName, out int protocolIndex))
             {
-                Console.Error.WriteLine($"Error: Unknown protocol '{protocolName}'. Use 'lpb protocols' to list available.");
+                Console.Error.WriteLine($"Error: Unknown protocol '{protocolName}'. Use 'livephotobox protocols' to list available.");
                 return 1;
             }
 
@@ -117,7 +117,7 @@ namespace LivePhotoBox.Cli.Commands
                 if (!ProtocolFormatMatrix.IsAvailable(protocolIndex, formatIndex))
                 {
                     Console.Error.WriteLine($"Error: Format '{formatName}' is not available for protocol '{protocolName}'.");
-                    Console.Error.WriteLine("Use 'lpb protocols' to see supported combinations.");
+                    Console.Error.WriteLine("Use 'livephotobox protocols' to see supported combinations.");
                     return 1;
                 }
             }
