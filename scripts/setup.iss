@@ -1,6 +1,7 @@
 ; ============================================
 ; LivePhotoBox Inno Setup 安装包脚本
 ; 配合 build-release.ps1 使用
+; 包含 GUI + CLI（livephotobox.exe 及别名）
 ; ============================================
 
 #define AppName "Live Photo Box"
@@ -48,26 +49,24 @@ VersionInfoProductVersion={#VERSION}
 VersionInfoProductTextVersion={#VERSION_SHORT}
 VersionInfoVersion={#VERSION}
 ; ── 系统要求 ────────────────────────────────────────────────
-; 只支持 64 位系统
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-; 要求 Windows 10 1809 或更高（匹配 .NET 9 + WinAppSDK 的最低要求）
 MinVersion=10.0.17763
 ; ── 安装行为 ────────────────────────────────────────────────
-; 装到 Program Files 必须管理员权限（Inno Setup 默认行为，显式声明更清晰）
 PrivilegesRequired=admin
-; 覆盖安装/卸载时自动关闭正在运行的应用，避免 .exe/.dll 被占用导致失败
 CloseApplications=yes
 RestartApplications=no
-; 安装界面语言（跟随系统）
 ShowLanguageDialog=no
+; 安装 / 卸载时刷新环境变量（PATH 变更生效）
+ChangesEnvironment=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-; desktopicon 是 Inno Setup 内置 Task，Description 由 .isl 自动翻译
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
+; CLI 添加到 PATH（默认勾选）
+Name: "addpath"; Description: "Add Live Photo Box to system PATH (allows livephotobox / lpb from any terminal)"; GroupDescription: "CLI tools:"; Flags: checkedonce
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -77,17 +76,81 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
-; ── 卸载时清理运行时产生的用户数据 ──────────────────────────
-; Inno Setup 默认只删除安装时复制的文件，运行期写入的数据不会自动清理。
-; [UninstallDelete] 在卸载最后阶段执行（用户已确认卸载但文件尚未删除时）。
-; Type: filesandordirs 会递归删除整个目录，files 只删除单个文件。
+; ── PATH 环境变量（仅安装时，用户勾选 addpath Task） ─────────
+[Registry]
+Root: HKLM; Subkey: "SYSTEM\CurrentControlSet\Control\Session Manager\Environment"; \
+    ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; \
+    Tasks: addpath; Check: NeedsAddPath('{app}')
+
+; ── 卸载时清理运行时产生的数据 ──────────────────────────
+; 注意：{app} 中的安装文件由 Inno Setup 自动根据安装日志删除；
+; [UninstallDelete] 负责清理安装后运行时生成的文件。
 [UninstallDelete]
-; 日志文件、崩溃转储
-Type: filesandordirs; Name: "{localappdata}\LivePhotoBox\Logs"
-; WebView2 用户数据（缓存、Cookie 等）
-Type: filesandordirs; Name: "{localappdata}\LivePhotoBox\WebView2"
-; 非打包模式的 JSON 设置文件（在安装目录下，卸载后无意义）
-Type: files; Name: "{app}\appsettings.json"
+; 整个 %LOCALAPPDATA%\LivePhotoBox（含 Logs、WebView2、Dumps 等）
+Type: filesandordirs; Name: "{localappdata}\LivePhotoBox"
+; 临时文件：首页示例复制到 %TEMP% 的样本数据
+Type: filesandordirs; Name: "{%TEMP}\LivePhotoBox_Demo"
+; 临时文件：更新下载残留在 %TEMP% 的文件（万一中断没清干净）
+Type: filesandordirs; Name: "{%TEMP}\LivePhotoBox_Update"
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall runasoriginaluser
+
+; ── PATH 添加 / 移除 ──────────────────────────────────────
+[Code]
+function NeedsAddPath(Param: string): boolean;
+var
+  OrigPath: string;
+begin
+  if not RegQueryStringValue(HKEY_LOCAL_MACHINE,
+    'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+    'Path', OrigPath) then
+  begin
+    Result := True;
+    exit;
+  end;
+  Result := Pos(';' + UpperCase(Param) + ';', ';' + UpperCase(OrigPath) + ';') = 0;
+end;
+
+// 卸载时从 PATH 移除安装目录，并清理残留的应用文件夹
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  OrigPath, NewPath: string;
+  AppPath: string;
+  PosIdx: Integer;
+  ResultCode: Integer;
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    AppPath := ExpandConstant('{app}');
+
+    // 1. 从系统 PATH 中移除安装目录
+    if RegQueryStringValue(HKEY_LOCAL_MACHINE,
+      'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+      'Path', OrigPath) then
+    begin
+      NewPath := OrigPath;
+      PosIdx := Pos(';' + UpperCase(AppPath) + ';', ';' + UpperCase(NewPath) + ';');
+      if PosIdx > 0 then
+      begin
+        PosIdx := PosIdx - 1;
+        if PosIdx = 0 then
+          NewPath := Copy(NewPath, Length(AppPath) + 2, MaxInt)
+        else if PosIdx + Length(AppPath) >= Length(NewPath) then
+          NewPath := Copy(NewPath, 1, PosIdx - 1)
+        else
+          NewPath := Copy(NewPath, 1, PosIdx - 1) + Copy(NewPath, PosIdx + Length(AppPath) + 1, MaxInt);
+
+        if NewPath <> OrigPath then
+          RegWriteStringValue(HKEY_LOCAL_MACHINE,
+            'SYSTEM\CurrentControlSet\Control\Session Manager\Environment',
+            'Path', NewPath);
+      end;
+    end;
+
+    // 2. 删除应用安装目录（卸载器自身在此目录中，无法直接删除；
+    //    用 cmd 延迟 3 秒后执行，等卸载器进程退出后清理）
+    Exec('cmd.exe', '/C (ping -n 3 127.0.0.1 >nul) && rmdir /S /Q "' + AppPath + '"',
+         '', SW_HIDE, ewNoWait, ResultCode);
+  end;
+end;

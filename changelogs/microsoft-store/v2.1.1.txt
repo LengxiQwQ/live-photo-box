@@ -1,0 +1,36 @@
+v2.1.1 更新内容
+
+新增：
+- 💻 全新命令行模式 — 新增 livephotobox 命令行工具，不用打开界面，直接在终端就能把图片+视频合成为实况照片；支持单对合成和整文件夹批量处理，方便脚本、批处理和 AI 自动化
+- 🏷️ 六种调用别名 — 同一程序提供 6 个别名（livephotobox / livephoto / livebox / lipbox / lpb / lpbx），全部等价，挑最短的用
+- 📋 完整合成参数 — 协议、输出格式、自定义命名模板、配对方式（文件名/Apple CID/vivo ID）、并行数量、覆写、递归子目录、完成后自动移动或回收源文件
+- 🔍 协议兼容查询 — livephotobox protocols 一条命令查看所有协议 × 格式组合是否可用，支持 --json 输出，方便程序解析
+- 🔴 华为/荣耀实况照片播放与封面替换 — 编辑页新增华为 Moving Photo 支持，可正常预览播放，还能在时间轴上更换封面
+- 📤 HEIC + H.265 输出 — 新增 HEIC + MP4 (H.265/HEVC) 输出格式，华为原生编码，同等画质体积更小；源视频为 HEVC 时直接无损拷贝
+
+重构：
+- 🧱 项目核心重构 — 项目拆分为共享核心库 + 图形界面 + 命令行三部分，核心协议逻辑只维护一份，GUI 与 CLI 同步更新、功能完全一致
+
+修复：
+- 🛠️ 华为协议修复 — 修复华为实况照片 JPEG 与 HEIC 两种格式的合成，实测文件在华为/荣耀相册中可正常播放
+
+💡 命令行模式仅随 GitHub 版发布，商店版暂不包含；需要请前往 GitHub Releases 下载。
+
+
+v2.1.1 What's New
+
+New:
+- 💻 Brand-new CLI mode — new livephotobox tool merges image+video pairs into live photos straight from the terminal, no window needed; supports single-pair and whole-folder batch processing for scripts and AI automation
+- 🏷️ Six callable aliases — livephotobox / livephoto / livebox / lipbox / lpb / lpbx, all identical, pick the shortest one
+- 📋 Full merge options — protocol, output format, custom naming templates, pairing (filename/Apple CID/vivo ID), parallelism, overwrite, recursive scan, after-completion move or recycle
+- 🔍 Protocol compatibility check — livephotobox protocols shows every protocol × format combo at a glance, with --json for programmatic use
+- 🔴 HUAWEI/Honor playback & cover replacement — HUAWEI Moving Photo now plays in the edit page, and you can replace the cover from the timeline
+- 📤 HEIC + H.265 output — new HEIC + MP4 (H.265/HEVC) format, HUAWEI-native encoding, smaller files at equal quality; HEVC sources copied losslessly
+
+Redesign:
+- 🧱 Core restructure — project split into a shared Core library + GUI + CLI; protocol logic lives in one place, GUI and CLI stay in sync
+
+Fixes:
+- 🛠️ HUAWEI protocol fix — fixed JPEG and HEIC merging, verified to play correctly in HUAWEI/Honor galleries
+
+💡 CLI mode ships with the GitHub release only — the Store version does not include it. Download from GitHub Releases if you need it.

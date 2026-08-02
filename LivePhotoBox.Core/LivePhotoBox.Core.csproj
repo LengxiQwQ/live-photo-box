@@ -12,6 +12,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="..\LivePhotoBox\Strings\en-US\Resources.resw"
+                      LogicalName="LivePhotoBox.Strings.en-US.Resources.resw" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Magick.NET-Q16-x64" Version="14.16.0" />
     <PackageReference Include="PhotoSauce.MagicScaler" Version="0.15.0" />

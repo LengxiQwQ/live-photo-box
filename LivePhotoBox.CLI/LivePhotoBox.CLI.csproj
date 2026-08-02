@@ -35,22 +35,29 @@
 
   <!-- 构建后为每个别名复制 exe 及配套文件（Windows 专用） -->
   <Target Name="CreateAliases" AfterTargets="AfterBuild" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <PropertyGroup>
+      <_AliasDestDir Condition="'$(_AliasDestDir)' == ''">$(OutputPath)</_AliasDestDir>
+    </PropertyGroup>
     <ItemGroup>
       <_CliAliasItem Include="$(_CliAliases)" />
     </ItemGroup>
-    <Message Importance="high" Text="[CLI] Creating aliases: @(_CliAliasItem, ', ')" />
-    <Copy SourceFiles="$(OutputPath)$(AssemblyName).exe"
-          DestinationFiles="$(OutputPath)%(_CliAliasItem.Identity).exe"
+    <Message Importance="high" Text="[CLI] Creating aliases in $(_AliasDestDir): @(_CliAliasItem, ', ')" />
+    <Copy SourceFiles="$(_AliasDestDir)$(AssemblyName).exe"
+          DestinationFiles="$(_AliasDestDir)%(_CliAliasItem.Identity).exe"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(OutputPath)$(AssemblyName).runtimeconfig.json"
-          DestinationFiles="$(OutputPath)%(_CliAliasItem.Identity).runtimeconfig.json"
+    <Copy SourceFiles="$(_AliasDestDir)$(AssemblyName).runtimeconfig.json"
+          DestinationFiles="$(_AliasDestDir)%(_CliAliasItem.Identity).runtimeconfig.json"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(OutputPath)$(AssemblyName).deps.json"
-          DestinationFiles="$(OutputPath)%(_CliAliasItem.Identity).deps.json"
+    <Copy SourceFiles="$(_AliasDestDir)$(AssemblyName).deps.json"
+          DestinationFiles="$(_AliasDestDir)%(_CliAliasItem.Identity).deps.json"
           SkipUnchangedFiles="true" />
-    <Copy SourceFiles="$(OutputPath)$(AssemblyName).pdb"
-          DestinationFiles="$(OutputPath)%(_CliAliasItem.Identity).pdb"
+    <Copy SourceFiles="$(_AliasDestDir)$(AssemblyName).pdb"
+          DestinationFiles="$(_AliasDestDir)%(_CliAliasItem.Identity).pdb"
           SkipUnchangedFiles="true" />
-    <Message Importance="high" Text="[CLI] Aliases ready: @(_CliAliasItem, ', ')" />
+  </Target>
+
+  <!-- Publish 阶段：显式设置目标为 PublishDir -->
+  <Target Name="CreateAliasesOnPublish" AfterTargets="Publish" Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <MSBuild Projects="$(MSBuildProjectFullPath)" Targets="CreateAliases" Properties="_AliasDestDir=$(PublishDir)\" />
   </Target>
 </Project>

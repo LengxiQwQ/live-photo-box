@@ -31,8 +31,8 @@ namespace LivePhotoBox.Cli.Commands
         private static void PrintTable()
         {
             Console.WriteLine();
-            Console.WriteLine("  Protocol          JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV");
-            Console.WriteLine("  ─────────         ────────   ────────   ────────   ────────");
+            Console.WriteLine("  Protocol          JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+H265");
+            Console.WriteLine("  ─────────         ────────   ────────   ────────   ────────   ────────");
 
             for (int p = 0; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
@@ -41,14 +41,15 @@ namespace LivePhotoBox.Cli.Commands
                 string f1 = Mark(ProtocolFormatMatrix.Matrix[p][1]);
                 string f2 = Mark(ProtocolFormatMatrix.Matrix[p][2]);
                 string f3 = Mark(ProtocolFormatMatrix.Matrix[p][3]);
-                Console.WriteLine($"  {name} {f0}        {f1}        {f2}        {f3}");
+                string f4 = Mark(ProtocolFormatMatrix.Matrix[p][4]);
+                Console.WriteLine($"  {name} {f0}        {f1}        {f2}        {f3}        {f4}");
             }
 
             Console.WriteLine();
             Console.WriteLine("  ✅ = supported   ── = not supported");
             Console.WriteLine();
             Console.WriteLine("  Protocol indices: fusion=0  v1=1  v2=2  oppo=3  vivo=4  samsung=5  huawei=6");
-            Console.WriteLine("  Format names:    jpg+mp4  jpg+mov  heic+mp4  heic+mov");
+            Console.WriteLine("  Format indices:   jpg+mp4=0  jpg+mov=1  heic+mp4=2  heic+mov=3  heic+mp4-h265=4");
             Console.WriteLine();
         }
 
@@ -59,8 +60,9 @@ namespace LivePhotoBox.Cli.Commands
             var protocols = new object[ProtocolFormatMatrix.Matrix.Length];
             for (int p = 0; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
-                var formats = new string[4];
-                for (int f = 0; f < 4; f++)
+                int fmtCount = ProtocolFormatMatrix.FormatNames.Length;
+                var formats = new string[fmtCount];
+                for (int f = 0; f < fmtCount; f++)
                     formats[f] = ProtocolFormatMatrix.Matrix[p][f] ? ProtocolFormatMatrix.FormatNames[f] : null!;
 
                 protocols[p] = new

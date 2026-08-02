@@ -1,5 +1,8 @@
-# LivePhotoBox Release Build — 编译 + 打包 zip + Inno Setup 安装包
+# LivePhotoBox Release Build — 编译 + 打包 3 个产物: 便携版 zip + CLI zip + 安装包
 # 用法: powershell -ExecutionPolicy Bypass -File build-release.ps1
+#       powershell -ExecutionPolicy Bypass -File build-release.ps1 -CI  (GitHub Actions)
+
+param([switch]$CI)
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
@@ -19,7 +22,10 @@ Write-Host ''
 if (Test-Path publish) { Remove-Item -Recurse -Force publish }
 New-Item -ItemType Directory publish | Out-Null
 
-Write-Host '[1/4] Building Release x64 (SelfContained)...' -ForegroundColor Yellow
+# ═══════════════════════════════════════════════════════════════
+# [1/7] Build GUI x64 (SelfContained)
+# ═══════════════════════════════════════════════════════════════
+Write-Host '[1/7] Building GUI x64 (SelfContained)...' -ForegroundColor Yellow
 
 $outDir = 'publish\portable_x64'
 $publishArgs = @(
@@ -39,18 +45,105 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if (-not (Test-Path "$outDir\Live Photo Box.exe")) {
-    Write-Host "BUILD FAILED - exe not found in $outDir" -ForegroundColor Red
-    pause
+    Write-Host 'BUILD FAILED - GUI exe not found in output' -ForegroundColor Red
+    if (-not $CI) { pause }
     exit 1
 }
+Write-Host '       GUI build OK' -ForegroundColor Green
 
-Write-Host ""
-Write-Host "[2/3] Cleaning unnecessary files..." -ForegroundColor Yellow
+# ═══════════════════════════════════════════════════════════════
+# [2/7] Build CLI → merge into portable dir（保留 cli_x64 供 step 3 用）
+# ═══════════════════════════════════════════════════════════════
+Write-Host ''
+Write-Host '[2/7] Building CLI x64 (SelfContained)...' -ForegroundColor Yellow
 
-$outDir = "publish\portable_x64"
+dotnet publish 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 -o publish\cli_x64
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "       CLI publish warning: exit code $LASTEXITCODE" -ForegroundColor DarkYellow
+}
+
+if (Test-Path 'publish\cli_x64\livephotobox.exe') {
+    # 只复制 GUI 目录中不存在的文件，避免 CLI 的 SDK 投影 DLL 覆盖 GUI 版本
+    Get-ChildItem 'publish\cli_x64' -Recurse | ForEach-Object {
+        $target = Join-Path $outDir $_.FullName.Substring((Get-Item 'publish\cli_x64').FullName.Length + 1)
+        if ($_.PSIsContainer) {
+            if (-not (Test-Path $target)) { New-Item -ItemType Directory -Path $target -Force | Out-Null }
+        } else {
+            if (-not (Test-Path $target)) { Copy-Item $_.FullName $target }
+        }
+    }
+    Write-Host '       CLI merged into portable' -ForegroundColor Green
+} else {
+    Write-Host '       CLI build FAILED - skipping merge' -ForegroundColor DarkYellow
+}
+
+# ═══════════════════════════════════════════════════════════════
+# [3/7] CLI standalone zip（复用 publish\cli_x64 + Tools + Strings）
+# ═══════════════════════════════════════════════════════════════
+Write-Host ''
+Write-Host '[3/7] Packaging CLI standalone...' -ForegroundColor Yellow
+
+if (Test-Path 'publish\cli_x64\livephotobox.exe') {
+    $cliDir = 'publish\cli_standalone'
+
+    # 复制 CLI 发布输出
+    Copy-Item 'publish\cli_x64' $cliDir -Recurse -Force
+
+    # Copy external tools (skip jpegtran.exe — only GUI Repair uses it)
+    $toolsSrc = Join-Path $projectRoot 'LivePhotoBox\Tools'
+    if (Test-Path $toolsSrc) {
+        New-Item -ItemType Directory -Path "$cliDir\Tools" -Force | Out-Null
+        Get-ChildItem $toolsSrc | ForEach-Object {
+            if ($_.Name -ne 'jpegtran.exe') {
+                Copy-Item $_.FullName "$cliDir\Tools\" -Recurse -Force
+            }
+        }
+    }
+
+    # Strip all locale satellite dirs (CLI is English-only, resw embedded in Core.dll)
+    foreach ($dir in (Get-ChildItem $cliDir -Directory -ErrorAction SilentlyContinue)) {
+        if ($dir.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)?$') {
+            Remove-Item -Recurse -Force $dir.FullName -ErrorAction SilentlyContinue
+        }
+    }
+
+    # 删除调试符号 / XML / 残留
+    Remove-Item -Force "$cliDir\*.pdb" -ErrorAction SilentlyContinue
+    Remove-Item -Force "$cliDir\*.xml" -ErrorAction SilentlyContinue
+    Remove-Item -Force "$cliDir\appsettings.json" -ErrorAction SilentlyContinue
+
+    # 复制文档（README + LICENSE + 使用指南）
+    Copy-Item 'README.md' "$cliDir\README.md" -Force
+    Copy-Item 'README.zh-cn.md' "$cliDir\README.zh-cn.md" -Force
+    Copy-Item 'LICENSE' "$cliDir\LICENSE" -Force
+    Copy-Item 'docs\CLI-User-Guide-en.md' "$cliDir\CLI-User-Guide-en.md" -Force
+    Copy-Item 'docs\CLI-使用指南-zh-CN.md' "$cliDir\CLI-使用指南-zh-CN.md" -Force
+    Write-Host '       Docs (README + LICENSE + Guides) copied' -ForegroundColor Green
+
+    # 打包 CLI zip
+    $cliZipName = "Live-Photo-Box-v$version-x64-cli.zip"
+    $cliZipPath = "publish\$cliZipName"
+    Compress-Archive -Path "$cliDir\*" -DestinationPath $cliZipPath -Force
+    $cliZipSize = '{0:N1} MB' -f ((Get-Item $cliZipPath).Length / 1MB)
+    Write-Host "       $cliZipName  ($cliZipSize)" -ForegroundColor Green
+
+    Remove-Item -Recurse -Force $cliDir -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force 'publish\cli_x64' -ErrorAction SilentlyContinue
+} else {
+    Write-Host '       CLI not built, skipping standalone package' -ForegroundColor DarkYellow
+    Remove-Item -Recurse -Force 'publish\cli_x64' -ErrorAction SilentlyContinue
+}
+
+# ═══════════════════════════════════════════════════════════════
+# [4/7] Clean GUI portable
+# ═══════════════════════════════════════════════════════════════
+Write-Host ''
+Write-Host '[4/7] Cleaning unnecessary files...' -ForegroundColor Yellow
+
 $keepLocales = @('zh-CN','en-us')
 
-# 1. 删除多余语言文件夹
+# 删除多余语言文件夹
 $count = 0
 foreach ($dir in (Get-ChildItem $outDir -Directory -ErrorAction SilentlyContinue)) {
     if ($dir.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $dir.Name -notin $keepLocales) {
@@ -60,41 +153,46 @@ foreach ($dir in (Get-ChildItem $outDir -Directory -ErrorAction SilentlyContinue
 }
 Write-Host "       Removed $count locale folders (kept zh-CN, en-us)" -ForegroundColor Gray
 
-# 2. 删除运行时生成的配置文件（开发机残留）
+# 删除运行时生成的配置文件（开发机残留）
 $appSettings = Join-Path $outDir 'appsettings.json'
-if (Test-Path $appSettings) { Remove-Item -Force $appSettings; Write-Host '       Removed appsettings.json' -ForegroundColor Gray }
+if ($appSettings -and (Test-Path $appSettings)) { Remove-Item -Force $appSettings; Write-Host '       Removed appsettings.json' -ForegroundColor Gray }
 
-# 3. 删除 AI/ML 无用文件
+# 删除 AI/ML 无用文件
 foreach ($f in @('DirectML.dll','onnxruntime.dll','onnxruntime_providers_shared.dll','Microsoft.ML.OnnxRuntime.dll')) {
     $p = Join-Path $outDir $f
     if (Test-Path $p) { Remove-Item -Force $p }
 }
 if (Test-Path "$outDir\NpuDetect") { Remove-Item -Recurse -Force "$outDir\NpuDetect" }
 
-# 3. 删除 Microsoft.Windows.AI.*
+# 删除 Microsoft.Windows.AI.*
 Get-ChildItem $outDir -Filter 'Microsoft.Windows.AI*' -ErrorAction SilentlyContinue | Remove-Item -Force
 Get-ChildItem $outDir -Filter 'Microsoft.Windows.AI*' -Directory -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
 
-# 4. 删除 AI 负载配置和杂项
+# 删除 AI 负载配置和杂项
 Remove-Item -Force "$outDir\workloads.json" -ErrorAction SilentlyContinue
 Remove-Item -Force "$outDir\WindowsAppRuntime.png" -ErrorAction SilentlyContinue
 
-# 5. 删除调试符号 (发布版不需要)
+# 删除调试符号
 Remove-Item -Force "$outDir\Live Photo Box.pdb" -ErrorAction SilentlyContinue
+Remove-Item -Force "$outDir\livephotobox.pdb" -ErrorAction SilentlyContinue
+foreach ($a in @('livebox','lipbox','lpb','lpbx','livephoto')) {
+    Remove-Item -Force "$outDir\$a.pdb" -ErrorAction SilentlyContinue
+}
+Remove-Item -Force "$outDir\LivePhotoBox.Core.pdb" -ErrorAction SilentlyContinue
 
-# 6. 删除 XML 文档
+# 删除 XML 文档
 Remove-Item -Force "$outDir\*.xml" -ErrorAction SilentlyContinue
 
 $kb = (Get-ChildItem $outDir -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum / 1KB
 Write-Host "       Final size: $('{0:N0}' -f $kb) KB" -ForegroundColor Green
 
-Write-Host '       Build OK' -ForegroundColor Green
-
-# 从 csproj 读取要保留的原生语言列表（单一真相源）
+# ═══════════════════════════════════════════════════════════════
+# [5/7] Clean MUI locale folders（从 csproj 读取允许的语言列表）
+# ═══════════════════════════════════════════════════════════════
 [xml]$csprojXml = Get-Content 'LivePhotoBox\LivePhotoBox.csproj'
 $keepLocales = ($csprojXml.Project.PropertyGroup.AppSupportedNativeLocales | Where-Object { $_ }) -split ';'
 
-Write-Host '[2/4] Cleaning locale folders...' -ForegroundColor Yellow
+Write-Host '[5/7] Cleaning locale folders...' -ForegroundColor Yellow
 $removed = 0
 Get-ChildItem -Path $outDir -Recurse -Filter '*.mui' -ErrorAction SilentlyContinue | ForEach-Object {
     if ($_.Directory.Name -notin $keepLocales) {
@@ -104,8 +202,18 @@ Get-ChildItem -Path $outDir -Recurse -Filter '*.mui' -ErrorAction SilentlyContin
 }
 Write-Host "       Removed $removed locale folders (kept $($keepLocales -join ', '))" -ForegroundColor Gray
 
+# ═══════════════════════════════════════════════════════════════
+# [6/7] Create portable zip
+# ═══════════════════════════════════════════════════════════════
 Write-Host ''
-Write-Host '[3/4] Creating portable zip...' -ForegroundColor Yellow
+Write-Host '[6/7] Creating portable zip...' -ForegroundColor Yellow
+
+# 复制文档（README + LICENSE + 使用指南）
+Copy-Item 'README.md' "$outDir\README.md" -Force
+Copy-Item 'README.zh-cn.md' "$outDir\README.zh-cn.md" -Force
+Copy-Item 'LICENSE' "$outDir\LICENSE" -Force
+Copy-Item 'docs\CLI-User-Guide-en.md' "$outDir\CLI-User-Guide-en.md" -Force
+Copy-Item 'docs\CLI-使用指南-zh-CN.md' "$outDir\CLI-使用指南-zh-CN.md" -Force
 
 $zipName = "Live-Photo-Box-v$version-x64-portable.zip"
 $zipPath = "publish\$zipName"
@@ -113,8 +221,11 @@ Compress-Archive -Path "$outDir\*" -DestinationPath $zipPath -Force
 $zipSize = '{0:N1} MB' -f ((Get-Item $zipPath).Length / 1MB)
 Write-Host "       $zipName  ($zipSize)" -ForegroundColor Green
 
+# ═══════════════════════════════════════════════════════════════
+# [7/7] Create installer (Inno Setup)
+# ═══════════════════════════════════════════════════════════════
 Write-Host ''
-Write-Host '[4/4] Creating installer...' -ForegroundColor Yellow
+Write-Host '[7/7] Creating installer...' -ForegroundColor Yellow
 
 $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 if (Test-Path $iscc) {
@@ -147,4 +258,5 @@ Get-ChildItem publish | ForEach-Object {
 Write-Host ''
 Write-Host 'Upload to: https://github.com/LengxiQwQ/live-photo-box/releases' -ForegroundColor White
 Write-Host ''
-pause
+
+if (-not $CI) { pause }

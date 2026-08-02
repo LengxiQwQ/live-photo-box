@@ -30,8 +30,8 @@ namespace LivePhotoBox.Services
             ["Fusion", "V1_MicroVideo", "V2_MotionPhoto",
              "OPPO_OLive", "vivo_LivePhoto", "Samsung_MotionPhoto", "HUAWEI_MovingPhoto"];
 
-        private static readonly string[] FormatNames =
-            ["JPEG+MP4", "JPEG+MOV", "HEIC+MP4", "HEIC+MOV"];
+        // Use ProtocolFormatMatrix.FormatNames as the single source of truth (Core project)
+        private static readonly string[] FormatNames = ProtocolFormatMatrix.FormatNames;
 
         public static async Task Run(string srcJpg, string srcMov, string outputDir)
         {

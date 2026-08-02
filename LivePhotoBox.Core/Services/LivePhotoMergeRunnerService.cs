@@ -244,6 +244,7 @@ namespace LivePhotoBox.Services
                     }
                     else
                     {
+                        Directory.CreateDirectory(targetDir);
                         finalOutputPath = PathHelper.GetUniqueFilePath(targetDir, outputName);
                     }
                 }

@@ -18,7 +18,7 @@ if errorlevel 1 (
 echo Counting lines of code...
 echo.
 
-%CLOC_CMD% "Live Photo Box" --exclude-dir=bin,obj,Tools > "%TEMP%\cloc.tmp"
+%CLOC_CMD% "LivePhotoBox" "LivePhotoBox.Core" "LivePhotoBox.CLI" --exclude-dir=bin,obj,Tools > "%TEMP%\cloc.tmp"
 type "%TEMP%\cloc.tmp"
 
 for /f "tokens=3-5" %%a in ('findstr /b "SUM:" "%TEMP%\cloc.tmp"') do set /a _total=%%a+%%b+%%c

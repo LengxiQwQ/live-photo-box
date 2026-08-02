@@ -57,7 +57,7 @@ namespace LivePhotoBox.Services
         // unmatchedVideoPaths: 文件名匹配后未配对的视频路径
         // exifToolPath: exiftool.exe 的完整路径
         // token: 取消令牌
-        // è¿å: 额外匹配到的配对 + 剩余未匹配计数
+        // 返回: 额外匹配到的配对 + 剩余未匹配计数
         // ContentIdentifier UUID 精确匹配 — Apple Live Photo 专用。
         // 查询所有未配对的图片和视频的 ContentIdentifier 字段，UUID 一致则配对。
         public static async Task<MetadataMatchOutput> MatchAsync(
@@ -156,7 +156,7 @@ namespace LivePhotoBox.Services
         // 不需要额外启动 exiftool — 分析数据已在扫描阶段提取。
         // images: 独立照片（路径 + 分析结果）
         // videos: 独立视频（路径 + 分析结果）
-        // è¿å: 额外匹配到的配对 + 剩余未匹配计数
+        // 返回: 额外匹配到的配对 + 剩余未匹配计数
         // Repair: ContentIdentifier UUID exact match only.
         public static MetadataMatchOutput MatchFromAnalysis(
             IReadOnlyList<(string path, RepairAnalysisResult analysis)> images,

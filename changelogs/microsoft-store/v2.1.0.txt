@@ -1,0 +1,30 @@
+v2.1.0 更新内容
+
+重构：
+- 🔗 合成页面史诗级重构 — 左设置右队列全新布局（目录/协议/格式/命名在左，任务队列在右），协议下拉带品牌说明，不支持的格式自动隐藏，自定义命名模板，原始文件自动归类
+- 🖼️ 关于页面重构 — 页面布局优化，界面更清爽
+
+新增：
+- 📱 兼容 vivo/三星/华为实况照片合成 — vivo 支持单文件（≥X300）和双文件；三星 JPEG+HEIC（待测试）；华为大部分可正常播放
+- 🚀 融合模式（作者自创）— 一份文件同时兼容 Google、OPPO、vivo、三星、小米相册及 Windows 照片应用
+- ✂️ 编辑页同步适配 — 新增对全协议的支持，OPPO 协议特有封面图和原始封面图两种显示，设置页新增拖拽配对方式选项
+
+修复：
+- 🏷️ 修复 Alt+Tab 窗口标题显示文件名而非应用名称
+- 🐛 修复反馈按钮跳转到 GitHub 反馈页
+
+
+v2.1.0 What's New
+
+Redesign:
+- 🔗 Merge page epic redesign — new left settings + right queue layout (directory/protocol/format/naming on left, task queue on right), protocol dropdown with brand descriptions, auto-filter unsupported formats, custom naming templates, auto-organize source files
+- 🖼️ About page redesigned — cleaner layout and refreshed look
+
+New:
+- 📱 New vivo/Samsung/HUAWEI live photo support — vivo supports single-file (≥X300) and dual-file; Samsung JPEG+HEIC (pending testing); HUAWEI plays in most cases
+- 🚀 Fusion Mode (original creation) — one file works across Google, OPPO, vivo, Samsung, Xiaomi galleries and Windows Photos app
+- ✂️ Edit page updated — supports all new protocols, OPPO dual cover display modes, new drag-and-drop pairing setting
+
+Fixes:
+- 🏷️ Fixed Alt+Tab window title showing file name instead of app name
+- 🐛 Fixed feedback button now directs to GitHub feedback page

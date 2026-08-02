@@ -75,7 +75,7 @@ Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent De
 
 Combine **Apple Live Photos** or any still image + video clip into a **standard Live Photo** (single-file format), viewable on Windows and Android devices.
 
-- Supports **`Google (V1 & V2)` /` OPPO` / `Xiaomi`** protocols
+- Supports **Fusion / Google (V1 & V2) / OPPO / vivo / Samsung / HUAWEI** protocols
 - Writes complete `EXIF` + `QuickTime` metadata (`ContentIdentifier` `UUID`) automatically
 - **Apple-native Live Photo pairing**: matches photos and videos by Apple `ContentIdentifier` (`UUID`) even when filenames are completely different; gracefully degrades to capture-time ±2 s tolerance when `UUID` is unavailable
 - **Live Photos merged via any supported protocol are fully viewable on Windows** (Motion Photo V2 recommended)
@@ -109,6 +109,8 @@ Freely change your Live Photo cover — pick the perfect moment from the video t
 
 Automatically scan, categorize, and archive photos by device, date, and Live Photo type based on EXIF metadata. Initial support will target iPhone photos.
 
+> ✅ **Source-file auto-organization** is already available on the **Merge** page: after merging, original photos/videos can be moved automatically to a folder you choose (or the recycle bin).
+
 ---
 
 ## 📋 Supported Live Photo Protocols
@@ -118,8 +120,26 @@ Automatically scan, categorize, and archive photos by device, date, and Live Pho
 | Google — Micro Video (V1) | Google (legacy) | `MP4` video appended to `JPEG` end, offset in `GCamera:MicroVideoOffset`. Used by older Xiaomi MIUI / Pixel devices |
 | Google — Motion Photo (V2) | Google | Modern standard, `Container:Directory` `XMP` structure. Used by Google Pixel / Xiaomi HyperOS 3+ |
 | OPPO/OnePlus — O Live Photo | OPPO / OnePlus | Extended `Motion Photo V2`, adds `OpCamera` namespace + `EXIF` `UserComment`. Used by OPPO ColorOS / OnePlus OxygenOS |
+| vivo — Live Photo | vivo | Extends V2 with the `VCamera` namespace. Used by vivo X300 series and later |
+| Samsung — Motion Photo | Samsung | Extends V2 with an `SEF` trailer (`mpvd` / `sefd` boxes). Used by Samsung Galaxy devices |
+| HUAWEI — Moving Photo | HUAWEI / Honor | JPEG/HEIC + `MP4` video tail. Supports **HEIC + H.265 (HEVC)** output with lossless HEVC passthrough. HarmonyOS 4.0 / 5+ |
+| Fusion — Motion Photo | Multi-vendor | Merges V2 + OPPO + vivo + Samsung metadata into one file playable across Google / OPPO / vivo / Samsung / Xiaomi + Windows Photos |
 
 > ⚡ **Live Photos merged via any supported protocol are fully viewable on Windows 11.**
+
+---
+
+## 💻 Command Line (CLI)
+
+Live Photo Box ships a **command-line interface** — `livephotobox` — that shares 100% of its core logic with the GUI, ideal for scripting and AI agents.
+
+- **Commands**: `merge` (single-pair or batch), `protocols` (protocol × format compatibility matrix), `update-check` (check for the latest release)
+- **Six executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lipbox` / `lpb` / `lpbx`
+- **Batch merging** with metadata-based pairing (`name`, Apple `ContentIdentifier` UUID, vivo camera ID), custom naming templates, and `--after` actions (`move` to a folder / recycle bin)
+- **HUAWEI-native output**: `heic+mp4-h265` (HEIC + H.265/HEVC)
+- **Distribution**: bundled with the installer (optional “Add to PATH”), or a standalone `-x64-cli.zip`
+
+📖 **Full documentation**: [CLI User Guide (English)](docs/CLI-User-Guide-en.md) · [CLI 使用指南（简体中文）](docs/CLI-使用指南-zh-CN.md)
 
 ---
 
@@ -131,11 +151,15 @@ Automatically scan, categorize, and archive photos by device, date, and Live Pho
 | Runtime | .NET | 9.0 |
 | UI Framework | Windows App SDK (WinUI 3) | 1.8 |
 | Architecture | MVVM (CommunityToolkit.Mvvm) | 8.4.2 |
-| Image Processing | Magick.NET (ImageMagick) + Win2D | 14.14.0 / 1.3.2 |
+| Image Processing | Magick.NET (ImageMagick) + Win2D | 14.16.0 / 1.3.2 |
+| Image Scaling | PhotoSauce.MagicScaler | 0.15.0 |
 | Metadata Engine | `ExifTool` (daemon mode, v13.x) | — |
 | Video Processing | `FFmpeg` (NVENC / QSV / AMF hardware acceleration) | — |
 | JPEG Operations | `jpegtran` (lossless rotation, thumbnail stripping) | — |
+| HEIC Codec | `libheif` (`heif-enc` / `heif-dec`) | — |
+| Markdown Rendering | Markdig | 1.3.2 |
 | UI Extensions | CommunityToolkit.WinUI + FluentIcons | — |
+| Command Line | System.CommandLine | 2.0.0-beta4.22272.1 |
 | Packaging | MSIX self-contained (no runtime required) | — |
 
 ---
@@ -171,17 +195,18 @@ dotnet run --project "LivePhotoBox/LivePhotoBox.csproj"
 
 ```
 live-photo-box/
+├── LivePhotoBox.Core/       # Shared core library (protocols, merge/split/repair services, localization)
 ├── LivePhotoBox/            # Main project (WinUI 3 MSIX app)
 │   ├── Assets/                # Icons, screenshots, static resources
 │   ├── Controls/              # Custom controls (fullscreen lightbox, status bar)
 │   ├── Converters/            # XAML value converters
 │   ├── Helpers/               # Utilities (scrolling, formatting, hover preview, etc.)
 │   ├── Models/                # Data models
-│   ├── Services/              # Business logic layer
-│   │   └── Protocols/         # Live Photo protocol implementations (3 types)
+│   ├── Services/              # GUI business logic (delegates to LivePhotoBox.Core)
 │   ├── Strings/               # Multilingual resources (zh-Hans / en-US)
 │   ├── ViewModels/            # MVVM ViewModel layer
 │   └── Views/                 # XAML pages
+├── LivePhotoBox.CLI/         # Command-line interface (livephotobox)
 ├── docs/                      # Project documentation
 ├── changelogs/                # Release notes
 ├── scripts/                   # Build & packaging scripts
@@ -234,11 +259,14 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 
 | Tool / Library | Purpose | License |
 |---------------|---------|---------|
-| [ExifTool](https://exiftool.org/) by Phil Harvey | Global metadata parsing, injection, XMP reconstruction | Perl |
 | [FFmpeg](https://ffmpeg.org/) | Video transcoding and stream remuxing | LGPL/GPL |
+| [ExifTool](https://exiftool.org/) by Phil Harvey | Global metadata parsing, injection, XMP reconstruction | Perl |
+| [libheif](https://github.com/strukturag/libheif) | HEIC/HEIF encoding & decoding pipeline | LGPL-3.0 |
 | [jpegtran](https://jpegclub.org/) | Lossless JPEG transforms (DCT coefficient space) | Free software |
 | [Magick.NET](https://github.com/dlemstra/Magick.NET) by dlemstra | HEIC/HEIF decoding via libheif | Apache 2.0 |
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM framework | MIT |
+| [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | High-performance image scaling | MIT |
+| [Markdig](https://github.com/xoofx/markdig) | Markdown rendering | BSD-2-Clause |
 | [Win2D](https://github.com/microsoft/Win2D) | GPU-accelerated graphics | MIT |
 | [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent icon set | MIT |
 

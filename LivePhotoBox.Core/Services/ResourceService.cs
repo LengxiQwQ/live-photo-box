@@ -44,9 +44,16 @@ namespace LivePhotoBox.Services
         public static string Format(string key, params object[] args)
         {
             string format = GetString(key);
-            return args.Length == 0
-                ? format
-                : string.Format(CultureInfo.CurrentCulture, format, args);
+            if (args.Length == 0)
+                return format;
+
+            // If the format string contains no format placeholder (e.g. when
+            // provider is nil and the raw key is returned), show key + args
+            // so that error details are never silently dropped.
+            if (!format.Contains("{0"))
+                return $"{format}: {string.Join(", ", args)}";
+
+            return string.Format(CultureInfo.CurrentCulture, format, args);
         }
 
         public static string FormatForLanguage(string languageTag, string key, params object[] args)
@@ -64,20 +71,33 @@ namespace LivePhotoBox.Services
     // ── CLI 模式：直接解析 .resw XML ──────────────────────────────
 
     // 从 resw XML 文件加载资源字典的 CLI 资源提供器。
+    // 三层 fallback：磁盘 resw → 嵌入英文 resw → Format 兜底拼接。
     public sealed class ReswResourceProvider : IResourceProvider
     {
         private readonly Dictionary<string, string> _strings;
 
-        // 从指定的 resw 文件目录初始化。自动按 CultureInfo.CurrentUICulture 选择语言。
-        // reswDir: 包含 zh-Hans/Resources.resw 和 en-US/Resources.resw 的目录。
+        // 从指定的 resw 文件目录初始化。
+        // reswDir: 包含 en-US/Resources.resw 的目录（可为空或不存在，自动用嵌入资源兜底）。
         public ReswResourceProvider(string reswDir)
         {
-            _strings = LoadResw(reswDir, ResolveLanguageTag());
+            if (!string.IsNullOrEmpty(reswDir) && Directory.Exists(reswDir))
+            {
+                _strings = new Dictionary<string, string>(StringComparer.Ordinal);
+                // English always loaded as base; native language overlays if available
+                LoadReswFile(_strings, Path.Combine(reswDir, "en-US", "Resources.resw"));
+            }
+            else
+            {
+                // Fallback: load embedded English .resw from Core assembly
+                _strings = LoadEmbeddedEnglish();
+            }
         }
 
         public string GetString(string key)
         {
-            return _strings.TryGetValue(key, out var value) ? value : key;
+            if (_strings.TryGetValue(key, out var value))
+                return value;
+            return key;
         }
 
         public string GetStringForLanguage(string languageTag, string key)
@@ -85,21 +105,36 @@ namespace LivePhotoBox.Services
             return _strings.TryGetValue(key, out var value) ? value : key;
         }
 
-        private static string ResolveLanguageTag()
-        {
-            var culture = CultureInfo.CurrentUICulture;
-            return culture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase) ? "zh-Hans" : "en-US";
-        }
-
-        private static Dictionary<string, string> LoadResw(string reswDir, string langTag)
+        /// <summary>
+        /// Load the complete English .resw embedded as a build-time resource.
+        /// Guarantees CLI always has a full English string set, even with zero
+        /// deployed .resw files alongside the binary.
+        /// </summary>
+        private static Dictionary<string, string> LoadEmbeddedEnglish()
         {
             var result = new Dictionary<string, string>(StringComparer.Ordinal);
-
-            // 先加载英文（fallback），再加载目标语言（覆盖）
-            LoadReswFile(result, Path.Combine(reswDir, "en-US", "Resources.resw"));
-            if (!langTag.Equals("en-US", StringComparison.OrdinalIgnoreCase))
-                LoadReswFile(result, Path.Combine(reswDir, langTag, "Resources.resw"));
-
+            try
+            {
+                using var stream = typeof(ReswResourceProvider).Assembly
+                    .GetManifestResourceStream("LivePhotoBox.Strings.en-US.Resources.resw");
+                if (stream != null)
+                {
+                    var doc = XDocument.Load(stream);
+                    foreach (var data in doc.Descendants("data"))
+                    {
+                        var name = data.Attribute("name")?.Value;
+                        var value = data.Element("value")?.Value;
+                        if (!string.IsNullOrEmpty(name) && value != null)
+                            result[name] = value;
+                    }
+                }
+            }
+            catch
+            {
+                // Embedded resource failed → empty dict.
+                // ResourceService.Format still catches this via its
+                // "{0}"-detection fallback (shows "key: args").
+            }
             return result;
         }
 

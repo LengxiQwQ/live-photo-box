@@ -1,13 +1,15 @@
 using LivePhotoBox.Cli.Infrastructure;
 using LivePhotoBox.Cli.Models;
+using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
 using System.Collections.Generic;
-using System.CommandLine;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using System.CommandLine;
 
 namespace LivePhotoBox.Cli.Commands
 {
@@ -15,41 +17,78 @@ namespace LivePhotoBox.Cli.Commands
     {
         public static Command Create()
         {
-            var imageOpt = new Option<FileInfo?>("--image", "Source image file path (single-pair mode)");
+            var imageOpt = new Option<FileInfo?>("--image",
+                "Image file (JPEG, HEIC, PNG). Use with --video for single-pair mode.");
             imageOpt.AddAlias("-i");
 
-            var videoOpt = new Option<FileInfo?>("--video", "Source video file path (single-pair mode)");
+            var videoOpt = new Option<FileInfo?>("--video",
+                "Video file (MP4, MOV). Use with --image for single-pair mode.");
             videoOpt.AddAlias("-vid");
 
-            var dirOpt = new Option<DirectoryInfo?>("--dir", "Source directory to scan for image+video pairs (batch mode)");
+            var dirOpt = new Option<DirectoryInfo?>("--dir",
+                "Folder with images+ videos. Files with matching names are paired. For batch mode.");
             dirOpt.AddAlias("-d");
 
-            var protocolOpt = new Option<string>("--protocol", () => "v2", "Target protocol: fusion|v1|v2|oppo|vivo|samsung|huawei");
+            var protocolOpt = new Option<string>("--protocol", () => "v2",
+                "Target phone format. fusion (universal Android)|v1 (Google old)|v2 (Google, default)|oppo|vivo|samsung|huawei.\nUse 'protocols' command to see all supported combinations.");
             protocolOpt.AddAlias("-p");
 
-            var outputOpt = new Option<DirectoryInfo?>("--output", "Output directory (default: current directory)");
+            var outputOpt = new Option<DirectoryInfo?>("--output",
+                "Output folder (default: current directory).");
             outputOpt.AddAlias("-o");
 
-            var formatOpt = new Option<string?>("--format", "Output format: jpg+mp4|jpg+mov|heic+mp4|heic+mov|heic+mp4-h265 (default: first available)");
+            var formatOpt = new Option<string?>("--format",
+                "Container format. jpg+mp4 (most compatible)|jpg+mov (Apple-style)|heic+mp4 (compact)|heic+mov|heic+mp4-h265 (HUAWEI native, HEVC).\nDefault: first available for the chosen protocol.");
             formatOpt.AddAlias("-f");
 
-            var namingOpt = new Option<string>("--naming", () => "keep", "Naming rule: keep|suffix|custom:<pattern>");
+            var namingOpt = new Option<string>("--naming", () => "keep",
+                "Output filename. keep (same name)|suffix (append protocol)|custom:TEMPLATE.\nTemplate tokens: {name} {protocol} {date} {date:yyyy-MM-dd} {time} {exif_date} {exif_time} {counter} {counter:D3}");
             namingOpt.AddAlias("-n");
 
-            var parallelOpt = new Option<int>("--parallel", () => Math.Min(Environment.ProcessorCount, 5), "Max parallel tasks");
+            var parallelOpt = new Option<int>("--parallel",
+                () => Math.Min(Environment.ProcessorCount, 5),
+                "How many files to process at once. More = faster CPU usage.");
             parallelOpt.AddAlias("-j");
 
-            var yesOpt = new Option<bool>("--yes", "Skip confirmation prompt");
+            var yesOpt = new Option<bool>("--yes",
+                "Skip confirmation prompts. Useful for scripts / automation.");
             yesOpt.AddAlias("-y");
 
-            var dryRunOpt = new Option<bool>("--dry-run", "Preview operations without executing");
-            var verboseOpt = new Option<bool>("--verbose", "Verbose output");
+            var dryRunOpt = new Option<bool>("--dry-run",
+                "Preview: show what would be done, don't actually process files.");
+
+            var verboseOpt = new Option<bool>("--verbose",
+                "Show per-file status messages instead of summary only.");
             verboseOpt.AddAlias("-v");
 
-            var cmd = new Command("merge", "Merge image+video pairs into live photos")
+            var overwriteOpt = new Option<bool>("--overwrite",
+                "Replace existing files. Without this, name conflicts get auto-renamed (photo.jpg -> photo (2).jpg).");
+            overwriteOpt.AddAlias("-w");
+
+            var recursiveOpt = new Option<bool>("--recursive",
+                "Also scan subdirectories inside the input folder.");
+            recursiveOpt.AddAlias("-r");
+
+            var preserveSubdirsOpt = new Option<bool>("--preserve-subdirs",
+                "Keep source subdirectory structure in the output folder.");
+            preserveSubdirsOpt.AddAlias("-s");
+
+            var pairingOpt = new Option<string>("--pairing", () => "name",
+                "How to match images with videos. name (same filename)|cid (Apple ContentIdentifier UUID)|vivo (vivo camera ID).");
+
+            var afterOpt = new Option<string>("--after", () => "none",
+                "After successful merge: none (keep source)|move:PATH (move to folder)|recycle (Windows recycle bin).");
+
+            var cmd = new Command("merge",
+                "Combine images and videos into phone-compatible live photos.\n\n" +
+                "Single pair:  livephotobox merge -i photo.jpg -vid video.mp4 -p huawei\n" +
+                "Batch folder: livephotobox merge -d ./MyPhotos -p v2 -o ./Output -y\n" +
+                "Preview:      livephotobox merge -d ./MyPhotos --dry-run\n" +
+                "Formats:      livephotobox protocols")
             {
                 imageOpt, videoOpt, dirOpt, protocolOpt, outputOpt, formatOpt,
-                namingOpt, parallelOpt, yesOpt, dryRunOpt, verboseOpt
+                namingOpt, parallelOpt, yesOpt, dryRunOpt, verboseOpt,
+                overwriteOpt, recursiveOpt, preserveSubdirsOpt, pairingOpt, afterOpt
             };
 
             cmd.SetHandler(async context =>
@@ -65,10 +104,16 @@ namespace LivePhotoBox.Cli.Commands
                 var yes = context.ParseResult.GetValueForOption(yesOpt);
                 var dryRun = context.ParseResult.GetValueForOption(dryRunOpt);
                 var verbose = context.ParseResult.GetValueForOption(verboseOpt);
+                var overwrite = context.ParseResult.GetValueForOption(overwriteOpt);
+                var recursive = context.ParseResult.GetValueForOption(recursiveOpt);
+                var preserveSubdirs = context.ParseResult.GetValueForOption(preserveSubdirsOpt);
+                var pairing = context.ParseResult.GetValueForOption(pairingOpt)!;
+                var after = context.ParseResult.GetValueForOption(afterOpt)!;
 
                 context.ExitCode = await RunAsync(
                     image, video, dir, protocolName, output, formatName,
                     naming, parallel, yes, dryRun, verbose,
+                    overwrite, recursive, preserveSubdirs, pairing, after,
                     context.GetCancellationToken());
             });
 
@@ -79,7 +124,8 @@ namespace LivePhotoBox.Cli.Commands
             FileInfo? image, FileInfo? video, DirectoryInfo? dir,
             string protocolName, DirectoryInfo? output, string? formatName,
             string naming, int parallel, bool yes, bool dryRun, bool verbose,
-            CancellationToken ct)
+            bool overwrite, bool recursive, bool preserveSubdirs,
+            string pairing, string after, CancellationToken ct)
         {
             // Validate: need either --image+--video or --dir
             bool isSingle = image != null && video != null;
@@ -110,7 +156,7 @@ namespace LivePhotoBox.Cli.Commands
             {
                 if (!ProtocolNameResolver.TryResolveFormat(formatName, out formatIndex))
                 {
-                    Console.Error.WriteLine($"Error: Unknown format '{formatName}'. Valid: jpg+mp4, jpg+mov, heic+mp4, heic+mov");
+                    Console.Error.WriteLine($"Error: Unknown format '{formatName}'. Valid: jpg+mp4, jpg+mov, heic+mp4, heic+mov, heic+mp4-h265");
                     return 1;
                 }
 
@@ -140,59 +186,107 @@ namespace LivePhotoBox.Cli.Commands
                 return 1;
             }
 
-            // Resolve output directory
-            string outputDir = output?.FullName ?? Environment.CurrentDirectory;
-            string tempDir = Path.Combine(outputDir, "Temp");
-            Directory.CreateDirectory(outputDir);
-            Directory.CreateDirectory(tempDir);
-
-            // Print summary
-            string protoDisplay = ProtocolNameResolver.GetProtocolDisplayName(protocolIndex);
-            string fmtDisplay = ProtocolFormatMatrix.FormatNames[formatIndex];
-            Console.WriteLine($"Protocol : {protoDisplay}");
-            Console.WriteLine($"Format   : {fmtDisplay}");
-            Console.WriteLine($"Output   : {outputDir}");
-
-            if (isSingle)
+            // Resolve pairing method
+            bool useCid = pairing.Equals("cid", StringComparison.OrdinalIgnoreCase);
+            bool useVivo = pairing.Equals("vivo", StringComparison.OrdinalIgnoreCase);
+            bool useName = pairing.Equals("name", StringComparison.OrdinalIgnoreCase);
+            if (!useName && !useCid && !useVivo)
             {
-                Console.WriteLine($"Image    : {image!.FullName}");
-                Console.WriteLine($"Video    : {video!.FullName}");
+                Console.Error.WriteLine($"Error: Unknown pairing method '{pairing}'. Valid: name, cid, vivo");
+                return 1;
+            }
 
-                if (dryRun)
-                {
-                    Console.WriteLine("[DRY RUN] Would merge 1 pair.");
-                    return 0;
-                }
+            // Resolve after-completion action
+            string? afterMoveDir = null;
+            bool afterRecycle = false;
+            if (after.StartsWith("move:", StringComparison.OrdinalIgnoreCase))
+                afterMoveDir = after.Substring(5);
+            else if (after.Equals("recycle", StringComparison.OrdinalIgnoreCase))
+                afterRecycle = true;
+            else if (!after.Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                Console.Error.WriteLine($"Error: Unknown after-completion action '{after}'. Valid: none, move:<dir>, recycle");
+                return 1;
+            }
 
-                if (!yes)
+            // Set recursive scan preference (restore before exit)
+            bool? originalRecursiveSetting = null;
+            try
+            {
+                originalRecursiveSetting = AppSettingsService.GetValue("IsRecursiveScanEnabled", false);
+                AppSettingsService.SetValue("IsRecursiveScanEnabled", recursive);
+            }
+            catch { /* non-packaged CLI: best effort */ }
+
+            try
+            {
+                // Resolve output directory
+                string outputDir = output?.FullName ?? Environment.CurrentDirectory;
+                string tempDir = Path.Combine(outputDir, "Temp");
+                Directory.CreateDirectory(outputDir);
+                Directory.CreateDirectory(tempDir);
+
+                // Print summary
+                string protoDisplay = ProtocolNameResolver.GetProtocolDisplayName(protocolIndex);
+                string fmtDisplay = ProtocolFormatMatrix.FormatNames[formatIndex];
+                Console.WriteLine($"Protocol : {protoDisplay}");
+                Console.WriteLine($"Format   : {fmtDisplay}");
+                Console.WriteLine($"Output   : {outputDir}");
+                if (isBatch)
+                    Console.WriteLine($"Pairing  : {pairing}");
+
+                if (isSingle)
                 {
-                    Console.Write("Proceed? [y/N] ");
-                    var key = Console.ReadLine();
-                    if (!string.Equals(key, "y", StringComparison.OrdinalIgnoreCase))
+                    Console.WriteLine($"Image    : {image!.FullName}");
+                    Console.WriteLine($"Video    : {video!.FullName}");
+
+                    if (dryRun)
                     {
-                        Console.WriteLine("Cancelled.");
+                        Console.WriteLine("[DRY RUN] Would merge 1 pair.");
                         return 0;
                     }
-                }
 
-                return await MergeSinglePairAsync(
-                    image.FullName, video.FullName, outputDir, tempDir,
-                    protocolIndex, formatIndex, namingRuleIndex, customPattern,
-                    verbose, ct);
+                    if (!yes)
+                    {
+                        Console.Write("Proceed? [y/N] ");
+                        var key = Console.ReadLine();
+                        if (!string.Equals(key, "y", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Console.WriteLine("Cancelled.");
+                            return 0;
+                        }
+                    }
+
+                    return await MergeSinglePairAsync(
+                        image.FullName, video.FullName, outputDir, tempDir,
+                        protocolIndex, formatIndex, namingRuleIndex, customPattern,
+                        overwrite, verbose, ct);
+                }
+                else
+                {
+                    return await MergeBatchAsync(
+                        dir!.FullName, outputDir, tempDir,
+                        protocolIndex, formatIndex, namingRuleIndex, customPattern,
+                        parallel, yes, dryRun, verbose,
+                        overwrite, preserveSubdirs, useCid, useVivo,
+                        afterMoveDir, afterRecycle, ct);
+                }
             }
-            else
+            finally
             {
-                return await MergeBatchAsync(
-                    dir!.FullName, outputDir, tempDir,
-                    protocolIndex, formatIndex, namingRuleIndex, customPattern,
-                    parallel, yes, dryRun, verbose, ct);
+                // Restore original recursive scan setting
+                if (originalRecursiveSetting.HasValue)
+                {
+                    try { AppSettingsService.SetValue("IsRecursiveScanEnabled", originalRecursiveSetting.Value); }
+                    catch { /* best effort */ }
+                }
             }
         }
 
         private static async Task<int> MergeSinglePairAsync(
             string imagePath, string videoPath, string outputDir, string tempDir,
             int protocolIndex, int formatIndex, int namingRuleIndex, string? customPattern,
-            bool verbose, CancellationToken ct)
+            bool overwrite, bool verbose, CancellationToken ct)
         {
             try
             {
@@ -205,6 +299,7 @@ namespace LivePhotoBox.Cli.Commands
                     OutputFormatIndex = formatIndex,
                     NamingRuleIndex = namingRuleIndex,
                     CustomNamingPattern = customPattern,
+                    OverwriteExisting = overwrite,
                 };
 
                 if (verbose)
@@ -247,36 +342,76 @@ namespace LivePhotoBox.Cli.Commands
         private static async Task<int> MergeBatchAsync(
             string inputDir, string outputDir, string tempDir,
             int protocolIndex, int formatIndex, int namingRuleIndex, string? customPattern,
-            int parallel, bool yes, bool dryRun, bool verbose, CancellationToken ct)
+            int parallel, bool yes, bool dryRun, bool verbose,
+            bool overwrite, bool preserveSubdirs, bool useCid, bool useVivo,
+            string? afterMoveDir, bool afterRecycle, CancellationToken ct)
         {
-            // 1. Scan
+            // 1. Scan — filename-based pairing (always)
             Console.Write($"Scanning '{inputDir}'... ");
             var scanResult = LivePhotoMergeScanService.Scan(inputDir, ct);
-            Console.WriteLine($"{scanResult.Pairs.Count} pairs found, " +
-                $"{scanResult.StandaloneImagesCount} standalone images, " +
-                $"{scanResult.StandaloneVideosCount} standalone videos");
 
-            if (scanResult.Pairs.Count == 0)
+            var allPairs = new List<(string ImagePath, string VideoPath, string BaseName)>();
+
+            // Add filename pairs
+            foreach (var pair in scanResult.Pairs)
+                allPairs.Add((pair.ImagePath, pair.VideoPath, pair.BaseName));
+
+            // 2. Metadata-based pairing on unmatched files (cid / vivo)
+            int metaPairs = 0;
+            if (useCid && scanResult.StandaloneImagePaths.Count > 0 && scanResult.StandaloneVideoPaths.Count > 0)
+            {
+                string? exifToolPath = ExternalToolLocator.FindExifTool();
+                if (!string.IsNullOrEmpty(exifToolPath) && File.Exists(exifToolPath))
+                {
+                    Console.Write("CID matching... ");
+                    var metaResult = await LivePhotoMetadataMatcher.MatchAsync(
+                        scanResult.StandaloneImagePaths, scanResult.StandaloneVideoPaths,
+                        exifToolPath, ct);
+                    foreach (var mp in metaResult.Pairs)
+                        allPairs.Add((mp.ImagePath, mp.VideoPath, Path.GetFileNameWithoutExtension(mp.ImagePath)));
+                    metaPairs = metaResult.Pairs.Count;
+                }
+                else
+                {
+                    Console.Write("(exiftool not found, skip CID) ");
+                }
+            }
+            else if (useVivo && scanResult.StandaloneImagePaths.Count > 0 && scanResult.StandaloneVideoPaths.Count > 0)
+            {
+                Console.Write("vivo matching... ");
+                var metaResult = LivePhotoMetadataMatcher.MatchVivo(
+                    scanResult.StandaloneImagePaths, scanResult.StandaloneVideoPaths);
+                foreach (var mp in metaResult.Pairs)
+                    allPairs.Add((mp.ImagePath, mp.VideoPath, Path.GetFileNameWithoutExtension(mp.ImagePath)));
+                metaPairs = metaResult.Pairs.Count;
+            }
+
+            int standaloneImg = scanResult.StandaloneImagesCount - metaPairs;
+            int standaloneVid = scanResult.StandaloneVideosCount - metaPairs;
+            Console.WriteLine($"{scanResult.Pairs.Count} filename pairs, {metaPairs} meta pairs, " +
+                $"{standaloneImg} standalone images, {standaloneVid} standalone videos");
+
+            if (allPairs.Count == 0)
             {
                 Console.Error.WriteLine("No image+video pairs found. Nothing to do.");
                 return 0;
             }
 
-            // 2. Build task list
-            var tasks = new List<CliMergeTask>(scanResult.Pairs.Count);
-            for (int i = 0; i < scanResult.Pairs.Count; i++)
+            // 3. Build task list
+            var tasks = new List<CliMergeTask>(allPairs.Count);
+            for (int i = 0; i < allPairs.Count; i++)
             {
-                var pair = scanResult.Pairs[i];
+                var p = allPairs[i];
                 tasks.Add(new CliMergeTask
                 {
                     Index = i + 1,
-                    ImagePath = pair.ImagePath,
-                    VideoPath = pair.VideoPath,
-                    BaseName = pair.BaseName,
+                    ImagePath = p.ImagePath,
+                    VideoPath = p.VideoPath,
+                    BaseName = p.BaseName,
                 });
             }
 
-            // 3. Dry run — just list what would be done
+            // 4. Dry run
             if (dryRun)
             {
                 Console.WriteLine($"\n[DRY RUN] Would merge {tasks.Count} pairs:");
@@ -285,7 +420,7 @@ namespace LivePhotoBox.Cli.Commands
                 return 0;
             }
 
-            // 4. Confirmation
+            // 5. Confirmation
             if (!yes)
             {
                 Console.Write($"\nMerge {tasks.Count} pairs? [y/N] ");
@@ -297,7 +432,7 @@ namespace LivePhotoBox.Cli.Commands
                 }
             }
 
-            // 5. Run batch
+            // 6. Run batch
             Console.WriteLine($"\nProcessing {tasks.Count} pairs (parallel={parallel})...");
             Console.WriteLine();
 
@@ -309,6 +444,9 @@ namespace LivePhotoBox.Cli.Commands
                 NamingRuleIndex = namingRuleIndex,
                 CustomNamingPattern = customPattern,
                 MaxDegreeOfParallelism = parallel,
+                OverwriteExisting = overwrite,
+                PreserveSubfolders = preserveSubdirs,
+                InputDirectory = preserveSubdirs ? inputDir : null,
             };
 
             int ok = 0, fail = 0;
@@ -326,6 +464,8 @@ namespace LivePhotoBox.Cli.Commands
                 },
                 onTaskCompleted: (task, success, details, completed) =>
                 {
+                    task.Status = success ? ProcessStatus.Success : ProcessStatus.Failed;
+                    task.Details = details;
                     if (success)
                     {
                         Interlocked.Increment(ref ok);
@@ -344,10 +484,103 @@ namespace LivePhotoBox.Cli.Commands
                     }
                 });
 
-            // 6. Summary
+            // 7. After-completion actions (only on successful tasks)
+            if (!string.IsNullOrEmpty(afterMoveDir))
+            {
+                Console.WriteLine($"\nMoving source files to '{afterMoveDir}'...");
+                Directory.CreateDirectory(afterMoveDir);
+                int moved = 0;
+                foreach (var task in tasks.Where(t => t.Status == ProcessStatus.Success))
+                {
+                    try
+                    {
+                        if (File.Exists(task.ImagePath))
+                        {
+                            File.Move(task.ImagePath, Path.Combine(afterMoveDir, Path.GetFileName(task.ImagePath)));
+                            moved++;
+                        }
+                        if (!string.IsNullOrEmpty(task.VideoPath) && File.Exists(task.VideoPath))
+                        {
+                            File.Move(task.VideoPath, Path.Combine(afterMoveDir, Path.GetFileName(task.VideoPath)));
+                            moved++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"  WARN: Failed to move '{task.BaseName}': {ex.Message}");
+                    }
+                }
+                Console.WriteLine($"  Moved {moved} source files.");
+            }
+            else if (afterRecycle)
+            {
+                Console.WriteLine("\nMoving source files to recycle bin...");
+                int recycled = 0;
+                foreach (var task in tasks.Where(t => t.Status == ProcessStatus.Success))
+                {
+                    try
+                    {
+                        if (File.Exists(task.ImagePath))
+                        {
+                            MoveToRecycleBin(task.ImagePath);
+                            recycled++;
+                        }
+                        if (!string.IsNullOrEmpty(task.VideoPath) && File.Exists(task.VideoPath))
+                        {
+                            MoveToRecycleBin(task.VideoPath);
+                            recycled++;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"  WARN: Failed to recycle '{task.BaseName}': {ex.Message}");
+                    }
+                }
+                Console.WriteLine($"  Recycled {recycled} source files.");
+            }
+
+            // 8. Summary
             Console.WriteLine();
             Console.WriteLine($"Done: {ok} OK, {fail} FAIL, {tasks.Count} total");
             return fail > 0 ? 1 : 0;
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  Recycle Bin via SHFileOperationW
+        // ══════════════════════════════════════════════════════════════
+
+        private const uint FO_DELETE = 0x0003;
+        private const ushort FOF_ALLOWUNDO = 0x0040;
+        private const ushort FOF_NOCONFIRMATION = 0x0010;
+        private const ushort FOF_SILENT = 0x0004;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct SHFILEOPSTRUCT
+        {
+            public IntPtr hwnd;
+            public uint wFunc;
+            public string pFrom;
+            public string pTo;
+            public ushort fFlags;
+            public bool fAnyOperationsAborted;
+            public IntPtr hNameMappings;
+            public string lpszProgressTitle;
+        }
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        private static extern int SHFileOperationW(ref SHFILEOPSTRUCT lpFileOp);
+
+        private static void MoveToRecycleBin(string path)
+        {
+            var shf = new SHFILEOPSTRUCT
+            {
+                wFunc = FO_DELETE,
+                pFrom = path + "\0\0",
+                fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT,
+            };
+            int result = SHFileOperationW(ref shf);
+            if (result != 0)
+                throw new IOException($"SHFileOperationW failed with code {result}");
         }
     }
 }

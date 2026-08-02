@@ -43,6 +43,19 @@
 
 ---
 
+## ⚠️ 已知问题 / Known Issues
+
+| 协议 / Protocol                  | 状态 / Status    |
+| -------------------------------- | ---------------- |
+| ✅ **Google - Micro Video (V1)**  | 可用 / Supported |
+| ✅ **Google - Motion Photo (V2)** | 可用 / Supported |
+| ✅ **OPPO - O-Live Photo**        | 可用 / Supported |
+| 🟡 **vivo - Live Photo**          | 测试中 / Testing |
+| 🟡 **Samsung - Motion Photo**     | 测试中 / Testing |
+| 🟡 **HUAWEI - Moving Photo**      | 测试中 / Testing |
+
+---
+
 ## ✨ 未来规划 / Roadmap
 
 ### 近期计划 / Near-term

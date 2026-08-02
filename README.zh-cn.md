@@ -1,6 +1,6 @@
 <div align="center">
 <h1>
-  <img src="Live Photo Box/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
+  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
   Live Photo Box（实况照片工具箱）
 </h1>
 <p><em>实况照片工具箱 — 专为 Windows 和 Android 打造的 Apple 实况照片管理与修复工具</em></p>
@@ -76,7 +76,7 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 将 **Apple 实况照片**或任意图片 + 视频组合为**标准实况照片**（单文件格式），方便在 Windows 及 Android 设备上查看。
 
-- 支持 **`Google (V1 & V2)` / `OPPO` / `小米`** 等多种协议
+- 支持 **Fusion / Google (V1 & V2) / OPPO / vivo / Samsung / HUAWEI** 等多种协议
 - 自动写入完整 `EXIF` + `QuickTime` 元数据（`ContentIdentifier` `UUID`）
 - **Apple 原生实况照片配对**：即使照片和视频文件名完全不同，也能通过 Apple 元数据中的 `ContentIdentifier`（`UUID`）精确匹配；无法匹配 `UUID` 时自动降级为拍摄日期 ±2 秒容差匹配兜底
 - **目前任何协议合成的实况照片均可在 Windows 上直接查看**（推荐 Google Motion Photo V2）
@@ -110,6 +110,8 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 
 通过识别照片元数据，自动按拍摄设备、日期、实况照片类型自动扫描分类归档。首批将适配 iPhone 照片。
 
+> ✅ **源文件自动整理**已上线 **合成** 页面：合成完成后，原始图片/视频可自动移动到指定文件夹（或回收站）。
+
 ---
 
 ## 📋 支持的实况照片协议
@@ -119,8 +121,26 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 | Micro Video V1 | Google（已弃用，但老设备兼容性高） | `MP4` 视频附加在 `JPEG` 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
 | Motion Photo V2 | Google | 现代标准，`Container:Directory` `XMP` 结构。Google Pixel / Xiaomi HyperOS 3+ 使用 |
 | O-Live Photo | OPPO / OnePlus | 扩展 `Motion Photo V2`，增加 `OpCamera` 命名空间 + `EXIF` `UserComment`。OPPO ColorOS / OnePlus OxygenOS 使用 |
+| vivo Live Photo | vivo | 扩展 V2，增加 `VCamera` 命名空间。vivo X300 系列及之后使用 |
+| Samsung Motion Photo | Samsung | 扩展 V2，附加 `SEF` 尾部（`mpvd` / `sefd` box）。Samsung Galaxy 设备使用 |
+| HUAWEI Moving Photo | 华为 / 荣耀 | `JPEG`/`HEIC` + `MP4` 视频尾部。支持 **HEIC + H.265（HEVC）** 输出与无损 HEVC 直通。HarmonyOS 4.0 / 5+ |
+| Fusion Motion Photo | 多厂商 | 融合 V2 + OPPO + vivo + Samsung 元数据为一个文件，可在 Google / OPPO / vivo / Samsung / 小米 / Windows 照片上播放 |
 
 > ⚡ **目前任何协议合成的实况照片，均可在 Windows 11 上直接查看动态效果。**
+
+---
+
+## 💻 命令行（CLI）
+
+Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 100% 核心逻辑，适合脚本和 AI Agent 调用。
+
+- **命令**：`merge`（单对或批量合成）、`protocols`（协议 × 格式兼容矩阵）、`update-check`（检查最新版本）
+- **六个可执行别名**：`livephotobox` / `livephoto` / `livebox` / `lipbox` / `lpb` / `lpbx`
+- **批量合成**：支持基于元数据的配对（`name`、Apple `ContentIdentifier` UUID、vivo 相机 ID）、自定义命名模板、`--after` 动作（移动到文件夹 / 回收站）
+- **华为原生输出**：`heic+mp4-h265`（HEIC + H.265/HEVC）
+- **分发**：随安装包内置（可选"添加到 PATH"），或独立 `-x64-cli.zip`
+
+📖 **完整文档**：[CLI 使用指南（简体中文）](docs/CLI-使用指南-zh-CN.md) · [CLI User Guide (English)](docs/CLI-User-Guide-en.md)
 
 ---
 
@@ -133,11 +153,15 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 | 运行时 | .NET | 9.0 |
 | UI 框架 | Windows App SDK（WinUI 3） | 1.8 |
 | 架构 | MVVM（CommunityToolkit.Mvvm） | 8.4.2 |
-| 图像处理 | Magick.NET（ImageMagick）+ Win2D | 14.14.0 / 1.3.2 |
+| 图像处理 | Magick.NET（ImageMagick）+ Win2D | 14.16.0 / 1.3.2 |
+| 图像缩放 | PhotoSauce.MagicScaler | 0.15.0 |
 | 元数据引擎 | `ExifTool`（常驻进程模式，v13.x） | — |
 | 视频处理 | `FFmpeg`（NVENC / QSV / AMF 硬件加速） | — |
 | JPEG 操作 | `jpegtran`（无损旋转、缩略图剥离） | — |
+| HEIC 编解码 | `libheif`（`heif-enc` / `heif-dec`） | — |
+| Markdown 渲染 | Markdig | 1.3.2 |
 | UI 扩展 | CommunityToolkit.WinUI + FluentIcons | — |
+| 命令行 | System.CommandLine | 2.0.0-beta4.22272.1 |
 | 打包 | MSIX 自包含（无需安装运行时） | — |
 
 ---
@@ -161,10 +185,10 @@ cd live-photo-box
 dotnet restore
 
 # 编译项目
-dotnet build Live Photo Box/LivePhotoBox.csproj
+dotnet build LivePhotoBox/LivePhotoBox.csproj
 
 # 启动运行
-dotnet run --project Live Photo Box/LivePhotoBox.csproj
+dotnet run --project LivePhotoBox/LivePhotoBox.csproj
 ```
 
 ---
@@ -173,17 +197,18 @@ dotnet run --project Live Photo Box/LivePhotoBox.csproj
 
 ```
 live-photo-box/
-├── Live Photo Box/            # 主项目（WinUI 3 MSIX 应用）
+├── LivePhotoBox.Core/         # 共享核心库（协议、合成/拆分/修复服务、本地化）
+├── LivePhotoBox/              # 主项目（WinUI 3 MSIX 应用）
 │   ├── Assets/                # 图标、教程截图等静态资源
 │   ├── Controls/              # 自定义控件（全屏灯箱、底部状态栏）
 │   ├── Converters/            # XAML 值转换器
 │   ├── Helpers/               # 工具类（滚动、格式化、悬停预览等）
 │   ├── Models/                # 数据模型
-│   ├── Services/              # 业务逻辑层
-│   │   └── Protocols/         # 实况照片协议实现（3 种）
+│   ├── Services/              # GUI 业务逻辑层（委托给 LivePhotoBox.Core）
 │   ├── Strings/               # 多语言资源（中文 / 英文）
 │   ├── ViewModels/            # MVVM ViewModel 层
 │   └── Views/                 # XAML 页面
+├── LivePhotoBox.CLI/          # 命令行工具（livephotobox）
 ├── docs/                      # 项目文档
 └── README.md
 ```
@@ -234,11 +259,14 @@ live-photo-box/
 
 | 工具/库 | 用途 | 许可 |
 |---------|------|------|
-| [ExifTool](https://exiftool.org/) | 图像/视频元数据读写 | Perl |
 | [FFmpeg](https://ffmpeg.org/) | 视频编解码 | LGPL/GPL |
+| [ExifTool](https://exiftool.org/) | 图像/视频元数据读写 | Perl |
+| [libheif](https://github.com/strukturag/libheif) | HEIC/HEIF 编解码管线 | LGPL-3.0 |
 | [jpegtran](https://jpegclub.org/) | JPEG 无损变换 | 自由软件 |
 | [Magick.NET](https://github.com/dlemstra/Magick.NET) | HEIC 解码 | Apache 2.0 |
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM 框架 | MIT |
+| [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | 高性能图片缩放 | MIT |
+| [Markdig](https://github.com/xoofx/markdig) | Markdown 渲染 | BSD-2-Clause |
 | [Win2D](https://github.com/microsoft/Win2D) | GPU 加速图形 | MIT |
 | [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent 图标集 | MIT |
 
