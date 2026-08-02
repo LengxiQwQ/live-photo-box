@@ -80,8 +80,5 @@
 #*.mp3 linguist-vendored
 #*.mp4 linguist-vendored
 
-# exiftool Perl 第三方库（不参与语言统计）
-"Live Photo Box/Tools/exiftool_files/**" linguist-vendored
-
-# Tools 目录其他第三方工具
-"Live Photo Box/Tools/*" linguist-vendored
+# exiftool Perl 第三方库 + Tools 目录其他第三方工具（不参与语言统计）
+LivePhotoBox/Tools/** linguist-vendored
