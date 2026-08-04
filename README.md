@@ -259,11 +259,11 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 ## ⭐ Star History
 
 <p align="center">
-  <a href="https://star-history.com/#lengxiqwq/live-photo-box&Date">
+  <a href="https://www.star-history.com/?repos=LengxiQwQ%2Flive-photo-box&type=date&legend=top-left">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=lengxiqwq/live-photo-box&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=lengxiqwq/live-photo-box&type=Date" />
-      <img alt="Star History" src="https://api.star-history.com/svg?repos=lengxiqwq/live-photo-box&type=Date" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=LengxiQwQ/live-photo-box&type=date&theme=dark&legend=top-left&sealed_token=qLRtEKSJ2SQtxQ26XWIXa1IYC64IodYBEJKUja_ZRUIma3Bz4XZw49HgD08haUfs9YcQZr5TaMEVoklM7K48XqqxubDz0xOHQVzZ6PsroSM3uB1ZAx-_LYRHBHgPCT1_C8Ba_P1wkpy8yJoELtcCMdJngnTIV6dQA3DQNNA45m9xG1eVpy6rWe7AnXZ4" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=LengxiQwQ/live-photo-box&type=date&legend=top-left&sealed_token=qLRtEKSJ2SQtxQ26XWIXa1IYC64IodYBEJKUja_ZRUIma3Bz4XZw49HgD08haUfs9YcQZr5TaMEVoklM7K48XqqxubDz0xOHQVzZ6PsroSM3uB1ZAx-_LYRHBHgPCT1_C8Ba_P1wkpy8yJoELtcCMdJngnTIV6dQA3DQNNA45m9xG1eVpy6rWe7AnXZ4" />
+      <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=LengxiQwQ/live-photo-box&type=date&legend=top-left&sealed_token=qLRtEKSJ2SQtxQ26XWIXa1IYC64IodYBEJKUja_ZRUIma3Bz4XZw49HgD08haUfs9YcQZr5TaMEVoklM7K48XqqxubDz0xOHQVzZ6PsroSM3uB1ZAx-_LYRHBHgPCT1_C8Ba_P1wkpy8yJoELtcCMdJngnTIV6dQA3DQNNA45m9xG1eVpy6rWe7AnXZ4" />
     </picture>
   </a>
 </p>
