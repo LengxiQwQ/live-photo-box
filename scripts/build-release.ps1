@@ -115,10 +115,10 @@ if (Test-Path 'publish\cli_x64\livephotobox.exe') {
 
     # 复制文档（README + LICENSE + 使用指南）
     Copy-Item 'README.md' "$cliDir\README.md" -Force
-    Copy-Item 'README.zh-cn.md' "$cliDir\README.zh-cn.md" -Force
+    Copy-Item 'README.zh-CN.md' "$cliDir\README.zh-CN.md" -Force
     Copy-Item 'LICENSE' "$cliDir\LICENSE" -Force
-    Copy-Item 'docs\CLI-User-Guide-en.md' "$cliDir\CLI-User-Guide-en.md" -Force
-    Copy-Item 'docs\CLI-使用指南-zh-CN.md' "$cliDir\CLI-使用指南-zh-CN.md" -Force
+    Copy-Item 'docs\CLI-User-Guide.md' "$cliDir\CLI-User-Guide.md" -Force
+    Copy-Item 'docs\CLI-User-Guide.zh-CN.md' "$cliDir\CLI-User-Guide.zh-CN.md" -Force
     Write-Host '       Docs (README + LICENSE + Guides) copied' -ForegroundColor Green
 
     # 打包 CLI zip
@@ -210,10 +210,10 @@ Write-Host '[6/7] Creating portable zip...' -ForegroundColor Yellow
 
 # 复制文档（README + LICENSE + 使用指南）
 Copy-Item 'README.md' "$outDir\README.md" -Force
-Copy-Item 'README.zh-cn.md' "$outDir\README.zh-cn.md" -Force
+Copy-Item 'README.zh-CN.md' "$outDir\README.zh-CN.md" -Force
 Copy-Item 'LICENSE' "$outDir\LICENSE" -Force
-Copy-Item 'docs\CLI-User-Guide-en.md' "$outDir\CLI-User-Guide-en.md" -Force
-Copy-Item 'docs\CLI-使用指南-zh-CN.md' "$outDir\CLI-使用指南-zh-CN.md" -Force
+Copy-Item 'docs\CLI-User-Guide.md' "$outDir\CLI-User-Guide.md" -Force
+Copy-Item 'docs\CLI-User-Guide.zh-CN.md' "$outDir\CLI-User-Guide.zh-CN.md" -Force
 
 $zipName = "Live-Photo-Box-v$version-x64-portable.zip"
 $zipPath = "publish\$zipName"

@@ -199,7 +199,7 @@ namespace LivePhotoBox.Services
                 bool forceMp4 = ComputeForceMp4(options.SelectedModeIndex, options.OutputFormatIndex);
                 // Huawei V6 (6): use brand mp42 + ©too via hwFaststart=false
                 bool hwFaststart = options.SelectedModeIndex != 6;
-                // H.265 format: use HEVC codec (native Huawei camera format)
+                // HUAWEI HEIC+H.265 format: force HEVC (native camera codec)
                 string videoCodec = options.OutputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265
                     ? "hevc" : "h264";
                 (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(
@@ -282,19 +282,17 @@ namespace LivePhotoBox.Services
         }
 
         // Determine whether to force MP4 conversion.
-        // Selected MP4 output (indices 0/2) → always convert.
-        // Selected MOV output (indices 1/3) → keep MOV unless Samsung/vivo/toggle override.
-        // Samsung (4) / vivo (3) always force MP4 regardless of output format.
+        // Selected MP4 output (indices 0/2/FormatHeicMp4H265) → always convert.
+        // Selected MOV output → keep MOV (output format selection is the single source of truth).
+        // OPPO (3) / VIVO (4) / Samsung (5) → always force MP4 regardless of output format.
         private static bool ComputeForceMp4(int selectedModeIndex, int outputFormatIndex)
         {
-            // Samsung / vivo always need MP4
+            // OPPO / VIVO / Samsung always need MP4
             if (selectedModeIndex == 4 || selectedModeIndex == 3 || selectedModeIndex == 5) return true;
             // User selected MP4 output → always convert to MP4
             bool wantMp4 = outputFormatIndex == 0 || outputFormatIndex == 2
                 || outputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265;
-            if (wantMp4) return true;
-            // User selected MOV output → respect the force-MP4 toggle
-            return AppSettingsService.GetValue("IsGoogleProtocolForceMp4", false);
+            return wantMp4;
         }
     }
 }

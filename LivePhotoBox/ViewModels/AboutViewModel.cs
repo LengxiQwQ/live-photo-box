@@ -12,7 +12,6 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Net.Http;
 using System.Text.Json;
@@ -40,7 +39,7 @@ namespace LivePhotoBox.ViewModels
 
         // 更新记录链接（中英文跳不同页面）
         public string ChangelogUrl =>
-            CultureInfo.CurrentUICulture.Name.StartsWith("zh", StringComparison.OrdinalIgnoreCase)
+            LanguageService.IsChineseUi()
                 ? "https://github.com/LengxiQwQ/live-photo-box/blob/master/changelogs/CHANGELOG.zh-CN.md"
                 : "https://github.com/LengxiQwQ/live-photo-box/blob/master/changelogs/CHANGELOG.md";
 
@@ -74,6 +73,15 @@ namespace LivePhotoBox.ViewModels
                     // 静默——打开链接失败不影响应用功能
                 }
             }
+        }
+
+        // 在应用内弹窗展示 GitHub 更新日志（先抓取 markdown，再用 WebView2 内联渲染）
+        [RelayCommand]
+        private async Task ShowChangelogAsync()
+        {
+            var xamlRoot = App.MainWindow?.Content?.XamlRoot;
+            if (xamlRoot != null)
+                await ChangelogDialogService.ShowAsync(xamlRoot);
         }
 
         #endregion

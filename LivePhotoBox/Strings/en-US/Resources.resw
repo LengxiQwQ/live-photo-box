@@ -247,15 +247,6 @@ Do you want to restart now?</value>
   <data name="SettingsPage_Keep_Desc.Text" xml:space="preserve">
     <value>Do not delete source files after processing</value>
   </data>
-  <data name="SettingsPage_Split_Header.Text" xml:space="preserve">
-    <value>Split &amp; Convert</value>
-  </data>
-  <data name="SettingsPage_SplitFormat_Header.Header" xml:space="preserve">
-    <value>Export Video Format</value>
-  </data>
-  <data name="SettingsPage_SplitFormat_Desc.Text" xml:space="preserve">
-    <value>Choose the format for the extracted video</value>
-  </data>
   <data name="SettingsPage_Restore_Button.Content" xml:space="preserve">
     <value>Restore Default Settings</value>
   </data>
@@ -1488,29 +1479,23 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="MergePage_OutputFormat_JPEG_MP4.Content" xml:space="preserve">
     <value>JPG [Embedded MP4 (H.264)]</value>
   </data>
-  <data name="MergePage_OutputFormat_HW4.Content" xml:space="preserve">
-    <value>JPG [Embedded MP4] (HMOS 4)</value>
-  </data>
-  <data name="MergePage_FormatHint_HMOS4" xml:space="preserve">
-    <value>HarmonyOS 4.0 native format</value>
+  <data name="MergePage_FormatHint_HEVC" xml:space="preserve">
+    <value>Efficient</value>
   </data>
   <data name="MergePage_FormatHint_BestCompat" xml:space="preserve">
-    <value>Best compatibility</value>
+    <value>Best compatibility, larger file</value>
   </data>
   <data name="MergePage_FormatHint_GoodCompat" xml:space="preserve">
-    <value>Efficient but less compatible</value>
+    <value>Compressed video, balanced</value>
   </data>
   <data name="MergePage_FormatHint_Efficient" xml:space="preserve">
-    <value>Efficient</value>
+    <value>Efficient, larger video file</value>
   </data>
   <data name="MergePage_FormatHint_GoogleOnly" xml:space="preserve">
     <value>Google Photos only</value>
   </data>
   <data name="MergePage_FormatHint_Untested" xml:space="preserve">
     <value>⚠️ Untested</value>
-  </data>
-  <data name="MergePage_FormatHint_CoverFirstFrame" xml:space="preserve">
-    <value>⚠️ Known issue: cover is always first frame</value>
   </data>
   <data name="MergePage_KeepOriginalFiles.Header" xml:space="preserve">
     <value>Keep Original Files</value>
@@ -1695,12 +1680,6 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="SettingsPage_Merge_ThreadCount_Desc.Text" xml:space="preserve">
     <value>HEIC/HEIF transcoding parallel task count. JPG needs no transcoding and automatically uses up to 20 concurrent threads for faster composition.</value>
   </data>
-  <data name="SettingsPage_Merge_GoogleForceMp4.Text" xml:space="preserve">
-    <value>Always convert to MP4 for Google protocols</value>
-  </data>
-  <data name="SettingsPage_Merge_GoogleForceMp4_Desc.Text" xml:space="preserve">
-    <value>When enabled, MOV videos are automatically converted to the more compatible MP4 format during Google V1/V2 Live Photo composition. Disabled by default, keeps the original video container format. If live photos fail to preview on your target imported device, you may try enabling this option.</value>
-  </data>
   <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
     <value>Restore Default Settings</value>
   </data>
@@ -1838,12 +1817,6 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="SettingsPage_Transcode_Header.Text" xml:space="preserve">
     <value>Video Transcoding</value>
-  </data>
-  <data name="SettingsPage_Split_FormatLabel.Text" xml:space="preserve">
-    <value>Default Output Format</value>
-  </data>
-  <data name="SettingsPage_Split_FormatDesc.Text" xml:space="preserve">
-    <value>Default format for split video output. Use default settings if you have no special requirements.</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware.Text" xml:space="preserve">
     <value>Hardware Acceleration</value>
@@ -2302,14 +2275,14 @@ Place any of these files into the same folder.</value>
   <data name="SettingsPage_CheckTools_SomeFailed" xml:space="preserve">
     <value>⚠️ {0}/{1} tools available, check details below</value>
   </data>
-  <data name="SettingsPage_CheckUpdate_Button_Text.Text" xml:space="preserve">
-    <value>Check for Updates</value>
-  </data>
   <data name="Update_NewVersion_Title" xml:space="preserve">
     <value>New Version Available!</value>
   </data>
   <data name="Update_NewVersion_Message" xml:space="preserve">
     <value>Live Photo Box {1} → {0}. Download and install now?</value>
+  </data>
+  <data name="Update_NewVersion_Store_Message" xml:space="preserve">
+    <value>Live Photo Box {1} → {0}. Update from Microsoft Store?</value>
   </data>
   <data name="Update_Downloading_Title" xml:space="preserve">
     <value>Downloading Update...</value>
@@ -2353,6 +2326,9 @@ Place any of these files into the same folder.</value>
   <data name="Update_Btn_DownloadInstall" xml:space="preserve">
     <value>Download &amp; Install</value>
   </data>
+  <data name="Update_Btn_StoreUpdate" xml:space="preserve">
+    <value>Update via Store</value>
+  </data>
   <data name="Update_Btn_SkipVersion" xml:space="preserve">
     <value>Skip This Version</value>
   </data>
@@ -2379,9 +2355,6 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="Update_NoAssetAvailable" xml:space="preserve">
     <value>No update package found for your installation type. Please visit GitHub to download manually.</value>
-  </data>
-  <data name="Update_PackagedMode_Disabled" xml:space="preserve">
-    <value>You are running the MSIX packaged version. The Microsoft Store provides automatic updates. To use built-in updates, please visit GitHub to download the portable or installer version.</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_FilenameAndCid.Content" xml:space="preserve">
     <value>Filename + Identifier</value>
@@ -3205,7 +3178,7 @@ Place any of these files into the same folder.</value>
     <value>Disclaimer</value>
   </data>
   <data name="AboutPage_DisclaimerBody.Text" xml:space="preserve">
-    <value>The developer assumes no legal liability for any data corruption, loss, or hardware failure resulting from the use of this software. Please develop the habit of backing up your data before processing sensitive files.</value>
+    <value>The developer LengxiQwQ assumes no legal liability for any data corruption, loss, or hardware failure resulting from the use of this software. Please develop the habit of backing up your data before processing sensitive files.</value>
   </data>
   <data name="AboutPage_GitHubButton.Content" xml:space="preserve">
     <value>GitHub Repository</value>
@@ -3213,11 +3186,44 @@ Place any of these files into the same folder.</value>
   <data name="AboutPage_IssueButton.Content" xml:space="preserve">
     <value>Feedback</value>
   </data>
-  <data name="AboutPage_LicenseButton.Content" xml:space="preserve">
-    <value>GPL-3.0 License</value>
-  </data>
   <data name="AboutPage_ChangelogButton.Content" xml:space="preserve">
     <value>Changelog</value>
+  </data>
+  <data name="AboutPage_ChangelogDialog_Title" xml:space="preserve">
+    <value>Changelog</value>
+  </data>
+  <data name="AboutPage_ChangelogDialog_Loading" xml:space="preserve">
+    <value>Loading changelog…</value>
+  </data>
+  <data name="AboutPage_ChangelogDialog_Error" xml:space="preserve">
+    <value>Failed to load changelog.</value>
+  </data>
+  <data name="AboutPage_ChangelogDialog_OpenBrowser" xml:space="preserve">
+    <value>View on GitHub</value>
+  </data>
+  <data name="Update_CheckDialog_Title" xml:space="preserve">
+    <value>Check for Updates</value>
+  </data>
+  <data name="Update_CheckLoading" xml:space="preserve">
+    <value>Checking for updates…</value>
+  </data>
+  <data name="Update_GitHubLink" xml:space="preserve">
+    <value>View on GitHub</value>
+  </data>
+  <data name="AboutPage_CheckUpdateButton.Content" xml:space="preserve">
+    <value>Check for Updates</value>
+  </data>
+  <data name="AboutPage_StoreButton.Content" xml:space="preserve">
+    <value>Microsoft Store</value>
+  </data>
+  <data name="AboutPage_RateButton.Content" xml:space="preserve">
+    <value>Rate &amp; Review</value>
+  </data>
+  <data name="AboutPage_LicenseTitle.Text" xml:space="preserve">
+    <value>License</value>
+  </data>
+  <data name="AboutPage_LicenseDesc.Text" xml:space="preserve">
+    <value>This software is open source under the GPL-3.0 license — free to use, modify, and redistribute, provided derivative works remain under the same license.</value>
   </data>
   <data name="AboutPage_ContactAuthor.Text" xml:space="preserve">
     <value>Contact Author</value>
@@ -3228,8 +3234,32 @@ Place any of these files into the same folder.</value>
   <data name="AboutPage_SendEmail.Text" xml:space="preserve">
     <value>Send Email</value>
   </data>
+  <data name="AboutPage_ContactEmail.Text" xml:space="preserve">
+    <value>Email</value>
+  </data>
+  <data name="AboutPage_ContactQQ.Text" xml:space="preserve">
+    <value>QQ</value>
+  </data>
+  <data name="AboutPage_CopyQQ.Text" xml:space="preserve">
+    <value>Copy QQ</value>
+  </data>
   <data name="AboutPage_EmailCopied.Text" xml:space="preserve">
     <value>✓ Copied to clipboard</value>
+  </data>
+  <data name="AboutPage_SponsorButton.Text" xml:space="preserve">
+    <value>Sponsor</value>
+  </data>
+  <data name="AboutPage_Sponsor_Title.Text" xml:space="preserve">
+    <value>Support the Author</value>
+  </data>
+  <data name="AboutPage_Sponsor_GitHub.Text" xml:space="preserve">
+    <value>GitHub Sponsors</value>
+  </data>
+  <data name="AboutPage_Sponsor_Afdian.Text" xml:space="preserve">
+    <value>Afdian (爱发电)</value>
+  </data>
+  <data name="AboutPage_Sponsor_WeChat.Text" xml:space="preserve">
+    <value>WeChat Tip Jar</value>
   </data>
   <data name="MergePage_InputOutputHeader.Text" xml:space="preserve">
     <value>Directory Selection</value>
@@ -3286,7 +3316,7 @@ Place any of these files into the same folder.</value>
     <value>Samsung - Motion Photo</value>
   </data>
   <data name="MergePage_Protocol_Samsung_Hint" xml:space="preserve">
-    <value>Samsung</value>
+    <value>Windows / Samsung</value>
   </data>
   <data name="MergePage_Protocol_Huawei.Content" xml:space="preserve">
     <value>HUAWEI - Moving Photo</value>
@@ -3305,6 +3335,9 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="MergePage_OutputFormat_HEIC_MP4.Content" xml:space="preserve">
     <value>HEIC [Embedded MP4 (H.264)]</value>
+  </data>
+  <data name="MergePage_OutputFormat_HEIC_MP4_H265.Content" xml:space="preserve">
+    <value>HEIC [Embedded MP4 (H.265)]</value>
   </data>
   <data name="OriginalDir_SubfolderName" xml:space="preserve">
     <value>original_photos</value>
@@ -3489,5 +3522,41 @@ Tip: Drag ☰ handles to reorder segments.</value>
   </data>
   <data name="MergePage_FooterCancelled.Text" xml:space="preserve">
     <value>Cancelled </value>
+  </data>
+  <data name="HomePage_NoSample_Title" xml:space="preserve">
+    <value>No sample photos found</value>
+  </data>
+  <data name="HomePage_NoSample_Message" xml:space="preserve">
+    <value>Sample photos are no longer bundled with the app to keep the download size small. You can download them for free in Settings → Sample Content.</value>
+  </data>
+  <data name="HomePage_NoSample_GoToSettings" xml:space="preserve">
+    <value>Go to Settings</value>
+  </data>
+  <data name="SettingsPage_SampleContent_Header.Text" xml:space="preserve">
+    <value>Sample Content</value>
+  </data>
+  <data name="SettingsPage_SampleContent_DownloadButtonText.Text" xml:space="preserve">
+    <value>Download sample photos</value>
+  </data>
+  <data name="SettingsPage_SampleContent_ClearButtonText.Text" xml:space="preserve">
+    <value>Clear local samples</value>
+  </data>
+  <data name="SettingsPage_SampleContent_ComingSoon_Title" xml:space="preserve">
+    <value>Coming soon</value>
+  </data>
+  <data name="SettingsPage_SampleContent_ComingSoon_Message" xml:space="preserve">
+    <value>The sample download feature is under development and will be available in a future update. Stay tuned!</value>
+  </data>
+  <data name="SettingsPage_SampleContent_Clear_Confirm_Title" xml:space="preserve">
+    <value>Clear local samples</value>
+  </data>
+  <data name="SettingsPage_SampleContent_Clear_Confirm_Message" xml:space="preserve">
+    <value>All locally cached sample photos will be deleted. You can re-download them anytime. Continue?</value>
+  </data>
+  <data name="SettingsPage_SampleContent_Clear_NotFound_Title" xml:space="preserve">
+    <value>Nothing to clear</value>
+  </data>
+  <data name="SettingsPage_SampleContent_Clear_NotFound_Message" xml:space="preserve">
+    <value>No local sample files found. Everything is already clean.</value>
   </data>
 </root>

@@ -3,7 +3,7 @@
   <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
   Live Photo Box（实况照片工具箱）
 </h1>
-<p><em>A toolbox for managing, repairing, and converting Apple Live Photos on Windows &amp; Android</em></p>
+<p><em>Unifying all live photo protocols for seamless cross-device viewing & migration</em></p>
 
 <p align="center">
   <a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7" alt="Release"></a>
@@ -17,7 +17,7 @@
 ---
 
 <p align="center">
-  📖 README Language: &nbsp;<strong>English  &nbsp;·&nbsp; <a href="README.zh-cn.md">简体中文</a></strong>
+  📖 README Language: &nbsp;<strong>English  &nbsp;·&nbsp; <a href="README.zh-CN.md">简体中文</a></strong>
 </p>
 
 </div>
@@ -25,7 +25,7 @@
 ## 🚀 Download
 
 <div align="center">
-  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" /></a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" /></a>
+  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" hspace="35" /></a>
 </div>
 <p align="center">
   <sub>
@@ -41,44 +41,54 @@
 
 ## 💡 What Is This?
 
-iPhone Live Photos are essentially a still image + a short video clip. The problem is that Apple's format doesn't play well with Windows:
+Every brand's Live Photos are essentially a still image + a short video clip, but each vendor uses its own incompatible container format. After switching phones or sharing across platforms, you often see:
 
-- **No native preview** — Windows File Explorer only shows a static image
-- **Metadata loss & pairing corruption** after cross-platform transfers (e.g. iOS → Android → back), turning Live Photos into plain JPEGs
-- **Front-camera videos appear rotated or stretched** — Windows ignores the rotation metadata that iOS uses to correct orientation
+- **No dynamic preview** — Windows shows only a static image
+- **Metadata loss &amp; pairing corruption** — Live Photos degrade into plain JPEGs
+- **Rotated or stretched videos** — playback looks wrong
 
-**Live Photo Box** solves all these problems — letting you view, manage, and repair Live Photos on Windows just like on an iPhone.
-
-Built on **WinUI 3 (Windows App SDK 1.8)**, fully native to Windows 11 Fluent Design guidelines, with Mica material and dark/light theme support.
+**Live Photo Box** freely converts between all major protocols. Switch devices, share, migrate — your Live Photos stay alive.
 
 ---
 
 ## 📸 Screenshots
 
-<p align="center"><b>🏠 Home & Tutorial</b><br><img src="screenshots/home.png" alt="Home" width="80%" /></p>
-
 <p align="center"><b>🖼️ Live Photo Edit</b><br><img src="screenshots/Edit.png" alt="Edit" width="80%" /></p>
 
-<p align="center"><b>📸 Split Live Photo</b><br><img src="screenshots/split.png" alt="Split" width="80%" /></p>
-
 <p align="center"><b>🔗 Merge Live Photo</b><br><img src="screenshots/merge.png" alt="Merge" width="80%" /></p>
-
-<p align="center"><b>🛠️ Repair Live Photo</b><br><img src="screenshots/repair.png" alt="Repair" width="80%" /></p>
-
-<p align="center"><b>⚙️ Settings</b><br><img src="screenshots/settings.png" alt="Settings" width="80%" /></p>
 
 ---
 
 ## ✨ Core Features
 
+### 🖼️ Live Photo Edit
+
+Freely change your Live Photo cover — pick the perfect moment from the video timeline.
+
+- Filmstrip timeline with frame-by-frame preview
+- Replace cover, export a single frame, or all frames — or export the clip as video / GIF
+- Quick Live Photo protocol conversion
+- Inspect file properties and detect the Live Photo protocol
+
 ### 🔗 Merge Live Photo
 
-Combine **Apple Live Photos** or any still image + video clip into a **standard Live Photo** (single-file format), viewable on Windows and Android devices.
+Convert a **dual-file Live Photo** (or any image + video pair) into a **single-file Live Photo**, viewable on Windows and Android devices.
 
-- Supports **Fusion / Google (V1 & V2) / OPPO / vivo / Samsung / HUAWEI** protocols
-- Writes complete `EXIF` + `QuickTime` metadata (`ContentIdentifier` `UUID`) automatically
-- **Apple-native Live Photo pairing**: matches photos and videos by Apple `ContentIdentifier` (`UUID`) even when filenames are completely different; gracefully degrades to capture-time ±2 s tolerance when `UUID` is unavailable
-- **Live Photos merged via any supported protocol are fully viewable on Windows** (Motion Photo V2 recommended)
+- **Merge anything in one click**: drag & drop or pick an image (`JPG` / `HEIC`) + a video (`MP4` / `MOV`), or scan a whole folder and auto-pair everything into a batch queue
+- **Smart pairing**: match image + video automatically by filename, Apple `ContentIdentifier` UUID, or vivo camera ID
+- **Any target protocol**: switch between all major phone protocols in one click, with `JPEG+MP4` / `JPEG+MOV` / `HEIC+MP4` / `HEIC+MOV` / `HEIC+MP4 (H.265)` outputs — available formats adapt to the selected protocol
+- **Visual naming templates**: build filenames from segments (original name / protocol / date / time / EXIF date-time / counter / custom text) with drag-to-reorder, presets, separators, and live preview
+- **Post-processing**: after merging, move outputs to a folder, or recycle the sources
+- **Parallel batch merging**: a queue with search, multi-dimension sorting, and status filters — multiple tasks process in parallel with live progress, success/fail counts, and elapsed time
+
+| Merge Protocol | Devices | Status |
+|---|---|---|
+| Google Micro Video V1 | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
+| Google Motion Photo V2 | Windows / Xiaomi / Pixel | ✅ Supported |
+| OPPO O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
+| HUAWEI Moving Photo | HUAWEI / Honor | ✅ Supported |
+| Samsung Motion Photo | Windows / Samsung | 🟡 In testing |
+| vivo Live Photo | Windows / vivo (≥ X300) | 🟡 In testing |
 
 ### 📸 Split Live Photo
 
@@ -87,9 +97,14 @@ Split a **Live Photo** (single-file form) into an independent still image (`JPG`
 - Strips `XMP` metadata to prevent the split image from being erroneously re-identified as a Live Photo, while preserving all other metadata
 - Rebuilds `JPEG` segment-by-segment; `EXIF` / `ICC` / `GPS` / shooting parameters are retained
 
+| Split Protocol | Devices | Status |
+|---|---|---|
+| Apple Live Photo | iPhone / iPad | 🟡 In testing |
+| vivo Live Photo | vivo (≤ X300) | 🟡 In testing |
+
 ### 🛠️ Repair Live Photo
 
-Deeply repair the visual defects that occur when iPhone Live Photos are exported to Windows.
+Repair the display anomalies that appear when Apple Live Photos are exported.
 
 - **Excess thumbnail & horizontal stretch** (pre-iOS 17.3): Apple once embedded low-resolution thumbnails tagged with orientation, which Windows misinterprets as landscape, causing stretching or squashing. Losslessly fixed via `jpegtran` rotation + stripping the extraneous thumbnail
 - **Front-camera video rotation**: the iPhone front camera stores vertical pixels horizontally and relies on an orientation tag — which Windows ignores. Fixed by `FFmpeg` re-encode to bake the rotation matrix into the pixel data
@@ -97,37 +112,12 @@ Deeply repair the visual defects that occur when iPhone Live Photos are exported
 - **ContentIdentifier restoration**: auto-repairs photo-video `UUID` pairings
 - Scan and review **diagnostic details** per photo; filter by file type or repair status
 
-### 🖼️ Live Photo Edit
-
-Freely change your Live Photo cover — pick the perfect moment from the video timeline.
-
-- Filmstrip timeline with frame-by-frame preview
-- Replace cover, export a single frame, or export all frames in one click
-- Quick Live Photo protocol conversion
-
 ### 📂 Photo Organize (In Development)
 
-Automatically scan, categorize, and archive photos by device, date, and Live Photo type based on EXIF metadata. Initial support will target iPhone photos.
-
-> ✅ **Source-file auto-organization** is already available on the **Merge** page: after merging, original photos/videos can be moved automatically to a folder you choose (or the recycle bin).
+Automatically scan, categorize, and archive photos by device, date, and Live Photo type based on EXIF metadata. Starting with iPhone photos, expanding to more brands.
 
 ---
 
-## 📋 Supported Live Photo Protocols
-
-| Protocol | Source | Description |
-|----------|--------|-------------|
-| Google — Micro Video (V1) | Google (legacy) | `MP4` video appended to `JPEG` end, offset in `GCamera:MicroVideoOffset`. Used by older Xiaomi MIUI / Pixel devices |
-| Google — Motion Photo (V2) | Google | Modern standard, `Container:Directory` `XMP` structure. Used by Google Pixel / Xiaomi HyperOS 3+ |
-| OPPO/OnePlus — O Live Photo | OPPO / OnePlus | Extended `Motion Photo V2`, adds `OpCamera` namespace + `EXIF` `UserComment`. Used by OPPO ColorOS / OnePlus OxygenOS |
-| vivo — Live Photo | vivo | Extends V2 with the `VCamera` namespace. Used by vivo X300 series and later |
-| Samsung — Motion Photo | Samsung | Extends V2 with an `SEF` trailer (`mpvd` / `sefd` boxes). Used by Samsung Galaxy devices |
-| HUAWEI — Moving Photo | HUAWEI / Honor | JPEG/HEIC + `MP4` video tail. Supports **HEIC + H.265 (HEVC)** output with lossless HEVC passthrough. HarmonyOS 4.0 / 5+ |
-| Fusion — Motion Photo | Multi-vendor | Merges V2 + OPPO + vivo + Samsung metadata into one file playable across Google / OPPO / vivo / Samsung / Xiaomi + Windows Photos |
-
-> ⚡ **Live Photos merged via any supported protocol are fully viewable on Windows 11.**
-
----
 
 ## 💻 Command Line (CLI)
 
@@ -136,10 +126,9 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 - **Commands**: `merge` (single-pair or batch), `protocols` (protocol × format compatibility matrix), `update-check` (check for the latest release)
 - **Six executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lipbox` / `lpb` / `lpbx`
 - **Batch merging** with metadata-based pairing (`name`, Apple `ContentIdentifier` UUID, vivo camera ID), custom naming templates, and `--after` actions (`move` to a folder / recycle bin)
-- **HUAWEI-native output**: `heic+mp4-h265` (HEIC + H.265/HEVC)
 - **Distribution**: bundled with the installer (optional “Add to PATH”), or a standalone `-x64-cli.zip`
 
-📖 **Full documentation**: [CLI User Guide (English)](docs/CLI-User-Guide-en.md) · [CLI 使用指南（简体中文）](docs/CLI-使用指南-zh-CN.md)
+📖 **CLI User Guide**: [English](docs/CLI-User-Guide.md) · [简体中文](docs/CLI-User-Guide.zh-CN.md)
 
 ---
 
@@ -195,25 +184,26 @@ dotnet run --project "LivePhotoBox/LivePhotoBox.csproj"
 
 ```
 live-photo-box/
-├── LivePhotoBox.Core/       # Shared core library (protocols, merge/split/repair services, localization)
-├── LivePhotoBox/            # Main project (WinUI 3 MSIX app)
-│   ├── Assets/                # Icons, screenshots, static resources
-│   ├── Controls/              # Custom controls (fullscreen lightbox, status bar)
-│   ├── Converters/            # XAML value converters
-│   ├── Helpers/               # Utilities (scrolling, formatting, hover preview, etc.)
-│   ├── Models/                # Data models
-│   ├── Services/              # GUI business logic (delegates to LivePhotoBox.Core)
-│   ├── Strings/               # Multilingual resources (zh-Hans / en-US)
-│   ├── ViewModels/            # MVVM ViewModel layer
-│   └── Views/                 # XAML pages
+├── LivePhotoBox.Core/        # Shared core library (protocols, merge/split/repair services, localization)
+├── LivePhotoBox/             # Main project (WinUI 3 MSIX app)
+│   ├── Assets/               # Icons, screenshots, static resources
+│   ├── Controls/             # Custom controls (fullscreen lightbox, status bar)
+│   ├── Converters/           # XAML value converters
+│   ├── Helpers/              # Utilities (scrolling, formatting, hover preview, etc.)
+│   ├── Models/               # Data models
+│   ├── Services/             # GUI business logic (delegates to LivePhotoBox.Core)
+│   ├── Strings/              # Multilingual resources (zh-Hans / en-US)
+│   ├── ViewModels/           # MVVM ViewModel layer
+│   └── Views/                # XAML pages
 ├── LivePhotoBox.CLI/         # Command-line interface (livephotobox)
-├── docs/                      # Project documentation
-├── changelogs/                # Release notes
-├── scripts/                   # Build & packaging scripts
+├── docs/                     # Project documentation
+├── changelogs/               # Release notes
+├── scripts/                  # Build & packaging scripts
+├── screenshots/              # Screenshots
 └── README.md
 ```
 
-> 📖 See [`docs/项目总览.md`](docs/项目总览.md) for the complete directory reference.
+📖 See <strong><a href="docs/项目总览.md">Project Overview</a></strong> for the complete directory reference.
 
 ---
 
@@ -241,12 +231,6 @@ Issues and Pull Requests are welcome!
 - 🐛 **Bug reports** and 💡 **Feature requests** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
 - 🔧 **Code contributions** → Fork → Feature Branch → Pull Request
 
-### Guidelines
-
-- UI text should use RESW resource files, not hardcoded strings
-- Follow the project's MVVM layering conventions
-- Add multi-line comments at the top of each file describing its purpose
-
 ---
 
 ## 📄 License
@@ -269,6 +253,20 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 | [Markdig](https://github.com/xoofx/markdig) | Markdown rendering | BSD-2-Clause |
 | [Win2D](https://github.com/microsoft/Win2D) | GPU-accelerated graphics | MIT |
 | [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent icon set | MIT |
+
+---
+
+## ⭐ Star History
+
+<p align="center">
+  <a href="https://star-history.com/#lengxiqwq/live-photo-box&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=lengxiqwq/live-photo-box&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=lengxiqwq/live-photo-box&type=Date" />
+      <img alt="Star History" src="https://api.star-history.com/svg?repos=lengxiqwq/live-photo-box&type=Date" />
+    </picture>
+  </a>
+</p>
 
 ---
 

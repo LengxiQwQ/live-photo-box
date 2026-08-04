@@ -15,15 +15,18 @@ namespace LivePhotoBox.Cli.Commands
 {
     internal static class MergeCommand
     {
+        // Recognized file extensions for auto-detection
+        private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+            { ".jpg", ".jpeg", ".heic", ".heif" };
+        private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
+            { ".mp4", ".mov" };
+
         public static Command Create()
         {
-            var imageOpt = new Option<FileInfo?>("--image",
-                "Image file (JPEG, HEIC, PNG). Use with --video for single-pair mode.");
-            imageOpt.AddAlias("-i");
-
-            var videoOpt = new Option<FileInfo?>("--video",
-                "Video file (MP4, MOV). Use with --image for single-pair mode.");
-            videoOpt.AddAlias("-vid");
+            // Positional: just drop two files, auto-detect image/video by extension
+            var filesArg = new Argument<string[]>("files",
+                "Image + video file pair (.jpg/.heic/.png + .mp4/.mov). Auto-detected by extension.");
+            filesArg.Arity = new ArgumentArity(0, 2);
 
             var dirOpt = new Option<DirectoryInfo?>("--dir",
                 "Folder with images+ videos. Files with matching names are paired. For batch mode.");
@@ -79,23 +82,55 @@ namespace LivePhotoBox.Cli.Commands
             var afterOpt = new Option<string>("--after", () => "none",
                 "After successful merge: none (keep source)|move:PATH (move to folder)|recycle (Windows recycle bin).");
 
+            var allVariantsOpt = new Option<bool>("--all-variants",
+                "Generate for ALL supported protocol×format combos (single-pair mode only).\n" +
+                "Output goes to {output}/{name}_variants/ (default: input file's directory). Files are named {name}_{Protocol}_{Format}.ext.");
+
             var cmd = new Command("merge",
-                "Combine images and videos into phone-compatible live photos.\n\n" +
-                "Single pair:  livephotobox merge -i photo.jpg -vid video.mp4 -p huawei\n" +
+                "Combine images and videos into phone-compatible live photos.\n" +
+                "Images: .jpg .jpeg .heic .heif   Videos: .mp4 .mov\n\n" +
+                "Single pair:  livephotobox merge photo.jpg video.mp4 -p huawei\n" +
                 "Batch folder: livephotobox merge -d ./MyPhotos -p v2 -o ./Output -y\n" +
                 "Preview:      livephotobox merge -d ./MyPhotos --dry-run\n" +
+                "All variants: livephotobox merge photo.jpg video.mp4 --all-variants\n" +
                 "Formats:      livephotobox protocols")
             {
-                imageOpt, videoOpt, dirOpt, protocolOpt, outputOpt, formatOpt,
+                filesArg,
+                dirOpt, protocolOpt, outputOpt, formatOpt,
                 namingOpt, parallelOpt, yesOpt, dryRunOpt, verboseOpt,
-                overwriteOpt, recursiveOpt, preserveSubdirsOpt, pairingOpt, afterOpt
+                overwriteOpt, recursiveOpt, preserveSubdirsOpt, pairingOpt, afterOpt,
+                allVariantsOpt
             };
 
             cmd.SetHandler(async context =>
             {
-                var image = context.ParseResult.GetValueForOption(imageOpt);
-                var video = context.ParseResult.GetValueForOption(videoOpt);
                 var dir = context.ParseResult.GetValueForOption(dirOpt);
+
+                // Auto-detect image/video from positional file arguments
+                FileInfo? image = null;
+                FileInfo? video = null;
+                var files = context.ParseResult.GetValueForArgument(filesArg);
+                if (files is { Length: 2 })
+                {
+                    var resolved = ResolveImageVideo(files[0], files[1]);
+                    if (resolved == null)
+                    {
+                        Console.Error.WriteLine("Error: Cannot determine which file is the image and which is the video.");
+                        Console.Error.WriteLine("Supported image formats: .jpg, .jpeg, .heic, .heif");
+                        Console.Error.WriteLine("Supported video formats: .mp4, .mov");
+                        context.ExitCode = 1;
+                        return;
+                    }
+                    image ??= resolved.Value.Image;
+                    video ??= resolved.Value.Video;
+                }
+                else if (files is { Length: 1 })
+                {
+                    Console.Error.WriteLine("Error: Provide TWO files (image + video), or use --dir for batch mode.");
+                    context.ExitCode = 1;
+                    return;
+                }
+
                 var protocolName = context.ParseResult.GetValueForOption(protocolOpt)!;
                 var output = context.ParseResult.GetValueForOption(outputOpt);
                 var formatName = context.ParseResult.GetValueForOption(formatOpt);
@@ -109,15 +144,43 @@ namespace LivePhotoBox.Cli.Commands
                 var preserveSubdirs = context.ParseResult.GetValueForOption(preserveSubdirsOpt);
                 var pairing = context.ParseResult.GetValueForOption(pairingOpt)!;
                 var after = context.ParseResult.GetValueForOption(afterOpt)!;
+                var allVariants = context.ParseResult.GetValueForOption(allVariantsOpt);
 
                 context.ExitCode = await RunAsync(
                     image, video, dir, protocolName, output, formatName,
                     naming, parallel, yes, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs, pairing, after,
+                    allVariants,
                     context.GetCancellationToken());
             });
 
             return cmd;
+        }
+
+        /// <summary>
+        /// Auto-detect which of two files is the image and which is the video,
+        /// based on extension. Returns null if the pair is ambiguous.
+        /// </summary>
+        private static (FileInfo Image, FileInfo Video)? ResolveImageVideo(string path1, string path2)
+        {
+            string ext1 = Path.GetExtension(path1);
+            string ext2 = Path.GetExtension(path2);
+
+            bool is1Image = ImageExtensions.Contains(ext1);
+            bool is2Image = ImageExtensions.Contains(ext2);
+            bool is1Video = VideoExtensions.Contains(ext1);
+            bool is2Video = VideoExtensions.Contains(ext2);
+
+            // Both are images or both are videos — ambiguous
+            if (is1Image && is2Image) return null;
+            if (is1Video && is2Video) return null;
+
+            // One is image, one is video
+            if (is1Image && is2Video) return (new FileInfo(path1), new FileInfo(path2));
+            if (is1Video && is2Image) return (new FileInfo(path2), new FileInfo(path1));
+
+            // Unknown extension(s)
+            return null;
         }
 
         private static async Task<int> RunAsync(
@@ -125,15 +188,48 @@ namespace LivePhotoBox.Cli.Commands
             string protocolName, DirectoryInfo? output, string? formatName,
             string naming, int parallel, bool yes, bool dryRun, bool verbose,
             bool overwrite, bool recursive, bool preserveSubdirs,
-            string pairing, string after, CancellationToken ct)
+            string pairing, string after, bool allVariants, CancellationToken ct)
         {
+            // ── --all-variants path ─────────────────────────────────
+            if (allVariants)
+            {
+                if (dir != null)
+                {
+                    Console.Error.WriteLine("Error: --all-variants only works with a single image+video pair (not --dir batch mode).");
+                    return 1;
+                }
+                if (image == null || video == null)
+                {
+                    Console.Error.WriteLine("Error: --all-variants requires an image and video file.");
+                    return 1;
+                }
+
+                // Default output to the input image's directory (not cwd)
+                string outputDir = output?.FullName ?? Path.GetDirectoryName(image.FullName)!;
+                string tempDir = Path.Combine(outputDir, "Temp");
+                Directory.CreateDirectory(outputDir);
+                Directory.CreateDirectory(tempDir);
+
+                try
+                {
+                    return await RunAllVariantsAsync(
+                        image.FullName, video.FullName, outputDir, tempDir,
+                        parallel, dryRun, ct);
+                }
+                finally
+                {
+                    try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
+                    catch { /* best effort */ }
+                }
+            }
+
             // Validate: need either --image+--video or --dir
             bool isSingle = image != null && video != null;
             bool isBatch = dir != null;
 
             if (!isSingle && !isBatch)
             {
-                Console.Error.WriteLine("Error: Specify either --image and --video (single pair) or --dir (batch mode).");
+                Console.Error.WriteLine("Error: Specify two files (image+video) for single-pair, or --dir for batch mode.");
                 return 1;
             }
 
@@ -542,6 +638,103 @@ namespace LivePhotoBox.Cli.Commands
             // 8. Summary
             Console.WriteLine();
             Console.WriteLine($"Done: {ok} OK, {fail} FAIL, {tasks.Count} total");
+            return fail > 0 ? 1 : 0;
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  --all-variants: generate all protocol × format combos
+        // ══════════════════════════════════════════════════════════════
+
+        private static async Task<int> RunAllVariantsAsync(
+            string imagePath, string videoPath, string outputDir, string tempDir,
+            int parallel, bool dryRun, CancellationToken ct)
+        {
+            string originalBaseName = Path.GetFileNameWithoutExtension(imagePath);
+
+            // Auto-create subfolder: {outputDir}/{name}_variants/
+            string variantsDir = Path.Combine(outputDir, $"{originalBaseName}_variants");
+            Directory.CreateDirectory(variantsDir);
+
+            // Build job list from the Matrix (single source of truth)
+            var combos = new List<(int Proto, int Fmt, string BaseName, string Label)>();
+            for (int p = 0; p < ProtocolFormatMatrix.Matrix.Length; p++)
+            {
+                foreach (int f in ProtocolFormatMatrix.GetAvailableFormats(p))
+                {
+                    // {originalName}_{Protocol}_{Format}
+                    string name = $"{originalBaseName}_{ProtocolNameResolver.ProtocolNames[p]}_{ProtocolFormatMatrix.FormatNames[f]}";
+                    string label = $"{ProtocolNameResolver.ProtocolNames[p]} {ProtocolFormatMatrix.FormatNames[f]}";
+                    combos.Add((p, f, name, label));
+                }
+            }
+
+            if (dryRun)
+            {
+                Console.WriteLine($"Output : {variantsDir}");
+                Console.WriteLine($"\nWould generate {combos.Count} variants:");
+                foreach (var c in combos)
+                    Console.WriteLine($"  {c.BaseName}");
+                return 0;
+            }
+
+            Console.WriteLine($"Output : {variantsDir}");
+            Console.WriteLine($"Combos : {combos.Count}");
+            Console.WriteLine();
+
+            int ok = 0, fail = 0, completed = 0;
+            var semaphore = new SemaphoreSlim(Math.Max(1, parallel));
+            var pause = new ManualResetEventSlim(true); // CLI never pauses
+
+            var tasks = combos.Select(async c =>
+            {
+                await semaphore.WaitAsync(ct);
+                try
+                {
+                    int idx = Interlocked.Increment(ref completed);
+
+                    var options = new LivePhotoMergeRunOptions
+                    {
+                        OutputDirectory = variantsDir,
+                        SelectedModeIndex = c.Proto,
+                        OutputFormatIndex = c.Fmt,
+                        NamingRuleIndex = 0,
+                        OverwriteExisting = true,
+                    };
+
+                    var (success, details) = await LivePhotoMergeRunnerService
+                        .ProcessSinglePairAsync(imagePath, videoPath, c.BaseName,
+                            taskIndex: 0, options, tempDir, pause, ct);
+
+                    if (success)
+                    {
+                        Interlocked.Increment(ref ok);
+                        Console.WriteLine($"  [{idx}/{combos.Count}] OK  {c.Label}");
+                    }
+                    else
+                    {
+                        Interlocked.Increment(ref fail);
+                        Console.WriteLine($"  [{idx}/{combos.Count}] FAIL  {c.Label}  ({details})");
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Interlocked.Increment(ref fail);
+                    Console.Error.WriteLine($"  [{Interlocked.Increment(ref completed)}/{combos.Count}] ERROR  {c.Label}  ({ex.Message})");
+                }
+                finally
+                {
+                    semaphore.Release();
+                }
+            });
+
+            await Task.WhenAll(tasks);
+
+            Console.WriteLine();
+            Console.WriteLine($"Done: {ok} OK, {fail} FAIL, {combos.Count} total");
             return fail > 0 ? 1 : 0;
         }
 

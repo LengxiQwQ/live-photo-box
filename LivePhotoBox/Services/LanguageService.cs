@@ -78,6 +78,15 @@ namespace LivePhotoBox.Services
             };
         }
 
+        // 判断当前生效界面语言是否为简体中文。
+        // 必须基于持久化的 LanguageIndex + GetEffectiveLanguage 计算，
+        // 不能用 .NET 的 CultureInfo.CurrentUICulture（它跟系统语言走，应用内切换语言时会误判）。
+        public static bool IsChineseUi()
+        {
+            int languageIndex = AppSettingsService.GetValue("LanguageIndex", 0);
+            return GetEffectiveLanguage(languageIndex).StartsWith("zh", StringComparison.OrdinalIgnoreCase);
+        }
+
         // 获取当前生效的语言标签。
         // 优先返回 PrimaryLanguageOverride（用户手动设置），
         // 未设置时回退到系统首选语言的第一个条目，最后兜底为 en-US。

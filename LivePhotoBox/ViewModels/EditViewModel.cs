@@ -6729,7 +6729,7 @@ namespace LivePhotoBox.ViewModels
             if (token.IsCancellationRequested) return;
             _lastGeoRequestTicks = DateTime.UtcNow.Ticks;
 
-            string lang = System.Globalization.CultureInfo.CurrentUICulture.Name.StartsWith("zh") ? "zh" : "en";
+            string lang = LivePhotoBox.Services.LanguageService.IsChineseUi() ? "zh" : "en";
 
             //  中文用户 → Mirror Earth 主（返回中文），Nominatim 兜底
             //  英文/其他 → Nominatim 主（尊重 accept-language），Mirror Earth 兜底

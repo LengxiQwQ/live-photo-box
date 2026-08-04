@@ -40,7 +40,13 @@ namespace LivePhotoBox.Services
         private const string LastCheckKey = "UpdateLastCheckTime";
         private const string SkippedVersionKey = "UpdateSkippedVersion";
         private const string GitHubTokenKey = "GitHubApiToken";
-        private const int CheckIntervalDays = 3;
+        private const int CheckIntervalDays = 2;
+
+        // ── Microsoft Store 产品页（商店版「前往商店更新」入口）───────
+        public const string StoreProductId = "9N3D1QNRTVCH";
+        public const string StorePageUrl = "https://apps.microsoft.com/detail/9N3D1QNRTVCH";
+        // ms-windows-store 协议可直接唤起 Microsoft Store 应用并定位到产品页（不经过浏览器）
+        public const string StorePageProtocolUri = $"ms-windows-store://pdp/?ProductId={StoreProductId}";
 
         // ── 静态字段 ──────────────────────────────────────────────────
         private static readonly HttpClient _httpClient;      // 仅用于 GitHub API 请求

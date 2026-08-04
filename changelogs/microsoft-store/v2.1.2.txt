@@ -1,0 +1,30 @@
+v2.1.2 更新内容
+
+重构：
+- 🖼️ 关于页内容重构 — 新增商店页面、更新日志、检查更新等快捷入口按钮，更新窗口改版，发现新版可一键前往商店更新
+- 📦 安装包体积更小 — 示例照片不再随包内置，设置页新增「示例内容」（在线下载即将上线）
+
+优化：
+- 🧹 协议设置精简 — 移除无用开关，华为协议统一为 v6_f 格式
+
+修复：
+- 🌐 修复应用内切换语言后部分界面与功能仍跟随系统语言
+- 🏷️ 更正合成页输出格式选项的错误标注
+
+💡 命令行模式仅随 GitHub 版发布，商店版暂不包含；需要请前往 GitHub Releases 下载。
+
+
+v2.1.2 What's New
+
+Redesign:
+- 🖼️ About page restructured — new Store page, changelog, and check-update shortcut buttons; reworked update window that jumps straight to the Store when an update is found
+- 📦 Smaller installer — sample photos are no longer bundled; new Sample Content entry in Settings (online download coming soon)
+
+Optimized:
+- 🧹 Protocol settings simplified — removed a useless toggle; HUAWEI unified on the v6_f format
+
+Fixes:
+- 🌐 Fixed parts of the UI and features still following the system language after switching in-app
+- 🏷️ Corrected the mislabeled output format option on the Merge page
+
+💡 CLI mode ships with the GitHub release only — the Store version does not include it. Download from GitHub Releases if you need it.

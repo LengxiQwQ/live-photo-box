@@ -43,13 +43,12 @@ namespace LivePhotoBox.Cli.Infrastructure
             4 => "vivo Live Photo",
             5 => "Samsung Motion Photo",
             6 => "HUAWEI Moving Photo",
-            7 => "HUAWEI Moving Photo (HarmonyOS 4.0)",
             _ => $"Unknown ({index})"
         };
 
         public static string[] ProtocolNames { get; } =
             ["Fusion", "V1_MicroVideo", "V2_MotionPhoto",
              "OPPO_OLive", "vivo_LivePhoto", "Samsung_MotionPhoto",
-             "HUAWEI_MovingPhoto", "HUAWEI_MovingPhoto_V3"];
+             "HUAWEI_MovingPhoto"];
     }
 }

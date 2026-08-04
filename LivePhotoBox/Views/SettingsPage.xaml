@@ -538,57 +538,7 @@
                         </Border>
                     </StackPanel>
                 </controls:SettingsCard>
-
-                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
-                    <controls:SettingsCard.Header>
-                        <TextBlock x:Uid="SettingsPage_Merge_GoogleForceMp4" FontFamily="Microsoft YaHei UI"/>
-                    </controls:SettingsCard.Header>
-                    <controls:SettingsCard.Description>
-                        <TextBlock x:Uid="SettingsPage_Merge_GoogleForceMp4_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                    </controls:SettingsCard.Description>
-                    <controls:SettingsCard.HeaderIcon>
-                        <ic:SymbolIcon Symbol="VideoSync" />
-                    </controls:SettingsCard.HeaderIcon>
-                    <ToggleSwitch IsOn="{x:Bind ViewModel.IsGoogleProtocolForceMp4, Mode=TwoWay}"
-                                  x:Uid="Toggle_OnOff"/>
-                </controls:SettingsCard>
             </StackPanel>
-
-            <!-- ═══════════════════════════════════════════════════════════════════════
-                 实况照片拆分 — 已移至 SplitPage 页面底部栏
-                 原设置项（视频输出格式）只有一个选项，没必要放在设置里，
-                 且该选项很常用，直接放在拆分页面更方便。
-                 保留以下代码以备将来可能恢复。
-                 ═══════════════════════════════════════════════════════════════════════ -->
-            <!--
-            <StackPanel x:Name="SplitSettingsHeader" Spacing="4">
-                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
-                    <FontIcon Glyph="&#xE8C6;" FontSize="18" Foreground="{ThemeResource SystemAccentColor}"/>
-                    <TextBlock x:Uid="SettingsPage_Split_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
-                </StackPanel>
-
-                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
-                    <controls:SettingsCard.Header>
-                        <TextBlock x:Uid="SettingsPage_Split_FormatLabel" FontFamily="Microsoft YaHei UI"/>
-                    </controls:SettingsCard.Header>
-                    <controls:SettingsCard.Description>
-                        <TextBlock x:Uid="SettingsPage_Split_FormatDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                    </controls:SettingsCard.Description>
-                    <controls:SettingsCard.HeaderIcon>
-                        <ic:SymbolIcon Symbol="VideoMultiple" />
-                    </controls:SettingsCard.HeaderIcon>
-                    <ComboBox SelectedIndex="{x:Bind ViewModel.SplitFormatIndex, Mode=TwoWay}"
-                              Loaded="AppearanceComboBox_Loaded"
-                              MinWidth="200">
-                        <ComboBoxItem x:Uid="SettingsPage_SplitFormat_ImageDefault"/>
-                        <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MP4"/>
-                        <ComboBoxItem x:Uid="SettingsPage_SplitFormat_MOV"/>
-                    </ComboBox>
-                </controls:SettingsCard>
-            </StackPanel>
-            -->
-
-            
 
             <!-- ====================================================================== -->
             <!--  实况照片显示修复                                                           -->
@@ -673,6 +623,41 @@
                     </controls:SettingsCard.HeaderIcon>
                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsCopyPerfectToOutput, Mode=TwoWay}"
                                   x:Uid="Toggle_OnOff"/>
+                </controls:SettingsCard>
+            </StackPanel>
+
+            <!-- ====================================================================== -->
+            <!--  示例内容                                                             -->
+            <!-- ====================================================================== -->
+            <StackPanel x:Name="SampleContentRoot" Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
+                    <FontIcon Glyph="&#xE8B9;" FontSize="18" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock x:Uid="SettingsPage_SampleContent_Header"
+                               FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                </StackPanel>
+
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE896;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <controls:SettingsCard.Description>
+                        <toolkit:WrapPanel HorizontalSpacing="8" VerticalSpacing="8">
+                            <Button Click="DownloadSamplePhotos_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE896;" FontSize="14"/>
+                                    <TextBlock x:Uid="SettingsPage_SampleContent_DownloadButtonText"
+                                               FontSize="13" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Click="ClearLocalSamples_Click">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE74D;" FontSize="14"/>
+                                    <TextBlock x:Uid="SettingsPage_SampleContent_ClearButtonText"
+                                               FontSize="13" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </toolkit:WrapPanel>
+                    </controls:SettingsCard.Description>
                 </controls:SettingsCard>
             </StackPanel>
 
@@ -840,12 +825,6 @@
                             </controls:SettingsCard.HeaderIcon>
                             <controls:SettingsCard.Description>
                                 <toolkit:WrapPanel HorizontalSpacing="8" VerticalSpacing="8">
-                                    <Button Click="CheckUpdate_Click">
-                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <FontIcon Glyph="&#xE895;" FontSize="14"/>
-                                            <TextBlock x:Uid="SettingsPage_CheckUpdate_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </Button>
                                     <Button Click="RestartAppButton_Click">
                                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <FontIcon Glyph="&#xE72C;" FontSize="14"/>

@@ -268,16 +268,14 @@ namespace LivePhotoBox.Views
         }
 
         // 准备演示数据并导航到目标功能页面。
-        // 将内置示例文件复制到临时目录，设置 ViewModel 路径并触发扫描，最后切换侧栏选中项。
-        // subFolder: 内部资源子目录名（必须与 Assets/Samples/ 下物理文件夹名一致）
+        // 优先使用用户已下载的本地示例（Temp 目录），若无则提示前往设置页下载。
+        // subFolder: 示例子目录名（Merge / Split / Repair）
         // pageTag: 页面对应的侧栏 Tag
         // pageType: 目标页面类型
-        private void SetupAndNavigateDemo(string subFolder, string pageTag, Type pageType)
+        private async void SetupAndNavigateDemo(string subFolder, string pageTag, Type pageType)
         {
             try
             {
-                // subFolder 是内部资源目录名（英文，必须与 Assets/Samples/ 下的物理文件夹名一致）
-                // localizedSubFolder 是用户可见的输出子文件夹名（跟随界面语言）
                 string localizedSubFolder = pageTag switch
                 {
                     "Merge" => ResourceService.GetString("HomePage_DemoSubFolder_Merge"),
@@ -286,16 +284,30 @@ namespace LivePhotoBox.Views
                     _ => subFolder
                 };
 
-                string internalSamplePath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "Samples", subFolder);
                 string tempInputPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "LivePhotoBox_Demo", subFolder);
+
+                // 检查本地是否已有示例文件
+                if (!System.IO.Directory.Exists(tempInputPath) ||
+                    System.IO.Directory.GetFiles(tempInputPath, "*.*", System.IO.SearchOption.AllDirectories).Length == 0)
+                {
+                    // 无本地示例 → 引导用户前往设置页下载
+                    if (App.MainWindow?.Content?.XamlRoot != null)
+                    {
+                        await DialogService.ShowDualAsync(
+                            App.MainWindow.Content.XamlRoot,
+                            ResourceService.GetString("HomePage_NoSample_Title"),
+                            ResourceService.GetString("HomePage_NoSample_Message"),
+                            primaryText: ResourceService.GetString("HomePage_NoSample_GoToSettings"),
+                            closeText: ResourceService.GetString("Msg_Cancel"));
+                        // 导航到设置页的示例下载区域
+                        if (App.MainWindow is MainWindow mw)
+                            mw.NavigateToSettings("SampleContent");
+                    }
+                    return;
+                }
+
                 string desktopPath = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
                 string desktopOutputPath = System.IO.Path.Combine(desktopPath, ResourceService.GetString("HomePage_DemoOutputFolder"), localizedSubFolder);
-
-                if (!System.IO.Directory.Exists(tempInputPath))
-                {
-                    System.IO.Directory.CreateDirectory(tempInputPath);
-                }
-                CopyDirectory(internalSamplePath, tempInputPath);
 
                 if (!System.IO.Directory.Exists(desktopOutputPath))
                 {

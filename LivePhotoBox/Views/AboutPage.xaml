@@ -14,6 +14,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
+    xmlns:ic="using:FluentIcons.WinUI"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
@@ -52,7 +54,7 @@
                                    FontSize="14" LineHeight="22" TextWrapping="Wrap"
                                    FontFamily="Microsoft YaHei UI"/>
 
-                        <StackPanel Orientation="Horizontal" Spacing="12" Margin="0,16,0,0">
+                        <toolkit:WrapPanel HorizontalSpacing="12" VerticalSpacing="12" Margin="0,16,0,0">
                             <Button x:Uid="AboutPage_GitHubButton"
                                     Command="{x:Bind ViewModel.OpenLinkCommand}"
                                     CommandParameter="https://github.com/LengxiQwQ/live-photo-box"
@@ -60,7 +62,49 @@
                                 <Button.ContentTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <FontIcon Glyph="&#xE70B;" FontSize="14"/>
+                                            <Image Width="16" Height="16" VerticalAlignment="Center">
+                                                <Image.Source>
+                                                    <SvgImageSource UriSource="ms-appx:///Assets/Icons/Social/github-white.svg"/>
+                                                </Image.Source>
+                                            </Image>
+                                            <TextBlock Text="{Binding}" Margin="0,0,0,2"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </Button.ContentTemplate>
+                            </Button>
+                            <Button x:Uid="AboutPage_StoreButton"
+                                    Command="{x:Bind ViewModel.OpenLinkCommand}"
+                                    CommandParameter="ms-windows-store://pdp/?ProductId=9N3D1QNRTVCH">
+                                <Button.ContentTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <Image Width="16" Height="16" VerticalAlignment="Center">
+                                                <Image.Source>
+                                                    <SvgImageSource UriSource="ms-appx:///Assets/Icons/Social/store-microsoft.svg"/>
+                                                </Image.Source>
+                                            </Image>
+                                            <TextBlock Text="{Binding}" Margin="0,0,0,2"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </Button.ContentTemplate>
+                            </Button>
+                            <Button x:Uid="AboutPage_CheckUpdateButton"
+                                    Click="CheckUpdate_Click">
+                                <Button.ContentTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE895;" FontSize="14"/>
+                                            <TextBlock Text="{Binding}" Margin="0,0,0,2"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </Button.ContentTemplate>
+                            </Button>
+                            <Button x:Uid="AboutPage_ChangelogButton"
+                                    Command="{x:Bind ViewModel.ShowChangelogCommand}">
+                                <Button.ContentTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <FontIcon Glyph="&#xE823;" FontSize="14"/>
                                             <TextBlock Text="{Binding}" Margin="0,0,0,2"/>
                                         </StackPanel>
                                     </DataTemplate>
@@ -78,31 +122,19 @@
                                     </DataTemplate>
                                 </Button.ContentTemplate>
                             </Button>
-                            <Button x:Uid="AboutPage_ChangelogButton"
+                            <Button x:Uid="AboutPage_RateButton"
                                     Command="{x:Bind ViewModel.OpenLinkCommand}"
-                                    CommandParameter="{x:Bind ViewModel.ChangelogUrl, Mode=OneWay}">
+                                    CommandParameter="ms-windows-store://review/?ProductId=9N3D1QNRTVCH">
                                 <Button.ContentTemplate>
                                     <DataTemplate>
                                         <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <FontIcon Glyph="&#xE823;" FontSize="14"/>
+                                            <ic:SymbolIcon Symbol="StarEmphasis" FontSize="16"/>
                                             <TextBlock Text="{Binding}" Margin="0,0,0,2"/>
                                         </StackPanel>
                                     </DataTemplate>
                                 </Button.ContentTemplate>
                             </Button>
-                            <Button x:Uid="AboutPage_LicenseButton"
-                                    Command="{x:Bind ViewModel.OpenLinkCommand}"
-                                    CommandParameter="https://github.com/LengxiQwQ/live-photo-box/blob/master/LICENSE">
-                                <Button.ContentTemplate>
-                                    <DataTemplate>
-                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                            <FontIcon Glyph="&#xE8D7;" FontSize="14"/>
-                                            <TextBlock Text="{Binding}" Margin="0,0,0,2"/>
-                                        </StackPanel>
-                                    </DataTemplate>
-                                </Button.ContentTemplate>
-                            </Button>
-                        </StackPanel>
+                        </toolkit:WrapPanel>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -224,7 +256,8 @@
                         </Grid>
 
                         <!-- Social Links -->
-                        <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Orientation="Horizontal" Spacing="14">
                             <!-- Website (placeholder) -->
                             <Button CornerRadius="6" Padding="10,6" MinWidth="0" MinHeight="0"
                                     IsEnabled="False"
@@ -235,7 +268,7 @@
                                     <ToolTip x:Uid="AboutPage_DevWebsite_ToolTip"/>
                                 </ToolTipService.ToolTip>
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <FontIcon Glyph="&#xE71B;" FontSize="15" VerticalAlignment="Center"/>
+                                    <ic:SymbolIcon Symbol="Globe" FontSize="15" VerticalAlignment="Center"/>
                                     <TextBlock x:Uid="AboutPage_DevWebsite" FontSize="13" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
@@ -247,7 +280,7 @@
                                     BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                     BorderThickness="1">
                                 <StackPanel Orientation="Horizontal" Spacing="6">
-                                    <Image Width="15" Height="15" VerticalAlignment="Center"
+                                    <Image Width="17" Height="17" VerticalAlignment="Center"
                                            Margin="-2,0,0,0">
                                         <Image.Source>
                                             <SvgImageSource UriSource="ms-appx:///Assets/Icons/Social/github.svg"/>
@@ -288,6 +321,8 @@
                                     <TextBlock Text="YouTube" FontSize="13" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="18">
                             <!-- 联系作者 -->
                             <Button Background="Transparent" BorderThickness="0" Padding="0">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -298,34 +333,46 @@
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                 </StackPanel>
                                 <Button.Flyout>
-                                    <Flyout Placement="BottomEdgeAlignedLeft">
-                                        <StackPanel Spacing="16" Padding="16" MaxWidth="340">
-                                            <!-- 邮箱地址展示 -->
-                                            <StackPanel Spacing="4">
-                                                <TextBlock x:Uid="AboutPage_ContactAuthor" FontSize="13"
+                                    <Flyout Placement="Left">
+                                        <StackPanel Spacing="16" Padding="16" MaxWidth="400">
+                                            <!-- 邮箱 -->
+                                            <StackPanel Spacing="8">
+                                                <TextBlock x:Uid="AboutPage_ContactEmail"
                                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                                <TextBlock Text="lengxiowo@gmail.com" FontSize="20"
-                                                           FontWeight="SemiBold"
-                                                           FontFamily="Consolas, Microsoft YaHei UI"
-                                                           IsTextSelectionEnabled="True"/>
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Text="lengxiowo@gmail.com" FontSize="15"
+                                                               FontFamily="Consolas, Microsoft YaHei UI"
+                                                               IsTextSelectionEnabled="True"
+                                                               VerticalAlignment="Center"/>
+                                                    <Button Grid.Column="1" x:Name="CopyEmailButton" Click="OnCopyEmailClick"
+                                                            VerticalAlignment="Center" Margin="12,0,0,0"
+                                                            Style="{ThemeResource AccentButtonStyle}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                            <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
+                                                            <TextBlock x:Uid="AboutPage_CopyEmail"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                </Grid>
                                             </StackPanel>
 
-                                            <!-- 操作按钮 -->
-                                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                                <Button x:Name="CopyEmailButton" Click="OnCopyEmailClick"
-                                                        Style="{ThemeResource AccentButtonStyle}">
-                                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                                        <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
-                                                        <TextBlock x:Uid="AboutPage_CopyEmail"/>
-                                                    </StackPanel>
-                                                </Button>
-                                                <Button Command="{x:Bind ViewModel.OpenLinkCommand}"
-                                                        CommandParameter="mailto:lengxiowo@gmail.com">
-                                                    <StackPanel Orientation="Horizontal" Spacing="6">
-                                                        <FontIcon Glyph="&#xE715;" FontSize="14"/>
-                                                        <TextBlock x:Uid="AboutPage_SendEmail"/>
-                                                    </StackPanel>
-                                                </Button>
+                                            <!-- QQ -->
+                                            <StackPanel Spacing="8">
+                                                <TextBlock x:Uid="AboutPage_ContactQQ"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                <Grid ColumnDefinitions="*,Auto">
+                                                    <TextBlock Text="3197635836" FontSize="15"
+                                                               FontFamily="Consolas, Microsoft YaHei UI"
+                                                               IsTextSelectionEnabled="True"
+                                                               VerticalAlignment="Center"/>
+                                                    <Button Grid.Column="1" x:Name="CopyQQButton" Click="OnCopyQQClick"
+                                                            VerticalAlignment="Center" Margin="12,0,0,0"
+                                                            Style="{ThemeResource AccentButtonStyle}">
+                                                        <StackPanel Orientation="Horizontal" Spacing="6">
+                                                            <FontIcon Glyph="&#xE8C8;" FontSize="14"/>
+                                                            <TextBlock x:Uid="AboutPage_CopyQQ"/>
+                                                        </StackPanel>
+                                                    </Button>
+                                                </Grid>
                                             </StackPanel>
 
                                             <!-- 复制成功反馈 -->
@@ -337,7 +384,75 @@
                                     </Flyout>
                                 </Button.Flyout>
                             </Button>
-                        </StackPanel>
+
+                            <!-- 赞助作者 -->
+                            <Button Background="Transparent" BorderThickness="0" Padding="0">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xEB51;" FontSize="15" VerticalAlignment="Center"
+                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    <TextBlock x:Uid="AboutPage_SponsorButton" FontSize="13"
+                                               VerticalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </StackPanel>
+                                <Button.Flyout>
+                                    <Flyout Placement="Left">
+                                        <StackPanel Spacing="16" Padding="16" MaxWidth="340">
+                                            <!-- 标题 -->
+                                            <TextBlock x:Uid="AboutPage_Sponsor_Title" FontSize="15"
+                                                       FontWeight="SemiBold"
+                                                       FontFamily="Microsoft YaHei UI"/>
+
+                                            <!-- GitHub Sponsors -->
+                                            <Button Command="{x:Bind ViewModel.OpenLinkCommand}"
+                                                    CommandParameter="https://github.com/sponsors/LengxiQwQ"
+                                                    HorizontalAlignment="Stretch">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <Image Width="16" Height="16" VerticalAlignment="Center">
+                                                        <Image.Source>
+                                                            <SvgImageSource UriSource="ms-appx:///Assets/Icons/Social/github.svg"/>
+                                                        </Image.Source>
+                                                    </Image>
+                                                    <TextBlock x:Uid="AboutPage_Sponsor_GitHub" Margin="0,0,0,1"/>
+                                                </StackPanel>
+                                            </Button>
+
+                                            <!-- 爱发电 -->
+                                            <Button Command="{x:Bind ViewModel.OpenLinkCommand}"
+                                                    CommandParameter="https://afdian.com/a/lengxiqwq"
+                                                    HorizontalAlignment="Stretch">
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <Image Width="16" Height="16" VerticalAlignment="Center">
+                                                        <Image.Source>
+                                                            <SvgImageSource UriSource="ms-appx:///Assets/Icons/Social/afdian.svg"/>
+                                                        </Image.Source>
+                                                    </Image>
+                                                    <TextBlock x:Uid="AboutPage_Sponsor_Afdian" Margin="0,0,0,1"/>
+                                                </StackPanel>
+                                            </Button>
+
+                                            <!-- 微信赞赏码 -->
+                                            <StackPanel Spacing="8" HorizontalAlignment="Center">
+                                                <TextBlock x:Uid="AboutPage_Sponsor_WeChat" FontSize="12"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                           HorizontalAlignment="Center"
+                                                           FontFamily="Microsoft YaHei UI"/>
+                                                <Border CornerRadius="8" Padding="4"
+                                                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                                        BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                                        BorderThickness="1">
+                                                    <Image Width="200" Height="200" Stretch="Uniform">
+                                                        <Image.Source>
+                                                            <BitmapImage UriSource="ms-appx:///Assets/Sponsor/wechat-sponsor.jpg"/>
+                                                        </Image.Source>
+                                                    </Image>
+                                                </Border>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </Flyout>
+                                </Button.Flyout>
+                            </Button>
+                            </StackPanel>
+                        </Grid>
                     </StackPanel>
                 </Border>
             </StackPanel>
@@ -654,6 +769,34 @@
                                        FontFamily="Microsoft YaHei UI" LineHeight="22"/>
                         </StackPanel>
                     </Border>
+
+                    <!-- 许可证（整个卡片可点击，打开 GitHub 上的 LICENSE 文件） -->
+                    <Button HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                            CornerRadius="12" Padding="20"
+                            Background="{ThemeResource CustomPanelAcrylicBrush}"
+                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            Command="{x:Bind ViewModel.OpenLinkCommand}"
+                            CommandParameter="https://github.com/LengxiQwQ/live-photo-box/blob/master/LICENSE">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Spacing="12">
+                                <StackPanel Orientation="Horizontal" Spacing="12">
+                                    <ic:SymbolIcon Symbol="Scales" FontSize="16"
+                                                  Foreground="{ThemeResource SystemAccentColor}"
+                                                  VerticalAlignment="Center"/>
+                                    <TextBlock x:Uid="AboutPage_LicenseTitle"
+                                               FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock x:Uid="AboutPage_LicenseDesc" TextWrapping="Wrap"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           FontFamily="Microsoft YaHei UI" LineHeight="22"/>
+                            </StackPanel>
+                            <FontIcon Grid.Column="1" Glyph="&#xE8A7;" FontSize="12"
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      VerticalAlignment="Center" Margin="12,0,0,0"/>
+                        </Grid>
+                    </Button>
                 </StackPanel>
             </StackPanel>
 

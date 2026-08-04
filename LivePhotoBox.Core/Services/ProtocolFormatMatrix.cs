@@ -12,7 +12,7 @@ namespace LivePhotoBox.Services
         public const int FormatJpgMov = 1;
         public const int FormatHeicMp4 = 2;
         public const int FormatHeicMov = 3;
-        public const int FormatHeicMp4H265 = 4; // HUAWEI only: HEIC + H.265 MP4
+        public const int FormatHeicMp4H265 = 4; // HUAWEI only: HEIC + MP4 (H.265/HEVC)
 
         // 格式显示名称
         public static readonly string[] FormatNames =
@@ -28,7 +28,7 @@ namespace LivePhotoBox.Services
             [true,  false, false, false, false], // OPPO
             [true,  false, false, false, false], // VIVO
             [true,  false, true,  false, false], // Samsung
-            [true,  false, true,  false, true ], // HUAWEI: + HEIC H.265
+            [true,  false, true,  false, true ], // HUAWEI: JPG+MP4 / HEIC+MP4 / HEIC+MP4(H.265)
         ];
 
         // 检查指定协议索引和格式索引的组合是否可用

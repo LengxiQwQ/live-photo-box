@@ -217,16 +217,6 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"HEIC decoder changed to: {(value == 0 ? "Magick.NET" : "heif-dec")}", LogSource.Settings);
         }
 
-        [ObservableProperty]
-        private bool _isGoogleProtocolForceMp4;
-
-        partial void OnIsGoogleProtocolForceMp4Changed(bool value)
-        {
-            if (_isInitializing) return;
-            AppSettingsService.SetValue(nameof(IsGoogleProtocolForceMp4), value);
-            LogService.Info($"Google protocol force-MP4: {(value ? "ON" : "OFF")}", LogSource.Settings);
-        }
-
         // 合成并行线程数。
         [ObservableProperty]
         private int _mergeThreadCount = 5;
@@ -258,18 +248,6 @@ namespace LivePhotoBox.ViewModels
         #endregion
 
         #region Split Settings
-
-        // 拆分默认输出格式索引（与 SplitViewModel.SelectedFormatIndex 共享设置键）。
-        [ObservableProperty]
-        private int _splitFormatIndex;
-
-        partial void OnSplitFormatIndexChanged(int value)
-        {
-            if (_isInitializing) return;
-            // Use same key as SplitViewModel.SelectedFormatIndex so they share the setting
-            AppSettingsService.SetValue("SelectedFormatIndex", value);
-            LogService.Info($"Split default format changed to index: {value}", LogSource.Settings);
-        }
 
         [ObservableProperty]
         private ObservableCollection<HardwareService.HardwareInfo> _availableHardware = new();
@@ -575,7 +553,6 @@ namespace LivePhotoBox.ViewModels
             MaxThreadCount = Math.Min(Environment.ProcessorCount, 20);
             HeicConcurrency = AppSettingsService.GetValue("HeicConcurrency", 8);
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
-            IsGoogleProtocolForceMp4 = AppSettingsService.GetValue(nameof(IsGoogleProtocolForceMp4), false);
             MergeThreadCount = AppSettingsService.GetValue("MergeThreadCount", 4);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
@@ -585,7 +562,6 @@ namespace LivePhotoBox.ViewModels
             IsGeoLocationEnabled = AppSettingsService.GetValue(nameof(IsGeoLocationEnabled), true);
             IsNonLivePhotoVideoRepairEnabled = AppSettingsService.GetValue(nameof(IsNonLivePhotoVideoRepairEnabled), false);
             IsCopyPerfectToOutput = AppSettingsService.GetValue(nameof(IsCopyPerfectToOutput), false);
-            SplitFormatIndex = AppSettingsService.GetValue("SelectedFormatIndex", 0);
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), true);

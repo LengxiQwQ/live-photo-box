@@ -16,7 +16,8 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                string value = new ResourceLoader().GetString(key);
+                var resourceContext = ResourceManager.CreateResourceContext();
+                string? value = ResourceManager.MainResourceMap.GetValue($"Resources/{key}", resourceContext)?.ValueAsString;
                 return string.IsNullOrWhiteSpace(value) ? key : value;
             }
             catch (COMException)

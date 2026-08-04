@@ -37,6 +37,27 @@ namespace LivePhotoBox.Views
         }
 
         /// <summary>
+        /// 检查更新按钮点击：手动触发版本检测并展示更新对话框。
+        /// 复用 SettingsPage 中的共享更新对话框逻辑（启动自动检查也走同一套方法）。
+        /// </summary>
+        private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
+        {
+            if (XamlRoot == null) return;
+
+            // 禁用按钮防止重复点击
+            if (sender is Button btn) btn.IsEnabled = false;
+
+            try
+            {
+                await SettingsPage.PerformUpdateCheckAndShowDialogAsync(XamlRoot);
+            }
+            finally
+            {
+                if (sender is Button btn2) btn2.IsEnabled = true;
+            }
+        }
+
+        /// <summary>
         /// 复制邮箱地址到剪贴板，并显示反馈。
         /// </summary>
         private async void OnCopyEmailClick(object sender, RoutedEventArgs e)
@@ -46,6 +67,20 @@ namespace LivePhotoBox.Views
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
 
             // 显示"已复制"反馈
+            CopiedFeedback.Visibility = Visibility.Visible;
+            await Task.Delay(2000);
+            CopiedFeedback.Visibility = Visibility.Collapsed;
+        }
+
+        /// <summary>
+        /// 复制 QQ 号到剪贴板，并显示反馈。
+        /// </summary>
+        private async void OnCopyQQClick(object sender, RoutedEventArgs e)
+        {
+            var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
+            dataPackage.SetText("3197635836");
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
+
             CopiedFeedback.Visibility = Visibility.Visible;
             await Task.Delay(2000);
             CopiedFeedback.Visibility = Visibility.Collapsed;

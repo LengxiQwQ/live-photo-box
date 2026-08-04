@@ -1,6 +1,6 @@
 # Live Photo Box Changelog
 
-> Current version: **v2.1.1**
+> Current version: **v2.1.2**
 > Project started: 2026-03-27
 > Tech stack: WinUI 3 + .NET 9 + C# 13
 
@@ -8,6 +8,8 @@
 
 ## v2.1.x — Multi-Brand Compatibility, Page Redesign & CLI
 
+> **v2.1.2** (2026-08-04) **[Feature]** CLI merge supports positional file args with image/video auto-detection, plus --all-variants to generate every protocol×format combo; **[Redesign]** About page restructured — Store page / changelog / check-update entries, reworked update window; smaller installer (samples no longer bundled); protocol settings simplified (HUAWEI unified on v6_f); **[Fix]** UI/features following system language after in-app switch, corrected output format option label on the Merge page
+>
 > **v2.1.1** (2026-08-03) **[Feature]** **Brand-new CLI mode** — `livephotobox` command-line tool: merge/protocols commands, six aliases (lpb etc.), single-pair + batch, naming templates, AI/script automation, 100% shared core with GUI; **[Feature]** HUAWEI/Honor Moving Photo playback & cover replacement, HEIC+H.265 (HEVC) output with lossless HEVC passthrough, HUAWEI HarmonyOS 4.0 V3 protocol; **[Refactor]** Project split into shared Core + GUI + CLI; **[Fix]** HUAWEI JPEG/HEIC merging, unified 3-part version display
 >
 > **v2.1.0** (2026-07-30) **[Redesign]** Merge page epic redesign — left settings + right queue layout, protocol picker, format filtering, custom naming, source file management; **[Feature]** New vivo/Samsung/HUAWEI live photo support, Fusion Mode works across brands + Windows Photos; Edit page supports all protocols, OPPO dual cover modes, drag-and-drop pairing setting; About page redesigned; **[Fix]** Window title, feedback button link

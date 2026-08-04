@@ -697,109 +697,71 @@ namespace LivePhotoBox.Services
                 File.Delete(outputPath);
             }
 
-            string codec = videoCodec;
-            bool useHardwareEncoder = !string.IsNullOrEmpty(GetEncoderForCodec(codec));
-            bool transcodeCompleted = false;
+            // Build encoder fallback chain: dGPU → iGPU → CPU
+            var hwChain = videoCodec == "hevc"
+                ? new[] { "hevc_nvenc", "hevc_amf", "hevc_qsv", "hevc_vaapi" }
+                : new[] { "h264_nvenc", "h264_amf", "h264_qsv", "h264_vaapi" };
+            string swEncoder = videoCodec == "hevc" ? "libx265" : "libx264";
+            string swParams = videoCodec == "hevc" ? "-preset medium -crf 21" : "-preset medium -crf 19";
+
+            // Start from the saved/detected encoder's position in the chain
+            string? savedEncoder = GetEncoderForCodec(videoCodec);
+            int chainIdx = 0;
+            if (!string.IsNullOrEmpty(savedEncoder))
+            {
+                chainIdx = Array.FindIndex(hwChain, e =>
+                    e.Equals(savedEncoder, StringComparison.OrdinalIgnoreCase));
+                if (chainIdx < 0) chainIdx = 0;
+            }
+
             string? lastError = null;
 
-            while (!transcodeCompleted)
+            // Try each encoder in the chain, then software
+            for (; chainIdx < hwChain.Length; chainIdx++)
             {
+                string encoder = hwChain[chainIdx];
+                if (!IsEncoderAvailable(encoder))
+                {
+                    LogService.Split($"  {encoder} not available, skipping", LogLevel.Debug);
+                    continue;
+                }
+
+                LogService.Split($"Trying {encoder}...");
+
+                string? arguments = BuildFFmpegArguments(inputPath, outputPath,
+                    targetFormat, forceSoftwareEncoder: false, useFaststart,
+                    videoCodec, forceEncoder: encoder);
+
+                if (string.IsNullOrEmpty(arguments))
+                    continue; // encoder became unavailable mid-check
+
                 try
                 {
-                    string arguments = BuildFFmpegArguments(inputPath, outputPath, targetFormat, !useHardwareEncoder, useFaststart, codec);
-
-                    LogService.Split($"ffmpeg {arguments}", LogLevel.Debug);
-
-                    using var process = new Process();
-                    process.StartInfo.FileName = ffmpegPath;
-                    process.StartInfo.Arguments = arguments;
-                    process.StartInfo.UseShellExecute = false;
-                    process.StartInfo.CreateNoWindow = true;
-                    process.StartInfo.RedirectStandardError = true;
-                    process.StartInfo.RedirectStandardOutput = true;
-
-                    var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                    process.EnableRaisingEvents = true;
-                    process.Exited += (_, _) => tcs.TrySetResult(true);
-
-                    try
+                    if (!await TryRunFfmpeg(ffmpegPath, arguments, outputPath, token, result, stopwatch))
                     {
-                        process.Start();
-                    }
-                    catch (Exception ex)
-                    {
-                        result.Success = false;
-                        result.ErrorMessage = $"Failed to start FFmpeg: {ex.Message}";
-                        LogService.Split($"Transcode failed: {result.ErrorMessage}", LogLevel.Error, ex);
-                        return result;
-                    }
-
-                    using var registration = token.Register(() =>
-                    {
-                        try { if (!process.HasExited) process.Kill(); } catch { }
-                        tcs.TrySetCanceled();
-                    });
-
-                    var errorReadTask = ReadFFmpegOutputAsync(process);
-
-                    using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
-                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
-
-                    try
-                    {
-                        await tcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        string cancelError = await errorReadTask.ConfigureAwait(false);
-                        if (timeoutCts.Token.IsCancellationRequested)
-                        {
-                            if (!process.HasExited) { process.Kill(); }
-                            result.Success = false;
-                            result.ErrorMessage = $"Transcode timeout (>5 minutes). FFmpeg output: {cancelError}";
-                            LogService.Split($"Transcode timeout: {result.ErrorMessage}", LogLevel.Error);
-                            return result;
-                        }
-                        if (!string.IsNullOrWhiteSpace(cancelError))
-                        {
-                            LogService.Split($"[FFmpeg stderr on cancel]: {cancelError}", LogLevel.Warning);
-                        }
-                        result.Success = false;
-                        result.ErrorMessage = "Transcode cancelled by user";
-                        LogService.Split("Transcode cancelled", LogLevel.Warning);
-                        return result;
-                    }
-
-                    stopwatch.Stop();
-                    result.Duration = stopwatch.Elapsed;
-
-                    if (process.ExitCode == 0 && File.Exists(outputPath))
-                    {
-                        result.Success = true;
-                        result.OutputPath = outputPath;
-                        string mode = useHardwareEncoder ? "GPU" : "CPU";
-                        LogService.Split($"Transcode completed ({mode}): {Path.GetFileName(outputPath)} ({result.Duration.TotalSeconds:F1}s)", LogLevel.Info);
-                        transcodeCompleted = true;
-                    }
-                    else
-                    {
-                        string errorOutput = await errorReadTask.ConfigureAwait(false);
+                        // Failed — read error and decide
+                        string errorOutput = result.ErrorMessage ?? string.Empty;
                         lastError = errorOutput;
-
-                        if (useHardwareEncoder && ShouldFallbackToSoftware(errorOutput))
+                        if (ShouldFallbackToSoftware(errorOutput))
                         {
-                            LogService.Split($"Hardware encoder failed, falling back to software encoding...", LogLevel.Warning);
-                            useHardwareEncoder = false;
-                            if (File.Exists(outputPath)) File.Delete(outputPath);
+                            LogService.Split(
+                                $"  {encoder} failed, trying next encoder...",
+                                LogLevel.Warning);
+                            if (File.Exists(outputPath))
+                                try { File.Delete(outputPath); } catch { }
                             stopwatch.Restart();
                             continue;
                         }
-
-                        result.Success = false;
-                        result.ErrorMessage = $"FFmpeg exited with code {process.ExitCode}. Output: {errorOutput}";
-                        LogService.Split($"Transcode failed: {result.ErrorMessage}", LogLevel.Error);
-                        transcodeCompleted = true;
+                        // Fatal error — don't continue the chain
+                        return result;
                     }
+
+                    // Success! Save this encoder for future use
+                    EncoderHelper.SaveEncoderForBothCodecs(encoder);
+                    LogService.Split(
+                        $"Transcode completed (GPU): {Path.GetFileName(outputPath)} ({result.Duration.TotalSeconds:F1}s)",
+                        LogLevel.Info);
+                    return result;
                 }
                 catch (Exception ex)
                 {
@@ -808,11 +770,127 @@ namespace LivePhotoBox.Services
                     result.Success = false;
                     result.ErrorMessage = ex.Message;
                     LogService.Split($"Transcode error: {ex.Message}", LogLevel.Error, ex);
-                    transcodeCompleted = true;
+                    return result;
                 }
             }
 
-            return result;
+            // All hardware encoders exhausted — final fallback to software
+            LogService.Split($"Hardware chain exhausted, falling back to {swEncoder}...", LogLevel.Warning);
+            string? swArgs = BuildFFmpegArguments(inputPath, outputPath,
+                targetFormat, forceSoftwareEncoder: true, useFaststart, videoCodec);
+
+            if (string.IsNullOrEmpty(swArgs))
+            {
+                result.Success = false;
+                result.ErrorMessage = "No usable encoder found (hardware + software all unavailable).";
+                LogService.Split(result.ErrorMessage, LogLevel.Error);
+                return result;
+            }
+
+            try
+            {
+                if (!await TryRunFfmpeg(ffmpegPath, swArgs, outputPath, token, result, stopwatch))
+                {
+                    return result; // already populated by TryRunFfmpeg
+                }
+
+                result.Success = true;
+                result.OutputPath = outputPath;
+                LogService.Split(
+                    $"Transcode completed (CPU): {Path.GetFileName(outputPath)} ({result.Duration.TotalSeconds:F1}s)",
+                    LogLevel.Info);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                result.Duration = stopwatch.Elapsed;
+                result.Success = false;
+                result.ErrorMessage = ex.Message;
+                LogService.Split($"Transcode error: {ex.Message}", LogLevel.Error, ex);
+                return result;
+            }
+        }
+
+        /// <summary>
+        /// Run ffmpeg once with the given arguments. Returns true on success.
+        /// On failure, populates result with error info and returns false.
+        /// Throws on cancel/timeout — caller should handle those as fatal.
+        /// </summary>
+        private static async Task<bool> TryRunFfmpeg(
+            string ffmpegPath, string arguments, string outputPath,
+            CancellationToken token, TranscodeResult result, Stopwatch stopwatch)
+        {
+            LogService.Split($"ffmpeg {arguments}", LogLevel.Debug);
+
+            using var process = new Process();
+            process.StartInfo.FileName = ffmpegPath;
+            process.StartInfo.Arguments = arguments;
+            process.StartInfo.UseShellExecute = false;
+            process.StartInfo.CreateNoWindow = true;
+            process.StartInfo.RedirectStandardError = true;
+            process.StartInfo.RedirectStandardOutput = true;
+
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            process.EnableRaisingEvents = true;
+            process.Exited += (_, _) => tcs.TrySetResult(true);
+
+            try
+            {
+                process.Start();
+            }
+            catch (Exception ex)
+            {
+                result.Success = false;
+                result.ErrorMessage = $"Failed to start FFmpeg: {ex.Message}";
+                return false;
+            }
+
+            using var registration = token.Register(() =>
+            {
+                try { if (!process.HasExited) process.Kill(); } catch { }
+                tcs.TrySetCanceled();
+            });
+
+            var errorReadTask = ReadFFmpegOutputAsync(process);
+
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+
+            try
+            {
+                await tcs.Task.WaitAsync(linkedCts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                string cancelError = await errorReadTask.ConfigureAwait(false);
+                if (timeoutCts.Token.IsCancellationRequested)
+                {
+                    if (!process.HasExited) { process.Kill(); }
+                    result.Success = false;
+                    result.ErrorMessage = $"Transcode timeout (>5 minutes). FFmpeg output: {cancelError}";
+                    return false;
+                }
+                // User cancel — throw so caller handles as fatal
+                result.Success = false;
+                result.ErrorMessage = "Transcode cancelled by user";
+                throw new OperationCanceledException("Transcode cancelled by user");
+            }
+
+            stopwatch.Stop();
+            result.Duration = stopwatch.Elapsed;
+
+            if (process.ExitCode == 0 && File.Exists(outputPath))
+            {
+                result.Success = true;
+                result.OutputPath = outputPath;
+                return true;
+            }
+
+            string errorOutput = await errorReadTask.ConfigureAwait(false);
+            result.Success = false;
+            result.ErrorMessage = errorOutput;
+            return false;
         }
 
         private static bool ShouldFallbackToSoftware(string errorOutput)
@@ -849,17 +927,29 @@ namespace LivePhotoBox.Services
         // forceSoftware: 是否强制使用软件编码器。
         // è¿å: (编码器名, 编码参数)。
         private static (string encoder, string encoderParams) GetEncoderForCodecAndFormat(
-            string codec, VideoFormat targetFormat, bool forceSoftware = false)
+            string codec, VideoFormat targetFormat, bool forceSoftware = false,
+            string? forceEncoder = null)
         {
 
             if (forceSoftware)
             {
                 string enc = codec == "h264" ? "libx264" : "libx265";
-                // CRF 19 (H.264) / CRF 21 (HEVC)：输入≈输出码率的精准平衡点。
-                // CRF 18 膨胀 ~60%，CRF 20 偏压缩 ~20%，CRF 19 恰好持平。
                 string prms = codec == "h264" ? "-preset medium -crf 19" : "-preset medium -crf 21";
                 LogService.Split($"Using software encoder (forced): {enc} for {targetFormat}");
                 return (enc, prms);
+            }
+
+            // Explicit encoder override (used by the fallback chain)
+            if (!string.IsNullOrEmpty(forceEncoder))
+            {
+                if (EncoderHelper.IsEncoderAvailable(forceEncoder))
+                {
+                    string encoderParams = GetHardwareEncoderParams(forceEncoder, targetFormat);
+                    LogService.Split($"Using forced encoder: {forceEncoder} for {targetFormat}");
+                    return (forceEncoder, encoderParams);
+                }
+                LogService.Split($"Forced encoder '{forceEncoder}' not available, skipping", LogLevel.Debug);
+                return (string.Empty, string.Empty); // signal "skip this encoder"
             }
 
             string? savedEncoder = GetEncoderForCodec(codec);
@@ -1183,9 +1273,9 @@ namespace LivePhotoBox.Services
             return $"-c:a aac -b:a {targetBitrate}k";
         }
 
-        private static string BuildFFmpegArguments(string inputPath, string outputPath,
+        private static string? BuildFFmpegArguments(string inputPath, string outputPath,
             VideoFormat targetFormat, bool forceSoftwareEncoder = false, bool useFaststart = true,
-            string videoCodec = "h264")
+            string videoCodec = "h264", string? forceEncoder = null)
         {
             // HEVC passthrough: copy video stream, transcode audio to AAC (MP4 doesn't support PCM)
             if (videoCodec == "copy")
@@ -1199,7 +1289,10 @@ namespace LivePhotoBox.Services
                        $"\"{outputPath}\"";
             }
 
-            var (videoEncoder, videoParams) = GetEncoderForCodecAndFormat(videoCodec, targetFormat, forceSoftwareEncoder);
+            var (videoEncoder, videoParams) = GetEncoderForCodecAndFormat(videoCodec, targetFormat, forceSoftwareEncoder, forceEncoder);
+            if (string.IsNullOrEmpty(videoEncoder))
+                return null; // signal "encoder not available, skip"
+
             int threadCount = GetThreadCount(videoEncoder);
 
             string pixelFormat = GetPixelFormatParams(videoEncoder, targetFormat);

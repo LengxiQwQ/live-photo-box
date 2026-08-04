@@ -31,8 +31,8 @@ namespace LivePhotoBox.Cli.Commands
         private static void PrintTable()
         {
             Console.WriteLine();
-            Console.WriteLine("  Protocol          JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+H265");
-            Console.WriteLine("  ─────────         ────────   ────────   ────────   ────────   ────────");
+            Console.WriteLine("  Protocol          JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+MP4(H.265)");
+            Console.WriteLine("  ─────────         ────────   ────────   ────────   ────────   ──────────────");
 
             for (int p = 0; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {

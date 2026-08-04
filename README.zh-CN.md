@@ -3,7 +3,7 @@
   <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
   Live Photo Box（实况照片工具箱）
 </h1>
-<p><em>实况照片工具箱 — 专为 Windows 和 Android 打造的 Apple 实况照片管理与修复工具</em></p>
+<p><em>统一各类实况照片协议，实现跨设备无缝查看与迁移</em></p>
 <p align="center">
   <a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7" alt="Release"></a>
   <a href="https://github.com/lengxiqwq/live-photo-box/actions"><img src="https://img.shields.io/github/actions/workflow/status/lengxiqwq/live-photo-box/build.yml?style=flat-square&logo=githubactions" alt="Build"></a>
@@ -11,6 +11,8 @@
   <img src="https://img.shields.io/badge/9.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 9" />
   <img src="https://img.shields.io/badge/C%23-13.0-239120?style=flat-square&logo=csharp" alt="C# 13" />
   <img src="https://img.shields.io/badge/WinUI%203-1.8-0078D7?style=flat-square&logo=windows" alt="WinUI 3" />
+
+
 
 </p>
 </div>
@@ -24,7 +26,7 @@
 ## 🚀 下载
 
 <div align="center">
-  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" /></a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" /></a>
+  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" hspace="35" /></a>
 </div>
 <p align="center">
   <sub>
@@ -32,54 +34,63 @@
     &nbsp;|&nbsp;
     系统要求：<b>Windows 10 (1809+)</b> 或 <b>Windows 11</b>
     &nbsp;|&nbsp;
-    无需额外安装运行时（应用自包含 .NET 9 + WinAppSDK 1.8）
+    应用自包含 .NET 9 + WinAppSDK 1.8
   </sub>
 </p>
+
 
 ---
 
 ## 💡 这是什么？
 
-iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段视频。问题就是苹果用的格式和 Windows 不兼容：
+各品牌的实况照片（Live Photo）本质上都是一张照片 + 一段视频，但各家封装格式互不兼容。一旦跨品牌换机、跨平台分享，往往就会出现：
 
-- 在 Windows 上**无法直接预览**实况照片的动态效果
-- 从 iPhone 导出到电脑后，文件管理器里看到的只是一个普通的静态图片
-- 跨平台传输（比如从 iOS 传到 Android 再传回来）经常导致**元数据丢失、配对失效**，实况照片变成一张普通 JPEG
-- 前置摄像头拍的视频方向会**旋转、被异常拉伸**，Windows 完全识别不了
+- **无法预览动态**：在 Windows 上只能看到一张静态图片
+- **元数据丢失、配对失效**：实况照片退化成一张普通 JPEG
+- **方向异常**：前置摄像头视频被旋转、拉伸，无法正常播放
 
-**Live Photo Box** 就是来解决这些问题的——让你在 Windows 上也能像 iPhone 一样查看、管理、修复实况照片。
-
-基于 **WinUI 3（Windows App SDK 1.8）** 构建，原生适配 Windows 11 Fluent Design 设计规范，支持 Mica 材质、深色/浅色主题自动切换。
+**实况照片工具箱**支持在各种协议之间自由转换。换机、分享、迁移，动态依然鲜活。
 
 ---
 
 ## 📸 应用截图
 
-<p align="center"><b>🏠 主页与图文教程</b><br><img src="screenshots/主页.png" alt="主页" width="80%" /></p>
-
 <p align="center"><b>🖼️ 实况照片编辑</b><br><img src="screenshots/编辑页.png" alt="编辑" width="80%" /></p>
-
-<p align="center"><b>📸 实况照片拆分</b><br><img src="screenshots/拆分页.png" alt="拆分" width="80%" /></p>
 
 <p align="center"><b>🔗 实况照片合成</b><br><img src="screenshots/合成页.png" alt="合成" width="80%" /></p>
 
-<p align="center"><b>🛠️ 实况照片修复</b><br><img src="screenshots/修复页.png" alt="修复" width="80%" /></p>
-
-<p align="center"><b>⚙️ 设置面板</b><br><img src="screenshots/设置.png" alt="设置" width="80%" /></p>
-
 ---
-
 
 ## ✨ 核心功能
 
+### 🖼️ 实况照片编辑
+
+自由更换实况照片的封面帧，从视频时间轴中选取最完美的一刻。
+
+- 视频帧时间轴胶片条，逐帧预览
+- 一键替换封面、导出单帧或全部视频帧，或者导出为视频以及 GIF 动图
+- 快速实况照片协议转换
+- 文件基本属性查看，实况照片协议查看
+
 ### 🔗 实况照片合成
 
-将 **Apple 实况照片**或任意图片 + 视频组合为**标准实况照片**（单文件格式），方便在 Windows 及 Android 设备上查看。
+将**双文件实况照片协议**（或任意图片 + 视频）转换为**单文件实况照片**，在 Windows 及 Android 设备上均可查看。
 
-- 支持 **Fusion / Google (V1 & V2) / OPPO / vivo / Samsung / HUAWEI** 等多种协议
-- 自动写入完整 `EXIF` + `QuickTime` 元数据（`ContentIdentifier` `UUID`）
-- **Apple 原生实况照片配对**：即使照片和视频文件名完全不同，也能通过 Apple 元数据中的 `ContentIdentifier`（`UUID`）精确匹配；无法匹配 `UUID` 时自动降级为拍摄日期 ±2 秒容差匹配兜底
-- **目前任何协议合成的实况照片均可在 Windows 上直接查看**（推荐 Google Motion Photo V2）
+- **任意素材，一键合成**：拖拽或选择图片（`JPG` / `HEIC`）+ 视频（`MP4` / `MOV`）直接合成；也可以扫描整个文件夹，自动识别配对、批量入队
+- **多种智能配对**：按文件名、Apple `ContentIdentifier` UUID、vivo 相机 ID 自动匹配图片与视频
+- **多品牌协议自由切换**：主流品牌目标协议一键切换，配合 `JPEG+MP4` / `JPEG+MOV` / `HEIC+MP4` / `HEIC+MOV` / `HEIC+MP4(H.265)` 输出格式，随协议自动筛选可用项
+- **可视化命名模板**：片段式编排（原名 / 协议 / 日期 / 时间 / EXIF 日期时间 / 计数器 / 自定义文本），支持拖拽排序、预设模板、分隔符选择与实时预览
+- **收尾处理**：合成完成后可选择移动到指定目录，或移入回收站
+- **并行批量合成**：任务队列支持搜索、多维度排序与状态筛选，多任务并行处理，实时显示进度、成功/失败统计与耗时
+
+| 合成协议 | 支持设备 | 状态 |
+|---|---|---|
+| Google Micro Video V1 | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
+| Google Motion Photo V2 | Windows / 小米 / Pixel | ✅ 可用 |
+| OPPO O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
+| HUAWEI Moving Photo | 华为 / 荣耀 | ✅ 可用 |
+| Samsung Motion Photo | Windows / Samsung | 🟡 测试中 |
+| vivo Live Photo | Windows / vivo（≥ x300） | 🟡 测试中 |
 
 ### 📸 实况照片拆分
 
@@ -88,9 +99,14 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - 智能剥离 `XMP` 元数据，防止拆分后的图片被再次误识别为实况照片。但保留照片其他元数据
 - 按 `JPEG` 段结构逐段重建，不丢失 `EXIF` / `ICC` / `GPS` / 拍摄参数
 
+| 拆分协议 | 支持机型 | 状态 |
+|---|---|---|
+| Apple Live Photo | iPhone / iPad | 🟡 测试中 |
+| vivo Live Photo | vivo（≤ x300） | 🟡 测试中 |
+
 ### 🛠️ 实况照片修复
 
-深度修复 iPhone 实况照片导出到 Windows 后的显示异常。
+修复 Apple 实况照片导出后出现的显示异常。
 
 - **多余缩略图及横向拉伸**（iOS 17.3 之前）：Apple 曾嵌入低分辨率缩略图但带有方向标签，Windows 误将其当作横向图片处理，导致拉宽或压扁 。我们使用 `jpegtran` 无损旋转 + 剥离多余缩略图
 - **前置摄像头视频旋转**：iPhone 前置镜头纵向像素横向存储，依赖方向标签指示角度，Windows 不识别。我们用 `FFmpeg` 重编码消除旋转矩阵
@@ -98,49 +114,22 @@ iPhone 拍摄的实况照片（Live Photos）本质上是一张照片 + 一段�
 - **ContentIdentifier 丢失**：自动修复照片-视频的 `UUID` 配对关系
 - 扫描后可查看每张照片的**诊断详情**，可以按文件类型或修复状态快速筛选
 
-### 🖼️ 实况照片编辑
-
-自由更换实况照片的封面帧，从视频时间轴中选取最完美的一刻。
-
-- 视频帧时间轴胶片条，逐帧预览
-- 一键替换封面、导出单帧或全部视频帧
-- 快速实况照片协议转换
-
 ### 📂 自动整理相册（功能开发中）
 
-通过识别照片元数据，自动按拍摄设备、日期、实况照片类型自动扫描分类归档。首批将适配 iPhone 照片。
-
-> ✅ **源文件自动整理**已上线 **合成** 页面：合成完成后，原始图片/视频可自动移动到指定文件夹（或回收站）。
+通过识别照片元数据，自动按拍摄设备、日期、实况照片类型自动扫描分类归档。首批从 iPhone 起步，逐步覆盖更多品牌。
 
 ---
 
-## 📋 支持的实况照片协议
-
-| 协议 | 来源 | 说明 |
-|------|------|------|
-| Micro Video V1 | Google（已弃用，但老设备兼容性高） | `MP4` 视频附加在 `JPEG` 末尾，`GCamera:MicroVideoOffset` 记录偏移。旧版小米 MIUI / 旧版 Pixel 使用 |
-| Motion Photo V2 | Google | 现代标准，`Container:Directory` `XMP` 结构。Google Pixel / Xiaomi HyperOS 3+ 使用 |
-| O-Live Photo | OPPO / OnePlus | 扩展 `Motion Photo V2`，增加 `OpCamera` 命名空间 + `EXIF` `UserComment`。OPPO ColorOS / OnePlus OxygenOS 使用 |
-| vivo Live Photo | vivo | 扩展 V2，增加 `VCamera` 命名空间。vivo X300 系列及之后使用 |
-| Samsung Motion Photo | Samsung | 扩展 V2，附加 `SEF` 尾部（`mpvd` / `sefd` box）。Samsung Galaxy 设备使用 |
-| HUAWEI Moving Photo | 华为 / 荣耀 | `JPEG`/`HEIC` + `MP4` 视频尾部。支持 **HEIC + H.265（HEVC）** 输出与无损 HEVC 直通。HarmonyOS 4.0 / 5+ |
-| Fusion Motion Photo | 多厂商 | 融合 V2 + OPPO + vivo + Samsung 元数据为一个文件，可在 Google / OPPO / vivo / Samsung / 小米 / Windows 照片上播放 |
-
-> ⚡ **目前任何协议合成的实况照片，均可在 Windows 11 上直接查看动态效果。**
-
----
-
-## 💻 命令行（CLI）
+## 💻 命令行工具
 
 Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 100% 核心逻辑，适合脚本和 AI Agent 调用。
 
 - **命令**：`merge`（单对或批量合成）、`protocols`（协议 × 格式兼容矩阵）、`update-check`（检查最新版本）
 - **六个可执行别名**：`livephotobox` / `livephoto` / `livebox` / `lipbox` / `lpb` / `lpbx`
 - **批量合成**：支持基于元数据的配对（`name`、Apple `ContentIdentifier` UUID、vivo 相机 ID）、自定义命名模板、`--after` 动作（移动到文件夹 / 回收站）
-- **华为原生输出**：`heic+mp4-h265`（HEIC + H.265/HEVC）
 - **分发**：随安装包内置（可选"添加到 PATH"），或独立 `-x64-cli.zip`
 
-📖 **完整文档**：[CLI 使用指南（简体中文）](docs/CLI-使用指南-zh-CN.md) · [CLI User Guide (English)](docs/CLI-User-Guide-en.md)
+📖 **CLI 使用指南**：[English](docs/CLI-User-Guide.md) · [简体中文](docs/CLI-User-Guide.zh-CN.md)
 
 ---
 
@@ -197,23 +186,26 @@ dotnet run --project LivePhotoBox/LivePhotoBox.csproj
 
 ```
 live-photo-box/
-├── LivePhotoBox.Core/         # 共享核心库（协议、合成/拆分/修复服务、本地化）
-├── LivePhotoBox/              # 主项目（WinUI 3 MSIX 应用）
-│   ├── Assets/                # 图标、教程截图等静态资源
-│   ├── Controls/              # 自定义控件（全屏灯箱、底部状态栏）
-│   ├── Converters/            # XAML 值转换器
-│   ├── Helpers/               # 工具类（滚动、格式化、悬停预览等）
-│   ├── Models/                # 数据模型
-│   ├── Services/              # GUI 业务逻辑层（委托给 LivePhotoBox.Core）
-│   ├── Strings/               # 多语言资源（中文 / 英文）
-│   ├── ViewModels/            # MVVM ViewModel 层
-│   └── Views/                 # XAML 页面
-├── LivePhotoBox.CLI/          # 命令行工具（livephotobox）
-├── docs/                      # 项目文档
+├── LivePhotoBox.Core/        # 共享核心库（协议、合成/拆分/修复服务、本地化）
+├── LivePhotoBox/             # 主项目（WinUI 3 MSIX 应用）
+│   ├── Assets/               # 图标、教程截图等静态资源
+│   ├── Controls/             # 自定义控件（全屏灯箱、底部状态栏）
+│   ├── Converters/           # XAML 值转换器
+│   ├── Helpers/              # 工具类（滚动、格式化、悬停预览等）
+│   ├── Models/               # 数据模型
+│   ├── Services/             # GUI 业务逻辑层（委托给 LivePhotoBox.Core）
+│   ├── Strings/              # 多语言资源（中文 / 英文）
+│   ├── ViewModels/           # MVVM ViewModel 层
+│   └── Views/                # XAML 页面
+├── LivePhotoBox.CLI/         # 命令行工具（livephotobox）
+├── docs/                     # 项目文档
+├── changelogs/               # 更新日志
+├── scripts/                  # 构建与打包脚本
+├── screenshots/              # 截图资源
 └── README.md
 ```
 
-> 📖 完整目录说明见 [`docs/项目总览.md`](docs/项目总览.md)
+📖 完整目录说明见 <strong><a href="docs/项目总览.md">项目总览</a></strong>
 
 ---
 
@@ -238,14 +230,8 @@ live-photo-box/
 
 欢迎提交 Issue 和 Pull Request！
 
-- 🐛 **Bug 报告** and 💡 **功能建议** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
+- 🐛 **Bug 报告**、💡 **功能建议** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
 - 🔧 **代码贡献** → Fork → Feature Branch → Pull Request
-
-### 规范
-
-- UI 文本使用 RESW 多语言资源文件，不硬编码字符串
-- 遵循项目 MVVM 分层惯例，保持代码整洁
-- 文件顶部添加多行注释描述文件用途
 
 ---
 
@@ -269,6 +255,20 @@ live-photo-box/
 | [Markdig](https://github.com/xoofx/markdig) | Markdown 渲染 | BSD-2-Clause |
 | [Win2D](https://github.com/microsoft/Win2D) | GPU 加速图形 | MIT |
 | [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent 图标集 | MIT |
+
+---
+
+## ⭐ Star 走势
+
+<p align="center">
+  <a href="https://star-history.com/#lengxiqwq/live-photo-box&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=lengxiqwq/live-photo-box&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=lengxiqwq/live-photo-box&type=Date" />
+      <img alt="Star History" src="https://api.star-history.com/svg?repos=lengxiqwq/live-photo-box&type=Date" />
+    </picture>
+  </a>
+</p>
 
 ---
 

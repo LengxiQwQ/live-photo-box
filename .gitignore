@@ -386,3 +386,6 @@ FodyWeavers.xsd
 /LivePhotoStudio/Tools/
 
 /designs
+
+# Sample assets backup (not part of the build)
+/sample-assets-backup

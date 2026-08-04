@@ -90,7 +90,7 @@ namespace LivePhotoBox.Services.Protocols
             new OppoLivePhotoProtocol(),         // 3
             new VivoLivePhotoProtocol(),         // 4
             new SamsungMotionPhotoProtocol(),    // 5
-            new HuaweiMovingPhotoProtocol(),     // 6 — HUAWEI (HarmonyOS 5+ v6_f / HarmonyOS 4.0 v3_f)
+            new HuaweiMovingPhotoProtocol(),     // 6 — HUAWEI Moving Photo
         ];
 
         // All registered protocols ordered by Id.

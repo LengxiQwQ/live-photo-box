@@ -137,12 +137,11 @@ namespace LivePhotoBox.Views
                 case "Merge":
                     scrollTarget = MergeSettingsHeader;
                     break;
-                // Split 设置已移至 SplitPage 页面本身，设置页中的对应区域已注释
-                // case "Split":
-                //     scrollTarget = SplitSettingsHeader;
-                //     break;
                 case "Repair":
                     scrollTarget = RepairSettingsHeader;
+                    break;
+                case "SampleContent":
+                    scrollTarget = SampleContentRoot;
                     break;
                 default:
                     return;
@@ -310,29 +309,6 @@ namespace LivePhotoBox.Views
             }
         }
 
-        // ── 自动更新 ────────────────────────────────────────────────
-
-        /// <summary>
-        /// 检查更新按钮点击：手动触发版本检测并展示更新对话框。
-        /// 独立于 App.xaml.cs 中的启动检查，用户可在设置页面主动触发。
-        /// </summary>
-        private async void CheckUpdate_Click(object sender, RoutedEventArgs e)
-        {
-            if (XamlRoot == null) return;
-
-            // 禁用按钮防止重复点击
-            if (sender is Button btn) btn.IsEnabled = false;
-
-            try
-            {
-                await PerformUpdateCheckAndShowDialogAsync(XamlRoot);
-            }
-            finally
-            {
-                if (sender is Button btn2) btn2.IsEnabled = true;
-            }
-        }
-
         // ── GitHub API Token 管理 ────────────────────────────────────
 
         /// <summary>
@@ -419,23 +395,9 @@ namespace LivePhotoBox.Views
         {
             LogService.Info("Update UI: Manual check triggered by user.", LogSource.System);
 
-            // 打包模式（MSIX）由 Windows Store 负责更新，自动更新功能不可用
-            if (!UpdateService.IsUpdateEnabled)
-            {
-                LogService.Info("Update UI: Packaged mode detected — showing disabled message.", LogSource.System);
-                await ShowInfoDialogAsync(
-                    xamlRoot,
-                    ResourceService.GetString("Update_CheckFailed_Title"),
-                    ResourceService.GetString("Update_PackagedMode_Disabled"),
-                    ResourceService.GetString("Msg_GotIt"));
-                return;
-            }
-
-            // 调用 GitHub API（仅此一次）
-            var release = await Task.Run(() => UpdateService.FetchLatestReleaseAsync());
-            // 注意：手动检查不记录 CheckTime，避免阻塞启动自动检查的 3 天间隔
-
-            await HandleUpdateCheckResultAsync(xamlRoot, release, isManualCheck: true);
+            // 商店版（打包模式）同样照常检查 GitHub：有新版本时窗口内主按钮改为「前往商店更新」。
+            // 注意：手动检查不记录 CheckTime，避免阻塞启动自动检查的 3 天间隔。
+            await ShowUpdateCheckDialogAsync(xamlRoot, preloadedRelease: null, isManualCheck: true);
         }
 
         /// <summary>
@@ -448,53 +410,217 @@ namespace LivePhotoBox.Views
             GitHubReleaseResponse? release,
             bool isManualCheck = false)
         {
-            if (release == null)
+            await ShowUpdateCheckDialogAsync(xamlRoot, release, isManualCheck);
+        }
+
+        /// <summary>
+        /// 统一的更新检查窗口。窗口立即出现（转圈加载），后台检查完成后按结果切换内容：
+        /// 有新版 → 版本信息 + 更新说明 + 操作按钮；无新版 → 已是最新；失败 → 错误提示。
+        /// 启动自动检查可传入已获取的 release（preloadedRelease），跳过请求直接出结果。
+        /// 右上角"前往 GitHub 查看"常驻，作为任何状态下的逃生入口。
+        /// </summary>
+        private static async Task ShowUpdateCheckDialogAsync(
+            Microsoft.UI.Xaml.XamlRoot xamlRoot,
+            GitHubReleaseResponse? preloadedRelease = null,
+            bool isManualCheck = false)
+        {
+            // 标题行放内容顶部：ContentDialog 标题区不拉伸宽度（链接无法右对齐到边缘），
+            // 放内容里才能撑满弹窗宽度。下方内容区在 加载中/结果 之间切换
+            var contentHost = new Grid();
+            contentHost.Children.Add(BuildUpdateLoadingStack());
+
+            var root = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
+            root.Children.Add(BuildUpdateHeaderRow());
+            root.Children.Add(contentHost);
+
+            var dialog = new ContentDialog
             {
-                // 区分"没网"和"GitHub API 不可用"，给用户精准提示
-                bool hasInternet = await UpdateService.CheckInternetConnectivityAsync();
-                string titleKey, messageKey;
-                if (!hasInternet)
+                Content = root,
+                CloseButtonText = ResourceService.GetString("Msg_GotIt"),
+                DefaultButton = ContentDialogButton.Close,
+                XamlRoot = xamlRoot,
+                RequestedTheme = App.CurrentTheme
+            };
+
+            // ContentDialog 宽度由内部资源键控制，不能通过 Width/MinWidth/MaxWidth 属性设置
+            dialog.Resources["ContentDialogMaxWidth"] = 900.0;
+            dialog.Resources["ContentDialogMinWidth"] = 680.0;
+
+            // 继承主窗口强调色，防止按钮按下变白
+            if (Application.Current.Resources.TryGetValue("SystemAccentColor", out var accent))
+                dialog.Resources["SystemAccentColor"] = accent;
+            if (Application.Current.Resources.TryGetValue("SystemControlHighlightAccentBrush", out var highlightBrush))
+                dialog.Resources["SystemControlHighlightAccentBrush"] = highlightBrush;
+
+            // 先弹窗、后检查：窗口立即出现，避免用户以为卡住。
+            // 后台检查与窗口生命周期解耦：窗口关闭后立即返回（调用方按钮马上恢复），
+            // 检查若还没完成则继续在后台跑，结果只对还开着的窗口生效。
+            // 检测到新版本时，通过回调把原生底部按钮（Primary/Secondary）动态"刷新"出来。
+            bool isPackaged = UpdateService.IsPackagedMode;
+            GitHubReleaseResponse? foundRelease = null;
+
+            var showTask = dialog.ShowAsync();
+            _ = RunBackgroundCheckAsync(
+                contentHost, preloadedRelease, isManualCheck,
+                onUpdateFound: release =>
                 {
-                    LogService.Warn("Update UI: No internet connectivity — showing network error dialog.",
-                        source: LogSource.System);
-                    titleKey = "Update_NetworkError_Title";
-                    messageKey = "Update_NetworkError_Message";
+                    foundRelease = release;
+                    dialog.PrimaryButtonText = ResourceService.GetString(
+                        isPackaged ? "Update_Btn_StoreUpdate" : "Update_Btn_DownloadInstall");
+                    dialog.SecondaryButtonText = ResourceService.GetString("Update_Btn_SkipVersion");
+                    dialog.DefaultButton = ContentDialogButton.Primary;
+                });
+
+            var result = await showTask;
+
+            // 原生底部按钮的结果处理（与旧版 ShowUpdateChoiceDialogAsync 一致）
+            if (result == ContentDialogResult.Primary && foundRelease != null)
+            {
+                if (isPackaged)
+                {
+                    LogService.Info($"Update UI: User chose 'Go to Store' for {foundRelease.TagName}", LogSource.System);
+                    await OpenStorePageAsync();
                 }
                 else
                 {
-                    LogService.Warn("Update UI: Internet OK but GitHub API failed — showing retry dialog.",
-                        source: LogSource.System);
-                    titleKey = "Update_CheckFailed_Title";
-                    messageKey = "Update_CheckFailed_Message";
+                    LogService.Info($"Update UI: User chose 'Download & Install' for {foundRelease.TagName}", LogSource.System);
+                    await DownloadAndInstallUpdateAsync(xamlRoot, foundRelease);
                 }
+            }
+            else if (result == ContentDialogResult.Secondary && foundRelease != null)
+            {
+                LogService.Info($"Update UI: User chose 'Skip' for {foundRelease.TagName}", LogSource.System);
+                UpdateService.SkipVersion(foundRelease.TagName);
+            }
+        }
 
-                // 错误弹窗：显示错误信息 + 关闭按钮 + 前往 GitHub 手动下载按钮
-                var releasesUrl = "https://github.com/LengxiQwQ/live-photo-box/releases";
-                bool clickedDownload = await DialogService.ShowDualAsync(
-                    xamlRoot,
-                    ResourceService.GetString(titleKey),
-                    ResourceService.GetString(messageKey),
-                    primaryText: ResourceService.GetString("Update_Btn_ManualDownload"),
-                    closeText: ResourceService.GetString("Msg_GotIt"));
-                if (clickedDownload)
-                    await FilePickerService.OpenUriAsync(new Uri(releasesUrl));
+        /// <summary>加载中的占位内容：转圈 + 提示文字。</summary>
+        private static StackPanel BuildUpdateLoadingStack()
+        {
+            var stack = new StackPanel
+            {
+                Spacing = 12,
+                Padding = new Microsoft.UI.Xaml.Thickness(0, 40, 0, 40),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            stack.Children.Add(new ProgressRing
+            {
+                IsActive = true,
+                Width = 40,
+                Height = 40,
+                HorizontalAlignment = HorizontalAlignment.Center
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = ResourceService.GetString("Update_CheckLoading"),
+                FontSize = 13,
+                TextWrapping = TextWrapping.Wrap,
+                HorizontalAlignment = HorizontalAlignment.Center
+            });
+            return stack;
+        }
+
+        /// <summary>创建标题文字（18px SemiBold，比原生标题小一号，观感更紧凑）。</summary>
+        private static TextBlock CreateUpdateTitleText(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                FontSize = 18,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+        }
+
+        /// <summary>标题行（内容顶部）：左侧标题文字 + 右侧"前往 GitHub 查看"链接，链接右对齐到弹窗边缘。</summary>
+        private static Grid BuildUpdateHeaderRow()
+        {
+            var titleText = CreateUpdateTitleText(ResourceService.GetString("Update_CheckDialog_Title"));
+
+            var grid = new Grid
+            {
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto }
+                }
+            };
+            grid.Children.Add(titleText);
+
+            var link = BuildUpdateGitHubLink();
+            grid.Children.Add(link);
+            Grid.SetColumn(link, 1);
+            return grid;
+        }
+
+        /// <summary>右上角"前往 GitHub 查看"入口，打开 Releases 页面。</summary>
+        private static HyperlinkButton BuildUpdateGitHubLink()
+        {
+            var link = new HyperlinkButton
+            {
+                Content = ResourceService.GetString("Update_GitHubLink"),
+                FontSize = 14,
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            link.Click += async (_, _) =>
+                await FilePickerService.OpenUriAsync(new Uri("https://github.com/LengxiQwQ/live-photo-box/releases"));
+            return link;
+        }
+
+        /// <summary>居中提示内容（无新版 / 检查失败共用）。</summary>
+        private static StackPanel BuildUpdateMessageStack(string text)
+        {
+            var stack = new StackPanel
+            {
+                Spacing = 12,
+                Padding = new Microsoft.UI.Xaml.Thickness(0, 40, 0, 40),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            stack.Children.Add(new TextBlock
+            {
+                Text = text,
+                FontSize = 13,
+                TextWrapping = TextWrapping.Wrap,
+                HorizontalAlignment = HorizontalAlignment.Center
+            });
+            return stack;
+        }
+
+        /// <summary>
+        /// 后台检查并切换窗口内容：有新版 → 更新内容+操作按钮；无新版 → 提示；失败 → 错误提示。
+        /// </summary>
+        private static async Task RunUpdateCheckAsync(
+            Grid contentHost,
+            GitHubReleaseResponse? preloadedRelease,
+            bool isManualCheck,
+            Action<GitHubReleaseResponse> onUpdateFound)
+        {
+            // 请求最新 release（启动路径已预取则跳过）
+            var release = preloadedRelease ?? await Task.Run(() => UpdateService.FetchLatestReleaseAsync());
+
+            // 检查失败（网络 / GitHub API 不可用）
+            if (release == null)
+            {
+                bool hasInternet = await UpdateService.CheckInternetConnectivityAsync();
+                string messageKey = hasInternet ? "Update_CheckFailed_Message" : "Update_NetworkError_Message";
+                LogService.Warn($"Update UI: Update check failed ({(hasInternet ? "GitHub API" : "no internet")}) — showing error state.",
+                    source: LogSource.System);
+                contentHost.Children.Clear();
+                contentHost.Children.Add(BuildUpdateMessageStack(ResourceService.GetString(messageKey)));
                 return;
             }
 
-            // 检查是否有新版本
+            // 没有新版本
             if (!UpdateService.IsNewerVersion(release))
             {
                 LogService.Info(
                     $"Update UI: No new version. Current={App.AppVersion}, Latest={release.TagName}",
                     LogSource.System);
-                var currentVersionFull = App.DisplayVersion;
                 var msg = string.Format(
-                    ResourceService.GetString("Update_NoNewVersion_Message"), currentVersionFull);
-                await ShowInfoDialogAsync(
-                    xamlRoot,
-                    ResourceService.GetString("Update_NoNewVersion_Title"),
-                    msg,
-                    ResourceService.GetString("Msg_GotIt"));
+                    ResourceService.GetString("Update_NoNewVersion_Message"), App.DisplayVersion);
+                contentHost.Children.Clear();
+                contentHost.Children.Add(BuildUpdateMessageStack(msg));
                 return;
             }
 
@@ -505,32 +631,49 @@ namespace LivePhotoBox.Views
                 UpdateService.ClearSkippedVersion();
             }
 
-            // 弹出版本选择对话框
             LogService.Info(
-                $"Update UI: New version detected! Showing update choice dialog. " +
-                $"Latest={release.TagName}, Current={App.AppVersion}",
+                $"Update UI: New version detected! Current={App.AppVersion}, Latest={release.TagName}",
                 LogSource.System);
-            await ShowUpdateChoiceDialogAsync(xamlRoot, release);
+
+            // 有新版 → 版本信息 + 更新说明；原生底部按钮由 onUpdateFound 回调刷新出来
+            onUpdateFound?.Invoke(release);
+            contentHost.Children.Clear();
+            contentHost.Children.Add(BuildUpdateContent(release));
+        }
+
+        /// <summary>后台检查更新（独立任务，不阻塞弹窗生命周期；所有异常在此兜底）。</summary>
+        private static async Task RunBackgroundCheckAsync(
+            Grid contentHost,
+            GitHubReleaseResponse? preloadedRelease,
+            bool isManualCheck,
+            Action<GitHubReleaseResponse> onUpdateFound)
+        {
+            try
+            {
+                await RunUpdateCheckAsync(contentHost, preloadedRelease, isManualCheck, onUpdateFound);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Update check error: {ex.Message}", source: LogSource.System);
+            }
         }
 
         /// <summary>
-        /// 弹出「发现新版本」三按钮选择对话框。
-        /// 按钮：下载并安装(主按钮) / 忽略此版本 / 下次再说(关闭按钮)。
+        /// 有新版时的内容：版本信息 + 更新说明（Markdown 渲染）。
+        /// 操作按钮用原生底部按钮（由调用方在检测到新版本时动态设置）。
         /// </summary>
-        private static async Task ShowUpdateChoiceDialogAsync(
-            Microsoft.UI.Xaml.XamlRoot xamlRoot,
-            GitHubReleaseResponse release)
+        private static StackPanel BuildUpdateContent(GitHubReleaseResponse release)
         {
-            // 格式化版本号显示：去掉 tag 前缀 v
+            bool isPackaged = UpdateService.IsPackagedMode;
             var latestVersion = release.TagName.TrimStart('v', 'V');
             var currentVersion = App.DisplayVersion;
 
-            // 构建内容：新版本号 + 当前版本号 + 更新日志
-            var contentStack = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
+            var stack = new StackPanel { Spacing = 12, HorizontalAlignment = HorizontalAlignment.Stretch };
 
-            contentStack.Children.Add(new TextBlock
+            // 新版本号 + 当前版本号
+            stack.Children.Add(new TextBlock
             {
-                Text = ResourceService.GetString("Update_NewVersion_Message")
+                Text = ResourceService.GetString(isPackaged ? "Update_NewVersion_Store_Message" : "Update_NewVersion_Message")
                     .Replace("{0}", latestVersion)
                     .Replace("{1}", currentVersion),
                 FontSize = 14,
@@ -539,7 +682,7 @@ namespace LivePhotoBox.Views
                 FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Microsoft YaHei UI")
             });
 
-            // 显示 Release 正文（Markdown 渲染）
+            // 更新说明（Markdown 渲染），WebView2 初始化失败降级为纯文本
             if (!string.IsNullOrWhiteSpace(release.Body))
             {
                 // 补上 base URL，让相对链接（如 changelogs/xxx.md）能正确跳转到 GitHub
@@ -550,7 +693,7 @@ namespace LivePhotoBox.Views
 
                 var webView = new Microsoft.UI.Xaml.Controls.WebView2
                 {
-                    Height = 300,
+                    Height = 460,
                     HorizontalAlignment = HorizontalAlignment.Stretch
                 };
 
@@ -563,13 +706,13 @@ namespace LivePhotoBox.Views
                     TextWrapping = TextWrapping.Wrap,
                     IsTextSelectionEnabled = true,
                     FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas, Microsoft YaHei UI"),
-                    MaxHeight = 260
+                    MaxHeight = 440
                 };
                 var fallbackScrollViewer = new ScrollViewer
                 {
                     Content = fallbackTextBlock,
                     VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                    MaxHeight = 300,
+                    MaxHeight = 460,
                     Visibility = Visibility.Collapsed
                 };
 
@@ -618,54 +761,23 @@ namespace LivePhotoBox.Views
                     }
                 };
 
-                contentStack.Children.Add(webView);
-                contentStack.Children.Add(fallbackScrollViewer);
+                stack.Children.Add(webView);
+                stack.Children.Add(fallbackScrollViewer);
             }
 
-            var dialog = new ContentDialog
-            {
-                Title = ResourceService.GetString("Update_NewVersion_Title"),
-                Content = contentStack,
-                PrimaryButtonText = ResourceService.GetString("Update_Btn_DownloadInstall"),
-                SecondaryButtonText = ResourceService.GetString("Update_Btn_SkipVersion"),
-                CloseButtonText = ResourceService.GetString("Update_Btn_Later"),
-                DefaultButton = ContentDialogButton.Primary,
-                XamlRoot = xamlRoot,
-                RequestedTheme = App.CurrentTheme
-            };
+            return stack;
+        }
 
-            // ContentDialog 宽度由内部资源键控制，不能通过 Width/MinWidth/MaxWidth 属性设置
-            dialog.Resources["ContentDialogMaxWidth"] = 900.0;
-            dialog.Resources["ContentDialogMinWidth"] = 680.0;
-
-            // 确保 ContentDialog Popup 能继承主窗口强调色，防止 PrimaryButton 按下变白
-            if (Application.Current.Resources.TryGetValue("SystemAccentColor", out var accent))
-                dialog.Resources["SystemAccentColor"] = accent;
-            if (Application.Current.Resources.TryGetValue("SystemControlHighlightAccentBrush", out var highlightBrush))
-                dialog.Resources["SystemControlHighlightAccentBrush"] = highlightBrush;
-
-
-            var result = await dialog.ShowAsync();
-
-            switch (result)
-            {
-                case ContentDialogResult.Primary:
-                    // 下载并安装
-                    LogService.Info($"Update UI: User chose 'Download & Install' for {release.TagName}", LogSource.System);
-                    await DownloadAndInstallUpdateAsync(xamlRoot, release);
-                    break;
-
-                case ContentDialogResult.Secondary:
-                    // 忽略此版本
-                    LogService.Info($"Update UI: User chose 'Skip' for {release.TagName}", LogSource.System);
-                    UpdateService.SkipVersion(release.TagName);
-                    break;
-
-                default:
-                    // 下次再说 / 关闭 → 什么都不做
-                    LogService.Info("Update UI: User chose 'Remind Me Later' — dialog dismissed.", LogSource.System);
-                    break;
-            }
+        /// <summary>
+        /// 打开 Microsoft Store 应用页（商店版更新入口）。
+        /// 优先用 ms-windows-store:// 协议直接唤起 Store 应用并定位到本软件页面；
+        /// 协议不可用（如商店未安装）时回退到网页版商店页。
+        /// </summary>
+        private static async Task OpenStorePageAsync()
+        {
+            bool launched = await FilePickerService.OpenUriAsync(new Uri(UpdateService.StorePageProtocolUri));
+            if (!launched)
+                await FilePickerService.OpenUriAsync(new Uri(UpdateService.StorePageUrl));
         }
 
         /// <summary>
@@ -1134,6 +1246,66 @@ namespace LivePhotoBox.Views
         private void TimelineMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             AppViewModel.Instance.Edit.NotifyTimelineModeChanged();
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  示例内容
+        // ════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// "下载示例照片"按钮 — 当前为预留占位，后续版本实现在线下载功能。
+        /// </summary>
+        private async void DownloadSamplePhotos_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow?.Content?.XamlRoot == null) return;
+            await DialogService.ShowDualAsync(
+                App.MainWindow.Content.XamlRoot,
+                ResourceService.GetString("SettingsPage_SampleContent_ComingSoon_Title"),
+                ResourceService.GetString("SettingsPage_SampleContent_ComingSoon_Message"),
+                primaryText: ResourceService.GetString("Msg_Confirm"),
+                closeText: string.Empty);
+        }
+
+        /// <summary>
+        /// "清空本地示例"按钮 — 删除临时目录中的示例照片文件。
+        /// </summary>
+        private async void ClearLocalSamples_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow?.Content?.XamlRoot == null) return;
+
+            try
+            {
+                string tempDemoRoot = System.IO.Path.Combine(
+                    System.IO.Path.GetTempPath(), "LivePhotoBox_Demo");
+
+                if (!System.IO.Directory.Exists(tempDemoRoot))
+                {
+                    await DialogService.ShowDualAsync(
+                        App.MainWindow.Content.XamlRoot,
+                        ResourceService.GetString("SettingsPage_SampleContent_Clear_NotFound_Title"),
+                        ResourceService.GetString("SettingsPage_SampleContent_Clear_NotFound_Message"),
+                        primaryText: ResourceService.GetString("Msg_Confirm"),
+                        closeText: string.Empty);
+                    return;
+                }
+
+                bool confirmed = await DialogService.ShowDualAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    ResourceService.GetString("SettingsPage_SampleContent_Clear_Confirm_Title"),
+                    ResourceService.GetString("SettingsPage_SampleContent_Clear_Confirm_Message"),
+                    primaryText: ResourceService.GetString("Msg_Confirm"),
+                    closeText: ResourceService.GetString("Msg_Cancel"));
+
+                if (confirmed)
+                {
+                    System.IO.Directory.Delete(tempDemoRoot, true);
+                    LogService.Info("Local sample files cleared.", LogSource.Settings);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Failed to clear local samples: {ex.Message}", source: LogSource.Settings);
+            }
         }
     }
 }

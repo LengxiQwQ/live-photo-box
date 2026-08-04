@@ -35,7 +35,7 @@ namespace LivePhotoBox.Services.Protocols
     // appended after the MP4 video payload.
     public sealed class HuaweiMovingPhotoProtocol : LivePhotoProtocol
     {
-        // Protocol index for UI ComboBox selection (5 = HUAWEI Moving Photo).
+        // Protocol index for UI ComboBox selection (6 = HUAWEI Moving Photo).
         public override int Id => 6;
 
         // Short identifier for logging and protocol identification.
@@ -57,8 +57,7 @@ namespace LivePhotoBox.Services.Protocols
         /// The still image itself is frame 0.</param>
         /// <param name="totalFrames">Total video frame count.</param>
         /// <param name="mp4Size">Size of the MP4 video payload in bytes.</param>
-        /// <param name="tailPrefix">Tail version prefix. Default "v6_f" for HarmonyOS 5+,
-        /// "v3_f" for HarmonyOS 4.0 (Mate 60).</param>
+        /// <param name="tailPrefix">Tail version prefix. Default "v6_f".</param>
         /// <returns>Exactly 60 bytes, space-padded, ASCII-encoded.</returns>
         public static byte[] BuildTail(int coverFrame, int totalFrames, long mp4Size,
             string tailPrefix = "v6_f")

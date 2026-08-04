@@ -246,15 +246,6 @@
   <data name="SettingsPage_Keep_Desc.Text" xml:space="preserve">
     <value>处理完成后不清理源文件</value>
   </data>
-  <data name="SettingsPage_Split_Header.Text" xml:space="preserve">
-    <value>拆分 &amp; 协议转换</value>
-  </data>
-  <data name="SettingsPage_SplitFormat_Header.Header" xml:space="preserve">
-    <value>导出视频格式</value>
-  </data>
-  <data name="SettingsPage_SplitFormat_Desc.Text" xml:space="preserve">
-    <value>选择拆分后视频的保存格式</value>
-  </data>
   <data name="SettingsPage_Restore_Button.Content" xml:space="preserve">
     <value>恢复默认设置</value>
   </data>
@@ -1487,29 +1478,23 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="MergePage_OutputFormat_JPEG_MP4.Content" xml:space="preserve">
     <value>JPG [内嵌 MP4 (H.264)]</value>
   </data>
-  <data name="MergePage_OutputFormat_HW4.Content" xml:space="preserve">
-    <value>JPG [内嵌 MP4] (HMOS 4)</value>
-  </data>
-  <data name="MergePage_FormatHint_HMOS4" xml:space="preserve">
-    <value>鸿蒙4.0 实拍格式</value>
+  <data name="MergePage_FormatHint_HEVC" xml:space="preserve">
+    <value>高效</value>
   </data>
   <data name="MergePage_FormatHint_BestCompat" xml:space="preserve">
-    <value>兼容性最佳</value>
+    <value>兼容性高，占用空间大</value>
   </data>
   <data name="MergePage_FormatHint_GoodCompat" xml:space="preserve">
-    <value>高效但兼容性略差</value>
+    <value>视频压缩，兼顾兼容性</value>
   </data>
   <data name="MergePage_FormatHint_Efficient" xml:space="preserve">
-    <value>高效</value>
+    <value>高效，视频占用空间大</value>
   </data>
   <data name="MergePage_FormatHint_GoogleOnly" xml:space="preserve">
     <value>仅 Google 相册可识别</value>
   </data>
   <data name="MergePage_FormatHint_Untested" xml:space="preserve">
     <value>⚠️ 有待测试</value>
-  </data>
-  <data name="MergePage_FormatHint_CoverFirstFrame" xml:space="preserve">
-    <value>⚠️ 待修复问题：封面总为第一帧</value>
   </data>
   <data name="MergePage_KeepOriginalFiles.Header" xml:space="preserve">
     <value>保留原始文件</value>
@@ -1694,12 +1679,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_Merge_ThreadCount_Desc.Text" xml:space="preserve">
     <value>HEIC/HEIF 照片转码时的并行处理任务数。注意：JPG 格式照片无需转码，因此不受限制，会自动使用最高 20 路并发以加速合成</value>
   </data>
-  <data name="SettingsPage_Merge_GoogleForceMp4.Text" xml:space="preserve">
-    <value>Google 协议始终转换成 MP4</value>
-  </data>
-  <data name="SettingsPage_Merge_GoogleForceMp4_Desc.Text" xml:space="preserve">
-    <value>开启后，使用 Google V1/V2 协议合成实况照片时，自动将 MOV 视频转为兼容性更广的 MP4 格式。默认关闭，保留视频原始封装格式，如果导入设备不支持浏览实况照片，可以尝试打开</value>
-  </data>
   <data name="SettingsPage_Restore_Confirm_Title" xml:space="preserve">
     <value>恢复默认设置</value>
   </data>
@@ -1837,12 +1816,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="SettingsPage_Transcode_Header.Text" xml:space="preserve">
     <value>视频转码</value>
-  </data>
-  <data name="SettingsPage_Split_FormatLabel.Text" xml:space="preserve">
-    <value>默认输出格式</value>
-  </data>
-  <data name="SettingsPage_Split_FormatDesc.Text" xml:space="preserve">
-    <value>选择拆分后视频的默认保存格式，若无特殊需求，保持默认即可</value>
   </data>
   <data name="SettingsPage_Transcode_Hardware.Text" xml:space="preserve">
     <value>硬件加速</value>
@@ -2301,14 +2274,14 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_CheckTools_SomeFailed" xml:space="preserve">
     <value>⚠️ {0}/{1} 个工具可用，请检查下方详情</value>
   </data>
-  <data name="SettingsPage_CheckUpdate_Button_Text.Text" xml:space="preserve">
-    <value>检查更新</value>
-  </data>
   <data name="Update_NewVersion_Title" xml:space="preserve">
     <value>发现新版本！</value>
   </data>
   <data name="Update_NewVersion_Message" xml:space="preserve">
     <value>实况照片工具箱 {1} → {0}，要下载并安装更新吗？</value>
+  </data>
+  <data name="Update_NewVersion_Store_Message" xml:space="preserve">
+    <value>实况照片工具箱 {1} → {0}，要前往商店更新吗？</value>
   </data>
   <data name="Update_Downloading_Title" xml:space="preserve">
     <value>正在下载更新...</value>
@@ -2352,6 +2325,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="Update_Btn_DownloadInstall" xml:space="preserve">
     <value>下载并安装</value>
   </data>
+  <data name="Update_Btn_StoreUpdate" xml:space="preserve">
+    <value>前往商店更新</value>
+  </data>
   <data name="Update_Btn_SkipVersion" xml:space="preserve">
     <value>忽略此版本</value>
   </data>
@@ -2378,9 +2354,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="Update_NoAssetAvailable" xml:space="preserve">
     <value>未找到适用于当前安装类型的更新包，请前往 GitHub 手动下载。</value>
-  </data>
-  <data name="Update_PackagedMode_Disabled" xml:space="preserve">
-    <value>您当前使用的是 MSIX 打包版本，由 Windows 应用商店提供自动更新。如需使用内置更新功能，请前往 GitHub 下载便携版或安装版。</value>
   </data>
   <data name="SettingsPage_Merge_MetadataMatching_FilenameAndCid.Content" xml:space="preserve">
     <value>文件名 + 标识符</value>
@@ -3204,7 +3177,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>免责声明</value>
   </data>
   <data name="AboutPage_DisclaimerBody.Text" xml:space="preserve">
-    <value>开发者不对因使用本软件导致的任何数据损坏、丢失或硬件故障承担法律责任。处理敏感文件前，请务必养成备份的良好习惯。</value>
+    <value>开发者 LengxiQwQ 不对因使用本软件导致的任何数据损坏、丢失或硬件故障承担法律责任。处理敏感文件前，请务必养成备份的良好习惯。</value>
   </data>
   <data name="AboutPage_GitHubButton.Content" xml:space="preserve">
     <value>GitHub 仓库</value>
@@ -3212,11 +3185,44 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="AboutPage_IssueButton.Content" xml:space="preserve">
     <value>问题反馈</value>
   </data>
-  <data name="AboutPage_LicenseButton.Content" xml:space="preserve">
-    <value>GPL-3.0 许可证</value>
-  </data>
   <data name="AboutPage_ChangelogButton.Content" xml:space="preserve">
     <value>更新日志</value>
+  </data>
+  <data name="AboutPage_ChangelogDialog_Title" xml:space="preserve">
+    <value>更新日志</value>
+  </data>
+  <data name="AboutPage_ChangelogDialog_Loading" xml:space="preserve">
+    <value>正在加载更新日志…</value>
+  </data>
+  <data name="AboutPage_ChangelogDialog_Error" xml:space="preserve">
+    <value>无法获取更新日志。</value>
+  </data>
+  <data name="AboutPage_ChangelogDialog_OpenBrowser" xml:space="preserve">
+    <value>前往 GitHub 查看</value>
+  </data>
+  <data name="Update_CheckDialog_Title" xml:space="preserve">
+    <value>检查更新</value>
+  </data>
+  <data name="Update_CheckLoading" xml:space="preserve">
+    <value>正在检查更新…</value>
+  </data>
+  <data name="Update_GitHubLink" xml:space="preserve">
+    <value>前往 GitHub 查看</value>
+  </data>
+  <data name="AboutPage_CheckUpdateButton.Content" xml:space="preserve">
+    <value>检查更新</value>
+  </data>
+  <data name="AboutPage_StoreButton.Content" xml:space="preserve">
+    <value>商店页面</value>
+  </data>
+  <data name="AboutPage_RateButton.Content" xml:space="preserve">
+    <value>评论和评分</value>
+  </data>
+  <data name="AboutPage_LicenseTitle.Text" xml:space="preserve">
+    <value>许可证</value>
+  </data>
+  <data name="AboutPage_LicenseDesc.Text" xml:space="preserve">
+    <value>本软件基于 GPL-3.0 协议开源，允许自由使用、修改与再分发，但衍生作品必须保持相同的开源协议。</value>
   </data>
   <data name="AboutPage_ContactAuthor.Text" xml:space="preserve">
     <value>联系作者</value>
@@ -3227,8 +3233,32 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="AboutPage_SendEmail.Text" xml:space="preserve">
     <value>发送邮件</value>
   </data>
+  <data name="AboutPage_ContactEmail.Text" xml:space="preserve">
+    <value>邮箱</value>
+  </data>
+  <data name="AboutPage_ContactQQ.Text" xml:space="preserve">
+    <value>QQ</value>
+  </data>
+  <data name="AboutPage_CopyQQ.Text" xml:space="preserve">
+    <value>复制 QQ</value>
+  </data>
   <data name="AboutPage_EmailCopied.Text" xml:space="preserve">
     <value>✓ 已复制到剪贴板</value>
+  </data>
+  <data name="AboutPage_SponsorButton.Text" xml:space="preserve">
+    <value>赞助作者</value>
+  </data>
+  <data name="AboutPage_Sponsor_Title.Text" xml:space="preserve">
+    <value>支持作者</value>
+  </data>
+  <data name="AboutPage_Sponsor_GitHub.Text" xml:space="preserve">
+    <value>GitHub Sponsors</value>
+  </data>
+  <data name="AboutPage_Sponsor_Afdian.Text" xml:space="preserve">
+    <value>爱发电</value>
+  </data>
+  <data name="AboutPage_Sponsor_WeChat.Text" xml:space="preserve">
+    <value>微信赞赏码</value>
   </data>
   <data name="MergePage_InputOutputHeader.Text" xml:space="preserve">
     <value>目录选择和匹配</value>
@@ -3285,7 +3315,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>Samsung - Motion Photo</value>
   </data>
   <data name="MergePage_Protocol_Samsung_Hint" xml:space="preserve">
-    <value>三星</value>
+    <value>Windows / 三星</value>
   </data>
   <data name="MergePage_Protocol_Huawei.Content" xml:space="preserve">
     <value>HUAWEI - Moving Photo</value>
@@ -3304,6 +3334,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="MergePage_OutputFormat_HEIC_MP4.Content" xml:space="preserve">
     <value>HEIC [内嵌 MP4 (H.264)]</value>
+  </data>
+  <data name="MergePage_OutputFormat_HEIC_MP4_H265.Content" xml:space="preserve">
+    <value>HEIC [内嵌 MP4 (H.265)]</value>
   </data>
   <data name="OriginalDir_SubfolderName" xml:space="preserve">
     <value>原始照片</value>
@@ -3488,5 +3521,41 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="MergePage_FooterCancelled.Text" xml:space="preserve">
     <value>已取消 </value>
+  </data>
+  <data name="HomePage_NoSample_Title" xml:space="preserve">
+    <value>未找到示例照片</value>
+  </data>
+  <data name="HomePage_NoSample_Message" xml:space="preserve">
+    <value>为减小安装包体积，示例照片不再随软件打包。你可以在设置 → 示例内容中免费下载。</value>
+  </data>
+  <data name="HomePage_NoSample_GoToSettings" xml:space="preserve">
+    <value>前往设置</value>
+  </data>
+  <data name="SettingsPage_SampleContent_Header.Text" xml:space="preserve">
+    <value>示例内容</value>
+  </data>
+  <data name="SettingsPage_SampleContent_DownloadButtonText.Text" xml:space="preserve">
+    <value>下载示例照片</value>
+  </data>
+  <data name="SettingsPage_SampleContent_ClearButtonText.Text" xml:space="preserve">
+    <value>清空本地示例</value>
+  </data>
+  <data name="SettingsPage_SampleContent_ComingSoon_Title" xml:space="preserve">
+    <value>即将推出</value>
+  </data>
+  <data name="SettingsPage_SampleContent_ComingSoon_Message" xml:space="preserve">
+    <value>示例下载功能正在开发中，将在后续版本上线，敬请期待！</value>
+  </data>
+  <data name="SettingsPage_SampleContent_Clear_Confirm_Title" xml:space="preserve">
+    <value>清空本地示例</value>
+  </data>
+  <data name="SettingsPage_SampleContent_Clear_Confirm_Message" xml:space="preserve">
+    <value>所有本地缓存的示例照片将被删除，你可以随时重新下载。确定继续？</value>
+  </data>
+  <data name="SettingsPage_SampleContent_Clear_NotFound_Title" xml:space="preserve">
+    <value>没有可清理的内容</value>
+  </data>
+  <data name="SettingsPage_SampleContent_Clear_NotFound_Message" xml:space="preserve">
+    <value>未找到本地示例文件，已经很干净了。</value>
   </data>
 </root>

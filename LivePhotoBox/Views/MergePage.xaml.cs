@@ -221,23 +221,23 @@ namespace LivePhotoBox.Views
 
             string JpegMp4Hint() => protocolIndex switch
             {
-                4 => "MergePage_FormatHint_Untested",          // Samsung
-                5 => "MergePage_FormatHint_CoverFirstFrame",    // HUAWEI
+                5 => "MergePage_FormatHint_Untested",          // Samsung
                 _ => "MergePage_FormatHint_BestCompat",
             };
             string JpegMovHint() => "MergePage_FormatHint_GoodCompat";
             string HeicMp4Hint() => protocolIndex switch
             {
-                4 => "MergePage_FormatHint_Untested",          // Samsung
-                5 => "MergePage_FormatHint_CoverFirstFrame",    // HUAWEI
+                5 => "MergePage_FormatHint_Untested",          // Samsung
                 _ => "MergePage_FormatHint_Efficient",
             };
             string HeicMovHint() => "MergePage_FormatHint_GoogleOnly";
+            string HeicH265Hint() => "MergePage_FormatHint_HEVC";
 
             SetFormatHint(0, JpegMp4Hint());
             SetFormatHint(1, JpegMovHint());
             SetFormatHint(2, HeicMp4Hint());
             SetFormatHint(3, HeicMovHint());
+            SetFormatHint(4, HeicH265Hint());
         }
 
         // 输出格式下拉框加载完成后注入兼容性说明副标题
@@ -255,7 +255,7 @@ namespace LivePhotoBox.Views
                 "MergePage_FormatHint_GoodCompat",
                 "MergePage_FormatHint_Efficient",
                 "MergePage_FormatHint_GoogleOnly",
-                "MergePage_FormatHint_HMOS4",
+                "MergePage_FormatHint_HEVC",
             ];
             // Adding hintKeys for future format items (keep in sync with XAML ComboBoxItems)
 
@@ -344,7 +344,7 @@ namespace LivePhotoBox.Views
             LeftPanelScrollViewer.VerticalScrollBarVisibility = Microsoft.UI.Xaml.Controls.ScrollBarVisibility.Visible;
 
             // 英文模式下"清除"和"默认"按钮只显示图标，隐藏文字（英文文本太长显示不下）
-            if (System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "en")
+            if (!LivePhotoBox.Services.LanguageService.IsChineseUi())
             {
                 NamingClearBtnText.Visibility = Visibility.Collapsed;
                 NamingResetBtnText.Visibility = Visibility.Collapsed;
