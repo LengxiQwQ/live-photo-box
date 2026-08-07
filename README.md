@@ -126,6 +126,7 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 - **Commands**: `merge` (single-pair or batch), `protocols` (protocol × format compatibility matrix), `update-check` (check for the latest release)
 - **Six executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lipbox` / `lpb` / `lpbx`
 - **Batch merging** with metadata-based pairing (`name`, Apple `ContentIdentifier` UUID, vivo camera ID), custom naming templates, and `--after` actions (`move` to a folder / recycle bin)
+- **Sane output defaults**: single-pair merges write next to the source photo (protocol-suffixed name); batch merges write into a `{folder}_<protocol>` subfolder — never the terminal’s current directory. `-w` overwrites existing outputs instead of auto-renaming
 - **Distribution**: bundled with the installer (optional “Add to PATH”), or a standalone `-x64-cli.zip`
 
 📖 **CLI User Guide**: [English](docs/CLI-User-Guide.md) · [简体中文](docs/CLI-User-Guide.zh-CN.md)

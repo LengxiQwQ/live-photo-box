@@ -47,8 +47,8 @@ lpb protocols
 # Convert a single pair (iPhone → Google Photos)
 lpb merge photo.heic video.mov -p v2 -y
 
-# Batch-convert a folder (→ HUAWEI, auto-confirm)
-lpb merge -d ./MyPhotos -p huawei -o ./Output -y
+# Batch-convert a folder (→ HUAWEI, auto-confirm; writes ./MyPhotos/MyPhotos_huawei/)
+lpb merge -d ./MyPhotos -p huawei -y
 
 # Preview without executing
 lpb merge -d ./MyPhotos --dry-run
@@ -131,17 +131,23 @@ lpb merge IMG_001.HEIC IMG_001.MOV -p v2 -y
 # → HUAWEI native HEVC
 lpb merge photo.jpg video.mp4 -p huawei -f heic+mp4-h265 -y
 
-# Batch folder → HUAWEI, write to ./Output, no prompts
+# Batch folder → HUAWEI, no prompts (default writes ./MyPhotos/MyPhotos_huawei/)
+lpb merge -d ./MyPhotos -p huawei -y
+
+# Batch folder → HUAWEI, explicit output folder
 lpb merge -d ./MyPhotos -p huawei -o ./Output -y
 
 # Batch with subdirectory scanning and structure preservation
 lpb merge -d ./Photos -r -s -p v2 -o ./Output -y
 
-# Dry run — preview only
+# Dry run — preview only, creates no folders
 lpb merge -d ./Photos -p v2 --dry-run
 
 # Custom filename template
 lpb merge -d ./Photos -p v2 -n "custom:{name}_{protocol}_{date}" -y
+
+# Overwrite existing outputs instead of auto-renaming to " (2)"
+lpb merge photo.jpg video.mp4 -p huawei -y -w
 ```
 
 ---
@@ -164,9 +170,12 @@ lpb merge [options]
                              vivo  — Match by vivo camera livephoto ID
 
 ═══ OUTPUT ═══
-  -o, --output <folder>    Output directory (default: current working directory).
-  -w, --overwrite          Overwrite existing files. Without this, conflicts produce
-                             auto-renamed copies: photo.jpg → photo (2).jpg.
+  -o, --output <folder>    Output directory. Default (when omitted):
+                             • Single pair → the image's own directory (writes next to the photo)
+                             • Batch      → {input_folder}/{input_folder}_<protocol>/ subfolder
+                             Pass -o to override; the folder is created as needed.
+  -w, --overwrite          Overwrite an existing output file in place. Without this,
+                             conflicts auto-rename: photo.jpg → photo (2).jpg.
   -s, --preserve-subdirs   Replicate source subdirectory structure in the output.
   --after <action>         Post-merge action (successful pairs only):
                              none        — Leave source files in place (default)
@@ -191,9 +200,9 @@ lpb merge [options]
                              heic+mov      — HEIC + MOV
                              heic+mp4-h265 — HEIC + H.265 MP4 (HUAWEI native HEVC)
 
-  -n, --naming <rule>      Output filename rule [default: keep].
-                             keep           — Same as source image name
-                             suffix         — Append protocol name: photo → photov2
+  -n, --naming <rule>      Output filename rule. Default: suffix for a single pair, keep for batch.
+                             keep           — Same as source image name (batch default)
+                             suffix         — Append protocol short name: photo → photomotionphoto (single-pair default)
                              custom:TEMPLATE — Template with tokens:
                                {name}          Source filename
                                {protocol}      Protocol short name
@@ -214,6 +223,20 @@ lpb merge [options]
   --all-variants           Generate all protocol × format combos (single-pair only).
                              Output to {image_dir}/{name}_variants/ by default. Files named {name}_{Protocol}_{Format}.ext.
 ```
+
+### Default Output Location
+
+When `-o` is omitted, output never lands in the terminal's current directory — it follows the **input**:
+
+| Mode | Default output | Example |
+|------|----------------|---------|
+| Single pair | The **image's own directory** (photo and video may live in different folders; the photo wins) | `D:\Pics\IMG_001.jpg` + `D:\Videos\clip.mp4` → `D:\Pics\IMG_001_motionphoto.jpg` |
+| Batch (`-d`) | A subfolder inside the input folder, named `{input_folder}_<protocol>` | `lpb merge -d ./MyPhotos -p v2` → `./MyPhotos/MyPhotos_motionphoto/` |
+
+- Folder/file names are English: `MyPhotos_huawei/`, `IMG_001huawei.jpg`.
+- Single-pair files are named `{source_name}<protocol_suffix>` by default (e.g. `IMG_001motionphoto.jpg`) so they never overwrite the source photo.
+- Batch files keep their source names — the protocol suffix lives in the **folder** name instead.
+- `--dry-run` prints the resolved output path and creates **no** folders.
 
 ### `--all-variants` — Generate every protocol × format combo
 
@@ -316,12 +339,14 @@ No external tools required — pure file I/O.
 
 | Goal | Template | Example Output |
 |------|----------|----------------|
-| Keep original name | `-n keep` (or omit `-n`) | `IMG_001.jpg` |
+| Keep original name | `-n keep` | `IMG_001.jpg` |
 | Append protocol suffix | `-n suffix` | `IMG_001huawei.jpg` |
 | Name + date | `-n "custom:{name}_{date}"` | `IMG_001_20260803.jpg` |
 | Protocol as subdirectory | `-n "custom:{protocol}/{name}"` | `huawei/IMG_001.jpg` |
 | Sequential numbering | `-n "custom:Photo_{counter:D4}"` | `Photo_0001.jpg` |
 | Full metadata | `-n "custom:{name}_{protocol}_{date}_{time}"` | `IMG_001_huawei_20260803_143022.jpg` |
+
+> **Note:** when `-n` is omitted, **single-pair** merges default to `suffix` (so the output never collides with the source photo) while **batch** merges default to `keep` (outputs go into a separate subfolder, so names stay unchanged). Explicitly passing `-n` always wins.
 
 ---
 

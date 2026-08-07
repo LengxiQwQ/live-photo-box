@@ -48,17 +48,7 @@ namespace LivePhotoBox.Services
             {
                 // 协议后缀（命名规则 = 添加协议后缀时使用）
                 string? protocolSuffix = namingRuleIndex == 1
-                    ? selectedModeIndex switch
-                    {
-                        0 => "fusion",
-                        1 => "microvideo",
-                        2 => "motionphoto",
-                        3 => "oppo",
-                        4 => "vivo",
-                        5 => "samsung",
-                        6 => "huawei",
-                        _ => null
-                    }
+                    ? GetProtocolSuffixName(selectedModeIndex)
                     : null;
 
                 name = protocolSuffix != null ? baseName + protocolSuffix : baseName;
@@ -97,6 +87,20 @@ namespace LivePhotoBox.Services
             return IllegalFileNameChars.Replace(name, "_");
         }
 
+        // 协议后缀名称 —— 命名规则(suffix)、{protocol} token、CLI 批量输出文件夹名共用同一映射。
+        // 已知协议返回小写后缀名；未知/越界索引返回 null（不追加后缀）。
+        public static string? GetProtocolSuffixName(int protocolIndex) => protocolIndex switch
+        {
+            0 => "fusion",
+            1 => "microvideo",
+            2 => "motionphoto",
+            3 => "oppo",
+            4 => "vivo",
+            5 => "samsung",
+            6 => "huawei",
+            _ => null
+        };
+
         // 将命名模板字符串渲染为实际文件名。
         // template: 含 token 的模板，如 "{name}_{protocol}" 或 "LivePhoto_{date}_{counter:D3}"
         // baseName: 原文件基本名（不含扩展名）
@@ -123,17 +127,7 @@ namespace LivePhotoBox.Services
                 return token switch
                 {
                     "name" => baseName,
-                    "protocol" => protocolIndex switch
-                    {
-                        0 => "fusion",
-                        1 => "microvideo",
-                        2 => "motionphoto",
-                        3 => "oppo",
-                        4 => "vivo",
-                        5 => "samsung",
-                        6 => "huawei",
-                        _ => "",
-                    },
+                    "protocol" => GetProtocolSuffixName(protocolIndex) ?? "",
                     "date" => DateTime.Now.ToString(format ?? "yyyyMMdd"),
                     "time" => DateTime.Now.ToString(format ?? "HHmmss"),
                     "exif_date" => GetCaptureTime().ToString(format ?? "yyyyMMdd"),
@@ -265,7 +259,18 @@ namespace LivePhotoBox.Services
             // actual video container MIME so the XMP matches the appended data.
             // For other protocols (V1, OPPO), keep the default behaviour.
             byte[] jpegXmpBytes;
-            if (protocol is MotionPhotoV2Protocol v2jpeg)
+            if (protocol is VivoLivePhotoProtocol vivoProtocol)
+            {
+                // vivo X300+ needs the 3-item Ultra HDR XMP (Primary/GainMap/MotionPhoto)
+                // with the real gain-map byte length. When the source image carries an
+                // embedded gain map (Ultra HDR JPEG), WriteNativeAsync preserves it in the
+                // output; MeasureGainMapLength reports its size for the XMP item.
+                string videoMime = DetectVideoMime(sourceVid);
+                long gainMapLength = MeasureGainMapLength(sourceImg);
+                jpegXmpBytes = vivoProtocol.BuildXmpMetadata(
+                    videoSize, presentationTimestampUs, gainMapLength, "image/jpeg", videoMime);
+            }
+            else if (protocol is MotionPhotoV2Protocol v2jpeg)
             {
                 string videoMime = DetectVideoMime(sourceVid);
                 jpegXmpBytes = v2jpeg.BuildXmpMetadata(videoSize, presentationTimestampUs, "image/jpeg", "0", videoMime);
@@ -304,6 +309,79 @@ namespace LivePhotoBox.Services
             catch { /* best-effort — fall through to default */ }
 
             return "video/mp4";
+        }
+
+        // Measure the byte length of the Ultra HDR gain map appended after the
+        // primary JPEG's EOI. Returns 0 when the source image is a plain JPEG
+        // (no embedded gain map) or when the trailing bytes are not another JPEG
+        // (e.g. re-merging an existing live photo whose trailing bytes are video).
+        // Used by the vivo protocol to populate the GainMap Container:Item.
+        private static long MeasureGainMapLength(string imagePath)
+        {
+            try
+            {
+                using var fs = new FileStream(
+                    imagePath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                    bufferSize: 4096, options: FileOptions.SequentialScan);
+
+                // Check SOI
+                if (fs.ReadByte() != 0xFF || fs.ReadByte() != 0xD8)
+                    return 0;
+
+                var buf = new byte[2];
+                while (true)
+                {
+                    // Find the next marker (0xFF)
+                    int b;
+                    while ((b = fs.ReadByte()) != 0xFF)
+                    {
+                        if (b < 0) return 0;
+                    }
+
+                    // Skip padding 0xFF bytes
+                    while ((b = fs.ReadByte()) == 0xFF) { }
+                    if (b < 0) return 0;
+
+                    // EOI — primary image end
+                    if (b == 0xD9)
+                    {
+                        long trailing = fs.Length - fs.Position;
+                        // Only report a gain map when the trailing bytes are another
+                        // JPEG (Ultra HDR gain map). A trailing MP4 (from re-merging an
+                        // existing live photo) is not a gain map.
+                        if (trailing >= 2)
+                        {
+                            int peek0 = fs.ReadByte();
+                            int peek1 = fs.ReadByte();
+                            if (peek0 != 0xFF || peek1 != 0xD8)
+                                return 0;
+                        }
+                        return trailing;
+                    }
+
+                    // Escaped 0xFF (0xFF 0x00) inside entropy data
+                    if (b == 0x00)
+                        continue;
+
+                    // Restart markers (0xFF 0xD0–0xD7) — no length segment
+                    if (b >= 0xD0 && b <= 0xD7)
+                        continue;
+
+                    // All other markers: read 2-byte length and skip the segment
+                    int n = fs.Read(buf, 0, 2);
+                    if (n < 2) return 0;
+                    int segLen = (buf[0] << 8) | buf[1];
+                    if (segLen > 2)
+                    {
+                        fs.Seek(segLen - 2, SeekOrigin.Current);
+                    }
+                }
+            }
+            catch
+            {
+                // Best-effort — a plain JPEG (or unreadable file) yields 0.
+                return 0;
+            }
         }
 
         // ── HUAWEI native writer ────────────────────────────────────────

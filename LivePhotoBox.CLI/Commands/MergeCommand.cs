@@ -37,7 +37,7 @@ namespace LivePhotoBox.Cli.Commands
             protocolOpt.AddAlias("-p");
 
             var outputOpt = new Option<DirectoryInfo?>("--output",
-                "Output folder (default: current directory).");
+                "Output folder. Default: image's own directory for a single pair; a \"{folder}_<protocol>\" subfolder inside the input folder for batch mode.");
             outputOpt.AddAlias("-o");
 
             var formatOpt = new Option<string?>("--format",
@@ -45,7 +45,7 @@ namespace LivePhotoBox.Cli.Commands
             formatOpt.AddAlias("-f");
 
             var namingOpt = new Option<string>("--naming", () => "keep",
-                "Output filename. keep (same name)|suffix (append protocol)|custom:TEMPLATE.\nTemplate tokens: {name} {protocol} {date} {date:yyyy-MM-dd} {time} {exif_date} {exif_time} {counter} {counter:D3}");
+                "Output filename. keep (same name)|suffix (append protocol; default for single-pair)|custom:TEMPLATE.\nTemplate tokens: {name} {protocol} {date} {date:yyyy-MM-dd} {time} {exif_date} {exif_time} {counter} {counter:D3}");
             namingOpt.AddAlias("-n");
 
             var parallelOpt = new Option<int>("--parallel",
@@ -90,7 +90,9 @@ namespace LivePhotoBox.Cli.Commands
                 "Combine images and videos into phone-compatible live photos.\n" +
                 "Images: .jpg .jpeg .heic .heif   Videos: .mp4 .mov\n\n" +
                 "Single pair:  livephotobox merge photo.jpg video.mp4 -p huawei\n" +
-                "Batch folder: livephotobox merge -d ./MyPhotos -p v2 -o ./Output -y\n" +
+                "              (writes next to photo.jpg as photo_huawei.jpg)\n" +
+                "Batch folder: livephotobox merge -d ./MyPhotos -p v2 -y\n" +
+                "              (writes ./MyPhotos/MyPhotos_motionphoto/)\n" +
                 "Preview:      livephotobox merge -d ./MyPhotos --dry-run\n" +
                 "All variants: livephotobox merge photo.jpg video.mp4 --all-variants\n" +
                 "Formats:      livephotobox protocols")
@@ -135,6 +137,13 @@ namespace LivePhotoBox.Cli.Commands
                 var output = context.ParseResult.GetValueForOption(outputOpt);
                 var formatName = context.ParseResult.GetValueForOption(formatOpt);
                 var naming = context.ParseResult.GetValueForOption(namingOpt)!;
+                // 用户是否显式传了 --naming（未传时按模式用默认值：单文件=suffix，批量=keep）
+                // 注意：beta4 版 FindResultFor 会把带默认值的选项也物化成结果，无法据此判断"是否显式传入"，
+                // 只能扫描命令行 token 判断。
+                bool namingExplicit = context.ParseResult.Tokens.Any(t =>
+                    t.Value == "--naming" || t.Value == "-n"
+                    || t.Value.StartsWith("--naming=", StringComparison.Ordinal)
+                    || t.Value.StartsWith("-n=", StringComparison.Ordinal));
                 var parallel = context.ParseResult.GetValueForOption(parallelOpt);
                 var yes = context.ParseResult.GetValueForOption(yesOpt);
                 var dryRun = context.ParseResult.GetValueForOption(dryRunOpt);
@@ -148,7 +157,7 @@ namespace LivePhotoBox.Cli.Commands
 
                 context.ExitCode = await RunAsync(
                     image, video, dir, protocolName, output, formatName,
-                    naming, parallel, yes, dryRun, verbose,
+                    naming, namingExplicit, parallel, yes, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs, pairing, after,
                     allVariants,
                     context.GetCancellationToken());
@@ -186,7 +195,7 @@ namespace LivePhotoBox.Cli.Commands
         private static async Task<int> RunAsync(
             FileInfo? image, FileInfo? video, DirectoryInfo? dir,
             string protocolName, DirectoryInfo? output, string? formatName,
-            string naming, int parallel, bool yes, bool dryRun, bool verbose,
+            string naming, bool namingExplicit, int parallel, bool yes, bool dryRun, bool verbose,
             bool overwrite, bool recursive, bool preserveSubdirs,
             string pairing, string after, bool allVariants, CancellationToken ct)
         {
@@ -264,6 +273,12 @@ namespace LivePhotoBox.Cli.Commands
                 }
             }
 
+            // 用户未显式传 --naming 时按模式给默认值：
+            //   单文件合成 → suffix（输出默认在照片原目录，加协议后缀避免覆盖源文件；仍可用 --naming 改）
+            //   批量合成   → keep（输出默认进独立子文件夹，文件名不变不会重名，协议后缀体现在文件夹名）
+            if (!namingExplicit)
+                naming = isSingle ? "suffix" : "keep";
+
             // Resolve naming rule
             int namingRuleIndex = 0;
             string? customPattern = null;
@@ -316,11 +331,14 @@ namespace LivePhotoBox.Cli.Commands
 
             try
             {
-                // Resolve output directory
-                string outputDir = output?.FullName ?? Environment.CurrentDirectory;
+                // Resolve output directory:
+                //   未显式传 -o 时 —— 单文件模式默认输出到照片（图片）所在目录，以照片为准
+                //   （照片和视频可能不在同一文件夹）；批量模式默认在输入目录下新建
+                //   {输入目录名}_{协议后缀} 子文件夹（如 ./MyPhotos/MyPhotos_motionphoto/）。
+                string outputDir = output?.FullName ?? (isSingle
+                    ? Path.GetDirectoryName(image!.FullName)!
+                    : DefaultBatchOutputDirectory(dir!.FullName, protocolIndex));
                 string tempDir = Path.Combine(outputDir, "Temp");
-                Directory.CreateDirectory(outputDir);
-                Directory.CreateDirectory(tempDir);
 
                 // Print summary
                 string protoDisplay = ProtocolNameResolver.GetProtocolDisplayName(protocolIndex);
@@ -353,6 +371,9 @@ namespace LivePhotoBox.Cli.Commands
                         }
                     }
 
+                    // 确认通过后才创建目录，dry-run / 取消不产生任何副作用
+                    Directory.CreateDirectory(outputDir);
+                    Directory.CreateDirectory(tempDir);
                     return await MergeSinglePairAsync(
                         image.FullName, video.FullName, outputDir, tempDir,
                         protocolIndex, formatIndex, namingRuleIndex, customPattern,
@@ -361,7 +382,7 @@ namespace LivePhotoBox.Cli.Commands
                 else
                 {
                     return await MergeBatchAsync(
-                        dir!.FullName, outputDir, tempDir,
+                        dir!.FullName, outputDir,
                         protocolIndex, formatIndex, namingRuleIndex, customPattern,
                         parallel, yes, dryRun, verbose,
                         overwrite, preserveSubdirs, useCid, useVivo,
@@ -377,6 +398,18 @@ namespace LivePhotoBox.Cli.Commands
                     catch { /* best effort */ }
                 }
             }
+        }
+
+        // 批量模式默认输出目录：在输入目录下新建 {输入目录名}_{协议后缀} 子文件夹。
+        // 例: merge -d ./MyPhotos -p v2 → ./MyPhotos/MyPhotos_motionphoto/
+        private static string DefaultBatchOutputDirectory(string inputDir, int protocolIndex)
+        {
+            string dirName = Path.GetFileName(inputDir.TrimEnd(
+                Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrEmpty(dirName))
+                dirName = "output"; // 盘符根目录等极端情况
+            string suffix = LivePhotoMergeService.GetProtocolSuffixName(protocolIndex) ?? "livephoto";
+            return Path.Combine(inputDir, $"{dirName}_{suffix}");
         }
 
         private static async Task<int> MergeSinglePairAsync(
@@ -436,7 +469,7 @@ namespace LivePhotoBox.Cli.Commands
         }
 
         private static async Task<int> MergeBatchAsync(
-            string inputDir, string outputDir, string tempDir,
+            string inputDir, string outputDir,
             int protocolIndex, int formatIndex, int namingRuleIndex, string? customPattern,
             int parallel, bool yes, bool dryRun, bool verbose,
             bool overwrite, bool preserveSubdirs, bool useCid, bool useVivo,
@@ -528,7 +561,8 @@ namespace LivePhotoBox.Cli.Commands
                 }
             }
 
-            // 6. Run batch
+            // 6. Run batch（实际处理前才创建输出目录，dry-run / 取消不产生副作用）
+            Directory.CreateDirectory(outputDir);
             Console.WriteLine($"\nProcessing {tasks.Count} pairs (parallel={parallel})...");
             Console.WriteLine();
 

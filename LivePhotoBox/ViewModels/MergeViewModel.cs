@@ -598,6 +598,9 @@ namespace LivePhotoBox.ViewModels
         // 当前是否可以编辑合成配置（仅处理中不可编辑，扫描时允许边扫边配）。
         public bool CanEditSelectedMode => !IsProcessing;
 
+        // 合成页输出目录：仅处理中锁定，扫描中可切换输出目录（扫描只影响输入目录）。
+        public override bool CanEditOutputConfiguration => !IsProcessing;
+
         // IsProcessing 变更时级联通知派生类计算属性
         protected override void OnPropertyChanged(PropertyChangedEventArgs e)
         {

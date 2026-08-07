@@ -47,8 +47,8 @@ lpb protocols
 # 转换单个文件对（iPhone → Google 相册）
 lpb merge photo.heic video.mov -p v2 -y
 
-# 批量转换文件夹（→ 华为格式，自动确认）
-lpb merge -d ./MyPhotos -p huawei -o ./Output -y
+# 批量转换文件夹（→ 华为格式，自动确认；输出到 ./MyPhotos/MyPhotos_huawei/）
+lpb merge -d ./MyPhotos -p huawei -y
 
 # 预览操作（不实际执行）
 lpb merge -d ./MyPhotos --dry-run
@@ -131,17 +131,23 @@ lpb merge IMG_001.HEIC IMG_001.MOV -p v2 -y
 # → 华为原生 HEVC
 lpb merge photo.jpg video.mp4 -p huawei -f heic+mp4-h265 -y
 
-# 批量 → 华为，输出至 ./Output，自动确认
+# 批量 → 华为，自动确认（默认输出到 ./MyPhotos/MyPhotos_huawei/）
+lpb merge -d ./MyPhotos -p huawei -y
+
+# 批量 → 华为，显式指定输出目录
 lpb merge -d ./MyPhotos -p huawei -o ./Output -y
 
 # 批量含子目录，保留文件夹结构
 lpb merge -d ./Photos -r -s -p v2 -o ./Output -y
 
-# 预览（不修改文件）
+# 预览（不修改文件，也不创建任何文件夹）
 lpb merge -d ./Photos -p v2 --dry-run
 
 # 自定义文件名模板
 lpb merge -d ./Photos -p v2 -n "custom:{name}_{protocol}_{date}" -y
+
+# 直接覆盖已存在的输出，而不是自动重命名为 " (2)"
+lpb merge photo.jpg video.mp4 -p huawei -y -w
 ```
 
 ---
@@ -163,9 +169,12 @@ lpb merge [options]
                              vivo  — 按 vivo 相机 livephoto ID 匹配
 
 ═══ 输出 ═══
-  -o, --output <文件夹>     输出目录（默认：当前工作目录）。
-  -w, --overwrite          覆盖已有文件。未指定时，文件名冲突将自动生成
-                             带编号副本：photo.jpg → photo (2).jpg。
+  -o, --output <文件夹>     输出目录。省略时的默认值：
+                             • 单文件 → 照片（图片）所在目录（就在照片旁边输出）
+                             • 批量   → {输入目录}/{输入目录名}_{协议后缀}/ 子文件夹
+                             传 -o 可覆盖；目录会自动创建。
+  -w, --overwrite          直接覆盖已存在的输出文件。未指定时，文件名冲突将
+                             自动生成带编号副本：photo.jpg → photo (2).jpg。
   -s, --preserve-subdirs   在输出目录中保留源文件的子目录结构。
   --after <操作>            合成成功后对源文件的操作（仅影响成功的文件对）：
                              none        — 保留不动（默认）
@@ -190,9 +199,9 @@ lpb merge [options]
                              heic+mov      — HEIC + MOV
                              heic+mp4-h265 — HEIC + H.265 MP4（华为原生 HEVC）
 
-  -n, --naming <规则>       输出文件名规则 [默认: keep]。
-                             keep           — 与源图片同名
-                             suffix         — 追加协议后缀：photo → photov2
+  -n, --naming <规则>       输出文件名规则。默认：单文件=suffix，批量=keep。
+                             keep           — 与源图片同名（批量默认）
+                             suffix         — 追加协议简称：photo → photomotionphoto（单文件默认）
                              custom:模板     — 自定义模板，支持以下占位符：
                                {name}          源文件名
                                {protocol}      协议简称
@@ -213,6 +222,20 @@ lpb merge [options]
   --all-variants           生成所有协议 × 格式组合（仅单对模式）。
                              输出到 {目录}/{文件名}_variants/，文件名为 {文件名}_{协议}_{格式}.ext。
 ```
+
+### 默认输出位置
+
+省略 `-o` 时，输出**不会**落到终端当前目录，而是跟随**输入**：
+
+| 模式 | 默认输出 | 示例 |
+|------|----------|------|
+| 单文件对 | **照片（图片）所在目录**（照片和视频可能在不同文件夹，以照片为准） | `D:\Pics\IMG_001.jpg` + `D:\Videos\clip.mp4` → `D:\Pics\IMG_001_motionphoto.jpg` |
+| 批量（`-d`） | 输入目录下的子文件夹，命名为 `{输入目录名}_{协议后缀}` | `lpb merge -d ./MyPhotos -p v2` → `./MyPhotos/MyPhotos_motionphoto/` |
+
+- 文件夹/文件名均为英文：`MyPhotos_huawei/`、`IMG_001huawei.jpg`。
+- 单文件对默认命名为 `{源文件名}{协议后缀}`（如 `IMG_001motionphoto.jpg`），不会覆盖源照片。
+- 批量文件名保持源名不变——协议后缀体现在**文件夹名**上。
+- `--dry-run` 会打印解析出的输出路径，且**不创建任何文件夹**。
 
 ### `--all-variants` — 一键生成所有变体
 
@@ -315,12 +338,14 @@ vivo_photo.jpg  +  vivo_video.mp4  →  按 vivo ID 配对
 
 | 目的 | 模板 | 输出示例 |
 |------|----------|----------------|
-| 保持原名 | `-n keep`（或省略 `-n`） | `IMG_001.jpg` |
+| 保持原名 | `-n keep` | `IMG_001.jpg` |
 | 追加协议后缀 | `-n suffix` | `IMG_001huawei.jpg` |
 | 文件名 + 日期 | `-n "custom:{name}_{date}"` | `IMG_001_20260803.jpg` |
 | 协议作子目录 | `-n "custom:{protocol}/{name}"` | `huawei/IMG_001.jpg` |
 | 顺序编号 | `-n "custom:Photo_{counter:D4}"` | `Photo_0001.jpg` |
 | 完整元数据 | `-n "custom:{name}_{protocol}_{date}_{time}"` | `IMG_001_huawei_20260803_143022.jpg` |
+
+> **说明：** 省略 `-n` 时，**单文件**合成默认 `suffix`（输出在照片原目录，加协议后缀避免覆盖源照片）；**批量**合成默认 `keep`（输出进独立子文件夹，文件名不变）。显式传 `-n` 始终以你为准。
 
 ---
 

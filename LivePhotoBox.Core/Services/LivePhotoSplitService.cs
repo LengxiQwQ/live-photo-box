@@ -306,6 +306,18 @@ namespace LivePhotoBox.Services
                 "See debug log for metadata preview.");
         }
 
+        /// <summary>
+        /// 解析 OPPO 私有字段 OpCamera:VideoLength —— 纯视频字节长度（不含 OnePlus trailer）。
+        /// OPPO 原厂文件是 [JPEG][MP4][OnePlus trailer ~846KB]，Container:Directory 的
+        /// Item:Length 覆盖"视频+trailer"，而 OpCamera:VideoLength 只指纯视频。
+        /// 重设封面/导出时需要纯视频长度。无该字段返回 0。
+        /// </summary>
+        public static long GetOppoPureVideoLength(string metadataText)
+        {
+            var m = OppoVideoLengthRegex.Match(metadataText);
+            return m.Success && long.TryParse(m.Groups["value"].Value, out long v) ? v : 0;
+        }
+
         // ══════════════════════════════════════════════════════════════
         //  华为/荣耀 嵌入视频定位
         // ══════════════════════════════════════════════════════════════

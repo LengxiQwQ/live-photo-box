@@ -127,6 +127,7 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 - **命令**：`merge`（单对或批量合成）、`protocols`（协议 × 格式兼容矩阵）、`update-check`（检查最新版本）
 - **六个可执行别名**：`livephotobox` / `livephoto` / `livebox` / `lipbox` / `lpb` / `lpbx`
 - **批量合成**：支持基于元数据的配对（`name`、Apple `ContentIdentifier` UUID、vivo 相机 ID）、自定义命名模板、`--after` 动作（移动到文件夹 / 回收站）
+- **合理的输出默认值**：单对合成默认输出到源照片所在目录（文件名带协议后缀）；批量合成默认输出到 `{文件夹}_{协议}` 子文件夹——绝不会落到终端当前目录。`-w` 直接覆盖已存在的输出而非自动重命名
 - **分发**：随安装包内置（可选"添加到 PATH"），或独立 `-x64-cli.zip`
 
 📖 **CLI 使用指南**：[English](docs/CLI-User-Guide.md) · [简体中文](docs/CLI-User-Guide.zh-CN.md)

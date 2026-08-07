@@ -14,6 +14,7 @@
 // </summary>
 
 using System;
+using System.IO;
 using System.Reflection;
 using System.Text;
 using System.Threading;
@@ -180,7 +181,8 @@ namespace LivePhotoBox.Services.Protocols
             !string.IsNullOrEmpty(ExternalToolLocator.FindExifTool());
 
         // Run exiftool to write an EXIF UserComment tag. Used by OPPO protocol
-        // to inject the <c>oplus_</c> gallery-recognition marker.
+        // to inject the <c>oplus_</c> gallery-recognition marker, and by vivo to
+        // write its multi-line capture-state signature.
         // Returns true on success, false if exiftool is unavailable or fails.
         // filePath: Path to the image file to modify.
         // comment: The UserComment string value to write.
@@ -191,11 +193,24 @@ namespace LivePhotoBox.Services.Protocols
         {
             if (string.IsNullOrEmpty(ExternalToolLocator.FindExifTool())) return false;
 
+            string? tempValuePath = null;
             try
             {
+                // The value is passed via a temp file (-UserComment<=file) rather
+                // than inline (-UserComment=...). RunExifToolAsync feeds arguments
+                // through exiftool's stdin pipe one per line, so a multi-line value
+                // (vivo's UserComment uses '\n' between field groups) would be split
+                // into separate arguments and truncated at the first newline.
+                // Reading the value from a file keeps the entire string — newlines
+                // and UTF-8 content — intact.
+                tempValuePath = Path.Combine(
+                    Path.GetTempPath(), $"_lpbx_uc_{Guid.NewGuid():N}.txt");
+                await File.WriteAllTextAsync(
+                    tempValuePath, comment, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), token);
+
                 await LivePhotoRepairService.RunExifToolAsync(token,
                     "-overwrite_original",
-                    $"-UserComment={comment}",
+                    $"-UserComment<={tempValuePath}",
                     filePath);
                 return true;
             }
@@ -206,6 +221,13 @@ namespace LivePhotoBox.Services.Protocols
                     $"exiftool UserComment write error: {ex.Message}",
                     Models.LogLevel.Warning);
                 return false;
+            }
+            finally
+            {
+                if (tempValuePath != null)
+                {
+                    try { File.Delete(tempValuePath); } catch { /* best-effort */ }
+                }
             }
         }
 

@@ -1201,13 +1201,39 @@ namespace LivePhotoBox.ViewModels
                 // ── 8. 提取视频段到临时文件 ─────────────────────────────
                 var fileSize = new FileInfo(photoPath).Length;
                 long videoOffset = fileSize - item.AppendedVideoLength;
+                long videoExtractLen = item.AppendedVideoLength; // 默认：从 offset 到 EOF（V1/V2/vivo 视频在文件末尾）
+
+                // OPPO 原厂文件在视频后面还有 OnePlus trailer（~846KB）：
+                // AppendedVideoLength = Container Item:Length 覆盖"视频+trailer"，
+                // 若整段提取，重写后 OpCamera:VideoLength 会被写成"视频+trailer"（应只写纯视频）。
+                // 改用 OpCamera:VideoLength 只提取纯 MP4，输出干净的 OPPO 文件。
+                if (item.DetectedProtocol == LivePhotoProtocolType.OPPO)
+                {
+                    long pureLen = 0;
+                    try
+                    {
+                        pureLen = LivePhotoSplitService.GetOppoPureVideoLength(
+                            LivePhotoSplitService.ReadMetadataTextSync(photoPath));
+                    }
+                    catch { pureLen = 0; } // 元数据读取失败 → 退回整段提取（AppendedVideoLength 兜底）
+                    if (pureLen > 0 && pureLen <= videoExtractLen)
+                        videoExtractLen = pureLen;
+                }
 
                 tempVideoPath = Path.Combine(tempWorkDir, "video.mp4");
                 using (var src = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 using (var dst = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
                     src.Position = videoOffset;
-                    await src.CopyToAsync(dst);
+                    var buf = new byte[81920];
+                    long remain = videoExtractLen;
+                    while (remain > 0)
+                    {
+                        int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                        if (r == 0) break;
+                        dst.Write(buf, 0, r);
+                        remain -= r;
+                    }
                 }
 
                 long actualVideoSize = new FileInfo(tempVideoPath).Length;
@@ -1668,21 +1694,50 @@ namespace LivePhotoBox.ViewModels
                 tempWorkDir = Path.Combine(Path.GetTempPath(), $"lpb_{logTag.ToLowerInvariant()}_save_{Guid.NewGuid():N}");
                 Directory.CreateDirectory(tempWorkDir);
 
-                // ── 5. 提取嵌入视频（从文件尾部，跟通用 SingleFileJpeg 流程一致） ──
+                // ── 5. 提取嵌入视频 ──
                 // Samsung JPEG: video 在 Samsung Trailer 的 MotionPhoto_Data tag 内。
                 // AppendedVideoLength = trailerSize - 24 (tag header)，即从 tag data 到 EOF。
                 // 提取出的数据 = raw MP4 + 尾部残留（MotionPhoto_Version tag + SEFH/SEFT），
                 // WriteSamsungJpegAsync 会用 BuildTrailer 重新包装成干净的 Trailer。
-                if (item.AppendedVideoLength <= 0)
-                    throw new InvalidDataException("Samsung AppendedVideoLength not available");
+                // Samsung HEIC: video 在 mpvd box（AppendedVideoLength=0），需用 mpvd box 定位，
+                // 否则会误报 "AppendedVideoLength not available" 导致设为封面失败。
+                bool isHeicInput = HeicConverterService.IsHeicFile(photoPath);
                 string tempVideoPath = Path.Combine(tempWorkDir, "video.mp4");
-                var fileSize = new FileInfo(photoPath).Length;
-                long videoOffset = fileSize - item.AppendedVideoLength;
-                using (var src = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                using (var dst = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                if (item.AppendedVideoLength > 0)
                 {
-                    src.Seek(videoOffset, SeekOrigin.Begin);
-                    await src.CopyToAsync(dst);
+                    // JPEG：从文件尾部提取（MP4 + 尾部残留）
+                    var fileSize = new FileInfo(photoPath).Length;
+                    long videoOffset = fileSize - item.AppendedVideoLength;
+                    using (var src = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var dst = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        src.Seek(videoOffset, SeekOrigin.Begin);
+                        await src.CopyToAsync(dst);
+                    }
+                }
+                else if (isHeicInput && LivePhotoMergeService.GetMpvdVideoLength(photoPath) > 0)
+                {
+                    // Samsung HEIC：视频在 mpvd box（sefd 子盒之前的完整 MP4），精确提取
+                    long videoStart = LivePhotoMergeService.GetMpvdVideoStart(photoPath);
+                    long videoLen = LivePhotoMergeService.GetMpvdVideoLength(photoPath);
+                    using (var src = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                    using (var dst = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                    {
+                        src.Seek(videoStart, SeekOrigin.Begin);
+                        var buf = new byte[81920];
+                        long remain = videoLen;
+                        while (remain > 0)
+                        {
+                            int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                            if (r == 0) break;
+                            dst.Write(buf, 0, r);
+                            remain -= r;
+                        }
+                    }
+                }
+                else
+                {
+                    throw new InvalidDataException("Samsung AppendedVideoLength not available");
                 }
 
                 if (new FileInfo(tempVideoPath).Length == 0)
@@ -2634,7 +2689,8 @@ namespace LivePhotoBox.ViewModels
                 {
                     var photoPath = SelectedFilePath;
                     if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath)) return;
-                    sourcePath = photoPath;
+                    // ⭐ 封面静止帧：单文件容器需提取干净图片（否则 HEIC 导出 0 字节 / JPEG 混入视频）
+                    sourcePath = await ResolveStillPhotoSourceAsync(photoPath, CancellationToken.None);
                 }
             }
             else
@@ -3212,6 +3268,74 @@ namespace LivePhotoBox.ViewModels
         /// 在信号量约束下导出单帧到目标目录，并更新进度计数器。
         /// 可被多个任务并行调用，线程安全。
         /// </summary>
+        /// <summary>
+        /// 解析 ⭐ 静止封面帧的干净图片源。
+        /// 单文件实况（图+视频拼在同一个容器里）的 photoPath 是整个容器：
+        ///   - HEIC 容器 → Magick 解码到内嵌视频时抛 "Unexpected end of file"（导出 0 字节）
+        ///   - JPEG 容器 → 直接复制会把视频/尾标一起带出来
+        /// 这里把容器开头的图片部分切片成干净临时文件返回。
+        /// 双文件实况（Apple/vivo ≤X200 图、视频分离）photoPath 本身就是干净图片，原样返回。
+        /// </summary>
+        private static async Task<string> ResolveStillPhotoSourceAsync(string photoPath, CancellationToken token)
+        {
+            // 1. HEIC + mpvd box（Google V2 / Samsung / vivo X300 HEIC）：图片 = [0, mpvd box size 字段前)
+            // 必须先于 HUAWEI 判断——V2 HEIC 的 mpvd 内嵌 MP4 也有 moov/ftyp，
+            // GetHuaweiEmbeddedVideoRange 会误报一个视频区间（无 LIVE_ 尾标但能解析出 ftyp/moov）。
+            if (HeicConverterService.IsHeicFile(photoPath))
+            {
+                long mpvdLen = LivePhotoMergeService.GetMpvdVideoLength(photoPath);
+                if (mpvdLen > 0)
+                {
+                    long mpvdStart = LivePhotoMergeService.GetMpvdVideoStart(photoPath); // "mpvd" fourcc 后 = 视频起点
+                    long imageEnd = mpvdStart - 8; // 图片结束于 box size 字段之前
+                    if (imageEnd > 0)
+                        return await SliceContainerPrefixAsync(photoPath, imageEnd, token);
+                }
+            }
+
+            // 2. 华为/荣耀（HEIC 或 JPEG + 内嵌 MP4 + 60B LIVE_ 尾标）：moov 定位视频起点，图片 = [0, videoStart)
+            var hwRange = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(photoPath);
+            if (hwRange != null && hwRange.Value.videoStart > 0)
+                return await SliceContainerPrefixAsync(photoPath, hwRange.Value.videoStart, token);
+
+            // 3. 单文件 JPEG（V2/OPPO/vivo X300）：视频在文件末尾，图片 = [0, fileSize - videoLen)
+            long fileSize = new FileInfo(photoPath).Length;
+            long videoLen = 0;
+            try
+            {
+                videoLen = LivePhotoSplitService.GetAppendedVideoLength(
+                    LivePhotoSplitService.ReadMetadataTextSync(photoPath));
+            }
+            catch { videoLen = 0; }
+            if (videoLen > 0 && videoLen < fileSize)
+                return await SliceContainerPrefixAsync(photoPath, fileSize - videoLen, token);
+
+            // 双文件实况等：photoPath 即干净图片
+            return photoPath;
+        }
+
+        /// <summary>把文件开头 [0, length) 字节切片成临时文件，返回临时路径。</summary>
+        private static async Task<string> SliceContainerPrefixAsync(string sourcePath, long length, CancellationToken token)
+        {
+            string ext = Path.GetExtension(sourcePath);
+            string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_still_{Guid.NewGuid():N}{ext}");
+            using (var src = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
+            using (var dst = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                var buf = new byte[81920];
+                long remain = Math.Min(length, src.Length);
+                while (remain > 0)
+                {
+                    token.ThrowIfCancellationRequested();
+                    int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                    if (r == 0) break;
+                    dst.Write(buf, 0, r);
+                    remain -= r;
+                }
+            }
+            return tempPath;
+        }
+
         private async Task ExportOneFrameAsync(
             TimelineFrame frame, string photoPath, string photoBaseName,
             string exportDir, bool copyExif, string formatExtension, int quality,
@@ -3251,7 +3375,10 @@ namespace LivePhotoBox.ViewModels
                     }
                     else
                     {
-                        sourcePath = photoPath;
+                        // ⭐ 封面静止帧：单文件容器（HUAWEI/V2/OPPO 等图+视频拼接）的
+                        // photoPath 是整个容器——HEIC 容器 Magick 解码会报错（导出 0 字节）、
+                        // JPEG 容器直接复制会把视频带出来。提取容器开头的干净图片。
+                        sourcePath = await ResolveStillPhotoSourceAsync(photoPath, token);
                     }
                 }
                 else
@@ -3751,6 +3878,74 @@ namespace LivePhotoBox.ViewModels
                 && File.Exists(item.FilePath))
                 return item.FilePath;
 
+            // 单文件 HEIC 实况照片（Google V2 / Samsung / VIVO X300 HEIC）：视频在 mpvd box 内。
+            // 必须先于通用 AppendedVideoLength 分支——部分发现路径可能把这类文件的
+            // AppendedVideoLength 误设为视频长度（V2 HEIC 的 mpvd 内也有 moov/ftyp，
+            // GetHuaweiEmbeddedVideoRange 会误报），而通用分支假定"视频在文件末尾"，
+            // 对 mpvd 布局会提取到错误位置。这里从 mpvd box 精确提取真实视频
+            //（直接喂 HEIC 给 ffmpeg 时，-map 0:V:0 只会选中静止图像瓦片 1 帧）。
+            if (HeicConverterService.IsHeicFile(item.FilePath) && File.Exists(item.FilePath))
+            {
+                long mpvdLen = LivePhotoMergeService.GetMpvdVideoLength(item.FilePath);
+                if (mpvdLen > 0)
+                {
+                    long mpvdStart = LivePhotoMergeService.GetMpvdVideoStart(item.FilePath);
+                    var tempPath = Path.Combine(Path.GetTempPath(), $"lpb_export_vid_{Guid.NewGuid():N}.mp4");
+                    _exportTempVideoPath = tempPath;
+                    await Task.Run(() =>
+                    {
+                        using var src = new FileStream(item.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        src.Seek(mpvdStart, SeekOrigin.Begin);
+                        using var dst = new FileStream(tempPath, FileMode.Create, FileAccess.Write);
+                        var buf = new byte[81920];
+                        long remain = mpvdLen;
+                        while (remain > 0)
+                        {
+                            int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                            if (r == 0) break;
+                            dst.Write(buf, 0, r);
+                            remain -= r;
+                        }
+                    });
+                    return tempPath;
+                }
+                // 无 mpvd box → 继续按华为/通用分支判断（HUAWEI HEIC 无 mpvd）
+            }
+
+            // 单文件华为/荣耀 Moving Photo（HEIC 或 JPEG + 嵌入 MP4 + 60B LIVE_ 尾标）：
+            // 视频不延伸到文件末尾（后面还有 60 字节尾标），若走下面通用分支的
+            // offset = fileSize - AppendedVideoLength，会多偏 60 字节、提取出的 MP4 损坏
+            // （ffprobe 报 moov atom not found，导出视频/GIF 失败）。
+            // 必须用 moov box 精确定位视频区间（与 SaveHuaweiAsync 一致）。
+            if (item.DetectedProtocol == LivePhotoProtocolType.Huawei
+                && !string.IsNullOrEmpty(item.FilePath) && File.Exists(item.FilePath))
+            {
+                var hwRange = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(item.FilePath);
+                if (hwRange != null)
+                {
+                    var (videoStart, _, videoLength) = hwRange.Value;
+                    var tempPath = Path.Combine(Path.GetTempPath(), $"lpb_export_vid_{Guid.NewGuid():N}.mp4");
+                    _exportTempVideoPath = tempPath;
+                    await Task.Run(() =>
+                    {
+                        using var src = new FileStream(item.FilePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        src.Seek(videoStart, SeekOrigin.Begin);
+                        using var dst = new FileStream(tempPath, FileMode.Create, FileAccess.Write);
+                        var buf = new byte[81920];
+                        long remain = videoLength;
+                        while (remain > 0)
+                        {
+                            int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
+                            if (r == 0) break;
+                            dst.Write(buf, 0, r);
+                            remain -= r;
+                        }
+                    });
+                    return tempPath;
+                }
+                // 定位失败：继续走通用分支兜底
+            }
+
             // 单文件 JPEG（MicroVideo/MotionPhoto）：从末尾提取嵌入视频
             if (item.AppendedVideoLength > 0 && File.Exists(item.FilePath))
             {
@@ -3768,7 +3963,7 @@ namespace LivePhotoBox.ViewModels
                 return tempPath;
             }
 
-            // 单文件 HEIC → FFmpeg 能直接读，返回原文件路径
+            // HEIC 但无 mpvd box（非常见，如精简过的 HEIC 实况）→ 回退为原文件路径（FFmpeg 直读）
             if (HeicConverterService.IsHeicFile(item.FilePath) && File.Exists(item.FilePath))
                 return item.FilePath;
 

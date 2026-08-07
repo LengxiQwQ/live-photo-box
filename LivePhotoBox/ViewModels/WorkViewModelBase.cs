@@ -111,10 +111,11 @@ namespace LivePhotoBox.ViewModels
             IsQueueEmpty = taskCount == 0;
         }
 
-        // 输入配置是否可编辑（处理中和扫描中不可编辑）。
+        // 输入配置是否可编辑（处理中和扫描中不可编辑：扫描正在使用输入目录，禁止改动）。
         public bool CanEditInputConfiguration => !IsProcessing && !IsScanning;
-        // 输出配置是否可编辑（处理中和扫描中不可编辑）。
-        public bool CanEditOutputConfiguration => !IsProcessing && !IsScanning;
+        // 输出配置是否可编辑（处理中不可编辑；扫描中是否可编辑由子类决定）。
+        // 默认扫描中锁定，合成页覆写为仅处理中锁定，允许扫描时改输出目录。
+        public virtual bool CanEditOutputConfiguration => !IsProcessing && !IsScanning;
 
         // 是否可以开始处理（默认 true，子类可重写限制）。
         public virtual bool IsProcessingAllowed => true;

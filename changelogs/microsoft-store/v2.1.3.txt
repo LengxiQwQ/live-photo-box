@@ -1,0 +1,22 @@
+v2.1.3 更新内容
+
+修复：
+- 📤 修复华为实况导出视频损坏
+
+优化：
+- 📤 编辑页导出流程改进 — 三星 HEIC 重设封面、OPPO 原厂文件视频提取、单文件封面帧导出（真机验证中）
+- 📱 vivo X300 合成调整 — 改善 vivo 相册兼容性（真机兼容性仍在测试中）
+
+💡 命令行模式仅随 GitHub 版发布，商店版暂不包含；需要请前往 GitHub Releases 下载。
+
+
+v2.1.3 What's New
+
+Fixes:
+- 📤 Fixed corrupted HUAWEI live photo video export
+
+Optimized:
+- 📤 Improved the edit-page export pipeline — Samsung HEIC cover replacement, OPPO pure-video extraction, single-file still-frame export (testing pending)
+- 📱 vivo X300 merging adjusted for better vivo Gallery compatibility (real-device testing still in progress)
+
+💡 CLI mode ships with the GitHub release only — the Store version does not include it. Download from GitHub Releases if you need it.
