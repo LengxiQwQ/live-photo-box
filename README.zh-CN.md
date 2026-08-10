@@ -261,15 +261,13 @@ live-photo-box/
 
 ## ⭐ Star 历史
 
-<p align="center">
-  <a href="https://www.star-history.com/?repos=LengxiQwQ%2Flive-photo-box&type=date&legend=top-left">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=LengxiQwQ/live-photo-box&type=date&theme=dark&legend=top-left&sealed_token=qLRtEKSJ2SQtxQ26XWIXa1IYC64IodYBEJKUja_ZRUIma3Bz4XZw49HgD08haUfs9YcQZr5TaMEVoklM7K48XqqxubDz0xOHQVzZ6PsroSM3uB1ZAx-_LYRHBHgPCT1_C8Ba_P1wkpy8yJoELtcCMdJngnTIV6dQA3DQNNA45m9xG1eVpy6rWe7AnXZ4" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=LengxiQwQ/live-photo-box&type=date&legend=top-left&sealed_token=qLRtEKSJ2SQtxQ26XWIXa1IYC64IodYBEJKUja_ZRUIma3Bz4XZw49HgD08haUfs9YcQZr5TaMEVoklM7K48XqqxubDz0xOHQVzZ6PsroSM3uB1ZAx-_LYRHBHgPCT1_C8Ba_P1wkpy8yJoELtcCMdJngnTIV6dQA3DQNNA45m9xG1eVpy6rWe7AnXZ4" />
-      <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=LengxiQwQ/live-photo-box&type=date&legend=top-left&sealed_token=qLRtEKSJ2SQtxQ26XWIXa1IYC64IodYBEJKUja_ZRUIma3Bz4XZw49HgD08haUfs9YcQZr5TaMEVoklM7K48XqqxubDz0xOHQVzZ6PsroSM3uB1ZAx-_LYRHBHgPCT1_C8Ba_P1wkpy8yJoELtcCMdJngnTIV6dQA3DQNNA45m9xG1eVpy6rWe7AnXZ4" />
-    </picture>
-  </a>
-</p>
+<a href="https://www.star-history.com/?repos=lengxiqwq%2Flive-photo-box&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=lengxiqwq/live-photo-box&type=date&theme=dark&legend=top-left&sealed_token=OaKwkWC2X0kmrzy16Wj7Qef0e-M9T5jTHXDQh3JN1hdjg3twCmEZxCJ3vmpH8ZMlK6jjI7F_ntJENcAl11D2S64ym_jrGAnMVVtAtYVCtgUGBaYy9T5JPQ" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=lengxiqwq/live-photo-box&type=date&legend=top-left&sealed_token=OaKwkWC2X0kmrzy16Wj7Qef0e-M9T5jTHXDQh3JN1hdjg3twCmEZxCJ3vmpH8ZMlK6jjI7F_ntJENcAl11D2S64ym_jrGAnMVVtAtYVCtgUGBaYy9T5JPQ" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=lengxiqwq/live-photo-box&type=date&legend=top-left&sealed_token=OaKwkWC2X0kmrzy16Wj7Qef0e-M9T5jTHXDQh3JN1hdjg3twCmEZxCJ3vmpH8ZMlK6jjI7F_ntJENcAl11D2S64ym_jrGAnMVVtAtYVCtgUGBaYy9T5JPQ" />
+ </picture>
+</a>
 
 ---
 
