@@ -257,7 +257,7 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 
 ---
 
-## Star History
+## ⭐️ Star History
 
 <a href="https://www.star-history.com/?repos=lengxiqwq%2Flive-photo-box&type=date&legend=top-left">
  <picture>
