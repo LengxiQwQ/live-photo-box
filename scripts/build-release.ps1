@@ -63,7 +63,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "       CLI publish warning: exit code $LASTEXITCODE" -ForegroundColor DarkYellow
 }
 
-if (Test-Path 'publish\cli_x64\livephotobox.exe') {
+if (Test-Path 'publish\cli_x64\livephotobox-boot.exe') {
     # 只复制 GUI 目录中不存在的文件，避免 CLI 的 SDK 投影 DLL 覆盖 GUI 版本
     Get-ChildItem 'publish\cli_x64' -Recurse | ForEach-Object {
         $target = Join-Path $outDir $_.FullName.Substring((Get-Item 'publish\cli_x64').FullName.Length + 1)
@@ -88,7 +88,7 @@ $goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
 $shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
 
 if ($goCmd -and (Test-Path $shimSrc)) {
-    $cliAliases = @('livebox', 'lipbox', 'lpb', 'lpbx', 'livephoto')
+    $cliAliases = @('livephotobox', 'livebox', 'lipbox', 'lpb', 'lpbx', 'livephoto')
     foreach ($alias in $cliAliases) {
         $outExe = "publish\cli_x64\$alias.exe"
         & $goCmd build -ldflags="-s -w" -o $outExe $shimSrc 2>&1 | Out-Null
@@ -114,7 +114,7 @@ if ($goCmd -and (Test-Path $shimSrc)) {
 Write-Host ''
 Write-Host '[3/7] Packaging CLI standalone...' -ForegroundColor Yellow
 
-if (Test-Path 'publish\cli_x64\livephotobox.exe') {
+if (Test-Path 'publish\cli_x64\livephotobox-boot.exe') {
     $cliDir = 'publish\cli_standalone'
 
     # 复制 CLI 发布输出
@@ -204,7 +204,7 @@ Remove-Item -Force "$outDir\WindowsAppRuntime.png" -ErrorAction SilentlyContinue
 
 # 删除调试符号
 Remove-Item -Force "$outDir\Live Photo Box.pdb" -ErrorAction SilentlyContinue
-Remove-Item -Force "$outDir\livephotobox.pdb" -ErrorAction SilentlyContinue
+Remove-Item -Force "$outDir\livephotobox-boot.pdb" -ErrorAction SilentlyContinue
 foreach ($a in @('livebox','lipbox','lpb','lpbx','livephoto')) {
     Remove-Item -Force "$outDir\$a.pdb" -ErrorAction SilentlyContinue
 }

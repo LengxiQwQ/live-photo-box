@@ -36,7 +36,7 @@ func main() {
 	}
 
 	dir := filepath.Dir(realPath)
-	target := filepath.Join(dir, "livephotobox.exe")
+	target := filepath.Join(dir, "livephotobox-boot.exe")
 
 	cmd := exec.Command(target, os.Args[1:]...)
 	cmd.Stdin = os.Stdin

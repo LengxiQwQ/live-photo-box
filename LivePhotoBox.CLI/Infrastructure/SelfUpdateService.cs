@@ -21,7 +21,7 @@ namespace LivePhotoBox.Cli.Infrastructure
 
         // 主名 + 全部别名：替换前必须等这些进程全部退出
         private static readonly string[] AliasNames =
-            { "livephotobox", "livebox", "lipbox", "lpb", "lpbx", "livephoto" };
+            { "livephotobox-boot", "livephotobox", "livebox", "lipbox", "lpb", "lpbx", "livephoto" };
 
         /// <summary>
         /// 执行手动更新流程，返回进程退出码。
