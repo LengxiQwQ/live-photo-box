@@ -43,6 +43,12 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
+      # ── 2.5 Setup Go / 安装 Go（winget alias shim 编译）───────────
+      - name: Setup Go / 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+
       # ── 3. Install Inno Setup / 安装 Inno Setup ─────────────────
       - name: Install Inno Setup / 安装 Inno Setup
         run: choco install innosetup -y --no-progress --limit-output
