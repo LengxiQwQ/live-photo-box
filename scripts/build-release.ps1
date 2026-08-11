@@ -79,6 +79,36 @@ if (Test-Path 'publish\cli_x64\livephotobox.exe') {
 }
 
 # ═══════════════════════════════════════════════════════════════
+# [2.5] Replace alias copies with Go symlink-safe launchers
+# ═══════════════════════════════════════════════════════════════
+Write-Host ''
+Write-Host '[2.5] Building Go alias shims (symlink-safe)...' -ForegroundColor Yellow
+
+$goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
+$shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
+
+if ($goCmd -and (Test-Path $shimSrc)) {
+    $cliAliases = @('livebox', 'lipbox', 'lpb', 'lpbx', 'livephoto')
+    foreach ($alias in $cliAliases) {
+        $outExe = "publish\cli_x64\$alias.exe"
+        & $goCmd build -ldflags="-s -w" -o $outExe $shimSrc 2>&1 | Out-Null
+        if ($LASTEXITCODE -eq 0 -and (Test-Path $outExe)) {
+            $shimSize = '{0:N1} KB' -f ((Get-Item $outExe).Length / 1KB)
+            Write-Host "       $alias.exe  ($shimSize)" -ForegroundColor Green
+            # Remove apphost-copy leftovers (Go shim doesn't need these)
+            Remove-Item -Force "publish\cli_x64\$alias.runtimeconfig.json" -ErrorAction SilentlyContinue
+            Remove-Item -Force "publish\cli_x64\$alias.deps.json" -ErrorAction SilentlyContinue
+            Remove-Item -Force "publish\cli_x64\$alias.pdb" -ErrorAction SilentlyContinue
+        } else {
+            Write-Host "       $alias.exe  BUILD FAILED - keeping apphost copy" -ForegroundColor DarkYellow
+        }
+    }
+} else {
+    if (-not $goCmd) { Write-Host '       Go not found - keeping apphost copies (winget symlinks will NOT work!)' -ForegroundColor DarkYellow }
+    if (-not (Test-Path $shimSrc)) { Write-Host "       $shimSrc not found" -ForegroundColor DarkYellow }
+}
+
+# ═══════════════════════════════════════════════════════════════
 # [3/7] CLI standalone zip（复用 publish\cli_x64 + Tools + Strings）
 # ═══════════════════════════════════════════════════════════════
 Write-Host ''

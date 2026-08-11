@@ -83,8 +83,9 @@ Convert a **dual-file Live Photo** (or any image + video pair) into a **single-f
 
 | Merge Protocol | Devices | Status |
 |---|---|---|
-| Google Micro Video V1 | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
-| Google Motion Photo V2 | Windows / Xiaomi / Pixel | ✅ Supported |
+| Fusion Motion Photo | Windows / Android (universal) | 🟡 In testing |
+| Google Micro Video | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
+| Google Motion Photo | Windows / Xiaomi / Pixel | ✅ Supported |
 | OPPO O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
 | HUAWEI Moving Photo | HUAWEI / Honor | ✅ Supported |
 | Samsung Motion Photo | Windows / Samsung | 🟡 In testing |
@@ -123,7 +124,7 @@ Automatically scan, categorize, and archive photos by device, date, and Live Pho
 
 Live Photo Box ships a **command-line interface** — `livephotobox` — that shares 100% of its core logic with the GUI, ideal for scripting and AI agents.
 
-- **Commands**: `merge` (single-pair or batch), `protocols` (protocol × format compatibility matrix), `update-check` (check for the latest release)
+- **Commands**: `merge` (single-pair or batch), `protocols` (protocol × format compatibility matrix), `update-check` (check for the latest release), `update` (check & update automatically)
 - **Six executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lipbox` / `lpb` / `lpbx`
 - **Batch merging** with metadata-based pairing (`name`, Apple `ContentIdentifier` UUID, vivo camera ID), custom naming templates, and `--after` actions (`move` to a folder / recycle bin)
 - **Sane output defaults**: single-pair merges write next to the source photo (protocol-suffixed name); batch merges write into a `{folder}_<protocol>` subfolder — never the terminal’s current directory. `-w` overwrites existing outputs instead of auto-renaming

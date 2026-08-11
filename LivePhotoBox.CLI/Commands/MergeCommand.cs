@@ -4,6 +4,7 @@ using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -32,8 +33,9 @@ namespace LivePhotoBox.Cli.Commands
                 "Folder with images+ videos. Files with matching names are paired. For batch mode.");
             dirOpt.AddAlias("-d");
 
-            var protocolOpt = new Option<string>("--protocol", () => "v2",
-                "Target phone format. fusion (universal Android)|v1 (Google old)|v2 (Google, default)|oppo|vivo|samsung|huawei.\nUse 'protocols' command to see all supported combinations.");
+            var protocolOpt = new Option<string>("--protocol", () => "motion photo",
+                "Target phone format. fusion (universal Android)|micro video (Google old)|motion photo (Google modern)|oppo|vivo|samsung|huawei.\n" +
+                "Aliases: v1/v2 and microvideo/motionphoto also work. Use 'protocols' command to see all supported combinations.");
             protocolOpt.AddAlias("-p");
 
             var outputOpt = new Option<DirectoryInfo?>("--output",
@@ -86,22 +88,28 @@ namespace LivePhotoBox.Cli.Commands
                 "Generate for ALL supported protocol×format combos (single-pair mode only).\n" +
                 "Output goes to {output}/{name}_variants/ (default: input file's directory). Files are named {name}_{Protocol}_{Format}.ext.");
 
+            var keyTimestampOpt = new Option<string?>("--key-timestamp",
+                "Set the key photo position on the video timeline (single-pair mode only).\n" +
+                "Accepts seconds (1.5), mm:ss (1:30) or hh:mm:ss (0:01:30).\n" +
+                "Default: follow the source video's own timeline (Apple MOV / vivo metadata).");
+
             var cmd = new Command("merge",
                 "Combine images and videos into phone-compatible live photos.\n" +
                 "Images: .jpg .jpeg .heic .heif   Videos: .mp4 .mov\n\n" +
-                "Single pair:  livephotobox merge photo.jpg video.mp4 -p huawei\n" +
+                "Single pair:  lpb merge photo.jpg video.mp4 -p huawei\n" +
                 "              (writes next to photo.jpg as photo_huawei.jpg)\n" +
-                "Batch folder: livephotobox merge -d ./MyPhotos -p v2 -y\n" +
+                "Batch folder: lpb merge -d ./MyPhotos -p \"motion photo\" -y\n" +
                 "              (writes ./MyPhotos/MyPhotos_motionphoto/)\n" +
-                "Preview:      livephotobox merge -d ./MyPhotos --dry-run\n" +
-                "All variants: livephotobox merge photo.jpg video.mp4 --all-variants\n" +
-                "Formats:      livephotobox protocols")
+                "Preview:      lpb merge -d ./MyPhotos --dry-run\n" +
+                "All variants: lpb merge photo.jpg video.mp4 --all-variants\n" +
+                "Key time:     lpb merge photo.jpg video.mp4 --key-timestamp 1.5\n" +
+                "Formats:      lpb protocols")
             {
                 filesArg,
                 dirOpt, protocolOpt, outputOpt, formatOpt,
                 namingOpt, parallelOpt, yesOpt, dryRunOpt, verboseOpt,
                 overwriteOpt, recursiveOpt, preserveSubdirsOpt, pairingOpt, afterOpt,
-                allVariantsOpt
+                allVariantsOpt, keyTimestampOpt
             };
 
             cmd.SetHandler(async context =>
@@ -117,7 +125,7 @@ namespace LivePhotoBox.Cli.Commands
                     var resolved = ResolveImageVideo(files[0], files[1]);
                     if (resolved == null)
                     {
-                        Console.Error.WriteLine("Error: Cannot determine which file is the image and which is the video.");
+                        CliConsole.WriteErrorLine("Error: Cannot determine which file is the image and which is the video.");
                         Console.Error.WriteLine("Supported image formats: .jpg, .jpeg, .heic, .heif");
                         Console.Error.WriteLine("Supported video formats: .mp4, .mov");
                         context.ExitCode = 1;
@@ -128,7 +136,7 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 else if (files is { Length: 1 })
                 {
-                    Console.Error.WriteLine("Error: Provide TWO files (image + video), or use --dir for batch mode.");
+                    CliConsole.WriteErrorLine("Error: Provide TWO files (image + video), or use --dir for batch mode.");
                     context.ExitCode = 1;
                     return;
                 }
@@ -154,12 +162,25 @@ namespace LivePhotoBox.Cli.Commands
                 var pairing = context.ParseResult.GetValueForOption(pairingOpt)!;
                 var after = context.ParseResult.GetValueForOption(afterOpt)!;
                 var allVariants = context.ParseResult.GetValueForOption(allVariantsOpt);
+                var keyTimestampText = context.ParseResult.GetValueForOption(keyTimestampOpt);
+                long? keyTimestampUs = null;
+                if (keyTimestampText != null)
+                {
+                    if (!TryParseKeyTimestamp(keyTimestampText, out long parsedUs))
+                    {
+                        CliConsole.WriteErrorLine($"Error: Invalid --key-timestamp '{keyTimestampText}'.");
+                        Console.Error.WriteLine("Use seconds (e.g. 1.5), mm:ss (e.g. 1:30) or hh:mm:ss (e.g. 0:01:30).");
+                        context.ExitCode = 1;
+                        return;
+                    }
+                    keyTimestampUs = parsedUs;
+                }
 
                 context.ExitCode = await RunAsync(
                     image, video, dir, protocolName, output, formatName,
                     naming, namingExplicit, parallel, yes, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs, pairing, after,
-                    allVariants,
+                    allVariants, keyTimestampUs,
                     context.GetCancellationToken());
             });
 
@@ -197,19 +218,19 @@ namespace LivePhotoBox.Cli.Commands
             string protocolName, DirectoryInfo? output, string? formatName,
             string naming, bool namingExplicit, int parallel, bool yes, bool dryRun, bool verbose,
             bool overwrite, bool recursive, bool preserveSubdirs,
-            string pairing, string after, bool allVariants, CancellationToken ct)
+            string pairing, string after, bool allVariants, long? keyTimestampUs, CancellationToken ct)
         {
             // ── --all-variants path ─────────────────────────────────
             if (allVariants)
             {
                 if (dir != null)
                 {
-                    Console.Error.WriteLine("Error: --all-variants only works with a single image+video pair (not --dir batch mode).");
+                    CliConsole.WriteErrorLine("Error: --all-variants only works with a single image+video pair (not --dir batch mode).");
                     return 1;
                 }
                 if (image == null || video == null)
                 {
-                    Console.Error.WriteLine("Error: --all-variants requires an image and video file.");
+                    CliConsole.WriteErrorLine("Error: --all-variants requires an image and video file.");
                     return 1;
                 }
 
@@ -223,7 +244,7 @@ namespace LivePhotoBox.Cli.Commands
                 {
                     return await RunAllVariantsAsync(
                         image.FullName, video.FullName, outputDir, tempDir,
-                        parallel, dryRun, ct);
+                        parallel, dryRun, keyTimestampUs, ct);
                 }
                 finally
                 {
@@ -238,20 +259,26 @@ namespace LivePhotoBox.Cli.Commands
 
             if (!isSingle && !isBatch)
             {
-                Console.Error.WriteLine("Error: Specify two files (image+video) for single-pair, or --dir for batch mode.");
+                CliConsole.WriteErrorLine("Error: Specify two files (image+video) for single-pair, or --dir for batch mode.");
                 return 1;
             }
 
             if (isSingle && isBatch)
             {
-                Console.Error.WriteLine("Error: Cannot use both single-pair (--image/--video) and batch (--dir) mode.");
+                CliConsole.WriteErrorLine("Error: Cannot use both single-pair (--image/--video) and batch (--dir) mode.");
+                return 1;
+            }
+
+            if (keyTimestampUs.HasValue && isBatch)
+            {
+                CliConsole.WriteErrorLine("Error: --key-timestamp only works with a single image+video pair, not batch (--dir) mode.");
                 return 1;
             }
 
             // Resolve protocol
             if (!ProtocolNameResolver.TryResolveProtocol(protocolName, out int protocolIndex))
             {
-                Console.Error.WriteLine($"Error: Unknown protocol '{protocolName}'. Use 'livephotobox protocols' to list available.");
+                    CliConsole.WriteErrorLine($"Error: Unknown protocol '{protocolName}'. Use 'lpb protocols' to list available.");
                 return 1;
             }
 
@@ -261,14 +288,14 @@ namespace LivePhotoBox.Cli.Commands
             {
                 if (!ProtocolNameResolver.TryResolveFormat(formatName, out formatIndex))
                 {
-                    Console.Error.WriteLine($"Error: Unknown format '{formatName}'. Valid: jpg+mp4, jpg+mov, heic+mp4, heic+mov, heic+mp4-h265");
+                    CliConsole.WriteErrorLine($"Error: Unknown format '{formatName}'. Valid: jpg+mp4, jpg+mov, heic+mp4, heic+mov, heic+mp4-h265");
                     return 1;
                 }
 
                 if (!ProtocolFormatMatrix.IsAvailable(protocolIndex, formatIndex))
                 {
-                    Console.Error.WriteLine($"Error: Format '{formatName}' is not available for protocol '{protocolName}'.");
-                    Console.Error.WriteLine("Use 'livephotobox protocols' to see supported combinations.");
+                    CliConsole.WriteErrorLine($"Error: Format '{formatName}' is not available for protocol '{protocolName}'.");
+                    Console.Error.WriteLine("Use 'lpb protocols' to see supported combinations.");
                     return 1;
                 }
             }
@@ -293,7 +320,7 @@ namespace LivePhotoBox.Cli.Commands
             }
             else
             {
-                Console.Error.WriteLine($"Error: Unknown naming rule '{naming}'. Valid: keep, suffix, custom:<pattern>");
+                CliConsole.WriteErrorLine($"Error: Unknown naming rule '{naming}'. Valid: keep, suffix, custom:<pattern>");
                 return 1;
             }
 
@@ -303,7 +330,7 @@ namespace LivePhotoBox.Cli.Commands
             bool useName = pairing.Equals("name", StringComparison.OrdinalIgnoreCase);
             if (!useName && !useCid && !useVivo)
             {
-                Console.Error.WriteLine($"Error: Unknown pairing method '{pairing}'. Valid: name, cid, vivo");
+                CliConsole.WriteErrorLine($"Error: Unknown pairing method '{pairing}'. Valid: name, cid, vivo");
                 return 1;
             }
 
@@ -316,7 +343,7 @@ namespace LivePhotoBox.Cli.Commands
                 afterRecycle = true;
             else if (!after.Equals("none", StringComparison.OrdinalIgnoreCase))
             {
-                Console.Error.WriteLine($"Error: Unknown after-completion action '{after}'. Valid: none, move:<dir>, recycle");
+                CliConsole.WriteErrorLine($"Error: Unknown after-completion action '{after}'. Valid: none, move:<dir>, recycle");
                 return 1;
             }
 
@@ -343,16 +370,33 @@ namespace LivePhotoBox.Cli.Commands
                 // Print summary
                 string protoDisplay = ProtocolNameResolver.GetProtocolDisplayName(protocolIndex);
                 string fmtDisplay = ProtocolFormatMatrix.FormatNames[formatIndex];
-                Console.WriteLine($"Protocol : {protoDisplay}");
-                Console.WriteLine($"Format   : {fmtDisplay}");
-                Console.WriteLine($"Output   : {outputDir}");
+                CliConsole.WriteField("Protocol", protoDisplay, width: 10, valueColor: CliConsole.Highlight);
+                CliConsole.WriteField("Format", fmtDisplay, width: 10, valueColor: CliConsole.Highlight);
+                CliConsole.WriteFieldRgb("Output", outputDir, width: 10, valueColor: CliConsole.PathGreen);
                 if (isBatch)
-                    Console.WriteLine($"Pairing  : {pairing}");
+                    CliConsole.WriteField("Pairing", pairing, width: 10, valueColor: CliConsole.Highlight);
 
                 if (isSingle)
                 {
-                    Console.WriteLine($"Image    : {image!.FullName}");
-                    Console.WriteLine($"Video    : {video!.FullName}");
+                    CliConsole.WriteFieldRgb("Image", image!.FullName, width: 10, valueColor: CliConsole.PathGreen);
+                    CliConsole.WriteFieldRgb("Video", video!.FullName, width: 10, valueColor: CliConsole.PathGreen);
+                    if (keyTimestampUs.HasValue)
+                        CliConsole.WriteField("Key photo", $"{keyTimestampUs.Value / 1_000_000.0:F3}s (custom)",
+                            width: 10, valueColor: CliConsole.Highlight);
+                    else
+                        CliConsole.WriteField("Key photo", "auto (from source video)", width: 10, valueColor: CliConsole.Highlight);
+
+                    // 预估最终输出文件名（与 Runner 内部逻辑一致：按输出格式决定 JPG/HEIC 扩展名），
+                    // 让用户在确认前知道会生成哪个文件。
+                    string imgForExt = (formatIndex is 2 or 3 or ProtocolFormatMatrix.FormatHeicMp4H265)
+                        ? Path.ChangeExtension(image!.FullName, ".heic")
+                        : Path.ChangeExtension(image!.FullName, ".jpg");
+                    string outputName = LivePhotoMergeService.CreateOutputFileName(
+                        Path.GetFileNameWithoutExtension(image!.FullName),
+                        protocolIndex, imgForExt, formatIndex, namingRuleIndex,
+                        customPattern: namingRuleIndex == 2 ? customPattern : null,
+                        taskIndex: namingRuleIndex == 2 ? 1 : null);
+                    CliConsole.WriteFieldRgb("File", Path.Combine(outputDir, outputName), width: 10, valueColor: CliConsole.PathGreen);
 
                     if (dryRun)
                     {
@@ -366,7 +410,7 @@ namespace LivePhotoBox.Cli.Commands
                         var key = Console.ReadLine();
                         if (!string.Equals(key, "y", StringComparison.OrdinalIgnoreCase))
                         {
-                            Console.WriteLine("Cancelled.");
+                            CliConsole.WriteLine("Cancelled.", CliConsole.Muted);
                             return 0;
                         }
                     }
@@ -377,7 +421,7 @@ namespace LivePhotoBox.Cli.Commands
                     return await MergeSinglePairAsync(
                         image.FullName, video.FullName, outputDir, tempDir,
                         protocolIndex, formatIndex, namingRuleIndex, customPattern,
-                        overwrite, verbose, ct);
+                        keyTimestampUs, overwrite, verbose, ct);
                 }
                 else
                 {
@@ -415,7 +459,7 @@ namespace LivePhotoBox.Cli.Commands
         private static async Task<int> MergeSinglePairAsync(
             string imagePath, string videoPath, string outputDir, string tempDir,
             int protocolIndex, int formatIndex, int namingRuleIndex, string? customPattern,
-            bool overwrite, bool verbose, CancellationToken ct)
+            long? keyTimestampUs, bool overwrite, bool verbose, CancellationToken ct)
         {
             try
             {
@@ -428,6 +472,7 @@ namespace LivePhotoBox.Cli.Commands
                     OutputFormatIndex = formatIndex,
                     NamingRuleIndex = namingRuleIndex,
                     CustomNamingPattern = customPattern,
+                    KeyPhotoTimestampUs = keyTimestampUs,
                     OverwriteExisting = overwrite,
                 };
 
@@ -441,23 +486,24 @@ namespace LivePhotoBox.Cli.Commands
 
                 if (isSuccess)
                 {
-                    Console.WriteLine($"OK  {baseName}  ({details})");
+                    CliConsole.Write("OK  ", CliConsole.Success);
+                    Console.WriteLine($"{baseName}  ({details})");
                     return 0;
                 }
                 else
                 {
-                    Console.Error.WriteLine($"FAIL  {baseName}  {details}");
+                    CliConsole.WriteErrorLine($"FAIL  {baseName}  {details}");
                     return 1;
                 }
             }
             catch (OperationCanceledException)
             {
-                Console.Error.WriteLine("Cancelled.");
+                CliConsole.WriteErrorLine("Cancelled.");
                 return 130;
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"ERROR: {ex.GetType().Name}: {ex.Message}");
+                CliConsole.WriteErrorLine($"ERROR: {ex.GetType().Name}: {ex.Message}");
                 if (verbose) Console.Error.WriteLine(ex.StackTrace);
                 return 1;
             }
@@ -476,7 +522,17 @@ namespace LivePhotoBox.Cli.Commands
             string? afterMoveDir, bool afterRecycle, CancellationToken ct)
         {
             // 1. Scan — filename-based pairing (always)
-            Console.Write($"Scanning '{inputDir}'... ");
+            if (CliConsole.UseColor)
+            {
+                CliConsole.Write("Scanning", CliConsole.Accent);
+                Console.Write(": ");
+                CliConsole.Write(inputDir, CliConsole.PathGreen);
+                Console.Write(" ... ");
+            }
+            else
+            {
+                Console.Write($"Scanning: {inputDir} ... ");
+            }
             var scanResult = LivePhotoMergeScanService.Scan(inputDir, ct);
 
             var allPairs = new List<(string ImagePath, string VideoPath, string BaseName)>();
@@ -517,12 +573,18 @@ namespace LivePhotoBox.Cli.Commands
 
             int standaloneImg = scanResult.StandaloneImagesCount - metaPairs;
             int standaloneVid = scanResult.StandaloneVideosCount - metaPairs;
-            Console.WriteLine($"{scanResult.Pairs.Count} filename pairs, {metaPairs} meta pairs, " +
-                $"{standaloneImg} standalone images, {standaloneVid} standalone videos");
+            CliConsole.Write(scanResult.Pairs.Count.ToString(), CliConsole.Highlight);
+            Console.Write(" filename pairs, ");
+            CliConsole.Write(metaPairs.ToString(), CliConsole.Highlight);
+            Console.Write(" meta pairs, ");
+            CliConsole.Write(standaloneImg.ToString(), CliConsole.Highlight);
+            Console.Write(" standalone images, ");
+            CliConsole.Write(standaloneVid.ToString(), CliConsole.Highlight);
+            Console.WriteLine(" standalone videos");
 
             if (allPairs.Count == 0)
             {
-                Console.Error.WriteLine("No image+video pairs found. Nothing to do.");
+                CliConsole.WriteErrorLine("No image+video pairs found. Nothing to do.");
                 return 0;
             }
 
@@ -543,27 +605,42 @@ namespace LivePhotoBox.Cli.Commands
             // 4. Dry run
             if (dryRun)
             {
-                Console.WriteLine($"\n[DRY RUN] Would merge {tasks.Count} pairs:");
+                Console.WriteLine();
+                Console.Write("[DRY RUN] Would merge ");
+                CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
+                Console.WriteLine(" pairs:");
                 foreach (var t in tasks)
-                    Console.WriteLine($"  #{t.Index}  {t.BaseName}");
+                {
+                    Console.Write("  ");
+                    CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
+                    Console.Write("  ");
+                    CliConsole.Write(t.BaseName, CliConsole.PathGreen);
+                    Console.WriteLine();
+                }
                 return 0;
             }
 
             // 5. Confirmation
             if (!yes)
             {
-                Console.Write($"\nMerge {tasks.Count} pairs? [y/N] ");
+                Console.Write("\nMerge ");
+                CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
+                Console.Write(" pairs? [y/N] ");
                 var key = Console.ReadLine();
                 if (!string.Equals(key, "y", StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine("Cancelled.");
+                    CliConsole.WriteLine("Cancelled.", CliConsole.Muted);
                     return 0;
                 }
             }
 
             // 6. Run batch（实际处理前才创建输出目录，dry-run / 取消不产生副作用）
             Directory.CreateDirectory(outputDir);
-            Console.WriteLine($"\nProcessing {tasks.Count} pairs (parallel={parallel})...");
+            Console.Write("\nProcessing ");
+            CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
+            Console.Write(" pairs (parallel=");
+            CliConsole.Write(parallel.ToString(), CliConsole.Highlight);
+            Console.WriteLine(")...");
             Console.WriteLine();
 
             var options = new LivePhotoMergeRunOptions
@@ -600,24 +677,42 @@ namespace LivePhotoBox.Cli.Commands
                     {
                         Interlocked.Increment(ref ok);
                         if (verbose)
-                            Console.WriteLine("OK");
+                            CliConsole.WriteLine("OK", CliConsole.Success);
                         else
-                            Console.WriteLine($"  [{completed}/{tasks.Count}] OK  {task.BaseName}");
+                        {
+                            Console.Write($"  [{completed}/{tasks.Count}] ");
+                            CliConsole.Write("OK  ", CliConsole.Success);
+                            Console.WriteLine(task.BaseName);
+                        }
                     }
                     else
                     {
                         Interlocked.Increment(ref fail);
                         if (verbose)
-                            Console.WriteLine($"FAIL ({details})");
+                            CliConsole.WriteLine($"FAIL ({details})", CliConsole.Error);
                         else
-                            Console.WriteLine($"  [{completed}/{tasks.Count}] FAIL  {task.BaseName}  ({details})");
+                        {
+                            Console.Write($"  [{completed}/{tasks.Count}] ");
+                            CliConsole.Write("FAIL  ", CliConsole.Error);
+                            Console.WriteLine($"{task.BaseName}  ({details})");
+                        }
                     }
                 });
 
             // 7. After-completion actions (only on successful tasks)
             if (!string.IsNullOrEmpty(afterMoveDir))
             {
-                Console.WriteLine($"\nMoving source files to '{afterMoveDir}'...");
+                if (CliConsole.UseColor)
+                {
+                    Console.WriteLine();
+                    Console.Write("Moving source files to '");
+                    CliConsole.Write(afterMoveDir, CliConsole.PathGreen);
+                    Console.WriteLine("'...");
+                }
+                else
+                {
+                    Console.WriteLine($"\nMoving source files to '{afterMoveDir}'...");
+                }
                 Directory.CreateDirectory(afterMoveDir);
                 int moved = 0;
                 foreach (var task in tasks.Where(t => t.Status == ProcessStatus.Success))
@@ -637,10 +732,12 @@ namespace LivePhotoBox.Cli.Commands
                     }
                     catch (Exception ex)
                     {
-                        Console.Error.WriteLine($"  WARN: Failed to move '{task.BaseName}': {ex.Message}");
+                        CliConsole.WriteErrorLine($"  WARN: Failed to move '{task.BaseName}': {ex.Message}");
                     }
                 }
-                Console.WriteLine($"  Moved {moved} source files.");
+                Console.Write("  Moved ");
+                CliConsole.Write(moved.ToString(), CliConsole.Highlight);
+                Console.WriteLine(" source files.");
             }
             else if (afterRecycle)
             {
@@ -663,15 +760,23 @@ namespace LivePhotoBox.Cli.Commands
                     }
                     catch (Exception ex)
                     {
-                        Console.Error.WriteLine($"  WARN: Failed to recycle '{task.BaseName}': {ex.Message}");
+                        CliConsole.WriteErrorLine($"  WARN: Failed to recycle '{task.BaseName}': {ex.Message}");
                     }
                 }
-                Console.WriteLine($"  Recycled {recycled} source files.");
+                Console.Write("  Recycled ");
+                CliConsole.Write(recycled.ToString(), CliConsole.Highlight);
+                Console.WriteLine(" source files.");
             }
 
             // 8. Summary
             Console.WriteLine();
-            Console.WriteLine($"Done: {ok} OK, {fail} FAIL, {tasks.Count} total");
+            CliConsole.Write("Done: ", CliConsole.Accent);
+            CliConsole.Write(ok.ToString(), CliConsole.Highlight);
+            Console.Write(" OK, ");
+            CliConsole.Write(fail.ToString(), CliConsole.Highlight);
+            Console.Write(" FAIL, ");
+            CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
+            Console.WriteLine(" total");
             return fail > 0 ? 1 : 0;
         }
 
@@ -681,7 +786,7 @@ namespace LivePhotoBox.Cli.Commands
 
         private static async Task<int> RunAllVariantsAsync(
             string imagePath, string videoPath, string outputDir, string tempDir,
-            int parallel, bool dryRun, CancellationToken ct)
+            int parallel, bool dryRun, long? keyTimestampUs, CancellationToken ct)
         {
             string originalBaseName = Path.GetFileNameWithoutExtension(imagePath);
 
@@ -704,15 +809,22 @@ namespace LivePhotoBox.Cli.Commands
 
             if (dryRun)
             {
-                Console.WriteLine($"Output : {variantsDir}");
-                Console.WriteLine($"\nWould generate {combos.Count} variants:");
+                CliConsole.WriteFieldRgb("Output", variantsDir, width: 10, valueColor: CliConsole.PathGreen);
+                Console.WriteLine();
+                Console.Write("Would generate ");
+                CliConsole.Write(combos.Count.ToString(), CliConsole.Highlight);
+                Console.WriteLine(" variants:");
                 foreach (var c in combos)
-                    Console.WriteLine($"  {c.BaseName}");
+                {
+                    Console.Write("  ");
+                    CliConsole.Write(c.BaseName, CliConsole.PathGreen);
+                    Console.WriteLine();
+                }
                 return 0;
             }
 
-            Console.WriteLine($"Output : {variantsDir}");
-            Console.WriteLine($"Combos : {combos.Count}");
+            CliConsole.WriteFieldRgb("Output", variantsDir, width: 10, valueColor: CliConsole.PathGreen);
+            CliConsole.WriteField("Combos", combos.Count.ToString(), width: 10, valueColor: CliConsole.Highlight);
             Console.WriteLine();
 
             int ok = 0, fail = 0, completed = 0;
@@ -732,6 +844,7 @@ namespace LivePhotoBox.Cli.Commands
                         SelectedModeIndex = c.Proto,
                         OutputFormatIndex = c.Fmt,
                         NamingRuleIndex = 0,
+                        KeyPhotoTimestampUs = keyTimestampUs,
                         OverwriteExisting = true,
                     };
 
@@ -742,12 +855,16 @@ namespace LivePhotoBox.Cli.Commands
                     if (success)
                     {
                         Interlocked.Increment(ref ok);
-                        Console.WriteLine($"  [{idx}/{combos.Count}] OK  {c.Label}");
+                        Console.Write($"  [{idx}/{combos.Count}] ");
+                        CliConsole.Write("OK  ", CliConsole.Success);
+                        Console.WriteLine(c.Label);
                     }
                     else
                     {
                         Interlocked.Increment(ref fail);
-                        Console.WriteLine($"  [{idx}/{combos.Count}] FAIL  {c.Label}  ({details})");
+                        Console.Write($"  [{idx}/{combos.Count}] ");
+                        CliConsole.Write("FAIL  ", CliConsole.Error);
+                        Console.WriteLine($"{c.Label}  ({details})");
                     }
                 }
                 catch (OperationCanceledException)
@@ -757,7 +874,7 @@ namespace LivePhotoBox.Cli.Commands
                 catch (Exception ex)
                 {
                     Interlocked.Increment(ref fail);
-                    Console.Error.WriteLine($"  [{Interlocked.Increment(ref completed)}/{combos.Count}] ERROR  {c.Label}  ({ex.Message})");
+                    CliConsole.WriteErrorLine($"  [{Interlocked.Increment(ref completed)}/{combos.Count}] ERROR  {c.Label}  ({ex.Message})");
                 }
                 finally
                 {
@@ -768,8 +885,53 @@ namespace LivePhotoBox.Cli.Commands
             await Task.WhenAll(tasks);
 
             Console.WriteLine();
-            Console.WriteLine($"Done: {ok} OK, {fail} FAIL, {combos.Count} total");
+            CliConsole.Write("Done: ", CliConsole.Accent);
+            CliConsole.Write(ok.ToString(), CliConsole.Highlight);
+            Console.Write(" OK, ");
+            CliConsole.Write(fail.ToString(), CliConsole.Highlight);
+            Console.Write(" FAIL, ");
+            CliConsole.Write(combos.Count.ToString(), CliConsole.Highlight);
+            Console.WriteLine(" total");
             return fail > 0 ? 1 : 0;
+        }
+
+        // Parse a user-supplied key photo timestamp into microseconds.
+        // Accepts decimal seconds (1.5), mm:ss (1:30), mm:ss.fff (1:30.500)
+        // or hh:mm:ss (0:01:30). Returns false on malformed / negative input.
+        private static bool TryParseKeyTimestamp(string text, out long microseconds)
+        {
+            microseconds = 0;
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+            text = text.Trim();
+
+            double seconds;
+            if (text.Contains(':'))
+            {
+                string[] parts = text.Split(':');
+                if (parts.Length is < 2 or > 3)
+                    return false;
+
+                double total = 0;
+                for (int i = 0; i < parts.Length - 1; i++)
+                {
+                    if (!int.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out int v) || v < 0)
+                        return false;
+                    total = total * 60 + v;
+                }
+
+                if (!double.TryParse(parts[^1], NumberStyles.Float, CultureInfo.InvariantCulture, out double last) || last < 0)
+                    return false;
+                seconds = total * 60 + last;
+            }
+            else
+            {
+                if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out seconds) || seconds < 0)
+                    return false;
+            }
+
+            microseconds = (long)Math.Round(seconds * 1_000_000.0);
+            return true;
         }
 
         // ══════════════════════════════════════════════════════════════

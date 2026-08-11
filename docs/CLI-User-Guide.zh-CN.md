@@ -8,7 +8,7 @@
 
 `livephotobox` 是一个命令行工具，用于将图片与视频文件合并为手机相册可识别的实况照片。实况照片是同时包含静态图像与短视频片段的单一文件，在支持的相册中查看时会自动播放视频。
 
-目前 CLI 支持 **merge**（合成）、**protocols**（查看格式）和 **update-check**（检查更新）三个命令。拆分与修复请使用图形界面。
+目前 CLI 支持 **merge**（合成）、**protocols**（查看格式）、**info**（查看版本与环境信息）、**update-check**（检查更新）和 **update**（检查并自动更新）五个命令。拆分与修复请使用图形界面。
 
 ---
 
@@ -26,15 +26,29 @@
 
 ### 如何更新
 
-CLI 不含自动更新功能，但内置了版本检查命令：
+CLI 采用手动触发更新（不后台自动升级）。一条命令完成检查 → 询问 → 下载替换：
+
+```powershell
+lpb update
+```
+
+发现新版本时会先打印安装类型、版本号和手动下载链接，然后询问 `Update now? [Y/n]`——回车或输入 `y` 即自动下载新版并替换（便携版后台替换 / 安装版静默重装）；输入其它内容跳过；管道/CI 等无输入环境自动跳过，不会卡住。脚本环境可用 `lpb update -y`（或 `--yes`）跳过确认。
+
+`lpb update` 会自动区分当前副本类型并选择对应安装包：
+
+- **Portable CLI-only（纯 CLI）**：更新 `*-x64-cli.zip`
+- **Portable (GUI + CLI)（GUI + CLI 便携包）**：更新 `*-x64-portable.zip`
+- **Inno Setup (GUI + CLI)（安装版）**：下载新版 `*-x64-setup.exe` 静默重装
+
+只想检查不更新，或想先看结果再决定：
 
 ```powershell
 lpb update-check
 ```
 
-该命令会查询 GitHub Releases API，将最新发布的版本与你当前安装的版本进行比较。如有新版本可用，会打印版本号和下载链接。
+`update-check` 发现新版本时会打印下载链接并提示运行 `lpb update -y`。手动下载链接始终会显示，也可以自行从 [Releases 页面](https://github.com/lengxiqwq/live-photo-box/releases) 下载替换。
 
-也可以手动访问 [Releases 页面](https://github.com/lengxiqwq/live-photo-box/releases)，下载对应包并替换旧文件。
+> 如果你的副本由 WinGet 安装管理，`lpb update` / `lpb update-check` 会显示 `This copy is installed and managed by WinGet`，提示改用 winget 更新，内置更新对此类安装不可用。
 
 ---
 
@@ -43,6 +57,10 @@ lpb update-check
 ```powershell
 # 查看协议 × 格式兼容矩阵
 lpb protocols
+
+# 查看版本 / 环境信息（纯本地，无需联网）
+lpb --version
+lpb info
 
 # 转换单个文件对（iPhone → Google 相册）
 lpb merge photo.heic video.mov -p v2 -y
@@ -90,18 +108,20 @@ lpb protocols
 ```
 
 ```
-  Protocol          JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+H265
-  ─────────         ────────   ────────   ────────   ────────   ────────
-  Fusion               ✅          ✅          ──          ──          ──
-  V1_MicroVideo        ✅          ✅          ──          ──          ──
-  V2_MotionPhoto       ✅          ✅          ──          ✅          ──
-  OPPO_OLive           ✅          ──          ──          ──          ──
-  vivo_LivePhoto       ✅          ──          ──          ──          ──
-  Samsung_MotionPhoto  ✅          ──          ✅          ──          ──
-  HUAWEI_MovingPhoto   ✅          ──          ✅          ──          ✅
+  Merge — protocol × format compatibility
+
+  Protocol              JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+MP4(H.265)
+  ────────────────────── ────────   ────────   ────────   ────────   ──────────────
+  Fusion (testing)         ✅          ✅          ✖️          ✖️          ✖️
+  Micro Video              ✅          ✅          ✖️          ✖️          ✖️
+  Motion Photo             ✅          ✅          ✖️          ✅          ✖️
+  OPPO O-Live              ✅          ✖️          ✖️          ✖️          ✖️
+  vivo Live Photo          ✅          ✖️          ✖️          ✖️          ✖️
+  Samsung Motion Photo     ✅          ✖️          ✅          ✖️          ✖️
+  HUAWEI Moving Photo      ✅          ✖️          ✅          ✖️          ✅
 ```
 
-`✅` — 支持 &nbsp;|&nbsp; `──` — 不支持
+`✅` — 支持 &nbsp;|&nbsp; `✖️` — 不支持
 
 `heic+mp4-h265`（索引 4）为华为原生 HEVC (H.265)。
 
@@ -125,7 +145,7 @@ lpb protocols --json
 #### 使用示例
 
 ```powershell
-# iPhone → Google 相册 (V2)
+# iPhone → Google 相册
 lpb merge IMG_001.HEIC IMG_001.MOV -p v2 -y
 
 # → 华为原生 HEVC
@@ -148,7 +168,84 @@ lpb merge -d ./Photos -p v2 -n "custom:{name}_{protocol}_{date}" -y
 
 # 直接覆盖已存在的输出，而不是自动重命名为 " (2)"
 lpb merge photo.jpg video.mp4 -p huawei -y -w
+
+# 单文件合成：自定义封面在视频中的位置（视频 2.5 秒处）
+lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
 ```
+
+---
+
+### `info` — 查看版本与环境信息
+
+`--version` 仅使用本地数据快速打印版本横幅——不联网、不启动子进程：
+
+```
+lpb --version
+```
+
+```
+Live Photo Box v2.1.4
+
+Build date : 2026-08-11
+Runtime    : .NET 9.0.18 (X64)
+Platform   : Microsoft Windows 10.0.26200 (X64)
+Channel    : Portable CLI-only
+Project    : https://github.com/lengxiqwq/live-photo-box
+License    : GPL-3.0
+Author     : LengxiQwQ (冷汐OωO)
+Email      : lengxiowo@gmail.com
+QQ         : 3197635836
+Feedback   : https://github.com/lengxiqwq/live-photo-box/issues
+
+Tip        : run 'lpb info' for full details
+
+© 2026 LengxiQwQ · Licensed under GPL-3.0
+```
+
+`Channel` 显示当前副本的安装方式：纯 CLI 解压为 `Portable CLI-only`，GUI + CLI 便携包为 `Portable (GUI + CLI)`，安装版（setup.exe）为 `Inno Setup (GUI + CLI)`，WinGet 安装为 `WinGet`。
+
+`info` 在相同字段基础上，追加内置外部工具（exiftool、ffmpeg、jpegtran、heif-dec、heif-enc）的版本信息，并在末尾顺带做一次 GitHub 更新检查（与 `update-check` 同一套逻辑）。网络不可用时会在原地提示失败，不会导致命令失败：
+
+```
+lpb info
+```
+
+```
+Live Photo Box v2.1.4 — full environment info
+
+Build date : 2026-08-11
+Runtime    : .NET 9.0.18 (X64)
+Platform   : Microsoft Windows 10.0.26200 (X64)
+Channel    : Portable CLI-only
+Project    : https://github.com/lengxiqwq/live-photo-box
+License    : GPL-3.0
+Author     : LengxiQwQ (冷汐OωO)
+Email      : lengxiowo@gmail.com
+QQ         : 3197635836
+Feedback   : https://github.com/lengxiqwq/live-photo-box/issues
+
+External tools:
+exiftool  13.59   ...\Tools\exiftool.exe
+ffmpeg    n8.0.1  ...\Tools\ffmpeg.exe
+jpegtran  n/a     ...\Tools\jpegtran.exe
+heif-dec  1.23.1  ...\Tools\heif-dec.exe
+heif-enc  1.23.1  ...\Tools\heif-enc.exe
+
+Update check:
+Checking GitHub ... OK
+
+A newer version is available: v2.1.2 → v2.1.3
+https://github.com/lengxiqwq/live-photo-box/releases
+
+To update automatically:
+lpb update -y
+
+© 2026 LengxiQwQ · Licensed under GPL-3.0
+```
+
+工具路径显示为绝对路径，版本值来自内置工具本身；工具缺失时显示 `not found`，不会导致命令失败。
+
+在交互式终端中，标签与数值会着色显示（软件标题浅红色、标签青色、数值/版本号黄色、提示文字海蓝色、`✅` 绿色、`✖️` 表示不支持）。当输出被重定向到文件/脚本，或设置了 `NO_COLOR` 环境变量时，全部自动回退为纯文本。
 
 ---
 
@@ -167,6 +264,10 @@ lpb merge [options]
                              name  — 按文件名匹配（默认）
                              cid   — 按 Apple ContentIdentifier UUID 匹配
                              vivo  — 按 vivo 相机 livephoto ID 匹配
+  --key-timestamp <时间>   指定封面在视频时间轴上的位置，仅单文件模式。
+                             支持：秒（1.5）、分:秒（1:30）、时:分:秒（0:01:30）。
+                             默认：跟随源视频自带时间轴（Apple MOV / vivo 元数据）。
+                             批量模式（-d）下不可用。
 
 ═══ 输出 ═══
   -o, --output <文件夹>     输出目录。省略时的默认值：
@@ -182,10 +283,11 @@ lpb merge [options]
                              recycle     — 移入 Windows 回收站
 
 ═══ 格式 ═══
-  -p, --protocol <协议>     目标协议 [默认: v2]。
+  -p, --protocol <协议>     目标协议 [默认: motion photo]。
                              fusion  — 通用安卓
-                             v1      — Google Micro Video（旧版）
-                             v2      — Google Motion Photo（新版）
+                             micro video（别名 v1）— Google Micro Video（旧版）
+                             motion photo（别名 v2）— Google Motion Photo（新版）
+microvideo / motionphoto（无空格别名）同样可输入。
                              oppo    — OPPO / 一加 O-Live
                              vivo    — vivo 实况照片
                              samsung — 三星动态照片
@@ -253,7 +355,7 @@ lpb merge photo.jpg video.mp4 --all-variants -o ./Out
 ```
 photo_Fusion_JPEG+MP4.jpg
 photo_Fusion_JPEG+MOV.jpg
-photo_V1_MicroVideo_JPEG+MP4.jpg
+photo_MicroVideo_JPEG+MP4.jpg
 ...
 photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
 ```
@@ -261,7 +363,31 @@ photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
 注意：
 - 仅支持单对模式，不支持 `--dir` 批量模式
 - 命名固定，不接受 `--naming` / `--protocol` / `--format` 选项
+- 支持 `--key-timestamp`，所有变体应用同一时间戳
 - 输出文件名中的 `(H.265)` 括号和空格在 Windows 上是合法字符，不影响使用
+
+---
+
+### `--key-timestamp` — 自定义封面在视频中的位置
+
+单文件合成时，实况照片的元数据会记录**封面（key photo）在视频时间轴上的位置**。默认情况下工具会跟随源视频自带的时间轴（如 Apple MOV 的封面时间、vivo 元数据）；指定本参数后则使用你给的值。
+
+```powershell
+# 封面位于视频第 2.5 秒处
+lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
+
+# 也支持 分:秒 / 时:分:秒 写法
+lpb merge photo.jpg video.mp4 -p v2 --key-timestamp 1:30.500 -y
+```
+
+- 时间格式：秒（`1.5`）、分:秒（`1:30`）、时:分:秒（`0:01:30`），内部按微秒写入各协议元数据。
+- 仅单文件模式可用；批量模式（`-d`）传该参数会直接报错退出。
+- 各协议存储方式不同，工具已自动适配：
+  - Motion Photo / OPPO / vivo / Samsung / Fusion → 写入 XMP（OPPO / Fusion 同时写主照片时间戳字段）
+  - Micro Video → 写入 XMP 的 `MicroVideoPresentationTimestampUs`
+  - HUAWEI → 不写 XMP，而是写入 MP4 `covertime` 元数据 + 文件尾包封面帧号
+- 可与 `--all-variants` 组合，所有变体使用同一时间戳。
+- 超出视频时长的值：HUAWEI 输出会自动钳制到最后一帧；其余协议直接写入元数据，由播放器自行处理。
 
 ---
 
@@ -271,29 +397,37 @@ photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
 lpb update-check
 ```
 
-查询 GitHub Releases API，比较当前版本与最新发布版本。
+查询 GitHub Releases API，比较当前版本与最新发布版本。`--version` 完全本地运行；`info` 会在其报告中顺带执行同样的检查。需要自动下载替换请使用 `lpb update`。
 
 输出示例（当前已是最新）：
 ```
-Current version : 2.1.1
 Checking GitHub ... OK
-Latest version  : 2.1.1
 
 You are running the latest version.
 ```
 
 输出示例（有新版本）：
 ```
-Current version : 2.1.0
 Checking GitHub ... OK
-Latest version  : 2.1.1
 
-A newer version is available: v2.1.1
-  Live Photo Box v2.1.1
-  Download: https://github.com/lengxiqwq/live-photo-box/releases/tag/v2.1.1
+A newer version is available: v2.1.0 → v2.1.1
+https://github.com/lengxiqwq/live-photo-box/releases
+
+To update automatically:
+lpb update -y
 ```
 
-需要网络连接。失败时（超时、GitHub 不可达）会打印手动下载地址并以退出码 2 退出。
+需要网络连接。失败时（超时、GitHub 不可达）不会显示版本信息，直接打印失败原因与手动下载地址，并以退出码 2 退出。
+
+如果当前副本是通过 WinGet 安装的（portable 包），内置更新会被禁用：
+```
+Checking GitHub ... skipped
+
+This copy is installed and managed by WinGet.
+Built-in update is disabled for WinGet-managed installs.
+Update with: winget upgrade LengxiQwQ.LivePhotoBox
+```
+此时请使用 `winget upgrade LengxiQwQ.LivePhotoBox` 更新，命令以退出码 3 退出。
 
 ---
 
@@ -392,9 +526,10 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 
 | 协议 | 兼容设备 | 状态 |
 |----------|--------------------|--------|
+| Fusion Motion Photo | Windows / Android（通用） | 测试中 |
 | Apple Live Photo | iPhone / iPad | 可用 |
-| Google Micro Video (V1) | Windows / 小米 (MIUI) / Pixel | 可用 |
-| Google Motion Photo (V2) | Windows / 小米 / Pixel | 可用 |
+| Google Micro Video | Windows / 小米 (MIUI) / Pixel | 可用 |
+| Google Motion Photo | Windows / 小米 / Pixel | 可用 |
 | OPPO O-Live Photo | Windows / 小米 / OPPO / 一加 | 可用 |
 | 华为 Moving Photo | 华为 / 荣耀 | 可用 |
 | vivo Live Photo | Windows / 小米 / vivo (X300+) | 测试中 |

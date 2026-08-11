@@ -509,12 +509,9 @@ namespace LivePhotoBox.Services
                 $"{actionLabel} to MP4: '{Path.GetFileName(inputPath)}'",
                 LogLevel.Debug);
 
-            string tempPath = Path.Combine(
-                workDir,
-                $"{Path.GetFileNameWithoutExtension(inputPath)}_merge_trans.mp4");
-
-            if (File.Exists(tempPath))
-                try { File.Delete(tempPath); } catch { }
+            // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突，
+            // 无需再先删除可能存在的旧文件。
+            string tempPath = TempFileService.AllocateTempPath(workDir, "merge_trans", "mp4");
 
             var result = await TranscodeToMp4Async(inputPath, tempPath, token, useFaststart, videoCodec);
 

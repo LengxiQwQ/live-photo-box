@@ -11,10 +11,16 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <PlatformTarget>x64</PlatformTarget>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <!-- 编译期注入构建日期（UTC），供版本与 info 显示 -->
+    <BuildDate>$([System.DateTime]::UtcNow.ToString('yyyy-MM-dd'))</BuildDate>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="System.CommandLine" Version="2.0.0-beta4.22272.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AssemblyMetadata Include="BuildDate" Value="$(BuildDate)" />
   </ItemGroup>
 
   <ItemGroup>

@@ -143,20 +143,8 @@ namespace LivePhotoBox.Services.Protocols
                 return sourceImagePath;
             }
 
-            string tempPath = Path.Combine(
-                workDir,
-                $"{Path.GetFileNameWithoutExtension(sourceImagePath)}_fusion_tmp_{Guid.NewGuid():N}.jpg");
-
-            File.Copy(sourceImagePath, tempPath, true);
-
-            bool ok = await WriteExifUserCommentAsync(tempPath, OppoExifMarker, token);
-            if (!ok)
-            {
-                try { File.Delete(tempPath); } catch { /* best-effort */ }
-                return sourceImagePath;
-            }
-
-            return tempPath;
+            return await PrepareImageWithUserCommentAsync(
+                sourceImagePath, workDir, "fusion", OppoExifMarker, token);
         }
     }
 }

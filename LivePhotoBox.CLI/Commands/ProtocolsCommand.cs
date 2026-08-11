@@ -31,29 +31,93 @@ namespace LivePhotoBox.Cli.Commands
         private static void PrintTable()
         {
             Console.WriteLine();
-            Console.WriteLine("  Protocol          JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+MP4(H.265)");
-            Console.WriteLine("  ─────────         ────────   ────────   ────────   ────────   ──────────────");
+            CliConsole.WriteLine("  Merge — protocol × format compatibility", CliConsole.Notice);
+            Console.WriteLine();
+            CliConsole.WriteLine($"  {"Protocol".PadRight(22)}JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+MP4(H.265)", CliConsole.Accent);
+            Console.WriteLine($"  {new string('─', 22)} ────────   ────────   ────────   ────────   ──────────────");
 
             for (int p = 0; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
-                string name = ProtocolNameResolver.ProtocolNames[p].PadRight(18);
-                string f0 = Mark(ProtocolFormatMatrix.Matrix[p][0]);
-                string f1 = Mark(ProtocolFormatMatrix.Matrix[p][1]);
-                string f2 = Mark(ProtocolFormatMatrix.Matrix[p][2]);
-                string f3 = Mark(ProtocolFormatMatrix.Matrix[p][3]);
-                string f4 = Mark(ProtocolFormatMatrix.Matrix[p][4]);
-                Console.WriteLine($"  {name} {f0}        {f1}        {f2}        {f3}        {f4}");
+                string display = p == 0 ? "Fusion (testing)" : ProtocolNameResolver.ProtocolDisplayNames[p];
+                string name = display.PadRight(22);
+                Console.Write("  ");
+                CliConsole.Write(name, CliConsole.Accent);
+                Console.Write(" ");
+                WriteMark(ProtocolFormatMatrix.Matrix[p][0]);
+                Console.Write("        ");
+                WriteMark(ProtocolFormatMatrix.Matrix[p][1]);
+                Console.Write("        ");
+                WriteMark(ProtocolFormatMatrix.Matrix[p][2]);
+                Console.Write("        ");
+                WriteMark(ProtocolFormatMatrix.Matrix[p][3]);
+                Console.Write("        ");
+                WriteMark(ProtocolFormatMatrix.Matrix[p][4]);
+                Console.WriteLine();
             }
 
             Console.WriteLine();
-            Console.WriteLine("  ✅ = supported   ── = not supported");
+            WriteLegend();
             Console.WriteLine();
-            Console.WriteLine("  Protocol indices: fusion=0  v1=1  v2=2  oppo=3  vivo=4  samsung=5  huawei=6");
-            Console.WriteLine("  Format indices:   jpg+mp4=0  jpg+mov=1  heic+mp4=2  heic+mov=3  heic+mp4-h265=4");
+            WriteIndexLine("  Protocol indices: ", "fusion=0  micro video=1  motion photo=2  oppo=3  vivo=4  samsung=5  huawei=6");
+            WriteIndexLine("  Format indices:   ", "jpg+mp4=0  jpg+mov=1  heic+mp4=2  heic+mov=3  heic+mp4-h265=4");
             Console.WriteLine();
         }
 
-        private static string Mark(bool available) => available ? "  ✅" : "  ──";
+        // "fusion=0  v1=1 ..." — index numbers (values) in yellow.
+        private static void WriteIndexLine(string prefix, string rest)
+        {
+            Console.Write(prefix);
+            if (!CliConsole.UseColor)
+            {
+                Console.WriteLine(rest);
+                return;
+            }
+
+            foreach (var seg in rest.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                int eq = seg.IndexOf('=');
+                if (eq > 0)
+                {
+                    Console.Write(seg.Substring(0, eq + 1));
+                    CliConsole.Write(seg.Substring(eq + 1), CliConsole.Highlight);
+                }
+                else
+                {
+                    Console.Write(seg);
+                }
+                Console.Write("  ");
+            }
+            Console.WriteLine();
+        }
+
+        private static void WriteMark(bool available)
+        {
+            if (CliConsole.UseColor)
+            {
+                CliConsole.Write($"  {(available ? "✅" : "✖️")}",
+                    available ? CliConsole.Success : CliConsole.Error);
+            }
+            else
+            {
+                Console.Write(available ? "  ✅" : "  ✖️");
+            }
+        }
+
+        private static void WriteLegend()
+        {
+            if (CliConsole.UseColor)
+            {
+                Console.Write("  ");
+                CliConsole.Write("✅", CliConsole.Success);
+                Console.Write(" = supported   ");
+                CliConsole.Write("✖️", CliConsole.Error);
+                Console.WriteLine(" = not supported");
+            }
+            else
+            {
+                Console.WriteLine("  ✅ = supported   ✖️ = not supported");
+            }
+        }
 
         private static void PrintJson()
         {
@@ -69,7 +133,7 @@ namespace LivePhotoBox.Cli.Commands
                 {
                     index = p,
                     name = ProtocolNameResolver.ProtocolNames[p],
-                    displayName = ProtocolNameResolver.GetProtocolDisplayName(p),
+                    displayName = ProtocolNameResolver.ProtocolDisplayNames[p],
                     formats = Array.FindAll(formats, f => f != null)
                 };
             }

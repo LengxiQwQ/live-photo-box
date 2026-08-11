@@ -9,7 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Magick.NET-Q16-x64" Version="14.14.0" />
+    <PackageReference Include="Magick.NET-Q16-x64" Version="14.16.0" />
   </ItemGroup>
 
 </Project>

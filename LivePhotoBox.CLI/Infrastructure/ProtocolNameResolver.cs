@@ -9,8 +9,8 @@ namespace LivePhotoBox.Cli.Infrastructure
         private static readonly Dictionary<string, int> ProtocolMap = new(StringComparer.OrdinalIgnoreCase)
         {
             ["fusion"]   = 0, ["f"] = 0,
-            ["v1"]       = 1, ["microvideo"] = 1, ["micro"] = 1,
-            ["v2"]       = 2, ["motionphoto"] = 2, ["motion"] = 2, ["mp"] = 2,
+            ["v1"]       = 1, ["microvideo"] = 1, ["micro video"] = 1, ["micro"] = 1,
+            ["v2"]       = 2, ["motionphoto"] = 2, ["motion photo"] = 2, ["motion"] = 2, ["mp"] = 2,
             ["oppo"]     = 3, ["olive"] = 3, ["o"] = 3,
             ["vivo"]     = 4, ["v"] = 4,
             ["samsung"]  = 5, ["ss"] = 5, ["sam"] = 5,
@@ -36,18 +36,25 @@ namespace LivePhotoBox.Cli.Infrastructure
 
         public static string GetProtocolDisplayName(int index) => index switch
         {
-            0 => "Fusion (V2 + OPPO + vivo + Samsung)",
-            1 => "MicroVideo V1 (Google, deprecated)",
-            2 => "MotionPhoto V2 (Google, modern)",
-            3 => "OPPO / OnePlus O-Live",
-            4 => "vivo Live Photo",
-            5 => "Samsung Motion Photo",
-            6 => "HUAWEI Moving Photo",
+            0 => "Fusion (universal Android)",
+            1 => "Micro Video (Windows / Xiaomi / Pixel)",
+            2 => "Motion Photo (Windows / Xiaomi / Pixel)",
+            3 => "OPPO O-Live (Windows / Xiaomi / OPPO)",
+            4 => "vivo Live Photo (Windows / vivo X300+)",
+            5 => "Samsung Motion Photo (Windows / Samsung)",
+            6 => "HUAWEI Moving Photo (HUAWEI / Honor)",
             _ => $"Unknown ({index})"
         };
 
+        // 用户可见的协议显示名（正确大小写、带空格）
+        public static string[] ProtocolDisplayNames { get; } =
+            ["Fusion", "Micro Video", "Motion Photo",
+             "OPPO O-Live", "vivo Live Photo", "Samsung Motion Photo",
+             "HUAWEI Moving Photo"];
+
+        // 协议标识符：用于 --all-variants 文件名与 JSON name 字段，保持无空格
         public static string[] ProtocolNames { get; } =
-            ["Fusion", "V1_MicroVideo", "V2_MotionPhoto",
+            ["Fusion", "MicroVideo", "MotionPhoto",
              "OPPO_OLive", "vivo_LivePhoto", "Samsung_MotionPhoto",
              "HUAWEI_MovingPhoto"];
     }

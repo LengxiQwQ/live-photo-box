@@ -8,7 +8,7 @@
 
 `livephotobox` is a command-line utility for merging image and video files into live photos compatible with various smartphone gallery applications. A live photo is a single file containing both a still image and a short video — when viewed in a supported gallery, the video plays automatically.
 
-The CLI currently supports **merge**, **protocols**, and **update-check** commands. Split and repair features remain in the GUI application.
+The CLI currently supports **merge**, **protocols**, **info**, **update-check**, and **update** commands. Split and repair features remain in the GUI application.
 
 ---
 
@@ -26,15 +26,29 @@ All three packages include the same `livephotobox.exe` and its six aliases. The 
 
 ### Keeping Up to Date
 
-The CLI does not auto-update. To check for new versions, use the built-in command:
+The CLI updates on demand (no silent background auto-upgrade). One command checks, asks, downloads, and replaces:
+
+```powershell
+lpb update
+```
+
+When a newer version is found, it prints the install type, version, and manual download link, then asks `Update now? [Y/n]` — press Enter or type `y` to download and replace automatically (background replace for portable copies / silent reinstall for installer copies); anything else skips; piped/CI environments with no input skip safely without hanging. Use `lpb update -y` (or `--yes`) to skip the prompt in scripts.
+
+`lpb update` auto-detects the copy type and picks the matching package:
+
+- **Portable CLI-only**: updates `*-x64-cli.zip`
+- **Portable (GUI + CLI)**: updates `*-x64-portable.zip`
+- **Inno Setup (GUI + CLI)**: downloads the new `*-x64-setup.exe` and reinstalls silently
+
+To only check, or to see the result before deciding:
 
 ```powershell
 lpb update-check
 ```
 
-This queries the GitHub Releases API and compares the latest published version against your installed version. If a newer release is available, it prints the version number and download URL.
+`update-check` prints the download link and suggests running `lpb update -y` when a newer version exists. The manual download link is always shown; you can also grab the package yourself from the [Releases page](https://github.com/lengxiqwq/live-photo-box/releases).
 
-You can also visit the [Releases page](https://github.com/lengxiqwq/live-photo-box/releases) manually, download the latest package matching your use case, and replace the existing files.
+> If your copy is managed by WinGet, `lpb update` / `lpb update-check` report `This copy is installed and managed by WinGet` and direct you to winget; the built-in update is disabled for such installs.
 
 ---
 
@@ -43,6 +57,10 @@ You can also visit the [Releases page](https://github.com/lengxiqwq/live-photo-b
 ```powershell
 # View protocol × format compatibility matrix
 lpb protocols
+
+# Show version / environment info (instant, no network)
+lpb --version
+lpb info
 
 # Convert a single pair (iPhone → Google Photos)
 lpb merge photo.heic video.mov -p v2 -y
@@ -90,18 +108,20 @@ lpb protocols
 ```
 
 ```
-  Protocol          JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+H265
-  ─────────         ────────   ────────   ────────   ────────   ────────
-  Fusion               ✅          ✅          ──          ──          ──
-  V1_MicroVideo        ✅          ✅          ──          ──          ──
-  V2_MotionPhoto       ✅          ✅          ──          ✅          ──
-  OPPO_OLive           ✅          ──          ──          ──          ──
-  vivo_LivePhoto       ✅          ──          ──          ──          ──
-  Samsung_MotionPhoto  ✅          ──          ✅          ──          ──
-  HUAWEI_MovingPhoto   ✅          ──          ✅          ──          ✅
+  Merge — protocol × format compatibility
+
+  Protocol              JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+MP4(H.265)
+  ────────────────────── ────────   ────────   ────────   ────────   ──────────────
+  Fusion (testing)         ✅          ✅          ✖️          ✖️          ✖️
+  Micro Video              ✅          ✅          ✖️          ✖️          ✖️
+  Motion Photo             ✅          ✅          ✖️          ✅          ✖️
+  OPPO O-Live              ✅          ✖️          ✖️          ✖️          ✖️
+  vivo Live Photo          ✅          ✖️          ✖️          ✖️          ✖️
+  Samsung Motion Photo     ✅          ✖️          ✅          ✖️          ✖️
+  HUAWEI Moving Photo      ✅          ✖️          ✅          ✖️          ✅
 ```
 
-`✅` — supported &nbsp;|&nbsp; `──` — not supported
+`✅` — supported &nbsp;|&nbsp; `✖️` — not supported
 
 `heic+mp4-h265` (index 4) is HUAWEI-native HEVC (H.265).
 
@@ -125,7 +145,7 @@ The primary command. Supports two operating modes:
 #### Examples
 
 ```powershell
-# iPhone → Google Photos (V2)
+# iPhone → Google Photos
 lpb merge IMG_001.HEIC IMG_001.MOV -p v2 -y
 
 # → HUAWEI native HEVC
@@ -148,7 +168,83 @@ lpb merge -d ./Photos -p v2 -n "custom:{name}_{protocol}_{date}" -y
 
 # Overwrite existing outputs instead of auto-renaming to " (2)"
 lpb merge photo.jpg video.mp4 -p huawei -y -w
+
+# Single pair: set the key photo position in the video (2.5 seconds)
+lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
 ```
+
+---
+
+### `info` — Show version and environment info
+
+`--version` prints a compact version banner using local data only — no network access, no subprocesses:
+
+```
+lpb --version
+```
+
+```
+Live Photo Box v2.1.4
+
+Build date : 2026-08-11
+Runtime    : .NET 9.0.18 (X64)
+Platform   : Microsoft Windows 10.0.26200 (X64)
+Channel    : Portable CLI-only
+Project    : https://github.com/lengxiqwq/live-photo-box
+License    : GPL-3.0
+Author     : LengxiQwQ (冷汐OωO)
+Email      : lengxiowo@gmail.com
+QQ         : 3197635836
+Feedback   : https://github.com/lengxiqwq/live-photo-box/issues
+
+Tip        : run 'lpb info' for full details
+
+© 2026 LengxiQwQ · Licensed under GPL-3.0
+```
+
+`Channel` shows how this copy was installed: `Portable CLI-only` for a standalone CLI extraction, `Portable (GUI + CLI)` for the GUI + CLI portable bundle, `Inno Setup (GUI + CLI)` for the setup.exe installer, and `WinGet` for WinGet-managed installs.
+
+`info` prints the same core fields plus the versions of the bundled external tools (exiftool, ffmpeg, jpegtran, heif-dec, heif-enc), and finishes with a quick update check against GitHub — the same data as `update-check`. If the network is unavailable, it reports the failure inline instead of failing the command:
+
+```
+lpb info
+```
+
+```
+Live Photo Box v2.1.4 — full environment info
+
+Build date : 2026-08-11
+Runtime    : .NET 9.0.18 (X64)
+Platform   : Microsoft Windows 10.0.26200 (X64)
+Channel    : Portable CLI-only
+Project    : https://github.com/lengxiqwq/live-photo-box
+License    : GPL-3.0
+Author     : LengxiQwQ (冷汐OωO)
+Email      : lengxiowo@gmail.com
+QQ         : 3197635836
+Feedback   : https://github.com/lengxiqwq/live-photo-box/issues
+
+External tools:
+exiftool  13.59   ...\Tools\exiftool.exe
+ffmpeg    n8.0.1  ...\Tools\ffmpeg.exe
+jpegtran  n/a     ...\Tools\jpegtran.exe
+heif-dec  1.23.1  ...\Tools\heif-dec.exe
+heif-enc  1.23.1  ...\Tools\heif-enc.exe
+
+Update check:
+Checking GitHub ... OK
+A newer version is available: v2.1.2 → v2.1.3
+https://github.com/lengxiqwq/live-photo-box/releases
+
+To update automatically:
+lpb update -y
+
+© 2026 LengxiQwQ · Licensed under GPL-3.0
+```
+
+Tool paths are shown as absolute paths; version values come from the bundled tools themselves. Missing tools are reported as `not found` without failing the command.
+
+In an interactive terminal, labels and values are colorized (software title in light red, labels in cyan, values/versions in yellow, notice messages in sea blue, `✅` in green, `✖️` for not supported). When output is redirected to a file or script, or `NO_COLOR` is set, all output falls back to plain text.
 
 ---
 
@@ -168,6 +264,10 @@ lpb merge [options]
                              name  — Match by filename (default)
                              cid   — Match by Apple ContentIdentifier UUID
                              vivo  — Match by vivo camera livephoto ID
+  --key-timestamp <time>   Set the key photo position on the video timeline (single-pair mode only).
+                             Accepts seconds (1.5), mm:ss (1:30) or hh:mm:ss (0:01:30).
+                             Default: follow the source video's own timeline (Apple MOV / vivo metadata).
+                             Not available in batch (-d) mode.
 
 ═══ OUTPUT ═══
   -o, --output <folder>    Output directory. Default (when omitted):
@@ -183,10 +283,11 @@ lpb merge [options]
                              recycle     — Move source files to the Windows recycle bin
 
 ═══ FORMAT ═══
-  -p, --protocol <p>       Target protocol [default: v2].
+  -p, --protocol <p>       Target protocol [default: motion photo].
                              fusion  — Universal Android
-                             v1      — Google Micro Video (legacy)
-                             v2      — Google Motion Photo (modern)
+                             micro video (alias: v1) — Google Micro Video (legacy)
+                             motion photo (alias: v2) — Google Motion Photo (modern)
+                             microvideo / motionphoto (no-space aliases) also accepted.
                              oppo    — OPPO / OnePlus O-Live
                              vivo    — vivo Live Photo
                              samsung — Samsung Motion Photo
@@ -254,7 +355,7 @@ Output: `photo_variants/` (in the image's directory or specified output) contain
 ```
 photo_Fusion_JPEG+MP4.jpg
 photo_Fusion_JPEG+MOV.jpg
-photo_V1_MicroVideo_JPEG+MP4.jpg
+photo_MicroVideo_JPEG+MP4.jpg
 ...
 photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
 ```
@@ -262,7 +363,31 @@ photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
 Notes:
 - Single-pair mode only. Batch mode (`--dir`) is not supported.
 - Naming is fixed — `--naming`, `--protocol`, and `--format` are ignored.
+- `--key-timestamp` is supported — all variants use the same timestamp.
 - Parentheses and spaces in names like `HEIC+MP4 (H.265)` are valid Windows filename characters.
+
+---
+
+### `--key-timestamp` — Set the key photo position in the video
+
+When merging a single pair, the live photo metadata records **where on the video timeline the key photo (cover) belongs**. By default the tool follows the source video's own timeline (e.g. Apple MOV still-image time, vivo metadata); passing this option overrides it with your value.
+
+```powershell
+# Cover is at 2.5 seconds into the video
+lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
+
+# mm:ss and hh:mm:ss forms are also accepted
+lpb merge photo.jpg video.mp4 -p v2 --key-timestamp 1:30.500 -y
+```
+
+- Time formats: seconds (`1.5`), mm:ss (`1:30`), hh:mm:ss (`0:01:30`). Internally converted to microseconds for each protocol.
+- Single-pair mode only — passing it with batch mode (`-d`) exits with an error.
+- Each protocol stores the timestamp differently; the tool adapts automatically:
+  - Motion Photo / OPPO / vivo / Samsung / Fusion → written to XMP (OPPO / Fusion also write the primary-photo timestamp field)
+  - Micro Video → written to XMP as `MicroVideoPresentationTimestampUs`
+  - HUAWEI → no XMP; written to the MP4 `covertime` metadata and the tail-bytes cover frame number
+- Can be combined with `--all-variants` — all variants share the same timestamp.
+- Values beyond the video duration: HUAWEI output is clamped to the last frame; other protocols write the value as-is and let the player handle it.
 
 ---
 
@@ -272,29 +397,37 @@ Notes:
 lpb update-check
 ```
 
-Queries the GitHub Releases API for the latest published version and compares it against the installed version.
+Queries the GitHub Releases API for the latest published version and compares it against the installed version. `--version` is fully local; `info` performs the same check as part of its report. Use `lpb update` to download and replace files automatically.
 
 Example output (up to date):
 ```
-Current version : 2.1.1
 Checking GitHub ... OK
-Latest version  : 2.1.1
 
 You are running the latest version.
 ```
 
 Example output (update available):
 ```
-Current version : 2.1.0
 Checking GitHub ... OK
-Latest version  : 2.1.1
 
-A newer version is available: v2.1.1
-  Live Photo Box v2.1.1
-  Download: https://github.com/lengxiqwq/live-photo-box/releases/tag/v2.1.1
+A newer version is available: v2.1.0 → v2.1.1
+https://github.com/lengxiqwq/live-photo-box/releases
+
+To update automatically:
+lpb update -y
 ```
 
-Requires internet access. On failure (network timeout, GitHub unreachable), prints the manual download URL and exits with code 2.
+Requires internet access. On failure (network timeout, GitHub unreachable), no version lines are shown — it prints the failure reason and the manual download URL, and exits with code 2.
+
+If this copy was installed through WinGet (portable package), the built-in update is disabled:
+```
+Checking GitHub ... skipped
+
+This copy is installed and managed by WinGet.
+Built-in update is disabled for WinGet-managed installs.
+Update with: winget upgrade LengxiQwQ.LivePhotoBox
+```
+Use `winget upgrade LengxiQwQ.LivePhotoBox` to update instead; the command exits with code 3.
 
 ---
 
@@ -393,9 +526,10 @@ if ($LASTEXITCODE -ne 0) { Write-Host "Some files failed — see errors.log" }
 
 | Protocol | Compatible Devices | Status |
 |----------|--------------------|--------|
+| Fusion Motion Photo | Windows / Android (universal) | Testing |
 | Apple Live Photo | iPhone / iPad | Supported |
-| Google Micro Video (V1) | Windows / Xiaomi (MIUI) / Pixel | Supported |
-| Google Motion Photo (V2) | Windows / Xiaomi / Pixel | Supported |
+| Google Micro Video | Windows / Xiaomi (MIUI) / Pixel | Supported |
+| Google Motion Photo | Windows / Xiaomi / Pixel | Supported |
 | OPPO O-Live Photo | Windows / Xiaomi / OPPO / OnePlus | Supported |
 | HUAWEI Moving Photo | HUAWEI / Honor | Supported |
 | vivo Live Photo | Windows / Xiaomi / vivo (X300+) | Testing |

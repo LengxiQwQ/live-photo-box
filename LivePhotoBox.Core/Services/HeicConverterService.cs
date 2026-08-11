@@ -46,8 +46,8 @@ namespace LivePhotoBox.Services
         {
             if (!IsHeicFile(heicPath)) return Task.FromResult(heicPath);
 
-            string baseName = Path.GetFileNameWithoutExtension(heicPath);
-            string tempPath = Path.Combine(outputDirectory, baseName + "_heic.jpg");
+            // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
+            string tempPath = TempFileService.AllocateTempPath(outputDirectory, "heic", "jpg");
 
             return ConvertInternalAsync(heicPath, tempPath, quality: 100, token);
         }
@@ -60,8 +60,8 @@ namespace LivePhotoBox.Services
         {
             if (!IsHeicFile(heicPath)) return Task.FromResult(heicPath);
 
-            string baseName = Path.GetFileNameWithoutExtension(heicPath);
-            string tempPath = Path.Combine(outputDirectory, baseName + "_heic.jpg");
+            // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
+            string tempPath = TempFileService.AllocateTempPath(outputDirectory, "heic", "jpg");
 
             return ConvertInternalAsync(heicPath, tempPath, quality, token);
         }
@@ -79,8 +79,8 @@ namespace LivePhotoBox.Services
         {
             if (IsHeicFile(sourcePath)) return sourcePath;
 
-            string baseName = Path.GetFileNameWithoutExtension(sourcePath);
-            string heicPath = Path.Combine(outputDirectory, baseName + ".heic");
+            // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
+            string heicPath = TempFileService.AllocateTempPath(outputDirectory, "heic", "heic");
 
             try
             {

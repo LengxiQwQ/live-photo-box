@@ -75,6 +75,42 @@ namespace LivePhotoBox.Services.Protocols
             return Task.FromResult(sourceImagePath);
         }
 
+        // 协议预处理公共实现：在 workDir 中分配唯一临时文件（GUID 后缀），
+        // 复制源图并写入 EXIF UserComment 标记。exiftool 写入失败时回退返回
+        // 源图路径并尽力删除临时文件。OPPO / vivo / Fusion 的 PrepareImageAsync
+        // 复用此方法，避免三处重复且命名各异的临时文件逻辑。
+        // sourceImagePath: 源 JPEG 路径。
+        // workDir: 临时工作目录。
+        // hint: 临时文件名提示（如 "oppo"/"vivo"/"fusion"，仅用于排障）。
+        // marker: 要写入的 EXIF UserComment 内容。
+        // token: 取消令牌。
+        protected static async Task<string> PrepareImageWithUserCommentAsync(
+            string sourceImagePath,
+            string workDir,
+            string hint,
+            string marker,
+            CancellationToken token)
+        {
+            string tempPath = TempFileService.AllocateTempPath(workDir, hint, "jpg");
+            try
+            {
+                File.Copy(sourceImagePath, tempPath, true);
+                bool ok = await WriteExifUserCommentAsync(tempPath, marker, token);
+                if (!ok)
+                {
+                    try { File.Delete(tempPath); } catch { /* best-effort */ }
+                    return sourceImagePath;
+                }
+                return tempPath;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception)
+            {
+                try { File.Delete(tempPath); } catch { /* best-effort */ }
+                return sourceImagePath;
+            }
+        }
+
         // EXIF UserComment marker that should be written to the final output
         // as a post-processing step. Returns null for protocols that don't need one.
         // OPPO and Fusion override this to return "oplus_10485792".

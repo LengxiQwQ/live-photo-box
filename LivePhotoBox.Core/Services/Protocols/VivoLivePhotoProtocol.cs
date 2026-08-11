@@ -231,20 +231,8 @@ namespace LivePhotoBox.Services.Protocols
                 return sourceImagePath;
             }
 
-            string tempPath = Path.Combine(
-                workDir,
-                $"{Path.GetFileNameWithoutExtension(sourceImagePath)}_vivo_tmp_{Guid.NewGuid():N}.jpg");
-
-            File.Copy(sourceImagePath, tempPath, true);
-
-            bool ok = await WriteExifUserCommentAsync(tempPath, BuildUserComment(), token);
-            if (!ok)
-            {
-                try { File.Delete(tempPath); } catch { /* best-effort */ }
-                return sourceImagePath;
-            }
-
-            return tempPath;
+            return await PrepareImageWithUserCommentAsync(
+                sourceImagePath, workDir, "vivo", BuildUserComment(), token);
         }
     }
 }

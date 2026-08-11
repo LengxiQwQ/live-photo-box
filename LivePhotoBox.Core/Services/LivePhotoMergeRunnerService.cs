@@ -35,6 +35,11 @@ namespace LivePhotoBox.Services
         // 预定的输出文件路径。设置后跳过内部路径生成和 OverwriteExisting 逻辑。
         // GUI 用此选项传入自己计算的路径（含子目录保留/覆盖处理）。
         public string? OutputFilePath { get; init; }
+        // 用户指定的封面（key photo）在视频时间轴上的位置（微秒）。
+        // null = 自动跟随源视频自带的时间轴（Apple MOV mebx / vivo uuid box）；
+        // 0   = 封面就是静止图片本身（视频起始帧）。
+        // GUI 编辑页后续“选帧设为封面”也走此选项，无需改协议字节格式。
+        public long? KeyPhotoTimestampUs { get; init; }
     }
 
     // 实况照片合并运行器。
@@ -151,6 +156,11 @@ namespace LivePhotoBox.Services
             string workingImagePath = imagePath;
             string workingVideoPath = videoPath;
             var tempFiles = new List<string>();
+            // 每个任务使用独立临时工作区（GUID 子目录），并发任务互不干扰；
+            // 所有中间文件（HEIC 转换 / 视频转码 / 协议预处理）都在工作区内分配，
+            // 方法结束时随工作区整体清理。
+            using var workspace = TempFileService.CreateWorkspace("merge_task", tempDir);
+            string taskTempDir = workspace.RootPath;
             try
             {
                 token.ThrowIfCancellationRequested();
@@ -171,7 +181,7 @@ namespace LivePhotoBox.Services
                     }
                     else
                     {
-                        workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, tempDir, token);
+                        workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, taskTempDir, token);
                         tempFiles.Add(workingImagePath);
                         await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
                         token.ThrowIfCancellationRequested();
@@ -187,14 +197,15 @@ namespace LivePhotoBox.Services
                     && !HeicConverterService.IsHeicFile(workingImagePath))
                 {
                     workingImagePath = await HeicConverterService.ConvertToHeicAsync(
-                        workingImagePath, tempDir, token);
+                        workingImagePath, taskTempDir, token);
                     tempFiles.Add(workingImagePath);
                 }
 
                 // Read cover frame timestamp before ffmpeg transcode —
                 // the Apple mebx track (StillImageTime) and vivo uuid box are
                 // discarded by ffmpeg's -map 0:V:0 selector.
-                long coverTimestampUs = LivePhotoMergeService.ReadSourceCoverTimestamp(videoPath);
+                long coverTimestampUs = options.KeyPhotoTimestampUs
+                    ?? LivePhotoMergeService.ReadSourceCoverTimestamp(videoPath);
 
                 bool forceMp4 = ComputeForceMp4(options.SelectedModeIndex, options.OutputFormatIndex);
                 // Huawei V6 (6): use brand mp42 + ©too via hwFaststart=false
@@ -203,10 +214,10 @@ namespace LivePhotoBox.Services
                 string videoCodec = options.OutputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265
                     ? "hevc" : "h264";
                 (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(
-                    videoPath, tempDir, token, forceMp4, hwFaststart, videoCodec);
+                    videoPath, taskTempDir, token, forceMp4, hwFaststart, videoCodec);
                 if (vt) tempFiles.Add(workingVideoPath);
 
-                string prepared = await protocol.PrepareImageAsync(workingImagePath, tempDir, token);
+                string prepared = await protocol.PrepareImageAsync(workingImagePath, taskTempDir, token);
                 if (prepared != workingImagePath)
                 {
                     workingImagePath = prepared;

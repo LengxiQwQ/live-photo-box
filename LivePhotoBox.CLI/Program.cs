@@ -17,6 +17,13 @@ namespace LivePhotoBox.Cli
             // UTF-8 console output
             Console.OutputEncoding = Encoding.UTF8;
 
+            // Fast --version: local-only info, no network or subprocesses.
+            if (args.Length == 1 && args[0] == "--version")
+            {
+                VersionInfo.PrintVersion();
+                return 0;
+            }
+
             // Initialize ResourceService — disk .resw first, embedded English fallback
             InitializeResourceService();
 
@@ -27,13 +34,16 @@ namespace LivePhotoBox.Cli
             var root = new RootCommand(
                 "Convert images and videos into phone-compatible live photos.\n\n" +
                 "Quick start:\n" +
-                "  livephotobox protocols                     List what formats are available\n" +
-                "  livephotobox merge -i img.jpg -vid vid.mp4  Convert one pair\n" +
-                "  livephotobox merge -d ./Photos -p huawei -y Batch convert a folder")
+                "  lpb protocols                      List what formats are available\n" +
+                "  lpb merge photo.jpg video.mp4      Convert one pair\n" +
+                "  lpb merge -d ./Photos -p huawei -y Batch convert a folder\n" +
+                "  lpb info                           Show version and environment info")
             {
                 MergeCommand.Create(),
                 ProtocolsCommand.Create(),
-                UpdateCommand.Create()
+                InfoCommand.Create(),
+                UpdateCommand.Create(),
+                UpdateCommand.CreateUpdate()
             };
 
             var builder = new CommandLineBuilder(root)

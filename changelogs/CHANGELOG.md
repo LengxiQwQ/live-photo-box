@@ -1,6 +1,6 @@
 # Live Photo Box Changelog
 
-> Current version: **v2.1.3**
+> Current version: **v2.1.4**
 > Project started: 2026-03-27
 > Tech stack: WinUI 3 + .NET 9 + C# 13
 
@@ -8,6 +8,8 @@
 
 ## v2.1.x — Multi-Brand Compatibility, Page Redesign & CLI
 
+> **v2.1.4** (2026-08-12) **[Feature]** CLI adds `info`/`--version` environment info, `--key-timestamp` for custom key photo position, and a manual update mode (install-specific guidance, WinGet installs directed to winget, pending listing); **[Optimize]** colorized CLI output; **[Fix]** temp-file collisions in parallel batch merges
+>
 > **v2.1.3** (2026-08-08) **[Fix]** Corrupted HUAWEI live photo video export fixed; CLI output-default & leftover-folder fixes — single-pair writes next to the photo, batch writes into a `{folder}_<protocol>` subfolder, never the terminal's cwd, `-w` overwrites in place, `--dry-run` creates no folders; **[Optimize]** Edit-page export pipeline improved — Samsung HEIC cover replacement, OPPO pure-video extraction, single-file still-frame export (testing pending); vivo X300 merging adjusted for better vivo Gallery compatibility (still testing)
 >
 > **v2.1.2** (2026-08-04) **[Feature]** CLI merge supports positional file args with image/video auto-detection, plus --all-variants to generate every protocol×format combo; **[Redesign]** About page restructured — Store page / changelog / check-update entries, reworked update window; smaller installer (samples no longer bundled); protocol settings simplified (HUAWEI unified on v6_f); **[Fix]** UI/features following system language after in-app switch, corrected output format option label on the Merge page

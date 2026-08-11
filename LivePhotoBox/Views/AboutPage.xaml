@@ -239,8 +239,16 @@
                     <StackPanel Spacing="16">
                         <!-- Avatar + Name (clickable → GitHub) + Bio -->
                         <Grid ColumnDefinitions="Auto,*">
-                            <PersonPicture DisplayName="LengxiQwQ" Width="80" Height="80" Margin="0,0,24,0"
-                                          ProfilePicture="{x:Bind ViewModel.AvatarSource, Mode=OneWay}"/>
+                            <!-- 头像外圈：描边圈比头像大 4px，图片与外圈之间留 1px 空白间隔，图片不碰圈
+                                 PersonPicture 保持原渲染尺寸，避免头像被裁切/放大 -->
+                            <Grid Width="82" Height="82" Margin="0,0,22,0">
+                                <PersonPicture DisplayName="LengxiQwQ" Width="80" Height="80"
+                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              ProfilePicture="{x:Bind ViewModel.AvatarSource, Mode=OneWay}"/>
+                                <Border CornerRadius="42" IsHitTestVisible="False"
+                                        BorderBrush="{ThemeResource ControlStrongStrokeColorDisabledBrush}"
+                                        BorderThickness="1"/>
+                            </Grid>
                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="6">
                                 <Button Command="{x:Bind ViewModel.OpenLinkCommand}"
                                         CommandParameter="https://github.com/LengxiQwQ"

@@ -40,6 +40,10 @@ bld/
 .claude/
 .codegraph/
 _ai-tmp/
+.codex/
+.agents/
+/AGENTS.md
+/.github/copilot-instructions.md
 CLAUDE.md
 
 .backups/

@@ -1,10 +1,10 @@
 # WinUI 3 注意事项
 
-> WinUI 3 / Windows App SDK 开发中 AI 经常踩的坑。
+> WinUI 3 / Windows App SDK 开发中经常踩的坑。
 
 ---
 
-## 1. 多语言资源文件（RESW）命名规则 — AI 常踩的坑
+## 1. 多语言资源文件（RESW）命名规则 — 常踩的坑
 
 ### 1.1 XAML `x:Uid` 用法
 
@@ -26,7 +26,7 @@ string text = ResourceService.GetString("KeyPhotoPage_Foo");
 - 传什么 key 就查什么 key，与 XAML 的自动追加规则无关
 - key 名中**不要**带 `.` 后缀（如 `.Text`），避免冲突
 
-### 1.3 禁止冲突（AI 最容易搞错的地方）
+### 1.3 禁止冲突（最容易搞错的地方）
 
 `.` 在 PRI 资源编译器中是**层级分隔符**：
 
