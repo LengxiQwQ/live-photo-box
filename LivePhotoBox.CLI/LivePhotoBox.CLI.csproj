@@ -5,7 +5,7 @@
     <AssemblyName>livephotobox-boot</AssemblyName>
 
     <!-- CLI aliases: these names all invoke the same tool -->
-    <_CliAliases>livebox;lipbox;lpb;lpbx;livephoto</_CliAliases>
+    <_CliAliases>livebox;lpb;livephoto</_CliAliases>
     <LangVersion>13.0</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>

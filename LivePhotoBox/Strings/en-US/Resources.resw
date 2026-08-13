@@ -157,10 +157,19 @@
     <value>Store</value>
   </data>
   <data name="AboutPage_Mode_Installer" xml:space="preserve">
-    <value>Installer</value>
+    <value>Inno Setup Installer</value>
   </data>
   <data name="AboutPage_Mode_Portable" xml:space="preserve">
     <value>Portable</value>
+  </data>
+  <data name="AboutPage_Mode_Scoop" xml:space="preserve">
+    <value>Scoop</value>
+  </data>
+  <data name="AboutPage_Mode_HasCli" xml:space="preserve">
+    <value> (GUI + CLI)</value>
+  </data>
+  <data name="AboutPage_Mode_GuiOnly" xml:space="preserve">
+    <value> (GUI only)</value>
   </data>
   <data name="RestartDialog_CloseButton" xml:space="preserve">
     <value>Later</value>
@@ -2311,6 +2320,9 @@ Place any of these files into the same folder.</value>
   <data name="Update_NoNewVersion_Message" xml:space="preserve">
     <value>You are using the latest version {0}</value>
   </data>
+  <data name="Update_AheadVersion_Message" xml:space="preserve">
+    <value>You are running a preview version {0}, newer than the latest release {1}</value>
+  </data>
   <data name="Update_CheckFailed_Title" xml:space="preserve">
     <value>Update Check Failed</value>
   </data>
@@ -3200,6 +3212,21 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="AboutPage_ChangelogDialog_OpenBrowser" xml:space="preserve">
     <value>View on GitHub</value>
+  </data>
+  <data name="AboutPage_CliManualButton.Content" xml:space="preserve">
+    <value>CLI Manual</value>
+  </data>
+  <data name="AboutPage_CliManualDialog_Title" xml:space="preserve">
+    <value>CLI User Manual</value>
+  </data>
+  <data name="AboutPage_CliManualDialog_Loading" xml:space="preserve">
+    <value>Loading CLI manual…</value>
+  </data>
+  <data name="AboutPage_CliManualDialog_Error" xml:space="preserve">
+    <value>Failed to load CLI manual.</value>
+  </data>
+  <data name="AboutPage_CliManualDialog_OpenExternal" xml:space="preserve">
+    <value>Open with default app</value>
   </data>
   <data name="Update_CheckDialog_Title" xml:space="preserve">
     <value>Check for Updates</value>

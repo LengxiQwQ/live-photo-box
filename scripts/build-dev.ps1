@@ -1,4 +1,4 @@
-# LivePhotoBox Dev Build — 编译并发布（未打包），含 GUI + CLI
+﻿# LivePhotoBox Dev Build — 编译并发布（未打包），含 GUI + CLI
 # 用法: powershell -ExecutionPolicy Bypass -File build-dev.ps1
 #       powershell -ExecutionPolicy Bypass -File build-dev.ps1 -CI
 
@@ -62,7 +62,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "       CLI publish warning: exit code $LASTEXITCODE" -ForegroundColor DarkYellow
 }
 
-if (-not (Test-Path 'publish\cli_x64\livephotobox.exe')) {
+if (-not (Test-Path 'publish\cli_x64\livephotobox-boot.exe')) {
     Write-Host '       CLI build FAILED - exe not found, skipping merge' -ForegroundColor DarkYellow
 } else {
     # 只复制 GUI 目录中不存在的文件，避免 CLI 的 SDK 投影 DLL 覆盖 GUI 版本
@@ -75,6 +75,27 @@ if (-not (Test-Path 'publish\cli_x64\livephotobox.exe')) {
         }
     }
     Write-Host '       CLI merged into portable' -ForegroundColor Green
+
+    # Build Go alias shims (symlink-safe) — 与 build-release.ps1 的 step 2.5 一致
+    $goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
+    $shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
+    if ($goCmd -and (Test-Path $shimSrc)) {
+        $cliAliases = @('livephotobox', 'livebox', 'lpb', 'livephoto')
+        foreach ($alias in $cliAliases) {
+            $outExe = "publish\cli_x64\$alias.exe"
+            & $goCmd build -ldflags="-s -w" -o $outExe $shimSrc 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $outExe)) {
+                Remove-Item -Force "publish\cli_x64\$alias.runtimeconfig.json" -ErrorAction SilentlyContinue
+                Remove-Item -Force "publish\cli_x64\$alias.deps.json" -ErrorAction SilentlyContinue
+                Remove-Item -Force "publish\cli_x64\$alias.pdb" -ErrorAction SilentlyContinue
+            } else {
+                Write-Host "       $alias.exe  BUILD FAILED - keeping apphost copy" -ForegroundColor DarkYellow
+            }
+        }
+    } else {
+        if (-not $goCmd) { Write-Host '       Go not found - keeping apphost copies (winget symlinks will NOT work!)' -ForegroundColor DarkYellow }
+        if (-not (Test-Path $shimSrc)) { Write-Host "       $shimSrc not found" -ForegroundColor DarkYellow }
+    }
 
     # CLI standalone (dev, unzipped)
     $cliDir = 'publish\cli_standalone'
@@ -123,6 +144,6 @@ Write-Host "       Removed $removed locale folders (kept $($keepLocales -join ',
 Write-Host ''
 Write-Host "Output:" -ForegroundColor Green
 Write-Host "  GUI + CLI : $outDir\Live Photo Box.exe" -ForegroundColor Green
-Write-Host "  CLI only  : publish\cli_standalone\livephotobox.exe  (aliases: lpb, livebox, lipbox, lpbx, livephoto)" -ForegroundColor Green
+Write-Host "  CLI only  : publish\cli_standalone\livephotobox-boot.exe  (aliases: livebox, lpb, livephoto, livephotobox)" -ForegroundColor Green
 Write-Host ''
 if (-not $CI) { pause }

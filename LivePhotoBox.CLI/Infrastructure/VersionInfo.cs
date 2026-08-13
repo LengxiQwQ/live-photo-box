@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -49,6 +50,10 @@ namespace LivePhotoBox.Cli.Infrastructure
         public static string GetPlatform() =>
             $"{RuntimeInformation.OSDescription} ({RuntimeInformation.ProcessArchitecture})";
 
+        // 当前副本所在目录（安装目录 / 便携解压目录），去掉结尾分隔符
+        public static string GetInstallDirectory() =>
+            Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory);
+
         // --version：快版
         public static void PrintVersion()
         {
@@ -57,9 +62,25 @@ namespace LivePhotoBox.Cli.Infrastructure
             Console.WriteLine();
             PrintCoreFields();
             Console.WriteLine();
-            CliConsole.WriteField("Tip", "run 'lpb info' for full details", width: 11);
+            WriteTipField();
             Console.WriteLine();
             Console.WriteLine(Copyright);
+        }
+
+        // Tip 行：命令示例 'lpb info' 用紫色渲染（与 update 提示一致），其余保持默认色
+        private static void WriteTipField()
+        {
+            if (CliConsole.UseColor)
+            {
+                CliConsole.Write("Tip".PadRight(11), CliConsole.Accent);
+                Console.Write(": run '");
+                CliConsole.Write("lpb info", CliConsole.CommandPurple);
+                Console.WriteLine("' for full details");
+            }
+            else
+            {
+                Console.WriteLine($"{"Tip".PadRight(11)}: run 'lpb info' for full details");
+            }
         }
 
         // info：完整版头部 + 公共字段（外部工具与提示由调用方追加）
@@ -78,6 +99,7 @@ namespace LivePhotoBox.Cli.Infrastructure
             CliConsole.WriteField("Runtime", GetRuntime(), width: 11);
             CliConsole.WriteField("Platform", GetPlatform(), width: 11);
             CliConsole.WriteField("Channel", InstallChannelDetector.GetChannelDisplay(), width: 11);
+            CliConsole.WriteFieldRgb("Location", GetInstallDirectory(), width: 11, valueColor: CliConsole.PathGreen);
             CliConsole.WriteField("Project", ProjectUrl, width: 11);
             CliConsole.WriteField("License", License, width: 11);
             CliConsole.WriteField("Author", Author, width: 11);

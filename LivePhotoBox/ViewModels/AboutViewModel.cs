@@ -84,6 +84,15 @@ namespace LivePhotoBox.ViewModels
                 await ChangelogDialogService.ShowAsync(xamlRoot);
         }
 
+        // 在应用内弹窗展示 CLI 使用手册（优先读本地文件，缺失时从 GitHub 抓取，WebView2 渲染）
+        [RelayCommand]
+        private async Task ShowCliManualAsync()
+        {
+            var xamlRoot = App.MainWindow?.Content?.XamlRoot;
+            if (xamlRoot != null)
+                await CliManualDialogService.ShowAsync(xamlRoot);
+        }
+
         #endregion
 
         #region Constructor
@@ -118,11 +127,20 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>
         /// 判断当前应用的分发渠道，统一走 App.DeploymentModeResourceKey。
-        /// 商店版 / 安装版（Inno Setup）/ 便携版 三者由 App 层用 unins000 文件区分。
+        /// 商店版 / 安装版（Inno Setup）/ 便携版 三者由 InstallChannelDetector 按卸载器身份区分
+        /// （见 Services/InstallChannelDetector.cs）。
+        /// 末尾追加 CLI 附带标注：安装版/便携版把 CLI（livephotobox-boot.exe）与 GUI 放同一目录，
+        /// 商店版打包目录没有 CLI，据此区分「含 CLI」与「仅 GUI」（与 CLI 侧 InstallChannelDetector 互为镜像）。
         /// </summary>
         private static string GetAppDistribution()
         {
-            return ResourceService.GetString(App.DeploymentModeResourceKey);
+            string mode = ResourceService.GetString(App.DeploymentModeResourceKey);
+
+            bool hasCli = File.Exists(Path.Combine(AppContext.BaseDirectory, "livephotobox-boot.exe"));
+            string cliSuffix = hasCli
+                ? ResourceService.GetString("AboutPage_Mode_HasCli")
+                : ResourceService.GetString("AboutPage_Mode_GuiOnly");
+            return mode + cliSuffix;
         }
 
         /// <summary>

@@ -45,20 +45,36 @@ body:
     attributes:
       label: "Installation source / 安装来源"
       description: |
-        Where did you install the app from? (Check the **About** page)
+        Where did you install the app from?
 
-        你从哪里安装的应用？（可在**关于**页面查看）
+        - **GUI**: check the **About** page.
+        - **CLI**: run `livephotobox --version`, or `lpb info` and look at the **Channel** field.
+
+        WinGet package: `LengxiQwQ.LivePhotoBox` · CLI zip: `*-x64-cli.zip`
+
+        你从哪里安装的应用？
+
+        - **GUI**：可在**关于**页面查看。
+        - **CLI**：运行 `livephotobox --version`，或 `lpb info` 查看 **Channel** 字段。
+
+        winget 包：`LengxiQwQ.LivePhotoBox` · 独立 CLI zip：`*-x64-cli.zip`
       options:
         - "Microsoft Store / 微软商店"
         - "Installer (setup.exe) / 安装版"
         - "Portable (zip) / 便携版"
+        - "WinGet / winget 包"
+        - "Standalone CLI zip / 独立 CLI zip"
     validations:
       required: true
   - type: input
     id: version
     attributes:
       label: "App version / 应用版本"
-      placeholder: "e.g. 2.0.2"
+      description: |
+        GUI: About page. CLI: `livephotobox --version`
+
+        GUI：关于页。CLI：`livephotobox --version`
+      placeholder: "e.g. 2.1.4"
   - type: input
     id: os
     attributes:

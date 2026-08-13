@@ -6,7 +6,7 @@
 <p><em>Unifying all live photo protocols for seamless cross-device viewing & migration</em></p>
 
 <p align="center">
-  <a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7" alt="Release"></a>
+  <a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7&label=latest%20release" alt="Latest release"></a>
   <a href="https://github.com/lengxiqwq/live-photo-box/actions"><img src="https://img.shields.io/github/actions/workflow/status/lengxiqwq/live-photo-box/build.yml?style=flat-square&logo=githubactions" alt="Build"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D7?style=flat-square&logo=windows11" alt="Platform">
   <img src="https://img.shields.io/badge/9.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 9" />
@@ -124,8 +124,8 @@ Automatically scan, categorize, and archive photos by device, date, and Live Pho
 
 Live Photo Box ships a **command-line interface** — `livephotobox` — that shares 100% of its core logic with the GUI, ideal for scripting and AI agents.
 
-- **Commands**: `merge` (single-pair or batch), `protocols` (protocol × format compatibility matrix), `update-check` (check for the latest release), `update` (check & update automatically)
-- **Six executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lipbox` / `lpb` / `lpbx`
+- **Commands**: `merge` (single-pair or batch), `protocols` (protocol × format compatibility matrix), `update-check` (check for the latest release), `update` (check & install updates)
+- **Four executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lpb`
 - **Batch merging** with metadata-based pairing (`name`, Apple `ContentIdentifier` UUID, vivo camera ID), custom naming templates, and `--after` actions (`move` to a folder / recycle bin)
 - **Sane output defaults**: single-pair merges write next to the source photo (protocol-suffixed name); batch merges write into a `{folder}_<protocol>` subfolder — never the terminal’s current directory. `-w` overwrites existing outputs instead of auto-renaming
 - **Distribution**: bundled with the installer (optional “Add to PATH”), or a standalone `-x64-cli.zip`

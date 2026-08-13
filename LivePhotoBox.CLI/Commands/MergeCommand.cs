@@ -34,8 +34,8 @@ namespace LivePhotoBox.Cli.Commands
             dirOpt.AddAlias("-d");
 
             var protocolOpt = new Option<string>("--protocol", () => "motion photo",
-                "Target phone format. fusion (universal Android)|micro video (Google old)|motion photo (Google modern)|oppo|vivo|samsung|huawei.\n" +
-                "Aliases: v1/v2 and microvideo/motionphoto also work. Use 'protocols' command to see all supported combinations.");
+                "Target phone format. fusion (universal Android)|micro video (V1)|motion photo (V2)|oppo|vivo|samsung|huawei.\n" +
+                "Use 'protocols' command to see all supported combinations.");
             protocolOpt.AddAlias("-p");
 
             var outputOpt = new Option<DirectoryInfo?>("--output",
@@ -445,7 +445,7 @@ namespace LivePhotoBox.Cli.Commands
         }
 
         // 批量模式默认输出目录：在输入目录下新建 {输入目录名}_{协议后缀} 子文件夹。
-        // 例: merge -d ./MyPhotos -p v2 → ./MyPhotos/MyPhotos_motionphoto/
+        // 例: merge -d ./MyPhotos -p motion photo → ./MyPhotos/MyPhotos_motionphoto/
         private static string DefaultBatchOutputDirectory(string inputDir, int protocolIndex)
         {
             string dirName = Path.GetFileName(inputDir.TrimEnd(

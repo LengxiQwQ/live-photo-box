@@ -157,10 +157,19 @@
     <value>商店版</value>
   </data>
   <data name="AboutPage_Mode_Installer" xml:space="preserve">
-    <value>安装版</value>
+    <value>Inno Setup 安装版</value>
   </data>
   <data name="AboutPage_Mode_Portable" xml:space="preserve">
     <value>便携版</value>
+  </data>
+  <data name="AboutPage_Mode_Scoop" xml:space="preserve">
+    <value>Scoop 安装版</value>
+  </data>
+  <data name="AboutPage_Mode_HasCli" xml:space="preserve">
+    <value>（GUI + CLI）</value>
+  </data>
+  <data name="AboutPage_Mode_GuiOnly" xml:space="preserve">
+    <value>（仅 GUI）</value>
   </data>
   <data name="RestartDialog_CloseButton" xml:space="preserve">
     <value>稍后</value>
@@ -2310,6 +2319,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="Update_NoNewVersion_Message" xml:space="preserve">
     <value>您正在使用最新版本 {0}</value>
   </data>
+  <data name="Update_AheadVersion_Message" xml:space="preserve">
+    <value>您正在运行预览版 {0}，版本号高于最新正式版 {1}</value>
+  </data>
   <data name="Update_CheckFailed_Title" xml:space="preserve">
     <value>检查更新失败</value>
   </data>
@@ -3199,6 +3211,21 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="AboutPage_ChangelogDialog_OpenBrowser" xml:space="preserve">
     <value>前往 GitHub 查看</value>
+  </data>
+  <data name="AboutPage_CliManualButton.Content" xml:space="preserve">
+    <value>CLI 手册</value>
+  </data>
+  <data name="AboutPage_CliManualDialog_Title" xml:space="preserve">
+    <value>CLI 使用手册</value>
+  </data>
+  <data name="AboutPage_CliManualDialog_Loading" xml:space="preserve">
+    <value>正在加载 CLI 手册…</value>
+  </data>
+  <data name="AboutPage_CliManualDialog_Error" xml:space="preserve">
+    <value>无法获取 CLI 使用手册。</value>
+  </data>
+  <data name="AboutPage_CliManualDialog_OpenExternal" xml:space="preserve">
+    <value>用系统默认应用打开</value>
   </data>
   <data name="Update_CheckDialog_Title" xml:space="preserve">
     <value>检查更新</value>

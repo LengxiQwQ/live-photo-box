@@ -568,7 +568,7 @@ namespace LivePhotoBox.Views
             return link;
         }
 
-        /// <summary>居中提示内容（无新版 / 检查失败共用）。</summary>
+        /// <summary>居中提示内容（已是最新 / 预览版 / 检查失败共用）。</summary>
         private static StackPanel BuildUpdateMessageStack(string text)
         {
             var stack = new StackPanel
@@ -580,9 +580,11 @@ namespace LivePhotoBox.Views
             stack.Children.Add(new TextBlock
             {
                 Text = text,
-                FontSize = 13,
+                FontSize = 16,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap,
-                HorizontalAlignment = HorizontalAlignment.Center
+                HorizontalAlignment = HorizontalAlignment.Center,
+                FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Microsoft YaHei UI")
             });
             return stack;
         }
@@ -611,16 +613,32 @@ namespace LivePhotoBox.Views
                 return;
             }
 
-            // 没有新版本
-            if (!UpdateService.IsNewerVersion(release))
+            // 没有新版本：区分「已是最新」与「当前版本超前（开发/预览版）」两种提示
+            var relation = UpdateService.CompareWithLatest(release);
+            if (relation != UpdateService.UpdateRelation.UpdateAvailable)
             {
-                LogService.Info(
-                    $"Update UI: No new version. Current={App.AppVersion}, Latest={release.TagName}",
-                    LogSource.System);
-                var msg = string.Format(
-                    ResourceService.GetString("Update_NoNewVersion_Message"), App.DisplayVersion);
-                contentHost.Children.Clear();
-                contentHost.Children.Add(BuildUpdateMessageStack(msg));
+                if (relation == UpdateService.UpdateRelation.Ahead)
+                {
+                    // 当前安装版本比最新 Release 还新 → 运行的是预览/开发版
+                    LogService.Info(
+                        $"Update UI: Current version is AHEAD of latest release. Current={App.AppVersion}, Latest={release.TagName}",
+                        LogSource.System);
+                    var previewMsg = string.Format(
+                        ResourceService.GetString("Update_AheadVersion_Message"),
+                        App.DisplayVersion, release.TagName.TrimStart('v', 'V'));
+                    contentHost.Children.Clear();
+                    contentHost.Children.Add(BuildUpdateMessageStack(previewMsg));
+                }
+                else
+                {
+                    LogService.Info(
+                        $"Update UI: No new version. Current={App.AppVersion}, Latest={release.TagName}",
+                        LogSource.System);
+                    var msg = string.Format(
+                        ResourceService.GetString("Update_NoNewVersion_Message"), App.DisplayVersion);
+                    contentHost.Children.Clear();
+                    contentHost.Children.Add(BuildUpdateMessageStack(msg));
+                }
                 return;
             }
 

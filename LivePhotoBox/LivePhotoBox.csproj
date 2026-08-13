@@ -85,6 +85,13 @@
 		<Content Include="Tools\**\*" Condition="Exists('Tools')">
 			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
+		<!-- CLI 使用手册：编译时复制到构建输出，供关于页"CLI 手册"按钮本地读取（发布脚本也复制，此处兜底开发/商店版） -->
+		<Content Include="..\docs\CLI-User-Guide.md" Condition="Exists('..\docs\CLI-User-Guide.md')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
+		<Content Include="..\docs\CLI-User-Guide.zh-CN.md" Condition="Exists('..\docs\CLI-User-Guide.zh-CN.md')">
+			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+		</Content>
 	</ItemGroup>
 
 	<ItemGroup>

@@ -2,10 +2,14 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using LivePhotoBox.Models;
+using LivePhotoBox.Services;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
@@ -21,7 +25,7 @@ namespace LivePhotoBox.Cli.Infrastructure
 
         // 主名 + 全部别名：替换前必须等这些进程全部退出
         private static readonly string[] AliasNames =
-            { "livephotobox-boot", "livephotobox", "livebox", "lipbox", "lpb", "lpbx", "livephoto" };
+            { "livephotobox-boot", "livephotobox", "livebox", "lpb", "livephoto" };
 
         /// <summary>
         /// 执行手动更新流程，返回进程退出码。
@@ -40,22 +44,35 @@ namespace LivePhotoBox.Cli.Infrastructure
                 return 3;
             }
 
-            var release = await UpdateCheckService.FetchLatestReleaseAsync();
-            if (release is null)
+            LogService.Info("[Update] Checking for updates...", LogSource.System);
+
+            // ── 检查阶段：3 次自动重试；耗尽后（交互模式）再给一次 R 重试机会 ──
+            UpdateCheckService.LatestRelease? release;
+            for (; ; )
             {
-                CliConsole.WriteErrorLine(
-                    $"Update check failed: {UpdateCheckService.LastFetchError ?? "network error"}");
-                Console.WriteLine($"Visit {UpdateCheckService.ReleasesPageUrl} to check manually.");
-                return 2;
+                UpdateCheckService.BeginCheck();
+                release = await UpdateCheckService.FetchLatestReleaseAsync(
+                    onRetry: UpdateCheckService.WriteCheckRetry);
+                if (release is not null) break;
+
+                UpdateCheckService.WriteCheckStatus(
+                    $"unreachable ({UpdateCheckService.LastFetchError ?? "network error"})",
+                    CliConsole.Error);
+                UpdateCheckService.PrintManualDownload();
+                LogService.Error(
+                    $"[Update] Update check failed: {UpdateCheckService.LastFetchError ?? "network error"}",
+                    source: LogSource.System);
+                if (yes) return 2;
+                if (!PromptRetry()) return 2;
             }
+            UpdateCheckService.WriteCheckStatus("OK", CliConsole.Success);
 
             var current = VersionInfo.GetDisplayVersion();
             if (!UpdateCheckService.TryCompare(current, release.Version, out var cmp))
             {
                 CliConsole.WriteLine("Unable to compare versions.", CliConsole.Notice);
                 Console.WriteLine($"Latest release: {release.TagName}");
-                Console.WriteLine(UpdateCheckService.ReleasesPageUrl);
-                return 0;
+                return 1;
             }
 
             if (cmp >= 0)
@@ -63,6 +80,7 @@ namespace LivePhotoBox.Cli.Infrastructure
                 CliConsole.WriteLine("You are running the latest version.", CliConsole.Notice);
                 if (cmp > 0)
                     Console.WriteLine("(This build is newer than the latest stable release.)");
+                LogService.Info($"[Update] Already up to date (current v{current}).", LogSource.System);
                 return 0;
             }
 
@@ -71,17 +89,15 @@ namespace LivePhotoBox.Cli.Infrastructure
             {
                 CliConsole.WriteErrorLine(
                     $"No update package found for this install type in release {release.TagName}.");
-                Console.WriteLine($"Visit {UpdateCheckService.ReleasesPageUrl} to download manually.");
+                UpdateCheckService.PrintManualDownload();
                 return 1;
             }
 
-            // 始终展示版本与手动下载链接
             CliConsole.Write("A newer version is available: ", CliConsole.Notice);
             CliConsole.WriteLine($"v{current} → v{release.Version}", CliConsole.Highlight);
-            Console.WriteLine($"Install type: {DescribeInstallType(baseDir)}");
-            Console.WriteLine($"Download: {asset.Name} ({asset.Size / 1024.0 / 1024.0:F1} MB)");
-            Console.WriteLine(UpdateCheckService.ReleasesPageUrl);
-            Console.WriteLine();
+            CliConsole.WriteField("Install type", DescribeInstallType(baseDir), width: 13);
+            CliConsole.WriteField("Package", $"{asset.Name} ({asset.Size / 1024.0 / 1024.0:F1} MB)", width: 13);
+            LogService.Info($"[Update] New version available: v{current} → v{release.Version} ({asset.Name}).", LogSource.System);
 
             if (!yes)
             {
@@ -93,9 +109,9 @@ namespace LivePhotoBox.Cli.Infrastructure
                     Console.WriteLine();
                     Console.WriteLine("(no interactive input detected — update skipped)");
                     Console.WriteLine();
-                    Console.WriteLine("To update automatically:");
+                    Console.Write("To update automatically: ");
                     CliConsole.WriteLine("lpb update -y", CliConsole.CommandPurple);
-                    Console.WriteLine("or download manually from the link above.");
+                    UpdateCheckService.PrintManualDownload();
                     return 0;
                 }
                 answer = answer.Trim();
@@ -103,7 +119,8 @@ namespace LivePhotoBox.Cli.Infrastructure
                     !answer.Equals("y", StringComparison.OrdinalIgnoreCase) &&
                     !answer.Equals("yes", StringComparison.OrdinalIgnoreCase))
                 {
-                    Console.WriteLine("Skipped. Download manually from the link above.");
+                    Console.WriteLine("Skipped.");
+                    UpdateCheckService.PrintManualDownload();
                     return 0;
                 }
             }
@@ -114,18 +131,25 @@ namespace LivePhotoBox.Cli.Infrastructure
                 Directory.CreateDirectory(tempDir);
                 var downloadedPath = Path.Combine(tempDir, asset.Name);
 
-                Console.WriteLine($"Downloading {asset.Name} ...");
-                if (!await DownloadAsync(asset, downloadedPath))
+                LogService.Info($"[Update] Downloading {asset.Name} ({asset.Size / 1024.0 / 1024.0:F1} MB)...", LogSource.System);
+
+                // ── 下载阶段：3 次自动重试 + Range 续传；耗尽后（交互模式）再给 R 机会 ──
+                while (!await DownloadAsync(asset, downloadedPath))
                 {
-                    CliConsole.WriteErrorLine(
-                        "Download failed or failed integrity check. Please download manually from the link above.");
-                    return 1;
+                    CliConsole.WriteErrorLine("Download failed or failed integrity check.");
+                    UpdateCheckService.PrintManualDownload();
+                    LogService.Error("[Update] Download failed.", source: LogSource.System);
+                    if (yes) return 1;
+                    if (!PromptRetry()) return 1;
                 }
 
-                // 安装版：静默重装 setup.exe；便携版：后台替换
+                LogService.Info($"[Update] Download complete: {downloadedPath}", LogSource.System);
+
+                // 安装版：静默重装 setup.exe；便携版：替换脚本（交互模式附着当前终端、-y 静默）
                 return File.Exists(Path.Combine(baseDir, "unins000.exe"))
                     ? LaunchSetup(downloadedPath)
-                    : PreparePortableReplace(downloadedPath, baseDir, tempDir);
+                    : PreparePortableReplace(downloadedPath, baseDir, tempDir, interactive: !yes,
+                        currentVersion: current, newVersion: release.Version);
             }
             catch (Exception ex)
             {
@@ -167,47 +191,139 @@ namespace LivePhotoBox.Cli.Infrastructure
             return null;
         }
 
-        // 流式下载 + 进度 + 大小/SHA256 校验（GitHub API 提供 digest）
+        // 下载单个资产：3 次尝试 + HTTP Range 续传 + 整文件 SHA256 校验。
+        // 中途断流保留部分文件供下次续传；大小/digest 不符删掉部分文件强制整下。
         private static async Task<bool> DownloadAsync(
-            UpdateCheckService.GitHubAsset asset, string destPath)
+            UpdateCheckService.GitHubAsset asset, string destPath, int maxAttempts = 3)
         {
-            using var response = await _download.GetAsync(
-                asset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead);
-            if (!response.IsSuccessStatusCode)
-                return false;
+            ConsoleProgress.Begin("Downloading");
 
-            var expected = response.Content.Headers.ContentLength ?? asset.Size;
+            for (var attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                // 上次尝试留下的部分文件（中途断流保留；损坏已删）
+                var existing = (attempt > 1 && File.Exists(destPath)) ? new FileInfo(destPath).Length : 0L;
+
+                // 部分文件已等于完整大小（最后一字节后崩溃）：本地验 digest 即可，不再发 HTTP
+                if (existing > 0 && asset.Size > 0 && existing == asset.Size)
+                {
+                    if (VerifyWholeFile(asset, destPath))
+                    {
+                        ConsoleProgress.Finish("Downloaded");
+                        return true;
+                    }
+                    TryDeletePartial(destPath);
+                    existing = 0;
+                }
+
+                try
+                {
+                    using var request = new HttpRequestMessage(HttpMethod.Get, asset.BrowserDownloadUrl);
+                    if (existing > 0)
+                        request.Headers.Range = new RangeHeaderValue(existing, null);
+
+                    using var response = await _download.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+
+                    if (!response.IsSuccessStatusCode)
+                    {
+                        if (await EndAttempt(attempt, maxAttempts)) return false;
+                        continue;
+                    }
+
+                    // Range 被服务器忽略 → 从头重下
+                    if (existing > 0 && response.StatusCode == HttpStatusCode.OK)
+                        existing = 0;
+
+                    // 206 但 Content-Range 总长与 asset.Size 不符 → 判损坏
+                    if (existing > 0 && response.StatusCode == HttpStatusCode.PartialContent)
+                    {
+                        var total = response.Content.Headers.ContentRange?.Length;
+                        if (asset.Size > 0 && total is long t && t != asset.Size)
+                        {
+                            TryDeletePartial(destPath);
+                            if (await EndAttempt(attempt, maxAttempts)) return false;
+                            continue;
+                        }
+                    }
+
+                    var expected = asset.Size > 0
+                        ? asset.Size
+                        : (response.Content.Headers.ContentLength ?? 0);
+
+                    if (await StreamToFileAsync(asset, response, destPath, existing, expected))
+                    {
+                        ConsoleProgress.Finish("Downloaded");
+                        return true;
+                    }
+                    // StreamToFileAsync 内部已删损坏部分 / 保留断流部分
+                    if (await EndAttempt(attempt, maxAttempts)) return false;
+                }
+                catch (Exception ex) when (ex is HttpRequestException or HttpIOException
+                                            or IOException or TaskCanceledException)
+                {
+                    // 中途断流：保留部分文件供下次续传
+                    if (await EndAttempt(attempt, maxAttempts)) return false;
+                }
+            }
+
+            return false;
+        }
+
+        // 流式写文件：续传时先流式哈希已下载部分，再续写 + 续哈希，整文件 digest 正确。
+        // 返回 false 时：大小/digest 不符已删部分文件（下次整下）；中途异常由上层 catch 保留部分文件。
+        private static async Task<bool> StreamToFileAsync(
+            UpdateCheckService.GitHubAsset asset, HttpResponseMessage response,
+            string destPath, long existingSize, long expected)
+        {
+            var mode = existingSize > 0 ? FileMode.Append : FileMode.Create;
             using var content = await response.Content.ReadAsStreamAsync();
-            using var file = new FileStream(destPath, FileMode.Create, FileAccess.Write,
-                FileShare.None, bufferSize: 8192, useAsync: true);
             using var sha = SHA256.Create();
 
+            if (existingSize > 0)
+            {
+                using var partial = new FileStream(destPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                var seed = new byte[8192];
+                int n;
+                while ((n = await partial.ReadAsync(seed, 0, seed.Length)) > 0)
+                    sha.TransformBlock(seed, 0, n, null, 0);
+            }
+
+            using var file = new FileStream(destPath, mode, FileAccess.Write, FileShare.None,
+                bufferSize: 8192, useAsync: true);
             var buffer = new byte[8192];
-            long total = 0;
-            int lastPercent = -1;
+            long readThisAttempt = 0;
+            var sw = Stopwatch.StartNew();
             int read;
+
             while ((read = await content.ReadAsync(buffer, 0, buffer.Length)) > 0)
             {
                 await file.WriteAsync(buffer.AsMemory(0, read));
                 sha.TransformBlock(buffer, 0, read, null, 0);
-                total += read;
+                readThisAttempt += read;
 
-                if (expected > 0)
-                {
-                    var percent = (int)(total * 100 / expected);
-                    if (percent >= lastPercent + 10)
-                    {
-                        lastPercent = percent;
-                        Console.Write($"\r  {percent}%   ");
-                    }
-                }
+                ConsoleProgress.Render(
+                    known: expected > 0,
+                    done: existingSize + readThisAttempt,
+                    total: expected,
+                    mibPerSec: readThisAttempt / Math.Max(sw.Elapsed.TotalSeconds, 0.001) / 1024.0 / 1024.0);
             }
             sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
-            if (lastPercent >= 0)
-                Console.Write("\r           \r");
 
-            if (expected > 0 && total != expected)
+            // 末尾强制渲染 100% 帧
+            if (expected > 0)
+            {
+                ConsoleProgress.Render(
+                    known: true,
+                    done: existingSize + readThisAttempt,
+                    total: expected,
+                    mibPerSec: readThisAttempt / Math.Max(sw.Elapsed.TotalSeconds, 0.001) / 1024.0 / 1024.0,
+                    force: true);
+            }
+
+            if (expected > 0 && existingSize + readThisAttempt != expected)
+            {
+                TryDeletePartial(destPath);
                 return false;
+            }
 
             // GitHub 资产 digest 形如 "sha256:..."，存在则强校验
             if (!string.IsNullOrEmpty(asset.Digest) &&
@@ -216,10 +332,65 @@ namespace LivePhotoBox.Cli.Infrastructure
                 var expectedHash = asset.Digest.Substring(7).Trim();
                 var actualHash = Convert.ToHexString(sha.Hash ?? Array.Empty<byte>());
                 if (!string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryDeletePartial(destPath);
                     return false;
+                }
             }
 
             return true;
+        }
+
+        // 本地整文件 SHA256 校验（供「部分文件已 == 完整大小」场景复用）
+        private static bool VerifyWholeFile(UpdateCheckService.GitHubAsset asset, string path)
+        {
+            if (string.IsNullOrEmpty(asset.Digest) ||
+                !asset.Digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase))
+                return true; // 无 digest 可验，视为通过
+
+            var expectedHash = asset.Digest.Substring(7).Trim();
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var sha = SHA256.Create();
+            var buffer = new byte[8192];
+            int n;
+            while ((n = stream.Read(buffer, 0, buffer.Length)) > 0)
+                sha.TransformBlock(buffer, 0, n, null, 0);
+            sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+
+            var actualHash = Convert.ToHexString(sha.Hash ?? Array.Empty<byte>());
+            return string.Equals(actualHash, expectedHash, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void TryDeletePartial(string path)
+        {
+            try { if (File.Exists(path)) File.Delete(path); }
+            catch { /* best effort */ }
+        }
+
+        // 一次尝试失败后的收尾：还有机会则提示重试 + 退避；否则清条返回 true（表示已耗尽）
+        private static async Task<bool> EndAttempt(int attempt, int maxAttempts)
+        {
+            if (attempt < maxAttempts)
+            {
+                ConsoleProgress.ShowRetryMessage($"Download failed, retrying {attempt + 1}/{maxAttempts} ...");
+                await Task.Delay(attempt * 1000); // 1s 后 2s
+                return false;
+            }
+            ConsoleProgress.ClearBar();
+            return true;
+        }
+
+        // 重试耗尽后的交互选择：R 重试 / 回车退出；管道 EOF 按退出处理
+        private static bool PromptRetry()
+        {
+            Console.Write("Press R to retry, Enter to exit. ");
+            var answer = Console.ReadLine();
+            if (answer is null)
+            {
+                Console.WriteLine();
+                return false;
+            }
+            return answer.Trim().Equals("r", StringComparison.OrdinalIgnoreCase);
         }
 
         // 安装版：静默运行新版 setup.exe（与 GUI 更新同模式）
@@ -234,65 +405,123 @@ namespace LivePhotoBox.Cli.Infrastructure
                 WindowStyle = ProcessWindowStyle.Hidden
             };
             Process.Start(psi);
-            Console.WriteLine("Installer launched in silent mode.");
-            Console.WriteLine("It will close running applications and install the new version.");
+            CliConsole.WriteLine("Installer launched in silent mode.", CliConsole.Notice);
+            CliConsole.WriteLine("It will close running applications and install the new version.", CliConsole.Notice);
             return 0;
         }
 
-        // 便携版：解压 zip → 生成等待替换脚本 → 后台执行
-        private static int PreparePortableReplace(string zipPath, string appDir, string tempDir)
+        // 便携版：解压 zip → 生成等待替换脚本 → 执行（交互模式附着当前终端，-y 静默无窗口）
+        private static int PreparePortableReplace(string zipPath, string appDir, string tempDir, bool interactive,
+            string currentVersion, string newVersion)
         {
             var extractDir = Path.Combine(tempDir, "extracted");
             if (Directory.Exists(extractDir))
                 Directory.Delete(extractDir, true);
             ZipFile.ExtractToDirectory(zipPath, extractDir);
 
-            // AppContext.BaseDirectory 以 \ 结尾，写入 bat 时必须去掉，
-            // 否则 set "VAR=...\" 会把结尾引号吞掉，导致 robocopy 目标路径损坏
+            // AppContext.BaseDirectory 以 \ 结尾，去掉尾部分隔符保持路径规范
             appDir = Path.TrimEndingDirectorySeparator(appDir);
 
-            var resultFile = Path.Combine(tempDir, "update_result.txt");
-            var batPath = Path.Combine(tempDir, "update.cmd");
-            // 无 BOM：cmd.exe 对带 BOM 的 .bat 可能把首行识别错误
-            File.WriteAllText(batPath, BuildUpdateBat(appDir, extractDir, resultFile),
-                new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            // 生成 PowerShell 脚本，用 UTF-16LE + Base64 通过 -EncodedCommand 传给 powershell.exe。
+            // 脚本内容全程 Unicode，不经过系统 ANSI 代码页 / BOM / 命令行转义，
+            // 中文与跨语言路径都不会乱码，且不落盘（无 update.cmd 临时文件）。
+            var logPath = LogService.CurrentLogPath ?? string.Empty;
+            var script = BuildUpdateScript(appDir, extractDir, logPath, interactive, currentVersion, newVersion);
+            var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+
+            // 替换脚本是独立进程，会等所有 livephotobox 进程退出后才动手。
+            // 先把「已启动」这条日志 flush 落盘，避免它晚于脚本追加的替换结果写入。
+            LogService.Info("[Update] Replacement script launched (portable).", LogSource.System);
+            LogService.ForceFlush();
 
             Process.Start(new ProcessStartInfo
             {
-                FileName = "cmd.exe",
-                Arguments = $"/c \"\"{batPath}\"\"",
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -EncodedCommand {encoded}",
                 UseShellExecute = false,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden
+                CreateNoWindow = !interactive,
+                WindowStyle = interactive ? ProcessWindowStyle.Normal : ProcessWindowStyle.Hidden
             });
 
-            Console.WriteLine("Update started in the background.");
-            Console.WriteLine("Files will be replaced once all livephotobox processes exit.");
-            Console.WriteLine($"Result file: {resultFile}");
-            Console.WriteLine("Verify with: lpb --version");
+            if (interactive)
+            {
+                CliConsole.WriteLine("Updating...", CliConsole.Notice);
+                CliConsole.WriteLine("The update will apply in this window once all livephotobox processes exit.", CliConsole.Notice);
+                // "Verify with" 不在此打印：更新还没完成，提示过早且会诱导用户立刻验证
+                //（替换脚本要等所有 lpb 进程退出，提前运行 lpb --version 反而拖慢替换）。
+                // 改由替换脚本在成功后打印（见 BuildUpdateScript 的 interactive 分支）。
+            }
+            else
+            {
+                CliConsole.WriteLine("Update started.", CliConsole.Notice);
+                CliConsole.WriteFieldRgb("Verify with", "lpb --version", width: 13, valueColor: CliConsole.CommandPurple);
+            }
             return 0;
         }
 
-        // 替换脚本：等待全部别名退出 → robocopy 覆盖 → 写结果 → 清理临时目录
-        private static string BuildUpdateBat(string appDir, string extractDir, string resultFile)
+        // 替换脚本：等待全部别名进程退出 → Copy-Item 覆盖 → 追加结果到日志 → 清理临时目录。
+        // 路径用 PowerShell 单引号字符串承载（内部单引号转义成 ''），全程无 ANSI 代码页转换。
+        // interactive=true 时脚本末尾复用 lpb 所在终端打印结果：
+        // 成功给验证命令后直接退出；失败 Read-Host 停留让用户看清错误。
+        private static string BuildUpdateScript(string appDir, string extractDir, string logPath, bool interactive,
+            string currentVersion, string newVersion)
         {
+            static string PS(string s) => "'" + s.Replace("'", "''") + "'";
+
+            var app = PS(appDir);
+            var extract = PS(extractDir);
+            var log = PS(logPath);
+            var names = "@(" + string.Join(",", Array.ConvertAll(AliasNames, n => PS(n))) + ")";
+
             var sb = new StringBuilder();
-            sb.AppendLine("@echo off");
-            sb.AppendLine("title Live Photo Box CLI Update");
-            sb.AppendLine($"set \"APP_DIR={appDir}\"");
-            sb.AppendLine($"set \"EXTRACT_DIR={extractDir}\"");
-            sb.AppendLine($"set \"RESULT_FILE={resultFile}\"");
-            sb.AppendLine("echo updating> \"%RESULT_FILE%\"");
-            sb.AppendLine(":wait");
-            sb.AppendLine("set \"RUNNING=\"");
-            sb.AppendLine($"for %%A in ({string.Join(" ", AliasNames)}) do (");
-            sb.AppendLine("  tasklist /FI \"IMAGENAME eq %%A.exe\" 2>NUL | find /I \"%%A.exe\" >NUL 2>&1 && set \"RUNNING=1\"");
-            sb.AppendLine(")");
-            sb.AppendLine("if defined RUNNING (timeout /T 2 /NOBREAK >NUL & goto wait)");
-            sb.AppendLine("robocopy \"%EXTRACT_DIR%\" \"%APP_DIR%\" /E /IS /NFL /NDL /NJH /NJS /R:3 /W:2");
-            sb.AppendLine("if %ERRORLEVEL% LSS 8 (echo OK> \"%RESULT_FILE%\") else (echo FAILED %ERRORLEVEL%> \"%RESULT_FILE%\")");
-            sb.AppendLine($"rmdir /S /Q \"{extractDir}\"");
-            sb.AppendLine("exit /b");
+            sb.AppendLine("$ErrorActionPreference = 'Stop'");
+            sb.AppendLine($"$appDir = {app}");
+            sb.AppendLine($"$extractDir = {extract}");
+            sb.AppendLine($"$logPath = {log}");
+            sb.AppendLine($"$names = {names}");
+            sb.AppendLine("$ok = $false");
+            sb.AppendLine("$message = ''");
+            sb.AppendLine("try {");
+            sb.AppendLine("  while ($true) {");
+            sb.AppendLine("    $running = @(Get-Process -Name $names -ErrorAction SilentlyContinue)");
+            sb.AppendLine("    if ($running.Count -eq 0) { break }");
+            sb.AppendLine("    Start-Sleep -Seconds 2");
+            sb.AppendLine("  }");
+            sb.AppendLine("  Get-ChildItem -LiteralPath $appDir -Recurse -Force -ErrorAction SilentlyContinue | ForEach-Object {");
+            sb.AppendLine("    $_.Attributes = $_.Attributes -band -bnot [System.IO.FileAttributes]::ReadOnly");
+            sb.AppendLine("  }");
+            sb.AppendLine("  Get-ChildItem -LiteralPath $extractDir -Force | ForEach-Object {");
+            sb.AppendLine("    Copy-Item -LiteralPath $_.FullName -Destination $appDir -Recurse -Force");
+            sb.AppendLine("  }");
+            sb.AppendLine("  Add-Content -LiteralPath $logPath -Value 'replacement OK'");
+            sb.AppendLine("  $ok = $true");
+            sb.AppendLine($"  $message = 'Update complete! v{currentVersion} → v{newVersion}'");
+            sb.AppendLine("}");
+            sb.AppendLine("catch {");
+            sb.AppendLine("  $message = 'Update FAILED: ' + $_.Exception.Message");
+            sb.AppendLine("  Add-Content -LiteralPath $logPath -Value ('replacement FAILED: ' + $_.Exception.Message)");
+            sb.AppendLine("}");
+            sb.AppendLine("finally {");
+            sb.AppendLine("  Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue");
+            sb.AppendLine("}");
+            if (interactive)
+            {
+                // 成功：替换完成后直接给出验证命令并退出，不再停留等回车（多此一举）；
+                // 失败：停留让用户看清错误，避免一闪而过。
+                // 结果消息按 CLI 配色：成功绿（CliConsole.Success）、失败红（CliConsole.Error）；
+                // "lpb --version" 用与 CLI 一致的 CommandPurple (180,140,255) ANSI 上色，
+                // UseColor 为假（NO_COLOR / 重定向）时退化为纯文本。
+                var verifySuffix = CliConsole.UseColor
+                    ? "\x1b[38;2;180;140;255mlpb --version\x1b[0m"
+                    : "lpb --version";
+                sb.AppendLine("if ($ok) {");
+                sb.AppendLine("  Write-Host $message -ForegroundColor Green");
+                sb.AppendLine($"  Write-Host 'Verify with  : {verifySuffix}'");
+                sb.AppendLine("} else {");
+                sb.AppendLine("  Write-Host $message -ForegroundColor Red");
+                sb.AppendLine("  Read-Host 'Press Enter to close'");
+                sb.AppendLine("}");
+            }
             return sb.ToString();
         }
     }

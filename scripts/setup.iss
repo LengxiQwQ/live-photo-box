@@ -1,5 +1,5 @@
 ; ============================================
-; LivePhotoBox Inno Setup 安装包脚本
+; Live Photo Box Inno Setup 安装包脚本
 ; 配合 build-release.ps1 使用
 ; 包含 GUI + CLI（livephotobox.exe 及别名）
 ; ============================================

@@ -1,0 +1,30 @@
+v2.1.5 更新内容
+
+新增：
+- 📖 关于页新增「CLI 手册」按钮 — 应用内直接查看命令行使用手册
+- 🗂️ Scoop 安装渠道识别 — 关于页正确显示安装方式，并标注当前副本是否附带命令行工具
+
+优化：
+- ⬆️ 更新检查与下载更可靠 — 失败自动重试、断点续传、完整性校验、实时进度显示
+- 🖼️ 关于页安装渠道展示增强，设置页更新提示区分「已是最新」与「正在运行预览版」
+
+修复：
+- 🐛 修复更新检查把正式版误判为「预览版」（4 段与 3 段版本号比较错误）
+
+💡 命令行模式仅随 GitHub 版发布，商店版暂不包含；需要请前往 GitHub Releases 下载。
+
+
+v2.1.5 What's New
+
+New:
+- 📖 About page gains a "CLI Manual" button — view the command-line user guide in-app
+- 🗂️ Scoop install-channel detection — the About page shows the correct install method and whether the copy includes the CLI
+
+Optimized:
+- ⬆️ More reliable update check & download — auto-retry, resume, integrity verification, live progress
+- 🖼️ Enhanced install-channel display on the About page; Settings now distinguishes "up to date" from "running a preview"
+
+Fixes:
+- 🐛 Update check no longer mislabels release builds as "previews" (4-part vs 3-part version comparison)
+
+💡 CLI mode ships with the GitHub release only — the Store version does not include it. Download from GitHub Releases if you need it.

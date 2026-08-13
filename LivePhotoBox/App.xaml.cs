@@ -49,22 +49,19 @@ namespace LivePhotoBox
 
         // 获取当前部署模式的本地化资源键值。
         // 商店版 → "AboutPage_Mode_Store"
-        // 安装版 → "AboutPage_Mode_Installer"（Inno Setup 会在应用目录生成 unins000.exe）
+        // 安装版 → "AboutPage_Mode_Installer"（Inno Setup 安装版，按卸载器身份识别）
         // 便携版 → "AboutPage_Mode_Portable"
+        // 检测统一走 InstallChannelDetector，与更新流程（UpdateService）共用同一套判定。
         public static string DeploymentModeResourceKey
         {
             get
             {
-                if (IsPackaged) return "AboutPage_Mode_Store";
-
-                // Inno Setup 安装版必定在应用目录下生成 unins000.exe + unins000.dat，
-                // 便携版（zip 直接解压）没有这两个文件，以此区分两种非打包模式。
-                string appDir = AppContext.BaseDirectory;
-                if (System.IO.File.Exists(System.IO.Path.Combine(appDir, "unins000.exe")) ||
-                    System.IO.File.Exists(System.IO.Path.Combine(appDir, "unins000.dat")))
-                    return "AboutPage_Mode_Installer";
-
-                return "AboutPage_Mode_Portable";
+                return InstallChannelDetector.GetChannel() switch
+                {
+                    GuiInstallChannel.InnoSetup => "AboutPage_Mode_Installer",
+                    GuiInstallChannel.Store => "AboutPage_Mode_Store",
+                    _ => "AboutPage_Mode_Portable",
+                };
             }
         }
 

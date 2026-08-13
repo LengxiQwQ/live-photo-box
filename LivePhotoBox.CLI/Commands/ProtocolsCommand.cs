@@ -63,7 +63,7 @@ namespace LivePhotoBox.Cli.Commands
             Console.WriteLine();
         }
 
-        // "fusion=0  v1=1 ..." — index numbers (values) in yellow.
+        // "fusion=0  micro video=1 ..." — index numbers (values) in yellow.
         private static void WriteIndexLine(string prefix, string rest)
         {
             Console.Write(prefix);

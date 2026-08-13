@@ -7,8 +7,7 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Cli.Commands
 {
-    // info — 完整环境报告：公共字段 + 内置外部工具版本。
-    // 全程本地操作，不联网；更新检查请使用 update-check。
+    // info — 完整环境报告：公共字段 + 内置外部工具版本 + 尾部联网更新检查（与 update-check 共用一套逻辑）。
     internal static class InfoCommand
     {
         public static Command Create()
@@ -31,13 +30,14 @@ namespace LivePhotoBox.Cli.Commands
 
         private static async Task PrintUpdateCheckAsync()
         {
-            var result = await UpdateCheckService.CheckAsync();
+            // 状态行先打印，联网期间终端有反馈；重试反馈由服务内 \r 覆盖
+            UpdateCheckService.BeginCheck();
+            var result = await UpdateCheckService.CheckAsync(
+                onRetry: UpdateCheckService.WriteCheckRetry);
 
-            Console.Write("Checking GitHub ... ");
             if (result.ManagedByWinget)
             {
-                CliConsole.WriteLine("skipped", CliConsole.Notice);
-                Console.WriteLine();
+                UpdateCheckService.WriteCheckStatus("skipped", CliConsole.Notice);
                 CliConsole.WriteLine(
                     "This copy is installed and managed by WinGet.", CliConsole.Notice);
                 Console.WriteLine("Built-in update is disabled for WinGet-managed installs.");
@@ -47,13 +47,12 @@ namespace LivePhotoBox.Cli.Commands
 
             if (!result.Ok)
             {
-                CliConsole.WriteLine($"unreachable ({result.ErrorMessage})", CliConsole.Error);
-                Console.WriteLine($"Visit {UpdateCheckService.ReleasesPageUrl} to check manually.");
+                UpdateCheckService.WriteCheckStatus($"unreachable ({result.ErrorMessage})", CliConsole.Error);
+                UpdateCheckService.PrintManualDownload();
                 return;
             }
 
-            CliConsole.WriteLine("OK", CliConsole.Success);
-            Console.WriteLine();
+            UpdateCheckService.WriteCheckStatus("OK", CliConsole.Success);
 
             if (result.VersionParsed)
             {
@@ -61,9 +60,7 @@ namespace LivePhotoBox.Cli.Commands
                 {
                     CliConsole.Write("A newer version is available: ", CliConsole.Notice);
                     CliConsole.WriteLine($"v{result.CurrentVersion} → v{result.LatestVersion}", CliConsole.Highlight);
-                    Console.WriteLine(UpdateCheckService.ReleasesPageUrl);
-                    Console.WriteLine();
-                    Console.WriteLine("To update automatically:");
+                    Console.Write("To update automatically: ");
                     CliConsole.WriteLine("lpb update -y", CliConsole.CommandPurple);
                 }
                 else if (result.Comparison == 0)
@@ -81,7 +78,6 @@ namespace LivePhotoBox.Cli.Commands
             {
                 CliConsole.Write("Latest release: ", CliConsole.Accent);
                 CliConsole.WriteLine(result.LatestTag!, CliConsole.Highlight);
-                Console.WriteLine(UpdateCheckService.ReleasesPageUrl);
             }
         }
 

@@ -1,6 +1,6 @@
 # Live Photo Box Changelog
 
-> Current version: **v2.1.4**
+> Current version: **v2.1.5**
 > Project started: 2026-03-27
 > Tech stack: WinUI 3 + .NET 9 + C# 13
 
@@ -8,6 +8,8 @@
 
 ## v2.1.x — Multi-Brand Compatibility, Page Redesign & CLI
 
+> **v2.1.5** (2026-08-13) **[Feature]** About page CLI manual dialog, one-click CLI PATH add/remove scripts, Scoop install-channel detection (with GUI+CLI / GUI-only marker); **[Optimize]** CLI update reliability — checks & downloads auto-retry up to 3×, HTTP range resume + live progress bar + SHA256 verification, Unicode-safe background updater, `lpb info` shows install directory, unified update-check status line, CLI aliases trimmed to 4 (removed lipbox / lpbx); **[Fix]** update check mislabeling release builds as previews (4-part vs 3-part version comparison)
+>
 > **v2.1.4** (2026-08-12) **[Feature]** CLI adds `info`/`--version` environment info, `--key-timestamp` for custom key photo position, and a manual update mode (install-specific guidance, WinGet installs directed to winget, pending listing); **[Optimize]** colorized CLI output; **[Fix]** temp-file collisions in parallel batch merges
 >
 > **v2.1.3** (2026-08-08) **[Fix]** Corrupted HUAWEI live photo video export fixed; CLI output-default & leftover-folder fixes — single-pair writes next to the photo, batch writes into a `{folder}_<protocol>` subfolder, never the terminal's cwd, `-w` overwrites in place, `--dry-run` creates no folders; **[Optimize]** Edit-page export pipeline improved — Samsung HEIC cover replacement, OPPO pure-video extraction, single-file still-frame export (testing pending); vivo X300 merging adjusted for better vivo Gallery compatibility (still testing)

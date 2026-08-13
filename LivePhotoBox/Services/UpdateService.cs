@@ -144,14 +144,16 @@ namespace LivePhotoBox.Services
         // ── 安装类型检测 ──────────────────────────────────────────────
 
         /// <summary>
-        /// 检测当前是否为 Inno Setup 安装版（通过查找同目录下的 unins000.exe）。
-        /// 便携版不会包含此文件。
+        /// 检测当前是否为 Inno Setup 安装版。
+        /// 判定统一走 InstallChannelDetector（按卸载器身份识别，
+        /// 见 InstallChannelDetector.IsInnoSetupUninstaller 的签名说明）。
+        /// 便携版不会包含卸载器。
         /// </summary>
         public static bool IsInnoSetupInstall()
         {
             try
             {
-                bool result = File.Exists(Path.Combine(AppContext.BaseDirectory, "unins000.exe"));
+                bool result = InstallChannelDetector.IsInnoSetup();
                 LogService.Debug($"UpdateService: Install type detection → {(result ? "Inno Setup" : "Portable")}" +
                     $" (base dir: {AppContext.BaseDirectory})", LogSource.System);
                 return result;
@@ -438,16 +440,28 @@ namespace LivePhotoBox.Services
 
         // ── 版本比较 ──────────────────────────────────────────────────
 
+        /// <summary>更新检查的版本关系三态。</summary>
+        public enum UpdateRelation
+        {
+            /// <summary>远程 Release 比当前版本新，可更新。</summary>
+            UpdateAvailable,
+            /// <summary>当前版本与最新 Release 相同，已是最新。</summary>
+            UpToDate,
+            /// <summary>当前版本比最新 Release 还新（开发版 / 预览版）。</summary>
+            Ahead
+        }
+
         /// <summary>
-        /// 比较当前应用版本与 GitHub Release 的 tag 版本。
-        /// 返回 true 表示有新版本可用。
+        /// 比较当前应用版本与 GitHub Release 的 tag 版本，返回三态关系。
+        /// 统一按 主.次.修订 三段比较：GitHub tag 只有 3 段，而打包版 AppVersion 是 4 段（Revision=0），
+        /// 直接按 System.Version 逐段比会因缺省段按 -1 处理，把"与正式版同版本"误判成超前。
         /// </summary>
-        public static bool IsNewerVersion(GitHubReleaseResponse release)
+        public static UpdateRelation CompareWithLatest(GitHubReleaseResponse release)
         {
             if (release == null)
             {
-                LogService.Debug("UpdateService: IsNewerVersion → false (release is null)", LogSource.System);
-                return false;
+                LogService.Debug("UpdateService: CompareWithLatest → UpToDate (release is null)", LogSource.System);
+                return UpdateRelation.UpToDate;
             }
 
             // 去掉 tag 前缀 'v'，如 "v1.14.11" → "1.14.11"
@@ -455,27 +469,39 @@ namespace LivePhotoBox.Services
             if (!Version.TryParse(tagVersion, out var latestVersion))
             {
                 LogService.Warn(
-                    $"UpdateService: IsNewerVersion → false (cannot parse tag version '{release.TagName}')",
+                    $"UpdateService: CompareWithLatest → UpToDate (cannot parse tag version '{release.TagName}')",
                     source: LogSource.System);
-                return false;
+                return UpdateRelation.UpToDate;
             }
 
             var currentVersionStr = App.AppVersion;
             if (!Version.TryParse(currentVersionStr, out var currentVersion))
             {
                 LogService.Warn(
-                    $"UpdateService: IsNewerVersion → false (cannot parse current version '{currentVersionStr}')",
+                    $"UpdateService: CompareWithLatest → UpToDate (cannot parse current version '{currentVersionStr}')",
                     source: LogSource.System);
-                return false;
+                return UpdateRelation.UpToDate;
             }
 
-            bool isNewer = latestVersion > currentVersion;
+            // 只保留三段参与比较（Revision 参与会受 3/4 段差异干扰，且 tag 始终只有三段）
+            var current3 = new Version(currentVersion.Major, currentVersion.Minor, Math.Max(currentVersion.Build, 0));
+            var latest3 = new Version(latestVersion.Major, latestVersion.Minor, Math.Max(latestVersion.Build, 0));
+
+            var relation = current3 > latest3 ? UpdateRelation.Ahead
+                : current3 < latest3 ? UpdateRelation.UpdateAvailable
+                : UpdateRelation.UpToDate;
+
             LogService.Info(
-                $"UpdateService: Version comparison → current={currentVersion}, latest={latestVersion}, " +
-                $"isNewer={isNewer}",
+                $"UpdateService: Version comparison → current={current3}, latest={latest3}, relation={relation}",
                 LogSource.System);
-            return isNewer;
+            return relation;
         }
+
+        /// <summary>
+        /// 是否有新版本可用（便捷布尔判断，等价于 <see cref="CompareWithLatest"/> == UpdateAvailable）。
+        /// </summary>
+        public static bool IsNewerVersion(GitHubReleaseResponse release)
+            => CompareWithLatest(release) == UpdateRelation.UpdateAvailable;
 
         // ── 资产选择 ──────────────────────────────────────────────────
 

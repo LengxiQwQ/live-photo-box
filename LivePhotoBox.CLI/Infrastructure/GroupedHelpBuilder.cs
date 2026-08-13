@@ -227,10 +227,10 @@ namespace LivePhotoBox.Cli.Infrastructure
 
         // Yellow highlight inside help descriptions is intentionally narrow:
         //   - {token} placeholders ({name}, {folder}, ...)
-        //   - protocol names (including their v1/v2/microvideo/motionphoto aliases)
+        //   - protocol names
         // Everything else stays plain.
         private static readonly Regex HelpHighlightRegex = new(
-            @"\{[^}]+\}|\b(?:fusion|micro video|motion photo|v1|v2|microvideo|motionphoto|oppo|vivo|samsung|huawei|apple)\b",
+            @"\{[^}]+\}|\b(?:fusion|micro video|motion photo|oppo|vivo|samsung|huawei|apple)\b",
             RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
         // Write text with the matched "value/name" fragments highlighted.

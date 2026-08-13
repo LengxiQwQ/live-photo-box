@@ -1,14 +1,14 @@
 # Live Photo Box CLI — User Guide
 
-[![Release](https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7)](https://github.com/lengxiqwq/live-photo-box/releases) [![License](https://img.shields.io/badge/license-GPL%203.0-blue?style=flat-square)](https://github.com/lengxiqwq/live-photo-box/blob/main/LICENSE) [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D7?style=flat-square&logo=windows11)](https://github.com/lengxiqwq/live-photo-box) [![Download](https://img.shields.io/badge/Download-Releases-0078D7?style=flat-square)](https://github.com/lengxiqwq/live-photo-box/releases) [![Issues](https://img.shields.io/badge/Issues-Report-red?style=flat-square)](https://github.com/lengxiqwq/live-photo-box/issues)
+[![Latest release](https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7&label=latest%20release)](https://github.com/lengxiqwq/live-photo-box/releases) [![License](https://img.shields.io/badge/license-GPL%203.0-blue?style=flat-square)](https://github.com/lengxiqwq/live-photo-box/blob/main/LICENSE) [![Platform](https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D7?style=flat-square&logo=windows11)](https://github.com/lengxiqwq/live-photo-box) [![Repository](https://img.shields.io/badge/Repository-GitHub-0078D7?style=flat-square&logo=github)](https://github.com/lengxiqwq/live-photo-box) [![Issues](https://img.shields.io/badge/Issues-Report-red?style=flat-square)](https://github.com/lengxiqwq/live-photo-box/issues)
 
 ---
 
 ## Overview
 
-`livephotobox` is a command-line utility for merging image and video files into live photos compatible with various smartphone gallery applications. A live photo is a single file containing both a still image and a short video — when viewed in a supported gallery, the video plays automatically.
+`livephotobox` (`lpb`) is the command-line companion to **Live Photo Box**. It merges a photo (`JPG` / `HEIC`) and a video (`MP4` / `MOV`) into a single-file **live photo** — the format phone galleries play as a moving image.
 
-The CLI currently supports **merge**, **protocols**, **info**, **update-check**, and **update** commands. Split and repair features remain in the GUI application.
+It shares 100% of its logic with the GUI, so it's ideal for scripting and AI agents. Five commands are available: `merge`, `protocols`, `info`, `update-check`, and `update`. Splitting and repair remain GUI-only for now.
 
 ---
 
@@ -16,90 +16,103 @@ The CLI currently supports **merge**, **protocols**, **info**, **update-check**,
 
 Three packages are available on the [Releases page](https://github.com/lengxiqwq/live-photo-box/releases):
 
-| Package | Contents | Best for |
-|---------|----------|----------|
-| `*-x64-setup.exe` | GUI + CLI, installed via setup wizard | General users who want the full app |
-| `*-x64-portable.zip` | GUI + CLI, no installation required | Portable use on USB drives, or trying without installing |
-| `*-x64-cli.zip` | CLI only, no GUI or GUI dependencies | Servers, scripts, CI/CD, minimal footprint |
+| Package | Contents | Best for | PATH |
+|---------|----------|----------|------|
+| `*-x64-setup.exe` | GUI + CLI, installed via setup wizard | General users who want the full app | Optional during install |
+| `*-x64-portable.zip` | GUI + CLI, no installation required | Portable use on USB drives, or trying without installing | Add manually |
+| `*-x64-cli.zip` | CLI only, no GUI or GUI dependencies | Servers, scripts, CI/CD, minimal footprint | Add manually |
 
-All three packages include the same `livephotobox.exe` and its six aliases. The CLI-only package is the smallest — it omits the WinUI GUI and its runtime (~80 MB saved).
-
-### Keeping Up to Date
-
-The CLI updates on demand (no silent background auto-upgrade). One command checks, asks, downloads, and replaces:
-
-```powershell
-lpb update
-```
-
-When a newer version is found, it prints the install type, version, and manual download link, then asks `Update now? [Y/n]` — press Enter or type `y` to download and replace automatically (background replace for portable copies / silent reinstall for installer copies); anything else skips; piped/CI environments with no input skip safely without hanging. Use `lpb update -y` (or `--yes`) to skip the prompt in scripts.
-
-`lpb update` auto-detects the copy type and picks the matching package:
-
-- **Portable CLI-only**: updates `*-x64-cli.zip`
-- **Portable (GUI + CLI)**: updates `*-x64-portable.zip`
-- **Inno Setup (GUI + CLI)**: downloads the new `*-x64-setup.exe` and reinstalls silently
-
-To only check, or to see the result before deciding:
-
-```powershell
-lpb update-check
-```
-
-`update-check` prints the download link and suggests running `lpb update -y` when a newer version exists. The manual download link is always shown; you can also grab the package yourself from the [Releases page](https://github.com/lengxiqwq/live-photo-box/releases).
-
-> If your copy is managed by WinGet, `lpb update` / `lpb update-check` report `This copy is installed and managed by WinGet` and direct you to winget; the built-in update is disabled for such installs.
+All three packages include the same `livephotobox.exe` and its four aliases. The CLI-only package is the smallest — it omits the WinUI GUI and its runtime (~80 MB saved).
 
 ---
 
-## Quick Start
+## Adding the CLI to your PATH
 
-```powershell
-# View protocol × format compatibility matrix
-lpb protocols
+On Windows, running an executable from the current folder requires a `.\` prefix — e.g. `.\lpb --version`. To call `lpb` (or any alias) from any directory, add the install folder to your **user PATH**.
 
-# Show version / environment info (instant, no network)
-lpb --version
-lpb info
+The package includes two helper scripts at its root for one-click setup:
 
-# Convert a single pair (iPhone → Google Photos)
-lpb merge photo.heic video.mov -p v2 -y
+- `add-to-path.cmd` — double-click to add this folder to your user PATH (no admin required)
+- `remove-from-path.cmd` — double-click to remove it from your user PATH again
 
-# Batch-convert a folder (→ HUAWEI, auto-confirm; writes ./MyPhotos/MyPhotos_huawei/)
-lpb merge -d ./MyPhotos -p huawei -y
+Run the script from the folder that contains `livephotobox-boot.exe` (the portable / CLI package root). Restart your terminal afterwards, then any alias works globally:
 
-# Preview without executing
-lpb merge -d ./MyPhotos --dry-run
+| Without PATH | With PATH |
+|--------------|-----------|
+| `.\lpb merge photo.heic video.mov` — only from the CLI folder | `lpb merge photo.heic video.mov` — from any folder |
 
-# Generate all protocol × format variants at once (for testing/QA)
-lpb merge photo.jpg video.mp4 --all-variants
-```
+---
+
+## Updating
+
+Updates are **user-triggered** — the CLI never checks in the background.
+
+| Command | Action |
+|---------|--------|
+| `lpb update` | Check GitHub; if a newer version exists, download the matching package and install it |
+| `lpb update-check` | Check only — no install |
+
+**Options:**
+
+| Option | Applies to | Description |
+|--------|------------|-------------|
+| `-y`, `--yes` | `update` | Skip the confirmation prompt and update automatically (required for scripts) |
+
+When a newer version is found, `lpb update` prints the version and the matching package, then asks `Update now? [Y/n]` — Enter or `y` proceeds. The package is picked automatically by install type:
+
+| Install type | Package |
+|--------------|---------|
+| Portable CLI-only | `*-x64-cli.zip` |
+| Portable bundle (GUI + CLI) | `*-x64-portable.zip` |
+| Installer (Inno Setup, GUI + CLI) | `*-x64-setup.exe` |
+
+Both commands need internet; on failure they print the reason and a `Manual download: …` link. WinGet-managed copies skip the built-in update — run `winget upgrade LengxiQwQ.LivePhotoBox` instead.
 
 ---
 
 ## Executable Aliases
 
-The tool ships under six equivalent names — use whichever is shortest:
+The tool ships under four equivalent names — use whichever is shortest:
 
 | Alias | Description |
 |-------|-------------|
 | `livephotobox` | Full name |
 | `livephoto` | Shortened |
 | `livebox` | Compact |
-| `lipbox` | Alternative |
 | `lpb` | Short for Live Photo Box |
-| `lpbx` | Extended short form |
+
+---
+
+## Quick Start
 
 ```powershell
-livephotobox protocols
+# Show version
+lpb --version
+
+# Show detailed environment info (bundled tool versions, quick update check)
+lpb info
+
+# View protocol × format compatibility matrix
 lpb protocols
-lipbox protocols
-# All three produce identical output.
+
+# Convert a single pair (iPhone → Google Photos)
+lpb merge photo.heic video.mov -p motion photo -y
+
+# Batch-convert a folder (→ HUAWEI, auto-confirm; writes ./MyPhotos/MyPhotos_huawei/)
+lpb merge -d ./MyPhotos -p huawei -y
 ```
 
 ---
 
 ## Commands
+
+| Command | Description |
+|---------|-------------|
+| `lpb protocols` | View the protocol × format compatibility matrix |
+| `lpb merge` | Merge image+video pairs (single pair or batch) |
+| `lpb info` / `lpb --version` | Show version, environment, and bundled tool versions |
+
+The `update` / `update-check` commands are covered in the Updating section above.
 
 ### `protocols` — View format compatibility matrix
 
@@ -119,6 +132,13 @@ lpb protocols
   vivo Live Photo          ✅          ✖️          ✖️          ✖️          ✖️
   Samsung Motion Photo     ✅          ✖️          ✅          ✖️          ✖️
   HUAWEI Moving Photo      ✅          ✖️          ✅          ✖️          ✅
+
+  Split — single-file live photo splitting (split not yet supported — use the GUI app)
+
+  Protocol            Devices
+  ─────────────────────────────────────────
+  Apple Live Photo    iPhone / iPad
+  vivo Live Photo     vivo (≤ X300)
 ```
 
 `✅` — supported &nbsp;|&nbsp; `✖️` — not supported
@@ -144,186 +164,81 @@ The primary command. Supports two operating modes:
 
 #### Examples
 
-```powershell
-# iPhone → Google Photos
-lpb merge IMG_001.HEIC IMG_001.MOV -p v2 -y
-
-# → HUAWEI native HEVC
-lpb merge photo.jpg video.mp4 -p huawei -f heic+mp4-h265 -y
-
-# Batch folder → HUAWEI, no prompts (default writes ./MyPhotos/MyPhotos_huawei/)
-lpb merge -d ./MyPhotos -p huawei -y
-
-# Batch folder → HUAWEI, explicit output folder
-lpb merge -d ./MyPhotos -p huawei -o ./Output -y
-
-# Batch with subdirectory scanning and structure preservation
-lpb merge -d ./Photos -r -s -p v2 -o ./Output -y
-
-# Dry run — preview only, creates no folders
-lpb merge -d ./Photos -p v2 --dry-run
-
-# Custom filename template
-lpb merge -d ./Photos -p v2 -n "custom:{name}_{protocol}_{date}" -y
-
-# Overwrite existing outputs instead of auto-renaming to " (2)"
-lpb merge photo.jpg video.mp4 -p huawei -y -w
-
-# Single pair: set the key photo position in the video (2.5 seconds)
-lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
-```
+| Goal | Command |
+|------|---------|
+| HUAWEI native HEVC (single pair) | `lpb merge photo.jpg video.mp4 -p huawei -f heic+mp4-h265 -y` |
+| Batch → HUAWEI, explicit output folder | `lpb merge -d ./MyPhotos -p huawei -o ./Output -y` |
+| Recursive batch, keep folder structure | `lpb merge -d ./Photos -r -s -p motion photo -o ./Output -y` |
+| Preview without creating folders | `lpb merge -d ./Photos -p motion photo --dry-run` |
+| Custom filename template | `lpb merge -d ./Photos -p motion photo -n "custom:{name}_{protocol}_{date}" -y` |
+| Overwrite instead of auto-renaming | `lpb merge photo.jpg video.mp4 -p huawei -y -w` |
+| Set key photo position (2.5 s) | `lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y` |
 
 ---
 
-### `info` — Show version and environment info
+### `info` / `--version` — Show version and environment
 
-`--version` prints a compact version banner using local data only — no network access, no subprocesses:
+| Command | Prints |
+|---------|--------|
+| `lpb --version` | Compact version banner: version, build date, runtime, install channel, location |
+| `lpb info` | Same fields, plus bundled tool versions (exiftool, ffmpeg, …) and a quick update check |
 
-```
-lpb --version
-```
-
-```
-Live Photo Box v2.1.4
-
-Build date : 2026-08-11
-Runtime    : .NET 9.0.18 (X64)
-Platform   : Microsoft Windows 10.0.26200 (X64)
-Channel    : Portable CLI-only
-Project    : https://github.com/lengxiqwq/live-photo-box
-License    : GPL-3.0
-Author     : LengxiQwQ (冷汐OωO)
-Email      : lengxiowo@gmail.com
-QQ         : 3197635836
-Feedback   : https://github.com/lengxiqwq/live-photo-box/issues
-
-Tip        : run 'lpb info' for full details
-
-© 2026 LengxiQwQ · Licensed under GPL-3.0
-```
-
-`Channel` shows how this copy was installed: `Portable CLI-only` for a standalone CLI extraction, `Portable (GUI + CLI)` for the GUI + CLI portable bundle, `Inno Setup (GUI + CLI)` for the setup.exe installer, and `WinGet` for WinGet-managed installs.
-
-`info` prints the same core fields plus the versions of the bundled external tools (exiftool, ffmpeg, jpegtran, heif-dec, heif-enc), and finishes with a quick update check against GitHub — the same data as `update-check`. If the network is unavailable, it reports the failure inline instead of failing the command:
-
-```
-lpb info
-```
-
-```
-Live Photo Box v2.1.4 — full environment info
-
-Build date : 2026-08-11
-Runtime    : .NET 9.0.18 (X64)
-Platform   : Microsoft Windows 10.0.26200 (X64)
-Channel    : Portable CLI-only
-Project    : https://github.com/lengxiqwq/live-photo-box
-License    : GPL-3.0
-Author     : LengxiQwQ (冷汐OωO)
-Email      : lengxiowo@gmail.com
-QQ         : 3197635836
-Feedback   : https://github.com/lengxiqwq/live-photo-box/issues
-
-External tools:
-exiftool  13.59   ...\Tools\exiftool.exe
-ffmpeg    n8.0.1  ...\Tools\ffmpeg.exe
-jpegtran  n/a     ...\Tools\jpegtran.exe
-heif-dec  1.23.1  ...\Tools\heif-dec.exe
-heif-enc  1.23.1  ...\Tools\heif-enc.exe
-
-Update check:
-Checking GitHub ... OK
-A newer version is available: v2.1.2 → v2.1.3
-https://github.com/lengxiqwq/live-photo-box/releases
-
-To update automatically:
-lpb update -y
-
-© 2026 LengxiQwQ · Licensed under GPL-3.0
-```
-
-Tool paths are shown as absolute paths; version values come from the bundled tools themselves. Missing tools are reported as `not found` without failing the command.
-
-In an interactive terminal, labels and values are colorized (software title in light red, labels in cyan, values/versions in yellow, notice messages in sea blue, `✅` in green, `✖️` for not supported). When output is redirected to a file or script, or `NO_COLOR` is set, all output falls back to plain text.
+Both run instantly with no network — only `info`'s final update check needs it, reporting failure inline instead of failing the command. Output is colorized in an interactive terminal and falls back to plain text when redirected or when `NO_COLOR` is set.
 
 ---
 
 ## Full Option Reference
 
-```
-lpb merge [options]
+**Input**
 
-═══ INPUT ═══
-  <image> <video>          Image + video file pair. Auto-detected by extension, any order.
-                             Image formats: .jpg .jpeg .heic .heif
-                             Video formats: .mp4 .mov
-  -d, --dir <folder>       Directory to scan. Files sharing the same base name are
-                             automatically paired. For batch mode.
-  -r, --recursive          Include subdirectories when scanning.
-  --pairing <method>       Pairing strategy (batch mode only):
-                             name  — Match by filename (default)
-                             cid   — Match by Apple ContentIdentifier UUID
-                             vivo  — Match by vivo camera livephoto ID
-  --key-timestamp <time>   Set the key photo position on the video timeline (single-pair mode only).
-                             Accepts seconds (1.5), mm:ss (1:30) or hh:mm:ss (0:01:30).
-                             Default: follow the source video's own timeline (Apple MOV / vivo metadata).
-                             Not available in batch (-d) mode.
+| Option | Description |
+|--------|-------------|
+| `<image> <video>` | Image + video pair, auto-detected by extension, any order. Images: `.jpg .jpeg .heic .heif`; videos: `.mp4 .mov` |
+| `-d, --dir <folder>` | Directory to scan (batch mode); files sharing the same base name auto-pair |
+| `-r, --recursive` | Include subdirectories when scanning |
+| `--pairing <method>` | Pairing strategy (batch only): `name` — by filename (default); `cid` — Apple ContentIdentifier UUID; `vivo` — vivo camera ID |
+| `--key-timestamp <time>` | Key photo position on the video timeline (single-pair only). Accepts seconds (`1.5`), `mm:ss` (`1:30`), `hh:mm:ss` (`0:01:30`); default follows the source video |
 
-═══ OUTPUT ═══
-  -o, --output <folder>    Output directory. Default (when omitted):
-                             • Single pair → the image's own directory (writes next to the photo)
-                             • Batch      → {input_folder}/{input_folder}_<protocol>/ subfolder
-                             Pass -o to override; the folder is created as needed.
-  -w, --overwrite          Overwrite an existing output file in place. Without this,
-                             conflicts auto-rename: photo.jpg → photo (2).jpg.
-  -s, --preserve-subdirs   Replicate source subdirectory structure in the output.
-  --after <action>         Post-merge action (successful pairs only):
-                             none        — Leave source files in place (default)
-                             move:PATH   — Move source files to the specified path
-                             recycle     — Move source files to the Windows recycle bin
+**Output**
 
-═══ FORMAT ═══
-  -p, --protocol <p>       Target protocol [default: motion photo].
-                             fusion  — Universal Android
-                             micro video (alias: v1) — Google Micro Video (legacy)
-                             motion photo (alias: v2) — Google Motion Photo (modern)
-                             microvideo / motionphoto (no-space aliases) also accepted.
-                             oppo    — OPPO / OnePlus O-Live
-                             vivo    — vivo Live Photo
-                             samsung — Samsung Motion Photo
-                             huawei  — HUAWEI / Honor Moving Photo
-                             Run 'lpb protocols' for the full matrix.
+| Option | Description |
+|--------|-------------|
+| `-o, --output <folder>` | Output directory. Default: single pair → the image's own folder; batch → `{input}/{input}_<protocol>/`. Created as needed |
+| `-w, --overwrite` | Overwrite an existing output in place; otherwise auto-rename (`photo.jpg` → `photo (2).jpg`) |
+| `-s, --preserve-subdirs` | Replicate source subdirectory structure in the output |
+| `--after <action>` | Post-merge action on successful pairs: `none` (default), `move:PATH`, or `recycle` |
 
-  -f, --format <f>         Output container (default: first available for protocol).
-                             jpg+mp4       — JPEG + H.264 MP4 (widest compatibility)
-                             jpg+mov       — JPEG + MOV (Apple-style)
-                             heic+mp4      — HEIC + H.264 MP4 (requires HEIC source)
-                             heic+mov      — HEIC + MOV
-                             heic+mp4-h265 — HEIC + H.265 MP4 (HUAWEI native HEVC)
+**Format**
 
-  -n, --naming <rule>      Output filename rule. Default: suffix for a single pair, keep for batch.
-                             keep           — Same as source image name (batch default)
-                             suffix         — Append protocol short name: photo → photomotionphoto (single-pair default)
-                             custom:TEMPLATE — Template with tokens:
-                               {name}          Source filename
-                               {protocol}      Protocol short name
-                               {date}          Current date (yyyyMMdd)
-                               {date:format}   Custom date, e.g. {date:yyyy-MM-dd}
-                               {time}          Current time (HHmmss)
-                               {exif_date}     Photo capture date (from file)
-                               {exif_time}     Photo capture time (from file)
-                               {counter}       Auto-increment (001, 002, …)
-                               {counter:D3}    Zero-padded counter, e.g. D3 = 001
+| Option | Description |
+|--------|-------------|
+| `-p, --protocol <p>` | Target protocol (default `motion photo`): `fusion`, `micro video` (V1), `motion photo` (V2), `oppo`, `vivo`, `samsung`, `huawei`. Run `lpb protocols` for the full matrix |
+| `-f, --format <f>` | Output container (default: first available for the protocol): `jpg+mp4`, `jpg+mov`, `heic+mp4`, `heic+mov`, `heic+mp4-h265` |
+| `-n, --naming <rule>` | Output filename rule. Default: single pair = `suffix`, batch = `keep`. `keep`, `suffix`, or `custom:TEMPLATE` (tokens below) |
 
-═══ EXECUTION ═══
-  -j, --parallel <n>       Max concurrent tasks (default: CPU core count, max 5).
-                             Higher values increase throughput, use more CPU & I/O.
-  -y, --yes                Skip all confirmation prompts. Required for scripting.
-  --dry-run                Print planned operations without executing them.
-  -v, --verbose            Output per-file status instead of summary only.
-  --all-variants           Generate all protocol × format combos (single-pair only).
-                             Output to {image_dir}/{name}_variants/ by default. Files named {name}_{Protocol}_{Format}.ext.
-```
+Naming tokens:
+
+| Token | Meaning |
+|-------|---------|
+| `{name}` | Source filename |
+| `{protocol}` | Protocol short name |
+| `{date}` | Current date (yyyyMMdd) |
+| `{date:format}` | Custom date, e.g. `{date:yyyy-MM-dd}` |
+| `{time}` | Current time (HHmmss) |
+| `{exif_date}` | Photo capture date (from the file) |
+| `{exif_time}` | Photo capture time (from the file) |
+| `{counter}` | Auto-increment (001, 002, …) |
+| `{counter:D3}` | Zero-padded counter, e.g. D3 = 001 |
+
+**Execution**
+
+| Option | Description |
+|--------|-------------|
+| `-j, --parallel <n>` | Max concurrent tasks (default: CPU core count, max 5) |
+| `-y, --yes` | Skip all confirmation prompts. Required for scripting |
+| `--dry-run` | Print planned operations without executing them |
+| `-v, --verbose` | Per-file status instead of a summary only |
+| `--all-variants` | Generate all protocol × format combos (single-pair only); output to `{dir}/{name}_variants/` |
 
 ### Default Output Location
 
@@ -332,7 +247,7 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 | Mode | Default output | Example |
 |------|----------------|---------|
 | Single pair | The **image's own directory** (photo and video may live in different folders; the photo wins) | `D:\Pics\IMG_001.jpg` + `D:\Videos\clip.mp4` → `D:\Pics\IMG_001_motionphoto.jpg` |
-| Batch (`-d`) | A subfolder inside the input folder, named `{input_folder}_<protocol>` | `lpb merge -d ./MyPhotos -p v2` → `./MyPhotos/MyPhotos_motionphoto/` |
+| Batch (`-d`) | A subfolder inside the input folder, named `{input_folder}_<protocol>` | `lpb merge -d ./MyPhotos -p motion photo` → `./MyPhotos/MyPhotos_motionphoto/` |
 
 - Folder/file names are English: `MyPhotos_huawei/`, `IMG_001huawei.jpg`.
 - Single-pair files are named `{source_name}<protocol_suffix>` by default (e.g. `IMG_001motionphoto.jpg`) so they never overwrite the source photo.
@@ -377,94 +292,35 @@ When merging a single pair, the live photo metadata records **where on the video
 lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
 
 # mm:ss and hh:mm:ss forms are also accepted
-lpb merge photo.jpg video.mp4 -p v2 --key-timestamp 1:30.500 -y
+lpb merge photo.jpg video.mp4 -p motion photo --key-timestamp 1:30.500 -y
 ```
 
-- Time formats: seconds (`1.5`), mm:ss (`1:30`), hh:mm:ss (`0:01:30`). Internally converted to microseconds for each protocol.
-- Single-pair mode only — passing it with batch mode (`-d`) exits with an error.
+- Time formats: seconds (`1.5`), `mm:ss` (`1:30`), `hh:mm:ss` (`0:01:30`), converted to microseconds internally.
+- Single-pair mode only — with batch mode (`-d`) it exits with an error.
 - Each protocol stores the timestamp differently; the tool adapts automatically:
-  - Motion Photo / OPPO / vivo / Samsung / Fusion → written to XMP (OPPO / Fusion also write the primary-photo timestamp field)
-  - Micro Video → written to XMP as `MicroVideoPresentationTimestampUs`
-  - HUAWEI → no XMP; written to the MP4 `covertime` metadata and the tail-bytes cover frame number
+
+| Protocol | Where it's stored |
+|----------|-------------------|
+| Motion Photo / OPPO / vivo / Samsung / Fusion | XMP (OPPO / Fusion also write the primary-photo timestamp field) |
+| Micro Video | XMP `MicroVideoPresentationTimestampUs` |
+| HUAWEI | MP4 `covertime` metadata + tail-bytes cover frame number (no XMP) |
+
 - Can be combined with `--all-variants` — all variants share the same timestamp.
-- Values beyond the video duration: HUAWEI output is clamped to the last frame; other protocols write the value as-is and let the player handle it.
-
----
-
-### `update-check` — Check for newer versions
-
-```
-lpb update-check
-```
-
-Queries the GitHub Releases API for the latest published version and compares it against the installed version. `--version` is fully local; `info` performs the same check as part of its report. Use `lpb update` to download and replace files automatically.
-
-Example output (up to date):
-```
-Checking GitHub ... OK
-
-You are running the latest version.
-```
-
-Example output (update available):
-```
-Checking GitHub ... OK
-
-A newer version is available: v2.1.0 → v2.1.1
-https://github.com/lengxiqwq/live-photo-box/releases
-
-To update automatically:
-lpb update -y
-```
-
-Requires internet access. On failure (network timeout, GitHub unreachable), no version lines are shown — it prints the failure reason and the manual download URL, and exits with code 2.
-
-If this copy was installed through WinGet (portable package), the built-in update is disabled:
-```
-Checking GitHub ... skipped
-
-This copy is installed and managed by WinGet.
-Built-in update is disabled for WinGet-managed installs.
-Update with: winget upgrade LengxiQwQ.LivePhotoBox
-```
-Use `winget upgrade LengxiQwQ.LivePhotoBox` to update instead; the command exits with code 3.
+- Values beyond the video duration: HUAWEI clamps to the last frame; other protocols write the value as-is.
 
 ---
 
 ## Pairing Methods
 
-When operating in batch mode (`-d`), the tool must determine which image belongs to which video.
+In batch mode (`-d`), the tool must decide which image belongs to which video:
 
-### `name` (default)
+| Method | How pairs are matched | Example |
+|--------|-----------------------|---------|
+| `name` (default) | Same base name, different extension | `photo_001.jpg` + `photo_001.mp4` → paired |
+| `cid` | Apple `ContentIdentifier` UUID match, regardless of filename | `IMG_0002.HEIC` + `renamed.MOV` → paired |
+| `vivo` | vivo camera ID in the JPEG tail + MP4 metadata | `vivo_photo.jpg` + `vivo_video.mp4` → paired |
 
-Files with matching base names and different extensions are paired.
-
-```
-photo_001.jpg  +  photo_001.mp4  →  paired
-photo_002.heic +  photo_002.mov  →  paired
-IMG_1234.jpg   +  VID_1234.mp4   →  not paired (different base names)
-```
-
-### `cid` — Apple ContentIdentifier
-
-Apple Live Photos carry a UUID in their `ContentIdentifier` metadata. Files sharing the same UUID are paired regardless of filename.
-
-```
-IMG_0001.HEIC  +  IMG_0001.MOV   →  filename pair
-IMG_0002.HEIC  +  renamed.MOV    →  CID pair (matching UUID)
-```
-
-Requires `exiftool.exe` in the `Tools\` directory alongside the executable. Included in all distribution packages.
-
-### `vivo` — vivo Camera ID
-
-vivo devices embed a `com.android.camera.livephoto` identifier in both the JPEG tail and MP4 metadata. Matching IDs are paired.
-
-```
-vivo_photo.jpg  +  vivo_video.mp4  →  paired by vivo ID
-```
-
-No external tools required — pure file I/O.
+`cid` requires `exiftool.exe` in the `Tools\` directory alongside the executable (included in all packages); `name` and `vivo` need no external tools — pure file I/O.
 
 ---
 
@@ -485,16 +341,11 @@ No external tools required — pure file I/O.
 
 ## After-Completion Actions
 
-```powershell
-# Archive source files
-lpb merge -d ./Photos -p v2 --after "move:./Archived" -y
-
-# Recycle source files
-lpb merge -d ./Photos -p v2 --after recycle -y
-
-# Leave source files unchanged (default)
-lpb merge -d ./Photos -p v2 --after none -y
-```
+| Action | Command |
+|--------|---------|
+| Archive source files | `lpb merge -d ./Photos -p motion photo --after "move:./Archived" -y` |
+| Recycle source files | `lpb merge -d ./Photos -p motion photo --after recycle -y` |
+| Leave source files unchanged (default) | `lpb merge -d ./Photos -p motion photo --after none -y` |
 
 Only source files from **successfully** merged pairs are affected.
 
@@ -503,17 +354,11 @@ Only source files from **successfully** merged pairs are affected.
 ## Workflow Examples
 
 ```powershell
-# iPhone → Google Photos
-lpb merge IMG_1234.HEIC IMG_1234.MOV -p v2 -y
-
-# iPhone → HUAWEI (native HEVC)
-lpb merge IMG_1234.HEIC IMG_1234.MOV -p huawei -f heic+mp4-h265 -y
-
 # Batch to universal Android format
 lpb merge -d ./DCIM/Camera -p fusion -o ./LivePhotos -y
 
 # Recursive batch with structure preservation + source archiving
-lpb merge -d ./Photos -r -s -p v2 -o ./Output --after "move:./Originals" -y
+lpb merge -d ./Photos -r -s -p motion photo -o ./Output --after "move:./Originals" -y
 
 # Scripted batch with error logging
 lpb merge -d ./Photos -p huawei -o ./Out -y -v 2>errors.log
@@ -524,16 +369,24 @@ if ($LASTEXITCODE -ne 0) { Write-Host "Some files failed — see errors.log" }
 
 ## Protocol Compatibility
 
-| Protocol | Compatible Devices | Status |
-|----------|--------------------|--------|
-| Fusion Motion Photo | Windows / Android (universal) | Testing |
-| Apple Live Photo | iPhone / iPad | Supported |
-| Google Micro Video | Windows / Xiaomi (MIUI) / Pixel | Supported |
-| Google Motion Photo | Windows / Xiaomi / Pixel | Supported |
-| OPPO O-Live Photo | Windows / Xiaomi / OPPO / OnePlus | Supported |
-| HUAWEI Moving Photo | HUAWEI / Honor | Supported |
-| vivo Live Photo | Windows / Xiaomi / vivo (X300+) | Testing |
-| Samsung Motion Photo | Samsung | Testing |
+**Merge** — the protocols `lpb merge` can produce:
+
+| Merge Protocol | Devices | Status |
+|---|---|---|
+| Fusion Motion Photo | Windows / Android (universal) | 🟡 In testing |
+| Google Micro Video | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
+| Google Motion Photo | Windows / Xiaomi / Pixel | ✅ Supported |
+| OPPO O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
+| HUAWEI Moving Photo | HUAWEI / Honor | ✅ Supported |
+| Samsung Motion Photo | Windows / Samsung | 🟡 In testing |
+| vivo Live Photo | Windows / vivo (≥ X300) | 🟡 In testing |
+
+**Split** — single-file live photo protocols (split not yet supported — use the GUI app for splitting):
+
+| Split Protocol | Devices | Status |
+|---|---|---|
+| Apple Live Photo | iPhone / iPad | 🟡 In testing |
+| vivo Live Photo | vivo (≤ X300) | 🟡 In testing |
 
 ---
 
@@ -542,44 +395,34 @@ if ($LASTEXITCODE -ne 0) { Write-Host "Some files failed — see errors.log" }
 | Code | Meaning |
 |:---:|---------|
 | 0 | All tasks completed successfully |
-| 1 | Parameter error, or at least one pair failed |
+| 1 | Parameter error, or at least one task failed |
+| 2 | Update check failed (network / GitHub unreachable) |
+| 3 | Update skipped — this copy is WinGet-managed (use winget) |
 | 130 | Cancelled by user (Ctrl+C) |
 
 ---
 
 ## Architecture
 
-The CLI and the GUI desktop application share the same merge pipeline in `LivePhotoBox.Core`:
-
-```
-LivePhotoBox.Core        ← Protocol logic, HEIC conversion, video transcoding
-    ↑               ↑
-    │               │
-Live Photo Box    LivePhotoBox.CLI
-(WinUI GUI)       (Console CLI)
-```
-
-Both call `LivePhotoMergeRunnerService.ProcessSinglePairAsync()`. Any fix or protocol update in Core applies to both.
-
-The CLI is English-only. All strings are embedded in `LivePhotoBox.Core.dll` — no separate language files required.
+The CLI and the GUI desktop app share the same merge pipeline in `LivePhotoBox.Core` — both call `LivePhotoMergeRunnerService.ProcessSinglePairAsync()`, so any fix or protocol update applies to both. The CLI is English-only; all strings are embedded in `LivePhotoBox.Core.dll`.
 
 ---
 
 ## Troubleshooting
 
-### Unknown protocol error
+#### Unknown protocol error
 Run `lpb protocols` to list valid protocol names and shorthand aliases.
 
-### Format not available for protocol
+#### Format not available for protocol
 Run `lpb protocols` to view the compatibility matrix. For example, `heic+mp4-h265` is only available for `huawei`.
 
-### "exiftool not found" with `--pairing cid`
-The CID pairing method requires `exiftool.exe` in the `Tools\` directory alongside the executable. Included in all distribution packages.
+#### "exiftool not found" with `--pairing cid`
+Add `exiftool.exe` to the `Tools\` folder next to the executable.
 
-### Output file extension differs from source
+#### Output file extension differs from source
 Expected behaviour. When the source is HEIC and a JPEG-based format is selected, the output uses `.jpg`. The internal structure is correct for the chosen protocol.
 
-### Permission denied or file in use
+#### Permission denied or file in use
 Close gallery apps or file explorers that may be accessing the source files. Locked files cannot be read or moved on Windows.
 
 ---

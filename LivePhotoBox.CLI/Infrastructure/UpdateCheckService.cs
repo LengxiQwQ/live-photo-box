@@ -10,8 +10,10 @@ namespace LivePhotoBox.Cli.Infrastructure
     // 更新检查共享服务 — update-check 与 info 复用同一套联网逻辑
     internal static class UpdateCheckService
     {
-        private const string ReleasesApiUrl =
-            "https://api.github.com/repos/lengxiqwq/live-photo-box/releases/latest";
+        // 默认 GitHub API；可用环境变量 LPB_GITHUB_RELEASES_API_URL 覆盖（本地假服务验证重试/下载用）
+        private static readonly string ReleasesApiUrl =
+            Environment.GetEnvironmentVariable("LPB_GITHUB_RELEASES_API_URL")
+            ?? "https://api.github.com/repos/lengxiqwq/live-photo-box/releases/latest";
         public const string ReleasesPageUrl =
             "https://github.com/lengxiqwq/live-photo-box/releases";
 
@@ -38,6 +40,69 @@ namespace LivePhotoBox.Cli.Infrastructure
         /// <summary>最近一次网络请求失败的原因，供调用方展示。</summary>
         public static string? LastFetchError => _lastFetchError;
 
+        /// <summary>
+        /// 打印手动下载链接行（单行、无缩进、与状态行对齐）。
+        /// 只在自动更新走不通时展示（检查失败 / 无对应包 / 下载失败）；
+        /// 检查成功路径不展示，保持输出干净。
+        /// </summary>
+        public static void PrintManualDownload()
+        {
+            Console.WriteLine($"Manual download: {ReleasesPageUrl}");
+        }
+
+        private const string CheckPrefix = "Checking GitHub ... ";
+
+        // 交互终端可 \r 原地重写；重定向/管道不行（会产生 \r 字符污染输出）
+        private static bool CanRewriteLine => !Console.IsOutputRedirected;
+
+        // 最近一次检查行的可见长度，用于状态覆盖时精确清掉残留的 "retry N/M"
+        private static int _checkLineLen;
+
+        /// <summary>开始检查：interactive 先打印前缀占位；redirected 静默（等最终状态打完整行）。</summary>
+        public static void BeginCheck()
+        {
+            if (CanRewriteLine)
+                Console.Write(CheckPrefix);
+        }
+
+        /// <summary>输出"Checking GitHub ... &lt;status&gt;"整行。interactive 时 \r 重写；redirected 时打完整行。</summary>
+        public static void WriteCheckStatus(string status, ConsoleColor color)
+            => WriteCheckStatusCore(status, () => CliConsole.Write(status, color));
+
+        /// <summary>RGB 颜色重载（如 CliConsole.Notice）。</summary>
+        public static void WriteCheckStatus(string status, (int R, int G, int B) rgb)
+            => WriteCheckStatusCore(status, () => CliConsole.Write(status, rgb));
+
+        private static void WriteCheckStatusCore(string status, Action writeStatus)
+        {
+            if (CanRewriteLine)
+            {
+                Console.Write("\r" + CheckPrefix);
+                writeStatus();
+                // 精确清掉可能残留的 "retry N/M"（按上一次行长度补空格）
+                var pad = Math.Max(0, _checkLineLen - CheckPrefix.Length - status.Length);
+                if (pad > 0) Console.Write(new string(' ', pad));
+                Console.WriteLine();
+            }
+            else
+            {
+                Console.Write(CheckPrefix);
+                writeStatus();
+                Console.WriteLine();
+            }
+        }
+
+        /// <summary>重试反馈：interactive 覆盖整行；redirected 静默（不在 CI 日志刷重试噪音）。</summary>
+        public static void WriteCheckRetry(int retryNumber, int maxAttempts)
+        {
+            if (CanRewriteLine)
+            {
+                var text = $"retry {retryNumber}/{maxAttempts}   ";
+                _checkLineLen = CheckPrefix.Length + text.Length;
+                Console.Write($"\r{CheckPrefix}{text}");
+            }
+        }
+
         public sealed class Result
         {
             public required string CurrentVersion { get; init; }
@@ -54,7 +119,7 @@ namespace LivePhotoBox.Cli.Infrastructure
             public int Comparison { get; init; }
         }
 
-        public static async Task<Result> CheckAsync()
+        public static async Task<Result> CheckAsync(Action<int, int>? onRetry = null)
         {
             var current = VersionInfo.GetDisplayVersion();
 
@@ -69,7 +134,7 @@ namespace LivePhotoBox.Cli.Infrastructure
                 };
             }
 
-            var release = await FetchLatestReleaseAsync();
+            var release = await FetchLatestReleaseAsync(onRetry: onRetry);
             if (release is null)
             {
                 return new Result { CurrentVersion = current, ErrorMessage = _lastFetchError ?? "network error" };
@@ -91,22 +156,31 @@ namespace LivePhotoBox.Cli.Infrastructure
         /// <summary>
         /// 获取 GitHub 最新 Release（含资产列表）。网络失败返回 null，原因见 <see cref="LastFetchError"/>。
         /// </summary>
-        public static async Task<LatestRelease?> FetchLatestReleaseAsync()
+        public static async Task<LatestRelease?> FetchLatestReleaseAsync(
+            int maxAttempts = 3, Action<int, int>? onRetry = null)
         {
             string json;
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                json = await _http.GetStringAsync(ReleasesApiUrl);
-            }
-            catch (HttpRequestException ex)
-            {
-                _lastFetchError = DescribeNetworkError(ex);
-                return null;
-            }
-            catch (TaskCanceledException)
-            {
-                _lastFetchError = "timeout";
-                return null;
+                try
+                {
+                    json = await _http.GetStringAsync(ReleasesApiUrl);
+                    break;
+                }
+                catch (HttpRequestException ex)
+                {
+                    _lastFetchError = DescribeNetworkError(ex);
+                }
+                catch (TaskCanceledException)
+                {
+                    _lastFetchError = "timeout";
+                }
+
+                if (attempt >= maxAttempts)
+                    return null;
+
+                onRetry?.Invoke(attempt + 1, maxAttempts);
+                await Task.Delay(attempt * 1000);
             }
 
             try

@@ -27,8 +27,9 @@ namespace LivePhotoBox.Cli
             // Initialize ResourceService — disk .resw first, embedded English fallback
             InitializeResourceService();
 
-            // Initialize logging
-            LogService.Initialize();
+            // Initialize logging — CLI logs into its own subdirectory with a `cli` prefix,
+            // keeping them distinct from the GUI's `app-*.log` files in the same Logs root.
+            LogService.Initialize(subDirectory: "CLI", logFilePrefix: "cli");
 
             // Build command tree
             var root = new RootCommand(

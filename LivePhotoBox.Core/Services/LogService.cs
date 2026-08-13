@@ -47,7 +47,7 @@ namespace LivePhotoBox.Services
         private const int MaxDumpFiles = 5;
         private const int MaxMemoryEntries = 1000;
         private const int CrashContextLineCount = 50;
-        private const string LogFilePrefix = "app";
+        private static string LogFilePrefix = "app";
         private const string LogFileExtension = ".log";
         private const string CleanShutdownMarker = "CLEAN SHUTDOWN";
 
@@ -113,12 +113,15 @@ namespace LivePhotoBox.Services
         // 3. Detects whether the previous session crashed
         // 4. Opens a new log file for this session
         // 5. Starts the background flush loop
-        public static void Initialize()
+        public static void Initialize(string subDirectory = "", string logFilePrefix = "app")
         {
             if (_initialized) return;
             _initialized = true;
 
-            _logDirectory = ResolveLogDirectory();
+            LogFilePrefix = logFilePrefix;
+            _logDirectory = string.IsNullOrEmpty(subDirectory)
+                ? ResolveLogDirectory()
+                : Path.Combine(ResolveLogDirectory(), subDirectory);
             Directory.CreateDirectory(_logDirectory);
 
             // Detect previous crash BEFORE creating the new file

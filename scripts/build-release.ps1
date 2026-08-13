@@ -4,6 +4,34 @@
 
 param([switch]$CI)
 
+# ── zip 完整性辅助函数 ──────────────────────────────────────────
+# 注意：Windows PowerShell 5.1 的 Compress-Archive 对「刚写入 / 仍被杀软扫描」的文件
+# 会静默丢弃（不报错、无警告）。打包后校验必需文件都在，缺失则自动重试，仍失败则报错退出。
+function Invoke-ReliableZip {
+    param(
+        [string]$SourceDir,
+        [string]$ZipPath,
+        [string[]]$RequiredNames,
+        [switch]$CI
+    )
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $attempts = 0
+    do {
+        $attempts++
+        Compress-Archive -Path "$SourceDir\*" -DestinationPath $ZipPath -Force
+        $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $ZipPath))
+        $names = @($z.Entries | ForEach-Object { $_.Name })
+        $z.Dispose()
+        $missing = @($RequiredNames | Where-Object { $_ -notin $names })
+        if ($missing.Count -eq 0) { return }
+        Write-Host "       WARN: zip 缺失必需文件 ($($missing -join ', '))，第 $attempts 次重试..." -ForegroundColor DarkYellow
+        Start-Sleep -Milliseconds 500
+    } while ($attempts -lt 3)
+    Write-Host "BUILD FAILED - 重试 3 次后 zip 仍缺失: $($missing -join ', ')" -ForegroundColor Red
+    if (-not $CI) { pause }
+    exit 1
+}
+
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $projectRoot
 
@@ -88,7 +116,7 @@ $goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
 $shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
 
 if ($goCmd -and (Test-Path $shimSrc)) {
-    $cliAliases = @('livephotobox', 'livebox', 'lipbox', 'lpb', 'lpbx', 'livephoto')
+    $cliAliases = @('livephotobox', 'livebox', 'lpb', 'livephoto')
     foreach ($alias in $cliAliases) {
         $outExe = "publish\cli_x64\$alias.exe"
         & $goCmd build -ldflags="-s -w" -o $outExe $shimSrc 2>&1 | Out-Null
@@ -149,12 +177,14 @@ if (Test-Path 'publish\cli_x64\livephotobox-boot.exe') {
     Copy-Item 'LICENSE' "$cliDir\LICENSE" -Force
     Copy-Item 'docs\CLI-User-Guide.md' "$cliDir\CLI-User-Guide.md" -Force
     Copy-Item 'docs\CLI-User-Guide.zh-CN.md' "$cliDir\CLI-User-Guide.zh-CN.md" -Force
-    Write-Host '       Docs (README + LICENSE + Guides) copied' -ForegroundColor Green
+    Copy-Item 'scripts\add-to-path.cmd'      "$cliDir\add-to-path.cmd"      -Force
+    Copy-Item 'scripts\remove-from-path.cmd' "$cliDir\remove-from-path.cmd" -Force
+    Write-Host '       Docs + PATH helper scripts copied' -ForegroundColor Green
 
     # 打包 CLI zip
     $cliZipName = "Live-Photo-Box-v$version-x64-cli.zip"
     $cliZipPath = "publish\$cliZipName"
-    Compress-Archive -Path "$cliDir\*" -DestinationPath $cliZipPath -Force
+    Invoke-ReliableZip -SourceDir $cliDir -ZipPath $cliZipPath -RequiredNames @('README.md','README.zh-CN.md','LICENSE','CLI-User-Guide.md','CLI-User-Guide.zh-CN.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
     $cliZipSize = '{0:N1} MB' -f ((Get-Item $cliZipPath).Length / 1MB)
     Write-Host "       $cliZipName  ($cliZipSize)" -ForegroundColor Green
 
@@ -205,7 +235,7 @@ Remove-Item -Force "$outDir\WindowsAppRuntime.png" -ErrorAction SilentlyContinue
 # 删除调试符号
 Remove-Item -Force "$outDir\Live Photo Box.pdb" -ErrorAction SilentlyContinue
 Remove-Item -Force "$outDir\livephotobox-boot.pdb" -ErrorAction SilentlyContinue
-foreach ($a in @('livebox','lipbox','lpb','lpbx','livephoto')) {
+foreach ($a in @('livebox','lpb','livephoto')) {
     Remove-Item -Force "$outDir\$a.pdb" -ErrorAction SilentlyContinue
 }
 Remove-Item -Force "$outDir\LivePhotoBox.Core.pdb" -ErrorAction SilentlyContinue
@@ -244,10 +274,12 @@ Copy-Item 'README.zh-CN.md' "$outDir\README.zh-CN.md" -Force
 Copy-Item 'LICENSE' "$outDir\LICENSE" -Force
 Copy-Item 'docs\CLI-User-Guide.md' "$outDir\CLI-User-Guide.md" -Force
 Copy-Item 'docs\CLI-User-Guide.zh-CN.md' "$outDir\CLI-User-Guide.zh-CN.md" -Force
+Copy-Item 'scripts\add-to-path.cmd'      "$outDir\add-to-path.cmd"      -Force
+Copy-Item 'scripts\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
 
 $zipName = "Live-Photo-Box-v$version-x64-portable.zip"
 $zipPath = "publish\$zipName"
-Compress-Archive -Path "$outDir\*" -DestinationPath $zipPath -Force
+Invoke-ReliableZip -SourceDir $outDir -ZipPath $zipPath -RequiredNames @('README.md','README.zh-CN.md','LICENSE','CLI-User-Guide.md','CLI-User-Guide.zh-CN.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
 $zipSize = '{0:N1} MB' -f ((Get-Item $zipPath).Length / 1MB)
 Write-Host "       $zipName  ($zipSize)" -ForegroundColor Green
 
