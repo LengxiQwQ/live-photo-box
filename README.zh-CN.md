@@ -29,16 +29,10 @@
   <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" hspace="35" /></a>
 </div>
 <p align="center">
-  <sub>
-    支持架构：<b>x64</b>
-    &nbsp;|&nbsp;
-    系统要求：<b>Windows 10 (1809+)</b> 或 <b>Windows 11</b>
-    &nbsp;|&nbsp;
-    应用自包含 .NET 9 + WinAppSDK 1.8
-  </sub>
+ 
 </p>
 <p align="center">
-  <sub>或通过 <b>winget</b> 安装 <b>纯命令行版本</b>： <code>winget install LengxiQwQ.LivePhotoBox</code></sub>
+  或通过 <b>winget</b> 安装 <b>纯命令行版本</b>： <code>winget install LengxiQwQ.LivePhotoBox</code>
 </p>
 
 ---
