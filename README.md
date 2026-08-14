@@ -28,16 +28,9 @@
   <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" hspace="35" /></a>
 </div>
 <p align="center">
-  <sub>
-    Architecture: <b>x64</b>
-    &nbsp;|&nbsp;
-    System Requirements: <b>Windows 10 (1809+)</b> or <b>Windows 11</b>
-    &nbsp;|&nbsp;
-    No runtime required (self-contained .NET 9 + WinAppSDK 1.8)
-  </sub>
 </p>
 <p align="center">
-  <sub>Or install the <b>CLI</b> via <b>winget</b>: <code>winget install LengxiQwQ.LivePhotoBox</code></sub>
+  Or install the <b>CLI</b> via <b>winget</b>: <code>winget install LengxiQwQ.LivePhotoBox</code>
 </p>
 
 ---
