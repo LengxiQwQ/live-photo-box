@@ -1,3 +1,11 @@
+## ⚠️ 重要提示 / Important
+
+- **💻 纯 CLI 版改为单文件，旧版升级请手动重装一次** — 命令行工具从 200+ 散文件精简为单文件。纯 CLI / WinGet 升级不清除旧文件，请卸载重装（WinGet 先 `winget uninstall`）；便携版与安装版不受影响。
+  
+  > The standalone CLI is now a single file (down from 200+ loose files). Pure CLI / WinGet upgrades don't remove old files — reinstall once (WinGet: `winget uninstall` first). Portable & installer are unaffected.
+
+---
+
 ## ✨ 新增功能 / New Features
 
 - **📖 GUI 关于页新增「CLI 手册」** — 关于页新增「CLI 手册」按钮，点一下就能在应用里直接查看命令行工具的使用说明，不用再自己翻文档
