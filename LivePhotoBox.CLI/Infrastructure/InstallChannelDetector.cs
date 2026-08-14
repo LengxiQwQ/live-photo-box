@@ -23,7 +23,7 @@ namespace LivePhotoBox.Cli.Infrastructure
     }
 
     /// <summary>
-    /// 检测当前 CLI 副本的安装渠道，用于 --version / info 展示。
+    /// 检测当前 CLI 副本的安装渠道，用于 --version / --info 展示。
     /// 判定顺序：WinGet（ARP 注册表）→ Scoop（路径）→ Inno Setup（unins000.exe）→ 便携。
     /// </summary>
     internal static class InstallChannelDetector
@@ -88,7 +88,7 @@ namespace LivePhotoBox.Cli.Infrastructure
         }
 
         /// <summary>
-        /// 返回安装渠道的展示文本。
+        /// 返回安装渠道的展示文本。统一格式：&lt;渠道名&gt; (CLI-only | GUI + CLI)。
         /// </summary>
         /// <param name="baseDirectory">运行目录，默认取 AppContext.BaseDirectory。</param>
         public static string GetChannelDisplay(string? baseDirectory = null)
@@ -96,11 +96,12 @@ namespace LivePhotoBox.Cli.Infrastructure
             var dir = baseDirectory ?? AppContext.BaseDirectory;
             return GetChannel(dir) switch
             {
-                CliInstallChannel.WinGet => "WinGet (managed by winget)",
+                // WinGet 包发布的是 CLI-only zip，固定为 CLI-only
+                CliInstallChannel.WinGet => "WinGet (CLI-only)",
                 CliInstallChannel.Scoop => IsGuiCoLocated(dir)
                     ? "Scoop (GUI + CLI)"
                     : "Scoop (CLI-only)",
-                CliInstallChannel.InnoSetup => "Inno Setup installer (GUI + CLI)",
+                CliInstallChannel.InnoSetup => "Inno Setup (GUI + CLI)",
                 CliInstallChannel.PortableBundle => "Portable (GUI + CLI)",
                 // 枚举剩余值仅 PortableCli，这里只作防御性兜底
                 _ => "Portable (CLI-only)"

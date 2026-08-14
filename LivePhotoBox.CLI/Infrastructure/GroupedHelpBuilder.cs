@@ -5,7 +5,6 @@ using System.CommandLine.Help;
 using System.CommandLine.IO;
 using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
@@ -195,63 +194,23 @@ namespace LivePhotoBox.Cli.Infrastructure
             WriteColoredRgb(output, "  " + usage + Environment.NewLine, CliConsole.CommandPurple);
         }
 
-        // First column: option/command names in cyan, <placeholders> in yellow.
+        // First column: the whole option/command label ("-d, --dir <dir>") is
+        // treated as code and rendered in purple, placeholders included.
         private static void WriteColoredLabel(TextWriter output, string label)
         {
-            if (!CliConsole.UseColor)
-            {
-                output.Write(label);
-                return;
-            }
-
-            // Options/commands and their <placeholders> share the soft
-            // grass-green used for paths, so the whole first column is one color.
-            WriteColoredRgb(output, label, CliConsole.PathGreen);
+            WriteColoredRgb(output, label, CliConsole.CommandPurple);
         }
 
-        // Second column: plain description, [default: ...] in yellow.
+        // Second column: plain white description. No yellow highlights —
+        // the plain-table design decision keeps descriptions neutral.
         private static void WriteColoredDescription(TextWriter output, string text)
         {
-            if (!CliConsole.UseColor)
-            {
-                output.Write(text);
-                return;
-            }
-
-            int idx = text.IndexOf("[default:", StringComparison.Ordinal);
-            string plain = idx < 0 ? text : text.Substring(0, idx);
-            WriteHighlighted(output, plain);
-            if (idx >= 0)
-                WriteColored(output, text.Substring(idx), CliConsole.Highlight);
-        }
-
-        // Yellow highlight inside help descriptions is intentionally narrow:
-        //   - {token} placeholders ({name}, {folder}, ...)
-        //   - protocol names
-        // Everything else stays plain.
-        private static readonly Regex HelpHighlightRegex = new(
-            @"\{[^}]+\}|\b(?:fusion|micro video|motion photo|oppo|vivo|samsung|huawei|apple)\b",
-            RegexOptions.IgnoreCase | RegexOptions.Compiled);
-
-        // Write text with the matched "value/name" fragments highlighted.
-        private static void WriteHighlighted(TextWriter output, string text)
-        {
-            int pos = 0;
-            foreach (Match m in HelpHighlightRegex.Matches(text))
-            {
-                if (m.Index > pos)
-                    output.Write(text.Substring(pos, m.Index - pos));
-                WriteColored(output, m.Value, CliConsole.Highlight);
-                pos = m.Index + m.Length;
-            }
-            if (pos < text.Length)
-                output.Write(text.Substring(pos));
+            output.Write(text);
         }
 
         // Description text. Rule: purple belongs ONLY to command examples.
-        // A leading label ("Single pair:") gets the cyan label color, the
-        // command itself ("lpb merge ...") is purple, and the trailing
-        // explanation stays plain white. [default: ...] hints are yellow.
+        // The command itself ("lpb merge ...") is purple; everything around it
+        // (indentation, leading label, trailing explanation) stays plain white.
         private static void WriteDescriptionLine(TextWriter output, string text)
         {
             if (CliConsole.UseColor)
@@ -259,12 +218,7 @@ namespace LivePhotoBox.Cli.Infrastructure
                 int cmdIdx = text.IndexOf("lpb ", StringComparison.Ordinal);
                 if (cmdIdx >= 0)
                 {
-                    string prefix = text.Substring(0, cmdIdx);
-                    if (string.IsNullOrWhiteSpace(prefix))
-                        output.Write(prefix); // indentation stays plain
-                    else
-                        WriteColored(output, prefix, CliConsole.Accent); // label
-
+                    output.Write(text.Substring(0, cmdIdx)); // label + indentation, plain
                     int cmdEnd = FindCommandEnd(text, cmdIdx);
                     WriteColoredRgb(output, text.Substring(cmdIdx, cmdEnd - cmdIdx), CliConsole.CommandPurple);
                     if (cmdEnd < text.Length)
@@ -337,7 +291,7 @@ namespace LivePhotoBox.Cli.Infrastructure
             // ═══ Usage ═══
             WriteHeading(context.Output, "Usage:");
             context.Output.WriteLine();
-            WriteUsageLine(context.Output, "lpb merge [options]");
+            WriteUsageLine(context.Output, GetUsageLine(context.Command));
             context.Output.WriteLine();
 
             // ═══ Grouped options ═══
@@ -345,10 +299,17 @@ namespace LivePhotoBox.Cli.Infrastructure
                 .Where(o => !o.IsHidden)
                 .ToList();
 
-            WriteOptionGroup(context, "═══ INPUT — what to merge ═══", options, "INPUT");
-            WriteOptionGroup(context, "═══ OUTPUT — where and how to save ═══", options, "OUTPUT");
-            WriteOptionGroup(context, "═══ FORMAT — protocol, container, naming ═══", options, "FORMAT");
-            WriteOptionGroup(context, "═══ EXECUTION — speed, safety, logging ═══", options, "EXECUTION");
+            // Description column: widest option label + 2, never narrower than 32.
+            // Without this, a long label (e.g. --key-timestamp <key-timestamp>)
+            // breaks the column alignment.
+            int descCol = options.Count > 0
+                ? Math.Max(32, options.Max(o => FormatLabel(o).Length) + 2)
+                : 32;
+
+            WriteOptionGroup(context, "═══ INPUT — what to merge ═══", options, "INPUT", descCol);
+            WriteOptionGroup(context, "═══ OUTPUT — where and how to save ═══", options, "OUTPUT", descCol);
+            WriteOptionGroup(context, "═══ FORMAT — protocol, container, naming ═══", options, "FORMAT", descCol);
+            WriteOptionGroup(context, "═══ EXECUTION — speed, safety, logging ═══", options, "EXECUTION", descCol);
 
             // Remaining options
             var remaining = options
@@ -358,14 +319,14 @@ namespace LivePhotoBox.Cli.Infrastructure
             {
                 WriteSection(context, "═══ OTHER ═══");
                 foreach (var opt in remaining)
-                    WriteOption(context, opt);
-                WriteHelpOption(context);
+                    WriteOption(context, opt, descCol);
+                WriteHelpOption(context, descCol);
                 context.Output.WriteLine();
             }
         }
 
         private void WriteOptionGroup(HelpContext context, string header,
-            List<Option> allOptions, string groupKey)
+            List<Option> allOptions, string groupKey, int descCol)
         {
             var group = allOptions
                 .Where(o => Classify(o) == groupKey)
@@ -374,7 +335,7 @@ namespace LivePhotoBox.Cli.Infrastructure
 
             WriteSection(context, header);
             foreach (var opt in group)
-                WriteOption(context, opt);
+                WriteOption(context, opt, descCol);
             context.Output.WriteLine();
         }
 
@@ -392,47 +353,47 @@ namespace LivePhotoBox.Cli.Infrastructure
 
         private void WriteSection(HelpContext context, string header)
         {
-            if (Console.ForegroundColor != ConsoleColor.White)
-                Console.ResetColor();
-
-            // 章节标题上色（青色），与 CLI 其它输出风格一致
+            // 分组表头用青色，与其它标题一致
             CliConsole.WriteLine(header, CliConsole.Accent);
             context.Output.WriteLine();
         }
 
-        private void WriteOption(HelpContext context, Option option)
+        // Build the first column: "-i, --image <image>"
+        private static string FormatLabel(Option option)
         {
-            // Build alias string: "-i, --image <image>"
             var aliases = string.Join(", ", option.Aliases.OrderBy(a => a.Length));
             var typePart = option.ValueType == typeof(bool) ? "" : $" <{option.Name}>";
+            return $"  {aliases}{typePart}";
+        }
 
+        private void WriteOption(HelpContext context, Option option, int descCol)
+        {
             // Default hint — hardcoded for readability
             string defaultHint = "";
             if (option.Aliases.Contains("--protocol")) defaultHint = " [default: motion photo]";
             else if (option.Aliases.Contains("--naming")) defaultHint = " [default: keep]";
-            else if (option.Aliases.Contains("--parallel")) defaultHint = " [default: CPU cores]";
+            else if (option.Aliases.Contains("--parallel")) defaultHint = " [default: CPU cores (max 5)]";
             else if (option.Aliases.Contains("--pairing")) defaultHint = " [default: name]";
             else if (option.Aliases.Contains("--after")) defaultHint = " [default: none]";
 
-            var indent = "  ";
-            var label = $"{indent}{aliases}{typePart}";
+            var label = FormatLabel(option);
             var labelWidth = Math.Max(label.Length, 2);
-            var padding = labelWidth < 32 ? new string(' ', 32 - labelWidth) : "  ";
+            var padding = labelWidth < descCol ? new string(' ', descCol - labelWidth) : "  ";
 
             var desc = option.Description ?? "";
             var lines = desc.Split('\n');
             var firstLine = lines[0].Trim();
 
-            // Line 1: colored label + description + default
+            // Line 1: plain label + description + default
             WriteColoredLabel(context.Output, label);
             context.Output.Write(padding);
             WriteDescriptionLine(context.Output, firstLine);
             if (!string.IsNullOrEmpty(defaultHint))
-                WriteColored(context.Output, defaultHint, CliConsole.Highlight);
+                context.Output.Write(defaultHint);
             context.Output.WriteLine();
 
             // Line 2+: continuation indented under description
-            var contIndent = new string(' ', 32 + 2); // align under description text
+            var contIndent = new string(' ', descCol + 2); // align under description text
             for (int i = 1; i < lines.Length; i++)
             {
                 var line = lines[i].Trim();
@@ -447,10 +408,10 @@ namespace LivePhotoBox.Cli.Infrastructure
 
         // The global help option is not part of merge's own Options in beta4,
         // so it is rendered manually at the end of the OTHER section.
-        private static void WriteHelpOption(HelpContext context)
+        private static void WriteHelpOption(HelpContext context, int descCol)
         {
             var label = "  -?, -h, --help";
-            var padding = new string(' ', 32 - label.Length);
+            var padding = new string(' ', descCol - label.Length);
             WriteColoredLabel(context.Output, label);
             context.Output.Write(padding);
             WriteColoredDescription(context.Output, "Show help and usage information");

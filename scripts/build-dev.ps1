@@ -54,7 +54,7 @@ $cliPublishArgs = @(
     '-r', 'win-x64',
     '--self-contained', 'true',
     '-p:Platform=x64',
-    '-o', 'publish\cli_x64'
+    '-o', 'publish\cli_multi'
 )
 dotnet @cliPublishArgs
 
@@ -62,12 +62,12 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "       CLI publish warning: exit code $LASTEXITCODE" -ForegroundColor DarkYellow
 }
 
-if (-not (Test-Path 'publish\cli_x64\livephotobox-boot.exe')) {
+if (-not (Test-Path 'publish\cli_multi\livephotobox-boot.exe')) {
     Write-Host '       CLI build FAILED - exe not found, skipping merge' -ForegroundColor DarkYellow
 } else {
     # 只复制 GUI 目录中不存在的文件，避免 CLI 的 SDK 投影 DLL 覆盖 GUI 版本
-    Get-ChildItem 'publish\cli_x64' -Recurse | ForEach-Object {
-        $target = Join-Path $outDir $_.FullName.Substring((Get-Item 'publish\cli_x64').FullName.Length + 1)
+    Get-ChildItem 'publish\cli_multi' -Recurse | ForEach-Object {
+        $target = Join-Path $outDir $_.FullName.Substring((Get-Item 'publish\cli_multi').FullName.Length + 1)
         if ($_.PSIsContainer) {
             if (-not (Test-Path $target)) { New-Item -ItemType Directory -Path $target -Force | Out-Null }
         } else {
@@ -76,18 +76,18 @@ if (-not (Test-Path 'publish\cli_x64\livephotobox-boot.exe')) {
     }
     Write-Host '       CLI merged into portable' -ForegroundColor Green
 
-    # Build Go alias shims (symlink-safe) — 与 build-release.ps1 的 step 2.5 一致
+    # Build Go alias shims (symlink-safe) — 与 build-release.ps1 的 step 3 一致
     $goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
     $shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
     if ($goCmd -and (Test-Path $shimSrc)) {
         $cliAliases = @('livephotobox', 'livebox', 'lpb', 'livephoto')
         foreach ($alias in $cliAliases) {
-            $outExe = "publish\cli_x64\$alias.exe"
+            $outExe = "publish\cli_multi\$alias.exe"
             & $goCmd build -ldflags="-s -w" -o $outExe $shimSrc 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0 -and (Test-Path $outExe)) {
-                Remove-Item -Force "publish\cli_x64\$alias.runtimeconfig.json" -ErrorAction SilentlyContinue
-                Remove-Item -Force "publish\cli_x64\$alias.deps.json" -ErrorAction SilentlyContinue
-                Remove-Item -Force "publish\cli_x64\$alias.pdb" -ErrorAction SilentlyContinue
+                Remove-Item -Force "publish\cli_multi\$alias.runtimeconfig.json" -ErrorAction SilentlyContinue
+                Remove-Item -Force "publish\cli_multi\$alias.deps.json" -ErrorAction SilentlyContinue
+                Remove-Item -Force "publish\cli_multi\$alias.pdb" -ErrorAction SilentlyContinue
             } else {
                 Write-Host "       $alias.exe  BUILD FAILED - keeping apphost copy" -ForegroundColor DarkYellow
             }
@@ -100,16 +100,14 @@ if (-not (Test-Path 'publish\cli_x64\livephotobox-boot.exe')) {
     # CLI standalone (dev, unzipped)
     $cliDir = 'publish\cli_standalone'
     if (Test-Path $cliDir) { Remove-Item -Recurse -Force $cliDir }
-    Copy-Item 'publish\cli_x64' $cliDir -Recurse -Force
+    Copy-Item 'publish\cli_multi' $cliDir -Recurse -Force
 
-    # Copy Tools (skip jpegtran.exe — only GUI Repair uses it)
+    # Copy external tools (jpegtran.exe included — CLI 后续将支持修复功能)
     $toolsSrc = Join-Path $projectRoot 'LivePhotoBox\Tools'
     if (Test-Path $toolsSrc) {
         New-Item -ItemType Directory -Path "$cliDir\Tools" -Force | Out-Null
         Get-ChildItem $toolsSrc | ForEach-Object {
-            if ($_.Name -ne 'jpegtran.exe') {
-                Copy-Item $_.FullName "$cliDir\Tools\" -Recurse -Force
-            }
+            Copy-Item $_.FullName "$cliDir\Tools\" -Recurse -Force
         }
     }
 
@@ -122,7 +120,7 @@ if (-not (Test-Path 'publish\cli_x64\livephotobox-boot.exe')) {
 
     Write-Host '       CLI standalone ready' -ForegroundColor Green
 }
-Remove-Item -Recurse -Force 'publish\cli_x64' -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force 'publish\cli_multi' -ErrorAction SilentlyContinue
 
 Write-Host '       Build OK' -ForegroundColor Green
 

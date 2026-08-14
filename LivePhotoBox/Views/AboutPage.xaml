@@ -110,6 +110,17 @@
                                     </DataTemplate>
                                 </Button.ContentTemplate>
                             </Button>
+                            <Button x:Uid="AboutPage_OpenInstallFolderButton"
+                                    Click="OpenInstallFolder_Click">
+                                <Button.ContentTemplate>
+                                    <DataTemplate>
+                                        <StackPanel Orientation="Horizontal" Spacing="8">
+                                            <ic:SymbolIcon Symbol="FolderOpen" FontSize="14"/>
+                                            <TextBlock Text="{Binding}" Margin="0,0,0,2"/>
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </Button.ContentTemplate>
+                            </Button>
                             <Button x:Uid="AboutPage_CliManualButton"
                                     Command="{x:Bind ViewModel.ShowCliManualCommand}">
                                 <Button.ContentTemplate>

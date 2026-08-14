@@ -18,7 +18,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "[Environment]::SetEnvironmentVariable('Path',$new,'User');" ^
   "Write-Host 'ADDED to user PATH (no admin needed):' -ForegroundColor Green;" ^
   "Write-Host ('  ' + $dir) -ForegroundColor White;" ^
-  "Write-Host 'Restart your terminal, then run:  livephoto --version' -ForegroundColor Cyan"
+  "Write-Host 'Restart your terminal, then run:  lpb --version' -ForegroundColor Cyan"
 
 set "RC=%ERRORLEVEL%"
 echo.

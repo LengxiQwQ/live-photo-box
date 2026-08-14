@@ -20,12 +20,12 @@ using Windows.ApplicationModel;
 // LogService — 统一日志服务
 // =======================================================================================
 // 设计原则：
-//   - 每次会话 = 一个 .log 文件，文件名格式 app-YYYYMMDD-HHmmss.log
+//   - 每次会话 = 一个 .log 文件，文件名格式 app-YYYYMMDD-HHmmssfff-<pid>.log
 //   - 所有日志（常规信息、崩溃报告、会话标记）写入同一文件流
 //   - 崩溃报告直接追加到日志文件尾部（不设独立文件）
 //   - 崩溃检测通过读取上次会话日志尾部标记实现（无需额外状态文件）
 //   - 线程安全：ConcurrentQueue 入队，异步批量 flush + 同步加锁写盘
-//   - 保留策略：保留最近 15 个日志文件 + 5 个 dump 文件
+//   - 保留策略：目录里始终 ≤100 个日志文件（含当前会话）+ 5 个 dump 文件
 // =======================================================================================
 
 namespace LivePhotoBox.Services
@@ -38,12 +38,12 @@ namespace LivePhotoBox.Services
     // - Crash reports are appended inline to the same log stream
     // - Crash detection reads the previous session's log tail (no external state)
     // - Thread-safe, async flush with immediate sync write for critical/crash entries
-    // - Max 15 log files + 5 dumps retained; older ones auto-deleted
+    // - Max 100 log files in the directory (incl. the current session) + 5 dumps; older ones auto-deleted
     public static class LogService
     {
         #region Constants
 
-        private const int MaxLogFiles = 15;
+        private const int MaxLogFiles = 100;
         private const int MaxDumpFiles = 5;
         private const int MaxMemoryEntries = 1000;
         private const int CrashContextLineCount = 50;
@@ -134,7 +134,7 @@ namespace LivePhotoBox.Services
             // Create new session log file
             _currentLogPath = Path.Combine(_logDirectory, GenerateLogFileName());
             File.WriteAllText(_currentLogPath,
-                $"=== LivePhotoBox Session Started [{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff}] [v{GetAppVersion()}] ===\n",
+                $"=== Live Photo Box Session Started [{DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss.fff}] [v{GetAppVersion()}] ===\n",
                 Encoding.UTF8);
 
             // Seed the log and flush immediately so startup is persisted
@@ -587,9 +587,11 @@ namespace LivePhotoBox.Services
 
         private static string GetAppVersion()
         {
-            // 优先取入口程序集版本（GUI 或 CLI），退化到 Core 自身版本
-            return System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.ToString()
-                ?? System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString()
+            // 优先取入口程序集版本（GUI 或 CLI），退化到 Core 自身版本。
+            // ToString(3) 只取 Major.Minor.Build 三位：项目版本号是 3 段语义
+            // （如 2.1.5），尾随的 Revision 恒为 0，打进日志既冗余又不像给人看的版本号。
+            return System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.ToString(3)
+                ?? System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString(3)
                 ?? "0.0.0";
         }
 
@@ -630,7 +632,10 @@ namespace LivePhotoBox.Services
 
         private static string GenerateLogFileName()
         {
-            return $"{LogFilePrefix}-{DateTime.Now:yyyyMMdd-HHmmss}{LogFileExtension}";
+            // 秒级分辨率在同一秒并发启动多个进程（CLI 脚本/CI 并行、多 GUI 实例）时
+            // 会生成相同文件名 → File.WriteAllText 相互覆盖 → 日志丢失。
+            // 追加毫秒 + 进程 ID：同秒内 PID 必然唯一（进程间不共享），毫秒提升可读性与排序精度。
+            return $"{LogFilePrefix}-{DateTime.Now:yyyyMMdd-HHmmssfff}-{Environment.ProcessId}{LogFileExtension}";
         }
 
         private static void CleanupOldLogFiles()
@@ -645,9 +650,12 @@ namespace LivePhotoBox.Services
                     .OrderByDescending(f => f.CreationTime)
                     .ToList();
 
-                if (logFiles.Count > MaxLogFiles)
+                // MaxLogFiles 是"目录里日志总数上限"（含当前会话文件）。
+                // 清理在 Initialize 创建当前文件之前执行，故历史文件只保留 MaxLogFiles - 1 个，
+                // 创建当前文件后总数恰好 ≤ MaxLogFiles，不会越界累积。
+                if (logFiles.Count >= MaxLogFiles)
                 {
-                    foreach (var file in logFiles.Skip(MaxLogFiles))
+                    foreach (var file in logFiles.Skip(MaxLogFiles - 1))
                     {
                         try { file.Delete(); }
                         catch { /* File may be locked by another process */ }

@@ -1,23 +1,34 @@
 ## ✨ 新增功能 / New Features
 
-- **📖 关于页新增「CLI 手册」** — 关于页新增「CLI 手册」按钮，应用内直接弹出命令行使用手册（
+- **📖 GUI 关于页新增「CLI 手册」** — 关于页新增「CLI 手册」按钮，点一下就能在应用里直接查看命令行工具的使用说明，不用再自己翻文档
   
-  > New "CLI Manual" button on the About page — opens the command-line user guide in-app (instant from the local copy, fetched from GitHub when missing).
+  > New "CLI Manual" button on the About page — open the command-line user guide right inside the app.
   
-- **📦 CLI 一键加入 PATH** — 便携版与命令行包内置 `add-to-path.cmd` / `remove-from-path.cmd`：双击即可把命令加入或移出用户 PATH，无需管理员权限
-  > One-click CLI PATH setup — portable and CLI packages now ship `add-to-path.cmd` / `remove-from-path.cmd` to add or remove the commands from your user PATH with a double-click, no admin rights needed.
+- **📦 命令行工具一键加入系统 PATH** — 便携版和命令行包新增「加入 / 移除」脚本，双击一下就能在任何文件夹直接使用命令行工具，不用手动改系统设置，也不需要管理员权限
+  
+  > One-click CLI setup — portable and CLI packages now include add/remove scripts: double-click to use the commands from any folder, no manual setup or admin rights.
+  
+- **🔍 命令行查看支持范围更清楚** — `lpb protocols` 现在会标注每种格式支持哪些手机品牌、哪些还在测试中，一眼就能看明白
+  
+  > `lpb protocols` now marks which phone brands each format supports and what is still in testing, at a glance.
+  
+- **🏷️ WinGet 自动同步新版本** — 用 WinGet 安装的用户，每次发版后都会自动同步到 WinGet，一条命令就能装好或升级（安装命令见下方下载区）
+  
+  > WinGet auto-sync — releases now sync to WinGet automatically; one command installs or upgrades (see the Download section).
 
 ## ⚡ 优化 / Optimizations
 
-- **⬆️ CLI 更新可靠性大幅提升** — 版本检查与下载失败自动重试 3 次，下载支持断点续传、实时进度条（百分比 + 速度）与 SHA256 完整性校验，自动重试耗尽后可按 R 交互重试
-  > CLI update reliability — version checks and downloads auto-retry up to 3 times; downloads support HTTP range resume, a live progress bar with percent and speed, and SHA256 integrity verification; press R to retry interactively once automatic retries are exhausted.
-
-- **🖼️ GUI 关于页安装渠道展示增强** — 安装方式按卸载器身份识别（商店 / Inno Setup / Scoop / 便携），并标注「含 CLI / 仅 GUI」；设置页更新提示区分「已是最新」与「正在运行预览版」且更醒目
+- **⬆️ 更新更加稳定** — 检查更新和下载失败都会自动重试；下载中断能接着上次的进度继续，不用从头再来；下载完会自动检查文件是否完整，防止装到坏文件
   
-  > Enhanced install-channel display on the About page — identity-based detection (Store / Inno Setup / Scoop / Portable) plus a "GUI + CLI / GUI only" marker; the Settings update message now distinguishes "up to date" from "running a preview" and is more prominent.
-
-- **💻 CLI 命令别名精简至 4 个** — 移除冗余的 `lipbox` / `lpbx`，保留 `livephotobox` / `livebox` / `lpb` / `livephoto`；旧脚本用到被移除别名的，请改用 `lpb` 或 `livephotobox`
-  > CLI command aliases trimmed to 4 — redundant `lipbox` and `lpbx` are gone, leaving `livephotobox` / `livebox` / `lpb` / `livephoto`; switch scripts to `lpb` or `livephotobox` if they used the removed ones.
+  > More reliable updates — checks and downloads auto-retry, interrupted downloads resume where they left off, and every file is verified before installing.
+  
+- **🖼️ 安装方式识别更准确** — 关于页自动识别应用的安装方式（商店 / 安装包 / Scoop / WinGet / 便携版），并标注是否附带命令行工具；设置页的更新提示能区分「已是最新」和「正在使用预览版」
+  
+  > Smarter About & Settings — the About page detects how the app was installed (Store / installer / Scoop / portable) and marks whether the CLI is included; Settings now tells "up to date" from "running a preview".
+  
+- **💻 命令行多余别名减少** — 命令快捷名称精简到常用的 4 个（移除了不常用的 `lipbox` / `lpbx`）；`lpb info` 调整为更规范的 `lpb --info`，并新增显示安装位置与日志位置，遇到问题好排查
+  
+  > Smoother CLI — command names trimmed to the 4 common ones (removed `lipbox` / `lpbx`); `lpb info` becomes the cleaner `lpb --info`, which also shows your install and log locations for easier troubleshooting.
 
 ---
 
@@ -38,7 +49,11 @@
 **💻 命令行版 / CLI-only** — 仅脚本 / AI 调用  
 <a href="https://github.com/LengxiQwQ/live-photo-box/releases/download/v2.1.5/Live-Photo-Box-v2.1.5-x64-cli.zip"><small>⬇️ Live-Photo-Box-v2.1.5-x64-cli.zip</small></a>
 
-> 📖 **CLI 使用指南 / CLI User Guide: **  <a href="https://github.com/LengxiQwQ/live-photo-box/blob/v2.1.5/docs/CLI-User-Guide.md">English</a> · <a href="https://github.com/LengxiQwQ/live-photo-box/blob/v2.1.5/docs/CLI-User-Guide.zh-CN.md"> 中文</a>
+**🏷️ WinGet 安装 (CLI-only)**
+⬇️ `winget install LengxiQwQ.LivePhotoBox`
+
+> WinGet 更新略有延迟 / The WinGet update has a slight delay.
+> 📖 CLI 使用指南 / CLI User Guide:  <a href="https://github.com/LengxiQwQ/live-photo-box/blob/v2.1.5/docs/CLI-User-Guide.md">English</a> · <a href="https://github.com/LengxiQwQ/live-photo-box/blob/v2.1.5/docs/CLI-User-Guide.zh-CN.md"> 中文</a>
 
 > 🐛 反馈问题 → [Issues](https://github.com/lengxiqwq/live-photo-box/issues)  
 > ⭐ 如果喜欢这个项目，欢迎点个 Star！

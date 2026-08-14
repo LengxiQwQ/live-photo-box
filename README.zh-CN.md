@@ -37,7 +37,9 @@
     应用自包含 .NET 9 + WinAppSDK 1.8
   </sub>
 </p>
-
+<p align="center">
+  <sub>或通过 <b>winget</b> 安装 <b>纯命令行版本</b>： <code>winget install LengxiQwQ.LivePhotoBox</code></sub>
+</p>
 
 ---
 
@@ -102,7 +104,7 @@
 | 拆分协议 | 支持机型 | 状态 |
 |---|---|---|
 | Apple Live Photo | iPhone / iPad | 🟡 测试中 |
-| vivo Live Photo | vivo（≤ x300） | 🟡 测试中 |
+| vivo Live Photo | vivo（≤ x200） | 🟡 测试中 |
 
 ### 🛠️ 实况照片修复
 

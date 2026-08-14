@@ -51,15 +51,19 @@
     <Copy SourceFiles="$(_AliasDestDir)$(AssemblyName).exe"
           DestinationFiles="$(_AliasDestDir)%(_CliAliasItem.Identity).exe"
           SkipUnchangedFiles="true" />
+    <!-- 单文件发布没有独立的 runtimeconfig.json / deps.json（已内嵌到 exe），加 Exists 防 MSB3030 -->
     <Copy SourceFiles="$(_AliasDestDir)$(AssemblyName).runtimeconfig.json"
           DestinationFiles="$(_AliasDestDir)%(_CliAliasItem.Identity).runtimeconfig.json"
-          SkipUnchangedFiles="true" />
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_AliasDestDir)$(AssemblyName).runtimeconfig.json')" />
     <Copy SourceFiles="$(_AliasDestDir)$(AssemblyName).deps.json"
           DestinationFiles="$(_AliasDestDir)%(_CliAliasItem.Identity).deps.json"
-          SkipUnchangedFiles="true" />
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_AliasDestDir)$(AssemblyName).deps.json')" />
     <Copy SourceFiles="$(_AliasDestDir)$(AssemblyName).pdb"
           DestinationFiles="$(_AliasDestDir)%(_CliAliasItem.Identity).pdb"
-          SkipUnchangedFiles="true" />
+          SkipUnchangedFiles="true"
+          Condition="Exists('$(_AliasDestDir)$(AssemblyName).pdb')" />
   </Target>
 
   <!-- Publish 阶段：显式设置目标为 PublishDir -->

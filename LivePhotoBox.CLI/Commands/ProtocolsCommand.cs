@@ -2,12 +2,37 @@ using LivePhotoBox.Cli.Infrastructure;
 using LivePhotoBox.Services;
 using System;
 using System.CommandLine;
+using System.Linq;
 using System.Text.Json;
 
 namespace LivePhotoBox.Cli.Commands
 {
     internal static class ProtocolsCommand
     {
+        // Devices supported per merge protocol, aligned with ProtocolFormatMatrix.Matrix index.
+        // CLI-only display data (the GUI picks protocols via a combo box and does not need this table).
+        private static readonly string[] MergeDevices =
+        [
+            "Windows / Android (universal)",          // 0 fusion
+            "Windows / Xiaomi (legacy MIUI) / Pixel", // 1 micro video
+            "Windows / Xiaomi / Pixel",               // 2 motion photo
+            "Windows / Xiaomi / OPPO",                // 3 oppo
+            "Windows / vivo (≥ X300)",                // 4 vivo
+            "Windows / Samsung",                      // 5 samsung
+            "HUAWEI / Honor",                         // 6 huawei
+        ];
+
+        // true = supported, false = in testing
+        private static readonly bool[] MergeSupported =
+            [false, true, true, true, false, false, true];
+
+        // Split protocols — informational only; CLI split is not implemented yet (use the GUI app).
+        private static readonly (string Name, string Devices, bool Supported)[] SplitProtocols =
+        [
+            ("Apple Live Photo", "iPhone / iPad", false),
+            ("vivo Live Photo",  "vivo (≤ X200)", false),
+        ];
+
         public static Command Create()
         {
             var jsonOpt = new Option<bool>("--json", "Output in JSON format");
@@ -31,9 +56,9 @@ namespace LivePhotoBox.Cli.Commands
         private static void PrintTable()
         {
             Console.WriteLine();
-            CliConsole.WriteLine("  Merge — protocol × format compatibility", CliConsole.Notice);
+            CliConsole.WriteLine("  Merge — protocol × format compatibility", CliConsole.Accent);
             Console.WriteLine();
-            CliConsole.WriteLine($"  {"Protocol".PadRight(22)}JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+MP4(H.265)", CliConsole.Accent);
+            Console.WriteLine($"  {"Protocol".PadRight(22)}JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+MP4(H.265)");
             Console.WriteLine($"  {new string('─', 22)} ────────   ────────   ────────   ────────   ──────────────");
 
             for (int p = 0; p < ProtocolFormatMatrix.Matrix.Length; p++)
@@ -41,7 +66,7 @@ namespace LivePhotoBox.Cli.Commands
                 string display = p == 0 ? "Fusion (testing)" : ProtocolNameResolver.ProtocolDisplayNames[p];
                 string name = display.PadRight(22);
                 Console.Write("  ");
-                CliConsole.Write(name, CliConsole.Accent);
+                Console.Write(name);
                 Console.Write(" ");
                 WriteMark(ProtocolFormatMatrix.Matrix[p][0]);
                 Console.Write("        ");
@@ -61,9 +86,66 @@ namespace LivePhotoBox.Cli.Commands
             WriteIndexLine("  Protocol indices: ", "fusion=0  micro video=1  motion photo=2  oppo=3  vivo=4  samsung=5  huawei=6");
             WriteIndexLine("  Format indices:   ", "jpg+mp4=0  jpg+mov=1  heic+mp4=2  heic+mov=3  heic+mp4-h265=4");
             Console.WriteLine();
+
+            PrintDeviceTable("Merge — devices & availability",
+                ProtocolNameResolver.ProtocolDisplayNames, MergeDevices, MergeSupported);
+            PrintDeviceTable("Split — devices & availability (split not yet supported in CLI — use the GUI app)",
+                SplitProtocols.Select(p => p.Name).ToArray(),
+                SplitProtocols.Select(p => p.Devices).ToArray(),
+                SplitProtocols.Select(p => p.Supported).ToArray());
         }
 
-        // "fusion=0  micro video=1 ..." — index numbers (values) in yellow.
+        // Prints a "protocol × devices × availability" table (merge or split).
+        private static void PrintDeviceTable(string title, string[] names, string[] devices, bool[] supported)
+        {
+            int nameW = Math.Max("Protocol".Length, names.Max(n => n.Length));
+            int devW = Math.Max("Devices".Length, devices.Max(d => d.Length));
+
+            Console.WriteLine();
+            CliConsole.WriteLine($"  {title}", CliConsole.Accent);
+            Console.WriteLine();
+            Console.Write("  ");
+            Console.Write("Protocol".PadRight(nameW));
+            Console.Write("   ");
+            Console.Write("Devices".PadRight(devW));
+            Console.Write("   Status");
+            Console.WriteLine();
+            Console.WriteLine($"  {new string('─', nameW)}   {new string('─', devW)}   ──────────");
+
+            for (int i = 0; i < names.Length; i++)
+            {
+                Console.Write("  ");
+                Console.Write(names[i].PadRight(nameW));
+                Console.Write("   ");
+                Console.Write(devices[i].PadRight(devW));
+                Console.Write("   ");
+                WriteAvailability(supported[i]);
+                Console.WriteLine();
+            }
+        }
+
+        private static void WriteAvailability(bool supported)
+        {
+            if (CliConsole.UseColor)
+            {
+                if (supported)
+                {
+                    CliConsole.Write("✅", CliConsole.Success);
+                    Console.Write(" Supported");
+                }
+                else
+                {
+                    CliConsole.Write("🟡", CliConsole.Notice);
+                    Console.Write(" In testing");
+                }
+            }
+            else
+            {
+                Console.Write(supported ? "✅ Supported" : "🟡 In testing");
+            }
+        }
+
+        // "fusion=0  micro video=1 ..." — name plain white, "=index" in yellow.
         private static void WriteIndexLine(string prefix, string rest)
         {
             Console.Write(prefix);
@@ -73,17 +155,18 @@ namespace LivePhotoBox.Cli.Commands
                 return;
             }
 
-            foreach (var seg in rest.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries))
+            // 条目以两个空格分隔；条目内部的名字可含单个空格（如 "micro video=1"）。
+            foreach (var entry in rest.Split(new[] { "  " }, StringSplitOptions.RemoveEmptyEntries))
             {
-                int eq = seg.IndexOf('=');
+                int eq = entry.IndexOf('=');
                 if (eq > 0)
                 {
-                    Console.Write(seg.Substring(0, eq + 1));
-                    CliConsole.Write(seg.Substring(eq + 1), CliConsole.Highlight);
+                    Console.Write(entry.Substring(0, eq));
+                    CliConsole.Write(entry.Substring(eq), CliConsole.Highlight);
                 }
                 else
                 {
-                    Console.Write(seg);
+                    Console.Write(entry);
                 }
                 Console.Write("  ");
             }
@@ -134,11 +217,24 @@ namespace LivePhotoBox.Cli.Commands
                     index = p,
                     name = ProtocolNameResolver.ProtocolNames[p],
                     displayName = ProtocolNameResolver.ProtocolDisplayNames[p],
+                    devices = MergeDevices[p],
+                    status = MergeSupported[p] ? "Supported" : "In testing",
                     formats = Array.FindAll(formats, f => f != null)
                 };
             }
 
-            var json = JsonSerializer.Serialize(new { protocols }, new JsonSerializerOptions { WriteIndented = true });
+            var split = new object[SplitProtocols.Length];
+            for (int s = 0; s < SplitProtocols.Length; s++)
+            {
+                split[s] = new
+                {
+                    name = SplitProtocols[s].Name,
+                    devices = SplitProtocols[s].Devices,
+                    status = SplitProtocols[s].Supported ? "Supported" : "In testing"
+                };
+            }
+
+            var json = JsonSerializer.Serialize(new { protocols, split }, new JsonSerializerOptions { WriteIndented = true });
             Console.WriteLine(json);
         }
     }

@@ -169,7 +169,7 @@
     <value>（GUI + CLI）</value>
   </data>
   <data name="AboutPage_Mode_GuiOnly" xml:space="preserve">
-    <value>（仅 GUI）</value>
+    <value>（未内置 CLI）</value>
   </data>
   <data name="RestartDialog_CloseButton" xml:space="preserve">
     <value>稍后</value>
@@ -3238,6 +3238,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="AboutPage_CheckUpdateButton.Content" xml:space="preserve">
     <value>检查更新</value>
+  </data>
+  <data name="AboutPage_OpenInstallFolderButton.Content" xml:space="preserve">
+    <value>打开安装位置</value>
   </data>
   <data name="AboutPage_StoreButton.Content" xml:space="preserve">
     <value>商店页面</value>

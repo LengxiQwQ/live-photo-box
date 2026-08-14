@@ -1,8 +1,6 @@
 name: "❓ Question / 提问"
 description: |
-  Ask a question or get help.
-
-  提出问题或寻求帮助。
+  Ask a question or get help. / 提出问题或寻求帮助。
 title: "[Question] "
 labels: ["question"]
 body:

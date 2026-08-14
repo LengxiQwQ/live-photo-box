@@ -30,11 +30,13 @@ namespace LivePhotoBox.Cli.Commands
             filesArg.Arity = new ArgumentArity(0, 2);
 
             var dirOpt = new Option<DirectoryInfo?>("--dir",
-                "Folder with images+ videos. Files with matching names are paired. For batch mode.");
+                "Folder with images + videos. Files with matching names are paired. For batch mode.");
             dirOpt.AddAlias("-d");
 
             var protocolOpt = new Option<string>("--protocol", () => "motion photo",
                 "Target phone format. fusion (universal Android)|micro video (V1)|motion photo (V2)|oppo|vivo|samsung|huawei.\n" +
+                "Multi-word names also work without spaces (no quotes): microvideo, motionphoto.\n" +
+                "fusion is this tool's own format — in testing, stability unknown, not an official phone-vendor protocol.\n" +
                 "Use 'protocols' command to see all supported combinations.");
             protocolOpt.AddAlias("-p");
 
@@ -98,7 +100,7 @@ namespace LivePhotoBox.Cli.Commands
                 "Images: .jpg .jpeg .heic .heif   Videos: .mp4 .mov\n\n" +
                 "Single pair:  lpb merge photo.jpg video.mp4 -p huawei\n" +
                 "              (writes next to photo.jpg as photo_huawei.jpg)\n" +
-                "Batch folder: lpb merge -d ./MyPhotos -p \"motion photo\" -y\n" +
+                "Batch folder: lpb merge -d ./MyPhotos -p motionphoto -y\n" +
                 "              (writes ./MyPhotos/MyPhotos_motionphoto/)\n" +
                 "Preview:      lpb merge -d ./MyPhotos --dry-run\n" +
                 "All variants: lpb merge photo.jpg video.mp4 --all-variants\n" +
@@ -370,6 +372,20 @@ namespace LivePhotoBox.Cli.Commands
                 // Print summary
                 string protoDisplay = ProtocolNameResolver.GetProtocolDisplayName(protocolIndex);
                 string fmtDisplay = ProtocolFormatMatrix.FormatNames[formatIndex];
+
+                // 命令层日志：完整有效配置，让日志能还原"当时跑了什么命令、什么参数"。
+                LogService.Merge(
+                    $"Command config: mode={(isSingle ? "single" : "batch")} " +
+                    $"protocol={protoDisplay}({protocolIndex}) format={fmtDisplay}({formatIndex}) " +
+                    $"naming={naming} output={outputDir} overwrite={overwrite} dryRun={dryRun} " +
+                    $"keyTimestamp={(keyTimestampUs.HasValue ? $"{keyTimestampUs.Value / 1_000_000.0:F3}s" : "auto")}");
+                if (isBatch)
+                    LogService.Merge(
+                        $"Batch: dir={dir!.FullName} pairing={pairing} parallel={parallel} recursive={recursive} " +
+                        $"preserveSubdirs={preserveSubdirs} after={after}");
+                else
+                    LogService.Merge($"Sources: image={image!.FullName}, video={video!.FullName}");
+
                 CliConsole.WriteField("Protocol", protoDisplay, width: 10, valueColor: CliConsole.Highlight);
                 CliConsole.WriteField("Format", fmtDisplay, width: 10, valueColor: CliConsole.Highlight);
                 CliConsole.WriteFieldRgb("Output", outputDir, width: 10, valueColor: CliConsole.PathGreen);
@@ -400,7 +416,10 @@ namespace LivePhotoBox.Cli.Commands
 
                     if (dryRun)
                     {
-                        Console.WriteLine("[DRY RUN] Would merge 1 pair.");
+                        LogService.Merge("DRY RUN: would merge 1 pair.");
+                        Console.Write("[DRY RUN] Would merge ");
+                        CliConsole.Write("1", CliConsole.Highlight);
+                        Console.WriteLine(" pair.");
                         return 0;
                     }
 
@@ -445,7 +464,7 @@ namespace LivePhotoBox.Cli.Commands
         }
 
         // 批量模式默认输出目录：在输入目录下新建 {输入目录名}_{协议后缀} 子文件夹。
-        // 例: merge -d ./MyPhotos -p motion photo → ./MyPhotos/MyPhotos_motionphoto/
+        // 例: merge -d ./MyPhotos -p motionphoto → ./MyPhotos/MyPhotos_motionphoto/
         private static string DefaultBatchOutputDirectory(string inputDir, int protocolIndex)
         {
             string dirName = Path.GetFileName(inputDir.TrimEnd(
@@ -461,10 +480,10 @@ namespace LivePhotoBox.Cli.Commands
             int protocolIndex, int formatIndex, int namingRuleIndex, string? customPattern,
             long? keyTimestampUs, bool overwrite, bool verbose, CancellationToken ct)
         {
+            // 放 try 外：catch 里也要记录文件名（baseName 在 catch 作用域不可见）
+            string baseName = Path.GetFileNameWithoutExtension(imagePath);
             try
             {
-                string baseName = Path.GetFileNameWithoutExtension(imagePath);
-
                 var options = new LivePhotoMergeRunOptions
                 {
                     OutputDirectory = outputDir,
@@ -503,6 +522,7 @@ namespace LivePhotoBox.Cli.Commands
             }
             catch (Exception ex)
             {
+                LogService.Error($"Merge failed for {baseName}: {ex.Message}", ex, LogSource.Merge);
                 CliConsole.WriteErrorLine($"ERROR: {ex.GetType().Name}: {ex.Message}");
                 if (verbose) Console.Error.WriteLine(ex.StackTrace);
                 return 1;
@@ -605,6 +625,7 @@ namespace LivePhotoBox.Cli.Commands
             // 4. Dry run
             if (dryRun)
             {
+                LogService.Merge($"DRY RUN: would merge {tasks.Count} pairs.");
                 Console.WriteLine();
                 Console.Write("[DRY RUN] Would merge ");
                 CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
@@ -807,8 +828,13 @@ namespace LivePhotoBox.Cli.Commands
                 }
             }
 
+            LogService.Merge(
+                $"All-variants: output={variantsDir} parallel={parallel} dryRun={dryRun} " +
+                $"combos={combos.Count} keyTimestamp={(keyTimestampUs.HasValue ? $"{keyTimestampUs.Value / 1_000_000.0:F3}s" : "auto")}");
+
             if (dryRun)
             {
+                LogService.Merge($"DRY RUN: would generate {combos.Count} variants.");
                 CliConsole.WriteFieldRgb("Output", variantsDir, width: 10, valueColor: CliConsole.PathGreen);
                 Console.WriteLine();
                 Console.Write("Would generate ");

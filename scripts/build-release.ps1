@@ -80,21 +80,22 @@ if (-not (Test-Path "$outDir\Live Photo Box.exe")) {
 Write-Host '       GUI build OK' -ForegroundColor Green
 
 # ═══════════════════════════════════════════════════════════════
-# [2/7] Build CLI → merge into portable dir（保留 cli_x64 供 step 3 用）
+# [2/7] Build CLI（多文件）→ merge into portable dir
 # ═══════════════════════════════════════════════════════════════
 Write-Host ''
-Write-Host '[2/7] Building CLI x64 (SelfContained)...' -ForegroundColor Yellow
+Write-Host '[2/7] Building CLI x64 (SelfContained, multi-file)...' -ForegroundColor Yellow
 
-dotnet publish 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 -o publish\cli_x64
+# 多文件 CLI：别名 exe 为 apphost 副本（几百 KB），依赖同目录 DLL 运行 → merge 时 GUI 已有 DLL 被跳过，增量仅 2~3MB
+dotnet publish 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 -o publish\cli_multi
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "       CLI publish warning: exit code $LASTEXITCODE" -ForegroundColor DarkYellow
 }
 
-if (Test-Path 'publish\cli_x64\livephotobox-boot.exe') {
+if (Test-Path 'publish\cli_multi\livephotobox-boot.exe') {
     # 只复制 GUI 目录中不存在的文件，避免 CLI 的 SDK 投影 DLL 覆盖 GUI 版本
-    Get-ChildItem 'publish\cli_x64' -Recurse | ForEach-Object {
-        $target = Join-Path $outDir $_.FullName.Substring((Get-Item 'publish\cli_x64').FullName.Length + 1)
+    Get-ChildItem 'publish\cli_multi' -Recurse | ForEach-Object {
+        $target = Join-Path $outDir $_.FullName.Substring((Get-Item 'publish\cli_multi').FullName.Length + 1)
         if ($_.PSIsContainer) {
             if (-not (Test-Path $target)) { New-Item -ItemType Directory -Path $target -Force | Out-Null }
         } else {
@@ -102,60 +103,62 @@ if (Test-Path 'publish\cli_x64\livephotobox-boot.exe') {
         }
     }
     Write-Host '       CLI merged into portable' -ForegroundColor Green
+    Remove-Item -Recurse -Force 'publish\cli_multi' -ErrorAction SilentlyContinue
 } else {
     Write-Host '       CLI build FAILED - skipping merge' -ForegroundColor DarkYellow
+    Remove-Item -Recurse -Force 'publish\cli_multi' -ErrorAction SilentlyContinue
 }
 
 # ═══════════════════════════════════════════════════════════════
-# [2.5] Replace alias copies with Go symlink-safe launchers
+# [3/7] CLI single-file + Go shims → standalone zip（winget 用）
 # ═══════════════════════════════════════════════════════════════
 Write-Host ''
-Write-Host '[2.5] Building Go alias shims (symlink-safe)...' -ForegroundColor Yellow
+Write-Host '[3/7] Building CLI single-file & packaging standalone...' -ForegroundColor Yellow
 
-$goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
-$shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
+# 单文件 CLI：托管核心打进 boot exe，原生库（Magick.Native / heif）外置 → 启动零解压
+dotnet publish 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:PublishSingleFile=true -o publish\cli_single
 
-if ($goCmd -and (Test-Path $shimSrc)) {
-    $cliAliases = @('livephotobox', 'livebox', 'lpb', 'livephoto')
-    foreach ($alias in $cliAliases) {
-        $outExe = "publish\cli_x64\$alias.exe"
-        & $goCmd build -ldflags="-s -w" -o $outExe $shimSrc 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0 -and (Test-Path $outExe)) {
-            $shimSize = '{0:N1} KB' -f ((Get-Item $outExe).Length / 1KB)
-            Write-Host "       $alias.exe  ($shimSize)" -ForegroundColor Green
-            # Remove apphost-copy leftovers (Go shim doesn't need these)
-            Remove-Item -Force "publish\cli_x64\$alias.runtimeconfig.json" -ErrorAction SilentlyContinue
-            Remove-Item -Force "publish\cli_x64\$alias.deps.json" -ErrorAction SilentlyContinue
-            Remove-Item -Force "publish\cli_x64\$alias.pdb" -ErrorAction SilentlyContinue
-        } else {
-            Write-Host "       $alias.exe  BUILD FAILED - keeping apphost copy" -ForegroundColor DarkYellow
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "       CLI single-file publish warning: exit code $LASTEXITCODE" -ForegroundColor DarkYellow
+}
+
+if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
+    # Replace alias copies with Go symlink-safe launchers
+    $goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
+    $shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
+
+    if ($goCmd -and (Test-Path $shimSrc)) {
+        $cliAliases = @('livephotobox', 'livebox', 'lpb', 'livephoto')
+        foreach ($alias in $cliAliases) {
+            $outExe = "publish\cli_single\$alias.exe"
+            & $goCmd build -ldflags="-s -w" -o $outExe $shimSrc 2>&1 | Out-Null
+            if ($LASTEXITCODE -eq 0 -and (Test-Path $outExe)) {
+                $shimSize = '{0:N1} KB' -f ((Get-Item $outExe).Length / 1KB)
+                Write-Host "       $alias.exe  ($shimSize)" -ForegroundColor Green
+                # Remove apphost-copy leftovers (Go shim doesn't need these)
+                Remove-Item -Force "publish\cli_single\$alias.runtimeconfig.json" -ErrorAction SilentlyContinue
+                Remove-Item -Force "publish\cli_single\$alias.deps.json" -ErrorAction SilentlyContinue
+                Remove-Item -Force "publish\cli_single\$alias.pdb" -ErrorAction SilentlyContinue
+            } else {
+                Write-Host "       $alias.exe  BUILD FAILED - keeping apphost copy" -ForegroundColor DarkYellow
+            }
         }
+    } else {
+        if (-not $goCmd) { Write-Host '       Go not found - keeping apphost copies (winget symlinks will NOT work!)' -ForegroundColor DarkYellow }
+        if (-not (Test-Path $shimSrc)) { Write-Host "       $shimSrc not found" -ForegroundColor DarkYellow }
     }
-} else {
-    if (-not $goCmd) { Write-Host '       Go not found - keeping apphost copies (winget symlinks will NOT work!)' -ForegroundColor DarkYellow }
-    if (-not (Test-Path $shimSrc)) { Write-Host "       $shimSrc not found" -ForegroundColor DarkYellow }
-}
 
-# ═══════════════════════════════════════════════════════════════
-# [3/7] CLI standalone zip（复用 publish\cli_x64 + Tools + Strings）
-# ═══════════════════════════════════════════════════════════════
-Write-Host ''
-Write-Host '[3/7] Packaging CLI standalone...' -ForegroundColor Yellow
-
-if (Test-Path 'publish\cli_x64\livephotobox-boot.exe') {
     $cliDir = 'publish\cli_standalone'
 
     # 复制 CLI 发布输出
-    Copy-Item 'publish\cli_x64' $cliDir -Recurse -Force
+    Copy-Item 'publish\cli_single' $cliDir -Recurse -Force
 
-    # Copy external tools (skip jpegtran.exe — only GUI Repair uses it)
+    # Copy external tools (jpegtran.exe included — CLI 后续将支持修复功能)
     $toolsSrc = Join-Path $projectRoot 'LivePhotoBox\Tools'
     if (Test-Path $toolsSrc) {
         New-Item -ItemType Directory -Path "$cliDir\Tools" -Force | Out-Null
         Get-ChildItem $toolsSrc | ForEach-Object {
-            if ($_.Name -ne 'jpegtran.exe') {
-                Copy-Item $_.FullName "$cliDir\Tools\" -Recurse -Force
-            }
+            Copy-Item $_.FullName "$cliDir\Tools\" -Recurse -Force
         }
     }
 
@@ -189,10 +192,10 @@ if (Test-Path 'publish\cli_x64\livephotobox-boot.exe') {
     Write-Host "       $cliZipName  ($cliZipSize)" -ForegroundColor Green
 
     Remove-Item -Recurse -Force $cliDir -ErrorAction SilentlyContinue
-    Remove-Item -Recurse -Force 'publish\cli_x64' -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force 'publish\cli_single' -ErrorAction SilentlyContinue
 } else {
     Write-Host '       CLI not built, skipping standalone package' -ForegroundColor DarkYellow
-    Remove-Item -Recurse -Force 'publish\cli_x64' -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force 'publish\cli_single' -ErrorAction SilentlyContinue
 }
 
 # ═══════════════════════════════════════════════════════════════

@@ -1,8 +1,6 @@
 name: "💡 Feature Request / 功能建议"
 description: |
-  Suggest a new feature or improvement.
-
-  建议新功能或改进点。
+  Suggest a new feature or improvement. / 建议新功能或改进点。
 title: "[Feature Request] "
 labels: ["enhancement"]
 body:

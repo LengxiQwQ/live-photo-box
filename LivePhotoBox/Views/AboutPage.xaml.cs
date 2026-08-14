@@ -19,6 +19,8 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Foundation;
 using Windows.Foundation.Collections;
+using LivePhotoBox.Models;
+using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 
 namespace LivePhotoBox.Views
@@ -54,6 +56,22 @@ namespace LivePhotoBox.Views
             finally
             {
                 if (sender is Button btn2) btn2.IsEnabled = true;
+            }
+        }
+
+        /// <summary>
+        /// 打开安装位置按钮点击：在资源管理器中打开应用安装目录。
+        /// 复用 FilePickerService.OpenFolderInExplorer（已封装 explorer.exe 调用与错误日志）。
+        /// </summary>
+        private void OpenInstallFolder_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                FilePickerService.OpenFolderInExplorer(AppContext.BaseDirectory);
+            }
+            catch (Exception ex)
+            {
+                LogService.Debug($"AboutPage open install folder failed: {ex.Message}", LogSource.UI);
             }
         }
 

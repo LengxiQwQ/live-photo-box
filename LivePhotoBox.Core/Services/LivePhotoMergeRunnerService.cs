@@ -2,6 +2,7 @@ using LivePhotoBox.Models;
 using LivePhotoBox.Services.Protocols;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -71,6 +72,8 @@ namespace LivePhotoBox.Services
             try
             {
                 int completedCount = 0;
+                int successCount = 0;
+                int failedCount = 0;
                 DateTimeOffset nextAllowedBatchStartTime = DateTimeOffset.MinValue;
                 int batchSize = Math.Max(1, options.MaxDegreeOfParallelism);
 
@@ -100,11 +103,15 @@ namespace LivePhotoBox.Services
                             pauseEvent, cancellationToken)
                             .ConfigureAwait(false);
                         int currentCompleted = Interlocked.Increment(ref completedCount);
+                        if (result.IsSuccess) Interlocked.Increment(ref successCount);
+                        else Interlocked.Increment(ref failedCount);
                         onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
                     });
 
                     await Task.WhenAll(runningTasks).ConfigureAwait(false);
                 }
+
+                LogService.Merge($"Batch merge finished: {successCount} succeeded, {failedCount} failed.");
             }
             finally
             {
@@ -156,6 +163,8 @@ namespace LivePhotoBox.Services
             string workingImagePath = imagePath;
             string workingVideoPath = videoPath;
             var tempFiles = new List<string>();
+            // 单对耗时：写进成功/失败日志，帮助定位"哪一步慢、哪个文件卡住"。
+            var stopwatch = Stopwatch.StartNew();
             // 每个任务使用独立临时工作区（GUID 子目录），并发任务互不干扰；
             // 所有中间文件（HEIC 转换 / 视频转码 / 协议预处理）都在工作区内分配，
             // 方法结束时随工作区整体清理。
@@ -274,6 +283,7 @@ namespace LivePhotoBox.Services
                         finalOutputPath, exifMarker, token);
                 }
 
+                LogService.Merge($"Merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
                 return (true, ResourceService.GetString("Task_Success"));
             }
             catch (OperationCanceledException)
@@ -282,7 +292,7 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                LogService.Merge($"Merge task failed for {baseName}: {ex.Message}", LogLevel.Error, ex);
+                LogService.Merge($"Merge task failed for {baseName}: {ex.Message} ({stopwatch.Elapsed.TotalSeconds:F2}s)", LogLevel.Error, ex);
                 return (false, ResourceService.Format("Task_Error", ex.Message));
             }
             finally

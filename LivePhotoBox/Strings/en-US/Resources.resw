@@ -169,7 +169,7 @@
     <value> (GUI + CLI)</value>
   </data>
   <data name="AboutPage_Mode_GuiOnly" xml:space="preserve">
-    <value> (GUI only)</value>
+    <value> (no bundled CLI)</value>
   </data>
   <data name="RestartDialog_CloseButton" xml:space="preserve">
     <value>Later</value>
@@ -3239,6 +3239,9 @@ Place any of these files into the same folder.</value>
   </data>
   <data name="AboutPage_CheckUpdateButton.Content" xml:space="preserve">
     <value>Check for Updates</value>
+  </data>
+  <data name="AboutPage_OpenInstallFolderButton.Content" xml:space="preserve">
+    <value>Open Install Folder</value>
   </data>
   <data name="AboutPage_StoreButton.Content" xml:space="preserve">
     <value>Microsoft Store</value>

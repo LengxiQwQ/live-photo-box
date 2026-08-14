@@ -36,6 +36,9 @@
     No runtime required (self-contained .NET 9 + WinAppSDK 1.8)
   </sub>
 </p>
+<p align="center">
+  <sub>Or install the <b>CLI</b> via <b>winget</b>: <code>winget install LengxiQwQ.LivePhotoBox</code></sub>
+</p>
 
 ---
 
@@ -101,7 +104,7 @@ Split a **Live Photo** (single-file form) into an independent still image (`JPG`
 | Split Protocol | Devices | Status |
 |---|---|---|
 | Apple Live Photo | iPhone / iPad | 🟡 In testing |
-| vivo Live Photo | vivo (≤ X300) | 🟡 In testing |
+| vivo Live Photo | vivo (≤ X200) | 🟡 In testing |
 
 ### 🛠️ Repair Live Photo
 

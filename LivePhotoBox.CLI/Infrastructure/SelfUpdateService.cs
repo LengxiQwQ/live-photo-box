@@ -35,15 +35,6 @@ namespace LivePhotoBox.Cli.Infrastructure
         {
             var baseDir = AppContext.BaseDirectory;
 
-            // WinGet 管理的副本由 winget upgrade 负责，内置更新不可用
-            if (WingetInstallDetector.IsWingetManaged(baseDir))
-            {
-                Console.WriteLine("This copy is installed and managed by WinGet.");
-                Console.WriteLine("Built-in update is disabled for WinGet-managed installs.");
-                Console.WriteLine("Update with: winget upgrade LengxiQwQ.LivePhotoBox");
-                return 3;
-            }
-
             LogService.Info("[Update] Checking for updates...", LogSource.System);
 
             // ── 检查阶段：3 次自动重试；耗尽后（交互模式）再给一次 R 重试机会 ──
@@ -81,6 +72,18 @@ namespace LivePhotoBox.Cli.Infrastructure
                 if (cmp > 0)
                     Console.WriteLine("(This build is newer than the latest stable release.)");
                 LogService.Info($"[Update] Already up to date (current v{current}).", LogSource.System);
+                return 0;
+            }
+
+            // WinGet 管理的副本：版本对比照常提示，但更新由 winget upgrade 负责，
+            // 这里不自下载/自替换，只给出一条升级指令
+            if (WingetInstallDetector.IsWingetManaged(baseDir))
+            {
+                CliConsole.Write("A newer version is available: ", CliConsole.Notice);
+                CliConsole.WriteLine($"v{current} → v{release.Version}", CliConsole.Highlight);
+                Console.Write("Update with: ");
+                CliConsole.WriteLine("winget upgrade LengxiQwQ.LivePhotoBox", CliConsole.CommandPurple);
+                LogService.Info($"[Update] WinGet-managed install — instructing to use winget upgrade (v{current} → v{release.Version}).", LogSource.System);
                 return 0;
             }
 

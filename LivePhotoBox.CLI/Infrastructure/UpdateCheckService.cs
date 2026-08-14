@@ -123,16 +123,9 @@ namespace LivePhotoBox.Cli.Infrastructure
         {
             var current = VersionInfo.GetDisplayVersion();
 
-            // WinGet 管理的副本由 winget upgrade 负责更新，内置更新不可用
-            if (WingetInstallDetector.IsWingetManaged())
-            {
-                return new Result
-                {
-                    CurrentVersion = current,
-                    Ok = true,
-                    ManagedByWinget = true
-                };
-            }
+            // WinGet 管理不短路：检查照常联网、版本照常对比，
+            // 仅标记渠道供上层在"有新版本"时改用 winget upgrade 指令（不自更新）
+            var managedByWinget = WingetInstallDetector.IsWingetManaged();
 
             var release = await FetchLatestReleaseAsync(onRetry: onRetry);
             if (release is null)
@@ -146,6 +139,7 @@ namespace LivePhotoBox.Cli.Infrastructure
             {
                 CurrentVersion = current,
                 Ok = true,
+                ManagedByWinget = managedByWinget,
                 VersionParsed = parsed,
                 LatestTag = release.TagName,
                 LatestVersion = release.Version,

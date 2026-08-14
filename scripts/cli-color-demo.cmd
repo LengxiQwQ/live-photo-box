@@ -4,13 +4,13 @@ rem  cli-color-demo.cmd - Live Photo Box CLI color demo
 rem
 rem  Runs every command that renders colored output so you can
 rem  inspect the full color design in a real terminal:
-rem    [1]   lpb --version                (title, values, tip)
-rem    [2]   lpb info                     (labels, tools, tip)
+rem    [1]   lpb --version                (title, version)
+rem    [2]   lpb --info                    (labels, tools, feedback)
 rem    [3]   lpb protocols                (table, marks, legend)
 rem    [4]   lpb update-check             (network check)
 rem    [5]   lpb merge --help             (grouped colored help)
 rem    [5a]  lpb protocols --help
-rem    [5b]  lpb info --help
+rem    [5b]  lpb --help                   (root help with global flags)
 rem    [5c]  lpb update-check --help
 rem    [6]   merge dry-run                 (single-pair summary)
 rem    [7]   merge error path              (red error output)
@@ -24,7 +24,7 @@ setlocal
 chcp 65001 >nul
 
 set "ROOT=%~dp0.."
-set "EXE=%ROOT%\LivePhotoBox.CLI\bin\Debug\net9.0-windows10.0.19041.0\livephotobox.exe"
+set "EXE=%ROOT%\LivePhotoBox.CLI\bin\Debug\net9.0-windows10.0.19041.0\livephotobox-boot.exe"
 
 if not exist "%EXE%" (
     echo ERROR: CLI not built yet. Run:
@@ -52,9 +52,9 @@ echo ============================================================
 echo.
 
 echo ============================================================
-echo  [2] lpb info
+echo  [2] lpb --info
 echo ============================================================
-"%EXE%" info
+"%EXE%" --info
 echo.
 
 echo ============================================================
@@ -82,9 +82,9 @@ echo ============================================================
 echo.
 
 echo ============================================================
-echo  [5b] lpb info --help
+echo  [5b] lpb --help  (root help)
 echo ============================================================
-"%EXE%" info --help
+"%EXE%" --help
 echo.
 
 echo ============================================================

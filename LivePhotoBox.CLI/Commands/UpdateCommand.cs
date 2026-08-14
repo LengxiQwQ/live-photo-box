@@ -2,6 +2,8 @@ using System;
 using System.CommandLine;
 using System.Threading.Tasks;
 using LivePhotoBox.Cli.Infrastructure;
+using LivePhotoBox.Models;
+using LivePhotoBox.Services;
 
 namespace LivePhotoBox.Cli.Commands
 {
@@ -23,6 +25,7 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 catch (Exception ex)
                 {
+                    LogService.Error($"[Update] Update check failed: {ex.Message}", ex, LogSource.System);
                     CliConsole.WriteErrorLine($"Update check failed: {ex.Message}");
                     context.ExitCode = 1;
                 }
@@ -50,6 +53,7 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 catch (Exception ex)
                 {
+                    LogService.Error($"[Update] Update failed: {ex.Message}", ex, LogSource.System);
                     CliConsole.WriteErrorLine($"Update failed: {ex.Message}");
                     context.ExitCode = 1;
                 }
@@ -61,23 +65,17 @@ namespace LivePhotoBox.Cli.Commands
         private static int PrintResult(UpdateCheckService.Result result)
         {
             // "Checking GitHub ... " 已在调用前打印，这里用 WriteCheckStatus 补状态与结论（\r 覆盖一致）
-            if (result.ManagedByWinget)
-            {
-                UpdateCheckService.WriteCheckStatus("skipped", CliConsole.Notice);
-                CliConsole.WriteLine(
-                    "This copy is installed and managed by WinGet.", CliConsole.Notice);
-                Console.WriteLine("Built-in update is disabled for WinGet-managed installs.");
-                Console.WriteLine("Update with: winget upgrade LengxiQwQ.LivePhotoBox");
-                return 3;
-            }
-
             if (!result.Ok)
             {
+                LogService.Error($"[Update] Check failed: {result.ErrorMessage}", source: LogSource.System);
                 UpdateCheckService.WriteCheckStatus($"unreachable ({result.ErrorMessage})", CliConsole.Error);
                 UpdateCheckService.PrintManualDownload();
                 return 2;
             }
 
+            LogService.Info($"[Update] Check OK: current v{result.CurrentVersion}" +
+                (result.VersionParsed ? $", latest v{result.LatestVersion} (comparison={result.Comparison})" : $", latest tag {result.LatestTag}"),
+                source: LogSource.System);
             UpdateCheckService.WriteCheckStatus("OK", CliConsole.Success);
 
             if (result.VersionParsed)
@@ -86,8 +84,17 @@ namespace LivePhotoBox.Cli.Commands
                 {
                     CliConsole.Write("A newer version is available: ", CliConsole.Notice);
                     CliConsole.WriteLine($"v{result.CurrentVersion} → v{result.LatestVersion}", CliConsole.Highlight);
-                    Console.Write("To update automatically: ");
-                    CliConsole.WriteLine("lpb update -y", CliConsole.CommandPurple);
+                    if (result.ManagedByWinget)
+                    {
+                        // WinGet 管理的副本不自更新，直接给 winget upgrade 指令
+                        Console.Write("Update with: ");
+                        CliConsole.WriteLine("winget upgrade LengxiQwQ.LivePhotoBox", CliConsole.CommandPurple);
+                    }
+                    else
+                    {
+                        Console.Write("To update automatically: ");
+                        CliConsole.WriteLine("lpb update -y", CliConsole.CommandPurple);
+                    }
                 }
                 else if (result.Comparison == 0)
                 {

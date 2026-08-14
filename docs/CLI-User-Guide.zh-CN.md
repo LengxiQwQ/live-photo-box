@@ -6,9 +6,7 @@
 
 ## 概述
 
-`livephotobox`（`lpb`）是 **Live Photo Box** 的命令行版。它把一张图片（`JPG` / `HEIC`）和一段视频（`MP4` / `MOV`）合并成单文件**实况照片**——手机相册里会动起来的那种格式。
-
-它与 GUI 共享 100% 核心逻辑，适合脚本与 AI Agent 调用。目前提供五个命令：`merge`、`protocols`、`info`、`update-check`、`update`；拆分与修复暂时仅 GUI 支持。
+Live Photo Box 同时提供图形界面与命令行两种形态，核心逻辑一致。命令行入口 `livephotobox`（别名 `lpb`）专为脚本、AI 自动化调用设计；如需日常人工操作，请使用图形界面版本：[Microsoft Store](https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full) 或 [GitHub Releases](https://github.com/lengxiqwq/live-photo-box/releases)。
 
 ---
 
@@ -43,6 +41,19 @@
 
 ---
 
+## 可执行文件别名
+
+工具以四个等价名称分发——挑最短的用：
+
+| 别名 | 说明 |
+|-------|-------------|
+| `livephotobox` | 完整名称 |
+| `livephoto` | 简写 |
+| `livebox` | 紧凑形式 |
+| `lpb` | 首字母缩写 |
+
+---
+
 ## 更新
 
 更新需要**手动触发**——CLI 不会在后台自行检查。
@@ -58,7 +69,21 @@
 |------|------|------|
 | `-y`, `--yes` | `update` | 跳过确认提示，直接自动更新（脚本环境必需） |
 
-发现新版本时，`lpb update` 会打印新版本号和匹配的安装包，然后询问 `Update now? [Y/n]`——回车或输入 `y` 继续。安装包按安装类型自动选择：
+### WinGet 安装
+
+通过 WinGet 安装的副本（`winget install LengxiQwQ.LivePhotoBox`）**不使用内置更新**——安装、升级、卸载均由 WinGet 负责：
+
+- `lpb update` 与 `lpb update-check` 仍会联网检查并在有新版时报告，但 `lpb update` **不会**下载或安装任何内容——它只打印 `Update with: winget upgrade LengxiQwQ.LivePhotoBox` 后退出。
+- 更新 WinGet 副本：
+  ```
+  winget upgrade LengxiQwQ.LivePhotoBox
+  ```
+- 卸载同理：`winget uninstall LengxiQwQ.LivePhotoBox`。
+- 不确定自己的副本是哪种渠道？运行 `lpb --info`——WinGet 副本会显示 `Channel: WinGet (CLI-only)`。
+
+### 其他安装方式
+
+便携版、便携包（GUI + CLI）和安装版副本由 `lpb update` 自行更新。发现新版本时，会打印新版本号和匹配的安装包，然后询问 `Update now? [Y/n]`——回车或输入 `y` 继续。安装包按安装类型自动选择：
 
 | 安装类型 | 安装包 |
 |---------|--------|
@@ -66,37 +91,24 @@
 | Portable bundle (GUI + CLI)（便携包） | `*-x64-portable.zip` |
 | Installer (Inno Setup, GUI + CLI)（安装版） | `*-x64-setup.exe` |
 
-两者都需联网，失败时会打印失败原因及 `Manual download: …` 手动下载链接。WinGet 安装的副本跳过内置更新，请改用 `winget upgrade LengxiQwQ.LivePhotoBox`。
-
----
-
-## 可执行文件别名
-
-工具以四个等价名称分发——挑最短的用：
-
-| 别名 | 说明 |
-|-------|-------------|
-| `livephotobox` | 完整名称 |
-| `livephoto` | 简写 |
-| `livebox` | 紧凑形式 |
-| `lpb` | 首字母缩写 |
+两者都需联网，失败时会打印失败原因及 `Manual download: …` 手动下载链接。
 
 ---
 
 ## 快速开始
 
 ```powershell
-# 查看版本号
+# 查看版本号（单行）；`lpb -v` 是 `lpb --version` 的快捷方式
 lpb --version
 
-# 查看详细环境信息（含内置工具版本、附带一次更新检查）
-lpb info
+# 查看详细环境信息（安装详情、内置工具版本）
+lpb --info
 
 # 查看协议 × 格式兼容矩阵
 lpb protocols
 
 # 转换单个文件对（iPhone → Google 相册）
-lpb merge photo.heic video.mov -p motion photo -y
+lpb merge photo.heic video.mov -p motionphoto -y
 
 # 批量转换文件夹（→ 华为格式，自动确认；输出到 ./MyPhotos/MyPhotos_huawei/）
 lpb merge -d ./MyPhotos -p huawei -y
@@ -108,44 +120,52 @@ lpb merge -d ./MyPhotos -p huawei -y
 
 | 命令 | 说明 |
 |------|------|
-| `lpb protocols` | 查看协议 × 格式兼容矩阵 |
+| `lpb protocols` | 查看协议 × 格式兼容矩阵与设备支持 |
 | `lpb merge` | 合成图片 + 视频（单对或批量） |
-| `lpb info` / `lpb --version` | 查看版本、环境与内置工具版本 |
+| `lpb --info` / `lpb --version`（`-v`） | 查看版本、环境与内置工具版本 |
 
 `update` / `update-check` 命令见上文「更新」一节。
 
-### `protocols` — 查看格式兼容矩阵
+### `protocols` — 查看协议 × 格式兼容矩阵与设备支持
 
-```
-lpb protocols
-```
+运行 `lpb protocols` 可交互查看，或 `lpb protocols --json` 获取结构化输出。
 
-```
-  Merge — protocol × format compatibility
+**兼容矩阵** — 每个协议支持的输出格式：
 
-  Protocol              JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+MP4(H.265)
-  ────────────────────── ────────   ────────   ────────   ────────   ──────────────
-  Fusion (testing)         ✅          ✅          ✖️          ✖️          ✖️
-  Micro Video              ✅          ✅          ✖️          ✖️          ✖️
-  Motion Photo             ✅          ✅          ✖️          ✅          ✖️
-  OPPO O-Live              ✅          ✖️          ✖️          ✖️          ✖️
-  vivo Live Photo          ✅          ✖️          ✖️          ✖️          ✖️
-  Samsung Motion Photo     ✅          ✖️          ✅          ✖️          ✖️
-  HUAWEI Moving Photo      ✅          ✖️          ✅          ✖️          ✅
-
-  Split — single-file live photo splitting (split not yet supported — use the GUI app)
-
-  Protocol            Devices
-  ─────────────────────────────────────────
-  Apple Live Photo    iPhone / iPad
-  vivo Live Photo     vivo (≤ X300)
-```
+| 协议 | JPEG+MP4 | JPEG+MOV | HEIC+MP4 | HEIC+MOV | HEIC+MP4 (H.265) |
+|---|---|---|---|---|---|
+| Fusion | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
+| Micro Video | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
+| Motion Photo | ✅ | ✅ | ✖️ | ✅ | ✖️ |
+| OPPO O-Live | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
+| vivo Live Photo | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
+| Samsung Motion Photo | ✅ | ✖️ | ✅ | ✖️ | ✖️ |
+| HUAWEI Moving Photo | ✅ | ✖️ | ✅ | ✖️ | ✅ |
 
 `✅` — 支持 &nbsp;|&nbsp; `✖️` — 不支持
 
 `heic+mp4-h265`（索引 4）为华为原生 HEVC (H.265)。
 
-**JSON 输出**（供脚本消费）：
+**合成 — 设备支持：**
+
+| 协议 | 支持设备 | 状态 |
+|---|---|---|
+| Fusion | Windows / Android（通用） | 🟡 测试中 |
+| Micro Video | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
+| Motion Photo | Windows / 小米 / Pixel | ✅ 可用 |
+| OPPO O-Live | Windows / 小米 / OPPO | ✅ 可用 |
+| vivo Live Photo | Windows / vivo（≥ X300） | 🟡 测试中 |
+| Samsung Motion Photo | Windows / Samsung | 🟡 测试中 |
+| HUAWEI Moving Photo | 华为 / 荣耀 | ✅ 可用 |
+
+**拆分 — 设备支持**（暂不支持拆分，需要拆分请使用 GUI）：
+
+| 协议 | 支持机型 | 状态 |
+|---|---|---|
+| Apple Live Photo | iPhone / iPad | 🟡 测试中 |
+| vivo Live Photo | vivo（≤ X200） | 🟡 测试中 |
+
+**JSON 输出**（供脚本消费）——包含每个协议的索引、显示名、支持设备、状态与格式，以及拆分表：
 
 ```powershell
 lpb protocols --json
@@ -168,26 +188,15 @@ lpb protocols --json
 |------|------|
 | 华为原生 HEVC（单对） | `lpb merge photo.jpg video.mp4 -p huawei -f heic+mp4-h265 -y` |
 | 批量 → 华为，显式输出目录 | `lpb merge -d ./MyPhotos -p huawei -o ./Output -y` |
-| 批量含子目录，保留文件夹结构 | `lpb merge -d ./Photos -r -s -p motion photo -o ./Output -y` |
-| 预览（不创建任何文件夹） | `lpb merge -d ./Photos -p motion photo --dry-run` |
-| 自定义文件名模板 | `lpb merge -d ./Photos -p motion photo -n "custom:{name}_{protocol}_{date}" -y` |
+| 批量含子目录，保留文件夹结构 | `lpb merge -d ./Photos -r -s -p motionphoto -o ./Output -y` |
+| 预览（不创建任何文件夹） | `lpb merge -d ./Photos -p motionphoto --dry-run` |
+| 自定义文件名模板 | `lpb merge -d ./Photos -p motionphoto -n "custom:{name}_{protocol}_{date}" -y` |
 | 覆盖已存在输出而非自动重命名 | `lpb merge photo.jpg video.mp4 -p huawei -y -w` |
 | 自定义封面位置（视频 2.5 秒处） | `lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y` |
 
 ---
 
-### `info` / `--version` — 查看版本与环境信息
-
-| 命令 | 打印内容 |
-|------|----------|
-| `lpb --version` | 精简版本横幅：版本号、构建日期、运行时、安装渠道、位置 |
-| `lpb info` | 同上，另加内置工具版本（exiftool、ffmpeg、…）并附带一次更新检查 |
-
-两者均瞬间完成、不联网——仅 `info` 末尾的更新检查需要网络，失败时会原地提示、不影响命令。输出在交互终端中着色，重定向或设置 `NO_COLOR` 时自动回退为纯文本。
-
----
-
-## 完整选项参考
+#### 完整选项参考
 
 **输入**
 
@@ -212,7 +221,7 @@ lpb protocols --json
 
 | 选项 | 说明 |
 |------|------|
-| `-p, --protocol <协议>` | 目标协议（默认 `motion photo`）：`fusion`、`micro video` (V1)、`motion photo` (V2)、`oppo`、`vivo`、`samsung`、`huawei`。运行 `lpb protocols` 查看完整矩阵 |
+| `-p, --protocol <协议>` | 目标协议（默认 `motion photo`）：`fusion`、`micro video` (V1)、`motion photo` (V2)、`oppo`、`vivo`、`samsung`、`huawei`。运行 `lpb protocols` 查看完整矩阵。多词协议名也可写无空格形式（无需引号）：`microvideo`、`motionphoto` |
 | `-f, --format <格式>` | 输出容器（默认：指定协议的首个可用格式）：`jpg+mp4`、`jpg+mov`、`heic+mp4`、`heic+mov`、`heic+mp4-h265` |
 | `-n, --naming <规则>` | 输出文件名规则。默认：单文件 = `suffix`，批量 = `keep`。`keep`、`suffix` 或 `custom:模板`（占位符见下） |
 
@@ -240,21 +249,21 @@ lpb protocols --json
 | `-v, --verbose` | 逐文件输出状态，而非仅显示汇总 |
 | `--all-variants` | 生成所有协议 × 格式组合（仅单对模式）；输出到 `{目录}/{文件名}_variants/` |
 
-### 默认输出位置
+#### 默认输出位置
 
 省略 `-o` 时，输出**不会**落到终端当前目录，而是跟随**输入**：
 
 | 模式 | 默认输出 | 示例 |
 |------|----------|------|
 | 单文件对 | **照片（图片）所在目录**（照片和视频可能在不同文件夹，以照片为准） | `D:\Pics\IMG_001.jpg` + `D:\Videos\clip.mp4` → `D:\Pics\IMG_001_motionphoto.jpg` |
-| 批量（`-d`） | 输入目录下的子文件夹，命名为 `{输入目录名}_{协议后缀}` | `lpb merge -d ./MyPhotos -p motion photo` → `./MyPhotos/MyPhotos_motionphoto/` |
+| 批量（`-d`） | 输入目录下的子文件夹，命名为 `{输入目录名}_{协议后缀}` | `lpb merge -d ./MyPhotos -p motionphoto` → `./MyPhotos/MyPhotos_motionphoto/` |
 
 - 文件夹/文件名均为英文：`MyPhotos_huawei/`、`IMG_001huawei.jpg`。
 - 单文件对默认命名为 `{源文件名}{协议后缀}`（如 `IMG_001motionphoto.jpg`），不会覆盖源照片。
 - 批量文件名保持源名不变——协议后缀体现在**文件夹名**上。
 - `--dry-run` 会打印解析出的输出路径，且**不创建任何文件夹**。
 
-### `--all-variants` — 一键生成所有变体
+#### `--all-variants` — 一键生成所有变体
 
 无需逐个指定 `-p` / `-f`，一次性生成 7 个协议、14 种格式组合的实况照片，适合开发者快速验证所有协议的输出质量。
 
@@ -281,9 +290,7 @@ photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
 - 支持 `--key-timestamp`，所有变体应用同一时间戳
 - 输出文件名中的 `(H.265)` 括号和空格在 Windows 上是合法字符，不影响使用
 
----
-
-### `--key-timestamp` — 自定义封面在视频中的位置
+#### `--key-timestamp` — 自定义封面在视频中的位置
 
 单文件合成时，实况照片的元数据会记录**封面（key photo）在视频时间轴上的位置**。默认情况下工具会跟随源视频自带的时间轴（如 Apple MOV 的封面时间、vivo 元数据）；指定本参数后则使用你给的值。
 
@@ -292,7 +299,7 @@ photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
 lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
 
 # 也支持 分:秒 / 时:分:秒 写法
-lpb merge photo.jpg video.mp4 -p motion photo --key-timestamp 1:30.500 -y
+lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 ```
 
 - 时间格式：秒（`1.5`）、分:秒（`1:30`）、时:分:秒（`0:01:30`），内部按微秒写入各协议元数据。
@@ -308,9 +315,7 @@ lpb merge photo.jpg video.mp4 -p motion photo --key-timestamp 1:30.500 -y
 - 可与 `--all-variants` 组合，所有变体使用同一时间戳。
 - 超出视频时长的值：HUAWEI 自动钳制到最后一帧；其余协议直接写入元数据。
 
----
-
-## 配对方式
+#### 配对方式
 
 批量模式 (`-d`) 下，工具需要将图片与视频一一对应：
 
@@ -322,9 +327,7 @@ lpb merge photo.jpg video.mp4 -p motion photo --key-timestamp 1:30.500 -y
 
 `cid` 需要 `exiftool.exe` 位于可执行文件旁的 `Tools\` 目录中（所有分发包均自带）；`name` 与 `vivo` 无需外部工具——纯文件 I/O。
 
----
-
-## 命名模板速查
+#### 命名模板速查
 
 | 目的 | 模板 | 输出示例 |
 |------|----------|----------------|
@@ -337,28 +340,24 @@ lpb merge photo.jpg video.mp4 -p motion photo --key-timestamp 1:30.500 -y
 
 > **说明：** 省略 `-n` 时，**单文件**合成默认 `suffix`（输出在照片原目录，加协议后缀避免覆盖源照片）；**批量**合成默认 `keep`（输出进独立子文件夹，文件名不变）。显式传 `-n` 始终以你为准。
 
----
-
-## 完成后操作
+#### 完成后操作
 
 | 操作 | 命令 |
 |------|------|
-| 归档源文件 | `lpb merge -d ./Photos -p motion photo --after "move:./Archived" -y` |
-| 移入回收站 | `lpb merge -d ./Photos -p motion photo --after recycle -y` |
-| 保留源文件（默认） | `lpb merge -d ./Photos -p motion photo --after none -y` |
+| 归档源文件 | `lpb merge -d ./Photos -p motionphoto --after "move:./Archived" -y` |
+| 移入回收站 | `lpb merge -d ./Photos -p motionphoto --after recycle -y` |
+| 保留源文件（默认） | `lpb merge -d ./Photos -p motionphoto --after none -y` |
 
 仅**合成成功**的文件对的源文件会受影响。
 
----
-
-## 工作流示例
+#### 工作流示例
 
 ```powershell
 # 批量转换为通用安卓格式
 lpb merge -d ./DCIM/Camera -p fusion -o ./LivePhotos -y
 
 # 递归批量 + 保留目录结构 + 归档源文件
-lpb merge -d ./Photos -r -s -p motion photo -o ./Output --after "move:./Originals" -y
+lpb merge -d ./Photos -r -s -p motionphoto -o ./Output --after "move:./Originals" -y
 
 # 脚本批处理 + 错误日志
 lpb merge -d ./Photos -p huawei -o ./Out -y -v 2>errors.log
@@ -367,26 +366,18 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 
 ---
 
-## 协议兼容性一览
+### `--info` / `--version` — 查看版本与环境信息
 
-**合成** —— `lpb merge` 可输出的协议：
+两者都是全局选项（不是子命令），与 `dotnet --info` / `winget --info` 保持一致。
 
-| 合成协议 | 支持设备 | 状态 |
-|---|---|---|
-| Fusion Motion Photo | Windows / Android（通用） | 🟡 测试中 |
-| Google Micro Video | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
-| Google Motion Photo | Windows / 小米 / Pixel | ✅ 可用 |
-| OPPO O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
-| HUAWEI Moving Photo | 华为 / 荣耀 | ✅ 可用 |
-| Samsung Motion Photo | Windows / Samsung | 🟡 测试中 |
-| vivo Live Photo | Windows / vivo（≥ X300） | 🟡 测试中 |
+| 选项 | 打印内容 |
+|------|----------|
+| `lpb --version` / `lpb -v` | 仅版本号（单行） |
+| `lpb --info` | 版本号、安装详情（构建日期、运行时、平台、渠道、位置）、日志目录与当前日志文件、内置工具版本（exiftool、ffmpeg、…）、仓库与反馈入口、版权 |
 
-**拆分** —— 单文件实况照片协议（暂不支持拆分，需要拆分请使用 GUI）：
+两者均瞬间完成、不联网——只报本地环境信息；检查更新请用 `lpb update-check`。输出在交互终端中着色，重定向或设置 `NO_COLOR` 时自动回退为纯文本。
 
-| 拆分协议 | 支持机型 | 状态 |
-|---|---|---|
-| Apple Live Photo | iPhone / iPad | 🟡 测试中 |
-| vivo Live Photo | vivo（≤ x300） | 🟡 测试中 |
+`-v` 是根级 `--version` 的快捷方式。在子命令内（如 `lpb merge -v`），`-v` 保持子命令自身的含义（`--verbose`）。
 
 ---
 
@@ -397,7 +388,6 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 | 0 | 全部任务成功完成 |
 | 1 | 参数错误，或至少有一个任务失败 |
 | 2 | 更新检查失败（网络 / GitHub 不可达） |
-| 3 | 更新跳过——副本由 WinGet 管理（请用 winget） |
 | 130 | 用户取消 (Ctrl+C) |
 
 ---

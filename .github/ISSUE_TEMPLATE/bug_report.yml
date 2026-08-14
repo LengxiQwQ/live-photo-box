@@ -1,29 +1,21 @@
 name: "🐛 Bug Report / Bug 报告"
 description: |
-  Report a bug or unexpected behavior.
-
-  报告不预期的行为或 Bug。
+  Report a bug or unexpected behavior. / 报告不预期的行为或 Bug。
 title: "[Bug Report] "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        Thanks for reporting! Please fill in as much detail as you can.
-
-        感谢你的反馈！请尽可能详细地填写以下信息。
+        Thanks for reporting! Please fill in as much detail as you can. / 感谢你的反馈！请尽可能详细地填写以下信息。
   - type: textarea
     id: description
     attributes:
       label: "Describe the bug / 描述 Bug"
       description: |
-        What happened? What did you expect to happen?
-
-        发生了什么？你原本期望的结果是什么？
+        What happened? What did you expect to happen? / 发生了什么？你原本期望的结果是什么？
       placeholder: |
-        A clear and concise description...
-
-        清晰简洁地描述问题...
+        A clear and concise description... / 清晰简洁地描述问题...
     validations:
       required: true
   - type: textarea
@@ -31,9 +23,7 @@ body:
     attributes:
       label: "Steps to reproduce / 复现步骤"
       description: |
-        How can I reproduce this issue?
-
-        我该如何重现这个问题？
+        How can I reproduce this issue? / 我该如何重现这个问题？
       placeholder: |
         1. Open the app / 打开应用
         2. Click ... / 点击 ...
@@ -45,20 +35,14 @@ body:
     attributes:
       label: "Installation source / 安装来源"
       description: |
-        Where did you install the app from?
+        Where did you install the app from? / 你从哪里安装的应用？
 
-        - **GUI**: check the **About** page.
-        - **CLI**: run `livephotobox --version`, or `lpb info` and look at the **Channel** field.
+        ---
 
-        WinGet package: `LengxiQwQ.LivePhotoBox` · CLI zip: `*-x64-cli.zip`
-
-        你从哪里安装的应用？
-
-        - **GUI**：可在**关于**页面查看。
-        - **CLI**：运行 `livephotobox --version`，或 `lpb info` 查看 **Channel** 字段。
-
-        winget 包：`LengxiQwQ.LivePhotoBox` · 独立 CLI zip：`*-x64-cli.zip`
+        - **GUI**: check the **About** page. / 可在**关于**页面查看。
+        - **CLI**: run `lpb --info` and look at the **Channel** field. / 运行 `lpb --info` 查看 **Channel** 字段。
       options:
+        - ""
         - "Microsoft Store / 微软商店"
         - "Installer (setup.exe) / 安装版"
         - "Portable (zip) / 便携版"
@@ -71,10 +55,11 @@ body:
     attributes:
       label: "App version / 应用版本"
       description: |
-        GUI: About page. CLI: `livephotobox --version`
-
-        GUI：关于页。CLI：`livephotobox --version`
+        - **GUI**: About page / 关于页
+        - **CLI**: `lpb -v`
       placeholder: "e.g. 2.1.4"
+    validations:
+      required: true
   - type: input
     id: os
     attributes:
@@ -85,9 +70,7 @@ body:
     attributes:
       label: "Screenshots / logs / 截图 / 日志"
       description: |
-        Drag & drop screenshots or paste log output here.
-
-        将截图拖拽到此处或粘贴日志输出。
+        Drag & drop screenshots or paste log output here. / 将截图拖拽到此处或粘贴日志输出。
   - type: checkboxes
     id: checks
     attributes:

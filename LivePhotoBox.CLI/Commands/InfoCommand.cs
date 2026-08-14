@@ -1,89 +1,39 @@
 using LivePhotoBox.Cli.Infrastructure;
 using LivePhotoBox.Services;
 using System;
-using System.CommandLine;
 using System.Diagnostics;
+using System.IO;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox.Cli.Commands
 {
-    // info — 完整环境报告：公共字段 + 内置外部工具版本 + 尾部联网更新检查（与 update-check 共用一套逻辑）。
+    // --info 全局选项 — 本地环境报告：公共字段 + 内置外部工具版本。不联网（更新检查归 update-check）。
     internal static class InfoCommand
     {
-        public static Command Create()
+        public static async Task<int> RunAsync()
         {
-            var cmd = new Command("info",
-                "Show version, environment and bundled external tool versions");
-            cmd.SetHandler(async () =>
-            {
-                VersionInfo.PrintFull();
-                Console.WriteLine();
-                await PrintExternalToolsAsync();
-                Console.WriteLine();
-                CliConsole.WriteLine("Update check:", CliConsole.Accent);
-                await PrintUpdateCheckAsync();
-                Console.WriteLine();
-                Console.WriteLine(VersionInfo.Copyright);
-            });
-            return cmd;
+            VersionInfo.PrintFull();
+            PrintLogInfo();
+            Console.WriteLine();
+            await PrintExternalToolsAsync();
+            VersionInfo.PrintFooter();
+            return 0;
         }
 
-        private static async Task PrintUpdateCheckAsync()
+        // 日志位置：非打包固定 %LOCALAPPDATA%\LivePhotoBox\Logs（CLI 为子目录 CLI）。
+        // 日志文件头部已含 OS/Runtime/CPU/内存/语言等系统信息（见 LogService.LogSystemInfo），
+        // 排查时让用户把该文件发来即可，故 --info 只给路径入口，不重复打印那些字段。
+        private static void PrintLogInfo()
         {
-            // 状态行先打印，联网期间终端有反馈；重试反馈由服务内 \r 覆盖
-            UpdateCheckService.BeginCheck();
-            var result = await UpdateCheckService.CheckAsync(
-                onRetry: UpdateCheckService.WriteCheckRetry);
-
-            if (result.ManagedByWinget)
-            {
-                UpdateCheckService.WriteCheckStatus("skipped", CliConsole.Notice);
-                CliConsole.WriteLine(
-                    "This copy is installed and managed by WinGet.", CliConsole.Notice);
-                Console.WriteLine("Built-in update is disabled for WinGet-managed installs.");
-                Console.WriteLine("Update with: winget upgrade LengxiQwQ.LivePhotoBox");
-                return;
-            }
-
-            if (!result.Ok)
-            {
-                UpdateCheckService.WriteCheckStatus($"unreachable ({result.ErrorMessage})", CliConsole.Error);
-                UpdateCheckService.PrintManualDownload();
-                return;
-            }
-
-            UpdateCheckService.WriteCheckStatus("OK", CliConsole.Success);
-
-            if (result.VersionParsed)
-            {
-                if (result.Comparison < 0)
-                {
-                    CliConsole.Write("A newer version is available: ", CliConsole.Notice);
-                    CliConsole.WriteLine($"v{result.CurrentVersion} → v{result.LatestVersion}", CliConsole.Highlight);
-                    Console.Write("To update automatically: ");
-                    CliConsole.WriteLine("lpb update -y", CliConsole.CommandPurple);
-                }
-                else if (result.Comparison == 0)
-                {
-                    CliConsole.WriteLine("You are running the latest version.", CliConsole.Notice);
-                }
-                else
-                {
-                    CliConsole.WriteLine(
-                        "You are running a pre-release or development build (newer than the latest stable release).",
-                        CliConsole.Notice);
-                }
-            }
-            else
-            {
-                CliConsole.Write("Latest release: ", CliConsole.Accent);
-                CliConsole.WriteLine(result.LatestTag!, CliConsole.Highlight);
-            }
+            CliConsole.WriteFieldRgb("Log dir", LogService.LogDirectory, width: 11, valueColor: CliConsole.PathGreen);
+            var logFile = LogService.CurrentLogPath;
+            var logName = string.IsNullOrEmpty(logFile) ? "n/a" : Path.GetFileName(logFile);
+            CliConsole.WriteFieldRgb("Log file", logName, width: 11, valueColor: CliConsole.PathGreen);
         }
 
         private static async Task PrintExternalToolsAsync()
         {
-            Console.WriteLine("External tools:");
+            CliConsole.WriteLine("External tools:", CliConsole.Accent);
             await PrintToolAsync("exiftool", ExternalToolLocator.FindExifTool(), "-ver", s => s.Trim());
             await PrintToolAsync("ffmpeg", ExternalToolLocator.FindFFmpeg(), "-version", ParseFFmpegVersion);
             // jpegtran 无版本输出开关（-version 仅打印用法），直接标注 n/a

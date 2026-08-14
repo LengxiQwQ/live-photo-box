@@ -59,9 +59,10 @@ if (Test-Path $outDir) { Remove-Item -Recurse -Force $outDir }
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
 # ── 1. Publish CLI ─────────────────────────────────────────────
-Write-Host '[1/4] Publishing CLI x64 (SelfContained)...' -ForegroundColor Yellow
+Write-Host '[1/4] Publishing CLI x64 (SelfContained, single-file)...' -ForegroundColor Yellow
 
-dotnet publish 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 -o $outDir
+# 单文件 CLI：托管核心打进 boot exe，原生库（Magick.Native / heif）外置 → 启动零解压
+dotnet publish 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:PublishSingleFile=true -o $outDir
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "       dotnet publish exited with code $LASTEXITCODE" -ForegroundColor DarkYellow
@@ -74,7 +75,7 @@ if (-not (Test-Path "$outDir\livephotobox-boot.exe")) {
 }
 Write-Host '       CLI publish OK' -ForegroundColor Green
 
-# ── 1.5 用 Go shim 覆盖别名（winget symlink 兼容，与 build-release.ps1 的 step 2.5 一致）──
+# ── 1.5 用 Go shim 覆盖别名（winget symlink 兼容，与 build-release.ps1 的 step 3 一致）──
 Write-Host ''
 Write-Host '[1.5/4] Building Go alias shims (symlink-safe)...' -ForegroundColor Yellow
 
@@ -106,16 +107,14 @@ if ($goCmd -and (Test-Path $shimSrc)) {
 Write-Host ''
 Write-Host '[2/4] Copying external tools...' -ForegroundColor Yellow
 
-# Copy Tools (skip jpegtran.exe — only GUI Repair uses it)
+# Copy external tools (jpegtran.exe included — CLI 后续将支持修复功能)
 $toolsSrc = Join-Path $projectRoot 'LivePhotoBox\Tools'
 if (Test-Path $toolsSrc) {
     New-Item -ItemType Directory -Path "$outDir\Tools" -Force | Out-Null
     Get-ChildItem $toolsSrc | ForEach-Object {
-        if ($_.Name -ne 'jpegtran.exe') {
-            Copy-Item $_.FullName "$outDir\Tools\" -Recurse -Force
-        }
+        Copy-Item $_.FullName "$outDir\Tools\" -Recurse -Force
     }
-    Write-Host '       Tools\ copied (jpegtran.exe excluded)' -ForegroundColor Green
+    Write-Host '       Tools\ copied (jpegtran.exe included)' -ForegroundColor Green
 }
 else {
     Write-Host '       WARNING: Tools\ not found, CLI may not work' -ForegroundColor DarkYellow
