@@ -321,9 +321,11 @@ namespace LivePhotoBox.Cli.Commands
 
             if (!yes && !json)
             {
-                Console.Write("Proceed? [y/N] ");
+                Console.Write("Proceed? [Y/n] ");
                 var key = Console.ReadLine();
-                if (!string.Equals(key, "y", StringComparison.OrdinalIgnoreCase))
+                if (key is null ||
+                    string.Equals(key, "n", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(key, "no", StringComparison.OrdinalIgnoreCase))
                 {
                     CliConsole.WriteLine("Cancelled.", CliConsole.Muted);
                     return 0;
@@ -569,9 +571,11 @@ namespace LivePhotoBox.Cli.Commands
                     Console.Write(" and copy ");
                     CliConsole.Write(copyTasks.Count.ToString(), CliConsole.Highlight);
                 }
-                Console.Write(" files? [y/N] ");
+                Console.Write(" files? [Y/n] ");
                 var key = Console.ReadLine();
-                if (!string.Equals(key, "y", StringComparison.OrdinalIgnoreCase))
+                if (key is null ||
+                    string.Equals(key, "n", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(key, "no", StringComparison.OrdinalIgnoreCase))
                 {
                     CliConsole.WriteLine("Cancelled.", CliConsole.Muted);
                     return 0;

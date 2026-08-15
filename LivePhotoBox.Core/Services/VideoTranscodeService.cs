@@ -290,9 +290,10 @@ namespace LivePhotoBox.Services
             string inputPath,
             string outputPath,
             CancellationToken token = default,
-            string videoCodec = "h264")
+            string videoCodec = "h264",
+            int? keyframeInterval = null)
         {
-            return await TranscodeAsync(inputPath, outputPath, VideoFormat.MOV, token, useFaststart: true, videoCodec);
+            return await TranscodeAsync(inputPath, outputPath, VideoFormat.MOV, token, useFaststart: true, videoCodec, keyframeInterval);
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -659,7 +660,8 @@ namespace LivePhotoBox.Services
             VideoFormat targetFormat,
             CancellationToken token,
             bool useFaststart = true,
-            string videoCodec = "h264")
+            string videoCodec = "h264",
+            int? keyframeInterval = null)
         {
             var result = new TranscodeResult();
             var stopwatch = Stopwatch.StartNew();
@@ -728,7 +730,7 @@ namespace LivePhotoBox.Services
 
                 string? arguments = BuildFFmpegArguments(inputPath, outputPath,
                     targetFormat, forceSoftwareEncoder: false, useFaststart,
-                    videoCodec, forceEncoder: encoder);
+                    videoCodec, forceEncoder: encoder, keyframeInterval);
 
                 if (string.IsNullOrEmpty(arguments))
                     continue; // encoder became unavailable mid-check
@@ -775,7 +777,7 @@ namespace LivePhotoBox.Services
             // All hardware encoders exhausted — final fallback to software
             LogService.Split($"Hardware chain exhausted, falling back to {swEncoder}...", LogLevel.Warning);
             string? swArgs = BuildFFmpegArguments(inputPath, outputPath,
-                targetFormat, forceSoftwareEncoder: true, useFaststart, videoCodec);
+                targetFormat, forceSoftwareEncoder: true, useFaststart, videoCodec, keyframeInterval: keyframeInterval);
 
             if (string.IsNullOrEmpty(swArgs))
             {
@@ -1273,7 +1275,7 @@ namespace LivePhotoBox.Services
 
         private static string? BuildFFmpegArguments(string inputPath, string outputPath,
             VideoFormat targetFormat, bool forceSoftwareEncoder = false, bool useFaststart = true,
-            string videoCodec = "h264", string? forceEncoder = null)
+            string videoCodec = "h264", string? forceEncoder = null, int? keyframeInterval = null)
         {
             // HEVC passthrough: copy video stream, transcode audio to AAC (MP4 doesn't support PCM)
             if (videoCodec == "copy")
@@ -1305,6 +1307,12 @@ namespace LivePhotoBox.Services
                 ? ""
                 : " -brand mp42 -metadata too=\"Openharmony6.1\"";
 
+            // Apple 实况需要足够密的关键帧供 iOS 编辑器拖时间轴 seek；默认 GOP=250 会把
+            // 3s 短视频压成 1 个关键帧。keyframeInterval 由调用方按需传入（如 30 ≈ 每秒 1 个）。
+            string keyframeArgs = keyframeInterval is > 0
+                ? $"-g {keyframeInterval.Value} -keyint_min {keyframeInterval.Value} "
+                : "";
+
             return targetFormat switch
             {
                 VideoFormat.MP4 => $"-apply_cropping 0 -y -i \"{inputPath}\" " +
@@ -1324,7 +1332,7 @@ namespace LivePhotoBox.Services
                     $"-threads {threadCount} " +
                     $"{videoFilter} " +
                     $"{pixelFormat} " +
-                    $"-c:v {videoEncoder} {videoParams} -tag:v hvc1 " +
+                    $"-c:v {videoEncoder} {videoParams} {keyframeArgs}-tag:v hvc1 " +
                     $"-c:a copy " +
                     $"-movflags +faststart{brandAndMeta} " +
                     $"\"{outputPath}\"",

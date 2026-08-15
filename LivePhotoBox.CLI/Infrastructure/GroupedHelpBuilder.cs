@@ -40,6 +40,28 @@ namespace LivePhotoBox.Cli.Infrastructure
             ["--verbose"] = "EXECUTION",
         };
 
+        // Option → section label for the split command. Options not listed here go to "OTHER".
+        private static readonly Dictionary<string, string> SplitSections = new(StringComparer.Ordinal)
+        {
+            ["--dir"] = "INPUT",
+            ["--pairing"] = "INPUT",
+            ["--recursive"] = "INPUT",
+
+            ["--output"] = "OUTPUT",
+            ["--preserve-subdirs"] = "OUTPUT",
+            ["--overwrite"] = "OUTPUT",
+            ["--after"] = "OUTPUT",
+
+            ["--protocol"] = "FORMAT",
+            ["--format"] = "FORMAT",
+            ["--naming"] = "FORMAT",
+
+            ["--parallel"] = "EXECUTION",
+            ["--yes"] = "EXECUTION",
+            ["--dry-run"] = "EXECUTION",
+            ["--verbose"] = "EXECUTION",
+        };
+
         // Option → section label for the repair command. Options not listed here go to "OTHER".
         private static readonly Dictionary<string, string> RepairSections = new(StringComparer.Ordinal)
         {
@@ -75,6 +97,14 @@ namespace LivePhotoBox.Cli.Infrastructure
             new("EXECUTION", "═══ EXECUTION — speed, safety, logging ═══"),
         };
 
+        private static readonly GroupHeader[] SplitGroupHeaders =
+        {
+            new("INPUT", "═══ INPUT — what to split ═══"),
+            new("OUTPUT", "═══ OUTPUT — where and how to save ═══"),
+            new("FORMAT", "═══ FORMAT — protocol, container, naming ═══"),
+            new("EXECUTION", "═══ EXECUTION — speed, safety, logging ═══"),
+        };
+
         private static readonly GroupHeader[] RepairGroupHeaders =
         {
             new("INPUT", "═══ INPUT — what to scan ═══"),
@@ -89,13 +119,19 @@ namespace LivePhotoBox.Cli.Infrastructure
         {
             if (context.Command.Name == "merge")
             {
-                WriteGroupedHelp(context, MergeSections, MergeGroupHeaders);
+                WriteGroupedHelp(context, MergeSections, MergeGroupHeaders, "merge");
+                return;
+            }
+
+            if (context.Command.Name == "split")
+            {
+                WriteGroupedHelp(context, SplitSections, SplitGroupHeaders, "split");
                 return;
             }
 
             if (context.Command.Name == "repair")
             {
-                WriteGroupedHelp(context, RepairSections, RepairGroupHeaders);
+                WriteGroupedHelp(context, RepairSections, RepairGroupHeaders, "repair");
                 return;
             }
 
@@ -316,7 +352,7 @@ namespace LivePhotoBox.Cli.Infrastructure
             output.Write($"\x1b[38;2;{rgb.R};{rgb.G};{rgb.B}m{text}\x1b[0m");
         }
 
-        private void WriteGroupedHelp(HelpContext context, Dictionary<string, string> sections, GroupHeader[] groupHeaders)
+        private void WriteGroupedHelp(HelpContext context, Dictionary<string, string> sections, GroupHeader[] groupHeaders, string commandName)
         {
             // ═══ Description ═══
             if (!string.IsNullOrWhiteSpace(context.Command.Description))
@@ -356,7 +392,7 @@ namespace LivePhotoBox.Cli.Infrastructure
                 : 32;
 
             foreach (var group in groupHeaders)
-                WriteOptionGroup(context, group.Title, options, group.Key, descCol, sections);
+                WriteOptionGroup(context, group.Title, options, group.Key, descCol, sections, commandName);
 
             // Remaining options
             var remaining = options
@@ -366,14 +402,15 @@ namespace LivePhotoBox.Cli.Infrastructure
             {
                 WriteSection(context, "═══ OTHER ═══");
                 foreach (var opt in remaining)
-                    WriteOption(context, opt, descCol);
+                    WriteOption(context, opt, descCol, commandName);
                 WriteHelpOption(context, descCol);
                 context.Output.WriteLine();
             }
         }
 
         private void WriteOptionGroup(HelpContext context, string header,
-            List<Option> allOptions, string groupKey, int descCol, Dictionary<string, string> sections)
+            List<Option> allOptions, string groupKey, int descCol, Dictionary<string, string> sections,
+            string commandName)
         {
             var group = allOptions
                 .Where(o => Classify(o, sections) == groupKey)
@@ -382,7 +419,7 @@ namespace LivePhotoBox.Cli.Infrastructure
 
             WriteSection(context, header);
             foreach (var opt in group)
-                WriteOption(context, opt, descCol);
+                WriteOption(context, opt, descCol, commandName);
             context.Output.WriteLine();
         }
 
@@ -413,15 +450,9 @@ namespace LivePhotoBox.Cli.Infrastructure
             return $"  {aliases}{typePart}";
         }
 
-        private void WriteOption(HelpContext context, Option option, int descCol)
+        private void WriteOption(HelpContext context, Option option, int descCol, string commandName)
         {
-            // Default hint — hardcoded for readability
-            string defaultHint = "";
-            if (option.Aliases.Contains("--protocol")) defaultHint = " [default: motion photo]";
-            else if (option.Aliases.Contains("--naming")) defaultHint = " [default: keep]";
-            else if (option.Aliases.Contains("--parallel")) defaultHint = " [default: CPU cores (max 5)]";
-            else if (option.Aliases.Contains("--pairing")) defaultHint = " [default: name]";
-            else if (option.Aliases.Contains("--after")) defaultHint = " [default: none]";
+            string defaultHint = GetDefaultHint(option, commandName);
 
             var label = FormatLabel(option);
             var labelWidth = Math.Max(label.Length, 2);
@@ -451,6 +482,32 @@ namespace LivePhotoBox.Cli.Infrastructure
                     context.Output.WriteLine();
                 }
             }
+        }
+
+        // Default value hint shown after an option's first description line.
+        // Split's --protocol defaults to "none" (not merge's "motion photo"),
+        // so the hint is resolved per-command to avoid a wrong default.
+        private static string GetDefaultHint(Option option, string commandName)
+        {
+            bool has(string alias) => option.Aliases.Contains(alias);
+
+            if (commandName == "split")
+            {
+                if (has("--protocol")) return " [default: none]";
+                if (has("--pairing")) return " [default: all]";
+                if (has("--naming")) return " [default: keep]";
+                if (has("--parallel")) return " [default: CPU cores (max 5)]";
+                if (has("--after")) return " [default: none]";
+                return "";
+            }
+
+            // merge / repair share the same hints (repair only matches --parallel).
+            if (has("--protocol")) return " [default: motion photo]";
+            if (has("--naming")) return " [default: keep]";
+            if (has("--parallel")) return " [default: CPU cores (max 5)]";
+            if (has("--pairing")) return " [default: name]";
+            if (has("--after")) return " [default: none]";
+            return "";
         }
 
         // The global help option is not part of merge's own Options in beta4,

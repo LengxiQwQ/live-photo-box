@@ -112,6 +112,9 @@ lpb merge photo.heic video.mov -p motionphoto -y
 
 # Batch-convert a folder (→ HUAWEI, auto-confirm; writes ./MyPhotos/MyPhotos_huawei/)
 lpb merge -d ./MyPhotos -p huawei -y
+
+# Split a single-file live photo back into photo + video
+lpb split photo.jpg -y
 ```
 
 ---
@@ -122,6 +125,7 @@ lpb merge -d ./MyPhotos -p huawei -y
 |---------|-------------|
 | `lpb protocols` | View protocol × format compatibility and device support |
 | `lpb merge` | Merge image+video pairs (single pair or batch) |
+| `lpb split` | Split single-file live photos into separate image and video files |
 | `lpb repair` | Analyze and repair live photo metadata |
 | `lpb --info` / `lpb --version` (`-v`) | Show version, environment, and bundled tool versions |
 
@@ -159,12 +163,20 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 | Samsung Motion Photo | Windows / Samsung | 🟡 In testing |
 | HUAWEI Moving Photo | HUAWEI / Honor | ✅ Supported |
 
-**Split — device support** (split not yet supported in CLI — use the GUI app):
+**Split — device support** (split is supported in the CLI — see the `split` section below):
 
 | Protocol | Devices | Status |
 |---|---|---|
 | Apple Live Photo | iPhone / iPad | 🟡 In testing |
 | vivo Live Photo | vivo (≤ X200) | 🟡 In testing |
+
+**Split — protocol × format compatibility:**
+
+| Protocol | keep | jpg+mov | heic+mov | jpg+mp4 |
+|---|---|---|---|---|
+| None (split only) | ✅ | ✅ | ✅ | ✅ |
+| Apple Live Photo | ✖️ | ✅ | ✅ | ✖️ |
+| vivo Live Photo | ✖️ | ✖️ | ✖️ | ✅ |
 
 **JSON output** for scripting — includes each protocol's index, display name, devices, status, and formats, plus the split table:
 
@@ -352,6 +364,160 @@ lpb merge -d ./Photos -r -s -p motionphoto -o ./Output --after "move:./Originals
 
 # Scripted batch with error logging
 lpb merge -d ./Photos -p huawei -o ./Out -y -v 2>errors.log
+if ($LASTEXITCODE -ne 0) { Write-Host "Some files failed — see errors.log" }
+```
+
+---
+
+### `split` — Split single-file live photos
+
+The reverse of `merge`: splits single-file live photos (an image with an appended video) back into a separate photo and video. Supports two operating modes:
+
+| Mode | Arguments | Use case |
+|------|-----------|----------|
+| Single file | `<file>` (auto-detected by extension) | Split one single-file live photo |
+| Batch folder | `-d` | Split every single-file live photo in a directory |
+
+#### Examples
+
+| Goal | Command |
+|------|---------|
+| Split a single file (photo + video next to the source) | `lpb split photo.jpg` |
+| Batch split a folder, auto-confirm | `lpb split -d ./MyPhotos -y` |
+| Convert the video to JPG+MP4 (H.264) | `lpb split photo.jpg -f jpg+mp4` |
+| Preview without processing | `lpb split -d ./MyPhotos --dry-run` |
+| Only split vivo live photos | `lpb split -d ./MyPhotos --pairing vivo -y` |
+| Overwrite existing outputs | `lpb split photo.jpg -w` |
+
+---
+
+#### Full Option Reference
+
+**Input**
+
+| Option | Description |
+|--------|-------------|
+| `<file>` | One single-file live photo to split: `.jpg .jpeg .heic .heif` (image with an appended video) |
+| `-d, --dir <folder>` | Folder with single-file live photos (batch mode); all detected live photos are split |
+| `--pairing <protocol>` | Only split live photos of this protocol: `all` (no filter, default), `fusion`, `v1` (MicroVideo), `v2` (MotionPhoto), `oppo`, `vivo`, `samsung`, `huawei` |
+| `-r, --recursive` | Include subdirectories when scanning |
+
+**Output**
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output <folder>` | Output folder. Default: single file → the source file's own directory; batch → `{folder}_split` inside the input folder. Created as needed |
+| `-w, --overwrite` | Replace existing files; otherwise name conflicts get auto-renamed (`photo.jpg` → `photo (2).jpg`) |
+| `-s, --preserve-subdirs` | Replicate source subdirectory structure in the output |
+| `--after <action>` | Post-split action on successful files: `none` (default), `move:PATH`, or `recycle` |
+
+**Format**
+
+| Option | Description |
+|--------|-------------|
+| `-p, --protocol <p>` | Target phone format (default `none`): `none` (split only), `apple` (Apple Live Photo), `vivo` (vivo Live Photo, ≤ X200). This iteration only splits the file — pairing metadata is not written yet |
+| `-f, --format <f>` | Output format (default: first available for the protocol): `keep` (no conversion), `jpg+mov` (H.265), `heic+mov` (H.265), `jpg+mp4` (H.264) |
+| `-n, --naming <rule>` | Output filename rule. Default: `keep`. `keep` (same name) or `custom:TEMPLATE` (tokens below) |
+
+Naming tokens:
+
+| Token | Meaning |
+|-------|---------|
+| `{name}` | Source filename |
+| `{date}` | Current date (yyyyMMdd) |
+| `{date:format}` | Custom date, e.g. `{date:yyyy-MM-dd}` |
+| `{time}` | Current time (HHmmss) |
+| `{exif_date}` | Photo capture date (from the file) |
+| `{exif_time}` | Photo capture time (from the file) |
+| `{counter}` | Auto-increment (001, 002, …) |
+| `{counter:D3}` | Zero-padded counter, e.g. D3 = 001 |
+
+**Execution**
+
+| Option | Description |
+|--------|-------------|
+| `-j, --parallel <n>` | How many files to process at once (default: CPU core count, max 5) |
+| `-y, --yes` | Skip confirmation prompts. Useful for scripts / automation |
+| `--dry-run` | Preview: show what would be done, don't actually process files |
+| `-v, --verbose` | Show per-file status messages instead of summary only |
+
+#### Default Output Location
+
+When `-o` is omitted, output never lands in the terminal's current directory — it follows the **input**:
+
+| Mode | Default output | Example |
+|------|----------------|---------|
+| Single file | The **source file's own directory** | `lpb split photo.jpg` → photo + video next to the source |
+| Batch (`-d`) | A subfolder inside the input folder, named `{folder}_split` | `lpb split -d ./MyPhotos` → `./MyPhotos/MyPhotos_split/` |
+
+- The image keeps the source base name and extension; the video keeps the source video's container (`.mov` or `.mp4`).
+- Splitting in place: when the image name would collide with the source file, it is auto-renamed (`photo.jpg` → `photo (2).jpg`); pass `-w` to overwrite instead.
+- Batch files keep their source names — they land in the separate `{folder}_split/` subfolder.
+- `--dry-run` prints the resolved output paths and creates **no** folders.
+
+#### Protocol × Format Matrix
+
+Which output formats each split protocol supports:
+
+| Protocol | keep | jpg+mov | heic+mov | jpg+mp4 |
+|---|---|---|---|---|
+| `none` (split only) | ✅ | ✅ | ✅ | ✅ |
+| `apple` (Apple Live Photo) | ✖️ | ✅ | ✅ | ✖️ |
+| `vivo` (vivo Live Photo) | ✖️ | ✖️ | ✖️ | ✅ |
+
+`✅` — supported &nbsp;|&nbsp; `✖️` — not supported
+
+When `--format` is omitted, the default is the protocol's first available format: `keep` for `none`, `jpg+mov` for `apple`, `jpg+mp4` for `vivo`. Passing a `--format` the protocol does not support is an error (run `lpb protocols` to check).
+
+#### Pairing Filter
+
+`--pairing` restricts splitting to one protocol; live photos of other protocols are skipped. `all` (the default) scans everything.
+
+| Value | Protocol |
+|-------|----------|
+| `all` | No filter (default) |
+| `fusion` | Fusion |
+| `v1` | Micro Video (V1) |
+| `v2` | Motion Photo (V2) |
+| `oppo` | OPPO O-Live |
+| `vivo` | vivo Live Photo |
+| `samsung` | Samsung Motion Photo |
+| `huawei` | HUAWEI Moving Photo |
+
+#### Naming Templates
+
+Split only supports `keep` (the default) and `custom:TEMPLATE` — there is no `suffix` mode. The template names both the image and the video (each keeps its own extension, e.g. `.jpg` / `.mov`).
+
+| Goal | Template | Example Output |
+|------|----------|----------------|
+| Keep original name | `-n keep` (default) | `IMG_001.jpg` (image keeps its name) |
+| Name + date | `-n "custom:{name}_{date}"` | `IMG_001_20260803.jpg` |
+| Sequential numbering | `-n "custom:Photo_{counter:D4}"` | `Photo_0001.jpg` |
+
+#### After-Completion Actions
+
+| Action | Command |
+|--------|---------|
+| Archive source files | `lpb split -d ./Photos --after "move:./Archived" -y` |
+| Recycle source files | `lpb split -d ./Photos --after recycle -y` |
+| Leave source files unchanged (default) | `lpb split -d ./Photos --after none -y` |
+
+Only source files from **successfully** split live photos are affected.
+
+#### Workflow Examples
+
+```powershell
+# Split a single live photo, converting the video to JPG+MP4 (H.264)
+lpb split photo.jpg -f jpg+mp4 -y
+
+# Batch split a folder, only vivo live photos, auto-confirm
+lpb split -d ./DCIM/Camera --pairing vivo -y
+
+# Recursive batch with structure preservation + source archiving
+lpb split -d ./Photos -r -s -o ./Output --after "move:./Originals" -y
+
+# Scripted batch with error logging
+lpb split -d ./Photos -o ./Out -y -v 2>errors.log
 if ($LASTEXITCODE -ne 0) { Write-Host "Some files failed — see errors.log" }
 ```
 

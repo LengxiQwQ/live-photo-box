@@ -769,7 +769,7 @@
     <value>Windows / 小米 / OPPO</value>
   </data>
   <data name="MergePage_Protocol_Vivo.Content" xml:space="preserve">
-    <value>vivo - Live Photo</value>
+    <value>vivo - Live Photo ⚠️</value>
   </data>
   <data name="MergePage_Protocol_Vivo_Hint" xml:space="preserve">
     <value>Windows / 小米 / vivo (≥ X300)</value>
@@ -2658,7 +2658,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>海拔</value>
   </data>
   <data name="EditPage_Protocol_Apple" xml:space="preserve">
-    <value>Apple Live Photo</value>
+    <value>Apple Live Photo ⚠️</value>
   </data>
   <data name="EditPage_Protocol_GoogleV1" xml:space="preserve">
     <value>Google Micro Video (V1)</value>
@@ -2676,7 +2676,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>Samsung Motion Photo</value>
   </data>
   <data name="EditPage_Protocol_Vivo" xml:space="preserve">
-    <value>vivo Live Photo</value>
+    <value>vivo Live Photo ⚠️</value>
   </data>
   <data name="EditPage_Protocol_Fusion" xml:space="preserve">
     <value>融合 Motion Photo</value>
@@ -3291,7 +3291,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>微信赞赏码</value>
   </data>
   <data name="MergePage_InputOutputHeader.Text" xml:space="preserve">
-    <value>目录选择和匹配</value>
+    <value>目录选择</value>
   </data>
   <data name="MergePage_KeepOriginalFiles_Label.Text" xml:space="preserve">
     <value>保留原始文件</value>
@@ -3342,7 +3342,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>完成后将原文件移至回收站</value>
   </data>
   <data name="MergePage_Protocol_Samsung.Content" xml:space="preserve">
-    <value>Samsung - Motion Photo</value>
+    <value>Samsung - Motion Photo ⚠️</value>
   </data>
   <data name="MergePage_Protocol_Samsung_Hint" xml:space="preserve">
     <value>Windows / 三星</value>
@@ -3354,7 +3354,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>华为 / 荣耀</value>
   </data>
   <data name="MergePage_Protocol_Fusion.Content" xml:space="preserve">
-    <value>融合 - Motion Photo</value>
+    <value>融合 - Motion Photo ⚠️</value>
   </data>
   <data name="MergePage_Protocol_Fusion_Hint" xml:space="preserve">
     <value>Windows / Pixel / 小米 / OPPO / vivo / 三星 ⚠️ 作者自创融合协议</value>
@@ -3610,13 +3610,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>不写入配对元数据</value>
   </data>
   <data name="SplitPage_Protocol_Apple.Content" xml:space="preserve">
-    <value>Apple Live Photo</value>
+    <value>Apple Live Photo ⚠️</value>
   </data>
   <data name="SplitPage_Protocol_Apple_Hint" xml:space="preserve">
     <value>iPhone / iPad</value>
   </data>
   <data name="SplitPage_Protocol_Vivo.Content" xml:space="preserve">
-    <value>vivo Live Photo</value>
+    <value>vivo Live Photo ⚠️</value>
   </data>
   <data name="SplitPage_Protocol_Vivo_Hint" xml:space="preserve">
     <value>vivo / iQOO</value>
@@ -3849,7 +3849,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>拖入文件以追加到队列</value>
   </data>
   <data name="SplitPage_MatchMethodLabel.Text" xml:space="preserve">
-    <value>匹配方式：</value>
+    <value>配对方式：</value>
   </data>
   <data name="SplitPage_Match_All.Content" xml:space="preserve">
     <value>所有单文件实况照片协议</value>
@@ -3858,7 +3858,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>识别所有协议</value>
   </data>
   <data name="SplitPage_Match_Fusion.Content" xml:space="preserve">
-    <value>融合 - Motion Photo</value>
+    <value>融合 - Motion Photo ⚠️</value>
   </data>
   <data name="SplitPage_Match_Fusion_Hint" xml:space="preserve">
     <value>Windows / Pixel / 小米 / OPPO / vivo / 三星 ⚠️ 作者自创融合协议</value>
@@ -3882,13 +3882,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>Windows / 小米 / OPPO</value>
   </data>
   <data name="SplitPage_Match_Vivo.Content" xml:space="preserve">
-    <value>vivo - Live Photo</value>
+    <value>vivo - Live Photo ⚠️</value>
   </data>
   <data name="SplitPage_Match_Vivo_Hint" xml:space="preserve">
     <value>Windows / 小米 / vivo (≥ X300)</value>
   </data>
   <data name="SplitPage_Match_Samsung.Content" xml:space="preserve">
-    <value>Samsung - Motion Photo</value>
+    <value>Samsung - Motion Photo ⚠️</value>
   </data>
   <data name="SplitPage_Match_Samsung_Hint" xml:space="preserve">
     <value>Windows / 三星</value>

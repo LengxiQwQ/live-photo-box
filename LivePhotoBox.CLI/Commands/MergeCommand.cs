@@ -11,6 +11,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.CommandLine;
+using System.Text.Json;
 
 namespace LivePhotoBox.Cli.Commands
 {
@@ -61,6 +62,9 @@ namespace LivePhotoBox.Cli.Commands
                 "Skip confirmation prompts. Useful for scripts / automation.");
             yesOpt.AddAlias("-y");
 
+            var jsonOpt = new Option<bool>("--json",
+                "Output machine-readable JSON to stdout (implies --yes).");
+
             var dryRunOpt = new Option<bool>("--dry-run",
                 "Preview: show what would be done, don't actually process files.");
 
@@ -109,7 +113,7 @@ namespace LivePhotoBox.Cli.Commands
             {
                 filesArg,
                 dirOpt, protocolOpt, outputOpt, formatOpt,
-                namingOpt, parallelOpt, yesOpt, dryRunOpt, verboseOpt,
+                namingOpt, parallelOpt, yesOpt, jsonOpt, dryRunOpt, verboseOpt,
                 overwriteOpt, recursiveOpt, preserveSubdirsOpt, pairingOpt, afterOpt,
                 allVariantsOpt, keyTimestampOpt
             };
@@ -156,6 +160,7 @@ namespace LivePhotoBox.Cli.Commands
                     || t.Value.StartsWith("-n=", StringComparison.Ordinal));
                 var parallel = context.ParseResult.GetValueForOption(parallelOpt);
                 var yes = context.ParseResult.GetValueForOption(yesOpt);
+                var json = context.ParseResult.GetValueForOption(jsonOpt);
                 var dryRun = context.ParseResult.GetValueForOption(dryRunOpt);
                 var verbose = context.ParseResult.GetValueForOption(verboseOpt);
                 var overwrite = context.ParseResult.GetValueForOption(overwriteOpt);
@@ -180,7 +185,7 @@ namespace LivePhotoBox.Cli.Commands
 
                 context.ExitCode = await RunAsync(
                     image, video, dir, protocolName, output, formatName,
-                    naming, namingExplicit, parallel, yes, dryRun, verbose,
+                    naming, namingExplicit, parallel, yes, json, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs, pairing, after,
                     allVariants, keyTimestampUs,
                     context.GetCancellationToken());
@@ -218,7 +223,7 @@ namespace LivePhotoBox.Cli.Commands
         private static async Task<int> RunAsync(
             FileInfo? image, FileInfo? video, DirectoryInfo? dir,
             string protocolName, DirectoryInfo? output, string? formatName,
-            string naming, bool namingExplicit, int parallel, bool yes, bool dryRun, bool verbose,
+            string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,
             bool overwrite, bool recursive, bool preserveSubdirs,
             string pairing, string after, bool allVariants, long? keyTimestampUs, CancellationToken ct)
         {
@@ -386,21 +391,27 @@ namespace LivePhotoBox.Cli.Commands
                 else
                     LogService.Merge($"Sources: image={image!.FullName}, video={video!.FullName}");
 
-                CliConsole.WriteField("Protocol", protoDisplay, width: 10, valueColor: CliConsole.Highlight);
-                CliConsole.WriteField("Format", fmtDisplay, width: 10, valueColor: CliConsole.Highlight);
-                CliConsole.WriteFieldRgb("Output", outputDir, width: 10, valueColor: CliConsole.PathGreen);
-                if (isBatch)
-                    CliConsole.WriteField("Pairing", pairing, width: 10, valueColor: CliConsole.Highlight);
+                if (!json)
+                {
+                    CliConsole.WriteField("Protocol", protoDisplay, width: 10, valueColor: CliConsole.Highlight);
+                    CliConsole.WriteField("Format", fmtDisplay, width: 10, valueColor: CliConsole.Highlight);
+                    CliConsole.WriteFieldRgb("Output", outputDir, width: 10, valueColor: CliConsole.PathGreen);
+                    if (isBatch)
+                        CliConsole.WriteField("Pairing", pairing, width: 10, valueColor: CliConsole.Highlight);
+                }
 
                 if (isSingle)
                 {
-                    CliConsole.WriteFieldRgb("Image", image!.FullName, width: 10, valueColor: CliConsole.PathGreen);
-                    CliConsole.WriteFieldRgb("Video", video!.FullName, width: 10, valueColor: CliConsole.PathGreen);
-                    if (keyTimestampUs.HasValue)
-                        CliConsole.WriteField("Key photo", $"{keyTimestampUs.Value / 1_000_000.0:F3}s (custom)",
-                            width: 10, valueColor: CliConsole.Highlight);
-                    else
-                        CliConsole.WriteField("Key photo", "auto (from source video)", width: 10, valueColor: CliConsole.Highlight);
+                    if (!json)
+                    {
+                        CliConsole.WriteFieldRgb("Image", image!.FullName, width: 10, valueColor: CliConsole.PathGreen);
+                        CliConsole.WriteFieldRgb("Video", video!.FullName, width: 10, valueColor: CliConsole.PathGreen);
+                        if (keyTimestampUs.HasValue)
+                            CliConsole.WriteField("Key photo", $"{keyTimestampUs.Value / 1_000_000.0:F3}s (custom)",
+                                width: 10, valueColor: CliConsole.Highlight);
+                        else
+                            CliConsole.WriteField("Key photo", "auto (from source video)", width: 10, valueColor: CliConsole.Highlight);
+                    }
 
                     // 预估最终输出文件名（与 Runner 内部逻辑一致：按输出格式决定 JPG/HEIC 扩展名），
                     // 让用户在确认前知道会生成哪个文件。
@@ -412,22 +423,30 @@ namespace LivePhotoBox.Cli.Commands
                         protocolIndex, imgForExt, formatIndex, namingRuleIndex,
                         customPattern: namingRuleIndex == 2 ? customPattern : null,
                         taskIndex: namingRuleIndex == 2 ? 1 : null);
-                    CliConsole.WriteFieldRgb("File", Path.Combine(outputDir, outputName), width: 10, valueColor: CliConsole.PathGreen);
+                    string estimatedOutput = Path.Combine(outputDir, outputName);
+                    if (!json)
+                        CliConsole.WriteFieldRgb("File", estimatedOutput, width: 10, valueColor: CliConsole.PathGreen);
 
                     if (dryRun)
                     {
                         LogService.Merge("DRY RUN: would merge 1 pair.");
-                        Console.Write("[DRY RUN] Would merge ");
-                        CliConsole.Write("1", CliConsole.Highlight);
-                        Console.WriteLine(" pair.");
+                        if (json) PrintSingleJson(image!.FullName, video!.FullName, estimatedOutput, "would-merge");
+                        else
+                        {
+                            Console.Write("[DRY RUN] Would merge ");
+                            CliConsole.Write("1", CliConsole.Highlight);
+                            Console.WriteLine(" pair.");
+                        }
                         return 0;
                     }
 
-                    if (!yes)
+                    if (!yes && !json)
                     {
-                        Console.Write("Proceed? [y/N] ");
+                        Console.Write("Proceed? [Y/n] ");
                         var key = Console.ReadLine();
-                        if (!string.Equals(key, "y", StringComparison.OrdinalIgnoreCase))
+                        if (key is null ||
+                            string.Equals(key, "n", StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(key, "no", StringComparison.OrdinalIgnoreCase))
                         {
                             CliConsole.WriteLine("Cancelled.", CliConsole.Muted);
                             return 0;
@@ -440,14 +459,14 @@ namespace LivePhotoBox.Cli.Commands
                     return await MergeSinglePairAsync(
                         image.FullName, video.FullName, outputDir, tempDir,
                         protocolIndex, formatIndex, namingRuleIndex, customPattern,
-                        keyTimestampUs, overwrite, verbose, ct);
+                        keyTimestampUs, overwrite, verbose, json, estimatedOutput, ct);
                 }
                 else
                 {
                     return await MergeBatchAsync(
                         dir!.FullName, outputDir,
                         protocolIndex, formatIndex, namingRuleIndex, customPattern,
-                        parallel, yes, dryRun, verbose,
+                        parallel, yes, json, dryRun, verbose,
                         overwrite, preserveSubdirs, useCid, useVivo,
                         afterMoveDir, afterRecycle, ct);
                 }
@@ -478,7 +497,8 @@ namespace LivePhotoBox.Cli.Commands
         private static async Task<int> MergeSinglePairAsync(
             string imagePath, string videoPath, string outputDir, string tempDir,
             int protocolIndex, int formatIndex, int namingRuleIndex, string? customPattern,
-            long? keyTimestampUs, bool overwrite, bool verbose, CancellationToken ct)
+            long? keyTimestampUs, bool overwrite, bool verbose, bool json, string outputPath,
+            CancellationToken ct)
         {
             // 放 try 外：catch 里也要记录文件名（baseName 在 catch 作用域不可见）
             string baseName = Path.GetFileNameWithoutExtension(imagePath);
@@ -495,7 +515,7 @@ namespace LivePhotoBox.Cli.Commands
                     OverwriteExisting = overwrite,
                 };
 
-                if (verbose)
+                if (verbose && !json)
                     Console.WriteLine($"Starting merge: {baseName}...");
 
                 var pause = new ManualResetEventSlim(true); // CLI never pauses
@@ -505,26 +525,36 @@ namespace LivePhotoBox.Cli.Commands
 
                 if (isSuccess)
                 {
-                    CliConsole.Write("OK  ", CliConsole.Success);
-                    Console.WriteLine($"{baseName}  ({details})");
+                    if (json) PrintSingleJson(imagePath, videoPath, outputPath, "merged");
+                    else
+                    {
+                        CliConsole.Write("OK  ", CliConsole.Success);
+                        Console.WriteLine($"{baseName}  ({details})");
+                    }
                     return 0;
                 }
                 else
                 {
-                    CliConsole.WriteErrorLine($"FAIL  {baseName}  {details}");
+                    if (json) PrintSingleJson(imagePath, videoPath, outputPath, "failed", reason: details);
+                    else CliConsole.WriteErrorLine($"FAIL  {baseName}  {details}");
                     return 1;
                 }
             }
             catch (OperationCanceledException)
             {
-                CliConsole.WriteErrorLine("Cancelled.");
+                if (json) PrintSingleJson(imagePath, videoPath, outputPath, "cancelled");
+                else CliConsole.WriteErrorLine("Cancelled.");
                 return 130;
             }
             catch (Exception ex)
             {
                 LogService.Error($"Merge failed for {baseName}: {ex.Message}", ex, LogSource.Merge);
-                CliConsole.WriteErrorLine($"ERROR: {ex.GetType().Name}: {ex.Message}");
-                if (verbose) Console.Error.WriteLine(ex.StackTrace);
+                if (json) PrintSingleJson(imagePath, videoPath, outputPath, "failed", reason: $"{ex.GetType().Name}: {ex.Message}");
+                else
+                {
+                    CliConsole.WriteErrorLine($"ERROR: {ex.GetType().Name}: {ex.Message}");
+                    if (verbose) Console.Error.WriteLine(ex.StackTrace);
+                }
                 return 1;
             }
             finally
@@ -537,21 +567,24 @@ namespace LivePhotoBox.Cli.Commands
         private static async Task<int> MergeBatchAsync(
             string inputDir, string outputDir,
             int protocolIndex, int formatIndex, int namingRuleIndex, string? customPattern,
-            int parallel, bool yes, bool dryRun, bool verbose,
+            int parallel, bool yes, bool json, bool dryRun, bool verbose,
             bool overwrite, bool preserveSubdirs, bool useCid, bool useVivo,
             string? afterMoveDir, bool afterRecycle, CancellationToken ct)
         {
             // 1. Scan — filename-based pairing (always)
-            if (CliConsole.UseColor)
+            if (!json)
             {
-                CliConsole.Write("Scanning", CliConsole.Accent);
-                Console.Write(": ");
-                CliConsole.Write(inputDir, CliConsole.PathGreen);
-                Console.Write(" ... ");
-            }
-            else
-            {
-                Console.Write($"Scanning: {inputDir} ... ");
+                if (CliConsole.UseColor)
+                {
+                    CliConsole.Write("Scanning", CliConsole.Accent);
+                    Console.Write(": ");
+                    CliConsole.Write(inputDir, CliConsole.PathGreen);
+                    Console.Write(" ... ");
+                }
+                else
+                {
+                    Console.Write($"Scanning: {inputDir} ... ");
+                }
             }
             var scanResult = LivePhotoMergeScanService.Scan(inputDir, ct);
 
@@ -568,7 +601,7 @@ namespace LivePhotoBox.Cli.Commands
                 string? exifToolPath = ExternalToolLocator.FindExifTool();
                 if (!string.IsNullOrEmpty(exifToolPath) && File.Exists(exifToolPath))
                 {
-                    Console.Write("CID matching... ");
+                    if (!json) Console.Write("CID matching... ");
                     var metaResult = await LivePhotoMetadataMatcher.MatchAsync(
                         scanResult.StandaloneImagePaths, scanResult.StandaloneVideoPaths,
                         exifToolPath, ct);
@@ -578,12 +611,12 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 else
                 {
-                    Console.Write("(exiftool not found, skip CID) ");
+                    if (!json) Console.Write("(exiftool not found, skip CID) ");
                 }
             }
             else if (useVivo && scanResult.StandaloneImagePaths.Count > 0 && scanResult.StandaloneVideoPaths.Count > 0)
             {
-                Console.Write("vivo matching... ");
+                if (!json) Console.Write("vivo matching... ");
                 var metaResult = LivePhotoMetadataMatcher.MatchVivo(
                     scanResult.StandaloneImagePaths, scanResult.StandaloneVideoPaths);
                 foreach (var mp in metaResult.Pairs)
@@ -593,23 +626,30 @@ namespace LivePhotoBox.Cli.Commands
 
             int standaloneImg = scanResult.StandaloneImagesCount - metaPairs;
             int standaloneVid = scanResult.StandaloneVideosCount - metaPairs;
-            CliConsole.Write(scanResult.Pairs.Count.ToString(), CliConsole.Highlight);
-            Console.Write(" filename pairs, ");
-            CliConsole.Write(metaPairs.ToString(), CliConsole.Highlight);
-            Console.Write(" meta pairs, ");
-            CliConsole.Write(standaloneImg.ToString(), CliConsole.Highlight);
-            Console.Write(" standalone images, ");
-            CliConsole.Write(standaloneVid.ToString(), CliConsole.Highlight);
-            Console.WriteLine(" standalone videos");
+            if (!json)
+            {
+                CliConsole.Write(scanResult.Pairs.Count.ToString(), CliConsole.Highlight);
+                Console.Write(" filename pairs, ");
+                CliConsole.Write(metaPairs.ToString(), CliConsole.Highlight);
+                Console.Write(" meta pairs, ");
+                CliConsole.Write(standaloneImg.ToString(), CliConsole.Highlight);
+                Console.Write(" standalone images, ");
+                CliConsole.Write(standaloneVid.ToString(), CliConsole.Highlight);
+                Console.WriteLine(" standalone videos");
+            }
 
             if (allPairs.Count == 0)
             {
-                CliConsole.WriteErrorLine("No image+video pairs found. Nothing to do.");
+                if (json)
+                    PrintBatchJson(inputDir, outputDir, 0, 0, 0, new List<MergeJsonFileEntry>());
+                else
+                    CliConsole.WriteErrorLine("No image+video pairs found. Nothing to do.");
                 return 0;
             }
 
             // 3. Build task list
             var tasks = new List<CliMergeTask>(allPairs.Count);
+            var jsonFiles = new List<MergeJsonFileEntry>();
             for (int i = 0; i < allPairs.Count; i++)
             {
                 var p = allPairs[i];
@@ -620,35 +660,52 @@ namespace LivePhotoBox.Cli.Commands
                     VideoPath = p.VideoPath,
                     BaseName = p.BaseName,
                 });
+                if (json)
+                {
+                    jsonFiles.Add(new MergeJsonFileEntry
+                    {
+                        Image = p.ImagePath,
+                        Video = p.VideoPath,
+                        Name = p.BaseName,
+                        Status = dryRun ? "would-merge" : "pending",
+                    });
+                }
             }
 
             // 4. Dry run
             if (dryRun)
             {
                 LogService.Merge($"DRY RUN: would merge {tasks.Count} pairs.");
-                Console.WriteLine();
-                Console.Write("[DRY RUN] Would merge ");
-                CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
-                Console.WriteLine(" pairs:");
-                foreach (var t in tasks)
+                if (json)
+                    PrintBatchJson(inputDir, outputDir, tasks.Count, 0, 0, jsonFiles);
+                else
                 {
-                    Console.Write("  ");
-                    CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
-                    Console.Write("  ");
-                    CliConsole.Write(t.BaseName, CliConsole.PathGreen);
                     Console.WriteLine();
+                    Console.Write("[DRY RUN] Would merge ");
+                    CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
+                    Console.WriteLine(" pairs:");
+                    foreach (var t in tasks)
+                    {
+                        Console.Write("  ");
+                        CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
+                        Console.Write("  ");
+                        CliConsole.Write(t.BaseName, CliConsole.PathGreen);
+                        Console.WriteLine();
+                    }
                 }
                 return 0;
             }
 
             // 5. Confirmation
-            if (!yes)
+            if (!yes && !json)
             {
                 Console.Write("\nMerge ");
                 CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
-                Console.Write(" pairs? [y/N] ");
+                Console.Write(" pairs? [Y/n] ");
                 var key = Console.ReadLine();
-                if (!string.Equals(key, "y", StringComparison.OrdinalIgnoreCase))
+                if (key is null ||
+                    string.Equals(key, "n", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(key, "no", StringComparison.OrdinalIgnoreCase))
                 {
                     CliConsole.WriteLine("Cancelled.", CliConsole.Muted);
                     return 0;
@@ -657,12 +714,15 @@ namespace LivePhotoBox.Cli.Commands
 
             // 6. Run batch（实际处理前才创建输出目录，dry-run / 取消不产生副作用）
             Directory.CreateDirectory(outputDir);
-            Console.Write("\nProcessing ");
-            CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
-            Console.Write(" pairs (parallel=");
-            CliConsole.Write(parallel.ToString(), CliConsole.Highlight);
-            Console.WriteLine(")...");
-            Console.WriteLine();
+            if (!json)
+            {
+                Console.Write("\nProcessing ");
+                CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
+                Console.Write(" pairs (parallel=");
+                CliConsole.Write(parallel.ToString(), CliConsole.Highlight);
+                Console.WriteLine(")...");
+                Console.WriteLine();
+            }
 
             var options = new LivePhotoMergeRunOptions
             {
@@ -687,35 +747,44 @@ namespace LivePhotoBox.Cli.Commands
                 ct,
                 onTaskStarted: task =>
                 {
-                    if (verbose)
+                    if (verbose && !json)
                         Console.Write($"  [{task.Index}/{tasks.Count}] {task.BaseName} ... ");
                 },
                 onTaskCompleted: (task, success, details, completed) =>
                 {
                     task.Status = success ? ProcessStatus.Success : ProcessStatus.Failed;
                     task.Details = details;
+                    var entry = json ? jsonFiles[task.Index - 1] : null;
                     if (success)
                     {
                         Interlocked.Increment(ref ok);
-                        if (verbose)
-                            CliConsole.WriteLine("OK", CliConsole.Success);
-                        else
+                        if (entry != null) entry.Status = "merged";
+                        if (!json)
                         {
-                            Console.Write($"  [{completed}/{tasks.Count}] ");
-                            CliConsole.Write("OK  ", CliConsole.Success);
-                            Console.WriteLine(task.BaseName);
+                            if (verbose)
+                                CliConsole.WriteLine("OK", CliConsole.Success);
+                            else
+                            {
+                                Console.Write($"  [{completed}/{tasks.Count}] ");
+                                CliConsole.Write("OK  ", CliConsole.Success);
+                                Console.WriteLine(task.BaseName);
+                            }
                         }
                     }
                     else
                     {
                         Interlocked.Increment(ref fail);
-                        if (verbose)
-                            CliConsole.WriteLine($"FAIL ({details})", CliConsole.Error);
-                        else
+                        if (entry != null) { entry.Status = "failed"; entry.Reason = details; }
+                        if (!json)
                         {
-                            Console.Write($"  [{completed}/{tasks.Count}] ");
-                            CliConsole.Write("FAIL  ", CliConsole.Error);
-                            Console.WriteLine($"{task.BaseName}  ({details})");
+                            if (verbose)
+                                CliConsole.WriteLine($"FAIL ({details})", CliConsole.Error);
+                            else
+                            {
+                                Console.Write($"  [{completed}/{tasks.Count}] ");
+                                CliConsole.Write("FAIL  ", CliConsole.Error);
+                                Console.WriteLine($"{task.BaseName}  ({details})");
+                            }
                         }
                     }
                 });
@@ -723,16 +792,19 @@ namespace LivePhotoBox.Cli.Commands
             // 7. After-completion actions (only on successful tasks)
             if (!string.IsNullOrEmpty(afterMoveDir))
             {
-                if (CliConsole.UseColor)
+                if (!json)
                 {
-                    Console.WriteLine();
-                    Console.Write("Moving source files to '");
-                    CliConsole.Write(afterMoveDir, CliConsole.PathGreen);
-                    Console.WriteLine("'...");
-                }
-                else
-                {
-                    Console.WriteLine($"\nMoving source files to '{afterMoveDir}'...");
+                    if (CliConsole.UseColor)
+                    {
+                        Console.WriteLine();
+                        Console.Write("Moving source files to '");
+                        CliConsole.Write(afterMoveDir, CliConsole.PathGreen);
+                        Console.WriteLine("'...");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"\nMoving source files to '{afterMoveDir}'...");
+                    }
                 }
                 Directory.CreateDirectory(afterMoveDir);
                 int moved = 0;
@@ -753,16 +825,19 @@ namespace LivePhotoBox.Cli.Commands
                     }
                     catch (Exception ex)
                     {
-                        CliConsole.WriteErrorLine($"  WARN: Failed to move '{task.BaseName}': {ex.Message}");
+                        if (!json) CliConsole.WriteErrorLine($"  WARN: Failed to move '{task.BaseName}': {ex.Message}");
                     }
                 }
-                Console.Write("  Moved ");
-                CliConsole.Write(moved.ToString(), CliConsole.Highlight);
-                Console.WriteLine(" source files.");
+                if (!json)
+                {
+                    Console.Write("  Moved ");
+                    CliConsole.Write(moved.ToString(), CliConsole.Highlight);
+                    Console.WriteLine(" source files.");
+                }
             }
             else if (afterRecycle)
             {
-                Console.WriteLine("\nMoving source files to recycle bin...");
+                if (!json) Console.WriteLine("\nMoving source files to recycle bin...");
                 int recycled = 0;
                 foreach (var task in tasks.Where(t => t.Status == ProcessStatus.Success))
                 {
@@ -781,24 +856,58 @@ namespace LivePhotoBox.Cli.Commands
                     }
                     catch (Exception ex)
                     {
-                        CliConsole.WriteErrorLine($"  WARN: Failed to recycle '{task.BaseName}': {ex.Message}");
+                        if (!json) CliConsole.WriteErrorLine($"  WARN: Failed to recycle '{task.BaseName}': {ex.Message}");
                     }
                 }
-                Console.Write("  Recycled ");
-                CliConsole.Write(recycled.ToString(), CliConsole.Highlight);
-                Console.WriteLine(" source files.");
+                if (!json)
+                {
+                    Console.Write("  Recycled ");
+                    CliConsole.Write(recycled.ToString(), CliConsole.Highlight);
+                    Console.WriteLine(" source files.");
+                }
             }
 
             // 8. Summary
-            Console.WriteLine();
-            CliConsole.Write("Done: ", CliConsole.Accent);
-            CliConsole.Write(ok.ToString(), CliConsole.Highlight);
-            Console.Write(" OK, ");
-            CliConsole.Write(fail.ToString(), CliConsole.Highlight);
-            Console.Write(" FAIL, ");
-            CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
-            Console.WriteLine(" total");
+            if (json)
+                PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, jsonFiles);
+            else
+            {
+                Console.WriteLine();
+                CliConsole.Write("Done: ", CliConsole.Accent);
+                CliConsole.Write(ok.ToString(), CliConsole.Highlight);
+                Console.Write(" OK, ");
+                CliConsole.Write(fail.ToString(), CliConsole.Highlight);
+                Console.Write(" FAIL, ");
+                CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
+                Console.WriteLine(" total");
+            }
             return fail > 0 ? 1 : 0;
+        }
+
+        // 序列化 JSON 到 stdout（脚本模式 --json 用，方便脚本稳定解析，不受文件名长度/终端宽度影响）。
+        private static void PrintJson(object data)
+            => Console.WriteLine(JsonSerializer.Serialize(data, new JsonSerializerOptions
+            {
+                WriteIndented = true,
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+            }));
+
+        // 单文件模式的 JSON 结果。
+        private static void PrintSingleJson(string image, string video, string output, string status, string reason = "")
+            => PrintJson(new { command = "merge", mode = "single", image, video, output, status, reason });
+
+        // 批量模式的 JSON 结果。
+        private static void PrintBatchJson(string input, string output, int scanned, int merged, int failed, List<MergeJsonFileEntry> files)
+            => PrintJson(new { command = "merge", mode = "batch", input, output, scanned, merged, failed, files });
+
+        // 脚本模式（--json）下单个文件的 JSON 结果条目。
+        private sealed class MergeJsonFileEntry
+        {
+            public string Image { get; set; } = "";
+            public string Video { get; set; } = "";
+            public string Name { get; set; } = "";
+            public string Status { get; set; } = "";  // merged / would-merge / failed
+            public string Reason { get; set; } = "";  // 失败原因
         }
 
         // ══════════════════════════════════════════════════════════════

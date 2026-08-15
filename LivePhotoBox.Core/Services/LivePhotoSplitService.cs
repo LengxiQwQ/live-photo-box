@@ -107,14 +107,112 @@ namespace LivePhotoBox.Services
             }
 
             string metadataText = await ReadMetadataTextAsync(sourceStream, token);
-            long videoLength = GetAppendedVideoLength(metadataText);
-            long imageLength = sourceStream.Length - videoLength;
 
-            LogService.Split($"File={Path.GetFileName(sourcePath)}, TotalSize={sourceStream.Length}, VideoLength={videoLength}, ImageLength={imageLength}, ProtocolIndex={protocolIndex}, OutputFormatIndex={outputFormatIndex}", LogLevel.Debug);
+            // ── 1. 检测容器：JPEG（FF D8）还是 HEIC（ftyp）──────────────
+            sourceStream.Position = 0;
+            byte[] header = new byte[12];
+            int headerRead = await sourceStream.ReadAsync(header, token);
+            sourceStream.Position = 0;
+            bool sourceImageIsJpeg = headerRead >= 2 && header[0] == 0xFF && header[1] == 0xD8;
+            bool sourceImageIsHeic = !sourceImageIsJpeg && headerRead >= 8
+                && header[4] == (byte)'f' && header[5] == (byte)'t'
+                && header[6] == (byte)'y' && header[7] == (byte)'p';
 
-            if (videoLength <= 0 || imageLength <= 0)
+            // ── 2. 检测协议（已知容器类型），复用 LivePhotoProtocolDetector ──
+            LivePhotoType livePhotoType = sourceImageIsJpeg
+                ? LivePhotoType.SingleFileJpeg
+                : LivePhotoType.SingleFileHeic;
+            LivePhotoProtocolType protocol = LivePhotoProtocolDetector.Detect(
+                sourcePath, livePhotoType, contentIdentifier: null, xmpText: metadataText);
+
+            // ── 3. 按容器 + 协议分流，计算「图片 + 视频」的分段 ──────────
+            long imageLength;
+            long videoStart;
+            long videoLength;
+
+            switch (protocol)
             {
-                throw new InvalidDataException("Unable to determine the appended motion video length or file is corrupted.");
+                case LivePhotoProtocolType.Huawei:
+                {
+                    // 华为/荣耀：[静态图] + [中间嵌入 MP4] + [尾部]，用 moov/ftyp 定位。
+                    var range = GetHuaweiEmbeddedVideoRange(sourcePath);
+                    if (range == null)
+                    {
+                        throw new InvalidDataException("Unable to locate the embedded HUAWEI/Honor video.");
+                    }
+                    imageLength = range.Value.videoStart;
+                    videoStart = range.Value.videoStart;
+                    videoLength = range.Value.videoLength;
+                    break;
+                }
+
+                case LivePhotoProtocolType.Samsung:
+                case LivePhotoProtocolType.Fusion:
+                {
+                    if (sourceImageIsJpeg)
+                    {
+                        // 三星/融合 JPEG：图片 = JPEG 到 EOI，视频在 Samsung Trailer 的 MotionPhoto_Data 标签里。
+                        long eoiEnd = await FindJpegEoiEndOffsetAsync(sourceStream, token);
+                        if (eoiEnd <= 0)
+                        {
+                            throw new InvalidDataException("Unable to locate JPEG EOI for Samsung Motion Photo.");
+                        }
+                        var trailer = FindSamsungJpegVideoRange(sourcePath);
+                        if (trailer == null)
+                        {
+                            throw new InvalidDataException("Unable to locate the Samsung MotionPhoto_Data video.");
+                        }
+                        imageLength = eoiEnd;
+                        videoStart = trailer.Value.videoStart;
+                        videoLength = trailer.Value.videoLength;
+                    }
+                    else
+                    {
+                        // 三星 HEIC：视频在 mpvd box 里（sefd box 之前）。
+                        var mpvd = FindHeicMpvdRange(sourcePath);
+                        if (mpvd == null)
+                        {
+                            throw new InvalidDataException("Unable to locate the mpvd box for Samsung HEIC.");
+                        }
+                        imageLength = mpvd.Value.imageLength;
+                        videoStart = mpvd.Value.videoStart;
+                        videoLength = mpvd.Value.videoLength;
+                    }
+                    break;
+                }
+
+                default:
+                {
+                    if (sourceImageIsHeic)
+                    {
+                        // Google V2 / 其它 HEIC：[HEIC][mpvd box: 8 字节头 + 视频]。
+                        // XMP 的 Item:Length 只算视频、不含 8 字节 mpvd 头，直接按 XMP 偏移切片会把
+                        // mpvd 头并入图片导致坏图 → 必须按 mpvd box 定位。
+                        var mpvd = FindHeicMpvdRange(sourcePath);
+                        if (mpvd == null)
+                        {
+                            throw new InvalidDataException("Unable to locate the mpvd box for HEIC Motion Photo.");
+                        }
+                        imageLength = mpvd.Value.imageLength;
+                        videoStart = mpvd.Value.videoStart;
+                        videoLength = mpvd.Value.videoLength;
+                    }
+                    else
+                    {
+                        // Google V1/V2 / 小米 / OPPO / vivo / 未知 JPEG：XMP 偏移 + 文件尾追加视频（现有路径）。
+                        videoLength = GetAppendedVideoLength(metadataText);
+                        imageLength = sourceStream.Length - videoLength;
+                        videoStart = imageLength;
+                    }
+                    break;
+                }
+            }
+
+            LogService.Split($"File={Path.GetFileName(sourcePath)}, TotalSize={sourceStream.Length}, Protocol={protocol}, ProtocolIndex={protocolIndex}, ImageLength={imageLength}, VideoStart={videoStart}, VideoLength={videoLength}, OutputFormatIndex={outputFormatIndex}", LogLevel.Debug);
+
+            if (imageLength <= 0 || videoStart <= 0 || videoLength <= 0)
+            {
+                throw new InvalidDataException("Unable to determine the image/video region or file is corrupted.");
             }
 
             // ── 协议 → 输出格式 → 编码 契约（全局 outputFormatIndex，与 protocolIndex 无关）─────────
@@ -135,17 +233,10 @@ namespace LivePhotoBox.Services
             {
                 1 or 2 => ".MOV",
                 3 => ".MP4",
-                _ => await ResolveVideoExtensionAsync(sourceStream, imageLength, metadataText, 0, token)
+                _ => await ResolveVideoExtensionAsync(sourceStream, videoStart, metadataText, 0, token)
             };
 
             (string imageOutputPath, string videoOutputPath) = BuildOutputPaths(sourcePath, outputDirectory, targetImageExtension, targetVideoExtension, inputDirectory, outputBaseName, overwriteExisting);
-
-            // 图片端是 JPEG 还是 HEIC：JPEG 走「逐段剥离实况 XMP」路径；HEIC 无 JPEG APP 段，原样拷贝。
-            sourceStream.Position = 0;
-            byte[] imageHeader = new byte[4];
-            int imageHeaderRead = await sourceStream.ReadAsync(imageHeader, token);
-            sourceStream.Position = 0;
-            bool sourceImageIsJpeg = imageHeaderRead >= 2 && imageHeader[0] == 0xFF && imageHeader[1] == 0xD8;
 
             string tempDir = Path.Combine(outputDirectory, "Temp");
             Directory.CreateDirectory(tempDir);
@@ -165,12 +256,40 @@ namespace LivePhotoBox.Services
                         await CopyExactLengthAsync(sourceStream, imageOutputStream, imageLength, token);
                 }
 
+                // HEIC 源：meta box 里的 XMP（谷歌 V2 / 三星 / 融合）仍是「我是实况照片」签名，用 exiftool 整组剥离。
+                // 华为 HEIC 无 XMP，此步为空操作（best-effort）。
+                if (sourceImageIsHeic)
+                {
+                    await StripHeicXmpAsync(tempImagePath, token);
+                }
+
                 // OPPO 协议在 EXIF UserComment 里写了 "oplus_10485792" 标记（供 OPPO 相册识别）。
                 // XMP 段已在上面被剥离，但 EXIF 段原样保留了 → 需单独清理。
                 // 只清以 "oplus_" 开头的值，不碰其他内容的 UserComment。HEIC 源无此 EXIF 段，跳过。
                 if (sourceImageIsJpeg && metadataText.Contains("xmlns:OpCamera", StringComparison.Ordinal))
                 {
                     await ClearOppoExifMarkerAsync(tempImagePath, token);
+                }
+
+                // vivo X300 在 EXIF UserComment 里写了 multi-frame 签名（供 vivo 相册识别），同样需清理。
+                if (sourceImageIsJpeg && metadataText.Contains("VCamera", StringComparison.Ordinal))
+                {
+                    await ClearVivoExifMarkerAsync(tempImagePath, token);
+                }
+
+                // Apple 协议：图片端 Apple MakerNote 必须在格式转换前注入到源 JPG。
+                // heif-enc（libheif）会原样保留 MakerNote，而 exiftool 无法在转换后的
+                // HEIC/非 Apple 图上凭空创建 Apple MakerNote。HEIC 源（sourceImageIsHeic）
+                // 无 JPG 可注入，暂不支持（视频端仍完整）。
+                string? appleContentId = null;
+                if (protocolIndex == 1 && sourceImageIsJpeg)
+                {
+                    appleContentId = Guid.NewGuid().ToString("D").ToUpperInvariant();
+                    byte[] makerNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
+                    if (!Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(tempImagePath, makerNote, out string? mnError))
+                    {
+                        LogService.Split($"Apple[image] pre-convert MakerNote injection failed: {mnError}", LogLevel.Warning);
+                    }
                 }
 
                 // 按目标图片格式转换（复用 HeicConverterService，不自行另写转换逻辑）
@@ -193,7 +312,7 @@ namespace LivePhotoBox.Services
                 File.Move(workingImagePath, imageOutputPath);
 
                 // 2. 提取视频部分到临时文件
-                sourceStream.Position = imageLength;
+                sourceStream.Position = videoStart;
                 await using (var videoOutputStream = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
                 {
                     await CopyExactLengthAsync(sourceStream, videoOutputStream, videoLength, token);
@@ -214,7 +333,13 @@ namespace LivePhotoBox.Services
                     LogService.Split($"Transcoding video -> {targetVideoExtension} (outputFormatIndex={outputFormatIndex})", LogLevel.Debug);
                     var transcodeResult = outputFormatIndex switch
                     {
-                        1 or 2 => await VideoTranscodeService.TranscodeToMovAsync(tempVideoPath, videoOutputPath, token, videoCodec: "hevc"),
+                        // Apple 协议（protocolIndex==1）：HEVC 转码时强制约 0.5s 一个关键帧
+                        // （-g 15，30fps 源），对齐参照样本 IMG_6675 的关键帧密度（1s 2 个）；
+                        // 默认 GOP=250 会把整段压成 1 个关键帧，
+                        // iOS 编辑器拖时间轴无法刷新画面。
+                        1 or 2 => await VideoTranscodeService.TranscodeToMovAsync(
+                            tempVideoPath, videoOutputPath, token, videoCodec: "hevc",
+                            keyframeInterval: protocolIndex == 1 ? 15 : null),
                         3 => await VideoTranscodeService.TranscodeToMp4Async(tempVideoPath, videoOutputPath, token, videoCodec: "h264"),
                         _ => throw new InvalidOperationException($"Unsupported output format index: {outputFormatIndex}")
                     };
@@ -231,12 +356,16 @@ namespace LivePhotoBox.Services
                 await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
                     videoOutputPath, "Split", "", token);
 
-                // ── 扩展点：后续按 protocolIndex 写入双文件配对元数据 ─────────────────────────
-                // protocolIndex == 1（Apple）：给图片与视频两端写入同一个 ContentIdentifier UUID，
-                //   使 Apple Photos 将两者识别为一对实况照片（当前未实现）。
+                // ── 按 protocolIndex 写入双文件配对元数据 ───────────────────────────────
+                // protocolIndex == 1（Apple）：给图片与视频两端写入配对元数据，
+                //   使 Apple Photos 将两者识别为一对实况照片。
                 // protocolIndex == 2（vivo）：在 JPG 尾部追加 vivo JSON 尾标（vivo{...}cameralbum!），
                 //   并在 MP4 写入 vivoMediaExtInfo uuid box（当前未实现）。
-                // 实现时应以 Core 层 Services/Protocols/ 的字节格式为唯一事实源，并同步 GUI + CLI。
+                if (protocolIndex == 1)
+                {
+                    await Protocols.AppleLivePhotoMetadata.WritePairMetadataAsync(
+                        sourcePath, metadataText, imageOutputPath, videoOutputPath, appleContentId, token);
+                }
                 // ─────────────────────────────────────────────────────────────────────────────
 
                 return new LivePhotoSplitResult
@@ -431,12 +560,13 @@ namespace LivePhotoBox.Services
                 long videoStart = ftypPos - 4; // ftyp box 的 size 字段
 
                 // ── Step 3: 确定视频终点 ──
-                // 若 moov 在文件末尾附近（标准布局：ftyp→mdat→moov），moovEnd 即为 MP4 终点；
-                // 若 moov 远离文件尾（如 ftyp→moov→mdat 布局），MP4 终点为 LIVE_ 尾标之前。
+                // 若 moov 在文件尾部（标准布局 ftyp→mdat→moov，或荣耀的 ftyp→mdat→moov→[uuidextend uuid box]），
+                // moovEnd 即 MP4 终点，其后的荣耀 uuid box / LIVE_ 尾标都不属于视频。
+                // 若 moov 不在尾部（如 ftyp→moov→mdat 布局），MP4 终点为 LIVE_ 尾标之前。
                 long videoEnd;
-                if (moovEnd >= fileSize - 1024)
+                if (moovRelIdx >= 4)
                 {
-                    // moov 在文件尾部 1KB 以内 → 标准布局
+                    // moov 在文件尾部 256KB 内 → 它是 MP4 的最后一个 box，moovEnd 即视频终点
                     videoEnd = moovEnd;
                 }
                 else
@@ -954,6 +1084,297 @@ namespace LivePhotoBox.Services
                 LogService.Split(
                     $"Failed to clear OPPO EXIF UserComment: {ex.Message}",
                     LogLevel.Warning);
+            }
+        }
+
+        // ── vivo X300 EXIF UserComment 清理 ──────────────────────────────
+        // vivo X300 在 EXIF UserComment 里写 multi-frame 签名（供 vivo 相册识别）。
+        // 与 OPPO 不同：vivo 的 UserComment 是一大段 \n 分隔的相机状态文本，不是固定前缀。
+        // 只在检测到 "multi-frame" 签名时整段清空，不碰其他内容的 UserComment。
+        private static async Task ClearVivoExifMarkerAsync(string imagePath, CancellationToken token)
+        {
+            try
+            {
+                string? exifToolPath = ExternalToolLocator.FindExifTool();
+                if (string.IsNullOrEmpty(exifToolPath)) return;
+
+                // Read current UserComment value
+                string? currentValue = null;
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    Arguments = $"-UserComment -s -s -S \"{imagePath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using (var process = Process.Start(psi))
+                {
+                    if (process == null) return;
+                    currentValue = (process.StandardOutput.ReadToEnd()).Trim();
+                    process.WaitForExit(5000);
+                }
+
+                // Only clear if this is a vivo multi-frame signature
+                if (string.IsNullOrEmpty(currentValue)
+                    || !currentValue.Contains("multi-frame", StringComparison.OrdinalIgnoreCase))
+                    return;
+
+                LogService.Split(
+                    "Clearing vivo EXIF UserComment (multi-frame signature)",
+                    LogLevel.Debug);
+
+                await LivePhotoRepairService.RunExifToolAsync(token,
+                    "-overwrite_original",
+                    "-UserComment=",
+                    imagePath);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Split(
+                    $"Failed to clear vivo EXIF UserComment: {ex.Message}",
+                    LogLevel.Warning);
+            }
+        }
+
+        // ── HEIC meta box XMP 剥离 ───────────────────────────────────────
+        // HEIC 源（谷歌 V2 / 三星 / 融合）在 meta box 里带 GCamera/Container XMP，
+        // 拆分出的 HEIC 图片仍带「我是实况照片」签名，需用 exiftool 整组清掉 XMP。
+        // 华为 HEIC 无 XMP，此步为空操作。best-effort：exiftool 失败仅记日志不中断。
+        private static async Task StripHeicXmpAsync(string imagePath, CancellationToken token)
+        {
+            try
+            {
+                string? exifToolPath = ExternalToolLocator.FindExifTool();
+                if (string.IsNullOrEmpty(exifToolPath)) return;
+
+                await LivePhotoRepairService.RunExifToolAsync(token,
+                    "-overwrite_original",
+                    "-XMP=",
+                    imagePath);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Split(
+                    $"Failed to strip HEIC XMP: {ex.Message}",
+                    LogLevel.Warning);
+            }
+        }
+
+        // ── 三星/融合 JPEG Trailer 视频定位 ─────────────────────────────
+        // 三星（及融合）JPEG = [JPEG .. EOI] + [MotionPhoto_Data 标签(视频)][MotionPhoto_Version 标签][SEFH..SEFT]。
+        // 每个标签：`[00 00][marker LE u16][name_len LE u32][name UTF-8][data]`。
+        // 视频即 MotionPhoto_Data 标签的 data 段：从 "MotionPhoto_Data" 名字之后，
+        // 到下一个标签（"MotionPhoto_Version"）开头之前。
+        // 注：不走 exiftool -b -EmbeddedVideoFile —— 实测 exiftool 对本 App 自产的
+        // 2-tag 简化 Trailer 解析报错（"Error processing Samsung trailer"），
+        // 直接按协议文档字节格式解析对原厂 7-tag 与自产 2-tag 均可靠。
+        private static (long videoStart, long videoLength)? FindSamsungJpegVideoRange(string filePath)
+        {
+            try
+            {
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                long fileSize = fs.Length;
+                if (fileSize < 4096) return null;
+
+                // "MotionPhoto_Data" 名字（16 字节）之后即视频数据
+                long dataNamePos = FindBytesForward(fs, 0, "MotionPhoto_Data"u8, fileSize);
+                if (dataNamePos < 0) return null;
+                long videoStart = dataNamePos + "MotionPhoto_Data".Length;
+
+                // 下一个标签 "MotionPhoto_Version" 的名字（19 字节），其标签头 8 字节在名字之前
+                long versionNamePos = FindBytesForward(fs, videoStart, "MotionPhoto_Version"u8, fileSize);
+                long videoEnd;
+                if (versionNamePos >= 0)
+                {
+                    videoEnd = versionNamePos - 8;
+                }
+                else
+                {
+                    // 兜底：无 MotionPhoto_Version 时以 SEFH 魔数收尾
+                    long sefhPos = FindBytesForward(fs, videoStart, "SEFH"u8, fileSize);
+                    videoEnd = sefhPos >= 0 ? sefhPos : fileSize;
+                }
+
+                if (videoStart <= 0 || videoStart >= videoEnd || videoEnd > fileSize)
+                    return null;
+
+                return (videoStart, videoEnd - videoStart);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // 在 FileStream 中从 startPos 向后搜索任意字节序列，返回其绝对偏移（分块扫描，避免大内存分配）。
+        private static long FindBytesForward(FileStream fs, long startPos, ReadOnlySpan<byte> pattern, long endLimit)
+        {
+            if (pattern.Length == 0) return -1;
+
+            const int chunkSize = 256 * 1024;
+            byte[] buf = new byte[chunkSize + pattern.Length];
+            long searchPos = startPos;
+
+            while (searchPos < endLimit)
+            {
+                int toRead = (int)Math.Min(chunkSize, endLimit - searchPos);
+                fs.Seek(searchPos, SeekOrigin.Begin);
+                int actual = fs.Read(buf, 0, toRead);
+                if (actual < pattern.Length) break;
+
+                for (int i = 0; i <= actual - pattern.Length; i++)
+                {
+                    if (buf.AsSpan(i, pattern.Length).SequenceEqual(pattern))
+                        return searchPos + i;
+                }
+                searchPos += actual - (pattern.Length - 1); // 重叠 pattern-1 字节防跨块
+            }
+
+            return -1;
+        }
+
+        // ── HEIC mpvd box 定位（谷歌 V2 / 三星共用）──────────────────────
+        // 谷歌 V2 HEIC = [HEIC 静态图] + [mpvd box: 8B header + 视频]（无 sefd）。
+        // 三星 HEIC   = [HEIC 静态图] + [mpvd box: 8B header + 视频 + sefd box]。
+        // 返回 (imageLength, videoStart, videoLength)：图片 = [0..mpvd box 起点)，
+        // 视频 = mpvd 内部 sefd box（若存在）之前的视频字节；无 sefd 时取到文件尾。
+        private static (long imageLength, long videoStart, long videoLength)? FindHeicMpvdRange(string filePath)
+        {
+            try
+            {
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                long fileSize = fs.Length;
+                if (fileSize < 4096) return null;
+
+                // 从文件头跳过第一个 ftyp 后搜索 "mpvd" 顶层 box
+                Span<byte> first4 = stackalloc byte[4];
+                fs.Seek(0, SeekOrigin.Begin);
+                if (fs.Read(first4) < 4) return null;
+                uint firstSize = ReadBigEndianU32(first4);
+                long searchFrom = (firstSize >= 8 && firstSize <= fileSize) ? firstSize : 0;
+
+                long mpvdPos = FindFourCCForward(fs, searchFrom, "mpvd"u8, fileSize);
+                if (mpvdPos < 8) return null;
+
+                // mpvd box 起点 = mpvdPos - 4（size 字段）
+                long mpvdBoxStart = mpvdPos - 4;
+
+                // 视频从 mpvd 头之后开始
+                long videoStart = mpvdPos + 4;
+
+                // 在 mpvd 内部搜索 sefd box，视频终点 = sefd box 的 size 字段之前
+                long sefdPos = FindFourCCForward(fs, videoStart, "sefd"u8, fileSize);
+                long videoEnd = sefdPos >= 4 ? sefdPos - 4 : fileSize;
+
+                if (videoStart <= 0 || videoStart >= videoEnd || videoEnd > fileSize)
+                    return null;
+
+                return (mpvdBoxStart, videoStart, videoEnd - videoStart);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // ── JPEG 主图 EOI 定位（三星/融合 JPEG 图片边界）───────────────
+        // 三星/融合 JPEG 在 EOI 之后追加 Samsung Trailer，视频不在文件尾。
+        // 该方法沿 JPEG 段结构走到 SOS 后，扫描熵编码数据里的 EOI（0xFFD9），
+        // 返回「EOI 之后」的字节偏移（即纯 JPEG 图片的字节数）。
+        private static async Task<long> FindJpegEoiEndOffsetAsync(FileStream stream, CancellationToken token)
+        {
+            stream.Position = 0;
+
+            byte[] temp2 = new byte[2];
+            byte[] singleByte = new byte[1];
+
+            if (await ReadExactAsync(stream, temp2, 2, token) != 2 || temp2[0] != 0xFF || temp2[1] != 0xD8)
+            {
+                throw new InvalidDataException("Split image region is not a valid JPEG (missing SOI).");
+            }
+
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+
+                if (await ReadExactAsync(stream, temp2, 2, token) != 2)
+                {
+                    break; // EOF
+                }
+
+                while (temp2[0] == 0xFF && temp2[1] == 0xFF)
+                {
+                    temp2[0] = temp2[1];
+                    if (await ReadExactAsync(stream, singleByte, 1, token) != 1) break;
+                    temp2[1] = singleByte[0];
+                }
+
+                byte marker = temp2[1];
+
+                // SOS：其后是熵编码数据，扫描其中的 EOI
+                if (marker == 0xDA)
+                {
+                    long scanStart = stream.Position;
+                    long eoiBytes = await ScanForEoiAsync(stream, token);
+                    return eoiBytes < 0 ? -1 : scanStart + eoiBytes;
+                }
+
+                // 直接遇到 EOI（空熵编码数据）
+                if (marker == 0xD9)
+                {
+                    return stream.Position;
+                }
+
+                // 无长度字段的独立标记
+                if (marker == 0xD8 || marker == 0x01 || marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7))
+                {
+                    continue;
+                }
+
+                // 其余段：读长度并跳过 payload
+                if (await ReadExactAsync(stream, temp2, 2, token) != 2)
+                {
+                    throw new EndOfStreamException("Unexpected EOF while reading segment length.");
+                }
+                int segmentLength = (temp2[0] << 8) | temp2[1];
+                if (segmentLength < 2)
+                {
+                    throw new InvalidDataException($"Invalid JPEG segment length: {segmentLength}");
+                }
+                await SkipExactAsync(stream, segmentLength - 2, token);
+            }
+
+            return -1;
+        }
+
+        // 从当前流位置扫描熵编码数据，返回「从扫描起点到 EOI 末尾（含 FF D9 两字节）」的字节数。
+        // JPEG 熵数据有字节填充（0xFF 后必为 0x00 或 restart 标记），因此 0xFFD9 只会是 EOI。
+        private static async Task<long> ScanForEoiAsync(FileStream stream, CancellationToken token)
+        {
+            byte[] buffer = new byte[81920];
+            long consumed = 0;
+            int prev = -1;
+
+            while (true)
+            {
+                token.ThrowIfCancellationRequested();
+                int read = await stream.ReadAsync(buffer, token);
+                if (read <= 0) return -1;
+
+                for (int i = 0; i < read; i++)
+                {
+                    byte b = buffer[i];
+                    if (prev == 0xFF && b == 0xD9)
+                    {
+                        return consumed + i + 1;
+                    }
+                    prev = b;
+                }
+                consumed += read;
             }
         }
 

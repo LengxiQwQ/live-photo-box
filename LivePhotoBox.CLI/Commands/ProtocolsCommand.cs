@@ -95,6 +95,10 @@ namespace LivePhotoBox.Cli.Commands
                 SplitProtocols.Select(p => p.Devices).ToArray(),
                 SplitProtocols.Select(p => p.Supported).ToArray());
 
+            PrintSplitFormatMatrix();
+            WriteIndexLine("  Split protocol indices: ", "none=0  apple=1  vivo=2");
+            WriteIndexLine("  Split format indices:   ", "keep=0  jpg+mov=1  heic+mov=2  jpg+mp4=3");
+
             // Repair — fixes metadata; no protocol choice involved.
             Console.WriteLine();
             CliConsole.WriteLine("  Repair — metadata fixes (no protocol needed)", CliConsole.Accent);
@@ -128,6 +132,50 @@ namespace LivePhotoBox.Cli.Commands
                 Console.Write(devices[i].PadRight(devW));
                 Console.Write("   ");
                 WriteAvailability(supported[i]);
+                Console.WriteLine();
+            }
+        }
+
+        // Prints the split "protocol × format" compatibility matrix (none/apple/vivo × keep/jpg+mov/heic+mov/jpg+mp4).
+        private static void PrintSplitFormatMatrix()
+        {
+            Console.WriteLine();
+            CliConsole.WriteLine("  Split — protocol × format compatibility", CliConsole.Accent);
+            Console.WriteLine();
+
+            string[] fmtNames = SplitCommand.SplitFormatNames;
+            int nameW = Math.Max("Protocol".Length, SplitProtocols.Max(p => p.Name.Length));
+
+            Console.Write("  ");
+            Console.Write("Protocol".PadRight(nameW));
+            Console.Write(" ");
+            for (int f = 0; f < fmtNames.Length; f++)
+            {
+                Console.Write(fmtNames[f].PadRight(8));
+                Console.Write("   ");
+            }
+            Console.WriteLine();
+
+            Console.Write("  ");
+            Console.Write(new string('─', nameW));
+            Console.Write(" ");
+            for (int f = 0; f < fmtNames.Length; f++)
+            {
+                Console.Write(new string('─', 8));
+                Console.Write("   ");
+            }
+            Console.WriteLine();
+
+            for (int s = 0; s < SplitProtocols.Length; s++)
+            {
+                Console.Write("  ");
+                Console.Write(SplitProtocols[s].Name.PadRight(nameW));
+                Console.Write(" ");
+                for (int f = 0; f < fmtNames.Length; f++)
+                {
+                    WriteMark(SplitCommand.SplitFormatMatrix[s][f]);
+                    Console.Write("        ");
+                }
                 Console.WriteLine();
             }
         }
@@ -234,11 +282,18 @@ namespace LivePhotoBox.Cli.Commands
             var split = new object[SplitProtocols.Length];
             for (int s = 0; s < SplitProtocols.Length; s++)
             {
+                int fmtCount = SplitCommand.SplitFormatNames.Length;
+                var formats = new string[fmtCount];
+                for (int f = 0; f < fmtCount; f++)
+                    formats[f] = SplitCommand.SplitFormatMatrix[s][f] ? SplitCommand.SplitFormatNames[f] : null!;
+
                 split[s] = new
                 {
+                    index = s,
                     name = SplitProtocols[s].Name,
                     devices = SplitProtocols[s].Devices,
-                    status = SplitProtocols[s].Supported ? "Supported" : "In testing"
+                    status = SplitProtocols[s].Supported ? "Supported" : "In testing",
+                    formats = Array.FindAll(formats, f => f != null)
                 };
             }
 

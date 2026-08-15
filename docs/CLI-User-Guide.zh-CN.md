@@ -112,6 +112,9 @@ lpb merge photo.heic video.mov -p motionphoto -y
 
 # 批量转换文件夹（→ 华为格式，自动确认；输出到 ./MyPhotos/MyPhotos_huawei/）
 lpb merge -d ./MyPhotos -p huawei -y
+
+# 把单文件实况照片拆回图片 + 视频
+lpb split photo.jpg -y
 ```
 
 ---
@@ -122,6 +125,7 @@ lpb merge -d ./MyPhotos -p huawei -y
 |------|------|
 | `lpb protocols` | 查看协议 × 格式兼容矩阵与设备支持 |
 | `lpb merge` | 合成图片 + 视频（单对或批量） |
+| `lpb split` | 把单文件实况照片拆回独立的图片与视频 |
 | `lpb repair` | 分析并修复实况照片元数据 |
 | `lpb --info` / `lpb --version`（`-v`） | 查看版本、环境与内置工具版本 |
 
@@ -159,12 +163,20 @@ lpb merge -d ./MyPhotos -p huawei -y
 | Samsung Motion Photo | Windows / Samsung | 🟡 测试中 |
 | HUAWEI Moving Photo | 华为 / 荣耀 | ✅ 可用 |
 
-**拆分 — 设备支持**（暂不支持拆分，需要拆分请使用 GUI）：
+**拆分 — 设备支持**（CLI 已支持拆分，见下文 `split` 一节）：
 
 | 协议 | 支持机型 | 状态 |
 |---|---|---|
 | Apple Live Photo | iPhone / iPad | 🟡 测试中 |
 | vivo Live Photo | vivo（≤ X200） | 🟡 测试中 |
+
+**拆分 — 协议 × 格式兼容矩阵：**
+
+| 协议 | keep | jpg+mov | heic+mov | jpg+mp4 |
+|---|---|---|---|---|
+| None（仅拆分） | ✅ | ✅ | ✅ | ✅ |
+| Apple Live Photo | ✖️ | ✅ | ✅ | ✖️ |
+| vivo Live Photo | ✖️ | ✖️ | ✖️ | ✅ |
 
 **JSON 输出**（供脚本消费）——包含每个协议的索引、显示名、支持设备、状态与格式，以及拆分表：
 
@@ -352,6 +364,160 @@ lpb merge -d ./Photos -r -s -p motionphoto -o ./Output --after "move:./Originals
 
 # 脚本批处理 + 错误日志
 lpb merge -d ./Photos -p huawei -o ./Out -y -v 2>errors.log
+if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
+```
+
+---
+
+### `split` — 拆分单文件实况照片
+
+`merge` 的反向操作：把单文件实况照片（图片 + 追加视频）拆回独立的图片与视频。两种运行模式：
+
+| 模式 | 参数 | 使用场景 |
+|------|------|----------|
+| 单文件 | `<文件>`（按扩展名自动识别） | 拆分单个单文件实况照片 |
+| 批量文件夹 | `-d` | 拆分目录内所有单文件实况照片 |
+
+#### 使用示例
+
+| 目标 | 命令 |
+|------|------|
+| 拆分单个文件（图片 + 视频输出到源文件旁） | `lpb split photo.jpg` |
+| 批量拆分文件夹，自动确认 | `lpb split -d ./MyPhotos -y` |
+| 把视频转换为 JPG+MP4 (H.264) | `lpb split photo.jpg -f jpg+mp4` |
+| 预览（不实际处理） | `lpb split -d ./MyPhotos --dry-run` |
+| 只拆分 vivo 实况照片 | `lpb split -d ./MyPhotos --pairing vivo -y` |
+| 覆盖已存在输出 | `lpb split photo.jpg -w` |
+
+---
+
+#### 完整选项参考
+
+**输入**
+
+| 选项 | 说明 |
+|------|------|
+| `<文件>` | 单个待拆分的单文件实况照片：`.jpg .jpeg .heic .heif`（图片 + 追加视频） |
+| `-d, --dir <文件夹>` | 包含单文件实况照片的文件夹（批量模式），所有检测到的实况照片都会被拆分 |
+| `--pairing <协议>` | 只拆分该协议的实况照片：`all`（不过滤，默认）、`fusion`、`v1`（MicroVideo）、`v2`（MotionPhoto）、`oppo`、`vivo`、`samsung`、`huawei` |
+| `-r, --recursive` | 扫描时包含所有子目录 |
+
+**输出**
+
+| 选项 | 说明 |
+|------|------|
+| `-o, --output <文件夹>` | 输出目录。默认：单文件 → 源文件所在目录；批量 → 输入目录下的 `{文件夹名}_split` 子文件夹。自动创建 |
+| `-w, --overwrite` | 直接覆盖已存在文件；否则自动重命名（`photo.jpg` → `photo (2).jpg`） |
+| `-s, --preserve-subdirs` | 在输出目录中保留源文件的子目录结构 |
+| `--after <操作>` | 拆分成功后对源文件的操作：`none`（默认）、`move:路径`、`recycle` |
+
+**格式**
+
+| 选项 | 说明 |
+|------|------|
+| `-p, --protocol <协议>` | 目标手机格式（默认 `none`）：`none`（仅拆分）、`apple`（Apple Live Photo）、`vivo`（vivo Live Photo，≤ X200）。本迭代仅拆分文件——尚未写入配对元数据 |
+| `-f, --format <格式>` | 输出格式（默认：指定协议的首个可用格式）：`keep`（不转换）、`jpg+mov` (H.265)、`heic+mov` (H.265)、`jpg+mp4` (H.264) |
+| `-n, --naming <规则>` | 输出文件名规则。默认：`keep`。`keep`（保持原名）或 `custom:模板`（占位符见下） |
+
+命名占位符：
+
+| 占位符 | 含义 |
+|--------|------|
+| `{name}` | 源文件名 |
+| `{date}` | 当前日期 (yyyyMMdd) |
+| `{date:格式}` | 自定义日期，如 `{date:yyyy-MM-dd}` |
+| `{time}` | 当前时间 (HHmmss) |
+| `{exif_date}` | 照片拍摄日期（从文件读取） |
+| `{exif_time}` | 照片拍摄时间（从文件读取） |
+| `{counter}` | 自增编号 (001, 002, …) |
+| `{counter:D3}` | 定宽编号，如 D3 = 001 |
+
+**执行**
+
+| 选项 | 说明 |
+|------|------|
+| `-j, --parallel <数量>` | 同时处理的文件数（默认：CPU 核心数，上限 5） |
+| `-y, --yes` | 跳过确认提示。适用于脚本 / 自动化 |
+| `--dry-run` | 预览：显示将要执行的操作，不实际处理文件 |
+| `-v, --verbose` | 逐文件输出状态，而非仅显示汇总 |
+
+#### 默认输出位置
+
+省略 `-o` 时，输出**不会**落到终端当前目录，而是跟随**输入**：
+
+| 模式 | 默认输出 | 示例 |
+|------|----------|------|
+| 单文件 | **源文件所在目录** | `lpb split photo.jpg` → 图片 + 视频输出到源文件旁 |
+| 批量（`-d`） | 输入目录下的子文件夹，命名为 `{文件夹名}_split` | `lpb split -d ./MyPhotos` → `./MyPhotos/MyPhotos_split/` |
+
+- 图片保持源基础名与扩展名；视频保持源视频的容器（`.mov` 或 `.mp4`）。
+- 就地拆分：图片名与源文件冲突时自动重命名（`photo.jpg` → `photo (2).jpg`）；传 `-w` 则覆盖。
+- 批量文件名保持源名不变——它们进入独立的 `{文件夹名}_split/` 子文件夹。
+- `--dry-run` 会打印解析出的输出路径，且**不创建任何文件夹**。
+
+#### 协议 × 格式矩阵
+
+每个拆分协议支持的输出格式：
+
+| 协议 | keep | jpg+mov | heic+mov | jpg+mp4 |
+|---|---|---|---|---|
+| `none`（仅拆分） | ✅ | ✅ | ✅ | ✅ |
+| `apple`（Apple Live Photo） | ✖️ | ✅ | ✅ | ✖️ |
+| `vivo`（vivo Live Photo） | ✖️ | ✖️ | ✖️ | ✅ |
+
+`✅` — 支持 &nbsp;|&nbsp; `✖️` — 不支持
+
+省略 `--format` 时，默认取该协议的首个可用格式：`none` 为 `keep`、`apple` 为 `jpg+mov`、`vivo` 为 `jpg+mp4`。传入协议不支持的 `--format` 会报错（可用 `lpb protocols` 查看）。
+
+#### 配对过滤
+
+`--pairing` 把拆分限定为某一协议，其他协议的实况照片会被跳过。`all`（默认）扫描全部。
+
+| 值 | 协议 |
+|----|------|
+| `all` | 不过滤（默认） |
+| `fusion` | Fusion |
+| `v1` | Micro Video (V1) |
+| `v2` | Motion Photo (V2) |
+| `oppo` | OPPO O-Live |
+| `vivo` | vivo Live Photo |
+| `samsung` | Samsung Motion Photo |
+| `huawei` | HUAWEI Moving Photo |
+
+#### 命名模板速查
+
+split 只支持 `keep`（默认）和 `custom:模板`——没有 `suffix` 模式。模板同时命名图片与视频（各自保留自己的扩展名，如 `.jpg` / `.mov`）。
+
+| 目的 | 模板 | 输出示例 |
+|------|----------|----------------|
+| 保持原名 | `-n keep`（默认） | `IMG_001.jpg`（图片保持原名） |
+| 文件名 + 日期 | `-n "custom:{name}_{date}"` | `IMG_001_20260803.jpg` |
+| 顺序编号 | `-n "custom:Photo_{counter:D4}"` | `Photo_0001.jpg` |
+
+#### 完成后操作
+
+| 操作 | 命令 |
+|------|------|
+| 归档源文件 | `lpb split -d ./Photos --after "move:./Archived" -y` |
+| 移入回收站 | `lpb split -d ./Photos --after recycle -y` |
+| 保留源文件（默认） | `lpb split -d ./Photos --after none -y` |
+
+仅**拆分成功**的实况照片的源文件会受影响。
+
+#### 工作流示例
+
+```powershell
+# 拆分单个实况照片，视频转换为 JPG+MP4 (H.264)
+lpb split photo.jpg -f jpg+mp4 -y
+
+# 批量拆分文件夹，只拆分 vivo 实况照片，自动确认
+lpb split -d ./DCIM/Camera --pairing vivo -y
+
+# 递归批量 + 保留目录结构 + 归档源文件
+lpb split -d ./Photos -r -s -o ./Output --after "move:./Originals" -y
+
+# 脚本批处理 + 错误日志
+lpb split -d ./Photos -o ./Out -y -v 2>errors.log
 if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 ```
 

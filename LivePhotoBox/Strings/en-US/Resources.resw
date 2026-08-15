@@ -770,7 +770,7 @@ Do you want to restart now?</value>
     <value>Windows / Xiaomi / OPPO</value>
   </data>
   <data name="MergePage_Protocol_Vivo.Content" xml:space="preserve">
-    <value>vivo - Live Photo</value>
+    <value>vivo - Live Photo ⚠️</value>
   </data>
   <data name="MergePage_Protocol_Vivo_Hint" xml:space="preserve">
     <value>Windows / Xiaomi / vivo (≥ X300)</value>
@@ -2126,7 +2126,7 @@ Place any of these files into the same folder.</value>
     <value>OPPO Live Photo</value>
   </data>
   <data name="History_Protocol_Vivo" xml:space="preserve">
-    <value>vivo Live Photo</value>
+    <value>vivo Live Photo ⚠️</value>
   </data>
   <data name="History_Summary_Generated" xml:space="preserve">
     <value>{0} operations</value>
@@ -2659,7 +2659,7 @@ Place any of these files into the same folder.</value>
     <value>Altitude</value>
   </data>
   <data name="EditPage_Protocol_Apple" xml:space="preserve">
-    <value>Apple Live Photo</value>
+    <value>Apple Live Photo ⚠️</value>
   </data>
   <data name="EditPage_Protocol_GoogleV1" xml:space="preserve">
     <value>Google Micro Video (V1)</value>
@@ -2677,7 +2677,7 @@ Place any of these files into the same folder.</value>
     <value>Samsung Motion Photo</value>
   </data>
   <data name="EditPage_Protocol_Vivo" xml:space="preserve">
-    <value>vivo Live Photo</value>
+    <value>vivo Live Photo ⚠️</value>
   </data>
   <data name="EditPage_Protocol_Fusion" xml:space="preserve">
     <value>Fusion Motion Photo</value>
@@ -3343,7 +3343,7 @@ Place any of these files into the same folder.</value>
     <value>Move Originals to Recycle Bin</value>
   </data>
   <data name="MergePage_Protocol_Samsung.Content" xml:space="preserve">
-    <value>Samsung - Motion Photo</value>
+    <value>Samsung - Motion Photo ⚠️</value>
   </data>
   <data name="MergePage_Protocol_Samsung_Hint" xml:space="preserve">
     <value>Windows / Samsung</value>
@@ -3355,7 +3355,7 @@ Place any of these files into the same folder.</value>
     <value>HUAWEI / Honor</value>
   </data>
   <data name="MergePage_Protocol_Fusion.Content" xml:space="preserve">
-    <value>Fusion - Motion Photo</value>
+    <value>Fusion - Motion Photo ⚠️</value>
   </data>
   <data name="MergePage_Protocol_Fusion_Hint" xml:space="preserve">
     <value>Windows / Pixel / Xiaomi / OPPO / vivo / Samsung ⚠️ Custom fusion protocol</value>
@@ -3611,13 +3611,13 @@ Tip: Drag ☰ handles to reorder segments.</value>
     <value>No pairing metadata</value>
   </data>
   <data name="SplitPage_Protocol_Apple.Content" xml:space="preserve">
-    <value>Apple Live Photo</value>
+    <value>Apple Live Photo ⚠️</value>
   </data>
   <data name="SplitPage_Protocol_Apple_Hint" xml:space="preserve">
     <value>iPhone / iPad</value>
   </data>
   <data name="SplitPage_Protocol_Vivo.Content" xml:space="preserve">
-    <value>vivo Live Photo</value>
+    <value>vivo Live Photo ⚠️</value>
   </data>
   <data name="SplitPage_Protocol_Vivo_Hint" xml:space="preserve">
     <value>vivo / iQOO</value>
@@ -3850,7 +3850,7 @@ Tip: Drag ☰ handles to reorder segments.</value>
     <value>Drop file to append</value>
   </data>
   <data name="SplitPage_MatchMethodLabel.Text" xml:space="preserve">
-    <value>Match method:</value>
+    <value>Pairing method:</value>
   </data>
   <data name="SplitPage_Match_All.Content" xml:space="preserve">
     <value>All single-file Live Photo protocols</value>
@@ -3859,7 +3859,7 @@ Tip: Drag ☰ handles to reorder segments.</value>
     <value>Recognize all protocols</value>
   </data>
   <data name="SplitPage_Match_Fusion.Content" xml:space="preserve">
-    <value>Fusion - Motion Photo</value>
+    <value>Fusion - Motion Photo ⚠️</value>
   </data>
   <data name="SplitPage_Match_Fusion_Hint" xml:space="preserve">
     <value>Windows / Pixel / Xiaomi / OPPO / vivo / Samsung ⚠️ Custom fusion protocol</value>
@@ -3883,13 +3883,13 @@ Tip: Drag ☰ handles to reorder segments.</value>
     <value>Windows / Xiaomi / OPPO</value>
   </data>
   <data name="SplitPage_Match_Vivo.Content" xml:space="preserve">
-    <value>vivo - Live Photo</value>
+    <value>vivo - Live Photo ⚠️</value>
   </data>
   <data name="SplitPage_Match_Vivo_Hint" xml:space="preserve">
     <value>Windows / Xiaomi / vivo (≥ X300)</value>
   </data>
   <data name="SplitPage_Match_Samsung.Content" xml:space="preserve">
-    <value>Samsung - Motion Photo</value>
+    <value>Samsung - Motion Photo ⚠️</value>
   </data>
   <data name="SplitPage_Match_Samsung_Hint" xml:space="preserve">
     <value>Windows / Samsung</value>
