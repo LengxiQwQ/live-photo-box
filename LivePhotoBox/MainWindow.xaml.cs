@@ -463,7 +463,7 @@ namespace LivePhotoBox
             {
                 case "Home": NavigateToPage(typeof(Views.HomePage), null, transitionInfo); break;
                 case "Merge": NavigateToPage(typeof(Views.MergePage), null, transitionInfo); break;
-                case "Split": NavigateToPage(typeof(Views.SplitPage), "Split", transitionInfo); break;
+                case "Split": NavigateToPage(typeof(Views.SplitPage), null, transitionInfo); break;
                 case "History": NavigateToPage(typeof(Views.HistoryPage), null, transitionInfo); break;
                 case "Edit": NavigateToPage(typeof(Views.EditPage), null, transitionInfo); break;
                 case "PhotoClassify": NavigateToPage(typeof(Views.PhotoClassifyPage), null, transitionInfo); break;

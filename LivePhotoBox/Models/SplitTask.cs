@@ -1,9 +1,9 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using System;
-using System.IO;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox.Models
@@ -29,8 +29,19 @@ namespace LivePhotoBox.Models
         // 处理详情/错误信息
         [ObservableProperty] private string _details = string.Empty;
 
+        #endregion
+
+        #region Computed Properties
+
         // 任务失败且有错误详情时返回 true
         public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
+
+        // 源文件原始大小（字节），用于排序
+        public long FileSizeBytes { get; set; }
+        // 源文件拍摄日期（EXIF DateTimeOriginal），用于排序
+        public DateTime DateTaken { get; set; }
+        // 拆分后输出文件的基本名称（不含扩展名，由命名模板渲染）
+        public string BaseName { get; set; } = string.Empty;
 
         // 追加视频段长度（扫描时填入，灯箱直接读取，避免二次 IO）
         public long AppendedVideoLength { get; set; }
@@ -101,10 +112,10 @@ namespace LivePhotoBox.Models
 
         #endregion
 
-        #region Computed Properties
+        #region Display
 
-        // 截断后的源文件名（过长时省略中间）
-        public string DisplaySourceFileName => TruncateFileName(SourceFileName);
+        // 截断后的源文件名（过长时省略中间，沿用 MergeTask 的截断方式）
+        public string DisplaySourceFileName => FileNameFormatter.Truncate(SourceFileName);
 
         // 用于 UI 显示的本地化状态文本
         public string DisplayStatus
@@ -123,20 +134,6 @@ namespace LivePhotoBox.Models
                     _ => Status.ToString()
                 };
             }
-        }
-
-        #endregion
-
-        #region Helpers
-
-        // 截断文件名 — 超过 30 字符时保留首尾，中间用 "..." 代替
-        private string TruncateFileName(string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName)) return fileName;
-            string ext = Path.GetExtension(fileName);
-            string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
-            if (nameWithoutExt.Length <= 30) return fileName;
-            return $"{nameWithoutExt.Substring(0, 22)}...{nameWithoutExt.Substring(nameWithoutExt.Length - 8)}{ext}";
         }
 
         #endregion

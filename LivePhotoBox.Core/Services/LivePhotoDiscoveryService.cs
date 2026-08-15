@@ -329,6 +329,72 @@ namespace LivePhotoBox.Services
             };
         }
 
+        /// <summary>
+        /// 检测单个文件是否为单文件实况照片，返回其类型
+        /// （<see cref="LivePhotoType.None"/> / <see cref="LivePhotoType.SingleFileJpeg"/> / <see cref="LivePhotoType.SingleFileHeic"/>）。
+        /// 与 <see cref="ScanAsync"/> 的逐文件判定逻辑保持一致：
+        /// JPEG 走字节标记快速判断；HEIC 走华为 LIVE_ 尾标 + XMP MotionPhoto 标记 + exiftool 视频轨三重判断。
+        /// 单个文件不复用 exiftool 池，直接一次查询。
+        /// </summary>
+        public static async Task<LivePhotoType> DetectSingleFileTypeAsync(string filePath, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+                return LivePhotoType.None;
+
+            string ext = Path.GetExtension(filePath);
+
+            // ── JPEG：字节标记快速判断 ──
+            if (JpegExtensions.Contains(ext))
+            {
+                long size;
+                try { size = new FileInfo(filePath).Length; }
+                catch { return LivePhotoType.None; }
+                return LivePhotoSplitScanService.IsLikelyLivePhoto(filePath, size)
+                    ? LivePhotoType.SingleFileJpeg
+                    : LivePhotoType.None;
+            }
+
+            // ── HEIC：LIVE_ 尾标 / XMP MotionPhoto 标记 / exiftool 视频轨 ──
+            if (HeicExtensions.Contains(ext))
+            {
+                ct.ThrowIfCancellationRequested();
+
+                // 快速检查（无进程启动，O(1) 文件 I/O）
+                try
+                {
+                    if (HasHuaweiLiveTail(filePath))
+                        return LivePhotoType.SingleFileHeic;
+
+                    string xmpText = LivePhotoSplitService.ReadMetadataTextSync(filePath);
+                    if (xmpText.Contains("GCamera:MotionPhoto", StringComparison.Ordinal) ||
+                        xmpText.Contains("Container:Directory", StringComparison.Ordinal) ||
+                        xmpText.Contains("GContainer:Directory", StringComparison.Ordinal))
+                        return LivePhotoType.SingleFileHeic;
+                }
+                catch { /* 回退检查失败 → 继续 exiftool 路径 */ }
+
+                // exiftool 查询（Apple ContentIdentifier + MediaDuration）
+                string? exifToolPath = ExternalToolLocator.FindExifTool()
+                    ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
+                if (!File.Exists(exifToolPath))
+                    return LivePhotoType.None;
+
+                try
+                {
+                    using var tool = new PersistentExifTool(exifToolPath);
+                    string json = await tool.SendCommandAsync(
+                        ct, "-j", "-ContentIdentifier", "-MediaDuration", filePath);
+                    return ParseHeicHasVideoTrack(json)
+                        ? LivePhotoType.SingleFileHeic
+                        : LivePhotoType.None;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch { return LivePhotoType.None; }
+            }
+
+            return LivePhotoType.None;
+        }
+
         // ══════════════════════════════════════════════════════════════
         //  Step 1: 文件枚举
         // ══════════════════════════════════════════════════════════════

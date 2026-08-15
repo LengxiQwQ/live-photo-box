@@ -285,13 +285,14 @@ namespace LivePhotoBox.Services
             return await TranscodeAsync(inputPath, outputPath, VideoFormat.MP4, token, useFaststart, videoCodec);
         }
 
-        // 将视频转换为 MOV 格式 (H.264/AAC)
+        // 将视频转换为 MOV 格式（默认 H.264/AAC；传 videoCodec="hevc" 可输出 H.265/HEVC，供 Apple 实况使用）
         public static async Task<TranscodeResult> TranscodeToMovAsync(
             string inputPath,
             string outputPath,
-            CancellationToken token = default)
+            CancellationToken token = default,
+            string videoCodec = "h264")
         {
-            return await TranscodeAsync(inputPath, outputPath, VideoFormat.MOV, token);
+            return await TranscodeAsync(inputPath, outputPath, VideoFormat.MOV, token, useFaststart: true, videoCodec);
         }
 
         // ══════════════════════════════════════════════════════════════

@@ -6,7 +6,7 @@
 
 ## Overview
 
-Live Photo Box is available in two forms — a graphical interface and a command line — both sharing the same core logic. The command-line entry point `livephotobox` (alias `lpb`) is designed for scripting, AI, and automation. For everyday interactive use, please use the graphical interface, available on [Microsoft Store](https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full) and [GitHub Releases](https://github.com/lengxiqwq/live-photo-box/releases).
+Live Photo Box is available in two forms — a graphical interface and a command line. The command-line entry point `livephotobox` (alias `lpb`) is designed for scripting, AI, and automation. For everyday interactive use, please use the graphical interface, available on [Microsoft Store](https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full) and [GitHub Releases](https://github.com/lengxiqwq/live-photo-box/releases).
 
 ---
 
@@ -20,7 +20,7 @@ Three packages are available on the [Releases page](https://github.com/lengxiqwq
 | `*-x64-portable.zip` | GUI + CLI, no installation required | Portable use on USB drives, or trying without installing | Add manually |
 | `*-x64-cli.zip` | CLI only, no GUI or GUI dependencies | Servers, scripts, CI/CD, minimal footprint | Add manually |
 
-All three packages include the same `livephotobox.exe` and its four aliases. The CLI-only package is the smallest — it omits the WinUI GUI and its runtime (~80 MB saved).
+All three packages include the same `livephotobox.exe` and its four aliases. The CLI-only package is the smallest.
 
 ---
 
@@ -56,7 +56,7 @@ The tool ships under four equivalent names — use whichever is shortest:
 
 ## Updating
 
-Updates are **user-triggered** — the CLI never checks in the background.
+Updates are **user-triggered**.
 
 | Command | Action |
 |---------|--------|
@@ -122,6 +122,7 @@ lpb merge -d ./MyPhotos -p huawei -y
 |---------|-------------|
 | `lpb protocols` | View protocol × format compatibility and device support |
 | `lpb merge` | Merge image+video pairs (single pair or batch) |
+| `lpb repair` | Analyze and repair live photo metadata |
 | `lpb --info` / `lpb --version` (`-v`) | Show version, environment, and bundled tool versions |
 
 The `update` / `update-check` commands are covered in the Updating section above.
@@ -288,11 +289,10 @@ Notes:
 - Single-pair mode only. Batch mode (`--dir`) is not supported.
 - Naming is fixed — `--naming`, `--protocol`, and `--format` are ignored.
 - `--key-timestamp` is supported — all variants use the same timestamp.
-- Parentheses and spaces in names like `HEIC+MP4 (H.265)` are valid Windows filename characters.
 
 #### `--key-timestamp` — Set the key photo position in the video
 
-When merging a single pair, the live photo metadata records **where on the video timeline the key photo (cover) belongs**. By default the tool follows the source video's own timeline (e.g. Apple MOV still-image time, vivo metadata); passing this option overrides it with your value.
+When merging a single pair, the live photo metadata records **where on the video timeline the key photo (cover) belongs**. By default the tool follows the source video's own timeline; passing this option overrides it with your value.
 
 ```powershell
 # Cover is at 2.5 seconds into the video
@@ -302,18 +302,9 @@ lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
 lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 ```
 
-- Time formats: seconds (`1.5`), `mm:ss` (`1:30`), `hh:mm:ss` (`0:01:30`), converted to microseconds internally.
+- Time formats: seconds (`1.5`), `mm:ss` (`1:30`), `hh:mm:ss` (`0:01:30`).
 - Single-pair mode only — with batch mode (`-d`) it exits with an error.
-- Each protocol stores the timestamp differently; the tool adapts automatically:
-
-| Protocol | Where it's stored |
-|----------|-------------------|
-| Motion Photo / OPPO / vivo / Samsung / Fusion | XMP (OPPO / Fusion also write the primary-photo timestamp field) |
-| Micro Video | XMP `MicroVideoPresentationTimestampUs` |
-| HUAWEI | MP4 `covertime` metadata + tail-bytes cover frame number (no XMP) |
-
 - Can be combined with `--all-variants` — all variants share the same timestamp.
-- Values beyond the video duration: HUAWEI clamps to the last frame; other protocols write the value as-is.
 
 #### Pairing Methods
 
@@ -325,7 +316,7 @@ In batch mode (`-d`), the tool must decide which image belongs to which video:
 | `cid` | Apple `ContentIdentifier` UUID match, regardless of filename | `IMG_0002.HEIC` + `renamed.MOV` → paired |
 | `vivo` | vivo camera ID in the JPEG tail + MP4 metadata | `vivo_photo.jpg` + `vivo_video.mp4` → paired |
 
-`cid` requires `exiftool.exe` in the `Tools\` directory alongside the executable (included in all packages); `name` and `vivo` need no external tools — pure file I/O.
+`cid` requires `exiftool.exe` in the `Tools\` directory alongside the executable (included in all packages); `name` and `vivo` need no external tools.
 
 #### Naming Templates
 
@@ -366,9 +357,143 @@ if ($LASTEXITCODE -ne 0) { Write-Host "Some files failed — see errors.log" }
 
 ---
 
-### `--info` / `--version` — Show version and environment
+### `repair` — Repair live photo metadata
 
-Both are global flags (not subcommands), mirroring `dotnet --info` / `winget --info`.
+Analyzes and fixes four kinds of metadata problems on existing live photo files: image rotation, embedded thumbnails, HEIC orientation, and video rotation. Images: `.jpg .jpeg .heic .heif`; videos: `.mov .mp4`.
+
+| Mode | Arguments | Use case |
+|------|-----------|----------|
+| Single file | `<file>` (auto-detected by extension) | Fix one image or video |
+| Batch folder | `-d` | Every media file in a directory |
+
+#### Examples
+
+| Goal | Command |
+|------|---------|
+| Fix a single file | `lpb repair photo.jpg` |
+| Batch fix a folder | `lpb repair -d ./MyPhotos -y` |
+| Preview without writing | `lpb repair -d ./MyPhotos --dry-run` |
+| Only fix image rotation | `lpb repair -d ./Photos --no-thumbnail --no-heic --no-video -y` |
+| Repair files from all devices | `lpb repair -d ./MyPhotos --all-devices -y` |
+| Also copy intact files | `lpb repair -d ./MyPhotos --copy-perfect -y` |
+
+---
+
+#### Full Option Reference
+
+**Input**
+
+| Option | Description |
+|--------|-------------|
+| `<file>` | A single image or video to repair. Images: `.jpg .jpeg .heic .heif`; videos: `.mov .mp4` |
+| `-d, --dir <folder>` | Directory to scan (batch mode). Every media file is analyzed; only files that need a fix are repaired |
+| `-r, --recursive` | Include subdirectories when scanning |
+
+**Fix**
+
+| Option | Description |
+|--------|-------------|
+| `--no-rotate` | Disable image rotation fix (jpegtran lossless rotation) |
+| `--no-thumbnail` | Disable embedded thumbnail stripping |
+| `--no-heic` | Disable HEIC/HEIF orientation fix |
+| `--no-video` | Disable video rotation bake (FFmpeg re-encode) |
+| `--all-devices` | Repair files from all devices. Default: only Apple Live Photos (identified by their `ContentIdentifier` UUID) are repaired |
+| `--repair-long-videos` | Also repair videos longer than 3.5 s (not real live photos). Default: skipped |
+| `--copy-perfect` | Also copy files that need no repair to the output folder (batch mode only) |
+
+All four fixes are **on by default** — use the `--no-*` flags to turn individual ones off.
+
+**Output**
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output <folder>` | Output directory. Default: single file → `{name}_repaired{ext}` next to the source; batch → `{input}/{input}_repaired/`. Created as needed |
+| `-w, --overwrite` | Overwrite an existing output in place; otherwise auto-rename (`photo.jpg` → `photo (2).jpg`) |
+| `-s, --preserve-subdirs` | Replicate source subdirectory structure in the output |
+
+**Execution**
+
+| Option | Description |
+|--------|-------------|
+| `-j, --parallel <n>` | Max concurrent tasks (default: CPU core count, max 5) |
+| `-y, --yes` | Skip all confirmation prompts. Required for scripting |
+| `--dry-run` | Print planned operations without executing them |
+| `-v, --verbose` | Per-file status instead of a summary only |
+
+#### The Four Fixes
+
+| Fix | What it does | Applies to |
+|-----|--------------|------------|
+| Image rotation | jpegtran lossless rotation, then resets the EXIF orientation tag | JPEG |
+| Thumbnail strip | Strips the embedded thumbnail/preview image (reduces file size) | JPEG |
+| HEIC orientation | Fixes EXIF orientation to match the QuickTime `Rotation` (mirror flag or angle mismatch) | HEIC/HEIF |
+| Video rotation bake | FFmpeg re-encode baking the rotation matrix into the pixels | MOV/MP4 |
+
+> **HEIC note:** the CLI enables the HEIC orientation fix by default (all four fixes on); the GUI's `IsHeicRepairEnabled` setting defaults to off. Pass `--no-heic` to match the GUI default.
+
+#### Default Output Location
+
+Repair never overwrites the source files. When `-o` is omitted:
+
+| Mode | Default output | Example |
+|------|----------------|---------|
+| Single file | `{name}_repaired{ext}` in the source file's directory | `IMG_001.jpg` → `IMG_001_repaired.jpg` |
+| Batch (`-d`) | `{input}/{input}_repaired/`, keeping source names | `lpb repair -d ./MyPhotos` → `./MyPhotos/MyPhotos_repaired/` |
+
+#### Apple Live Photo Filter
+
+By default only **Apple Live Photos** are repaired — identified by their `ContentIdentifier` UUID (present in both the still image and the paired video). Files without it are skipped. Pass `--all-devices` to repair files from every device.
+
+#### Script Mode (JSON Output)
+
+With `--json`, `repair` prints a single UTF-8 JSON document to stdout — no colors, no alignment, no prompts — so scripts can parse it reliably regardless of filename length or terminal width. `--json` implies `--yes` (skips confirmation).
+
+Batch mode output:
+
+```json
+{
+  "command": "repair",
+  "mode": "batch",
+  "input": "C:\\...\\Photos",
+  "output": "C:\\...\\Photos_repaired",
+  "scanned": 47,
+  "apple": 39,
+  "needsRepair": 27,
+  "repaired": 27,
+  "failed": 0,
+  "skipped": 20,
+  "errors": 0,
+  "files": [
+    { "Path": "C:\\...\\IMG_0139.JPG", "Name": "IMG_0139", "Status": "repaired", "Issue": "[90° rotation tag]", "Reason": "" },
+    { "Path": "C:\\...\\other.mov", "Name": "other", "Status": "skipped", "Issue": "", "Reason": "non-Apple device" }
+  ]
+}
+```
+
+Top-level counts: `scanned` (media files found), `apple` (Apple Live Photos via ContentIdentifier), `needsRepair`, `repaired`, `failed`, `skipped`, `errors`. Under `--all-devices` the filter is off, so `apple` equals `scanned` (everything is treated as Apple).
+
+`files[].Status` values: `repaired`, `failed`, `skipped`, `copied` (`--copy-perfect`), and `would-repair` / `would-copy` under `--dry-run`. Single-file mode may also return `cancelled` (interrupted).
+
+Single-file mode returns a flat object instead: `command`, `mode`, `input`, `output`, `status`, `issue`, `reason`.
+
+The JSON is UTF-8 encoded — when piping into a script, read stdout as UTF-8 (e.g. Python `json.loads(sys.stdin.buffer.read().decode("utf-8"))`).
+
+#### Workflow Examples
+
+```powershell
+# Fix every live photo in a folder (Apple Live Photos only, auto-confirm)
+lpb repair -d ./DCIM/Camera -y
+
+# Fix all devices, recurse, keep folder structure — preview first
+lpb repair -d ./Photos --all-devices -r -s --dry-run
+
+# Strip thumbnails only — leave rotation and videos untouched
+lpb repair -d ./Photos --no-rotate --no-heic --no-video -y
+```
+
+---
+
+### `--info` / `--version` — Show version and environment
 
 | Flag | Prints |
 |------|--------|
@@ -392,12 +517,6 @@ Both run instantly with no network — environment info only; checking for updat
 
 ---
 
-## Architecture
-
-The CLI and the GUI desktop app share the same merge pipeline in `LivePhotoBox.Core` — both call `LivePhotoMergeRunnerService.ProcessSinglePairAsync()`, so any fix or protocol update applies to both. The CLI is English-only; all strings are embedded in `LivePhotoBox.Core.dll`.
-
----
-
 ## Troubleshooting
 
 #### Unknown protocol error
@@ -410,7 +529,7 @@ Run `lpb protocols` to view the compatibility matrix. For example, `heic+mp4-h26
 Add `exiftool.exe` to the `Tools\` folder next to the executable.
 
 #### Output file extension differs from source
-Expected behaviour. When the source is HEIC and a JPEG-based format is selected, the output uses `.jpg`. The internal structure is correct for the chosen protocol.
+Expected behaviour. When the source is HEIC and a JPEG-based format is selected, the output uses `.jpg`.
 
 #### Permission denied or file in use
 Close gallery apps or file explorers that may be accessing the source files. Locked files cannot be read or moved on Windows.

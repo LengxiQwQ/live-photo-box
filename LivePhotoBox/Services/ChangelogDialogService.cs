@@ -23,10 +23,12 @@ namespace LivePhotoBox.Services
     public static class ChangelogDialogService
     {
         // ── 常量：changelog 文档地址（master 分支） ──────────────────────
-        // 统一用 raw 地址：应用内抓取 + "前往 GitHub 查看"都走 raw。
-        // github.com 网页版在国内常超时，raw.githubusercontent.com 秒开。
+        // 应用内抓取走 raw 地址（HttpClient 秒开，不经网页版渲染）；
+        // "在浏览器中打开"走 github.com blob 网页版，让普通用户看到渲染好的文档。
         private const string RawUrlEn = "https://raw.githubusercontent.com/LengxiQwQ/live-photo-box/master/changelogs/CHANGELOG.md";
         private const string RawUrlZh = "https://raw.githubusercontent.com/LengxiQwQ/live-photo-box/master/changelogs/CHANGELOG.zh-CN.md";
+        private const string BlobUrlEn = "https://github.com/LengxiQwQ/live-photo-box/blob/master/changelogs/CHANGELOG.md";
+        private const string BlobUrlZh = "https://github.com/LengxiQwQ/live-photo-box/blob/master/changelogs/CHANGELOG.zh-CN.md";
 
         // 抓取 changelog 用 HttpClient（raw.githubusercontent 无需 API 头）
         private static readonly HttpClient _httpClient = new()
@@ -244,7 +246,7 @@ namespace LivePhotoBox.Services
                 HorizontalAlignment = HorizontalAlignment.Right
             };
             button.Click += async (_, _) =>
-                await FilePickerService.OpenUriAsync(new Uri(GetRawUrl()));
+                await FilePickerService.OpenUriAsync(new Uri(GetBrowserUrl()));
             return button;
         }
 
@@ -288,9 +290,9 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 按当前 UI 语言返回浏览器打开的 GitHub changelog 页面地址。
+        /// 按当前 UI 语言返回浏览器打开的 GitHub changelog 网页版地址。
         /// </summary>
-        private static string GetRawUrl() => IsChineseUi() ? RawUrlZh : RawUrlEn;
+        private static string GetBrowserUrl() => IsChineseUi() ? BlobUrlZh : BlobUrlEn;
 
         private static bool IsChineseUi() => LanguageService.IsChineseUi();
     }

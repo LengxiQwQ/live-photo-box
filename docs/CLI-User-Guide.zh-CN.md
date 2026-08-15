@@ -6,7 +6,7 @@
 
 ## 概述
 
-Live Photo Box 同时提供图形界面与命令行两种形态，核心逻辑一致。命令行入口 `livephotobox`（别名 `lpb`）专为脚本、AI 自动化调用设计；如需日常人工操作，请使用图形界面版本：[Microsoft Store](https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full) 或 [GitHub Releases](https://github.com/lengxiqwq/live-photo-box/releases)。
+Live Photo Box 同时提供图形界面与命令行两种形态。命令行入口 `livephotobox`（别名 `lpb`）专为脚本、AI 自动化调用设计；如需日常人工操作，请使用图形界面版本：[Microsoft Store](https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full) 或 [GitHub Releases](https://github.com/lengxiqwq/live-photo-box/releases)。
 
 ---
 
@@ -20,7 +20,7 @@ Live Photo Box 同时提供图形界面与命令行两种形态，核心逻辑�
 | `*-x64-portable.zip` | GUI + CLI，解压即用 | U 盘便携使用，或不想安装时试用 | 需手动添加 |
 | `*-x64-cli.zip` | 纯 CLI，不含 GUI 及其运行时 | 服务器、脚本、CI/CD，最小体积 | 需手动添加 |
 
-三种包均包含相同的 `livephotobox.exe` 及四个别名。纯 CLI 包体积最小——省去了 WinUI 图形界面及其运行时（约 80 MB）。
+三种包均包含相同的 `livephotobox.exe` 及四个别名。纯 CLI 包体积最小。
 
 ---
 
@@ -56,7 +56,7 @@ Live Photo Box 同时提供图形界面与命令行两种形态，核心逻辑�
 
 ## 更新
 
-更新需要**手动触发**——CLI 不会在后台自行检查。
+更新需要**手动触发**。
 
 | 命令 | 作用 |
 |------|------|
@@ -122,6 +122,7 @@ lpb merge -d ./MyPhotos -p huawei -y
 |------|------|
 | `lpb protocols` | 查看协议 × 格式兼容矩阵与设备支持 |
 | `lpb merge` | 合成图片 + 视频（单对或批量） |
+| `lpb repair` | 分析并修复实况照片元数据 |
 | `lpb --info` / `lpb --version`（`-v`） | 查看版本、环境与内置工具版本 |
 
 `update` / `update-check` 命令见上文「更新」一节。
@@ -288,11 +289,10 @@ photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
 - 仅支持单对模式，不支持 `--dir` 批量模式
 - 命名固定，不接受 `--naming` / `--protocol` / `--format` 选项
 - 支持 `--key-timestamp`，所有变体应用同一时间戳
-- 输出文件名中的 `(H.265)` 括号和空格在 Windows 上是合法字符，不影响使用
 
 #### `--key-timestamp` — 自定义封面在视频中的位置
 
-单文件合成时，实况照片的元数据会记录**封面（key photo）在视频时间轴上的位置**。默认情况下工具会跟随源视频自带的时间轴（如 Apple MOV 的封面时间、vivo 元数据）；指定本参数后则使用你给的值。
+单文件合成时，实况照片的元数据会记录**封面（key photo）在视频时间轴上的位置**。默认情况下工具会跟随源视频自带的时间轴；指定本参数后则使用你给的值。
 
 ```powershell
 # 封面位于视频第 2.5 秒处
@@ -302,18 +302,9 @@ lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
 lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 ```
 
-- 时间格式：秒（`1.5`）、分:秒（`1:30`）、时:分:秒（`0:01:30`），内部按微秒写入各协议元数据。
+- 时间格式：秒（`1.5`）、分:秒（`1:30`）、时:分:秒（`0:01:30`）。
 - 仅单文件模式可用；批量模式（`-d`）传该参数会直接报错退出。
-- 各协议存储方式不同，工具已自动适配：
-
-| 协议 | 存储位置 |
-|------|----------|
-| Motion Photo / OPPO / vivo / Samsung / Fusion | XMP（OPPO / Fusion 同时写主照片时间戳字段） |
-| Micro Video | XMP `MicroVideoPresentationTimestampUs` |
-| HUAWEI | MP4 `covertime` 元数据 + 文件尾包封面帧号（不写 XMP） |
-
 - 可与 `--all-variants` 组合，所有变体使用同一时间戳。
-- 超出视频时长的值：HUAWEI 自动钳制到最后一帧；其余协议直接写入元数据。
 
 #### 配对方式
 
@@ -325,7 +316,7 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | `cid` | Apple `ContentIdentifier` UUID 一致，与文件名无关 | `IMG_0002.HEIC` + `renamed.MOV` → 配对 |
 | `vivo` | JPEG 尾部 + MP4 元数据中的 vivo 相机 ID | `vivo_photo.jpg` + `vivo_video.mp4` → 配对 |
 
-`cid` 需要 `exiftool.exe` 位于可执行文件旁的 `Tools\` 目录中（所有分发包均自带）；`name` 与 `vivo` 无需外部工具——纯文件 I/O。
+`cid` 需要 `exiftool.exe` 位于可执行文件旁的 `Tools\` 目录中（所有分发包均自带）；`name` 与 `vivo` 无需外部工具。
 
 #### 命名模板速查
 
@@ -366,9 +357,143 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 
 ---
 
-### `--info` / `--version` — 查看版本与环境信息
+### `repair` — 修复实况照片元数据
 
-两者都是全局选项（不是子命令），与 `dotnet --info` / `winget --info` 保持一致。
+分析并修复现有实况照片文件的四类元数据问题：图片旋转、内嵌缩略图、HEIC 方向、视频旋转。图片：`.jpg .jpeg .heic .heif`；视频：`.mov .mp4`。
+
+| 模式 | 参数 | 使用场景 |
+|------|------|----------|
+| 单文件 | `<文件>`（按扩展名自动识别） | 修复单个图片或视频 |
+| 批量文件夹 | `-d` | 目录内所有媒体文件 |
+
+#### 使用示例
+
+| 目标 | 命令 |
+|------|------|
+| 修复单个文件 | `lpb repair photo.jpg` |
+| 批量修复文件夹 | `lpb repair -d ./MyPhotos -y` |
+| 预览（不写入） | `lpb repair -d ./MyPhotos --dry-run` |
+| 只修图片旋转 | `lpb repair -d ./Photos --no-thumbnail --no-heic --no-video -y` |
+| 修复所有设备文件 | `lpb repair -d ./MyPhotos --all-devices -y` |
+| 同时复制完好文件 | `lpb repair -d ./MyPhotos --copy-perfect -y` |
+
+---
+
+#### 完整选项参考
+
+**输入**
+
+| 选项 | 说明 |
+|------|------|
+| `<文件>` | 单个待修复的图片或视频。图片：`.jpg .jpeg .heic .heif`；视频：`.mov .mp4` |
+| `-d, --dir <文件夹>` | 扫描目录（批量模式）。每个媒体文件都会被分析，只有需要修复的文件才会被修复 |
+| `-r, --recursive` | 扫描时包含所有子目录 |
+
+**修复项**
+
+| 选项 | 说明 |
+|------|------|
+| `--no-rotate` | 关闭图片旋转修正（jpegtran 无损旋转） |
+| `--no-thumbnail` | 关闭内嵌缩略图剥离 |
+| `--no-heic` | 关闭 HEIC/HEIF 方向修正 |
+| `--no-video` | 关闭视频旋转烘焙（FFmpeg 重编码） |
+| `--all-devices` | 修复所有设备的文件。默认只修复 Apple 实况照片（通过 `ContentIdentifier` UUID 识别） |
+| `--repair-long-videos` | 同时修复时长超过 3.5 秒的视频（非实况照片）。默认跳过 |
+| `--copy-perfect` | 把无需修复的完好文件也复制到输出目录（仅批量模式） |
+
+四项修复**默认全部开启**——用 `--no-*` 开关按需关闭单项。
+
+**输出**
+
+| 选项 | 说明 |
+|------|------|
+| `-o, --output <文件夹>` | 输出目录。默认：单文件 → 源文件旁 `{文件名}_repaired{扩展名}`；批量 → `{输入目录}/{输入目录名}_repaired/`。自动创建 |
+| `-w, --overwrite` | 直接覆盖已存在输出；否则自动重命名（`photo.jpg` → `photo (2).jpg`） |
+| `-s, --preserve-subdirs` | 在输出目录中保留源文件的子目录结构 |
+
+**执行**
+
+| 选项 | 说明 |
+|------|------|
+| `-j, --parallel <数量>` | 最大并行任务数（默认：CPU 核心数，上限 5） |
+| `-y, --yes` | 跳过所有确认提示。脚本自动化运行时的必要选项 |
+| `--dry-run` | 仅列出计划操作，不实际处理文件 |
+| `-v, --verbose` | 逐文件输出状态，而非仅显示汇总 |
+
+#### 四种修复
+
+| 修复项 | 作用 | 适用 |
+|--------|------|------|
+| 图片旋转 | jpegtran 无损旋转后重置 EXIF 方向标签 | JPEG |
+| 缩略图剥离 | 剥离内嵌缩略图/预览图（减小文件体积） | JPEG |
+| HEIC 方向 | 修正 EXIF 方向以匹配 QuickTime `Rotation`（镜像标记或角度不一致） | HEIC/HEIF |
+| 视频旋转烘焙 | FFmpeg 重编码，把旋转矩阵烘焙进像素 | MOV/MP4 |
+
+> **HEIC 说明：** CLI 默认开启 HEIC 方向修复（四项全开）；GUI 的 `IsHeicRepairEnabled` 设置默认关闭。传 `--no-heic` 可对齐 GUI 的默认行为。
+
+#### 默认输出位置
+
+修复**不会覆盖**源文件。省略 `-o` 时：
+
+| 模式 | 默认输出 | 示例 |
+|------|----------|------|
+| 单文件 | 源文件所在目录下的 `{文件名}_repaired{扩展名}` | `IMG_001.jpg` → `IMG_001_repaired.jpg` |
+| 批量（`-d`） | `{输入目录}/{输入目录名}_repaired/`，文件名保持源名 | `lpb repair -d ./MyPhotos` → `./MyPhotos/MyPhotos_repaired/` |
+
+#### Apple 实况照片过滤
+
+默认只修复 **Apple 实况照片**——通过 `ContentIdentifier` UUID（图片和配对视频都携带）识别，没有该标识的文件自动跳过。传 `--all-devices` 可修复所有设备的文件。
+
+#### 脚本模式（JSON 输出）
+
+使用 `--json` 时，`repair` 会向 stdout 输出一份 UTF-8 编码的 JSON 文档——没有颜色、对齐和交互提示，脚本可以稳定解析，不受文件名长度或终端宽度影响。`--json` 隐含 `--yes`（跳过确认）。
+
+批量模式输出：
+
+```json
+{
+  "command": "repair",
+  "mode": "batch",
+  "input": "C:\\...\\Photos",
+  "output": "C:\\...\\Photos_repaired",
+  "scanned": 47,
+  "apple": 39,
+  "needsRepair": 27,
+  "repaired": 27,
+  "failed": 0,
+  "skipped": 20,
+  "errors": 0,
+  "files": [
+    { "Path": "C:\\...\\IMG_0139.JPG", "Name": "IMG_0139", "Status": "repaired", "Issue": "[90° rotation tag]", "Reason": "" },
+    { "Path": "C:\\...\\other.mov", "Name": "other", "Status": "skipped", "Issue": "", "Reason": "non-Apple device" }
+  ]
+}
+```
+
+顶层计数：`scanned`（发现的媒体文件）、`apple`（通过 ContentIdentifier 识别的 Apple 实况照片）、`needsRepair`、`repaired`、`failed`、`skipped`、`errors`。`--all-devices` 下关闭过滤，`apple` 等于 `scanned`（全部视作 Apple）。
+
+`files[].Status` 取值：`repaired`、`failed`、`skipped`、`copied`（`--copy-perfect`），以及 `--dry-run` 下的 `would-repair` / `would-copy`。单文件模式还可能返回 `cancelled`（被中断）。
+
+单文件模式返回扁平对象：`command`、`mode`、`input`、`output`、`status`、`issue`、`reason`。
+
+JSON 为 UTF-8 编码；脚本管道读取时请按 UTF-8 解码（如 Python `json.loads(sys.stdin.buffer.read().decode("utf-8"))`）。
+
+#### 工作流示例
+
+```powershell
+# 修复文件夹内所有实况照片（仅 Apple 实况照片，自动确认）
+lpb repair -d ./DCIM/Camera -y
+
+# 修复所有设备、递归、保留目录结构——先预览
+lpb repair -d ./Photos --all-devices -r -s --dry-run
+
+# 仅剥离缩略图——不动旋转和视频
+lpb repair -d ./Photos --no-rotate --no-heic --no-video -y
+```
+
+---
+
+### `--info` / `--version` — 查看版本与环境信息
 
 | 选项 | 打印内容 |
 |------|----------|
@@ -392,12 +517,6 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 
 ---
 
-## 架构
-
-CLI 与桌面 GUI 应用共享同一合成管线，逻辑定义在 `LivePhotoBox.Core` 类库中——两者调用同一 `LivePhotoMergeRunnerService.ProcessSinglePairAsync()` 方法，对 Core 的任何修复或更新均同时作用于两个界面。CLI 界面为纯英文，所有字符串编译时嵌入 `LivePhotoBox.Core.dll`。
-
----
-
 ## 故障排查
 
 #### 提示未知协议
@@ -410,7 +529,7 @@ CLI 与桌面 GUI 应用共享同一合成管线，逻辑定义在 `LivePhotoBox
 把 `exiftool.exe` 放到可执行文件旁的 `Tools\` 目录即可。
 
 #### 输出文件扩展名与源文件不一致
-正常现象。源文件为 HEIC 且选择了 JPEG 类格式时，输出使用 `.jpg` 扩展名。内部结构符合所选协议要求。
+正常现象。源文件为 HEIC 且选择了 JPEG 类格式时，输出使用 `.jpg` 扩展名。
 
 #### 提示"Permission denied"或文件被占用
 关闭正在访问源文件的相册 App 或文件管理器。被其他进程锁定的文件无法在 Windows 上读取或移动。

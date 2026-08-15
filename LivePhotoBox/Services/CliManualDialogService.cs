@@ -32,9 +32,13 @@ namespace LivePhotoBox.Services
         private const string LocalFileEn = "CLI-User-Guide.md";
         private const string LocalFileZh = "CLI-User-Guide.zh-CN.md";
 
-        // GitHub raw 兜底地址（master 分支；github.com 网页版国内常超时，raw 秒开）
+        // GitHub raw 兜底抓取地址（master 分支，HttpClient 秒开）
         private const string RawUrlEn = "https://raw.githubusercontent.com/LengxiQwQ/live-photo-box/master/docs/CLI-User-Guide.md";
         private const string RawUrlZh = "https://raw.githubusercontent.com/LengxiQwQ/live-photo-box/master/docs/CLI-User-Guide.zh-CN.md";
+
+        // GitHub 网页版手册地址（"用浏览器打开"入口，让普通用户看到渲染格式）
+        private const string BlobUrlEn = "https://github.com/LengxiQwQ/live-photo-box/blob/master/docs/CLI-User-Guide.md";
+        private const string BlobUrlZh = "https://github.com/LengxiQwQ/live-photo-box/blob/master/docs/CLI-User-Guide.zh-CN.md";
 
         // 手册内相对链接的基准地址（如 [说明](../README.md) → GitHub 网页版）
         private const string BaseUrl = "https://github.com/LengxiQwQ/live-photo-box/blob/master/docs/";
@@ -272,7 +276,7 @@ namespace LivePhotoBox.Services
                 if (localPath != null)
                     await FilePickerService.OpenFileAsync(localPath);
                 else
-                    await FilePickerService.OpenUriAsync(new Uri(GetRawUrl()));
+                    await FilePickerService.OpenUriAsync(new Uri(GetBrowserUrl()));
             };
             return button;
         }
@@ -344,8 +348,8 @@ namespace LivePhotoBox.Services
             }
         }
 
-        /// <summary>按当前 UI 语言返回浏览器打开的手册地址。</summary>
-        private static string GetRawUrl() => IsChineseUi() ? RawUrlZh : RawUrlEn;
+        /// <summary>按当前 UI 语言返回浏览器打开的 GitHub 网页版手册地址。</summary>
+        private static string GetBrowserUrl() => IsChineseUi() ? BlobUrlZh : BlobUrlEn;
 
         private static bool IsChineseUi() => LanguageService.IsChineseUi();
     }

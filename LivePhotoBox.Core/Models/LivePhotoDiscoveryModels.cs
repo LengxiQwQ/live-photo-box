@@ -78,8 +78,8 @@ namespace LivePhotoBox.Models
         /// <summary>匹配：vivo 双文件 ID（JPEG 尾 vivo{JSON} + MP4 uuid vivoMediaExtInfo, com.android.camera.livephoto）</summary>
         VivoMatch = 1 << 4,
 
-        /// <summary>拆分页面：仅 XMP 检测</summary>
-        SplitOnly = JpegMarkers,
+        /// <summary>拆分页面：JPEG XMP 字节标记 + HEIC 视频轨检测（单文件实况：谷歌/华为 HEIC 等）</summary>
+        SplitOnly = JpegMarkers | HeicTrack,
         /// <summary>合并页面：三个匹配方法（按 UI 选择互斥运行）</summary>
         MergeOnly = FilenamePair | CidMatch | VivoMatch,
         /// <summary>资源浏览：检测 + 匹配全部</summary>

@@ -350,11 +350,11 @@ namespace LivePhotoBox.ViewModels
         // 在文件资源管理器中打开输入文件夹的命令（仅路径存在时启用）。
         public IAsyncRelayCommand OpenMergeInputFolderCommand => _openMergeInputFolderCommand ??= new AsyncRelayCommand(OpenMergeInputFolderAsync, () => DirectoryHelper.CanOpenFolder(InputDirectory));
 
-        // 在文件资源管理器中打开输出文件夹的命令（仅路径存在时启用）。
-        public IAsyncRelayCommand OpenMergeOutputFolderCommand => _openMergeOutputFolderCommand ??= new AsyncRelayCommand(OpenMergeOutputFolderAsync, () => DirectoryHelper.CanOpenFolder(OutputDirectory));
+        // 在文件资源管理器中打开输出文件夹的命令（非空即可，打开时自动建目录）。
+        public IAsyncRelayCommand OpenMergeOutputFolderCommand => _openMergeOutputFolderCommand ??= new AsyncRelayCommand(OpenMergeOutputFolderAsync, () => !string.IsNullOrWhiteSpace(OutputDirectory));
 
-        // 在文件资源管理器中打开原始文件存放目录的命令（仅路径存在时启用）。
-        public IAsyncRelayCommand OpenMergeOriginalDirCommand => _openMergeOriginalDirCommand ??= new AsyncRelayCommand(OpenMergeOriginalDirAsync, () => DirectoryHelper.CanOpenFolder(OriginalDirectory));
+        // 在文件资源管理器中打开原始文件存放目录的命令（非空即可，打开时自动建目录）。
+        public IAsyncRelayCommand OpenMergeOriginalDirCommand => _openMergeOriginalDirCommand ??= new AsyncRelayCommand(OpenMergeOriginalDirAsync, () => !string.IsNullOrWhiteSpace(OriginalDirectory));
 
         // ── 转换设置 ──
 
@@ -1796,7 +1796,11 @@ namespace LivePhotoBox.ViewModels
             {
                 string path = OriginalDirectory;
                 if (!string.IsNullOrWhiteSpace(path))
+                {
+                    if (!Directory.Exists(path))
+                        Directory.CreateDirectory(path);
                     FilePickerService.OpenFolderInExplorer(path);
+                }
             }
             catch (Exception ex) { LogService.Merge($"OpenMergeOriginalDir error: {ex.Message}", LogLevel.Error, ex); }
             return Task.CompletedTask;

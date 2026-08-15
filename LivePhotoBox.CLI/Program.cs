@@ -58,12 +58,16 @@ namespace LivePhotoBox.Cli
                     var root = new RootCommand(
                         "Convert images and videos into phone-compatible live photos.\n\n" +
                         "Quick start:\n" +
-                        "  lpb protocols                      List what formats are available\n" +
-                        "  lpb merge photo.jpg video.mp4      Convert one pair\n" +
+                        "  lpb protocols                       List what formats are available\n" +
+                        "  lpb merge photo.jpg video.mp4       Convert one pair\n" +
                         "  lpb merge -d ./Photos -p huawei -y  Batch convert a folder\n" +
-                        "  lpb --info                         Show detailed environment info")
+                        "  lpb repair photo.jpg                Fix live photo metadata\n" +
+                        "  lpb repair -d ./Photos -y           Batch fix a folder\n" +
+                        "  lpb --info                          Show detailed environment info")
                     {
                         MergeCommand.Create(),
+                        SplitCommand.Create(),
+                        RepairCommand.Create(),
                         ProtocolsCommand.Create(),
                         UpdateCommand.Create(),
                         UpdateCommand.CreateUpdate()

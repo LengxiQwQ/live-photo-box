@@ -715,7 +715,7 @@ namespace LivePhotoBox.ViewModels
             AppSettingsService.SetValue("SplitEncoder_h264", string.Empty);
             AppSettingsService.SetValue("SplitEncoder_hevc", string.Empty);
 
-            AppViewModel.Instance.Split.SelectedFormatIndex = 0;
+            AppViewModel.Instance.Split.OutputFormatIndex = 0;
             AppViewModel.Instance.Merge.SelectedModeIndex = 2;
             AppViewModel.Instance.Merge.OutputFormatIndex = 0;
             AppViewModel.Instance.Repair.IsOutputToDirectory = false;

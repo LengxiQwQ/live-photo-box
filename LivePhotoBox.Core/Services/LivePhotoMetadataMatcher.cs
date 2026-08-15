@@ -393,7 +393,10 @@ namespace LivePhotoBox.Services
             };
         }
 
-        // Apple device detection — used by Repair page for filtering.
+        // Apple live photo detection — used by Repair page for filtering.
+        // An Apple Live Photo is identified by its ContentIdentifier UUID (present in both the
+        // still image and the paired video), not the Make tag — Make can be stripped or rewritten,
+        // and ordinary non-live Apple photos also carry Make=Apple.
         public static async Task<HashSet<string>> FilterAppleDevicesAsync(
             IReadOnlyList<string> filePaths, PersistentExifTool exifTool, CancellationToken token)
         {
@@ -403,12 +406,12 @@ namespace LivePhotoBox.Services
                 token.ThrowIfCancellationRequested();
                 try
                 {
-                    string output = await exifTool.SendCommandAsync(token, "-j", "-Make", path);
+                    string output = await exifTool.SendCommandAsync(token, "-j", "-ContentIdentifier", path);
                     if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
                         continue;
                     using var doc = System.Text.Json.JsonDocument.Parse(output);
-                    string make = GetJsonValueAsString(doc.RootElement[0], "Make");
-                    if (string.Equals(make?.Trim(), "Apple", StringComparison.OrdinalIgnoreCase))
+                    string cid = GetJsonValueAsString(doc.RootElement[0], "ContentIdentifier");
+                    if (!string.IsNullOrWhiteSpace(cid))
                         appleFiles.Add(path);
                 }
                 catch { /* skip */ }

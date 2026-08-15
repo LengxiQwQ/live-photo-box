@@ -15,6 +15,10 @@ rem    [5c]  lpb update-check --help
 rem    [6]   merge dry-run                 (single-pair summary)
 rem    [7]   merge error path              (red error output)
 rem    [8]   merge batch dry-run           (batch scan summary)
+rem    [9]   lpb repair --help             (grouped colored help)
+rem    [10]  repair single --dry-run       (diagnosis summary)
+rem    [11]  repair batch --dry-run        (scan + repair list)
+rem    [12]  repair error path             (red error output)
 rem
 rem  Usage:
 rem    cli-color-demo.cmd                 use project sample assets
@@ -109,6 +113,30 @@ echo ============================================================
 echo  [8] merge batch --dry-run  (scan summary)
 echo ============================================================
 "%EXE%" merge -d "%BATCH_DIR%" --dry-run
+echo.
+
+echo ============================================================
+echo  [9] repair --help  (grouped colored help)
+echo ============================================================
+"%EXE%" repair --help
+echo.
+
+echo ============================================================
+echo  [10] repair single file --dry-run  (diagnosis summary)
+echo ============================================================
+"%EXE%" repair "%DEMO_IMG%" --dry-run --all-devices
+echo.
+
+echo ============================================================
+echo  [11] repair batch --dry-run  (scan + repair list)
+echo ============================================================
+"%EXE%" repair -d "%BATCH_DIR%" --dry-run --all-devices
+echo.
+
+echo ============================================================
+echo  [12] repair error path  (should be red)
+echo ============================================================
+"%EXE%" repair "%DEMO_IMG%" --no-rotate --no-thumbnail --no-heic --no-video
 echo.
 
 echo.

@@ -7,34 +7,58 @@ using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
-using System.Collections.Concurrent;
-using System.ComponentModel;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.ViewModels
 {
-    // 实况照片拆分页面的 ViewModel。
-    // 负责扫描输入目录中的实况照片（MOV/MP4 文件），将其拆分为独立的照片和视频文件，
-    // 并支持输出格式选择、并行处理、暂停/取消等操作。
-    // 继承自 WorkViewModelBase，复用扫描/处理/暂停/取消等生命周期管理。
+    // 实况照片拆分页面的 ViewModel，对应 SplitPage。
+    // 负责扫描输入目录中的单文件实况照片（JPEG），选择输出协议（无协议/Apple/vivo）与输出格式，
+    // 并执行拆分任务，将图片与视频分别写入输出目录。
     public partial class SplitViewModel : WorkViewModelBase
     {
-        #region Properties
+        // 用于统计拆分耗时的计时器。
+        private Stopwatch _stopwatch = new();
 
-        public override string PageStatusTag => "Split";
+        // 拆分是否被用户手动停止。
+        private bool _splitStoppedByUser;
 
+        // 所有拆分任务是否已完成（成功/失败都算）。
+        private bool _splitDone;
+
+        // 扫描进度本地计数器（基类的 _scanTotal/_scanProcessed 是 private，子类不可访问）。
+        private int _splitLocalScanTotal;
+        private int _splitLocalScanProcessed;
+
+        // UI 更新计时器（约 60ms 间隔），用于在拆分过程中刷新进度条和进度文本。
+        private readonly DispatcherTimer _uiUpdateTimer;
+
+        // 当前已完成的拆分任务数（线程安全，使用 volatile）。
+        private volatile int _completedTasksCount;
+
+        // 原始文件移动目录是否已由用户手动设置（系统自动填充时不覆盖用户手动填写的值）。
+        private bool _originalDirectoryUserSet;
+
+        // 返回空字符串以隐藏全局 PageStatusBar，SplitPage 使用自己的底部状态栏。
+        public override string PageStatusTag => string.Empty;
+
+        // <inheritdoc/>
         protected override string ProcessingStatusKey => "SplitPage_Status_Running";
 
+        // 处理中的状态文本，包含硬件加速信息。
         protected override string ProcessingStatusText =>
             ResourceService.Format("SplitPage_Status_Running") + GetHardwareSuffix();
 
-        // 输入目录路径。赋值后自动触发扫描（若当前允许）。
+        #region Observable Properties
+
+        // 输入文件夹路径（用户选择的待扫描目录）。
         [ObservableProperty]
         private string _inputDirectory = string.Empty;
 
@@ -52,17 +76,17 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 拆分输出目录路径。
+        // 输出文件夹路径（拆分后的照片/视频存放目录）。默认在输入目录下创建子目录。
         [ObservableProperty]
         private string _outputDirectory = string.Empty;
 
         partial void OnOutputDirectoryChanged(string value) => _openSplitOutputFolderCommand?.NotifyCanExecuteChanged();
 
-        // 已入队的拆分任务总数（扫描完成后确定）。
+        // 扫描到的有效单文件实况照片总数。
         [ObservableProperty]
-        private int _queuedCount = 0;
+        private int _totalCount = 0;
 
-        // 扫描识别的实况照片文件数（含已识别但可能跳过的）。
+        // 扫描识别的实况照片文件数（与 TotalCount 一致，语义上供统计展示）。
         [ObservableProperty]
         private int _recognizedCount = 0;
 
@@ -70,42 +94,453 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private int _skippedCount = 0;
 
+        // 目录选择面板是否展开显示。
         [ObservableProperty]
         private bool _isDirectoryPanelOpen = true;
 
-        // 扫描按钮上的动态文本：扫描中显示"取消"，否则显示"扫描"。
+        // 拆分进度百分比（0~100）。
+        [ObservableProperty]
+        private double _splitProgress = 0;
+
+        #endregion
+
+        #region Statistics (computed properties)
+
+        public int PendingCount => Tasks.Count(t => t.Status == ProcessStatus.Pending);
+        public int ProcessingCount => Tasks.Count(t => t.Status == ProcessStatus.Processing);
+        public int SuccessCount => Tasks.Count(t => t.Status == ProcessStatus.Success);
+        public int FailedCount => Tasks.Count(t => t.Status == ProcessStatus.Failed);
+        public int CancelledCount => Tasks.Count(t => t.Status == ProcessStatus.Cancelled);
+
+        public string ActiveTaskCountText => IsProcessing
+            ? ResourceService.Format("SplitPage_StatusProcessing", ProcessingCount)
+            : TotalCount > 0
+                ? ResourceService.Format("SplitPage_StatusTotal", TotalCount)
+                : string.Empty;
+
+        // 队列标题后的扫描统计："识别 5，跳过 3"
+        public string ScanStatsText => RecognizedCount > 0 || SkippedCount > 0
+            ? $"{ResourceService.Format("SplitPage_ScanRecognized", RecognizedCount)}  •  {ResourceService.Format("SplitPage_ScanSkipped", SkippedCount)}"
+            : string.Empty;
+
+        public string ElapsedTimeText => _stopwatch.Elapsed.TotalSeconds > 0
+            ? ResourceService.Format("SplitPage_StatusElapsed", _stopwatch.Elapsed.ToString(@"mm\:ss"))
+            : ResourceService.GetString("SplitPage_StatusElapsedIdle");
+
+        // ── 底部栏统一属性 ──
+
+        /// <summary>底部栏进度条数值（0~100），综合扫描和处理进度。</summary>
+        public double FooterProgressValue
+        {
+            get
+            {
+                if (IsScanning)
+                    return _splitLocalScanTotal > 0 ? (_splitLocalScanProcessed * 100.0 / _splitLocalScanTotal) : 0;
+                if (_splitLocalScanTotal > 0 && !IsProcessing && !_splitDone)
+                    return 100.0; // 扫描刚完成，进度条滚到头
+                return SplitProgress;
+            }
+        }
+
+        /// <summary>
+        /// 底部栏左侧状态文字，覆盖所有生命周期：
+        /// 空闲 → Status；扫描中 → 扫描进度；处理中 → ProcessingStatusText；
+        /// 暂停 → "已暂停"；停止 → "已停止"；完成 → "处理完成"。
+        /// </summary>
+        public string FooterStatusText
+        {
+            get
+            {
+                if (IsScanning)
+                {
+                    return _splitLocalScanTotal > 0
+                        ? ResourceService.Format("SplitPage_Status_ScanningProgress", _splitLocalScanProcessed, _splitLocalScanTotal)
+                        : ResourceService.GetString("Status_Scanning");
+                }
+                if (IsProcessing)
+                    return ProcessingStatusText;
+                if (IsPaused)
+                    return ResourceService.GetString("Status_Paused") + GetHardwareSuffix();
+                if (_splitStoppedByUser)
+                    return ResourceService.GetString("Status_StoppedSimple");
+                if (_splitDone && Progress >= 100)
+                    return ResourceService.GetString("Status_DoneSimple");
+                // Idle / Ready — 使用 SetStatus 设置的文字
+                return Status;
+            }
+        }
+
+        // ── 统计项可见性（零值自动隐藏） ──
+
+        public Visibility FooterTotalVisible => TotalCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FooterSuccessVisible => SuccessCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FooterFailedVisible => FailedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FooterUnprocessedVisible => (!_splitStoppedByUser && PendingCount > 0) ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FooterCancelledVisible => (_splitStoppedByUser && CancelledCount > 0) ? Visibility.Visible : Visibility.Collapsed;
+
+        private void NotifyStatsChanged()
+        {
+            OnPropertyChanged(nameof(PendingCount));
+            OnPropertyChanged(nameof(ProcessingCount));
+            OnPropertyChanged(nameof(SuccessCount));
+            OnPropertyChanged(nameof(FailedCount));
+            OnPropertyChanged(nameof(CancelledCount));
+            OnPropertyChanged(nameof(ActiveTaskCountText));
+            OnPropertyChanged(nameof(ElapsedTimeText));
+            OnPropertyChanged(nameof(ScanStatsText));
+            // 底部栏统一属性
+            OnPropertyChanged(nameof(FooterProgressValue));
+            OnPropertyChanged(nameof(FooterStatusText));
+            OnPropertyChanged(nameof(FooterTotalVisible));
+            OnPropertyChanged(nameof(FooterSuccessVisible));
+            OnPropertyChanged(nameof(FooterFailedVisible));
+            OnPropertyChanged(nameof(FooterUnprocessedVisible));
+            OnPropertyChanged(nameof(FooterCancelledVisible));
+        }
+
+        #endregion
+
+        #region Properties
+
+        // 扫描按钮的文本，扫描中显示"取消"，其余显示"扫描"。
         public string ScanButtonText => IsScanning
             ? ResourceService.GetString("SplitPage_DynamicCancelText")
             : ResourceService.GetString("SplitPage_DynamicScanText");
 
-        // 扫描按钮是否可点击（处理中不可点击）。
-        public bool CanClickScanButton => !IsProcessing;
-        // 输出格式选择是否可编辑（扫描/处理中不可编辑）。
-        public bool CanEditSelectedFormat => !IsScanning && !IsProcessing;
+        // 拆分任务列表（Observable 集合，支持高性能批量更新）。
+        public BulkObservableCollection<SplitTask> Tasks { get; } = [];
 
-        // IsScanning / IsProcessing 变更时级联通知派生类计算属性
-        protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+        // 当前选中的输出协议索引（0=无协议 / 1=Apple / 2=vivo），持久化存储到设置中。
+        public int ProtocolIndex
         {
-            base.OnPropertyChanged(e);
-            if (e.PropertyName == nameof(IsScanning) || e.PropertyName == nameof(IsProcessing))
+            get => AppSettingsService.GetValue("SplitProtocolIndex", 0);
+            set
             {
-                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(CanClickScanButton)));
-                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(CanEditSelectedFormat)));
+                AppSettingsService.SetValue("SplitProtocolIndex", value);
+                LogService.Split($"Split protocol changed to index: {value}");
+                OnPropertyChanged();
             }
         }
 
-        // 所有拆分任务的集合。
-        public BulkObservableCollection<SplitTask> Tasks { get; } = [];
+        // 匹配方式索引：0=所有单文件实况照片协议 / 1=Fusion / 2=MicroVideo V1 / 3=MotionPhoto V2
+        //                / 4=OPPO O-Live / 5=vivo Live Photo / 6=Samsung Motion Photo / 7=HUAWEI Moving Photo。
+        // 扫描时按此协议过滤单文件实况照片（复用 Core 的 LivePhotoProtocolDetector）。
+        public int MatchProtocolIndex
+        {
+            get => AppSettingsService.GetValue("SplitMatchProtocolIndex", 0);
+            set
+            {
+                AppSettingsService.SetValue("SplitMatchProtocolIndex", value);
+                LogService.Split($"Split match protocol changed to index: {value}");
+                OnPropertyChanged();
+            }
+        }
 
-        #endregion
+        // 匹配方式索引 → 目标协议类型（null 表示"所有单文件"，不过滤）。
+        private LivePhotoProtocolType? MatchProtocolType => MatchProtocolIndex switch
+        {
+            1 => LivePhotoProtocolType.Fusion,
+            2 => LivePhotoProtocolType.GoogleV1,
+            3 => LivePhotoProtocolType.GoogleV2,
+            4 => LivePhotoProtocolType.OPPO,
+            5 => LivePhotoProtocolType.Vivo,
+            6 => LivePhotoProtocolType.Samsung,
+            7 => LivePhotoProtocolType.Huawei,
+            _ => null
+        };
 
-        #region Commands
+        // 判断单文件实况照片是否符合当前"匹配方式"选中的协议（"所有单文件"=全部通过）。
+        private bool PassesProtocolFilter(LivePhotoDiscoveryItem item)
+            => PassesProtocolFilter(item.FilePath, item.LivePhotoType);
+
+        // 按 (路径, 类型) 判断协议，供没有 LivePhotoDiscoveryItem 的调用点（逐文件入队）复用。
+        private bool PassesProtocolFilter(string filePath, LivePhotoType type)
+        {
+            var target = MatchProtocolType;
+            if (target == null) return true;
+            return LivePhotoProtocolDetector.Detect(filePath, type) == target.Value;
+        }
+
+        // ── 搜索 / 排序 / 筛选 ──
+
+        [ObservableProperty]
+        private string _searchFilterText = string.Empty;
+
+        // 排序：0=文件名，1=大小，2=拍摄日期
+        [ObservableProperty]
+        private int _sortIndex;
+
+        [ObservableProperty]
+        private bool _sortDescending;
+
+        partial void OnSortDescendingChanged(bool value)
+        {
+            OnPropertyChanged(nameof(SortDirectionGlyph));
+            RefreshTaskView();
+        }
+
+        public string SortDirectionGlyph => _sortDescending ? "" : "";
+
+        [RelayCommand]
+        private void ToggleSortDirection()
+        {
+            SortDescending = !SortDescending;
+            OnPropertyChanged(nameof(SortDirectionGlyph));
+        }
+
+        // 筛选：null=全部
+        [ObservableProperty]
+        private ProcessStatus? _filterStatus;
+
+        partial void OnSearchFilterTextChanged(string value) => RefreshTaskView();
+        partial void OnSortIndexChanged(int value) => RefreshTaskView();
+        partial void OnFilterStatusChanged(ProcessStatus? value) => RefreshTaskView();
+
+        public BulkObservableCollection<SplitTask> DisplayTasks { get; } = [];
+
+        private void RefreshTaskView()
+        {
+            // 提前物化源数据，避免 LINQ 延迟执行与 ReplaceRange Clear() 的竞态
+            var source = Tasks.ToList();
+
+            IEnumerable<SplitTask> query = source;
+
+            if (!string.IsNullOrWhiteSpace(SearchFilterText))
+            {
+                var s = SearchFilterText.Trim();
+                query = query.Where(t =>
+                    t.SourceFileName.Contains(s, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (FilterStatus.HasValue)
+                query = query.Where(t => t.Status == FilterStatus.Value);
+
+            query = SortIndex switch
+            {
+                0 => SortDescending
+                    ? query.OrderByDescending(t => t.SourceFileName, StringComparer.OrdinalIgnoreCase)
+                    : query.OrderBy(t => t.SourceFileName, StringComparer.OrdinalIgnoreCase),
+                1 => SortDescending
+                    ? query.OrderByDescending(t => t.FileSizeBytes)
+                    : query.OrderBy(t => t.FileSizeBytes),
+                2 => SortDescending
+                    ? query.OrderByDescending(t => t.DateTaken)
+                    : query.OrderBy(t => t.DateTaken),
+                _ => query
+            };
+
+            var result = query.ToList();
+
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            if (dispatcher is not null)
+            {
+                dispatcher.TryEnqueue(() =>
+                {
+                    DisplayTasks.Clear();
+                    foreach (var item in result)
+                        DisplayTasks.Add(item);
+                });
+            }
+            else
+            {
+                DisplayTasks.Clear();
+                foreach (var item in result)
+                    DisplayTasks.Add(item);
+            }
+        }
 
         private IAsyncRelayCommand? _openSplitInputFolderCommand;
-        private IRelayCommand? _openSplitOutputFolderCommand;
+        private IAsyncRelayCommand? _openSplitOutputFolderCommand;
+        private IAsyncRelayCommand? _openSplitOriginalDirCommand;
 
+        // 在文件资源管理器中打开输入文件夹的命令（仅路径存在时启用）。
         public IAsyncRelayCommand OpenSplitInputFolderCommand => _openSplitInputFolderCommand ??= new AsyncRelayCommand(OpenSplitInputFolderAsync, () => DirectoryHelper.CanOpenFolder(InputDirectory));
-        public IRelayCommand OpenSplitOutputFolderCommand => _openSplitOutputFolderCommand ??= new RelayCommand(OpenSplitOutputFolder, () => DirectoryHelper.CanOpenFolder(OutputDirectory));
+
+        // 在文件资源管理器中打开输出文件夹的命令（非空即可，打开时自动建目录）。
+        public IAsyncRelayCommand OpenSplitOutputFolderCommand => _openSplitOutputFolderCommand ??= new AsyncRelayCommand(OpenSplitOutputFolderAsync, () => !string.IsNullOrWhiteSpace(OutputDirectory));
+
+        // 在文件资源管理器中打开原始文件存放目录的命令（非空即可，打开时自动建目录）。
+        public IAsyncRelayCommand OpenSplitOriginalDirCommand => _openSplitOriginalDirCommand ??= new AsyncRelayCommand(OpenSplitOriginalDirAsync, () => !string.IsNullOrWhiteSpace(OriginalDirectory));
+
+        // ── 转换设置 ──
+
+        // 输出格式索引（全局：0=默认原样 / 1=JPG+MOV(H265) / 2=HEIC+MOV(H265) / 3=JPG+MP4(H264)）。
+        public int OutputFormatIndex
+        {
+            get => AppSettingsService.GetValue("SplitOutputFormatIndex", 0);
+            set
+            {
+                AppSettingsService.SetValue("SplitOutputFormatIndex", value);
+                LogService.Split($"Output format changed to index: {value}");
+                OnPropertyChanged();
+            }
+        }
+
+        // 命名规则：始终使用自定义模板模式（不再提供选择）。
+        public int NamingRuleIndex => 2;
+
+        // ── 自定义命名模板 ──
+
+        // 名片段编辑集合（用户在 ListView 中拖拽编辑的片段列表）。
+        public BulkObservableCollection<NamingSegment> NamingSegments { get; } = [];
+
+        // 自定义命名模板字符串（持久化到设置）。
+        public string CustomNamingPattern
+        {
+            get => AppSettingsService.GetValue("SplitCustomNamingPattern", "{name}");
+            set
+            {
+                AppSettingsService.SetValue("SplitCustomNamingPattern", value);
+                OnPropertyChanged();
+                RefreshNamingPreview();
+            }
+        }
+
+        // ── 分段分隔符 ──
+
+        // 命名片段之间的分隔符（_ / - / 空格 / + / 无）。
+        public int NamingSeparatorIndex
+        {
+            get => AppSettingsService.GetValue("SplitNamingSeparatorIndex", 0);
+            set
+            {
+                AppSettingsService.SetValue("SplitNamingSeparatorIndex", value);
+                OnPropertyChanged();
+                SyncSegmentsToTemplate();
+            }
+        }
+
+        // 分隔符索引 → 实际字符映射。
+        private static readonly string[] SeparatorChars = ["_", "-", " ", "+", ""];
+
+        // 当前分隔符字符串（用于模板生成）。
+        public string NamingSeparator => SeparatorChars[NamingSeparatorIndex];
+
+        // 命名片段列表是否为空（用于显示空状态引导提示）。
+        public bool IsNamingEmpty => NamingSegments.Count == 0;
+
+        // 命名预览文本（取占位名渲染模板）。
+        private string _namingPreviewText = string.Empty;
+        public string NamingPreviewText
+        {
+            get => _namingPreviewText;
+            set
+            {
+                if (_namingPreviewText != value)
+                {
+                    _namingPreviewText = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
+
+        // 从 CustomNamingPattern 字符串解析填充 Segments 集合。
+        public void LoadSegmentsFromTemplate()
+        {
+            NamingSegments.Clear();
+            if (string.IsNullOrWhiteSpace(CustomNamingPattern))
+            {
+                CustomNamingPattern = "{name}";
+            }
+            var segments = LivePhotoMergeService.ParseNamingPattern(CustomNamingPattern);
+            // 跳过分隔符 literal 片段（它们由 NamingSeparator 统一管理）
+            var separatorChars = new HashSet<char> { '_', '-', ' ', '+' };
+            foreach (var seg in segments)
+            {
+                // 跳过所有形式的冗余分隔符 literal（单字符 + 多字符组合）
+                if (seg.Type == NamingSegmentType.Literal && !string.IsNullOrEmpty(seg.Format)
+                    && seg.Format.All(c => separatorChars.Contains(c)))
+                    continue;
+                NamingSegments.Add(seg);
+            }
+            SyncSegmentsToTemplate();
+        }
+
+        // 从 NamingSegments 集合同步回 CustomNamingPattern 字符串。
+        public void SyncSegmentsToTemplate()
+        {
+            // 过滤掉产生空字符串的片段（防御：防止 string.Join 在开头/结尾插入多余分隔符）
+            var parts = NamingSegments
+                .Select(s => s.ToTemplateString())
+                .Where(p => !string.IsNullOrWhiteSpace(p))
+                .ToList();
+            var template = string.Join(NamingSeparator, parts);
+            AppSettingsService.SetValue("SplitCustomNamingPattern", template);
+            OnPropertyChanged(nameof(CustomNamingPattern));
+            OnPropertyChanged(nameof(IsNamingEmpty));
+            RefreshNamingPreview();
+        }
+
+        // 刷新命名预览文本。
+        public void RefreshNamingPreview()
+        {
+            try
+            {
+                string sampleBaseName = ResourceService.GetString("NamingPreview_PlaceholderName");
+                string preview = LivePhotoMergeService.RenderNamingTemplate(
+                    CustomNamingPattern, sampleBaseName, ProtocolIndex, 1);
+                NamingPreviewText = preview;
+            }
+            catch
+            {
+                NamingPreviewText = "⚠ Invalid template";
+            }
+        }
+
+        // 是否覆盖已存在的输出文件。
+        public bool OverwriteExisting
+        {
+            get => AppSettingsService.GetValue("SplitOverwriteExisting", false);
+            set
+            {
+                AppSettingsService.SetValue("SplitOverwriteExisting", value);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(OverwriteStatusText));
+            }
+        }
+
+        // 覆盖开关右侧的状态文字（"开"/"关"）。
+        public string OverwriteStatusText => OverwriteExisting
+            ? ResourceService.GetString("SplitPage_ToggleOn")
+            : ResourceService.GetString("SplitPage_ToggleOff");
+
+        // 完成后操作索引（0=无操作, 1=移动到指定目录, 2=回收站）。
+        public int AfterCompletionActionIndex
+        {
+            get => AppSettingsService.GetValue("SplitAfterCompletionActionIndex", 0);
+            set
+            {
+                AppSettingsService.SetValue("SplitAfterCompletionActionIndex", value);
+                OnPropertyChanged();
+                OnPropertyChanged(nameof(IsOriginalDirSectionVisible));
+            }
+        }
+
+        // 完成后操作选中"移动到指定目录"时显示原始文件目录选择区域。
+        public bool IsOriginalDirSectionVisible => AfterCompletionActionIndex == 1;
+
+        // 原始文件移动目标目录。
+        public string OriginalDirectory
+        {
+            get => AppSettingsService.GetValue("SplitOriginalDirectory", string.Empty);
+            set
+            {
+                AppSettingsService.SetValue("SplitOriginalDirectory", value);
+                OnPropertyChanged();
+                _openSplitOriginalDirCommand?.NotifyCanExecuteChanged();
+            }
+        }
+
+        // 标记用户已手动设置原始文件移动目录（后续自动填充不再覆盖）。
+        public void MarkOriginalDirectoryUserSet() => _originalDirectoryUserSet = true;
+
+        // 自动填充原始文件移动目录，仅在用户未手动设置过时生效。
+        public void AutoFillOriginalDirectory()
+        {
+            if (_originalDirectoryUserSet) return;
+            if (string.IsNullOrWhiteSpace(OutputDirectory)) return;
+            OriginalDirectory = Path.Combine(OutputDirectory, ResourceService.GetString("OriginalDir_SubfolderName"));
+        }
 
         #endregion
 
@@ -114,140 +549,36 @@ namespace LivePhotoBox.ViewModels
         public SplitViewModel()
         {
             SetStatus("SplitPage_Status_Ready");
-            SelectedFormatIndex = AppSettingsService.GetValue(nameof(SelectedFormatIndex), 0);
-
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
+
+            // 扫描添加任务时自动同步到显示列表
+            Tasks.CollectionChanged += (_, _) => RefreshTaskView();
+
+            // 响应全局设置清除：刷新所有持久化属性 + 清空命名片段
+            AppSettingsService.SettingsCleared += () =>
+            {
+                OnPropertyChanged(nameof(ProtocolIndex));
+                OnPropertyChanged(nameof(MatchProtocolIndex));
+                OnPropertyChanged(nameof(OutputFormatIndex));
+                OnPropertyChanged(nameof(NamingRuleIndex));
+                OnPropertyChanged(nameof(CustomNamingPattern));
+                OnPropertyChanged(nameof(NamingSeparatorIndex));
+                OnPropertyChanged(nameof(OverwriteExisting));
+                OnPropertyChanged(nameof(OverwriteStatusText));
+                OnPropertyChanged(nameof(AfterCompletionActionIndex));
+                OnPropertyChanged(nameof(IsOriginalDirSectionVisible));
+                OnPropertyChanged(nameof(OriginalDirectory));
+                NamingSegments.Clear();
+                RefreshNamingPreview();
+            };
         }
 
         #endregion
 
-        #region WorkViewModelBase Overrides
+        #region Command-Related Properties
 
-        protected override void OnScanStateChanged(bool isScanning)
-        {
-            OnPropertyChanged(nameof(ScanButtonText));
-        }
-
-        protected override void OnBeginScanSession()
-        {
-            AppViewModel.Instance.BeginSplitScanSession();
-        }
-
-        protected override void OnApplyScanProgress(WorkProgressSnapshot snapshot)
-        {
-            AppViewModel.Instance.ApplySplitScanProgress(snapshot);
-            if (!IsScanning)
-            {
-                RecognizedCount = snapshot.RecognizedCount;
-                SkippedCount = snapshot.SkippedCount;
-            }
-        }
-
-        protected override void OnCompleteScanSnapshot()
-        {
-            AppViewModel.Instance.CompleteFooterWorkSnapshot();
-        }
-
-        protected override void OnInitializeRunState()
-        {
-            _splitStoppedByUser = false;
-            _splitDone = false;
-            _completedTasksCount = 0;
-            Progress = 0;
-            ProgressText = $"0/{QueuedCount}";
-            SetDirectStatus(ProcessingStatusText);
-            OnPropertyChanged(nameof(ActionBtnText));
-
-            _uiUpdateTimer.Start();
-        }
-
-        protected override void OnFinalizeRunState()
-        {
-            _uiUpdateTimer.Stop();
-
-            if (_cancelledByUser)
-            {
-                _splitStoppedByUser = true;
-            }
-            else
-            {
-                _splitDone = true;
-
-                if (QueuedCount > 0)
-                {
-                    Progress = (_completedTasksCount * 100.0) / QueuedCount;
-                    ProgressText = $"{_completedTasksCount}/{QueuedCount}";
-                }
-
-                if (Progress >= 100)
-                {
-                    ProgressBarState = Models.ProgressBarState.Success;
-                    CompleteScanSnapshot();
-
-                    // ✨ 修复：与 Merge 保持一致，状态栏显示详细的数据统计
-                    int total = Tasks.Count;
-                    int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
-                    int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
-                    double elapsed = _stopwatch.Elapsed.TotalSeconds;
-
-                    SetStatus("Status_SplitCompletedSummary", total, elapsed, succeeded, failed);
-                    LogService.Split($"Split completed: {succeeded} succeeded, {failed} failed in {elapsed:F1}s");
-                }
-            }
-            OnPropertyChanged(nameof(ActionBtnText));
-        }
-
-        protected override void OnClearState()
-        {
-            Tasks.ReplaceRange([]);
-            UpdateIsQueueEmpty(0);
-            ThumbnailService.ClearCache();
-            QueuedCount = 0;
-            RecognizedCount = 0;
-            SkippedCount = 0;
-            _completedTasksCount = 0;
-            Progress = 0;
-            ProgressText = "0/0";
-            _splitStoppedByUser = false;
-            _splitDone = false;
-            SetStatus("SplitPage_Status_Cleared");
-            IsDirectoryPanelOpen = true;
-            OnPropertyChanged(nameof(ActionBtnText));
-        }
-
-        protected override void OnCleanup()
-        {
-            _uiUpdateTimer.Stop();
-            _uiUpdateTimer.Tick -= UiUpdateTimer_Tick;
-            Tasks.ReplaceRange([]);
-            UpdateIsQueueEmpty(0);
-            ThumbnailService.ClearCache();
-        }
-
-        protected override void OnScanningEnded()
-        {
-            base.OnScanningEnded();
-            _scanCancellationTokenSource?.Dispose();
-            _scanCancellationTokenSource = null;
-        }
-
-        #endregion
-
-        #region Fields
-
-        // 拆分处理计时器。
-        private Stopwatch _stopwatch = new();
-        // 是否被用户手动停止。
-        private bool _splitStoppedByUser;
-        // 是否自然完成。
-        private bool _splitDone;
-
-        // UI 更新定时器（60ms 间隔），用于刷新进度条和文本。
-        private readonly DispatcherTimer _uiUpdateTimer;
-        // 已完成的任务数（线程安全，volatile）。
-        private volatile int _completedTasksCount;
-
+        // 主操作按钮（开始/停止拆分）的文本。
         public override string ActionBtnText
         {
             get
@@ -261,30 +592,216 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 主操作按钮图标：开始▶ / 停止■
+        public string ActionBtnGlyph => IsProcessing
+            ? ""                           // Stop ■
+            : "";                          // Play ▶
+
+        // 当前是否允许开始处理（扫描中不允许）。
         public override bool IsProcessingAllowed => !IsScanning;
+
+        // 当前是否可以编辑拆分配置（仅处理中不可编辑，扫描时允许边扫边配）。
+        public bool CanEditSelectedMode => !IsProcessing;
+
+        // 拆分页输出目录：仅处理中锁定，扫描中可切换输出目录（扫描只影响输入目录）。
+        public override bool CanEditOutputConfiguration => !IsProcessing;
+
+        // IsProcessing 变更时级联通知派生类计算属性
+        protected override void OnPropertyChanged(PropertyChangedEventArgs e)
+        {
+            base.OnPropertyChanged(e);
+            if (e.PropertyName == nameof(IsProcessing))
+            {
+                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(CanEditSelectedMode)));
+                base.OnPropertyChanged(new PropertyChangedEventArgs(nameof(ActionBtnGlyph)));
+            }
+        }
 
         #endregion
 
-        // 某个拆分任务开始处理时触发，供 ListView 滚动到对应项。
-        public event EventHandler<SplitTask>? TaskStartedForScroll;
-        // 全部处理完成时触发，供 ListView 滚动回顶部。
-        public event EventHandler? ProcessingCompletedForScroll;
-        // 扫描进度的批量项刷新到 UI 时触发。
-        public event EventHandler? ScanItemsFlushed;
+        #region WorkViewModelBase Overrides
 
-        private void UiUpdateTimer_Tick(object? sender, object e)
+        // <inheritdoc/>
+        protected override void OnScanStateChanged(bool isScanning)
         {
-            if (QueuedCount == 0) return;
-            int currentCompleted = _completedTasksCount;
-            Progress = (currentCompleted * 100.0) / QueuedCount;
-            ProgressText = $"{currentCompleted}/{QueuedCount}";
-            CheckAndApplyPendingState();
+            OnPropertyChanged(nameof(ScanButtonText));
         }
 
-        #region Scan
+        // <inheritdoc/>
+        protected override void OnBeginScanSession()
+        {
+            _splitLocalScanTotal = 0;
+            _splitLocalScanProcessed = 0;
+            AppViewModel.Instance.BeginSplitScanSession();
+            OnPropertyChanged(nameof(FooterProgressValue));
+            OnPropertyChanged(nameof(FooterStatusText));
+        }
 
+        // <inheritdoc/>
+        protected override void OnApplyScanProgress(WorkProgressSnapshot snapshot)
+        {
+            _splitLocalScanTotal = snapshot.Total;
+            _splitLocalScanProcessed = snapshot.Completed;
+            AppViewModel.Instance.ApplySplitScanProgress(snapshot);
+            OnPropertyChanged(nameof(FooterProgressValue));
+            OnPropertyChanged(nameof(FooterStatusText));
+        }
+
+        // <inheritdoc/>
+        protected override void OnCompleteScanSnapshot()
+        {
+            _splitLocalScanProcessed = _splitLocalScanTotal;
+            AppViewModel.Instance.CompleteFooterWorkSnapshot();
+            OnPropertyChanged(nameof(FooterProgressValue));
+            OnPropertyChanged(nameof(FooterStatusText));
+        }
+
+        // <inheritdoc/>
+        protected override void OnInitializeRunState()
+        {
+            _splitStoppedByUser = false;
+            _splitDone = false;
+            _completedTasksCount = 0;
+            SplitProgress = 0;
+            Progress = 0;
+            ProgressText = $"0/{TotalCount}";
+            SetDirectStatus(ProcessingStatusText);
+            NotifyStatsChanged();
+            OnPropertyChanged(nameof(ActionBtnText));
+            _uiUpdateTimer.Start();
+        }
+
+        // <inheritdoc/>
+        protected override void OnFinalizeRunState()
+        {
+            _uiUpdateTimer.Stop();
+
+            if (_cancelledByUser)
+            {
+                _splitStoppedByUser = true;
+                // 将剩余等待中的任务标为"已取消"
+                var cancelledText = ResourceService.GetString("Task_Cancelled");
+                foreach (var task in Tasks)
+                {
+                    if (task.Status == ProcessStatus.Pending)
+                    {
+                        task.Status = ProcessStatus.Cancelled;
+                        task.Details = cancelledText;
+                    }
+                }
+                NotifyStatsChanged();
+            }
+            else
+            {
+                _splitDone = true;
+
+                if (TotalCount > 0)
+                {
+                    SplitProgress = (_completedTasksCount * 100.0) / TotalCount;
+                    Progress = SplitProgress;
+                    ProgressText = $"{_completedTasksCount}/{TotalCount}";
+                }
+
+                if (SplitProgress >= 100)
+                {
+                    ProgressBarState = Models.ProgressBarState.Success;
+                    CompleteScanSnapshot();
+
+                    int total = Tasks.Count;
+                    int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
+                    int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                    double elapsed = _stopwatch.Elapsed.TotalSeconds;
+
+                    SetStatus("Status_SplitCompletedSummary", total, elapsed, succeeded, failed);
+                    LogService.Split($"Split completed: {succeeded} succeeded, {failed} failed in {elapsed:F1}s");
+                }
+            }
+            OnPropertyChanged(nameof(ActionBtnText));
+            IsDirectoryPanelOpen = true;
+        }
+
+        /// <summary>从队列中移除指定任务（不删除源文件）</summary>
+        public void RemoveTask(SplitTask task)
+        {
+            if (task == null) return;
+            Tasks.Remove(task);
+            TotalCount = Tasks.Count;
+            UpdateIsQueueEmpty(Tasks.Count);
+            NotifyStatsChanged();
+        }
+
+        // <inheritdoc/>
+        protected override void OnClearState()
+        {
+            Tasks.ReplaceRange([]);
+            UpdateIsQueueEmpty(0);
+            ThumbnailService.ClearCache();
+            TotalCount = 0;
+            RecognizedCount = 0;
+            SkippedCount = 0;
+            _completedTasksCount = 0;
+            SplitProgress = 0;
+            Progress = 0;
+            ProgressText = "0/0";
+            _splitStoppedByUser = false;
+            _splitDone = false;
+            _splitLocalScanTotal = 0;
+            _splitLocalScanProcessed = 0;
+            _stopwatch.Reset();
+            SetStatus("SplitPage_Status_Cleared");
+            IsDirectoryPanelOpen = true;
+            NotifyStatsChanged();
+            OnPropertyChanged(nameof(ActionBtnText));
+        }
+
+        // <inheritdoc/>
+        protected override void OnCleanup()
+        {
+            _uiUpdateTimer.Stop();
+            _uiUpdateTimer.Tick -= UiUpdateTimer_Tick;
+            Tasks.ReplaceRange([]);
+            UpdateIsQueueEmpty(0);
+            ThumbnailService.ClearCache();
+        }
+
+        // <inheritdoc/>
+        protected override void OnScanningEnded()
+        {
+            base.OnScanningEnded();
+            _scanCancellationTokenSource?.Dispose();
+            _scanCancellationTokenSource = null;
+        }
+
+        #endregion
+
+        #region UI Update Timer
+
+        // UI 更新定时器回调，定期刷新拆分进度和进度文本。
+        private void UiUpdateTimer_Tick(object? sender, object e)
+        {
+            if (TotalCount == 0) return;
+            int currentCompleted = _completedTasksCount;
+            SplitProgress = (currentCompleted * 100.0) / TotalCount;
+            Progress = SplitProgress;
+            ProgressText = $"{currentCompleted}/{TotalCount}";
+            CheckAndApplyPendingState();
+            // 暂停时冻结计时，恢复时继续
+            if (IsPaused && _stopwatch.IsRunning)
+                _stopwatch.Stop();
+            else if (!IsPaused && !_stopwatch.IsRunning && !_splitStoppedByUser && !_splitDone)
+                _stopwatch.Start();
+            OnPropertyChanged(nameof(ElapsedTimeText));
+            OnPropertyChanged(nameof(FooterProgressValue));
+            OnPropertyChanged(nameof(FooterStatusText));
+        }
+
+        #endregion
+
+        #region Scan Command
+
+        // 扫描输入文件夹中的单文件实况照片（JPEG）。
         [RelayCommand(AllowConcurrentExecutions = true)]
-        public async Task ScanDirectoryAsync()
+        private async Task ScanDirectoryAsync()
         {
             if (!TryGuardScanClick()) return;
             if (IsProcessing) return;
@@ -316,6 +833,9 @@ namespace LivePhotoBox.ViewModels
                 OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_SplitPhotos"));
             }
 
+            // 扫描开始时自动填充原始文件移动目录（仅当用户未手动设置过时覆盖）
+            AutoFillOriginalDirectory();
+
             LogService.Split($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
 
             SetStatus("SplitPage_Status_Scanning");
@@ -330,9 +850,6 @@ namespace LivePhotoBox.ViewModels
             try
             {
                 ThumbnailService.ClearCache();
-                Tasks.ReplaceRange([]);
-                UpdateIsQueueEmpty(0);
-                QueuedCount = 0;
                 var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
                 var scanProgress = CreateScanProgressReporter();
 
@@ -341,91 +858,64 @@ namespace LivePhotoBox.ViewModels
                     try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
                 }
 
-                // ── 流式缓冲：每 120ms 刷新到 UI ──
-                var itemBuffer = new List<SplitTask>();
-                var bufferLock = new object();
-                long lastFlushMs = Environment.TickCount64;
-                const long flushIntervalMs = 120;
-                int streamIndex = 0;
-
-                void FlushBuffer()
-                {
-                    List<SplitTask> batch;
-                    lock (bufferLock)
-                    {
-                        if (itemBuffer.Count == 0) return;
-                        batch = new List<SplitTask>(itemBuffer);
-                        itemBuffer.Clear();
-                    }
-                    if (batch.Count > 0)
-                    {
-                        App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                        {
-                            foreach (var t in batch) Tasks.Add(t);
-                            UpdateIsQueueEmpty(Tasks.Count);
-                            QueuedCount = Tasks.Count;
-                            ScanItemsFlushed?.Invoke(this, EventArgs.Empty);
-                        });
-                    }
-                }
-
-                var itemProgress = new Progress<LivePhotoDiscoveryItem>(item =>
-                {
-                    int idx = Interlocked.Increment(ref streamIndex);
-                    var task = new SplitTask
-                    {
-                        Index = idx,
-                        SourceFileName = Path.GetFileName(item.FilePath),
-                        SourcePath = item.FilePath,
-                        FileSize = FileSizeFormatter.Format(item.FileSizeBytes),
-                        ProgressText = "0%",
-                        Status = ProcessStatus.Pending,
-                        Details = pendingText,
-                        AppendedVideoLength = item.AppendedVideoLength
-                    };
-
-                    lock (bufferLock) { itemBuffer.Add(task); }
-
-                    var now = Environment.TickCount64;
-                    if (now - lastFlushMs >= flushIntervalMs)
-                    {
-                        lastFlushMs = now;
-                        FlushBuffer();
-                    }
-                });
-
-                // ── 使用统一发现服务扫描（Task.Run 将同步检测放到后台线程）──
+                // ── 使用统一发现服务扫描（SplitOnly 单文件实况检测）──
                 var discoveryResult = await Task.Run(
                     () => LivePhotoDiscoveryService.ScanAsync(
-                        InputDirectory, DiscoveryScanMode.SplitOnly, token, scanProgress, itemProgress),
+                        InputDirectory, DiscoveryScanMode.SplitOnly, token, scanProgress),
                     token);
-
-                // 刷新残留项
-                FlushBuffer();
 
                 if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
 
-                int finalCount = discoveryResult.SingleFileJpegCount;
+                // 转换为 SplitTask：只取单文件 JPEG 实况照片，并按"匹配方式"过滤协议
+                int index = 0;
+                var liveItems = discoveryResult.Items
+                    .Where(i => i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic)
+                    .Where(i => PassesProtocolFilter(i))
+                    .ToList();
+
+                var tempTasks = liveItems.Select(item =>
+                {
+                    index++;
+                    string baseName = Path.GetFileNameWithoutExtension(item.FilePath);
+                    return new SplitTask
+                    {
+                        Index = index,
+                        SourceFileName = Path.GetFileName(item.FilePath),
+                        SourcePath = item.FilePath,
+                        FileSize = FileSizeFormatter.Format(item.FileSizeBytes),
+                        FileSizeBytes = item.FileSizeBytes,
+                        DateTaken = GetDateTaken(item.FilePath),
+                        BaseName = baseName,
+                        AppendedVideoLength = item.AppendedVideoLength,
+                        Status = ProcessStatus.Pending,
+                        Details = pendingText
+                    };
+                }).ToList();
+
+                int finalCount = tempTasks.Count;
+
+                Tasks.ReplaceRange(tempTasks);
+                UpdateIsQueueEmpty(tempTasks.Count);
+                TotalCount = finalCount;
+                // 识别 = 入队数量（已按"匹配方式"过滤）；跳过 = 扫描文件总数 − 识别
                 RecognizedCount = finalCount;
-                // SkippedCount = 扫描到的 JPEG 总数 - 识别出的实况照片数
-                // （不能用 RegularFileCount，因为那包含了视频和 HEIC 等非 JPEG 文件）
-                int totalJpegs = discoveryResult.Items.Count(i =>
-                    i.FilePath.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                    i.FilePath.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase));
-                SkippedCount = totalJpegs - finalCount;
+                SkippedCount = discoveryResult.Items.Count - finalCount;
+                NotifyStatsChanged();
+
+                LogService.Split($"Scan complete: {finalCount} queued, {discoveryResult.Items.Count - finalCount} skipped");
 
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {
-                    QueuedCount = finalCount;
+                    SplitProgress = 0;
                     Progress = 0;
-                    ProgressText = $"0/{finalCount}";
+                    ProgressText = $"0/{TotalCount}";
                 });
 
                 FlushPendingScanProgress();
                 CompleteScanSnapshot();
 
-                if (finalCount > 0)
-                    SetStatus("SplitPage_Status_ScanDone", finalCount);
+                if (TotalCount > 0)
+                    SetStatus("SplitPage_Status_ScanDone", TotalCount);
                 else
                 {
                     IsDirectoryPanelOpen = true;
@@ -441,9 +931,10 @@ namespace LivePhotoBox.ViewModels
                     Tasks.ReplaceRange([]);
                     UpdateIsQueueEmpty(0);
                     ThumbnailService.ClearCache();
-                    QueuedCount = 0;
+                    TotalCount = 0;
                     RecognizedCount = 0;
                     SkippedCount = 0;
+                    SplitProgress = 0;
                     Progress = 0;
                     ProgressText = "0/0";
                 });
@@ -463,11 +954,140 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 添加文件到队列（追加，不清空）。仅接受单文件实况照片（JPEG + HEIC）。
+        public async Task AddFilesToQueueAsync(List<string> filePaths)
+        {
+            if (filePaths.Count == 0) return;
+
+            var imgExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".heic", ".heif" };
+            var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
+            var newTasks = new List<SplitTask>();
+
+            foreach (var path in filePaths)
+            {
+                if (!imgExts.Contains(Path.GetExtension(path))) continue;
+
+                // 逐文件单文件实况检测（JPEG 字节标记 + HEIC 视频轨），与主扫描 ScanAsync 一致
+                LivePhotoType type;
+                try { type = await LivePhotoDiscoveryService.DetectSingleFileTypeAsync(path); }
+                catch (OperationCanceledException) { throw; }
+                catch { continue; }
+
+                if (type == LivePhotoType.None) continue;
+                // 按"匹配方式"过滤协议
+                if (!PassesProtocolFilter(path, type)) continue;
+
+                long size;
+                try { size = new FileInfo(path).Length; }
+                catch { continue; }
+
+                int index = Tasks.Count + newTasks.Count + 1;
+                newTasks.Add(new SplitTask
+                {
+                    Index = index,
+                    SourceFileName = Path.GetFileName(path),
+                    SourcePath = path,
+                    FileSize = FileSizeFormatter.Format(size),
+                    FileSizeBytes = size,
+                    DateTaken = GetDateTaken(path),
+                    BaseName = Path.GetFileNameWithoutExtension(path),
+                    AppendedVideoLength = 0,
+                    Status = ProcessStatus.Pending,
+                    Details = pendingText
+                });
+            }
+
+            if (newTasks.Count > 0)
+            {
+                foreach (var t in newTasks)
+                    Tasks.Add(t);
+                TotalCount = Tasks.Count(t => t != null);
+                RecognizedCount = TotalCount;
+                SkippedCount += filePaths.Count - newTasks.Count;
+                UpdateIsQueueEmpty(Tasks.Count);
+                NotifyStatsChanged();
+                LogService.Split($"Added {newTasks.Count} file(s) to queue (total: {TotalCount})");
+            }
+        }
+
+        // 添加文件夹到队列（追加，不清空）
+        public async Task AddFolderToQueueAsync(string folderPath)
+        {
+            if (string.IsNullOrEmpty(folderPath) || !Directory.Exists(folderPath)) return;
+
+            var discoveryResult = await Task.Run(
+                () => LivePhotoDiscoveryService.ScanAsync(
+                    folderPath, DiscoveryScanMode.SplitOnly, GetScanningToken()));
+            var liveItems = discoveryResult.Items
+                .Where(i => i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic)
+                .Where(i => PassesProtocolFilter(i))
+                .ToList();
+            // 本文件夹被丢弃的文件计入跳过（即使没有入队也更新）
+            SkippedCount += discoveryResult.Items.Count - liveItems.Count;
+            if (liveItems.Count == 0)
+            {
+                NotifyStatsChanged();
+                return;
+            }
+
+            var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
+            int startIndex = Tasks.Count;
+
+            foreach (var item in liveItems)
+            {
+                Tasks.Add(new SplitTask
+                {
+                    Index = ++startIndex,
+                    SourceFileName = Path.GetFileName(item.FilePath),
+                    SourcePath = item.FilePath,
+                    FileSize = FileSizeFormatter.Format(item.FileSizeBytes),
+                    FileSizeBytes = item.FileSizeBytes,
+                    DateTaken = GetDateTaken(item.FilePath),
+                    BaseName = Path.GetFileNameWithoutExtension(item.FilePath),
+                    AppendedVideoLength = item.AppendedVideoLength,
+                    Status = ProcessStatus.Pending,
+                    Details = pendingText
+                });
+            }
+
+            TotalCount = Tasks.Count(t => t != null);
+            RecognizedCount = TotalCount;
+            UpdateIsQueueEmpty(Tasks.Count);
+            NotifyStatsChanged();
+            LogService.Split($"Added folder '{folderPath}' to queue (total: {TotalCount})");
+        }
+
         #endregion
 
-        #region Process
+        #region Helpers
 
-        // 切换次要操作（暂停/继续 或 清空列表），取决于当前处理状态。
+        // 读取图片的 EXIF 拍摄日期（DateTimeOriginal），读不到时降级为文件修改时间。
+        private static DateTime GetDateTaken(string imagePath)
+        {
+            var (_, _, exifDate) = FastMetadataReader.Read(imagePath);
+            if (exifDate is not null &&
+                DateTime.TryParseExact(exifDate, "yyyy:MM:dd HH:mm:ss", null,
+                    System.Globalization.DateTimeStyles.None, out var dt))
+                return dt;
+            return File.GetLastWriteTime(imagePath);
+        }
+
+        // 按命名模板渲染输出基本名（图片/视频共用，扩展名由 Core 追加），并消毒非法字符。
+        private string ComputeOutputBaseName(SplitTask task)
+        {
+            string baseName = Path.GetFileNameWithoutExtension(task.SourcePath);
+            string rendered = LivePhotoMergeService.RenderNamingTemplate(
+                CustomNamingPattern, baseName, ProtocolIndex, task.Index, task.SourcePath);
+            var invalid = Path.GetInvalidFileNameChars();
+            var cleaned = new string(rendered.Select(c => invalid.Contains(c) ? '_' : c).ToArray());
+            return cleaned.Trim('_', '-', ' ', '+');
+        }
+
+        #endregion
+
+        #region Secondary / Toggle Commands
+
+        // 切换次要操作：未处理时清除状态，处理中则切换暂停/继续。
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
@@ -483,11 +1103,11 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 切换处理状态：运行时点击停止，已完成时弹出结果对话框，空闲时启动拆分处理。
+        // 切换拆分处理状态：开始拆分或停止拆分。
         [RelayCommand(AllowConcurrentExecutions = true)]
-        public async Task StartProcessingAsync()
+        private async Task ToggleProcessAsync()
         {
-            LogService.Split("StartProcessing requested.");
+            LogService.Split($"ToggleProcessAsync requested. IsProcessing={IsProcessing}, QueueCount={Tasks.Count}");
 
             if (IsProcessing)
             {
@@ -518,12 +1138,63 @@ namespace LivePhotoBox.ViewModels
                 OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_SplitPhotos"));
             }
 
+            // 开始拆分前：强制归位排序和筛选到默认值
+            _sortIndex = 0;
+            OnPropertyChanged(nameof(SortIndex));
+            _sortDescending = false;
+            OnPropertyChanged(nameof(SortDescending));
+            OnPropertyChanged(nameof(SortDirectionGlyph));
+            _filterStatus = null;
+            OnPropertyChanged(nameof(FilterStatus));
+            _searchFilterText = string.Empty;
+            OnPropertyChanged(nameof(SearchFilterText));
+            RefreshTaskView();
+
             IsDirectoryPanelOpen = false;
             await RunTasksAsync();
         }
 
+        #endregion
 
-        // 弹出一个 ContentDialog 窗口展示拆分被取消时的汇总信息。
+        #region Result Dialogs
+
+        // 显示拆分已完成对话框，可打开输出文件夹。
+        private async Task ShowSplitAlreadyDoneDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                int total = Tasks.Count;
+                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
+                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+
+                var stack = new StackPanel { Spacing = 12 };
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.Format("Msg_SplitCompletedSummary", total, succeeded, failed),
+                    FontSize = 16,
+                    TextWrapping = TextWrapping.Wrap
+                });
+                stack.Children.Add(new TextBlock
+                {
+                    Text = ResourceService.GetString("Msg_SplitCompletedDescription"),
+                    FontSize = 14,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 12, 0, 0),
+                    Opacity = 0.85
+                });
+
+                var chosenPrimary = await DialogService.ShowDualAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    ResourceService.GetString("Msg_SplitCompletedTitle"),
+                    stack,
+                    primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
+                    closeText: ResourceService.GetString("Msg_GotIt"));
+                if (chosenPrimary)
+                    await OpenSplitOutputFolderAsync();
+            }
+        }
+
+        // 显示拆分已被用户取消的结果对话框，汇总成功/失败/未处理数量。
         private async Task ShowSplitCancelledDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot != null)
@@ -556,62 +1227,36 @@ namespace LivePhotoBox.ViewModels
                     primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
                     closeText: ResourceService.GetString("Msg_GotIt"));
                 if (chosenPrimary)
-                    OpenSplitOutputFolder();
+                    await OpenSplitOutputFolderAsync();
             }
         }
 
-        // 弹出一个 ContentDialog 窗口展示拆分已全部完成时的汇总信息。
-        private async Task ShowSplitAlreadyDoneDialogAsync()
-        {
-            if (App.MainWindow?.Content?.XamlRoot != null)
-            {
-                int total = Tasks.Count;
-                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
-                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+        #endregion
 
-                var stack = new StackPanel { Spacing = 12 };
-                stack.Children.Add(new TextBlock
-                {
-                    Text = ResourceService.Format("Msg_SplitCompletedSummary", total, succeeded, failed),
-                    FontSize = 16,
-                    TextWrapping = TextWrapping.Wrap
-                });
-                stack.Children.Add(new TextBlock
-                {
-                    Text = ResourceService.GetString("Msg_SplitCompletedDescription"),
-                    FontSize = 14,
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 12, 0, 0),
-                    Opacity = 0.85
-                });
+        #region Task Execution
 
-                var chosenPrimary = await DialogService.ShowDualAsync(
-                    App.MainWindow.Content.XamlRoot,
-                    ResourceService.GetString("Msg_SplitCompletedTitle"),
-                    stack,
-                    primaryText: ResourceService.GetString("Msg_OpenOutputFolder"),
-                    closeText: ResourceService.GetString("Msg_GotIt"));
-                if (chosenPrimary)
-                    OpenSplitOutputFolder();
-            }
-        }
-
-
+        // 执行所有拆分任务的异步核心方法。
         private async Task RunTasksAsync()
         {
             InitializeRunState();
             _stopwatch = Stopwatch.StartNew();
 
+            var token = GetProcessingToken();
             string outputDir = OutputDirectory;
-            int formatIndex = SelectedFormatIndex;
+            int protocolIndex = ProtocolIndex;
+            int outputFormatIndex = OutputFormatIndex;
+            bool overwriteExisting = OverwriteExisting;
+            string inputDirectory = InputDirectory;
+            Directory.CreateDirectory(outputDir);
 
             try
             {
-                var token = GetProcessingToken();
                 await Task.Run(async () =>
                 {
                     var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
+
                     int maxParallel = AppSettingsService.GetValue("SplitThreadCount", 4);
+                    LogService.Split($"Parallel: {maxParallel} ({tasksToProcess.Count} tasks)", LogLevel.Debug);
 
                     var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
                     var pendingTasks = new List<Task>();
@@ -641,7 +1286,10 @@ namespace LivePhotoBox.ViewModels
 
                             try
                             {
-                                await LivePhotoSplitService.SplitAsync(task.SourcePath, outputDir, formatIndex, token, InputDirectory);
+                                string outputBaseName = ComputeOutputBaseName(task);
+                                await LivePhotoSplitService.SplitAsync(
+                                    task.SourcePath, outputDir, protocolIndex, outputFormatIndex, token,
+                                    inputDirectory, outputBaseName, overwriteExisting);
                                 isSuccess = true;
                                 detailMessage = ResourceService.GetString("SplitPage_Task_Success") ?? "Success";
                             }
@@ -668,7 +1316,7 @@ namespace LivePhotoBox.ViewModels
                                 }
                             }
 
-                            // ✨ 核心修复：死等 UI 线程把状态更新完毕！
+                            // 死等 UI 线程把状态更新完毕
                             var tcs = new TaskCompletionSource<bool>();
                             if (App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                             {
@@ -717,7 +1365,6 @@ namespace LivePhotoBox.ViewModels
 
                             pendingTasks.Add(ProcessTask(task));
 
-                            // 当达到最大并发数时，等待任意一个完成
                             if (pendingTasks.Count >= maxParallel)
                             {
                                 var completedTask = await Task.WhenAny(pendingTasks);
@@ -729,19 +1376,16 @@ namespace LivePhotoBox.ViewModels
                                 }
                                 catch (OperationCanceledException)
                                 {
-                                    // 取消处理 — break 出循环，后面统一 rethrow
                                     break;
                                 }
                             }
                         }
 
-                        // 等待所有剩余任务完全结束（因为内部用了 TaskCompletionSource，执行到这里时所有的 UI 也100%更新完了）
                         if (!token.IsCancellationRequested)
                         {
                             await Task.WhenAll(pendingTasks);
                         }
 
-                        // 如果因取消而退出循环，确保异常传播到外层 catch 更新状态
                         if (token.IsCancellationRequested)
                         {
                             token.ThrowIfCancellationRequested();
@@ -749,8 +1393,6 @@ namespace LivePhotoBox.ViewModels
                     }
                     finally
                     {
-                        // 先等所有任务退出再 dispose semaphore，避免 ProcessTask 的 finally
-                        // 还在调 semaphore.Release() 时 semaphore 已被销毁 → ObjectDisposedException
                         try { await Task.WhenAll(pendingTasks); } catch { }
                         semaphore.Dispose();
                     }
@@ -763,7 +1405,7 @@ namespace LivePhotoBox.ViewModels
                 int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
                 int unprocessed = total - succeeded - failed;
                 double elapsed = _stopwatch.Elapsed.TotalSeconds;
-                LogService.Split($"Split processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{QueuedCount}");
+                LogService.Split($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalCount}");
                 SetStatus("Status_SplitStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -781,9 +1423,40 @@ namespace LivePhotoBox.ViewModels
                 // 所有任务结束后统一清理 Temp 目录（确保无残留）
                 CleanSplitTempDirectory(outputDir);
 
+                // ── 完成后处理原始文件 ──
+                if (!wasCancelled)
+                {
+                    if (AfterCompletionActionIndex == 1) // 移动到指定目录
+                    {
+                        var moveDir = OriginalDirectory;
+                        if (!string.IsNullOrWhiteSpace(moveDir))
+                        {
+                            try { Directory.CreateDirectory(moveDir); }
+                            catch (Exception ex) { LogService.Split($"Failed to create original dir: {ex.Message}", LogLevel.Warning); }
+                            foreach (var task in Tasks.Where(t => t.Status == ProcessStatus.Success))
+                            {
+                                try { if (File.Exists(task.SourcePath)) File.Move(task.SourcePath, Path.Combine(moveDir, Path.GetFileName(task.SourcePath))); } catch { }
+                            }
+                        }
+                    }
+                    else if (AfterCompletionActionIndex == 2) // 回收站
+                    {
+                        foreach (var task in Tasks.Where(t => t.Status == ProcessStatus.Success))
+                        {
+                            try
+                            {
+                                if (File.Exists(task.SourcePath))
+                                    await MoveFileToRecycleBinAsync(task.SourcePath);
+                            }
+                            catch (Exception ex)
+                            {
+                                LogService.Split($"Failed to move source file to recycle bin: {ex.Message}", LogLevel.Warning, ex);
+                            }
+                        }
+                    }
+                }
+
                 // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot。
-                // 多个队列同时完成时 WinUI 只允许一个 ContentDialog，
-                // 冲突会抛 COMException，这里吞掉即可（不影响处理结果）。
                 if (Tasks.Count > 0 && !_isCleaningUp)
                 {
                     try
@@ -801,22 +1474,114 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 更新 Task 为"处理中"状态，触发滚动事件。
+        // 将文件移动到回收站（真正进回收站，可恢复）。
+        // 通过 P/Invoke SHFileOperationW（FOF_ALLOWUNDO）实现，效果等同资源管理器删除。
+        private static Task MoveFileToRecycleBinAsync(string path)
+        {
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            if (dispatcher == null)
+            {
+                LogService.Split("Recycle bin unavailable: MainWindow DispatcherQueue is null", LogLevel.Warning);
+                return Task.CompletedTask;
+            }
+
+            var tcs = new TaskCompletionSource<object?>();
+            bool enqueued = dispatcher.TryEnqueue(() =>
+            {
+                try
+                {
+                    if (SendToRecycleBin(path))
+                        tcs.SetResult(null);
+                    else
+                        tcs.SetException(new InvalidOperationException($"SHFileOperationW failed for {path}"));
+                }
+                catch (Exception ex)
+                {
+                    tcs.SetException(ex);
+                }
+            });
+
+            if (!enqueued)
+            {
+                LogService.Split($"Recycle bin unavailable: failed to enqueue to UI thread for {path}", LogLevel.Warning);
+                return Task.CompletedTask;
+            }
+
+            return tcs.Task;
+        }
+
+        // 调用 shell 将单个文件送入回收站，返回是否成功。
+        private static bool SendToRecycleBin(string path)
+        {
+            var op = new SHFILEOPSTRUCT
+            {
+                wFunc = FO_DELETE,
+                pFrom = path + "\0\0",
+                fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
+            };
+            return SHFileOperationW(ref op) == 0;
+        }
+
+        // ── 回收站 P/Invoke（SHFileOperationW）────────────────
+        private const uint FO_DELETE = 0x0003;
+        private const ushort FOF_ALLOWUNDO = 0x0040;
+        private const ushort FOF_NOCONFIRMATION = 0x0010;
+        private const ushort FOF_SILENT = 0x0004;
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct SHFILEOPSTRUCT
+        {
+            public IntPtr hwnd;
+            public uint wFunc;
+            [MarshalAs(UnmanagedType.LPWStr)]
+            public string pFrom;
+            [MarshalAs(UnmanagedType.LPWStr)]
+            public string pTo;
+            public ushort fFlags;
+            [MarshalAs(UnmanagedType.Bool)]
+            public bool fAnyOperationsAborted;
+            public IntPtr hNameMappings;
+            [MarshalAs(UnmanagedType.LPWStr)]
+            public string lpszProgressTitle;
+        }
+
+        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+        private static extern int SHFileOperationW(ref SHFILEOPSTRUCT lpFileOp);
+
+        #endregion
+
+        #region Task Status Events
+
+        // 当某个拆分任务开始时触发，可用于自动滚动到当前处理的任务。
+        public event EventHandler<SplitTask>? TaskStartedForScroll;
+
+        // 当所有拆分任务处理完毕（全部完成或停止）时触发，可用于滚动到列表顶部。
+        public event EventHandler? ProcessingCompletedForScroll;
+
+        // 标记任务开始处理（设置为 Processing 状态）。
         private void UpdateTaskStarted(SplitTask task)
         {
             task.Status = ProcessStatus.Processing;
             task.ProgressText = "0%";
             task.Details = ResourceService.GetString("SplitPage_Task_Processing");
-
+            NotifyStatsChanged();
             TaskStartedForScroll?.Invoke(this, task);
         }
 
-        // 更新 Task 为"已完成/失败"状态，触发完成滚动事件（若全部完成）。
+        // 标记任务被用户取消（保留 Processing 状态，颜色中性，只更新详情）。
+        private void UpdateTaskCancelled(SplitTask task, string detailMessage)
+        {
+            task.ProgressText = "0%";
+            task.Details = detailMessage;
+        }
+
+        // 更新任务完成状态（成功/失败），如果所有任务完成则触发 ProcessingCompletedForScroll 事件。
         private void UpdateTaskCompleted(SplitTask task, bool isSuccess, string detailMessage, int completedCount)
         {
             task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.ProgressText = isSuccess ? "100%" : "0%";
             task.Details = detailMessage;
+            NotifyStatsChanged();
 
             if (completedCount >= Tasks.Count && Tasks.Count > 0)
             {
@@ -824,19 +1589,11 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 更新被取消的 Task 的状态（保留 Processing，不标记失败）。
-        private void UpdateTaskCancelled(SplitTask task, string detailMessage)
-        {
-            // 用户取消不标记为"失败"——保留 Processing 状态，颜色中性，只更新详情
-            task.ProgressText = "0%";
-            task.Details = detailMessage;
-        }
-
         #endregion
 
-        #region Folder Operations
+        #region Folder Commands
 
-        // 在文件管理器中打开输入文件夹。
+        // 在文件资源管理器中打开输入文件夹。
         private async Task OpenSplitInputFolderAsync()
         {
             try
@@ -852,8 +1609,8 @@ namespace LivePhotoBox.ViewModels
             catch (Exception ex) { LogService.Split($"OpenSplitInput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
-        // 在文件管理器中打开拆分输出文件夹。
-        private void OpenSplitOutputFolder()
+        // 在文件资源管理器中打开输出文件夹（不存在则自动创建）。
+        private async Task OpenSplitOutputFolderAsync()
         {
             try
             {
@@ -865,26 +1622,26 @@ namespace LivePhotoBox.ViewModels
             catch (Exception ex) { LogService.Split($"OpenSplitOutput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
-        #endregion
-
-        #region Settings
-
-        // 拆分输出格式索引（实时读写 AppSettings）。
-        public int SelectedFormatIndex
+        // 在文件资源管理器中打开原始文件存放目录。
+        private Task OpenSplitOriginalDirAsync()
         {
-            get => AppSettingsService.GetValue(nameof(SelectedFormatIndex), 0);
-            set
+            try
             {
-                AppSettingsService.SetValue(nameof(SelectedFormatIndex), value);
-                LogService.Split($"Split output format changed to index: {value}");
-                OnPropertyChanged();
+                string path = OriginalDirectory;
+                if (!string.IsNullOrWhiteSpace(path))
+                {
+                    if (!Directory.Exists(path))
+                        Directory.CreateDirectory(path);
+                    FilePickerService.OpenFolderInExplorer(path);
+                }
             }
+            catch (Exception ex) { LogService.Split($"OpenSplitOriginalDir error: {ex.Message}", LogLevel.Error, ex); }
+            return Task.CompletedTask;
         }
 
         #endregion
 
         // 安全地清理拆分过程的 Temp 目录（全部任务结束后调用）。
-        // 所有临时文件已在 SplitAsync 中逐个删除，这里清理可能残留的空 Temp 目录。
         private static void CleanSplitTempDirectory(string outputDir)
         {
             if (string.IsNullOrWhiteSpace(outputDir)) return;

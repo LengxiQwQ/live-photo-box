@@ -26,11 +26,12 @@ namespace LivePhotoBox.Cli.Commands
         private static readonly bool[] MergeSupported =
             [false, true, true, true, false, false, true];
 
-        // Split protocols — informational only; CLI split is not implemented yet (use the GUI app).
+        // Split protocols — the split command writes no pairing metadata this iteration (protocol is a placeholder).
         private static readonly (string Name, string Devices, bool Supported)[] SplitProtocols =
         [
-            ("Apple Live Photo", "iPhone / iPad", false),
-            ("vivo Live Photo",  "vivo (≤ X200)", false),
+            ("None (split only)",  "Any device", true),
+            ("Apple Live Photo",   "iPhone / iPad", false),
+            ("vivo Live Photo",    "vivo (≤ X200)", false),
         ];
 
         public static Command Create()
@@ -89,10 +90,17 @@ namespace LivePhotoBox.Cli.Commands
 
             PrintDeviceTable("Merge — devices & availability",
                 ProtocolNameResolver.ProtocolDisplayNames, MergeDevices, MergeSupported);
-            PrintDeviceTable("Split — devices & availability (split not yet supported in CLI — use the GUI app)",
+            PrintDeviceTable("Split — devices & availability",
                 SplitProtocols.Select(p => p.Name).ToArray(),
                 SplitProtocols.Select(p => p.Devices).ToArray(),
                 SplitProtocols.Select(p => p.Supported).ToArray());
+
+            // Repair — fixes metadata; no protocol choice involved.
+            Console.WriteLine();
+            CliConsole.WriteLine("  Repair — metadata fixes (no protocol needed)", CliConsole.Accent);
+            Console.WriteLine();
+            Console.WriteLine("    Fixes rotation, embedded thumbnails, HEIC orientation, and video rotation.");
+            Console.WriteLine("    Apple Live Photos only (identified by ContentIdentifier UUID).");
         }
 
         // Prints a "protocol × devices × availability" table (merge or split).

@@ -65,8 +65,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
-; CLI 添加到 PATH（默认勾选）
-Name: "addpath"; Description: "Add Live Photo Box to system PATH (allows livephotobox / lpb from any terminal)"; GroupDescription: "CLI tools:"; Flags: checkedonce
+; CLI 添加到 PATH（默认勾选；不用 checkedonce → 升级时沿用上次勾选状态，而不是强制不勾）
+Name: "addpath"; Description: "Add Live Photo Box to system PATH (allows livephotobox / lpb from any terminal)"; GroupDescription: "CLI tools:"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

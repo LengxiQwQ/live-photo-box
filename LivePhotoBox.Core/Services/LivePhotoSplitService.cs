@@ -96,7 +96,7 @@ namespace LivePhotoBox.Services
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
             TimeSpan.FromSeconds(2));
 
-        public static async Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int selectedSplitFormatIndex, CancellationToken token, string? inputDirectory = null)
+        public static async Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int protocolIndex, int outputFormatIndex, CancellationToken token, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false)
         {
             Directory.CreateDirectory(outputDirectory);
 
@@ -110,84 +110,116 @@ namespace LivePhotoBox.Services
             long videoLength = GetAppendedVideoLength(metadataText);
             long imageLength = sourceStream.Length - videoLength;
 
-            LogService.Split($"File={Path.GetFileName(sourcePath)}, TotalSize={sourceStream.Length}, VideoLength={videoLength}, ImageLength={imageLength}", LogLevel.Debug);
+            LogService.Split($"File={Path.GetFileName(sourcePath)}, TotalSize={sourceStream.Length}, VideoLength={videoLength}, ImageLength={imageLength}, ProtocolIndex={protocolIndex}, OutputFormatIndex={outputFormatIndex}", LogLevel.Debug);
 
             if (videoLength <= 0 || imageLength <= 0)
             {
                 throw new InvalidDataException("Unable to determine the appended motion video length or file is corrupted.");
             }
 
-            string targetExtension = await ResolveVideoExtensionAsync(sourceStream, imageLength, metadataText, selectedSplitFormatIndex, token);
-            (string imageOutputPath, string videoOutputPath) = BuildOutputPaths(sourcePath, outputDirectory, targetExtension, inputDirectory);
+            // ── 协议 → 输出格式 → 编码 契约（全局 outputFormatIndex，与 protocolIndex 无关）─────────
+            //   0 = 默认：图片/视频均原样输出（不转图片、不转码，等价旧「图片默认」）
+            //   1 = JPG + MOV（H.265/HEVC）
+            //   2 = HEIC + MOV（H.265/HEVC）
+            //   3 = JPG + MP4（H.264/AVC）
+            //   protocolIndex（0=无协议 / 1=Apple / 2=vivo）本迭代仅作占位，不写配对元数据。
+            // ──────────────────────────────────────────────────────────────────────────────
+            string targetImageExtension = outputFormatIndex switch
+            {
+                1 or 3 => ".JPG",
+                2 => ".HEIC",
+                _ => Path.GetExtension(sourcePath) // 0 = 默认：图片跟随源扩展名
+            };
 
-            // 1. 提取图片部分（同时剥离实况照片相关的 XMP / APP 段，避免拆分出的"图片"仍被识别为实况照片）
+            string targetVideoExtension = outputFormatIndex switch
+            {
+                1 or 2 => ".MOV",
+                3 => ".MP4",
+                _ => await ResolveVideoExtensionAsync(sourceStream, imageLength, metadataText, 0, token)
+            };
+
+            (string imageOutputPath, string videoOutputPath) = BuildOutputPaths(sourcePath, outputDirectory, targetImageExtension, targetVideoExtension, inputDirectory, outputBaseName, overwriteExisting);
+
+            // 图片端是 JPEG 还是 HEIC：JPEG 走「逐段剥离实况 XMP」路径；HEIC 无 JPEG APP 段，原样拷贝。
             sourceStream.Position = 0;
-            await using (var imageOutputStream = new FileStream(imageOutputPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
-            {
-                await CopyJpegStrippingLivePhotoMetadataAsync(sourceStream, imageOutputStream, imageLength, token);
-            }
+            byte[] imageHeader = new byte[4];
+            int imageHeaderRead = await sourceStream.ReadAsync(imageHeader, token);
+            sourceStream.Position = 0;
+            bool sourceImageIsJpeg = imageHeaderRead >= 2 && imageHeader[0] == 0xFF && imageHeader[1] == 0xD8;
 
-            // OPPO 协议在 EXIF UserComment 里写了 "oplus_10485792" 标记（供 OPPO 相册识别）。
-            // XMP 段已在上面被剥离，但 EXIF 段原样保留了 → 需单独清理。
-            // 只清以 "oplus_" 开头的值，不碰其他内容的 UserComment（如相机自定义备注）。
-            if (metadataText.Contains("xmlns:OpCamera", StringComparison.Ordinal))
-            {
-                await ClearOppoExifMarkerAsync(imageOutputPath, token);
-            }
-
-            // 2. 提取视频部分到临时文件，使用 try-finally 保证任何异常/取消都会清理
             string tempDir = Path.Combine(outputDirectory, "Temp");
             Directory.CreateDirectory(tempDir);
+            string tempImagePath = TempFileService.AllocateTempPath(tempDir, "split_image", sourceImageIsJpeg ? "jpg" : "heic");
+            string? convertedImagePath = null;
             string tempVideoPath = Path.Combine(tempDir, Path.GetFileName(videoOutputPath) + ".tmp");
-
-            sourceStream.Position = imageLength;
-            await using (var videoOutputStream = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
-            {
-                await CopyExactLengthAsync(sourceStream, videoOutputStream, videoLength, token);
-            }
 
             try
             {
-                // 3. 检查是否需要处理
-                bool needsProcessing = selectedSplitFormatIndex switch
+                // 1. 提取图片部分到临时文件
+                sourceStream.Position = 0;
+                await using (var imageOutputStream = new FileStream(tempImagePath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
                 {
-                    1 => true,  // 用户明确选择 MP4
-                    2 => true,  // 用户明确选择 MOV
-                    _ => false  // 默认格式，直接使用原视频
-                };
-
-                if (needsProcessing)
-                {
-                    // 检测源视频格式
-                    string sourceVideoExtension = await DetectDefaultVideoExtensionAsync(sourceStream, imageLength, metadataText, token);
-                    bool formatMatches = (selectedSplitFormatIndex == 1 && sourceVideoExtension == ".mp4") ||
-                                        (selectedSplitFormatIndex == 2 && sourceVideoExtension == ".mov");
-
-                    LogService.Split($"needsProcessing={needsProcessing}, selectedIndex={selectedSplitFormatIndex}, sourceExt={sourceVideoExtension}, targetExt={targetExtension}, formatMatches={formatMatches}", LogLevel.Debug);
-
-                    if (formatMatches)
-                    {
-                        LogService.Split($"Remuxing video (container only): {sourceVideoExtension} -> {targetExtension}", LogLevel.Debug);
-                        var remuxResult = await VideoTranscodeService.RemuxAsync(tempVideoPath, videoOutputPath, token);
-                        if (!remuxResult.Success)
-                            throw new InvalidOperationException($"Video remux failed: {remuxResult.ErrorMessage}");
-                    }
+                    if (sourceImageIsJpeg)
+                        await CopyJpegStrippingLivePhotoMetadataAsync(sourceStream, imageOutputStream, imageLength, token);
                     else
-                    {
-                        LogService.Split($"Transcoding video: {sourceVideoExtension} -> {targetExtension}", LogLevel.Debug);
-                        var transcodeResult = selectedSplitFormatIndex == 1
-                            ? await VideoTranscodeService.TranscodeToMp4Async(tempVideoPath, videoOutputPath, token)
-                            : await VideoTranscodeService.TranscodeToMovAsync(tempVideoPath, videoOutputPath, token);
-                        if (!transcodeResult.Success)
-                            throw new InvalidOperationException($"Video transcode failed: {transcodeResult.ErrorMessage}");
-                    }
+                        await CopyExactLengthAsync(sourceStream, imageOutputStream, imageLength, token);
                 }
-                else
+
+                // OPPO 协议在 EXIF UserComment 里写了 "oplus_10485792" 标记（供 OPPO 相册识别）。
+                // XMP 段已在上面被剥离，但 EXIF 段原样保留了 → 需单独清理。
+                // 只清以 "oplus_" 开头的值，不碰其他内容的 UserComment。HEIC 源无此 EXIF 段，跳过。
+                if (sourceImageIsJpeg && metadataText.Contains("xmlns:OpCamera", StringComparison.Ordinal))
+                {
+                    await ClearOppoExifMarkerAsync(tempImagePath, token);
+                }
+
+                // 按目标图片格式转换（复用 HeicConverterService，不自行另写转换逻辑）
+                bool targetImageIsHeic = targetImageExtension.Equals(".heic", StringComparison.OrdinalIgnoreCase);
+                string workingImagePath = tempImagePath;
+                if (targetImageIsHeic && sourceImageIsJpeg)
+                {
+                    convertedImagePath = await HeicConverterService.ConvertToHeicAsync(tempImagePath, tempDir, token);
+                    workingImagePath = convertedImagePath;
+                }
+                else if (!targetImageIsHeic && !sourceImageIsJpeg)
+                {
+                    convertedImagePath = await HeicConverterService.ConvertToJpegAsync(tempImagePath, tempDir, token);
+                    workingImagePath = convertedImagePath;
+                }
+
+                // 图片落位到最终输出路径（BuildOutputPaths 已预留 0 字节占位文件，需先删除）
+                if (File.Exists(imageOutputPath))
+                    File.Delete(imageOutputPath);
+                File.Move(workingImagePath, imageOutputPath);
+
+                // 2. 提取视频部分到临时文件
+                sourceStream.Position = imageLength;
+                await using (var videoOutputStream = new FileStream(tempVideoPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
+                {
+                    await CopyExactLengthAsync(sourceStream, videoOutputStream, videoLength, token);
+                }
+
+                // 3. 视频处理：默认(0)原样输出；1/2 → MOV+H.265；3 → MP4+H.264
+                if (outputFormatIndex == 0)
                 {
                     // 不需要转码，直接移动临时文件到目标位置
                     if (File.Exists(videoOutputPath))
                         File.Delete(videoOutputPath);
                     File.Move(tempVideoPath, videoOutputPath);
+                }
+                else
+                {
+                    if (File.Exists(videoOutputPath))
+                        File.Delete(videoOutputPath);
+                    LogService.Split($"Transcoding video -> {targetVideoExtension} (outputFormatIndex={outputFormatIndex})", LogLevel.Debug);
+                    var transcodeResult = outputFormatIndex switch
+                    {
+                        1 or 2 => await VideoTranscodeService.TranscodeToMovAsync(tempVideoPath, videoOutputPath, token, videoCodec: "hevc"),
+                        3 => await VideoTranscodeService.TranscodeToMp4Async(tempVideoPath, videoOutputPath, token, videoCodec: "h264"),
+                        _ => throw new InvalidOperationException($"Unsupported output format index: {outputFormatIndex}")
+                    };
+                    if (!transcodeResult.Success)
+                        throw new InvalidOperationException($"Video transcode failed: {transcodeResult.ErrorMessage}");
                 }
 
                 // 4. 将源文件的关键元数据写回视频输出（供后续元数据匹配使用）
@@ -199,6 +231,14 @@ namespace LivePhotoBox.Services
                 await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
                     videoOutputPath, "Split", "", token);
 
+                // ── 扩展点：后续按 protocolIndex 写入双文件配对元数据 ─────────────────────────
+                // protocolIndex == 1（Apple）：给图片与视频两端写入同一个 ContentIdentifier UUID，
+                //   使 Apple Photos 将两者识别为一对实况照片（当前未实现）。
+                // protocolIndex == 2（vivo）：在 JPG 尾部追加 vivo JSON 尾标（vivo{...}cameralbum!），
+                //   并在 MP4 写入 vivoMediaExtInfo uuid box（当前未实现）。
+                // 实现时应以 Core 层 Services/Protocols/ 的字节格式为唯一事实源，并同步 GUI + CLI。
+                // ─────────────────────────────────────────────────────────────────────────────
+
                 return new LivePhotoSplitResult
                 {
                     ImageOutputPath = imageOutputPath,
@@ -207,14 +247,18 @@ namespace LivePhotoBox.Services
             }
             catch
             {
-                // 转码/remux 失败时清理可能已经写入的不完整输出文件
+                // 失败/取消时清理可能已经写入的不完整输出文件（含 BuildOutputPaths 预留的占位文件）
                 try { if (File.Exists(videoOutputPath)) File.Delete(videoOutputPath); } catch { }
+                try { if (File.Exists(imageOutputPath)) File.Delete(imageOutputPath); } catch { }
                 throw;
             }
             finally
             {
                 // 无论成功/失败/取消，临时文件都要清理
                 try { if (File.Exists(tempVideoPath)) File.Delete(tempVideoPath); } catch { }
+                try { if (File.Exists(tempImagePath)) File.Delete(tempImagePath); } catch { }
+                if (convertedImagePath != null)
+                    try { if (File.Exists(convertedImagePath)) File.Delete(convertedImagePath); } catch { }
                 // 注意：不删除 Temp 目录本身，由 ViewModel 在全部任务完成后统一清理。
                 // 并发拆分时多个任务共享同一个 Temp 目录，单个任务删除会导致其他进行中任务
                 // 路径失效，"Could not find a part of the path"。
@@ -606,10 +650,13 @@ namespace LivePhotoBox.Services
         // outputDirectory: 输出目录。
         // videoExtension: 视频扩展名（.mp4 / .mov）。
         // è¿å: (图片输出路径, 视频输出路径)
-        private static (string ImageOutputPath, string VideoOutputPath) BuildOutputPaths(string sourcePath, string outputDirectory, string videoExtension, string? inputDirectory = null)
+        private static (string ImageOutputPath, string VideoOutputPath) BuildOutputPaths(string sourcePath, string outputDirectory, string imageExtension, string videoExtension, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false)
         {
             string sourceFileNameWithoutExtension = Path.GetFileNameWithoutExtension(sourcePath);
-            string imageExtension = Path.GetExtension(sourcePath);
+            // 命名模板渲染后的基本名（GUI 端已算好并消毒）；缺省时回退为源文件名。
+            string baseName = string.IsNullOrWhiteSpace(outputBaseName)
+                ? sourceFileNameWithoutExtension
+                : outputBaseName;
 
             if (string.IsNullOrWhiteSpace(imageExtension))
             {
@@ -623,19 +670,34 @@ namespace LivePhotoBox.Services
                 subDir = PathHelper.GetRelativeSubDirectory(inputDirectory, sourcePath);
             }
 
-            string imageOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{sourceFileNameWithoutExtension}{imageExtension}", subDir);
-            string videoOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{sourceFileNameWithoutExtension}{videoExtension}", subDir);
+            string imageOutputPath;
+            string videoOutputPath;
+
+            if (overwriteExisting)
+            {
+                // 覆盖模式：使用确定性文件名（与源同名 baseName），后续写入前删除旧文件。
+                string targetDir = subDir != null ? Path.Combine(outputDirectory, subDir) : outputDirectory;
+                Directory.CreateDirectory(targetDir);
+                imageOutputPath = Path.Combine(targetDir, $"{baseName}{imageExtension}");
+                videoOutputPath = Path.Combine(targetDir, $"{baseName}{videoExtension}");
+            }
+            else
+            {
+                imageOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{baseName}{imageExtension}", subDir);
+                videoOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{baseName}{videoExtension}", subDir);
+            }
+
             string sourceFullPath = Path.GetFullPath(sourcePath);
 
             // 防止输出文件覆盖掉正在读取的源文件
             if (string.Equals(Path.GetFullPath(imageOutputPath), sourceFullPath, StringComparison.OrdinalIgnoreCase))
             {
-                imageOutputPath = Path.Combine(outputDirectory, $"{sourceFileNameWithoutExtension}_image{imageExtension}");
+                imageOutputPath = Path.Combine(outputDirectory, $"{baseName}_image{imageExtension}");
             }
 
             if (string.Equals(Path.GetFullPath(videoOutputPath), sourceFullPath, StringComparison.OrdinalIgnoreCase))
             {
-                videoOutputPath = Path.Combine(outputDirectory, $"{sourceFileNameWithoutExtension}_video{videoExtension}");
+                videoOutputPath = Path.Combine(outputDirectory, $"{baseName}_video{videoExtension}");
             }
 
             return (imageOutputPath, videoOutputPath);

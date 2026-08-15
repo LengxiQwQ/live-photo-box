@@ -40,13 +40,62 @@ namespace LivePhotoBox.Cli.Infrastructure
             ["--verbose"] = "EXECUTION",
         };
 
+        // Option → section label for the repair command. Options not listed here go to "OTHER".
+        private static readonly Dictionary<string, string> RepairSections = new(StringComparer.Ordinal)
+        {
+            ["--dir"] = "INPUT",
+            ["--recursive"] = "INPUT",
+
+            ["--no-rotate"] = "FIX",
+            ["--no-thumbnail"] = "FIX",
+            ["--no-heic"] = "FIX",
+            ["--no-video"] = "FIX",
+            ["--all-devices"] = "FIX",
+            ["--repair-long-videos"] = "FIX",
+            ["--copy-perfect"] = "FIX",
+
+            ["--output"] = "OUTPUT",
+            ["--preserve-subdirs"] = "OUTPUT",
+            ["--overwrite"] = "OUTPUT",
+
+            ["--parallel"] = "EXECUTION",
+            ["--yes"] = "EXECUTION",
+            ["--dry-run"] = "EXECUTION",
+            ["--verbose"] = "EXECUTION",
+        };
+
+        // A grouped-help section: key + human-readable header.
+        private sealed record GroupHeader(string Key, string Title);
+
+        private static readonly GroupHeader[] MergeGroupHeaders =
+        {
+            new("INPUT", "═══ INPUT — what to merge ═══"),
+            new("OUTPUT", "═══ OUTPUT — where and how to save ═══"),
+            new("FORMAT", "═══ FORMAT — protocol, container, naming ═══"),
+            new("EXECUTION", "═══ EXECUTION — speed, safety, logging ═══"),
+        };
+
+        private static readonly GroupHeader[] RepairGroupHeaders =
+        {
+            new("INPUT", "═══ INPUT — what to scan ═══"),
+            new("FIX", "═══ FIX — what to repair ═══"),
+            new("OUTPUT", "═══ OUTPUT — where and how to save ═══"),
+            new("EXECUTION", "═══ EXECUTION — speed, safety, logging ═══"),
+        };
+
         public GroupedHelpBuilder(IConsole console) : base(LocalizationResources.Instance, maxWidth: 100) { }
 
         public override void Write(HelpContext context)
         {
             if (context.Command.Name == "merge")
             {
-                WriteMergeHelp(context);
+                WriteGroupedHelp(context, MergeSections, MergeGroupHeaders);
+                return;
+            }
+
+            if (context.Command.Name == "repair")
+            {
+                WriteGroupedHelp(context, RepairSections, RepairGroupHeaders);
                 return;
             }
 
@@ -267,7 +316,7 @@ namespace LivePhotoBox.Cli.Infrastructure
             output.Write($"\x1b[38;2;{rgb.R};{rgb.G};{rgb.B}m{text}\x1b[0m");
         }
 
-        private void WriteMergeHelp(HelpContext context)
+        private void WriteGroupedHelp(HelpContext context, Dictionary<string, string> sections, GroupHeader[] groupHeaders)
         {
             // ═══ Description ═══
             if (!string.IsNullOrWhiteSpace(context.Command.Description))
@@ -306,14 +355,12 @@ namespace LivePhotoBox.Cli.Infrastructure
                 ? Math.Max(32, options.Max(o => FormatLabel(o).Length) + 2)
                 : 32;
 
-            WriteOptionGroup(context, "═══ INPUT — what to merge ═══", options, "INPUT", descCol);
-            WriteOptionGroup(context, "═══ OUTPUT — where and how to save ═══", options, "OUTPUT", descCol);
-            WriteOptionGroup(context, "═══ FORMAT — protocol, container, naming ═══", options, "FORMAT", descCol);
-            WriteOptionGroup(context, "═══ EXECUTION — speed, safety, logging ═══", options, "EXECUTION", descCol);
+            foreach (var group in groupHeaders)
+                WriteOptionGroup(context, group.Title, options, group.Key, descCol, sections);
 
             // Remaining options
             var remaining = options
-                .Where(o => Classify(o) is null)
+                .Where(o => Classify(o, sections) is null)
                 .ToList();
             if (remaining.Count > 0 || !options.Any(o => o.Aliases.Contains("--help")))
             {
@@ -326,10 +373,10 @@ namespace LivePhotoBox.Cli.Infrastructure
         }
 
         private void WriteOptionGroup(HelpContext context, string header,
-            List<Option> allOptions, string groupKey, int descCol)
+            List<Option> allOptions, string groupKey, int descCol, Dictionary<string, string> sections)
         {
             var group = allOptions
-                .Where(o => Classify(o) == groupKey)
+                .Where(o => Classify(o, sections) == groupKey)
                 .ToList();
             if (group.Count == 0) return;
 
@@ -339,11 +386,11 @@ namespace LivePhotoBox.Cli.Infrastructure
             context.Output.WriteLine();
         }
 
-        private static string? Classify(Option option)
+        private static string? Classify(Option option, Dictionary<string, string> sections)
         {
             foreach (var alias in option.Aliases)
             {
-                if (MergeSections.TryGetValue(alias, out var section))
+                if (sections.TryGetValue(alias, out var section))
                     return section;
             }
             return null;

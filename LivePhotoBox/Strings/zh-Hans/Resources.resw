@@ -703,10 +703,10 @@
     <value> 进入高级设置。</value>
   </data>
   <data name="SplitPage_EmptyQueueTitle.Text" xml:space="preserve">
-    <value>队列为空</value>
+    <value>拖拽单文件实况照片到此处，自动识别并加入队列</value>
   </data>
   <data name="SplitPage_EmptyQueueDesc.Text" xml:space="preserve">
-    <value>请导入 JPG 格式的单文件实况照片，点击扫描自动识别并拆分出图片和视频。</value>
+    <value>支持 JPG / HEIC 格式</value>
   </data>
   <data name="SplitPage_EmptyQueueHint_Part1.Text" xml:space="preserve">
     <value>您可以点击 </value>
@@ -1545,10 +1545,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>全屏预览</value>
   </data>
   <data name="SplitPage_OpenInputBtn.Content" xml:space="preserve">
-    <value>打开输入目录</value>
+    <value>打开目录</value>
   </data>
   <data name="SplitPage_OpenOutputBtn.Content" xml:space="preserve">
-    <value>打开输出目录</value>
+    <value>打开目录</value>
   </data>
   <data name="RepairPage_OpenInputOutputBtn.Content" xml:space="preserve">
     <value>打开目录</value>
@@ -1962,10 +1962,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>关</value>
   </data>
   <data name="SettingsPage_AppleOnlyScanLabel.Text" xml:space="preserve">
-    <value>仅修复 Apple 设备拍摄的照片</value>
+    <value>仅修复 Apple 设备拍摄的实况照片</value>
   </data>
   <data name="SettingsPage_AppleOnlyScanDesc.Text" xml:space="preserve">
-    <value>开启后仅扫描 Apple 设备（iPhone/iPad）拍摄的照片和视频。通过检测元数据中的制造商、设备型号、iOS 版本、标识符和实况照片标记来识别，任一满足即可。非 Apple 设备的文件将在诊断结果中显示跳过</value>
+    <value>开启后仅扫描 Apple 实况照片（iPhone/iPad）。通过 ContentIdentifier UUID（照片与其配对视频都携带）识别，没有该标识的文件将在诊断结果中显示跳过</value>
   </data>
   <data name="RepairPage_Diagnosis_NonApple" xml:space="preserve">
     <value>非 Apple 照片</value>
@@ -3587,5 +3587,316 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="SettingsPage_SampleContent_Clear_NotFound_Message" xml:space="preserve">
     <value>未找到本地示例文件，已经很干净了。</value>
+  </data>
+  <data name="SplitPage_PageTitle.Text" xml:space="preserve">
+    <value>实况照片批量拆分 &amp; 转换协议</value>
+  </data>
+  <data name="SplitPage_PageSubtitle.Text" xml:space="preserve">
+    <value>将实况照片拆分为照片和视频，或双文件实况照片协议</value>
+  </data>
+  <data name="SplitPage_AddFilesBtn_Text.Text" xml:space="preserve">
+    <value>添加文件</value>
+  </data>
+  <data name="SplitPage_InputOutputHeader.Text" xml:space="preserve">
+    <value>目录选择</value>
+  </data>
+  <data name="SplitPage_ProtocolLabel.Text" xml:space="preserve">
+    <value>协议版本：</value>
+  </data>
+  <data name="SplitPage_Protocol_None.Content" xml:space="preserve">
+    <value>无协议（原始格式）</value>
+  </data>
+  <data name="SplitPage_Protocol_None_Hint" xml:space="preserve">
+    <value>不写入配对元数据</value>
+  </data>
+  <data name="SplitPage_Protocol_Apple.Content" xml:space="preserve">
+    <value>Apple Live Photo</value>
+  </data>
+  <data name="SplitPage_Protocol_Apple_Hint" xml:space="preserve">
+    <value>iPhone / iPad</value>
+  </data>
+  <data name="SplitPage_Protocol_Vivo.Content" xml:space="preserve">
+    <value>vivo Live Photo</value>
+  </data>
+  <data name="SplitPage_Protocol_Vivo_Hint" xml:space="preserve">
+    <value>vivo / iQOO</value>
+  </data>
+  <data name="SplitPage_OutputFormatLabel.Text" xml:space="preserve">
+    <value>输出格式：</value>
+  </data>
+  <data name="SplitPage_OutputFormat_Default.Content" xml:space="preserve">
+    <value>默认原始照片视频格式</value>
+  </data>
+  <data name="SplitPage_OutputFormat_JpgMov.Content" xml:space="preserve">
+    <value>JPG + MOV (H.265)</value>
+  </data>
+  <data name="SplitPage_OutputFormat_HeicMov.Content" xml:space="preserve">
+    <value>HEIC + MOV (H.265)</value>
+  </data>
+  <data name="SplitPage_OutputFormat_JpgMp4.Content" xml:space="preserve">
+    <value>JPG + MP4 (H.264)</value>
+  </data>
+  <data name="SplitPage_FormatHint_Default" xml:space="preserve">
+    <value>不转码，保持原始质量</value>
+  </data>
+  <data name="SplitPage_FormatHint_JpgMov" xml:space="preserve">
+    <value>H.265 压缩，体积更小</value>
+  </data>
+  <data name="SplitPage_FormatHint_HeicMov" xml:space="preserve">
+    <value>HEIC 照片，体积最小</value>
+  </data>
+  <data name="SplitPage_FormatHint_JpgMp4" xml:space="preserve">
+    <value>H.264，兼容性最好</value>
+  </data>
+  <data name="SplitPage_OverwriteExisting_Label.Text" xml:space="preserve">
+    <value>覆盖已存在文件</value>
+  </data>
+  <data name="SplitPage_ToggleOn" xml:space="preserve">
+    <value>开</value>
+  </data>
+  <data name="SplitPage_ToggleOff" xml:space="preserve">
+    <value>关</value>
+  </data>
+  <data name="SplitPage_AfterCompletionLabel.Text" xml:space="preserve">
+    <value>完成后原始文件：</value>
+  </data>
+  <data name="SplitPage_AfterCompletion_NoAction.Content" xml:space="preserve">
+    <value>无操作</value>
+  </data>
+  <data name="SplitPage_AfterCompletion_MoveToDir.Content" xml:space="preserve">
+    <value>移动到目录...</value>
+  </data>
+  <data name="SplitPage_AfterCompletion_RecycleBin.Content" xml:space="preserve">
+    <value>移至回收站</value>
+  </data>
+  <data name="SplitPage_OriginalDirHeader.Text" xml:space="preserve">
+    <value>选择原始文件存放目录</value>
+  </data>
+  <data name="SplitPage_OpenOriginalDirBtn.Content" xml:space="preserve">
+    <value>打开目录</value>
+  </data>
+  <data name="SplitPage_BrowseOriginalDirBtn.Content" xml:space="preserve">
+    <value>浏览</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_Header.Text" xml:space="preserve">
+    <value>命名格式：（拖拽排列）</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_EmptyHint.Text" xml:space="preserve">
+    <value>点击下方「添加片段」自定义命名，或「选择模板」快速套用预设。支持拖拽排列顺序。</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_ClearBtn_Text.Text" xml:space="preserve">
+    <value>清除</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_ResetBtn_Text.Text" xml:space="preserve">
+    <value>默认</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_AddBtnText.Text" xml:space="preserve">
+    <value>添加片段</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_AddName.Text" xml:space="preserve">
+    <value>原文件名</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_SeparatorLabel.Text" xml:space="preserve">
+    <value>片段分隔符：</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_Separator_Underscore.Content" xml:space="preserve">
+    <value>下划线："_"</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_Separator_Dash.Content" xml:space="preserve">
+    <value>横杠："-"</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_Separator_Space.Content" xml:space="preserve">
+    <value>空格：" "</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_Separator_Plus.Content" xml:space="preserve">
+    <value>加号："+"</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_Separator_None.Content" xml:space="preserve">
+    <value>无</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_AddDate.Text" xml:space="preserve">
+    <value>当前日期</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_AddTime.Text" xml:space="preserve">
+    <value>当前时间</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_AddExifDate.Text" xml:space="preserve">
+    <value>拍摄日期</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_AddExifTime.Text" xml:space="preserve">
+    <value>拍摄时间</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_AddCounter.Text" xml:space="preserve">
+    <value>计数器</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_AddLiteral.Text" xml:space="preserve">
+    <value>自定义文字</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_AddLiteral_Placeholder" xml:space="preserve">
+    <value>输入要插入的文字...</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_PresetsBtn_Text.Text" xml:space="preserve">
+    <value>选择模板</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_Preset_Default.Text" xml:space="preserve">
+    <value>原文件名</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_Preset_LivePhoto.Text" xml:space="preserve">
+    <value>LivePhoto + 日期 + 序号</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_Preset_Timestamp.Text" xml:space="preserve">
+    <value>日期 + 时间 + 序号</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_Preset_Full.Text" xml:space="preserve">
+    <value>文件名 + 日期 + 时间</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_PreviewLabel.Text" xml:space="preserve">
+    <value>预览：</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_AddLiteral_Title" xml:space="preserve">
+    <value>自定义文字</value>
+  </data>
+  <data name="SplitPage_NamingTemplate_HelpText" xml:space="preserve">
+    <value>{name} — 原始文件名（不含扩展名）
+{date} 或 {date:yyMMdd} — 当前日期（支持自定义格式）
+{time} 或 {time:HH-mm} — 当前时间（支持自定义格式）
+{counter} 或 {counter:D3} — 递增任务序号
+
+提示：拖拽 ≡ 手柄可调整片段顺序。</value>
+  </data>
+  <data name="SplitPage_QueueHeader.Text" xml:space="preserve">
+    <value>任务队列</value>
+  </data>
+  <data name="SplitPage_SearchBox.PlaceholderText" xml:space="preserve">
+    <value>搜索文件名...</value>
+  </data>
+  <data name="SplitPage_Sort_Name.Content" xml:space="preserve">
+    <value>文件名</value>
+  </data>
+  <data name="SplitPage_Sort_Size.Content" xml:space="preserve">
+    <value>大小</value>
+  </data>
+  <data name="SplitPage_Sort_Date.Content" xml:space="preserve">
+    <value>拍摄日期</value>
+  </data>
+  <data name="SplitPage_Filter_All.Text" xml:space="preserve">
+    <value>全部</value>
+  </data>
+  <data name="SplitPage_Filter_Pending.Text" xml:space="preserve">
+    <value>待处理</value>
+  </data>
+  <data name="SplitPage_Filter_Success.Text" xml:space="preserve">
+    <value>成功</value>
+  </data>
+  <data name="SplitPage_Filter_Failed.Text" xml:space="preserve">
+    <value>失败</value>
+  </data>
+  <data name="SplitPage_ColFile.Text" xml:space="preserve">
+    <value>文件</value>
+  </data>
+  <data name="SplitPage_ColActions.Text" xml:space="preserve">
+    <value>操作</value>
+  </data>
+  <data name="SplitPage_Menu_ShowInFolder.Text" xml:space="preserve">
+    <value>在文件夹中查看</value>
+  </data>
+  <data name="SplitPage_Menu_Preview.Text" xml:space="preserve">
+    <value>全屏预览</value>
+  </data>
+  <data name="SplitPage_StatusProcessing" xml:space="preserve">
+    <value>处理中：{0} 个文件</value>
+  </data>
+  <data name="SplitPage_StatusTotal" xml:space="preserve">
+    <value>共 {0} 个文件</value>
+  </data>
+  <data name="SplitPage_StatusElapsed" xml:space="preserve">
+    <value>已用 {0}</value>
+  </data>
+  <data name="SplitPage_StatusElapsedIdle" xml:space="preserve">
+    <value>用时 --:--</value>
+  </data>
+  <data name="SplitPage_ScanRecognized" xml:space="preserve">
+    <value>识别 {0}</value>
+  </data>
+  <data name="SplitPage_ScanSkipped" xml:space="preserve">
+    <value>跳过 {0}</value>
+  </data>
+  <data name="SplitPage_Status_ScanningProgress" xml:space="preserve">
+    <value>扫描中 {0}/{1}</value>
+  </data>
+  <data name="SplitPage_FooterTotal.Text" xml:space="preserve">
+    <value>总数 </value>
+  </data>
+  <data name="SplitPage_FooterSuccess.Text" xml:space="preserve">
+    <value>成功 </value>
+  </data>
+  <data name="SplitPage_FooterFailed.Text" xml:space="preserve">
+    <value>失败 </value>
+  </data>
+  <data name="SplitPage_FooterUnprocessed.Text" xml:space="preserve">
+    <value>未处理 </value>
+  </data>
+  <data name="SplitPage_FooterCancelled.Text" xml:space="preserve">
+    <value>已取消 </value>
+  </data>
+  <data name="SplitPage_DropFolderToReplace" xml:space="preserve">
+    <value>拖入文件夹以替换源目录</value>
+  </data>
+  <data name="SplitPage_DropFolderToAppend" xml:space="preserve">
+    <value>拖入文件夹以追加扫描</value>
+  </data>
+  <data name="SplitPage_DropFileToAppend" xml:space="preserve">
+    <value>拖入文件以追加到队列</value>
+  </data>
+  <data name="SplitPage_MatchMethodLabel.Text" xml:space="preserve">
+    <value>匹配方式：</value>
+  </data>
+  <data name="SplitPage_Match_All.Content" xml:space="preserve">
+    <value>所有单文件实况照片协议</value>
+  </data>
+  <data name="SplitPage_Match_All_Hint" xml:space="preserve">
+    <value>识别所有协议</value>
+  </data>
+  <data name="SplitPage_Match_Fusion.Content" xml:space="preserve">
+    <value>融合 - Motion Photo</value>
+  </data>
+  <data name="SplitPage_Match_Fusion_Hint" xml:space="preserve">
+    <value>Windows / Pixel / 小米 / OPPO / vivo / 三星 ⚠️ 作者自创融合协议</value>
+  </data>
+  <data name="SplitPage_Match_V1.Content" xml:space="preserve">
+    <value>Google - Micro Video (V1)</value>
+  </data>
+  <data name="SplitPage_Match_V1_Hint" xml:space="preserve">
+    <value>Windows / 小米（旧版 MIUI）/ Pixel</value>
+  </data>
+  <data name="SplitPage_Match_V2.Content" xml:space="preserve">
+    <value>Google - Motion Photo (V2)</value>
+  </data>
+  <data name="SplitPage_Match_V2_Hint" xml:space="preserve">
+    <value>Windows / 小米 / Pixel</value>
+  </data>
+  <data name="SplitPage_Match_Oppo.Content" xml:space="preserve">
+    <value>OPPO - O-Live Photo</value>
+  </data>
+  <data name="SplitPage_Match_Oppo_Hint" xml:space="preserve">
+    <value>Windows / 小米 / OPPO</value>
+  </data>
+  <data name="SplitPage_Match_Vivo.Content" xml:space="preserve">
+    <value>vivo - Live Photo</value>
+  </data>
+  <data name="SplitPage_Match_Vivo_Hint" xml:space="preserve">
+    <value>Windows / 小米 / vivo (≥ X300)</value>
+  </data>
+  <data name="SplitPage_Match_Samsung.Content" xml:space="preserve">
+    <value>Samsung - Motion Photo</value>
+  </data>
+  <data name="SplitPage_Match_Samsung_Hint" xml:space="preserve">
+    <value>Windows / 三星</value>
+  </data>
+  <data name="SplitPage_Match_Huawei.Content" xml:space="preserve">
+    <value>HUAWEI - Moving Photo</value>
+  </data>
+  <data name="SplitPage_Match_Huawei_Hint" xml:space="preserve">
+    <value>华为 / 荣耀</value>
   </data>
 </root>
