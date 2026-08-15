@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
@@ -53,16 +55,54 @@ namespace LivePhotoBox.Cli.Infrastructure
         // 红色错误输出到 stderr（Error/WARN/FAIL 等）
         public static void WriteErrorLine(string text)
         {
-            if (UseColor)
+            if (!UseColor)
             {
-                var old = Console.ForegroundColor;
-                Console.ForegroundColor = Error;
                 Console.Error.WriteLine(text);
+                return;
+            }
+
+            var old = Console.ForegroundColor;
+            string trimmed = text.TrimStart();
+            int lead = text.Length - trimmed.Length;
+
+            // 只给 "Error:"/"WARN:"/"FAIL" 前缀上色，其余内容保持默认色，
+            // 避免报错多时一大片红（WARN 用黄色，Error/FAIL 用红色）。
+            bool hasPrefix =
+                trimmed.StartsWith("Error:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("WARN:", StringComparison.OrdinalIgnoreCase) ||
+                trimmed.StartsWith("FAIL", StringComparison.OrdinalIgnoreCase);
+
+            if (hasPrefix)
+            {
+                int len;
+                ConsoleColor prefixColor;
+                if (trimmed.StartsWith("WARN", StringComparison.OrdinalIgnoreCase))
+                {
+                    prefixColor = ConsoleColor.Yellow;
+                    len = trimmed.IndexOf(':') + 1;
+                }
+                else if (trimmed.StartsWith("FAIL", StringComparison.OrdinalIgnoreCase))
+                {
+                    prefixColor = Error;
+                    len = 4; // "FAIL"
+                    while (len < trimmed.Length && trimmed[len] == ' ') len++; // 连带标签后的空格
+                }
+                else
+                {
+                    prefixColor = Error;
+                    len = trimmed.IndexOf(':') + 1; // "Error:" / "ERROR:"
+                }
+
+                Console.ForegroundColor = prefixColor;
+                Console.Error.Write(text.Substring(0, lead + len));
                 Console.ForegroundColor = old;
+                Console.Error.WriteLine(text.Substring(lead + len));
             }
             else
             {
+                Console.ForegroundColor = Error;
                 Console.Error.WriteLine(text);
+                Console.ForegroundColor = old;
             }
         }
 
@@ -112,6 +152,21 @@ namespace LivePhotoBox.Cli.Infrastructure
             {
                 Console.WriteLine($"{padded}{separator}{value}");
             }
+        }
+
+        // 为非法输入生成 "Did you mean: ...?" 提示（前缀优先；无前缀匹配且输入 ≥3 字符时用包含匹配）
+        public static string DidYouMean(string input, IEnumerable<string> validValues)
+        {
+            string trimmed = input.Trim();
+            if (string.IsNullOrEmpty(trimmed)) return "";
+            var matches = validValues
+                .Where(v => v.StartsWith(trimmed, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+            if (matches.Count == 0 && trimmed.Length >= 3)
+                matches = validValues
+                    .Where(v => v.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            return matches.Count > 0 ? $" Did you mean: {string.Join(", ", matches)}?" : "";
         }
     }
 }

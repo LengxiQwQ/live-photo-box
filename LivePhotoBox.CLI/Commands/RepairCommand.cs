@@ -136,6 +136,15 @@ namespace LivePhotoBox.Cli.Commands
 
                 if (singlePath != null)
                 {
+                    // System.CommandLine 会把未知选项当成位置参数（文件名）吞掉，提前识别避免误导性报错
+                    if (singlePath.StartsWith('-') &&
+                        !ImageExtensions.Contains(Path.GetExtension(singlePath)) &&
+                        !VideoExtensions.Contains(Path.GetExtension(singlePath)))
+                    {
+                        CliConsole.WriteErrorLine($"Error: Unknown option '{singlePath}'. Run 'lpb repair --help' to see available options.");
+                        context.ExitCode = 1;
+                        return;
+                    }
                     string ext = Path.GetExtension(singlePath);
                     if (!ImageExtensions.Contains(ext) && !VideoExtensions.Contains(ext))
                     {
@@ -234,6 +243,9 @@ namespace LivePhotoBox.Cli.Commands
 
                 if (!json)
                 {
+                    // 单文件模式：把文件名放到最顶部，确认界面不再重复打印 Source 全路径
+                    if (isSingle)
+                        CliConsole.WriteFieldRgb("Filename", Path.GetFileName(singlePath!), width: 10, valueColor: CliConsole.PathGreen);
                     CliConsole.WriteField("Fixes", BuildFixSummary(options), width: 10, valueColor: CliConsole.Highlight);
                     CliConsole.WriteField("Devices", appleOnly ? "Apple only" : "All devices", width: 10, valueColor: CliConsole.Highlight);
                     CliConsole.WriteFieldRgb("Output", outputDir, width: 10, valueColor: CliConsole.PathGreen);
@@ -276,8 +288,7 @@ namespace LivePhotoBox.Cli.Commands
 
             if (!json)
             {
-                CliConsole.WriteFieldRgb("Source", sourcePath, width: 10, valueColor: CliConsole.PathGreen);
-                CliConsole.WriteFieldRgb("File", estimatedPath, width: 10, valueColor: CliConsole.PathGreen);
+                CliConsole.WriteFieldRgb("File", Path.GetFileName(estimatedPath), width: 10, valueColor: CliConsole.PathGreen);
             }
 
             // Apple 过滤：单文件只检测这一个文件
@@ -345,8 +356,7 @@ namespace LivePhotoBox.Cli.Commands
                     if (json) PrintSingleJson(sourcePath, actualPath, "repaired", issue: issue);
                     else
                     {
-                        CliConsole.Write("OK  ", CliConsole.Success);
-                        Console.WriteLine($"{baseName}  ({result.Message})");
+                        CliConsole.WriteLine("Done", CliConsole.Success);
                         if (verbose) Console.WriteLine($"    -> {actualPath}");
                     }
                     return 0;
@@ -354,7 +364,7 @@ namespace LivePhotoBox.Cli.Commands
                 else
                 {
                     if (json) PrintSingleJson(sourcePath, actualPath, "failed", reason: result.Message);
-                    else CliConsole.WriteErrorLine($"FAIL  {baseName}  {result.Message}");
+                    else CliConsole.WriteErrorLine($"FAIL  {Path.GetFileName(sourcePath)}  {result.Message}");
                     return 1;
                 }
             }
@@ -389,19 +399,20 @@ namespace LivePhotoBox.Cli.Commands
             {
                 if (CliConsole.UseColor)
                 {
-                    CliConsole.Write("Scanning", CliConsole.Accent);
+                    CliConsole.Write("Scanning".PadRight(10), CliConsole.Accent);
                     Console.Write(": ");
                     CliConsole.Write(inputDir, CliConsole.PathGreen);
                     Console.Write(" ... ");
                 }
                 else
                 {
-                    Console.Write($"Scanning: {inputDir} ... ");
+                    Console.Write($"{"Scanning".PadRight(10)}: {inputDir} ... ");
                 }
             }
             var files = ScanRepairableFiles(inputDir, ct);
             if (!json)
             {
+                Console.WriteLine();
                 CliConsole.Write(files.Count.ToString(), CliConsole.Highlight);
                 Console.WriteLine(" media files found");
             }
@@ -608,7 +619,7 @@ namespace LivePhotoBox.Cli.Commands
                         ct.ThrowIfCancellationRequested();
                         var (task, isRepair) = item;
                         if (verbose && !json)
-                            Console.WriteLine($"  [{task.Index}/{total}] {task.BaseName} ...");
+                            Console.WriteLine($"  [{task.Index}/{total}] {Path.GetFileName(task.SourcePath)} ...");
 
                         string? subDir = preserveSubdirs
                             ? PathHelper.GetRelativeSubDirectory(inputDir, task.SourcePath)
@@ -628,7 +639,7 @@ namespace LivePhotoBox.Cli.Commands
                                     if (task.Json != null) task.Json.Status = "repaired";
                                     Interlocked.Increment(ref ok);
                                     int c = Interlocked.Increment(ref completed);
-                                    if (!json) PrintLine(c, total, "OK  ", task.BaseName, verbose, targetPath, CliConsole.Success);
+                                    if (!json) PrintLine(c, total, "OK  ", Path.GetFileName(task.SourcePath), verbose, targetPath, CliConsole.Success);
                                 }
                                 else
                                 {
@@ -637,7 +648,7 @@ namespace LivePhotoBox.Cli.Commands
                                     if (task.Json != null) { task.Json.Status = "failed"; task.Json.Reason = result.Message; }
                                     Interlocked.Increment(ref fail);
                                     int c = Interlocked.Increment(ref completed);
-                                    if (!json) PrintLine(c, total, "FAIL", task.BaseName, verbose, targetPath, CliConsole.Error, result.Message);
+                                    if (!json) PrintLine(c, total, "FAIL", Path.GetFileName(task.SourcePath), verbose, targetPath, CliConsole.Error, result.Message);
                                 }
                             }
                             else
@@ -650,7 +661,7 @@ namespace LivePhotoBox.Cli.Commands
                                 if (task.Json != null) task.Json.Status = "copied";
                                 Interlocked.Increment(ref copied);
                                 int c = Interlocked.Increment(ref completed);
-                                if (!json) PrintLine(c, total, "COPY", task.BaseName, verbose, targetPath, CliConsole.Success);
+                                if (!json) PrintLine(c, total, "COPY", Path.GetFileName(task.SourcePath), verbose, targetPath, CliConsole.Success);
                             }
                         }
                         catch (Exception ex)
@@ -660,7 +671,7 @@ namespace LivePhotoBox.Cli.Commands
                             if (task.Json != null) { task.Json.Status = "failed"; task.Json.Reason = ex.Message; }
                             Interlocked.Increment(ref fail);
                             int c = Interlocked.Increment(ref completed);
-                            if (!json) PrintLine(c, total, "FAIL", task.BaseName, verbose, targetPath, CliConsole.Error, ex.Message);
+                            if (!json) PrintLine(c, total, "FAIL", Path.GetFileName(task.SourcePath), verbose, targetPath, CliConsole.Error, ex.Message);
                         }
                     }
                     finally
@@ -708,7 +719,7 @@ namespace LivePhotoBox.Cli.Commands
                     Console.Write("  ");
                     CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
                     Console.Write("  ");
-                    CliConsole.Write(t.BaseName, CliConsole.PathGreen);
+                    CliConsole.Write(Path.GetFileName(t.SourcePath), CliConsole.PathGreen);
                     if (!string.IsNullOrEmpty(t.IssueText))
                     {
                         Console.Write("  (");
@@ -728,20 +739,20 @@ namespace LivePhotoBox.Cli.Commands
                     Console.Write("  ");
                     CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
                     Console.Write("  ");
-                    CliConsole.Write(t.BaseName, CliConsole.PathGreen);
+                    CliConsole.Write(Path.GetFileName(t.SourcePath), CliConsole.PathGreen);
                     Console.WriteLine();
                 }
             }
         }
 
         // 输出单行处理结果（verbose 下额外打印目标路径）。
-        private static void PrintLine(int completed, int total, string tag, string baseName,
+        private static void PrintLine(int completed, int total, string tag, string fileName,
             bool verbose, string? targetPath, ConsoleColor tagColor, string? detail = null)
         {
             if (verbose)
             {
                 CliConsole.Write(tag + "  ", tagColor);
-                Console.WriteLine(string.IsNullOrEmpty(detail) ? baseName : $"{baseName}  ({detail})");
+                Console.WriteLine(string.IsNullOrEmpty(detail) ? fileName : $"{fileName}  ({detail})");
                 if (!string.IsNullOrEmpty(targetPath))
                     Console.WriteLine($"    -> {targetPath}");
             }
@@ -749,7 +760,7 @@ namespace LivePhotoBox.Cli.Commands
             {
                 Console.Write($"  [{completed}/{total}] ");
                 CliConsole.Write(tag + "  ", tagColor);
-                Console.WriteLine(string.IsNullOrEmpty(detail) ? baseName : $"{baseName}  ({detail})");
+                Console.WriteLine(string.IsNullOrEmpty(detail) ? fileName : $"{fileName}  ({detail})");
             }
         }
 

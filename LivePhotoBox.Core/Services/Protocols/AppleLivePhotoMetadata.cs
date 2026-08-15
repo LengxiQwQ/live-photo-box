@@ -44,8 +44,6 @@ namespace LivePhotoBox.Services.Protocols
     // ═════════════════════════════════════════════════════════════════════════════
     public static class AppleLivePhotoMetadata
     {
-        private const string AppleMake = "Apple";
-        private const string DefaultModel = "iPhone";
         private const string AppleSoftwareVersion = "17.0.2"; // 对齐最小样本 IMG_6675 的 Software
 
         private static readonly Regex MotionPhotoTimestampRegex = new(
@@ -69,33 +67,27 @@ namespace LivePhotoBox.Services.Protocols
             // 1. 配对 UUID（图片与视频两端一致）。
             contentId ??= Guid.NewGuid().ToString("D").ToUpperInvariant();
 
-            // 2. 设备型号：源为 Apple 设备则继承，否则默认 iPhone。
-            string model = await ResolveModelAsync(sourcePath, token);
-
-            // 3. 图片端（exiftool，全部字段可写）。
-            await WriteImageMetadataAsync(imageOutputPath, contentId, model, token);
-
-            // 4. 封面帧时间戳（源 XMP 微秒 → 秒；无字段则视频中点）。
+            // 2. 封面帧时间戳（源 XMP 微秒 → 秒；无字段则视频中点）。
             double coverSeconds = await ResolveCoverSecondsAsync(metadataText, videoOutputPath, token);
 
-            // 5. 视频端：以 IMG_6675.MOV 为字节模板整体重建 Apple Live Photo MOV
-            //    （ftyp + moov(4 轨 + meta) + wide + 单 mdat），只复用 ffmpeg 输出的
-            //    视频/音频编码数据；ContentIdentifier / Make / Model / Software /
-            //    CreationDate 由构建器直接写进 moov/meta，不再依赖 ffmpeg mdta。
+            // 3. 视频端：按 ISO/IEC 14496-12 规范化重建 Apple Live Photo MOV
+            //    （ftyp + moov(4 轨 + meta) + wide + 单 mdat）。所有容器 box 由结构化代码
+            //    生成、字段按规范计算；编码参数（hvcC/avcC、esds、stts/ctts/stss/尺寸/声道/采样率）
+            //    全部解析自 ffmpeg 输出，不依赖任何样本的 hex 模板。
             if (videoOutputPath.EndsWith(".mov", StringComparison.OrdinalIgnoreCase))
             {
-                if (AppleLivePhotoMovBuilder.TryRebuild(videoOutputPath, contentId, model, coverSeconds, out string? movError))
+                if (AppleLivePhotoMovBuilderV2.TryRebuild(videoOutputPath, contentId, "", coverSeconds, out string? movError))
                 {
                     LogService.Split(
-                        $"Apple[video] rebuilt MOV from IMG_6675 template (CID={contentId}, cover={coverSeconds:F4}s)",
+                        $"Apple[video] rebuilt MOV (spec-based, CID={contentId}, cover={coverSeconds:F4}s)",
                         LogLevel.Debug);
                 }
                 else
                 {
                     LogService.Split(
-                        $"Apple[video] MOV template rebuild failed ({movError}), falling back to ffmpeg mdta + mebx patch",
+                        $"Apple[video] spec-based MOV rebuild failed ({movError}), falling back to ffmpeg mdta + mebx patch",
                         LogLevel.Warning);
-                    await WriteVideoMetadataAsync(videoOutputPath, contentId, model, token);
+                    await WriteVideoMetadataAsync(videoOutputPath, contentId, token);
                     string? mebxError = null;
                     bool mebxOk = coverSeconds > 0 &&
                         AppleLivePhotoMebxWriter.TryAppendStillImageTrack(videoOutputPath, coverSeconds, out mebxError);
@@ -111,45 +103,19 @@ namespace LivePhotoBox.Services.Protocols
             }
             else
             {
-                await WriteVideoMetadataAsync(videoOutputPath, contentId, model, token);
-            }
-        }
-
-        // ── 图片端：Make/Model 走 exiftool；Apple MakerNote 已在 SplitAsync 转换前注入 ──
-        // （JPG 源在格式转换前把 Apple MakerNote 注入到源 JPG，heif-enc 会原样保留，
-        //   故 JPG/HEIC 输出都能带上；exiftool 无法在转换后的图凭空创建 Apple MakerNote。）
-        private static async Task WriteImageMetadataAsync(
-            string imageOutputPath, string contentId, string model, CancellationToken token)
-        {
-            try
-            {
-                await LivePhotoRepairService.RunExifToolAsync(token,
-                    "-overwrite_original",
-                    $"-Make={AppleMake}",
-                    $"-Model={model}",
-                    imageOutputPath);
-                LogService.Split(
-                    $"Apple[image] Make={AppleMake}, Model={model} (MakerNote pre-injected before conversion)",
-                    LogLevel.Debug);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                LogService.Split($"Apple[image] Make/Model write failed: {ex.Message}", LogLevel.Warning);
+                await WriteVideoMetadataAsync(videoOutputPath, contentId, token);
             }
         }
 
         // ── 视频端：ffmpeg -movflags use_metadata_tags 写 mdta keys ─────────
         // exiftool 无法在新建 MOV/MP4 上创建 ContentIdentifier，改用 ffmpeg 打进容器。
         private static async Task WriteVideoMetadataAsync(
-            string videoOutputPath, string contentId, string model, CancellationToken token)
+            string videoOutputPath, string contentId, CancellationToken token)
         {
             string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
             {
-                // 兜底：exiftool 仍能写 Make/Model/LivePhotoAuto（实测可写新建 MOV），
-                // 但 ContentIdentifier 无法创建，仅记录警告。
-                await WriteVideoMetadataFallbackExifToolAsync(videoOutputPath, model, token);
+                LogService.Split("Apple[video] ffmpeg not found; ContentIdentifier cannot be written", LogLevel.Warning);
                 return;
             }
 
@@ -189,10 +155,6 @@ namespace LivePhotoBox.Services.Protocols
                 psi.ArgumentList.Add("+faststart+use_metadata_tags"); // moov 前置（fast-start）+ mdta keys
                 psi.ArgumentList.Add("-metadata");
                 psi.ArgumentList.Add($"com.apple.quicktime.content.identifier={contentId}");
-                psi.ArgumentList.Add("-metadata");
-                psi.ArgumentList.Add($"com.apple.quicktime.make={AppleMake}");
-                psi.ArgumentList.Add("-metadata");
-                psi.ArgumentList.Add($"com.apple.quicktime.model={model}");
                 // 对齐最小样本 IMG_6675 的 keys：Software=17.0.2 + CreationDate（当前时间 ISO8601）。
                 // 不写 LivePhotoAuto（那是实拍标记，软件生成的 Live Photo 不该有）。
                 psi.ArgumentList.Add("-metadata");
@@ -226,7 +188,7 @@ namespace LivePhotoBox.Services.Protocols
                 File.Move(tempPath, videoOutputPath);
 
                 LogService.Split(
-                    $"Apple[video] ContentIdentifier={contentId}, Make=Apple, Model={model}, Software={AppleSoftwareVersion}, CreationDate={creationDate}",
+                    $"Apple[video] ContentIdentifier={contentId}, Software={AppleSoftwareVersion}, CreationDate={creationDate}",
                     LogLevel.Debug);
             }
             catch (OperationCanceledException) { throw; }
@@ -237,29 +199,6 @@ namespace LivePhotoBox.Services.Protocols
             finally
             {
                 try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { /* best-effort */ }
-            }
-        }
-
-        // exiftool 兜底（无 ffmpeg 时）：可写 Make/Model/LivePhotoAuto，ContentIdentifier 写不进。
-        private static async Task WriteVideoMetadataFallbackExifToolAsync(
-            string videoOutputPath, string model, CancellationToken token)
-        {
-            try
-            {
-                await LivePhotoRepairService.RunExifToolAsync(token,
-                    "-overwrite_original",
-                    $"-Make={AppleMake}",
-                    $"-Model={model}",
-                    "-LivePhotoAuto=1",
-                    videoOutputPath);
-                LogService.Split(
-                    $"Apple[video] exiftool fallback: Make=Apple, Model={model}, LivePhotoAuto=1 (ContentIdentifier skipped — no ffmpeg)",
-                    LogLevel.Warning);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                LogService.Split($"Apple[video] exiftool fallback failed: {ex.Message}", LogLevel.Warning);
             }
         }
 
@@ -294,28 +233,6 @@ namespace LivePhotoBox.Services.Protocols
         }
 
         // ── 读取辅助 ────────────────────────────────────────────────────────
-
-        // 从源文件读 Make/Model：源为 Apple 设备则继承型号，否则默认 iPhone。
-        private static async Task<string> ResolveModelAsync(string sourcePath, CancellationToken token)
-        {
-            try
-            {
-                var root = await ReadExifToolJsonAsync(sourcePath, token, "-Make", "-Model");
-                string make = TryGetJsonString(root, "Make");
-                string model = TryGetJsonString(root, "Model");
-                if (string.Equals(make, AppleMake, StringComparison.OrdinalIgnoreCase) &&
-                    !string.IsNullOrWhiteSpace(model))
-                {
-                    return model;
-                }
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                LogService.Split($"Apple[model] read source Make/Model failed: {ex.Message}", LogLevel.Debug);
-            }
-            return DefaultModel;
-        }
 
         // 读取视频时长（秒），用于封面帧中点兜底。优先 MediaDuration，回退 Duration。
         private static async Task<double?> ReadVideoDurationSecondsAsync(string videoOutputPath, CancellationToken token)

@@ -180,6 +180,95 @@ namespace LivePhotoBox.Views
             UpdateOutputFormatOptions(comboBox.SelectedIndex);
         }
 
+        // 配对方式下拉框：与拆分页协议版本一致的双栏样式（主标题 + 适配机型副标题）。
+        private void PairingMethodComboBox_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is not ComboBox comboBox) return;
+
+            // 防止 NavigationCacheMode="Required" 导致页面缓存后 Loaded 事件重复触发
+            comboBox.Loaded -= PairingMethodComboBox_Loaded;
+
+            string[] names = new string[comboBox.Items.Count];
+            string[] hintKeys =
+            [
+                "MergePage_Pairing_Filename_Hint",
+                "MergePage_Pairing_Apple_Hint",
+                "MergePage_Pairing_Vivo_Hint",
+            ];
+
+            double fontSize = comboBox.FontSize > 0 && !double.IsNaN(comboBox.FontSize)
+                ? comboBox.FontSize : 14.0;
+
+            if (double.IsNaN(comboBox.Height))
+            {
+                comboBox.Height = 32;
+            }
+
+            for (int i = 0; i < comboBox.Items.Count && i < hintKeys.Length; i++)
+            {
+                if (comboBox.Items[i] is ComboBoxItem item)
+                {
+                    names[i] = (item.Content as string) ?? "";
+
+                    var nameBlock = new TextBlock
+                    {
+                        Text = names[i],
+                        FontSize = fontSize,
+                        FontWeight = FontWeights.Normal
+                    };
+
+                    string hint = ResourceService.GetString(hintKeys[i]);
+                    var hintBlock = new TextBlock
+                    {
+                        Text = hint,
+                        FontSize = 11,
+                        Opacity = 0.65,
+                        Margin = new Thickness(0, 1, 0, 0),
+                        TextWrapping = TextWrapping.Wrap,
+                        MaxWidth = 200,
+                        Visibility = Visibility.Collapsed
+                    };
+
+                    var panel = new StackPanel
+                    {
+                        Spacing = 2,
+                        VerticalAlignment = VerticalAlignment.Center,
+                        Children = { nameBlock, hintBlock }
+                    };
+
+                    item.Content = panel;
+                    item.Tag = (nameBlock, hintBlock);
+                }
+            }
+
+            comboBox.DropDownOpened += (_, _) =>
+            {
+                foreach (var obj in comboBox.Items)
+                {
+                    if (obj is ComboBoxItem item && item.Tag is (TextBlock nameBlock, TextBlock hintBlock))
+                    {
+                        nameBlock.FontWeight = FontWeights.SemiBold;
+                        hintBlock.Visibility = Visibility.Visible;
+                    }
+                }
+            };
+
+            void ResetToCollapsedState()
+            {
+                foreach (var obj in comboBox.Items)
+                {
+                    if (obj is ComboBoxItem item && item.Tag is (TextBlock nameBlock, TextBlock hintBlock))
+                    {
+                        nameBlock.FontWeight = FontWeights.Normal;
+                        hintBlock.Visibility = Visibility.Collapsed;
+                    }
+                }
+            }
+
+            comboBox.DropDownClosed += (_, _) => ResetToCollapsedState();
+            comboBox.SelectionChanged += (_, _) => ResetToCollapsedState();
+        }
+
         // 每项输出格式在各个协议下的可用性。
         // 协议-格式兼容矩阵已提取到 ProtocolFormatMatrix（Core 项目）
         // 格式索引: 0=JPG_MP4, 1=JPG_MOV, 2=HEIC_MP4, 3=HEIC_MOV

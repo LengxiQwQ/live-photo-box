@@ -84,23 +84,23 @@ namespace LivePhotoBox.Services.Protocols
         {
             error = null;
             int pos = 2; // after SOI
+            bool foundExif = false;
             while (pos + 4 <= data.Length)
             {
                 if (data[pos] != 0xFF)
                 {
-                    error = "Invalid JPEG: marker expected";
-                    return null;
+                    break; // 损坏或已进入熵编码，交给下方“无 Exif”分支决定
                 }
                 byte marker = data[pos + 1];
                 if (marker == 0xD8) { pos += 2; continue; }
                 if (marker >= 0xD0 && marker <= 0xD9) { pos += 2; continue; }
+                if (marker == 0xDA || marker == 0xD9) break; // SOS / EOI：段扫描结束
                 if (pos + 4 > data.Length) break;
 
                 int segLen = (data[pos + 2] << 8) | data[pos + 3];
                 if (segLen < 2 || pos + 2 + segLen > data.Length)
                 {
-                    error = "Invalid JPEG segment length";
-                    return null;
+                    break;
                 }
 
                 bool isExif = marker == 0xE1 && pos + 10 <= data.Length
@@ -110,6 +110,7 @@ namespace LivePhotoBox.Services.Protocols
 
                 if (isExif)
                 {
+                    foundExif = true;
                     int tiff = pos + 10;
                     if (tiff + 8 > data.Length)
                     {
@@ -169,8 +170,54 @@ namespace LivePhotoBox.Services.Protocols
                 pos += 2 + segLen;
             }
 
-            error = "APP1 Exif segment not found";
+            // 源 JPEG 没有 Exif（或结构不含可定位的 APP1）：新建最小 APP1 Exif，
+            // 内含 IFD0 → tag 0x927C(MakerNote) → 70 字节 MakerNote 块。
+            if (!foundExif)
+            {
+                byte[] app1 = BuildFreshExifApp1(makerNote);
+                byte[] grown = new byte[data.Length + app1.Length];
+                Array.Copy(data, 0, grown, 0, 2);                 // SOI
+                Array.Copy(app1, 0, grown, 2, app1.Length);
+                Array.Copy(data, 2, grown, 2 + app1.Length, data.Length - 2);
+                return grown;
+            }
+
+            error = "EXIF APP1 found but MakerNote entry not found";
             return null;
+        }
+
+        /// <summary>构造最小 APP1 Exif 段（含 FFE1 标记）：Exif\0\0 + TIFF(IFD0 → 0x927C → MakerNote)。</summary>
+        private static byte[] BuildFreshExifApp1(byte[] makerNote)
+        {
+            const int tiffHeaderLen = 8;
+            const int ifd0Len = 2 + 12 + 4;          // count + 1 entry + next-IFD
+            int makerOffset = tiffHeaderLen + ifd0Len; // 26
+            int tiffLen = makerOffset + makerNote.Length;
+            int pad = tiffLen % 2;
+            byte[] tiff = new byte[tiffLen + pad];
+            tiff[0] = (byte)'M';
+            tiff[1] = (byte)'M';
+            Write16(tiff, 2, 0x002A);
+            Write32(tiff, 4, 8, true);                // IFD0 偏移
+            Write16(tiff, 8, 1);                      // entry count
+            Write16(tiff, 10, 0x927C);                // MakerNote tag
+            Write16(tiff, 12, 7);                     // type UNDEFINED
+            Write32(tiff, 14, makerNote.Length, true);
+            Write32(tiff, 18, makerOffset, true);
+            Write32(tiff, 22, 0, true);               // next IFD
+            Array.Copy(makerNote, 0, tiff, makerOffset, makerNote.Length);
+
+            byte[] payload = new byte[6 + tiff.Length];
+            payload[0] = (byte)'E'; payload[1] = (byte)'x'; payload[2] = (byte)'i';
+            payload[3] = (byte)'f'; payload[4] = 0; payload[5] = 0;
+            Array.Copy(tiff, 0, payload, 6, tiff.Length);
+
+            byte[] seg = new byte[4 + payload.Length]; // FFE1 + 段长(2) + payload
+            seg[0] = 0xFF;
+            seg[1] = 0xE1;
+            Write16(seg, 2, 2 + payload.Length);
+            Array.Copy(payload, 0, seg, 4, payload.Length);
+            return seg;
         }
 
         // 在 IFD 里找指定 tag 条目，返回其 value 字段的绝对文件偏移；找不到返回 -1。

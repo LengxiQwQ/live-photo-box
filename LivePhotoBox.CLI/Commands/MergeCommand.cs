@@ -126,6 +126,18 @@ namespace LivePhotoBox.Cli.Commands
                 FileInfo? image = null;
                 FileInfo? video = null;
                 var files = context.ParseResult.GetValueForArgument(filesArg);
+                // System.CommandLine 会把未知选项当成位置参数（文件名）吞掉，提前识别避免误导性报错
+                if (files is { Length: > 0 })
+                {
+                    string? unknown = files.FirstOrDefault(f =>
+                        f.StartsWith('-') && !ImageExtensions.Contains(Path.GetExtension(f)) && !VideoExtensions.Contains(Path.GetExtension(f)));
+                    if (unknown != null)
+                    {
+                        CliConsole.WriteErrorLine($"Error: Unknown option '{unknown}'. Run 'lpb merge --help' to see available options.");
+                        context.ExitCode = 1;
+                        return;
+                    }
+                }
                 if (files is { Length: 2 })
                 {
                     var resolved = ResolveImageVideo(files[0], files[1]);
@@ -285,7 +297,9 @@ namespace LivePhotoBox.Cli.Commands
             // Resolve protocol
             if (!ProtocolNameResolver.TryResolveProtocol(protocolName, out int protocolIndex))
             {
-                    CliConsole.WriteErrorLine($"Error: Unknown protocol '{protocolName}'. Use 'lpb protocols' to list available.");
+                CliConsole.WriteErrorLine($"Error: Unknown protocol '{protocolName}'. Use 'lpb protocols' to list available.{CliConsole.DidYouMean(protocolName, ["fusion", "micro video", "motion photo", "oppo", "vivo", "samsung", "huawei"])}");
+                if (protocolName.Contains("apple", StringComparison.OrdinalIgnoreCase))
+                    Console.Error.WriteLine("Note: Apple Live Photo is a split target (lpb split ... -p apple), not a merge protocol.");
                 return 1;
             }
 
@@ -295,14 +309,23 @@ namespace LivePhotoBox.Cli.Commands
             {
                 if (!ProtocolNameResolver.TryResolveFormat(formatName, out formatIndex))
                 {
-                    CliConsole.WriteErrorLine($"Error: Unknown format '{formatName}'. Valid: jpg+mp4, jpg+mov, heic+mp4, heic+mov, heic+mp4-h265");
+                    string[] validFormats = ["jpg+mp4", "jpg+mov", "heic+mp4", "heic+mov", "heic+mp4-h265"];
+                    var matches = validFormats
+                        .Where(v => v.StartsWith(formatName.Trim(), StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+                    CliConsole.WriteErrorLine(
+                        matches.Count > 0
+                            ? $"Error: Unknown format '{formatName}'. Did you mean: {string.Join(", ", matches)}?"
+                            : $"Error: Unknown format '{formatName}'. Valid: {string.Join(", ", validFormats)}");
                     return 1;
                 }
 
                 if (!ProtocolFormatMatrix.IsAvailable(protocolIndex, formatIndex))
                 {
-                    CliConsole.WriteErrorLine($"Error: Format '{formatName}' is not available for protocol '{protocolName}'.");
-                    Console.Error.WriteLine("Use 'lpb protocols' to see supported combinations.");
+                    string available = string.Join(", ", ProtocolFormatMatrix
+                        .GetAvailableFormats(protocolIndex)
+                        .Select(f => ProtocolFormatMatrix.FormatNames[f]));
+                    CliConsole.WriteErrorLine($"Error: Format '{formatName}' is not available for protocol '{protocolName}'. Available: {available}");
                     return 1;
                 }
             }
@@ -327,7 +350,7 @@ namespace LivePhotoBox.Cli.Commands
             }
             else
             {
-                CliConsole.WriteErrorLine($"Error: Unknown naming rule '{naming}'. Valid: keep, suffix, custom:<pattern>");
+                CliConsole.WriteErrorLine($"Error: Unknown naming rule '{naming}'. Valid: keep, suffix, custom:<pattern>{CliConsole.DidYouMean(naming, ["keep", "suffix", "custom:TEMPLATE"])}");
                 return 1;
             }
 
@@ -337,7 +360,7 @@ namespace LivePhotoBox.Cli.Commands
             bool useName = pairing.Equals("name", StringComparison.OrdinalIgnoreCase);
             if (!useName && !useCid && !useVivo)
             {
-                CliConsole.WriteErrorLine($"Error: Unknown pairing method '{pairing}'. Valid: name, cid, vivo");
+                CliConsole.WriteErrorLine($"Error: Unknown pairing method '{pairing}'. Valid: name, cid, vivo{CliConsole.DidYouMean(pairing, ["name", "cid", "vivo"])}");
                 return 1;
             }
 
@@ -350,7 +373,7 @@ namespace LivePhotoBox.Cli.Commands
                 afterRecycle = true;
             else if (!after.Equals("none", StringComparison.OrdinalIgnoreCase))
             {
-                CliConsole.WriteErrorLine($"Error: Unknown after-completion action '{after}'. Valid: none, move:<dir>, recycle");
+                CliConsole.WriteErrorLine($"Error: Unknown after-completion action '{after}'. Valid: none, move:<dir>, recycle{CliConsole.DidYouMean(after, ["none", "move:PATH", "recycle"])}");
                 return 1;
             }
 
@@ -393,19 +416,23 @@ namespace LivePhotoBox.Cli.Commands
 
                 if (!json)
                 {
+                    // 双文件合成：图片/视频两个文件名放到最顶部（含扩展名），不再重复打印全路径
+                    if (isSingle)
+                    {
+                        CliConsole.WriteFieldRgb("Image", Path.GetFileName(image!.FullName), width: 10, valueColor: CliConsole.PathGreen);
+                        CliConsole.WriteFieldRgb("Video", Path.GetFileName(video!.FullName), width: 10, valueColor: CliConsole.PathGreen);
+                    }
                     CliConsole.WriteField("Protocol", protoDisplay, width: 10, valueColor: CliConsole.Highlight);
                     CliConsole.WriteField("Format", fmtDisplay, width: 10, valueColor: CliConsole.Highlight);
-                    CliConsole.WriteFieldRgb("Output", outputDir, width: 10, valueColor: CliConsole.PathGreen);
                     if (isBatch)
                         CliConsole.WriteField("Pairing", pairing, width: 10, valueColor: CliConsole.Highlight);
+                    CliConsole.WriteFieldRgb("Output", outputDir, width: 10, valueColor: CliConsole.PathGreen);
                 }
 
                 if (isSingle)
                 {
                     if (!json)
                     {
-                        CliConsole.WriteFieldRgb("Image", image!.FullName, width: 10, valueColor: CliConsole.PathGreen);
-                        CliConsole.WriteFieldRgb("Video", video!.FullName, width: 10, valueColor: CliConsole.PathGreen);
                         if (keyTimestampUs.HasValue)
                             CliConsole.WriteField("Key photo", $"{keyTimestampUs.Value / 1_000_000.0:F3}s (custom)",
                                 width: 10, valueColor: CliConsole.Highlight);
@@ -425,7 +452,7 @@ namespace LivePhotoBox.Cli.Commands
                         taskIndex: namingRuleIndex == 2 ? 1 : null);
                     string estimatedOutput = Path.Combine(outputDir, outputName);
                     if (!json)
-                        CliConsole.WriteFieldRgb("File", estimatedOutput, width: 10, valueColor: CliConsole.PathGreen);
+                        CliConsole.WriteFieldRgb("File", Path.GetFileName(estimatedOutput), width: 10, valueColor: CliConsole.PathGreen);
 
                     if (dryRun)
                     {
@@ -457,7 +484,7 @@ namespace LivePhotoBox.Cli.Commands
                     Directory.CreateDirectory(outputDir);
                     Directory.CreateDirectory(tempDir);
                     return await MergeSinglePairAsync(
-                        image.FullName, video.FullName, outputDir, tempDir,
+                        image!.FullName, video!.FullName, outputDir, tempDir,
                         protocolIndex, formatIndex, namingRuleIndex, customPattern,
                         keyTimestampUs, overwrite, verbose, json, estimatedOutput, ct);
                 }
@@ -516,7 +543,7 @@ namespace LivePhotoBox.Cli.Commands
                 };
 
                 if (verbose && !json)
-                    Console.WriteLine($"Starting merge: {baseName}...");
+                    Console.WriteLine($"Starting merge: {Path.GetFileName(imagePath)}...");
 
                 var pause = new ManualResetEventSlim(true); // CLI never pauses
                 var (isSuccess, details) = await LivePhotoMergeRunnerService.ProcessSinglePairAsync(
@@ -528,15 +555,14 @@ namespace LivePhotoBox.Cli.Commands
                     if (json) PrintSingleJson(imagePath, videoPath, outputPath, "merged");
                     else
                     {
-                        CliConsole.Write("OK  ", CliConsole.Success);
-                        Console.WriteLine($"{baseName}  ({details})");
+                        CliConsole.WriteLine("Done", CliConsole.Success);
                     }
                     return 0;
                 }
                 else
                 {
                     if (json) PrintSingleJson(imagePath, videoPath, outputPath, "failed", reason: details);
-                    else CliConsole.WriteErrorLine($"FAIL  {baseName}  {details}");
+                    else CliConsole.WriteErrorLine($"FAIL  {Path.GetFileName(imagePath)}  {details}");
                     return 1;
                 }
             }
@@ -576,14 +602,14 @@ namespace LivePhotoBox.Cli.Commands
             {
                 if (CliConsole.UseColor)
                 {
-                    CliConsole.Write("Scanning", CliConsole.Accent);
+                    CliConsole.Write("Scanning".PadRight(10), CliConsole.Accent);
                     Console.Write(": ");
                     CliConsole.Write(inputDir, CliConsole.PathGreen);
                     Console.Write(" ... ");
                 }
                 else
                 {
-                    Console.Write($"Scanning: {inputDir} ... ");
+                    Console.Write($"{"Scanning".PadRight(10)}: {inputDir} ... ");
                 }
             }
             var scanResult = LivePhotoMergeScanService.Scan(inputDir, ct);
@@ -628,6 +654,7 @@ namespace LivePhotoBox.Cli.Commands
             int standaloneVid = scanResult.StandaloneVideosCount - metaPairs;
             if (!json)
             {
+                Console.WriteLine();
                 CliConsole.Write(scanResult.Pairs.Count.ToString(), CliConsole.Highlight);
                 Console.Write(" filename pairs, ");
                 CliConsole.Write(metaPairs.ToString(), CliConsole.Highlight);
@@ -689,16 +716,32 @@ namespace LivePhotoBox.Cli.Commands
                         Console.Write("  ");
                         CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
                         Console.Write("  ");
-                        CliConsole.Write(t.BaseName, CliConsole.PathGreen);
+                        CliConsole.Write(Path.GetFileName(t.ImagePath), CliConsole.PathGreen);
+                        Console.Write("  +  ");
+                        CliConsole.Write(Path.GetFileName(t.VideoPath), CliConsole.PathGreen);
                         Console.WriteLine();
                     }
                 }
                 return 0;
             }
 
-            // 5. Confirmation
+            // 5. Confirmation（交互模式先列出匹配对，确认后再处理；-y / --json 静默跳过）
             if (!yes && !json)
             {
+                Console.WriteLine();
+                Console.Write("Matched ");
+                CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
+                Console.WriteLine(" pairs:");
+                foreach (var t in tasks)
+                {
+                    Console.Write("  ");
+                    CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
+                    Console.Write("  ");
+                    CliConsole.Write(Path.GetFileName(t.ImagePath), CliConsole.PathGreen);
+                    Console.Write("  +  ");
+                    CliConsole.Write(Path.GetFileName(t.VideoPath), CliConsole.PathGreen);
+                    Console.WriteLine();
+                }
                 Console.Write("\nMerge ");
                 CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
                 Console.Write(" pairs? [Y/n] ");
@@ -748,7 +791,7 @@ namespace LivePhotoBox.Cli.Commands
                 onTaskStarted: task =>
                 {
                     if (verbose && !json)
-                        Console.Write($"  [{task.Index}/{tasks.Count}] {task.BaseName} ... ");
+                        Console.Write($"  [{task.Index}/{tasks.Count}] {Path.GetFileName(task.ImagePath)} ... ");
                 },
                 onTaskCompleted: (task, success, details, completed) =>
                 {
@@ -767,7 +810,7 @@ namespace LivePhotoBox.Cli.Commands
                             {
                                 Console.Write($"  [{completed}/{tasks.Count}] ");
                                 CliConsole.Write("OK  ", CliConsole.Success);
-                                Console.WriteLine(task.BaseName);
+                                Console.WriteLine(Path.GetFileName(task.ImagePath));
                             }
                         }
                     }
@@ -783,7 +826,7 @@ namespace LivePhotoBox.Cli.Commands
                             {
                                 Console.Write($"  [{completed}/{tasks.Count}] ");
                                 CliConsole.Write("FAIL  ", CliConsole.Error);
-                                Console.WriteLine($"{task.BaseName}  ({details})");
+                                Console.WriteLine($"{Path.GetFileName(task.ImagePath)}  ({details})");
                             }
                         }
                     }
@@ -825,7 +868,7 @@ namespace LivePhotoBox.Cli.Commands
                     }
                     catch (Exception ex)
                     {
-                        if (!json) CliConsole.WriteErrorLine($"  WARN: Failed to move '{task.BaseName}': {ex.Message}");
+                        if (!json) CliConsole.WriteErrorLine($"  WARN: Failed to move '{Path.GetFileName(task.ImagePath)}': {ex.Message}");
                     }
                 }
                 if (!json)
@@ -856,7 +899,7 @@ namespace LivePhotoBox.Cli.Commands
                     }
                     catch (Exception ex)
                     {
-                        if (!json) CliConsole.WriteErrorLine($"  WARN: Failed to recycle '{task.BaseName}': {ex.Message}");
+                        if (!json) CliConsole.WriteErrorLine($"  WARN: Failed to recycle '{Path.GetFileName(task.ImagePath)}': {ex.Message}");
                     }
                 }
                 if (!json)
@@ -931,7 +974,8 @@ namespace LivePhotoBox.Cli.Commands
                 foreach (int f in ProtocolFormatMatrix.GetAvailableFormats(p))
                 {
                     // {originalName}_{Protocol}_{Format}
-                    string name = $"{originalBaseName}_{ProtocolNameResolver.ProtocolNames[p]}_{ProtocolFormatMatrix.FormatNames[f]}";
+                    // 文件名里去掉显示用的空格（JPEG + MP4 → JPEG+MP4）
+                    string name = $"{originalBaseName}_{ProtocolNameResolver.ProtocolNames[p]}_{ProtocolFormatMatrix.FormatNames[f].Replace(" + ", "+")}";
                     string label = $"{ProtocolNameResolver.ProtocolNames[p]} {ProtocolFormatMatrix.FormatNames[f]}";
                     combos.Add((p, f, name, label));
                 }
@@ -952,7 +996,7 @@ namespace LivePhotoBox.Cli.Commands
                 foreach (var c in combos)
                 {
                     Console.Write("  ");
-                    CliConsole.Write(c.BaseName, CliConsole.PathGreen);
+                    CliConsole.Write($"{c.BaseName}{(c.Fmt is 2 or 3 or ProtocolFormatMatrix.FormatHeicMp4H265 ? ".heic" : ".jpg")}", CliConsole.PathGreen);
                     Console.WriteLine();
                 }
                 return 0;

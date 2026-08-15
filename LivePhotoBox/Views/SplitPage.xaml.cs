@@ -249,13 +249,43 @@ namespace LivePhotoBox.Views
 
         // 拆分页的协议-格式可用性矩阵。
         // 协议索引: 0=无协议, 1=Apple, 2=vivo
-        // 格式索引（= 下拉项位置 = 全局 formatIndex）: 0=默认原样, 1=JPG+MOV, 2=HEIC+MOV, 3=JPG+MP4
+        // 下拉项位置: 0=默认原样, 1=HEIC+MOV, 2=JPG+MOV, 3=JPG+MP4
+        // 全局 formatIndex 仍为 0=默认原样 / 1=JPG+MOV / 2=HEIC+MOV / 3=JPG+MP4（下方映射转换）
         private static readonly bool[][] SplitFormatMap =
         [
             [true,  true,  true,  true ],  // 无协议：全部可用
-            [false, true,  true,  false],  // Apple：JPG+MOV / HEIC+MOV
+            [false, true,  true,  false],  // Apple：HEIC+MOV / JPG+MOV
             [false, false, false, true ],  // vivo：JPG+MP4
         ];
+
+        // 下拉项位置 → 全局 formatIndex
+        private static int VisualFormatIndexToSemantic(int visualIndex) => visualIndex switch
+        {
+            0 => 0,  // 默认原样
+            1 => 2,  // HEIC+MOV
+            2 => 1,  // JPG+MOV
+            3 => 3,  // JPG+MP4
+            _ => 0,
+        };
+
+        // 全局 formatIndex → 下拉项位置
+        private static int SemanticFormatIndexToVisual(int semanticIndex) => semanticIndex switch
+        {
+            0 => 0,
+            1 => 2,  // JPG+MOV
+            2 => 1,  // HEIC+MOV
+            3 => 3,
+            _ => 0,
+        };
+
+        // 将持久化的全局 formatIndex 还原到下拉位置，并按当前协议刷新可见性。
+        private void SyncOutputFormatSelection()
+        {
+            if (OutputFormatComboBox == null || ProtocolComboBox == null) return;
+
+            OutputFormatComboBox.SelectedIndex = SemanticFormatIndexToVisual(ViewModel.OutputFormatIndex);
+            UpdateOutputFormatOptions(ProtocolComboBox.SelectedIndex);
+        }
 
         // 根据选中的协议切换导出格式下拉框中各项的可见性
         private void UpdateOutputFormatOptions(int protocolIndex)
@@ -300,8 +330,8 @@ namespace LivePhotoBox.Views
             string[] hintKeys =
             [
                 "SplitPage_FormatHint_Default",
-                "SplitPage_FormatHint_JpgMov",
                 "SplitPage_FormatHint_HeicMov",
+                "SplitPage_FormatHint_JpgMov",
                 "SplitPage_FormatHint_JpgMp4",
             ];
 
@@ -368,8 +398,14 @@ namespace LivePhotoBox.Views
             comboBox.DropDownClosed += (_, _) => ResetToCollapsedState();
             comboBox.SelectionChanged += (_, _) => ResetToCollapsedState();
 
-            // 输出格式加载完成后再同步一次协议对应的格式可见性
-            UpdateOutputFormatOptions(ProtocolComboBox.SelectedIndex);
+            // 将用户选中的下拉位置同步回 ViewModel（全局 formatIndex）
+            comboBox.SelectionChanged += (_, _) =>
+            {
+                if (comboBox.SelectedIndex >= 0)
+                    ViewModel.OutputFormatIndex = VisualFormatIndexToSemantic(comboBox.SelectedIndex);
+            };
+
+            SyncOutputFormatSelection();
         }
 
         // 页面加载完成后附加自动滚动器，绑定 ViewModel 事件
@@ -395,6 +431,8 @@ namespace LivePhotoBox.Views
                 NamingClearBtnText.Visibility = Visibility.Visible;
                 NamingResetBtnText.Visibility = Visibility.Visible;
             }
+
+            SyncOutputFormatSelection();
 
             if (_eventsHooked) return;
 

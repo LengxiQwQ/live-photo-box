@@ -440,12 +440,11 @@
                                 <TextBlock Grid.Column="0" x:Uid="SplitPage_OutputFormatLabel" FontSize="12"
                                            VerticalAlignment="Center"/>
                                 <ComboBox Grid.Column="1" x:Name="OutputFormatComboBox" FontSize="12" MinHeight="28" Height="28" MinWidth="0" HorizontalAlignment="Stretch" VerticalAlignment="Center"
-                                          SelectedIndex="{x:Bind ViewModel.OutputFormatIndex, Mode=TwoWay}"
                                           IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
                                           Loaded="OutputFormatComboBox_Loaded">
                                     <ComboBoxItem x:Uid="SplitPage_OutputFormat_Default"/>
-                                    <ComboBoxItem x:Uid="SplitPage_OutputFormat_JpgMov"/>
                                     <ComboBoxItem x:Uid="SplitPage_OutputFormat_HeicMov"/>
+                                    <ComboBoxItem x:Uid="SplitPage_OutputFormat_JpgMov"/>
                                     <ComboBoxItem x:Uid="SplitPage_OutputFormat_JpgMp4"/>
                                 </ComboBox>
                             </Grid>

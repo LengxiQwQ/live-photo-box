@@ -394,7 +394,8 @@
                                 <ComboBox Grid.Column="1" FontSize="12" MinHeight="28" Height="28" MinWidth="0"
                                           HorizontalAlignment="Stretch" VerticalAlignment="Center"
                                           SelectedIndex="{x:Bind ViewModel.PairingMethodIndex, Mode=TwoWay}"
-                                          IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}">
+                                          IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"
+                                          Loaded="PairingMethodComboBox_Loaded">
                                     <ComboBoxItem x:Uid="MergePage_Pairing_Filename"/>
                                     <ComboBoxItem x:Uid="MergePage_Pairing_Apple"/>
                                     <ComboBoxItem x:Uid="MergePage_Pairing_Vivo"/>

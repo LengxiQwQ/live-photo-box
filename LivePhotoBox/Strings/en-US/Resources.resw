@@ -1452,11 +1452,20 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="MergePage_Pairing_Filename.Content" xml:space="preserve">
     <value>By filename</value>
   </data>
+  <data name="MergePage_Pairing_Filename_Hint" xml:space="preserve">
+    <value>Pairs photos and videos with the same filename</value>
+  </data>
   <data name="MergePage_Pairing_Apple.Content" xml:space="preserve">
-    <value>Apple Live Photo only</value>
+    <value>Apple Live Photo</value>
+  </data>
+  <data name="MergePage_Pairing_Apple_Hint" xml:space="preserve">
+    <value>iPhone / iPad</value>
   </data>
   <data name="MergePage_Pairing_Vivo.Content" xml:space="preserve">
-    <value>vivo Live Photo only (≤ X200)</value>
+    <value>vivo Live Photo</value>
+  </data>
+  <data name="MergePage_Pairing_Vivo_Hint" xml:space="preserve">
+    <value>vivo / iQOO</value>
   </data>
   <data name="MergePage_Filter_All.Text" xml:space="preserve">
     <value>All</value>
@@ -2659,7 +2668,7 @@ Place any of these files into the same folder.</value>
     <value>Altitude</value>
   </data>
   <data name="EditPage_Protocol_Apple" xml:space="preserve">
-    <value>Apple Live Photo ⚠️</value>
+    <value>Apple Live Photo</value>
   </data>
   <data name="EditPage_Protocol_GoogleV1" xml:space="preserve">
     <value>Google Micro Video (V1)</value>
@@ -2677,7 +2686,7 @@ Place any of these files into the same folder.</value>
     <value>Samsung Motion Photo</value>
   </data>
   <data name="EditPage_Protocol_Vivo" xml:space="preserve">
-    <value>vivo Live Photo ⚠️</value>
+    <value>vivo Live Photo</value>
   </data>
   <data name="EditPage_Protocol_Fusion" xml:space="preserve">
     <value>Fusion Motion Photo</value>
@@ -3611,7 +3620,7 @@ Tip: Drag ☰ handles to reorder segments.</value>
     <value>No pairing metadata</value>
   </data>
   <data name="SplitPage_Protocol_Apple.Content" xml:space="preserve">
-    <value>Apple Live Photo ⚠️</value>
+    <value>Apple Live Photo</value>
   </data>
   <data name="SplitPage_Protocol_Apple_Hint" xml:space="preserve">
     <value>iPhone / iPad</value>

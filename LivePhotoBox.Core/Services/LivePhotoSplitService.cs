@@ -333,13 +333,13 @@ namespace LivePhotoBox.Services
                     LogService.Split($"Transcoding video -> {targetVideoExtension} (outputFormatIndex={outputFormatIndex})", LogLevel.Debug);
                     var transcodeResult = outputFormatIndex switch
                     {
-                        // Apple 协议（protocolIndex==1）：HEVC 转码时强制约 0.5s 一个关键帧
-                        // （-g 15，30fps 源），对齐参照样本 IMG_6675 的关键帧密度（1s 2 个）；
-                        // 默认 GOP=250 会把整段压成 1 个关键帧，
-                        // iOS 编辑器拖时间轴无法刷新画面。
+                        // Apple 协议（protocolIndex==1）：HEVC 转码成全 I 帧（-g 1）。
+                        // iOS 实况照片编辑器的拖动预览按同步样本取帧；只有关键帧可选，
+                        // 常规 GOP（-g 15）会导致 3s 视频只有 7 帧可选、拖动卡顿。
+                        // 全 I 帧后 stss 覆盖每一帧，编辑器可逐帧拖动并任选封面。
                         1 or 2 => await VideoTranscodeService.TranscodeToMovAsync(
                             tempVideoPath, videoOutputPath, token, videoCodec: "hevc",
-                            keyframeInterval: protocolIndex == 1 ? 15 : null),
+                            keyframeInterval: protocolIndex == 1 ? 1 : null),
                         3 => await VideoTranscodeService.TranscodeToMp4Async(tempVideoPath, videoOutputPath, token, videoCodec: "h264"),
                         _ => throw new InvalidOperationException($"Unsupported output format index: {outputFormatIndex}")
                     };

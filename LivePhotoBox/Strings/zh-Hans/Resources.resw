@@ -1451,11 +1451,20 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="MergePage_Pairing_Filename.Content" xml:space="preserve">
     <value>按文件名匹配</value>
   </data>
+  <data name="MergePage_Pairing_Filename_Hint" xml:space="preserve">
+    <value>图片与视频同名即配对</value>
+  </data>
   <data name="MergePage_Pairing_Apple.Content" xml:space="preserve">
-    <value>仅配对 Apple Live Photo</value>
+    <value>Apple Live Photo</value>
+  </data>
+  <data name="MergePage_Pairing_Apple_Hint" xml:space="preserve">
+    <value>iPhone / iPad</value>
   </data>
   <data name="MergePage_Pairing_Vivo.Content" xml:space="preserve">
-    <value>仅配对 vivo Live Photo（≤ X200）</value>
+    <value>vivo Live Photo</value>
+  </data>
+  <data name="MergePage_Pairing_Vivo_Hint" xml:space="preserve">
+    <value>vivo / iQOO</value>
   </data>
   <data name="MergePage_Filter_All.Text" xml:space="preserve">
     <value>全部</value>
@@ -2658,7 +2667,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>海拔</value>
   </data>
   <data name="EditPage_Protocol_Apple" xml:space="preserve">
-    <value>Apple Live Photo ⚠️</value>
+    <value>Apple Live Photo</value>
   </data>
   <data name="EditPage_Protocol_GoogleV1" xml:space="preserve">
     <value>Google Micro Video (V1)</value>
@@ -2676,7 +2685,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>Samsung Motion Photo</value>
   </data>
   <data name="EditPage_Protocol_Vivo" xml:space="preserve">
-    <value>vivo Live Photo ⚠️</value>
+    <value>vivo Live Photo</value>
   </data>
   <data name="EditPage_Protocol_Fusion" xml:space="preserve">
     <value>融合 Motion Photo</value>
@@ -3610,7 +3619,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>不写入配对元数据</value>
   </data>
   <data name="SplitPage_Protocol_Apple.Content" xml:space="preserve">
-    <value>Apple Live Photo ⚠️</value>
+    <value>Apple Live Photo</value>
   </data>
   <data name="SplitPage_Protocol_Apple_Hint" xml:space="preserve">
     <value>iPhone / iPad</value>

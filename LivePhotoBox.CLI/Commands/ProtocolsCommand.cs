@@ -59,25 +59,32 @@ namespace LivePhotoBox.Cli.Commands
             Console.WriteLine();
             CliConsole.WriteLine("  Merge — protocol × format compatibility", CliConsole.Accent);
             Console.WriteLine();
-            Console.WriteLine($"  {"Protocol".PadRight(22)}JPEG+MP4   JPEG+MOV   HEIC+MP4   HEIC+MOV   HEIC+MP4(H.265)");
-            Console.WriteLine($"  {new string('─', 22)} ────────   ────────   ────────   ────────   ──────────────");
+
+            // 格式列使用带空格的可读名（如 JPEG + MP4），列宽 = 名称长度 + 2 空格间隔
+            string[] fmt = ProtocolFormatMatrix.FormatNames;
+            int[] colW = fmt.Select(f => f.Length + 2).ToArray();
+
+            Console.Write($"  {"Protocol".PadRight(22)}");
+            for (int f = 0; f < fmt.Length; f++)
+                Console.Write(fmt[f].PadRight(colW[f]));
+            Console.WriteLine();
+
+            Console.Write($"  {new string('─', 22)} ");
+            for (int f = 0; f < fmt.Length; f++)
+                Console.Write(new string('─', colW[f] - 2) + "  ");
+            Console.WriteLine();
 
             for (int p = 0; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
                 string display = p == 0 ? "Fusion (testing)" : ProtocolNameResolver.ProtocolDisplayNames[p];
-                string name = display.PadRight(22);
                 Console.Write("  ");
-                Console.Write(name);
+                Console.Write(display.PadRight(22));
                 Console.Write(" ");
-                WriteMark(ProtocolFormatMatrix.Matrix[p][0]);
-                Console.Write("        ");
-                WriteMark(ProtocolFormatMatrix.Matrix[p][1]);
-                Console.Write("        ");
-                WriteMark(ProtocolFormatMatrix.Matrix[p][2]);
-                Console.Write("        ");
-                WriteMark(ProtocolFormatMatrix.Matrix[p][3]);
-                Console.Write("        ");
-                WriteMark(ProtocolFormatMatrix.Matrix[p][4]);
+                for (int f = 0; f < fmt.Length; f++)
+                {
+                    WriteMark(ProtocolFormatMatrix.Matrix[p][f]);
+                    Console.Write(new string(' ', colW[f] - 2)); // ✅/✖️ 在控制台约占 2 个单元宽度
+                }
                 Console.WriteLine();
             }
 
@@ -143,15 +150,19 @@ namespace LivePhotoBox.Cli.Commands
             CliConsole.WriteLine("  Split — protocol × format compatibility", CliConsole.Accent);
             Console.WriteLine();
 
-            string[] fmtNames = SplitCommand.SplitFormatNames;
+            // split 格式列也统一为带空格的可读名（jpg+mov → JPG + MOV）
+            string[] fmtNames = SplitCommand.SplitFormatNames
+                .Select(f => f == "keep" ? "keep" : f.ToUpperInvariant().Replace("+", " + "))
+                .ToArray();
             int nameW = Math.Max("Protocol".Length, SplitProtocols.Max(p => p.Name.Length));
+            int fmtW = Math.Max(8, fmtNames.Max(f => f.Length) + 1);
 
             Console.Write("  ");
             Console.Write("Protocol".PadRight(nameW));
             Console.Write(" ");
             for (int f = 0; f < fmtNames.Length; f++)
             {
-                Console.Write(fmtNames[f].PadRight(8));
+                Console.Write(fmtNames[f].PadRight(fmtW));
                 Console.Write("   ");
             }
             Console.WriteLine();
@@ -161,7 +172,7 @@ namespace LivePhotoBox.Cli.Commands
             Console.Write(" ");
             for (int f = 0; f < fmtNames.Length; f++)
             {
-                Console.Write(new string('─', 8));
+                Console.Write(new string('─', fmtW));
                 Console.Write("   ");
             }
             Console.WriteLine();
@@ -174,7 +185,8 @@ namespace LivePhotoBox.Cli.Commands
                 for (int f = 0; f < fmtNames.Length; f++)
                 {
                     WriteMark(SplitCommand.SplitFormatMatrix[s][f]);
-                    Console.Write("        ");
+                    Console.Write(new string(' ', fmtW - 2));
+                    Console.Write("   ");
                 }
                 Console.WriteLine();
             }
