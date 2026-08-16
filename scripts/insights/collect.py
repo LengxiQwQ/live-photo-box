@@ -213,27 +213,27 @@ def compute_metrics(merged: dict, data: dict) -> dict:
 def render_section(metrics: dict, refs: list, updated_at: str, lang: str) -> str:
     """生成双语 README 极简数据区块：纯 Markdown 文本，无图标/表格/图片。"""
     first = metrics.get("first_date") or "—"
-    top = " · ".join(x.get("referrer", "") for x in refs[:5] if x.get("referrer")) or "—"
+    top = " · ".join(x.get("referrer", "") for x in refs[:6] if x.get("referrer")) or "—"
 
     if lang == "zh":
         lines = [
             "**📊 仓库流量**",
             "",
-            f"- 浏览 **{fmt_num(metrics['views_all'])}** ｜ 独立访客 **{fmt_num(metrics['views_14_uniq'])}** ｜ 克隆 **{fmt_num(metrics['clones_all'])}** ｜ 独立克隆者 **{fmt_num(metrics['clones_14_uniq'])}**",
+            f"浏览 **{fmt_num(metrics['views_all'])}** ｜ 独立访客 **{fmt_num(metrics['views_14_uniq'])}** ｜ 克隆 **{fmt_num(metrics['clones_all'])}** ｜ 独立克隆者 **{fmt_num(metrics['clones_14_uniq'])}**",
             "",
             f"**热门来源：** {top}",
             "",
-            f"*数据开始：{first} · 最后更新：{updated_at}*",
+            f"> 数据开始：{first} · 最后更新：{updated_at}",
         ]
     else:
         lines = [
             "**📊 Repository Traffic**",
             "",
-            f"- Views **{fmt_num(metrics['views_all'])}** ｜ Uniques **{fmt_num(metrics['views_14_uniq'])}** ｜ Clones **{fmt_num(metrics['clones_all'])}** ｜ Cloners **{fmt_num(metrics['clones_14_uniq'])}**",
+            f"Views **{fmt_num(metrics['views_all'])}** ｜ Uniques **{fmt_num(metrics['views_14_uniq'])}** ｜ Clones **{fmt_num(metrics['clones_all'])}** ｜ Cloners **{fmt_num(metrics['clones_14_uniq'])}**",
             "",
             f"**Top referrers:** {top}",
             "",
-            f"*Data since {first} · Last updated: {updated_at}*",
+            f"> Data since {first} · Last updated: {updated_at}",
         ]
 
     return "<!-- INSIGHTS:START -->\n" + "\n".join(lines) + "\n<!-- INSIGHTS:END -->"

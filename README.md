@@ -266,11 +266,11 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 <!-- INSIGHTS:START -->
 **📊 Repository Traffic**
 
-- Views **725** ｜ Uniques **120** ｜ Clones **227** ｜ Cloners **66**
+Views **725** ｜ Uniques **120** ｜ Clones **227** ｜ Cloners **66**
 
-**Top referrers:** github.com · Google · Bing · doubao.com · chatgpt.com
+**Top referrers:** github.com · Google · Bing · doubao.com · chatgpt.com · developer.huawei.com.cn
 
-*Data since 2026-08-02 · Last updated: 2026-08-16 16:16:06 UTC*
+> Data since 2026-08-02 · Last updated: 2026-08-16 16:22:07 UTC
 <!-- INSIGHTS:END -->
 
 ---

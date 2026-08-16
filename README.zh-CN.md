@@ -268,11 +268,11 @@ live-photo-box/
 <!-- INSIGHTS:START -->
 **📊 仓库流量**
 
-- 浏览 **725** ｜ 独立访客 **120** ｜ 克隆 **227** ｜ 独立克隆者 **66**
+浏览 **725** ｜ 独立访客 **120** ｜ 克隆 **227** ｜ 独立克隆者 **66**
 
-**热门来源：** github.com · Google · Bing · doubao.com · chatgpt.com
+**热门来源：** github.com · Google · Bing · doubao.com · chatgpt.com · developer.huawei.com.cn
 
-*数据开始：2026-08-02 · 最后更新：2026-08-16 16:16:06 UTC*
+> 数据开始：2026-08-02 · 最后更新：2026-08-16 16:22:07 UTC
 <!-- INSIGHTS:END -->
 
 ---
