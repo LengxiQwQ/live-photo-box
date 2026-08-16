@@ -269,7 +269,7 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
   <img src="insights/chart.svg" alt="Repository traffic" width="780">
 </picture></p>
 
-*Data since 2026-08-02 · Last updated: 2026-08-16 15:58:33 UTC*  
+*Data since 2026-08-02 · Last updated: 2026-08-16 15:59:10 UTC*  
 *Uniques = distinct visitors/cloners in the last 14-day window; cross-day uniques can't be summed.*
 <!-- INSIGHTS:END -->
 
