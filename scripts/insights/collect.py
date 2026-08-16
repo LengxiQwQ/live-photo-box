@@ -219,7 +219,7 @@ def render_section(metrics: dict, refs: list, updated_at: str, lang: str) -> str
         lines = [
             "**📊 仓库流量**",
             "",
-            f"访问次数：**{fmt_num(metrics['views_all'])}** ｜ 不重复访客：**{fmt_num(metrics['views_14_uniq'])}**（近 14 天） ｜ 仓库克隆：**{fmt_num(metrics['clones_all'])}** ｜ 不重复克隆仓库：**{fmt_num(metrics['clones_14_uniq'])}**（近 14 天）",
+            f"访问次数：**{fmt_num(metrics['views_all'])}** ｜ 不重复访客：**{fmt_num(metrics['views_14_uniq'])}**（近 14 天） ｜ 仓库克隆：**{fmt_num(metrics['clones_all'])}** ｜ 不重复克隆：**{fmt_num(metrics['clones_14_uniq'])}**（近 14 天）",
             "",
             f"**热门来源：** {top}",
             "",
