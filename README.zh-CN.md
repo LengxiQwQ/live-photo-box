@@ -266,13 +266,14 @@ live-photo-box/
 </a>
 
 <!-- INSIGHTS:START -->
-<p align="center"><picture>
-  <source media="(prefers-color-scheme: dark)" srcset="insights/chart-dark.svg">
-  <img src="insights/chart.svg" alt="仓库流量统计" width="780">
-</picture></p>
+**📊 仓库流量**
 
-*数据开始：2026-08-02 · 最后更新：2026-08-16 15:59:10 UTC*  
-*独立数 = 近 14 天窗口内的独立访客/克隆者；跨天独立访客不可累加。*
+- **725** 次浏览 · **120** 位独立访客
+- **227** 次克隆 · **66** 位独立克隆者
+
+**热门来源：** github.com · Google · Bing · doubao.com · chatgpt.com
+
+*数据开始：2026-08-02 · 最后更新：2026-08-16 16:11:33 UTC*
 <!-- INSIGHTS:END -->
 
 ---

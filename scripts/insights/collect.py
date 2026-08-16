@@ -34,7 +34,6 @@ import urllib.request
 from pathlib import Path
 
 API_BASE = "https://api.github.com"
-DAYS_IN_WINDOW = 45  # 趋势图显示最近 45 天（不足则全部历史）
 
 
 # ── 基础工具 ───────────────────────────────────────────────────────
@@ -209,116 +208,37 @@ def compute_metrics(merged: dict, data: dict) -> dict:
     }
 
 
-# ── C. 渲染 SVG 信息图卡片 ────────────────────────────────────────
-
-def render_card(merged: dict, metrics: dict, refs: list, updated_at: str,
-                out_path: Path, theme: str) -> None:
-    """渲染 metrics 风格信息图卡片：渐变背景 + 圆角 + 大数字 + 迷你趋势 + 来源排行。"""
-    if theme == "dark":
-        bg1, bg2 = "#0d1117", "#1a2233"
-        border, text, sub = "#30363d", "#e6edf3", "#8b949e"
-        accent, accent2 = "#4ea1ff", "#7ee787"
-        chip_bg = "rgba(255,255,255,0.06)"
-    else:
-        bg1, bg2 = "#ffffff", "#f6f8fa"
-        border, text, sub = "#d0d7de", "#24292f", "#57606a"
-        accent, accent2 = "#0969da", "#1a7f37"
-        chip_bg = "rgba(9,105,218,0.05)"
-
-    W, H, pad = 780, 270, 22
-    p = [
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
-        f'viewBox="0 0 {W} {H}" font-family="system-ui, -apple-system, Segoe UI, sans-serif">',
-        "<defs>"
-        '<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
-        f'<stop offset="0" stop-color="{bg1}"/><stop offset="1" stop-color="{bg2}"/></linearGradient>'
-        '<linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1">'
-        f'<stop offset="0" stop-color="{accent}" stop-opacity="0.4"/>'
-        f'<stop offset="1" stop-color="{accent}" stop-opacity="0"/></linearGradient>'
-        "</defs>",
-        f'<rect x="0" y="0" width="{W}" height="{H}" rx="14" fill="url(#bg)" stroke="{border}" stroke-width="1"/>',
-    ]
-
-    # 标题 + 数据范围
-    first = metrics.get("first_date") or "—"
-    p.append(f'<circle cx="{pad + 8}" cy="30" r="4" fill="{accent}"/>')
-    p.append(f'<text x="{pad + 20}" y="35" font-size="15" font-weight="700" fill="{text}">Repository Traffic</text>')
-    p.append(f'<text x="{W - pad}" y="35" text-anchor="end" font-size="11" fill="{sub}">'
-             f'{first} → {updated_at[:16]} UTC</text>')
-
-    # 2x2 数字块
-    blocks = [
-        ("Views",   metrics["views_all"],      "all-time"),
-        ("Uniques", metrics["views_14_uniq"],  "14-day"),
-        ("Clones",  metrics["clones_all"],     "all-time"),
-        ("Cloners", metrics["clones_14_uniq"], "14-day"),
-    ]
-    bw = (W - pad * 2 - 24) / 2
-    bh = 62
-    for i, (label, value, sublabel) in enumerate(blocks):
-        r, c = divmod(i, 2)
-        bx = pad + c * (bw + 24)
-        by = 52 + r * (bh + 12)
-        p.append(f'<rect x="{bx:.1f}" y="{by}" width="{bw:.1f}" height="{bh}" rx="10" '
-                 f'fill="{chip_bg}" stroke="{border}" stroke-width="1"/>')
-        p.append(f'<text x="{bx + bw - 14:.1f}" y="{by + 22}" text-anchor="end" font-size="10" fill="{sub}">{sublabel}</text>')
-        p.append(f'<text x="{bx + 16:.1f}" y="{by + 26}" font-size="12" fill="{sub}">{label}</text>')
-        p.append(f'<text x="{bx + 16:.1f}" y="{by + 53}" font-size="27" font-weight="800" fill="{text}">{fmt_num(value)}</text>')
-
-    # 迷你趋势（Views sparkline）
-    days = sorted(merged["views"])
-    series = [merged["views"][d]["count"] for d in days][-DAYS_IN_WINDOW:]
-    n = len(series)
-    sy = 200
-    p.append(f'<text x="{pad}" y="{sy - 8}" font-size="11" fill="{sub}">Views trend · last {n} days</text>')
-    if n >= 2:
-        sw = W - pad * 2
-        sh = 26
-        maxv = max(series) or 1
-        pts = " ".join(f"{pad + sw * i / (n - 1):.1f},{sy + sh * (1 - v / maxv):.1f}"
-                       for i, v in enumerate(series))
-        p.append(f'<polygon points="{pad},{sy + sh} {pts} {pad + sw},{sy + sh}" fill="url(#sparkfill)"/>')
-        p.append(f'<polyline points="{pts}" fill="none" stroke="{accent}" stroke-width="2" '
-                 f'stroke-linejoin="round" stroke-linecap="round"/>')
-        lx, ly = pad + sw, sy + sh * (1 - series[-1] / maxv)
-        p.append(f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="3" fill="{accent}"/>')
-        p.append(f'<text x="{lx - 6:.1f}" y="{ly - 7:.1f}" text-anchor="end" font-size="11" '
-                 f'font-weight="600" fill="{accent}">{fmt_num(series[-1])}</text>')
-
-    # Top referrers
-    top = " · ".join(x.get("referrer", "") for x in refs[:5] if x.get("referrer"))
-    if top:
-        p.append(f'<text x="{pad}" y="258" font-size="11" fill="{sub}">Top referrers: '
-                 f'<tspan fill="{text}">{top}</tspan></text>')
-
-    p.append("</svg>")
-    out_path.write_text("".join(p), encoding="utf-8")
-    log(f"rendered -> {out_path.name}")
-
-
 # ── D. 更新 README 区块 ───────────────────────────────────────────
 
-def render_section(metrics: dict, updated_at: str, lang: str) -> str:
-    """生成双语 README 区块（图片卡片 + 数据范围 + 口径脚注）。"""
-    if lang == "zh":
-        title_alt = "仓库流量统计"
-        updated = (f"*数据开始：{metrics.get('first_date') or '—'} · 最后更新：{updated_at}*  \n"
-                   "*独立数 = 近 14 天窗口内的独立访客/克隆者；跨天独立访客不可累加。*")
-    else:
-        title_alt = "Repository traffic"
-        updated = (f"*Data since {metrics.get('first_date') or '—'} · Last updated: {updated_at}*  \n"
-                   "*Uniques = distinct visitors/cloners in the last 14-day window; "
-                   "cross-day uniques can't be summed.*")
+def render_section(metrics: dict, refs: list, updated_at: str, lang: str) -> str:
+    """生成双语 README 极简数据区块：纯 Markdown 文本，无图标/表格/图片。"""
+    first = metrics.get("first_date") or "—"
+    top = " · ".join(x.get("referrer", "") for x in refs[:5] if x.get("referrer")) or "—"
 
-    return (
-        "<!-- INSIGHTS:START -->\n"
-        '<p align="center"><picture>\n'
-        '  <source media="(prefers-color-scheme: dark)" srcset="insights/chart-dark.svg">\n'
-        f'  <img src="insights/chart.svg" alt="{title_alt}" width="780">\n'
-        "</picture></p>\n\n"
-        f"{updated}\n"
-        "<!-- INSIGHTS:END -->"
-    )
+    if lang == "zh":
+        lines = [
+            "**📊 仓库流量**",
+            "",
+            f"- **{fmt_num(metrics['views_all'])}** 次浏览 · **{fmt_num(metrics['views_14_uniq'])}** 位独立访客",
+            f"- **{fmt_num(metrics['clones_all'])}** 次克隆 · **{fmt_num(metrics['clones_14_uniq'])}** 位独立克隆者",
+            "",
+            f"**热门来源：** {top}",
+            "",
+            f"*数据开始：{first} · 最后更新：{updated_at}*",
+        ]
+    else:
+        lines = [
+            "**📊 Repository Traffic**",
+            "",
+            f"- **{fmt_num(metrics['views_all'])}** views · **{fmt_num(metrics['views_14_uniq'])}** unique visitors",
+            f"- **{fmt_num(metrics['clones_all'])}** clones · **{fmt_num(metrics['clones_14_uniq'])}** unique cloners",
+            "",
+            f"**Top referrers:** {top}",
+            "",
+            f"*Data since {first} · Last updated: {updated_at}*",
+        ]
+
+    return "<!-- INSIGHTS:START -->\n" + "\n".join(lines) + "\n<!-- INSIGHTS:END -->"
 
 
 def update_readme(root: Path, section: str, filename: str) -> None:
@@ -372,11 +292,8 @@ def main() -> None:
     refs = ((data.get("referrers") or []) if isinstance(data.get("referrers"), list) else [])
     updated_at = payload["fetched_at"].replace("T", " ").replace("Z", " UTC")
 
-    render_card(merged, metrics, refs, updated_at, root / "insights" / "chart.svg", "light")
-    render_card(merged, metrics, refs, updated_at, root / "insights" / "chart-dark.svg", "dark")
-
-    update_readme(root, render_section(metrics, updated_at, "en"), "README.md")
-    update_readme(root, render_section(metrics, updated_at, "zh"), "README.zh-CN.md")
+    update_readme(root, render_section(metrics, refs, updated_at, "en"), "README.md")
+    update_readme(root, render_section(metrics, refs, updated_at, "zh"), "README.zh-CN.md")
 
     log("done")
 
