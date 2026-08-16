@@ -157,6 +157,88 @@ namespace LivePhotoBox.Services.Protocols
             }
         }
 
+        // 在 HEIC/HEIF 容器的 Exif item 中原位写入 Apple ContentIdentifier。
+        // 不重编码像素：直接按 iloc 定位 Exif item，只重建其内部 TIFF 的 MakerNote，
+        // 且要求新 TIFF 长度 ≤ 原 extent 长度，文件总长度与所有盒子偏移保持不变。
+        // 因此 10-bit 子图、增益图（hdrgainmap）、辅助图、厂商私有数据全部原样保留。
+        // 失败（未知结构 / 容量不足等）返回 false，交由上层回退 HDR 重编码。
+        public static bool TryInjectAppleMakerNoteIntoHeic(string heicPath, string contentId, out string? error)
+        {
+            error = null;
+            try
+            {
+                if (!HeifBoxParser.TryLocateExifItem(heicPath, out long exifOffset, out long exifLength, out string? locateError))
+                {
+                    error = $"Exif item locate failed: {locateError}";
+                    return false;
+                }
+
+                byte[] data = File.ReadAllBytes(heicPath);
+                int itemStart = checked((int)exifOffset);
+                int itemLen = checked((int)exifLength);
+                if (itemStart + itemLen > data.Length)
+                {
+                    error = "Exif extent out of range.";
+                    return false;
+                }
+
+                // Exif item payload: [32bit exif_tiff_header_offset]["Exif\0\0"][TIFF]
+                if (itemLen < 10)
+                {
+                    error = "Exif item too short.";
+                    return false;
+                }
+
+                int tiffHeaderOffset = BinaryPrimitives.ReadInt32BigEndian(data.AsSpan(itemStart, 4));
+                int tiffStart = itemStart + 4 + tiffHeaderOffset;
+                if (tiffStart + 8 > itemStart + itemLen)
+                {
+                    error = "Exif TIFF offset out of range.";
+                    return false;
+                }
+
+                bool bigEndian = data[tiffStart] == (byte)'M' && data[tiffStart + 1] == (byte)'M';
+                bool littleEndian = data[tiffStart] == (byte)'I' && data[tiffStart + 1] == (byte)'I';
+                if (!bigEndian && !littleEndian)
+                {
+                    error = "Exif TIFF byte order unknown.";
+                    return false;
+                }
+
+                int tiffLen = (itemStart + itemLen) - tiffStart;
+                byte[] tiff = new byte[tiffLen];
+                Array.Copy(data, tiffStart, tiff, 0, tiffLen);
+
+                byte[] makerNote = BuildMakerNote(contentId);
+                byte[]? newTiff = InjectMakerNoteIntoTiff(tiff, makerNote, out string? tiffError);
+                if (newTiff == null)
+                {
+                    error = $"TIFF MakerNote injection failed: {tiffError}";
+                    return false;
+                }
+                if (newTiff.Length > tiffLen)
+                {
+                    error = $"New TIFF ({newTiff.Length} bytes) exceeds Exif item capacity ({tiffLen} bytes).";
+                    return false;
+                }
+
+                // 原位写回，尾部零填充；文件长度与所有盒子偏移不变。
+                Array.Copy(newTiff, 0, data, tiffStart, newTiff.Length);
+                for (int i = tiffStart + newTiff.Length; i < itemStart + itemLen; i++)
+                {
+                    data[i] = 0;
+                }
+
+                File.WriteAllBytes(heicPath, data);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
         // 在整文件中定位 Apple MakerNote：签名 "Apple iOS\0" + 0x00 0x01 + "MM"。
         private static int FindAppleMakerNote(byte[] data)
         {
@@ -179,6 +261,214 @@ namespace LivePhotoBox.Services.Protocols
                 }
             }
             return -1;
+        }
+
+        // 在独立 TIFF 字节数组上：清除所有 0x927C MakerNote，再插入唯一一条 Apple MakerNote。
+        private static byte[]? InjectMakerNoteIntoTiff(byte[] tiff, byte[] makerNote, out string? error)
+        {
+            error = null;
+            if (tiff.Length < 8)
+            {
+                error = "TIFF too short.";
+                return null;
+            }
+
+            bool bigEndian = tiff[0] == (byte)'M' && tiff[1] == (byte)'M';
+            bool littleEndian = tiff[0] == (byte)'I' && tiff[1] == (byte)'I';
+            if (!bigEndian && !littleEndian)
+            {
+                error = "TIFF byte order unknown.";
+                return null;
+            }
+
+            int ifd0 = Read32(tiff, 4, bigEndian);
+            if (ifd0 <= 0 || ifd0 + 2 > tiff.Length)
+            {
+                error = "IFD0 offset invalid.";
+                return null;
+            }
+
+            byte[]? cleaned = RemoveMakerNotesFromTiff(tiff, ifd0, bigEndian, out error);
+            if (cleaned == null)
+            {
+                return null;
+            }
+
+            // 删除条目后重新读取 ExifIFD 指针（偏移可能因前移而变化）。
+            int exifPtr = -1;
+            int exifPtrValuePos = FindEntryValue(cleaned, 0, ifd0, 0x8769, bigEndian);
+            if (exifPtrValuePos >= 0)
+            {
+                exifPtr = Read32(cleaned, exifPtrValuePos, bigEndian);
+            }
+
+            return InsertMakerNoteEntryIntoTiff(cleaned, ifd0, exifPtr, makerNote, bigEndian, out error);
+        }
+
+        // 在独立 TIFF 上删除所有 0x927C MakerNote 条目，并回收其 out-of-line 数据区。
+        // 华为等机型的厂商 MakerNote 常达数百字节，仅删条目不够，原位注入 HEIC 时
+        // 必须连同数据区一起回收，才能让新 Apple MakerNote 在 Exif item 内放下。
+        private static byte[]? RemoveMakerNotesFromTiff(byte[] tiff, int ifd0, bool bigEndian, out string? error)
+        {
+            error = null;
+            var entryStarts = new System.Collections.Generic.List<int>();
+            var dataRanges = new System.Collections.Generic.List<(int Start, int Length)>();
+            var countPositions = new System.Collections.Generic.List<int>();
+            var fixups = new System.Collections.Generic.List<(int Pos, int Value)>();
+            var visited = new System.Collections.Generic.HashSet<int>();
+
+            CollectMakerNoteCleanup(
+                tiff, 0, ifd0, bigEndian,
+                entryStarts, countPositions, fixups, visited, dataRanges);
+
+            if (entryStarts.Count == 0)
+            {
+                return tiff; // 无 0x927C，原样返回
+            }
+
+            // 条目（各 12 字节）+ 数据区（变长）合并为删除区间。
+            var intervals = new System.Collections.Generic.List<(int Start, int Length)>();
+            foreach (int s in entryStarts)
+            {
+                intervals.Add((s, 12));
+            }
+            foreach (var range in dataRanges)
+            {
+                if (range.Length > 0) intervals.Add(range);
+            }
+
+            intervals.Sort((a, b) => a.Start.CompareTo(b.Start));
+            var merged = new System.Collections.Generic.List<(int Start, int Length)>();
+            foreach (var (s, l) in intervals)
+            {
+                if (merged.Count == 0 || s > merged[^1].Start + merged[^1].Length)
+                {
+                    merged.Add((s, l));
+                }
+                else
+                {
+                    var last = merged[^1];
+                    merged[^1] = (last.Start, Math.Max(last.Length, (s + l) - last.Start));
+                }
+            }
+
+            int totalRemoved = 0;
+            foreach (var m in merged) totalRemoved += m.Length;
+            byte[] cleaned = new byte[tiff.Length - totalRemoved];
+            int src = 0, dst = 0;
+            foreach (var (s, l) in merged)
+            {
+                int len = s - src;
+                if (len > 0) { Array.Copy(tiff, src, cleaned, dst, len); dst += len; }
+                src = s + l;
+            }
+            if (src < tiff.Length)
+            {
+                Array.Copy(tiff, src, cleaned, dst, tiff.Length - src);
+            }
+
+            int MapAbs(int absPos)
+            {
+                int shift = 0;
+                foreach (var (s, l) in merged)
+                {
+                    if (s < absPos) shift += l; else break;
+                }
+                return absPos - shift;
+            }
+
+            // 修正指向删除点之后的所有偏移（out-of-line 数据 / next-IFD / 嵌套 IFD 指针）。
+            foreach (var (pos, val) in fixups)
+            {
+                int newVal = val;
+                foreach (var (s, l) in merged)
+                {
+                    if (s < val) newVal -= l; else break;
+                }
+                Write32(cleaned, MapAbs(pos), newVal, bigEndian);
+            }
+
+            // 各受影响 IFD 的条目数 -1。
+            foreach (int cp in countPositions)
+            {
+                int p = MapAbs(cp);
+                int cnt = Read16(cleaned, p, bigEndian);
+                if (cnt > 0)
+                {
+                    WriteU16(cleaned, p, cnt - 1, bigEndian);
+                }
+            }
+
+            return cleaned;
+        }
+
+        // TIFF-only 版的 InsertMakerNoteEntry（无 JPEG APP1 外壳）。
+        private static byte[]? InsertMakerNoteEntryIntoTiff(
+            byte[] tiff, int ifd0, int exifPtr, byte[] makerNote, bool bigEndian, out string? error)
+        {
+            error = null;
+            int targetIfd = exifPtr > 0 ? exifPtr : ifd0; // 优先 ExifIFD，缺省用 IFD0
+            int p = targetIfd;
+            if (p + 2 > tiff.Length)
+            {
+                error = "IFD out of range.";
+                return null;
+            }
+            int entryCount = Read16(tiff, p, bigEndian);
+            if (entryCount <= 0 || entryCount > 256)
+            {
+                error = "Invalid IFD entry count.";
+                return null;
+            }
+
+            int insertAtRel = targetIfd + 2 + entryCount * 12; // 原 next-IFD 位置
+            int tiffLen = tiff.Length;
+            if (insertAtRel <= 0 || insertAtRel >= tiffLen)
+            {
+                error = "MakerNote insertion point out of range.";
+                return null;
+            }
+            int insertAt = insertAtRel; // tiff 基址为 0
+
+            int pad = (tiffLen % 2 == 0) ? 0 : 1;
+            int mnOffset = tiffLen + 12 + pad; // 相对 TIFF 起点的偏移
+
+            // 1. 收集指向插入点之后的所有 TIFF 偏移（条目数据偏移 + next-IFD + 嵌套 IFD 指针）。
+            var fixups = new System.Collections.Generic.List<(int Pos, int Value)>();
+            var visited = new System.Collections.Generic.HashSet<int>();
+            CollectIfdFixups(tiff, 0, ifd0, insertAtRel, bigEndian, fixups, visited);
+            if (targetIfd != ifd0)
+            {
+                CollectIfdFixups(tiff, 0, targetIfd, insertAtRel, bigEndian, fixups, visited);
+            }
+
+            // 2. 构造新条目：tag 0x927C / type 7(UNDEFINED) / count / offset。
+            byte[] entry = new byte[12];
+            WriteU16(entry, 0, 0x927C, bigEndian);
+            WriteU16(entry, 2, 7, bigEndian);
+            Write32(entry, 4, makerNote.Length, bigEndian);
+            Write32(entry, 8, mnOffset, bigEndian);
+
+            // 3. 增长数组：插入 12 字节条目，TIFF 尾部追加 pad + MakerNote。
+            byte[] grown = new byte[tiff.Length + 12 + pad + makerNote.Length];
+            Array.Copy(tiff, 0, grown, 0, insertAt);
+            Array.Copy(entry, 0, grown, insertAt, 12);
+            Array.Copy(tiff, insertAt, grown, insertAt + 12, tiff.Length - insertAt);
+            int mnInsertAt = tiffLen + 12; // 原 TIFF 末尾
+            if (pad > 0) grown[mnInsertAt] = 0;
+            Array.Copy(makerNote, 0, grown, mnInsertAt + pad, makerNote.Length);
+
+            // 4. 修正插入点之后的偏移 +12。
+            foreach (var (fixPos, fixVal) in fixups)
+            {
+                int newPos = fixPos < insertAt ? fixPos : fixPos + 12;
+                Write32(grown, newPos, fixVal + 12, bigEndian);
+            }
+
+            // 5. 目标 IFD 条目数 +1。
+            WriteU16(grown, targetIfd, entryCount + 1, bigEndian);
+
+            return grown;
         }
 
         // 剥离 0x0011/0x0017/0x0025 条目：数据区清零 + 条目区压缩（保持 MN 总长不变）。
@@ -468,7 +758,8 @@ namespace LivePhotoBox.Services.Protocols
             System.Collections.Generic.List<int> removalStarts,
             System.Collections.Generic.List<int> countPositions,
             System.Collections.Generic.List<(int Pos, int Value)> fixups,
-            System.Collections.Generic.HashSet<int> visited)
+            System.Collections.Generic.HashSet<int> visited,
+            System.Collections.Generic.List<(int Start, int Length)>? dataRanges = null)
         {
             if (ifdRel <= 0 || !visited.Add(ifdRel)) return;
             int p = tiff + ifdRel;
@@ -485,7 +776,7 @@ namespace LivePhotoBox.Services.Protocols
                 {
                     CollectMakerNoteCleanup(
                         data, tiff, nextVal, bigEndian,
-                        removalStarts, countPositions, fixups, visited);
+                        removalStarts, countPositions, fixups, visited, dataRanges);
                 }
             }
 
@@ -503,6 +794,14 @@ namespace LivePhotoBox.Services.Protocols
                 {
                     removalStarts.Add(e);
                     countPositions.Add(p);
+                    if (dataRanges != null)
+                    {
+                        int mnDataLen = cnt < 0 ? 0 : TypeToDataLength(type, (uint)cnt);
+                        if (mnDataLen > 4 && off >= 0 && (long)tiff + off + mnDataLen <= data.Length)
+                        {
+                            dataRanges.Add((tiff + off, mnDataLen));
+                        }
+                    }
                     continue; // 该条目的 value 不参与偏移修正（条目本身被删除）
                 }
 
@@ -513,7 +812,7 @@ namespace LivePhotoBox.Services.Protocols
                     {
                         CollectMakerNoteCleanup(
                             data, tiff, off, bigEndian,
-                            removalStarts, countPositions, fixups, visited);
+                            removalStarts, countPositions, fixups, visited, dataRanges);
                     }
                     continue;
                 }

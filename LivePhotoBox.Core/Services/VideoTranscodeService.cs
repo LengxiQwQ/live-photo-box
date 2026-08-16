@@ -186,13 +186,21 @@ namespace LivePhotoBox.Services
                 // -map 0:V:0 -> 【神级参数】大写 V 表示提取第1个"真正的视频轨"，完美避开Apple的 128x96 缩略图轨和安卓的 MJPEG 封面轨
                 // -map 0:a:0? -> 提取第1个音频轨（问号表示如果没有音频也不报错，防止静音视频闪退）
                 // -map_metadata 0: 保留源文件时间、GPS等元数据
+                // 音频映射仅在探测到有效音频时加入：vivo 单文件实况（X300 等）的尾部 MP4 常带一条
+                // 0 声道、无 codec 的占位音频轨（ffmpeg 显示 "Audio: none, 0 channels"），-c copy 拷贝它时
+                // MOV/MP4 muxer 写头失败（Could not write header: Invalid argument），必须整体跳过。
+                string audioMap = HasValidAudio(inputPath) ? "-map 0:a:0? " : "";
+                if (string.IsNullOrEmpty(audioMap))
+                {
+                    LogService.Split("Remux: no valid audio track detected, skipping audio mapping", LogLevel.Debug);
+                }
                 string arguments;
                 if (!string.IsNullOrEmpty(movflags))
-                    arguments = $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0 -movflags {movflags} \"{outputPath}\"";
+                    arguments = $"-y -i \"{inputPath}\" -c copy -map 0:V:0 {audioMap}-map_metadata 0 -movflags {movflags} \"{outputPath}\"";
                 else if (!string.IsNullOrEmpty(brandMeta))
-                    arguments = $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0{brandMeta} \"{outputPath}\"";
+                    arguments = $"-y -i \"{inputPath}\" -c copy -map 0:V:0 {audioMap}-map_metadata 0{brandMeta} \"{outputPath}\"";
                 else
-                    arguments = $"-y -i \"{inputPath}\" -c copy -map 0:V:0 -map 0:a:0? -map_metadata 0 \"{outputPath}\"";
+                    arguments = $"-y -i \"{inputPath}\" -c copy -map 0:V:0 {audioMap}-map_metadata 0 \"{outputPath}\"";
 
                 using var process = new Process();
                 process.StartInfo.FileName = ffmpegPath;
@@ -1231,17 +1239,27 @@ namespace LivePhotoBox.Services
             }
         }
 
+        // 判断输入是否存在"有效"音频轨（exiftool 能读到 AudioFormat 才算）。
+        // vivo 单文件实况（X300 等）的尾部 MP4 常带一条 0 声道、无 codec 的占位音频轨
+        // （stsd/stbl 为空，ffmpeg 显示 "Audio: none, 0 channels"）。若 -map 0:a:0? 选中它，
+        // 无论 -c:a copy 还是 -c:a aac，MOV/MP4 muxer 写头都会失败
+        // （Could not write header: Invalid argument），因此读不到 AudioFormat 时整体跳过音频映射：
+        // 输出为静音视频，但转码不再失败。
+        private static bool HasValidAudio(string inputPath)
+        {
+            var (format, _) = DetectAudioInfo(inputPath);
+            return !string.IsNullOrEmpty(format);
+        }
+
         // Build adaptive audio arguments for MP4 transcoding.
         // - Already compressed (AAC/MP3/MP4A): -c:a copy — avoids generation loss
         // - PCM (lpcm/raw/twos/sowt): re-encode to AAC with channel-based bitrate
         // · Mono (most live photos, voice memos): 256k — near-transparent
         // · Stereo (music, ambient): 320k — AAC maximum, transparent
         // · Unknown channels: 256k — safe middle ground
-        // - Detection failure: AAC 256k — conservative fallback
-        private static string BuildAudioArgsForMp4(string inputPath)
+        // - 调用方已用 HasValidAudio 过滤：只有探测到有效音频才会走到这里
+        private static string BuildAudioArgsForMp4(string? format, int channels)
         {
-            var (format, channels) = DetectAudioInfo(inputPath);
-
             // Already-compressed formats MP4 supports natively → copy
             if (format != null)
             {
@@ -1277,13 +1295,24 @@ namespace LivePhotoBox.Services
             VideoFormat targetFormat, bool forceSoftwareEncoder = false, bool useFaststart = true,
             string videoCodec = "h264", string? forceEncoder = null, int? keyframeInterval = null)
         {
+            // 音频有效性判断：vivo 哑音频轨（Audio: none, 0 channels）不能映射，
+            // 否则 -c:a copy / -c:a aac 都会让 muxer 写头失败（Could not write header: Invalid argument）。
+            var (audioFormat, audioChannels) = DetectAudioInfo(inputPath);
+            bool hasValidAudio = !string.IsNullOrEmpty(audioFormat);
+            string audioMapArgs = hasValidAudio ? "-map 0:a:0? " : "";
+            if (!hasValidAudio)
+            {
+                LogService.Split("Audio: no valid audio track detected, skipping audio mapping", LogLevel.Debug);
+            }
+
             // HEVC passthrough: copy video stream, transcode audio to AAC (MP4 doesn't support PCM)
             if (videoCodec == "copy")
             {
                 string movflags = useFaststart ? "+faststart" : "";
+                string audioEncodeArgs = hasValidAudio ? "-c:a aac -b:a 128k -ar 44100 -ac 2 " : "";
                 return $"-y -v error -apply_cropping 0 -i \"{inputPath}\" " +
-                       $"-map 0:V:0 -map 0:a:0 " +
-                       $"-c:v copy -c:a aac -b:a 128k -ar 44100 -ac 2 " +
+                       $"-map 0:V:0 {audioMapArgs}" +
+                       $"-c:v copy {audioEncodeArgs}" +
                        $"-brand mp42 -metadata too=\"Openharmony6.1\" " +
                        (string.IsNullOrEmpty(movflags) ? "" : $"-movflags {movflags} ") +
                        $"\"{outputPath}\"";
@@ -1298,7 +1327,8 @@ namespace LivePhotoBox.Services
             string pixelFormat = GetPixelFormatParams(videoEncoder, targetFormat);
             string videoFilter = BuildVideoFilter(targetFormat, videoEncoder, inputPath);
 
-            string audioArgs = BuildAudioArgsForMp4(inputPath);
+            string audioArgs = hasValidAudio ? BuildAudioArgsForMp4(audioFormat, audioChannels) : "";
+            string audioCopyArgs = hasValidAudio ? "-c:a copy " : "";
 
             // +faststart: moov at beginning (matches Mate 60/80 real files).
             // Huawei protocol (useFaststart=false): additionally set mp42 brand + ©too.
@@ -1316,24 +1346,24 @@ namespace LivePhotoBox.Services
             return targetFormat switch
             {
                 VideoFormat.MP4 => $"-apply_cropping 0 -y -i \"{inputPath}\" " +
-                    $"-map 0:V:0 -map 0:a:0? " +
+                    $"-map 0:V:0 {audioMapArgs}" +
                     $"-map_metadata 0 " +
                     $"-threads {threadCount} " +
                     $"{videoFilter} " +
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} " +
-                    $"{audioArgs} " +
+                    $"{audioArgs}{(string.IsNullOrEmpty(audioArgs) ? "" : " ")}" +
                     $"-movflags +faststart{brandAndMeta} " +
                     $"\"{outputPath}\"",
 
                 VideoFormat.MOV => $"-apply_cropping 0 -y -i \"{inputPath}\" " +
-                    $"-map 0:V:0 -map 0:a:0? " +
+                    $"-map 0:V:0 {audioMapArgs}" +
                     $"-map_metadata 0 " +
                     $"-threads {threadCount} " +
                     $"{videoFilter} " +
                     $"{pixelFormat} " +
                     $"-c:v {videoEncoder} {videoParams} {keyframeArgs}-tag:v hvc1 " +
-                    $"-c:a copy " +
+                    $"{audioCopyArgs}" +
                     $"-movflags +faststart{brandAndMeta} " +
                     $"\"{outputPath}\"",
 

@@ -258,7 +258,9 @@ namespace LivePhotoBox.Services
 
                 // HEIC 源：meta box 里的 XMP（谷歌 V2 / 三星 / 融合）仍是「我是实况照片」签名，用 exiftool 整组剥离。
                 // 华为 HEIC 无 XMP，此步为空操作（best-effort）。
-                if (sourceImageIsHeic)
+                // 注意：Apple 目标走字节级无损注入，exiftool 整文件重写会破坏「原样保留」并多塞空 XMP，
+                // 故 Apple 目标跳过此步（配对靠 MakerNote，不依赖此处 XMP 剥离）。
+                if (sourceImageIsHeic && protocolIndex != 1)
                 {
                     await StripHeicXmpAsync(tempImagePath, token);
                 }
@@ -334,16 +336,29 @@ namespace LivePhotoBox.Services
                         }
                         else
                         {
-                            // 原生 HEIC 没有 Apple MakerNote 也无法二进制注入：解码为 JPEG，
-                            // 注入后再决定最终格式（HEIC 目标则 heif-enc 编码回）。
-                            LogService.Split(
-                                "Apple[image] HEIC source: bridging via JPEG for MakerNote injection",
-                                LogLevel.Debug);
-                            appleBridgeJpeg = await HeicConverterService.ConvertToJpegAsync(
-                                tempImagePath, tempDir, token);
-                            byte[] makerNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
-                            mnOk = Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(
-                                appleBridgeJpeg, makerNote, out mnError);
+                            // 无损优先：直接在 HEIC 容器的 Exif item 里原位写入 Apple MakerNote，
+                            // 不重编码像素，保留 10-bit 子图 / 增益图 / 辅助图 / 厂商私有数据。
+                            // 结构不认识或容量不足时回退 JPEG 桥接（老套路）。
+                            bool heicDirectOk = Protocols.AppleMakerNoteWriter.TryInjectAppleMakerNoteIntoHeic(
+                                tempImagePath, appleContentId, out string? heicDirectError);
+                            if (heicDirectOk)
+                            {
+                                LogService.Split(
+                                    "Apple[image] HEIC source: injected Apple MakerNote in place (lossless, no re-encode)",
+                                    LogLevel.Debug);
+                                mnOk = true;
+                            }
+                            else
+                            {
+                                LogService.Split(
+                                    $"Apple[image] lossless HEIC injection failed ({heicDirectError}), falling back to JPEG bridge",
+                                    LogLevel.Warning);
+                                appleBridgeJpeg = await HeicConverterService.ConvertToJpegAsync(
+                                    tempImagePath, tempDir, token);
+                                byte[] makerNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
+                                mnOk = Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(
+                                    appleBridgeJpeg, makerNote, out mnError);
+                            }
                         }
                     }
                     if (!mnOk)
@@ -362,8 +377,33 @@ namespace LivePhotoBox.Services
                     // HEIC 源桥接注入后：目标 HEIC → 编码回；目标 JPG → 直接用桥接 JPEG。
                     if (targetImageIsHeic)
                     {
-                        convertedImagePath = await HeicConverterService.ConvertToHeicAsync(appleBridgeJpeg, tempDir, token);
-                        workingImagePath = convertedImagePath;
+                        if (sourceImageIsHeic)
+                        {
+                            // HDR 保留：HEIC 源像素走 16-bit PNG（heif-dec -> heif-enc -b 10 + nclx/CLLI），
+                            // EXIF（含 Apple MakerNote）整体取自 JPEG 桥接（先清后拷，保证唯一 0x927C）。
+                            try
+                            {
+                                convertedImagePath = await HeicConverterService.ConvertHeicToHeicPreservingAsync(
+                                    tempImagePath, tempDir, token,
+                                    exifSourcePath: appleBridgeJpeg, metadataSourcePath: sourcePath);
+                                workingImagePath = convertedImagePath;
+                            }
+                            catch (Exception ex)
+                            {
+                                LogService.Split(
+                                    $"Apple[image] HDR-preserving HEIC encode failed ({ex.Message}), falling back to JPEG bridge",
+                                    LogLevel.Warning);
+                                convertedImagePath = await HeicConverterService.ConvertToHeicAsync(
+                                    appleBridgeJpeg, tempDir, token);
+                                workingImagePath = convertedImagePath;
+                            }
+                        }
+                        else
+                        {
+                            convertedImagePath = await HeicConverterService.ConvertToHeicAsync(
+                                appleBridgeJpeg, tempDir, token);
+                            workingImagePath = convertedImagePath;
+                        }
                     }
                     else
                     {
@@ -380,6 +420,12 @@ namespace LivePhotoBox.Services
                     convertedImagePath = await HeicConverterService.ConvertToJpegAsync(tempImagePath, tempDir, token);
                     workingImagePath = convertedImagePath;
                 }
+
+                // 无损 HEIC→HEIC：workingImagePath 仍是 tempImagePath（未重编码）。
+                // 后续不要再对图片跑 exiftool（会重写容器、加 XMP，破坏「原样保留」）。
+                bool imageIsLosslessHeic = sourceImageIsHeic
+                    && targetImageIsHeic
+                    && string.Equals(workingImagePath, tempImagePath, StringComparison.Ordinal);
 
                 // 图片落位到最终输出路径（BuildOutputPaths 已预留 0 字节占位文件，需先删除）
                 if (File.Exists(imageOutputPath))
@@ -445,8 +491,12 @@ namespace LivePhotoBox.Services
                 await CopyMetadataToVideoAsync(tempImagePath, videoOutputPath, token);
 
                 // 5. 给图片和视频打上 LivePhotoBox 标记（标识经本软件拆分过）
-                await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
-                    imageOutputPath, "Split", "", token);
+                // 无损 HEIC 图片跳过：exiftool 会重写容器并加 XMP，破坏原样保留。
+                if (!imageIsLosslessHeic)
+                {
+                    await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
+                        imageOutputPath, "Split", "", token);
+                }
                 await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
                     videoOutputPath, "Split", "", token);
 

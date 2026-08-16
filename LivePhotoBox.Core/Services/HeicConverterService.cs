@@ -1,7 +1,10 @@
 using ImageMagick;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using LogLevel = LivePhotoBox.Models.LogLevel;
@@ -134,6 +137,295 @@ namespace LivePhotoBox.Services
                 TryDelete(heicPath);
                 throw new InvalidOperationException(
                     $"HEIC encoding failed for {Path.GetFileName(sourcePath)}: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// HDR 保留的 HEIC -> HEIC 转换：像素走 heif-dec 解码为 16-bit PNG，
+        /// 再用 heif-enc 以 -b 10 + 源 nclx/CLLI 重新编码，避免 JPEG 桥接导致的 8-bit 降级。
+        /// 源 ICC/EXIF/XMP 随 PNG 保留；如需把另一文件的 EXIF（如含 Apple MakerNote 的
+        /// JPEG 桥接）整体替换到输出，传 exifSourcePath（内部先清后拷，保证唯一 0x927C）。
+        /// </summary>
+        /// <param name="heicPath">源 HEIC 文件路径。</param>
+        /// <param name="outputDirectory">输出目录。</param>
+        /// <param name="token">取消令牌。</param>
+        /// <param name="exifSourcePath">可选：EXIF 来源文件（整体替换输出 EXIF）。</param>
+        /// <param name="metadataSourcePath">可选：nclx/CLLI 元数据来源（图片项 nclx 不完整时回退读取）。</param>
+        /// <returns>转换后的 HEIC 文件路径。</returns>
+        public static async Task<string> ConvertHeicToHeicPreservingAsync(
+            string heicPath, string outputDirectory, CancellationToken token,
+            string? exifSourcePath = null, string? metadataSourcePath = null)
+        {
+            string? heifDecPath = ExternalToolLocator.FindHeifDec();
+            if (string.IsNullOrEmpty(heifDecPath))
+                throw new InvalidOperationException(ResourceService.GetString("Error_HeifDecMissing"));
+
+            string? heifEncPath = ExternalToolLocator.FindHeifEnc();
+            if (string.IsNullOrEmpty(heifEncPath))
+                throw new InvalidOperationException(ResourceService.GetString("Error_HeifEncMissing"));
+
+            string tempPngPath = Path.Combine(outputDirectory, $".lpb_hdr_{Guid.NewGuid():N}.png");
+            string heicOutPath = TempFileService.AllocateTempPath(outputDirectory, "heic", "heic");
+
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                LogService.Merge(
+                    $"Converting HEIC to HEIC preserving HDR (heif-dec PNG16 -> heif-enc): {Path.GetFileName(heicPath)}");
+
+                // 1) HEIC -> PNG（源为 10-bit 时输出 16-bit PNG）；重试一次规避杀软/锁文件竞态。
+                await RunWithRetryAsync(
+                    () => RunHeifDecToPngAsync(heifDecPath, heicPath, tempPngPath, token), token);
+                if (!File.Exists(tempPngPath))
+                    throw new InvalidOperationException("heif-dec produced no PNG output.");
+
+                // 2) 读源 nclx/CLLI 并映射为 H.273 数值；映射不全则跳过 nclx 参数（ICC 仍保留）。
+                (int? primaries, int? transfer, int? matrix, int? fullRange, int? maxCll, int? maxFall) =
+                    await ReadHeicHdrMetadataAsync(heicPath, token);
+
+                var encArgs = new List<string> { "-o", heicOutPath, "-q", "90", "-b", "10" };
+                bool hasNclx = primaries.HasValue && transfer.HasValue && matrix.HasValue && fullRange.HasValue;
+                if (!hasNclx && !string.IsNullOrEmpty(metadataSourcePath)
+                    && !string.Equals(metadataSourcePath, heicPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    // 华为等机型图片项的 nclx 常为 Unspecified，但完整源文件（含视频轨）声明了 HDR；
+                    // 回退读取原始源文件补全 nclx/CLLI。
+                    var fallback = await ReadHeicHdrMetadataAsync(metadataSourcePath, token);
+                    if (fallback.Primaries.HasValue && fallback.Transfer.HasValue
+                        && fallback.Matrix.HasValue && fallback.FullRange.HasValue)
+                    {
+                        primaries = fallback.Primaries;
+                        transfer = fallback.Transfer;
+                        matrix = fallback.Matrix;
+                        fullRange = fallback.FullRange;
+                        maxCll ??= fallback.MaxCll;
+                        maxFall ??= fallback.MaxFall;
+                        hasNclx = true;
+                        LogService.Merge(
+                            "HEIC HDR nclx read from original source (image item nclx incomplete)",
+                            LogLevel.Debug);
+                    }
+                }
+                if (primaries.HasValue && transfer.HasValue && matrix.HasValue && fullRange.HasValue)
+                {
+                    encArgs.Add("--colour_primaries");
+                    encArgs.Add(primaries.Value.ToString(CultureInfo.InvariantCulture));
+                    encArgs.Add("--transfer_characteristic");
+                    encArgs.Add(transfer.Value.ToString(CultureInfo.InvariantCulture));
+                    encArgs.Add("--matrix_coefficients");
+                    encArgs.Add(matrix.Value.ToString(CultureInfo.InvariantCulture));
+                    encArgs.Add("--full_range_flag");
+                    encArgs.Add(fullRange.Value.ToString(CultureInfo.InvariantCulture));
+                    encArgs.Add("--enable-two-colr-boxes");
+                }
+                if (maxCll.HasValue && maxFall.HasValue)
+                {
+                    encArgs.Add("--clli");
+                    encArgs.Add(
+                        $"{maxCll.Value.ToString(CultureInfo.InvariantCulture)},{maxFall.Value.ToString(CultureInfo.InvariantCulture)}");
+                }
+                encArgs.Add(tempPngPath);
+
+                // 3) PNG -> HEIC（10-bit 容器；8-bit 源自动保持 8-bit）。
+                await RunWithRetryAsync(() => RunHeifEncAsync(heifEncPath, encArgs, token), token);
+                if (!File.Exists(heicOutPath) || new FileInfo(heicOutPath).Length == 0)
+                    throw new InvalidOperationException("heif-enc produced no HEIC output.");
+
+                // 4) EXIF 整体替换为桥接文件版本（先清后拷，避免重复 0x927C MakerNote）。
+                if (!string.IsNullOrEmpty(exifSourcePath) && File.Exists(exifSourcePath))
+                {
+                    await ReplaceExifFromAsync(exifSourcePath, heicOutPath, token);
+                }
+
+                return heicOutPath;
+            }
+            catch (OperationCanceledException)
+            {
+                TryDelete(heicOutPath);
+                throw;
+            }
+            catch
+            {
+                TryDelete(heicOutPath);
+                throw;
+            }
+            finally
+            {
+                TryDelete(tempPngPath);
+            }
+        }
+
+        // ---- HDR preserving conversion helpers ----
+
+        private static async Task RunWithRetryAsync(Func<Task> action, CancellationToken token)
+        {
+            Exception? last = null;
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                try
+                {
+                    await action();
+                    return;
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) { last = ex; }
+            }
+            throw last ?? new InvalidOperationException("tool run failed");
+        }
+
+        private static async Task RunHeifDecToPngAsync(
+            string heifDecPath, string heicPath, string pngPath, CancellationToken token)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = heifDecPath,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true
+            };
+            psi.ArgumentList.Add(heicPath);
+            psi.ArgumentList.Add("-o");
+            psi.ArgumentList.Add(pngPath);
+            psi.ArgumentList.Add("--quiet");
+
+            using var process = new Process { StartInfo = psi };
+            process.Start();
+            await process.WaitForExitAsync(token);
+            string stderr = await process.StandardError.ReadToEndAsync(token);
+            if (process.ExitCode != 0 || !File.Exists(pngPath))
+                throw new InvalidOperationException($"heif-dec failed (exit {process.ExitCode}): {stderr.Trim()}");
+        }
+
+        private static async Task RunHeifEncAsync(
+            string heifEncPath, IReadOnlyList<string> args, CancellationToken token)
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = heifEncPath,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardError = true
+            };
+            foreach (var arg in args) psi.ArgumentList.Add(arg);
+
+            using var process = new Process { StartInfo = psi };
+            process.Start();
+            await process.WaitForExitAsync(token);
+            string stderr = await process.StandardError.ReadToEndAsync(token);
+            if (process.ExitCode != 0)
+                throw new InvalidOperationException($"heif-enc failed (exit {process.ExitCode}): {stderr.Trim()}");
+        }
+
+        private static async Task<(int? Primaries, int? Transfer, int? Matrix, int? FullRange, int? MaxCll, int? MaxFall)>
+            ReadHeicHdrMetadataAsync(string heicPath, CancellationToken token)
+        {
+            string? exifToolPath = ExternalToolLocator.FindExifTool();
+            if (string.IsNullOrEmpty(exifToolPath))
+                return (null, null, null, null, null, null);
+
+            var psi = new ProcessStartInfo
+            {
+                FileName = exifToolPath,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            psi.ArgumentList.Add("-s");
+            psi.ArgumentList.Add("-ColorPrimaries");
+            psi.ArgumentList.Add("-TransferCharacteristics");
+            psi.ArgumentList.Add("-MatrixCoefficients");
+            psi.ArgumentList.Add("-VideoFullRangeFlag");
+            psi.ArgumentList.Add("-MaxContentLightLevel");
+            psi.ArgumentList.Add("-MaxPicAverageLightLevel");
+            psi.ArgumentList.Add(heicPath);
+
+            string stdout;
+            using (var process = new Process { StartInfo = psi })
+            {
+                process.Start();
+                stdout = await process.StandardOutput.ReadToEndAsync(token);
+                await process.WaitForExitAsync(token);
+            }
+
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var line in stdout.Split('\n'))
+            {
+                int idx = line.IndexOf(':');
+                if (idx > 0)
+                {
+                    values[line[..idx].Trim()] = line[(idx + 1)..].Trim();
+                }
+            }
+
+            int? primaries = values.TryGetValue("ColorPrimaries", out var cp) ? MapPrimaries(cp) : null;
+            int? transfer = values.TryGetValue("TransferCharacteristics", out var tc) ? MapTransfer(tc) : null;
+            int? matrix = values.TryGetValue("MatrixCoefficients", out var mc) ? MapMatrix(mc) : null;
+            int? fullRange = values.TryGetValue("VideoFullRangeFlag", out var fr)
+                ? (fr.Contains("Full", StringComparison.OrdinalIgnoreCase) ? 1
+                    : fr.Contains("Limited", StringComparison.OrdinalIgnoreCase) ? 0 : null)
+                : null;
+            int? maxCll = values.TryGetValue("MaxContentLightLevel", out var cll)
+                && int.TryParse(cll, NumberStyles.Integer, CultureInfo.InvariantCulture, out int cllVal) ? cllVal : null;
+            int? maxFall = values.TryGetValue("MaxPicAverageLightLevel", out var fall)
+                && int.TryParse(fall, NumberStyles.Integer, CultureInfo.InvariantCulture, out int fallVal) ? fallVal : null;
+
+            if (primaries is null || transfer is null || matrix is null || fullRange is null)
+            {
+                LogService.Merge(
+                    $"HEIC HDR nclx incomplete ({string.Join(", ", values.Select(kv => $"{kv.Key}={kv.Value}"))}), nclx will be skipped",
+                    LogLevel.Warning);
+            }
+
+            return (primaries, transfer, matrix, fullRange, maxCll, maxFall);
+        }
+
+        private static int? MapPrimaries(string value)
+        {
+            if (value.Contains("2020", StringComparison.OrdinalIgnoreCase)) return 9;
+            if (value.Contains("709", StringComparison.OrdinalIgnoreCase)) return 1;
+            if (value.Contains("432-1", StringComparison.OrdinalIgnoreCase)) return 12;
+            if (value.Contains("431-2", StringComparison.OrdinalIgnoreCase)) return 11;
+            return null;
+        }
+
+        private static int? MapTransfer(string value)
+        {
+            if (value.Contains("HLG", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("ARIB", StringComparison.OrdinalIgnoreCase)) return 18;
+            if (value.Contains("2084", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("PQ", StringComparison.OrdinalIgnoreCase)) return 16;
+            if (value.Contains("sRGB", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("sYCC", StringComparison.OrdinalIgnoreCase)) return 13;
+            if (value.Contains("709", StringComparison.OrdinalIgnoreCase)) return 1;
+            return null;
+        }
+
+        private static int? MapMatrix(string value)
+        {
+            if (value.Contains("2020", StringComparison.OrdinalIgnoreCase)) return 9;
+            if (value.Contains("709", StringComparison.OrdinalIgnoreCase)) return 1;
+            if (value.Contains("Identity", StringComparison.OrdinalIgnoreCase)
+                || value.Contains("RGB", StringComparison.OrdinalIgnoreCase)) return 0;
+            if (value.Contains("601", StringComparison.OrdinalIgnoreCase)) return 6;
+            return null;
+        }
+
+        private static async Task ReplaceExifFromAsync(string sourcePath, string targetPath, CancellationToken token)
+        {
+            try
+            {
+                await LivePhotoRepairService.RunExifToolAsync(
+                    token, "-overwrite_original", "-EXIF:All=", targetPath);
+                await LivePhotoRepairService.RunExifToolAsync(
+                    token, "-overwrite_original", "-TagsFromFile", sourcePath, "-EXIF:All", targetPath);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Merge(
+                    $"EXIF replace from {Path.GetFileName(sourcePath)} failed: {ex.Message}",
+                    LogLevel.Warning);
             }
         }
 

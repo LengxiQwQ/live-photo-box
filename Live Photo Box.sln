@@ -5,7 +5,7 @@ VisualStudioVersion = 17.14.36616.10
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LivePhotoBox", "LivePhotoBox\\LivePhotoBox.csproj", "{C031F8F3-E645-431A-9DF7-74A03063BF2A}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ThumbnailStressTest", "ThumbnailStressTest\ThumbnailStressTest.csproj", "{D8876BE3-00BB-4670-B019-8BCA5E2970E1}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ThumbnailStressTest", "tests\ThumbnailStressTest\ThumbnailStressTest.csproj", "{D8876BE3-00BB-4670-B019-8BCA5E2970E1}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LivePhotoBox.Core", "LivePhotoBox.Core\LivePhotoBox.Core.csproj", "{3B124EE5-4C88-49A6-B9E8-4C0F16BD5CE3}"
 EndProject
