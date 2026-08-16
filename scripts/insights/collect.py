@@ -219,7 +219,7 @@ def render_section(metrics: dict, refs: list, updated_at: str, lang: str) -> str
         lines = [
             "**📊 仓库流量**",
             "",
-            f"浏览 **{fmt_num(metrics['views_all'])}** ｜ 独立访客 **{fmt_num(metrics['views_14_uniq'])}**（近14天） ｜ 克隆 **{fmt_num(metrics['clones_all'])}** ｜ 独立克隆者 **{fmt_num(metrics['clones_14_uniq'])}**（近14天）",
+            f"浏览：**{fmt_num(metrics['views_all'])}** ｜ 不重复访客：**{fmt_num(metrics['views_14_uniq'])}**（近 14 天） ｜ 克隆：**{fmt_num(metrics['clones_all'])}** ｜ 不重复克隆：**{fmt_num(metrics['clones_14_uniq'])}**（近 14 天）",
             "",
             f"**热门来源：** {top}",
             "",
@@ -229,7 +229,7 @@ def render_section(metrics: dict, refs: list, updated_at: str, lang: str) -> str
         lines = [
             "**📊 Repository Traffic**",
             "",
-            f"Views **{fmt_num(metrics['views_all'])}** ｜ Uniques **{fmt_num(metrics['views_14_uniq'])}** (14-day) ｜ Clones **{fmt_num(metrics['clones_all'])}** ｜ Cloners **{fmt_num(metrics['clones_14_uniq'])}** (14-day)",
+            f"Views: **{fmt_num(metrics['views_all'])}** ｜ Uniques: **{fmt_num(metrics['views_14_uniq'])}** (14-day) ｜ Clones: **{fmt_num(metrics['clones_all'])}** ｜ Cloners: **{fmt_num(metrics['clones_14_uniq'])}** (14-day)",
             "",
             f"**Top referrers:** {top}",
             "",
