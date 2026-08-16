@@ -326,25 +326,28 @@ def render_section(metrics: dict, refs: list, paths: list, updated_at: str, lang
         rows = [
             ("浏览 · 最近 14 天", fmt_num(metrics["views_14"]), fmt_num(metrics["views_14_uniq"])),
             ("克隆 · 最近 14 天", fmt_num(metrics["clones_14"]), fmt_num(metrics["clones_14_uniq"])),
-            ("浏览 · 累计", fmt_num(metrics["views_all"]), "—"),
-            ("克隆 · 累计", fmt_num(metrics["clones_all"]), "—"),
+            ("浏览 · 累计", fmt_num(metrics["views_all"]), fmt_num(metrics["views_14_uniq"])),
+            ("克隆 · 累计", fmt_num(metrics["clones_all"]), fmt_num(metrics["clones_14_uniq"])),
         ]
         table = "\n".join(f"| {a} | {b} | {c} |" for a, b, c in rows)
         refs_line = "**热门来源：** " + top5(refs, "referrer")
         paths_line = "**热门内容：** " + top5(paths, "path")
-        updated = f"*最后更新：{updated_at}*"
+        updated = (f"*最后更新：{updated_at}*  \n"
+                   "*独立数 = 近 14 天窗口内的独立访客/克隆者；跨天独立访客不可累加，累计行的独立数同为近 14 天口径。*")
     else:
         title_alt = "Repository views & clones over time"
         rows = [
             ("Views · last 14 days", fmt_num(metrics["views_14"]), fmt_num(metrics["views_14_uniq"])),
             ("Clones · last 14 days", fmt_num(metrics["clones_14"]), fmt_num(metrics["clones_14_uniq"])),
-            ("Views · all-time", fmt_num(metrics["views_all"]), "—"),
-            ("Clones · all-time", fmt_num(metrics["clones_all"]), "—"),
+            ("Views · all-time", fmt_num(metrics["views_all"]), fmt_num(metrics["views_14_uniq"])),
+            ("Clones · all-time", fmt_num(metrics["clones_all"]), fmt_num(metrics["clones_14_uniq"])),
         ]
         table = "\n".join(f"| {a} | {b} | {c} |" for a, b, c in rows)
         refs_line = "**Top referrers:** " + top5(refs, "referrer")
         paths_line = "**Top content:** " + top5(paths, "path")
-        updated = f"*Last updated: {updated_at}*"
+        updated = (f"*Last updated: {updated_at}*  \n"
+                   "*Uniques = distinct visitors/cloners in the last 14-day window; "
+                   "cross-day uniques can't be summed, so all-time uniques reflect that window.*")
 
     header = "| Metric | Count | Uniques |" if lang == "en" else "| 指标 | 次数 | 独立数 |"
     divider = "|---|---|---|"
