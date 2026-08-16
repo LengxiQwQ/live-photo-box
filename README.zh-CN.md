@@ -280,7 +280,7 @@ live-photo-box/
 
 **热门来源：** github.com · Google · Bing · doubao.com · chatgpt.com  
 **热门内容：** Home · releases · releases/tag/v2.1.5 · README.zh-CN.md · releases/tag/v2.1.2  
-*最后更新：2026-08-16 14:51:10 UTC*
+*最后更新：2026-08-16 15:06:21 UTC*
 <!-- INSIGHTS:END -->
 
 ---

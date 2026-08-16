@@ -278,7 +278,7 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 
 **Top referrers:** github.com · Google · Bing · doubao.com · chatgpt.com  
 **Top content:** Home · releases · releases/tag/v2.1.5 · README.zh-CN.md · releases/tag/v2.1.2  
-*Last updated: 2026-08-16 14:51:10 UTC*
+*Last updated: 2026-08-16 15:06:21 UTC*
 <!-- INSIGHTS:END -->
 
 ---
