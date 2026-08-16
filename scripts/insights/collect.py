@@ -219,8 +219,7 @@ def render_section(metrics: dict, refs: list, updated_at: str, lang: str) -> str
         lines = [
             "**📊 仓库流量**",
             "",
-            f"- **{fmt_num(metrics['views_all'])}** 次浏览 · **{fmt_num(metrics['views_14_uniq'])}** 位独立访客",
-            f"- **{fmt_num(metrics['clones_all'])}** 次克隆 · **{fmt_num(metrics['clones_14_uniq'])}** 位独立克隆者",
+            f"- 浏览 **{fmt_num(metrics['views_all'])}** ｜ 独立访客 **{fmt_num(metrics['views_14_uniq'])}** ｜ 克隆 **{fmt_num(metrics['clones_all'])}** ｜ 独立克隆者 **{fmt_num(metrics['clones_14_uniq'])}**",
             "",
             f"**热门来源：** {top}",
             "",
@@ -230,8 +229,7 @@ def render_section(metrics: dict, refs: list, updated_at: str, lang: str) -> str
         lines = [
             "**📊 Repository Traffic**",
             "",
-            f"- **{fmt_num(metrics['views_all'])}** views · **{fmt_num(metrics['views_14_uniq'])}** unique visitors",
-            f"- **{fmt_num(metrics['clones_all'])}** clones · **{fmt_num(metrics['clones_14_uniq'])}** unique cloners",
+            f"- Views **{fmt_num(metrics['views_all'])}** ｜ Uniques **{fmt_num(metrics['views_14_uniq'])}** ｜ Clones **{fmt_num(metrics['clones_all'])}** ｜ Cloners **{fmt_num(metrics['clones_14_uniq'])}**",
             "",
             f"**Top referrers:** {top}",
             "",
