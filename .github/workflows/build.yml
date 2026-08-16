@@ -30,6 +30,9 @@ permissions:
 
 jobs:
   build:
+    # 机器人自动提交（insights 数据更新）跳过构建；其余 push/PR/手动照常构建
+    # Skip build for github-actions bot auto-commits (insights data updates); build everything else
+    if: github.event_name != 'push' || (github.event.head_commit.author.name != 'github-actions[bot]' && github.event.head_commit.committer.name != 'github-actions[bot]')
     runs-on: windows-latest
 
     steps:
