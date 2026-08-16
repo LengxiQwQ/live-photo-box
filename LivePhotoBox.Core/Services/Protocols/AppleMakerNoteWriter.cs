@@ -59,7 +59,10 @@ namespace LivePhotoBox.Services.Protocols
             return ms.ToArray();
         }
 
-        // 将 MakerNote 块注入 JPEG 的 APP1 Exif 段。找不到 MakerNote 条目时返回 false。
+        // 将 MakerNote 块注入 JPEG 的 APP1 Exif 段。
+        // 已有 0x927C 条目 → 重指向追加在段尾的新块；有 EXIF 但无条目 → 增长 ExifIFD
+        // 新增条目（修正后续偏移）；无 EXIF → 新建最小 APP1 Exif。
+        // 仅完全无法处理的结构返回 false。
         public static bool TryInjectIntoJpeg(string jpegPath, byte[] makerNote, out string? error)
         {
             error = null;
@@ -77,6 +80,188 @@ namespace LivePhotoBox.Services.Protocols
                 error = ex.Message;
                 return false;
             }
+        }
+
+        /// <summary>
+        /// 从图片文件（JPEG 或 HEIC）中字节级剥离 Apple 实况照片 MakerNote 条目：
+        /// 0x0011 ContentIdentifier、0x0017 LivePhotoVideoIndex、0x0025（同类型 8 字节条目）、
+        /// 0x002b PhotoIdentifier 及其数据区，保留非实况相机元数据。
+        /// 保持 MakerNote 总长度不变（条目区前移、空位填 0x00、被删条目数据区清零），
+        /// 因此不改变文件任何偏移——EXIF/ISOBMFF 结构完全不受影响。
+        /// JPEG 与 HEIC 统一处理：直接定位 "Apple iOS\0" 签名块（MN 长度不变 → 无需解析容器）。
+        /// 成功返回 true（无论是否找到目标条目）；失败返回 false 并给出 error。
+        /// </summary>
+        public static bool TryStripAppleLivePhotoEntries(string imagePath, out string? error)
+        {
+            error = null;
+            try
+            {
+                byte[] data = File.ReadAllBytes(imagePath);
+                int mnStart = FindAppleMakerNote(data);
+                if (mnStart < 0)
+                {
+                    // 无 Apple MakerNote —— 无需剥离
+                    return true;
+                }
+
+                // StripAppleLiveEntriesFromMakerNote 就地修改 data 并返回同一引用
+                // （保持 MN 长度不变，不产生新数组），所以这里必须无条件写回。
+                StripAppleLiveEntriesFromMakerNote(data, mnStart);
+                File.WriteAllBytes(imagePath, data);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 向图片（JPEG 或 HEIC）写入 Apple ContentIdentifier（P2-6，HEIC 源苹果拆分配对）。
+        /// 若文件内已存在 Apple MakerNote（拆分链路中的 HEIC/JPEG 单文件保留了源苹果的
+        /// 58 条目相机 MN，CID 值被清空但条目仍在），就地将其重建为 70 字节最小 MakerNote
+        /// （仅 0x0011 ContentIdentifier，与 BuildMakerNote 产物一致）。
+        /// MakerNote 起点不变、文件总长不变 → 不破坏 EXIF/ISOBMFF 任何偏移，无需容器手术。
+        /// 旧 MN 的剩余字节不再被引用，作为无害垃圾保留。
+        /// 未找到 Apple MakerNote 时返回 false（调用方可用 TryInjectIntoJpeg 兜底 JPEG）。
+        /// </summary>
+        public static bool TryWriteContentIdentifier(string imagePath, string contentId, out string? error)
+        {
+            error = null;
+            try
+            {
+                byte[] data = File.ReadAllBytes(imagePath);
+                int mnStart = FindAppleMakerNote(data);
+                if (mnStart < 0)
+                {
+                    error = "No existing Apple MakerNote found; cannot write ContentIdentifier in place.";
+                    return false;
+                }
+
+                byte[] minimal = BuildMakerNote(contentId);
+                if (mnStart + minimal.Length > data.Length)
+                {
+                    error = "Apple MakerNote region too small to rebuild.";
+                    return false;
+                }
+
+                Array.Copy(minimal, 0, data, mnStart, minimal.Length);
+                File.WriteAllBytes(imagePath, data);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        // 在整文件中定位 Apple MakerNote：签名 "Apple iOS\0" + 0x00 0x01 + "MM"。
+        private static int FindAppleMakerNote(byte[] data)
+        {
+            byte[] sig = "Apple iOS\0"u8.ToArray();
+            for (int i = 0; i + sig.Length + 4 <= data.Length; i++)
+            {
+                if (data[i] == (byte)'A' && data[i + 1] == (byte)'p')
+                {
+                    bool match = true;
+                    for (int j = 0; j < sig.Length; j++)
+                    {
+                        if (data[i + j] != sig[j]) { match = false; break; }
+                    }
+                    if (match && data[i + sig.Length] == 0x00 && data[i + sig.Length + 1] == 0x01
+                        && data[i + sig.Length + 2] == (byte)'M' && data[i + sig.Length + 3] == (byte)'M')
+                    {
+                        return i;
+                    }
+                    i += sig.Length - 1; // 跳过已检查前缀，加速扫描
+                }
+            }
+            return -1;
+        }
+
+        // 剥离 0x0011/0x0017/0x0025 条目：数据区清零 + 条目区压缩（保持 MN 总长不变）。
+        // 无目标条目时返回原数组引用（不写盘）。
+        private static byte[] StripAppleLiveEntriesFromMakerNote(byte[] data, int mnStart)
+        {
+            if (mnStart + 16 > data.Length) return data;
+            int entryCount = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(mnStart + 14));
+            if (entryCount == 0 || entryCount > 64) return data; // 防异常结构
+
+            int entriesStart = mnStart + 16;
+            int entriesLen = entryCount * 12;
+            if (entriesStart + entriesLen + 4 > data.Length) return data;
+
+            var keep = new System.Collections.Generic.List<int>(); // 保留条目下标
+            for (int i = 0; i < entryCount; i++)
+            {
+                int e = entriesStart + i * 12;
+                ushort tag = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(e));
+                bool isLiveEntry = tag is 0x0011 or 0x0017 or 0x0025 or 0x002b;
+                if (!isLiveEntry)
+                {
+                    keep.Add(i);
+                    continue;
+                }
+
+                // 清零被删条目的数据区（仅当数据区不在条目区内）。
+                ushort type = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(e + 2));
+                uint count = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(e + 4));
+                uint offset = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(e + 8));
+                int dataLen = TypeToDataLength(type, count);
+                // 条目里的 offset 相对 MakerNote 块起点（非文件起点）——必须加 mnStart。
+                // 且数据区必须位于条目区+next-IFD 之后，防止误清内联值/条目区。
+                long absData = (long)mnStart + offset;
+                if (dataLen > 0
+                    && offset >= (uint)(entriesStart - mnStart + entriesLen + 4)
+                    && absData + dataLen <= data.Length)
+                {
+                    Array.Clear(data, (int)absData, dataLen);
+                }
+            }
+
+            if (keep.Count == entryCount) return data; // 没有目标条目
+
+            // 压缩条目区：剩余条目前移，空位填 0。
+            for (int k = 0; k < keep.Count; k++)
+            {
+                int src = entriesStart + keep[k] * 12;
+                int dst = entriesStart + k * 12;
+                if (src != dst)
+                {
+                    Array.Copy(data, src, data, dst, 12);
+                }
+            }
+            int newCount = keep.Count;
+            int newEntriesLen = newCount * 12;
+            int tail = entriesStart + entriesLen;
+            for (int i = entriesStart + newEntriesLen; i < tail; i++)
+            {
+                data[i] = 0;
+            }
+            BinaryPrimitives.WriteUInt16BigEndian(data.AsSpan(mnStart + 14), (ushort)newCount);
+            return data;
+        }
+
+        // EXIF type → 数据区字节数（type 2 ASCII 含 \0；16 = int64）。内联值（≤4 字节）返回 0。
+        private static int TypeToDataLength(ushort type, uint count)
+        {
+            int unit = type switch
+            {
+                1 or 2 or 7 => 1,
+                3 or 8 => 2,
+                4 or 9 => 4,
+                5 or 10 => 8,
+                6 or 11 => 4,
+                12 => 8,
+                13 or 14 => 4,
+                16 => 8,
+                _ => 0
+            };
+            if (unit == 0) return 0;
+            long len = (long)unit * count;
+            return len > 4 ? (int)len : 0; // ≤4 字节时值内联在 value 字段，无独立数据区
         }
 
         // 在内存字节上完成注入（测试友好）。成功返回新字节数组，失败返回 null。
@@ -126,45 +311,48 @@ namespace LivePhotoBox.Services.Protocols
 
                     int ifd0 = Read32(data, tiff + 4, bigEndian); // IFD0 偏移是 4 字节
                     // 在 IFD0 与 ExifIFD 里找 MakerNote 条目（tag 0x927C）。
+                    int exifPtrValuePos = FindEntryValue(data, tiff, ifd0, 0x8769, bigEndian);
+                    int exifPtr = exifPtrValuePos >= 0 ? Read32(data, exifPtrValuePos, bigEndian) : -1;
                     int makerNoteValuePos = FindEntryValue(data, tiff, ifd0, 0x927C, bigEndian);
-                    if (makerNoteValuePos < 0)
+                    if (makerNoteValuePos < 0 && exifPtr >= 0)
                     {
-                        int exifPtrValuePos = FindEntryValue(data, tiff, ifd0, 0x8769, bigEndian);
-                        if (exifPtrValuePos >= 0)
-                        {
-                            int exifPtr = Read32(data, exifPtrValuePos, bigEndian); // ExifIFD 偏移（值）
-                            makerNoteValuePos = FindEntryValue(data, tiff, exifPtr, 0x927C, bigEndian);
-                        }
+                        makerNoteValuePos = FindEntryValue(data, tiff, exifPtr, 0x927C, bigEndian);
                     }
 
                     if (makerNoteValuePos < 0)
                     {
-                        error = "MakerNote entry not found";
-                        return null;
+                        // EXIF 存在但没有 0x927C 条目（原生小米/OPPO 等相机 JPEG）：
+                        // 增长 ExifIFD（缺失时用 IFD0）新增一条，并把 MakerNote 块追加到
+                        // APP1 Exif 段尾，修正所有指向插入点之后的 TIFF 偏移。
+                        return InsertMakerNoteEntry(
+                            data, tiff, segLen, ifd0, exifPtr, makerNote, bigEndian,
+                            pos, out error);
                     }
 
-                    // makerNoteValuePos 指向条目 value 字段；往回 8 字节是条目起始，
-                    // count 在 +4、value/offset 在 +8。
-                    int entryStart = makerNoteValuePos - 8;
-                    int tiffLen = segLen - 8;
-                    int pad = (tiffLen % 2 == 0) ? 0 : 1;
-                    int newOffset = tiffLen + pad;
+                    // 已有 0x927C 条目（华为/荣耀原生相机 JPEG 常带 1~多个 MakerNote 条目）。
+                    // iOS 只接受 ExifIFD 中「唯一一条」Apple MakerNote；重复条目会导致导入失败。
+                    // 因此：删除所有 0x927C 条目，再按「无条目」路径在 ExifIFD 新增唯一一条。
+                    byte[]? cleaned = RemoveAllMakerNoteEntries(
+                        data, tiff, ifd0, bigEndian, out int removedCount, out error);
+                    if (cleaned == null || removedCount == 0)
+                    {
+                        if (cleaned == null) return null;
+                        return InsertMakerNoteEntry(
+                            cleaned, tiff, segLen, ifd0, exifPtr, makerNote, bigEndian,
+                            pos, out error);
+                    }
 
-                    Write32(data, entryStart + 4, makerNote.Length, bigEndian); // count
-                    Write32(data, entryStart + 8, newOffset, bigEndian);         // offset
+                    int cleanedSegLen = segLen - 12 * removedCount;
+                    int cleanedExifPtr = exifPtr;
+                    int cleanedExifPos = FindEntryValue(cleaned, tiff, ifd0, 0x8769, bigEndian);
+                    if (cleanedExifPos >= 0)
+                    {
+                        cleanedExifPtr = Read32(cleaned, cleanedExifPos, bigEndian);
+                    }
 
-                    // 在 APP1 Exif 段末尾插入新块（非文件末尾）。
-                    int insertAt = pos + 2 + segLen;
-                    byte[] insert = new byte[pad + makerNote.Length];
-                    Array.Copy(makerNote, 0, insert, pad, makerNote.Length);
-
-                    byte[] grown = new byte[data.Length + insert.Length];
-                    Array.Copy(data, 0, grown, 0, insertAt);
-                    Array.Copy(insert, 0, grown, insertAt, insert.Length);
-                    Array.Copy(data, insertAt, grown, insertAt + insert.Length, data.Length - insertAt);
-
-                    Write16(grown, pos + 2, segLen + insert.Length); // 更新段长
-                    return grown;
+                    return InsertMakerNoteEntry(
+                        cleaned, tiff, cleanedSegLen, ifd0, cleanedExifPtr, makerNote,
+                        bigEndian, pos, out error);
                 }
 
                 pos += 2 + segLen;
@@ -184,6 +372,285 @@ namespace LivePhotoBox.Services.Protocols
 
             error = "EXIF APP1 found but MakerNote entry not found";
             return null;
+        }
+
+        // 删除所有 0x927C MakerNote 条目，返回新的字节数组；removedCount 为删除条数。
+        // 删除会使后续字节前移 12 字节/条，因此同步修正各 IFD 的 next-IFD 指针与
+        // out-of-line 数据偏移。未找到目标条目时返回原数组引用。
+        private static byte[]? RemoveAllMakerNoteEntries(
+            byte[] data, int tiff, int ifd0, bool bigEndian,
+            out int removedCount, out string? error)
+        {
+            removedCount = 0;
+            error = null;
+            var removalStarts = new System.Collections.Generic.List<int>();
+            var countPositions = new System.Collections.Generic.List<int>();
+            var fixups = new System.Collections.Generic.List<(int Pos, int Value)>();
+            var visited = new System.Collections.Generic.HashSet<int>();
+
+            CollectMakerNoteCleanup(
+                data, tiff, ifd0, bigEndian,
+                removalStarts, countPositions, fixups, visited);
+
+            if (removalStarts.Count == 0)
+            {
+                return data;
+            }
+
+            removalStarts.Sort();
+            int[] removalRel = new int[removalStarts.Count];
+            for (int i = 0; i < removalStarts.Count; i++)
+            {
+                removalRel[i] = removalStarts[i] - tiff;
+            }
+
+            // 重建去掉 12 字节条目区间的数组。
+            byte[] cleaned = new byte[data.Length - 12 * removalStarts.Count];
+            int src = 0, dst = 0;
+            foreach (int r in removalStarts)
+            {
+                int len = r - src;
+                if (len > 0)
+                {
+                    Array.Copy(data, src, cleaned, dst, len);
+                    dst += len;
+                }
+                src = r + 12;
+            }
+            if (src < data.Length)
+            {
+                Array.Copy(data, src, cleaned, dst, data.Length - src);
+            }
+
+            // 绝对位置 → 删除后的新位置。
+            int MapAbs(int absPos)
+            {
+                int shift = 0;
+                foreach (int r in removalStarts)
+                {
+                    if (r < absPos) shift += 12;
+                    else break;
+                }
+                return absPos - shift;
+            }
+
+            // 修正 out-of-line 偏移与 IFD 指针：指向删除点之后的值 -12/条。
+            foreach (var (pos, val) in fixups)
+            {
+                int newVal = val;
+                foreach (int r in removalRel)
+                {
+                    if (r < val) newVal -= 12;
+                    else break;
+                }
+                Write32(cleaned, MapAbs(pos), newVal, bigEndian);
+            }
+
+            // 删除条目所在 IFD 的条目数 -1。
+            foreach (int cp in countPositions)
+            {
+                int p = MapAbs(cp);
+                int cnt = Read16(cleaned, p, bigEndian);
+                if (cnt > 0)
+                {
+                    WriteU16(cleaned, p, cnt - 1, bigEndian);
+                }
+            }
+
+            removedCount = removalStarts.Count;
+            return cleaned;
+        }
+
+        // 递归收集 0x927C 条目位置、其 IFD count 位置，以及所有需要修正的
+        // out-of-line 数据偏移 / next-IFD / ExifIFD/GPS/Interop/SubIFD 指针。
+        private static void CollectMakerNoteCleanup(
+            byte[] data, int tiff, int ifdRel, bool bigEndian,
+            System.Collections.Generic.List<int> removalStarts,
+            System.Collections.Generic.List<int> countPositions,
+            System.Collections.Generic.List<(int Pos, int Value)> fixups,
+            System.Collections.Generic.HashSet<int> visited)
+        {
+            if (ifdRel <= 0 || !visited.Add(ifdRel)) return;
+            int p = tiff + ifdRel;
+            if (p + 2 > data.Length) return;
+            int count = Read16(data, p, bigEndian);
+            if (count <= 0 || count > 512) return;
+
+            int nextIfdPos = p + 2 + count * 12;
+            if (nextIfdPos + 4 <= data.Length)
+            {
+                int nextVal = Read32(data, nextIfdPos, bigEndian);
+                fixups.Add((nextIfdPos, nextVal));
+                if (nextVal > 0)
+                {
+                    CollectMakerNoteCleanup(
+                        data, tiff, nextVal, bigEndian,
+                        removalStarts, countPositions, fixups, visited);
+                }
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                int e = p + 2 + i * 12;
+                if (e + 12 > data.Length) break;
+                ushort tag = Read16(data, e, bigEndian);
+                ushort type = Read16(data, e + 2, bigEndian);
+                int cnt = Read32(data, e + 4, bigEndian);
+                int valuePos = e + 8;
+                int off = Read32(data, valuePos, bigEndian);
+
+                if (tag == 0x927C)
+                {
+                    removalStarts.Add(e);
+                    countPositions.Add(p);
+                    continue; // 该条目的 value 不参与偏移修正（条目本身被删除）
+                }
+
+                if (tag is 0x8769 or 0x8825 or 0xA005 or 0x014A)
+                {
+                    fixups.Add((valuePos, off));
+                    if (off > 0 && (tag != 0x014A || cnt == 1))
+                    {
+                        CollectMakerNoteCleanup(
+                            data, tiff, off, bigEndian,
+                            removalStarts, countPositions, fixups, visited);
+                    }
+                    continue;
+                }
+
+                int dataLen = cnt < 0 ? 0 : TypeToDataLength(type, (uint)cnt);
+                if (dataLen > 4)
+                {
+                    fixups.Add((valuePos, off));
+                }
+            }
+        }
+
+        // 在已有 EXIF 中新增 0x927C MakerNote 条目（增长目标 IFD + 修正偏移 + 段尾追加数据）。
+        // 返回新字节数组；失败返回 null 并设置 error。
+        private static byte[]? InsertMakerNoteEntry(
+            byte[] data, int tiff, int segLen, int ifd0, int exifPtr, byte[] makerNote,
+            bool bigEndian, int segmentStart, out string? error)
+        {
+            error = null;
+            int targetIfd = exifPtr > 0 ? exifPtr : ifd0; // 优先 ExifIFD（标准位置），缺失用 IFD0
+            int p = tiff + targetIfd;
+            if (p + 2 > data.Length)
+            {
+                error = "IFD out of range";
+                return null;
+            }
+            int entryCount = Read16(data, p, bigEndian);
+            if (entryCount <= 0 || entryCount > 256)
+            {
+                error = "Invalid IFD entry count";
+                return null;
+            }
+
+            int insertAtRel = targetIfd + 2 + entryCount * 12; // 目标 IFD 的 next-IFD 字段位置
+            int tiffLen = segLen - 8;                          // 当前 TIFF 长度
+            if (insertAtRel <= 0 || insertAtRel >= tiffLen)
+            {
+                error = "MakerNote insertion point out of range";
+                return null;
+            }
+            int insertAt = tiff + insertAtRel;                 // 绝对文件偏移
+            int pad = (tiffLen % 2 == 0) ? 0 : 1;
+            int mnOffset = tiffLen + 12 + pad;                 // 追加后的 MakerNote 偏移（相对 TIFF）
+
+            // 1. 收集所有指向插入点之后的 TIFF 偏移（条目数据偏移 + next-IFD + 嵌套 IFD 指针）。
+            var fixups = new System.Collections.Generic.List<(int Pos, int Value)>();
+            var visited = new System.Collections.Generic.HashSet<int>();
+            CollectIfdFixups(data, tiff, ifd0, insertAtRel, bigEndian, fixups, visited);
+            if (targetIfd != ifd0)
+            {
+                CollectIfdFixups(data, tiff, targetIfd, insertAtRel, bigEndian, fixups, visited);
+            }
+
+            // 2. 构造新条目（12 字节）：tag 0x927C / type 7(UNDEFINED) / count / offset。
+            byte[] entry = new byte[12];
+            WriteU16(entry, 0, 0x927C, bigEndian);
+            WriteU16(entry, 2, 7, bigEndian);
+            Write32(entry, 4, makerNote.Length, bigEndian);
+            Write32(entry, 8, mnOffset, bigEndian);
+
+            // 3. 插入 12 字节条目（在 APP1 内部），随后在 APP1 段尾真正“插入”pad + MakerNote
+            //    （尾部整体后移，不能覆盖后续 APP2/XMP 等段）。
+            int app1End = segmentStart + 2 + segLen; // 原 APP1 段尾（绝对偏移）
+            int mnInsertAt = app1End + 12;           // 段尾后移 12 后的插入点
+            byte[] grown = new byte[data.Length + 12 + pad + makerNote.Length];
+            Array.Copy(data, 0, grown, 0, insertAt);
+            Array.Copy(entry, 0, grown, insertAt, 12);
+            Array.Copy(data, insertAt, grown, insertAt + 12, app1End - insertAt);
+            if (pad > 0) grown[mnInsertAt] = 0;
+            Array.Copy(makerNote, 0, grown, mnInsertAt + pad, makerNote.Length);
+            Array.Copy(data, app1End, grown, mnInsertAt + pad + makerNote.Length, data.Length - app1End);
+
+            // 4. 修正偏移：插入点之后的值 +12。
+            foreach (var (fixPos, fixVal) in fixups)
+            {
+                int newPos = fixPos < insertAt ? fixPos : fixPos + 12;
+                Write32(grown, newPos, fixVal + 12, bigEndian);
+            }
+
+            // 5. 目标 IFD 条目数 +1（新条目已插入到原 next-IFD 位置）。
+            WriteU16(grown, tiff + targetIfd, entryCount + 1, bigEndian);
+
+            // 6. 更新 APP1 段长。
+            Write16(grown, segmentStart + 2, segLen + 12 + pad + makerNote.Length);
+            return grown;
+        }
+
+        // 递归收集 IFD 内指向插入点之后的所有偏移（条目 out-of-line 数据偏移、
+        // next-IFD 指针、ExifIFD/GPS/Interop/单值 SubIFD 指针），用于插入后统一 +12。
+        private static void CollectIfdFixups(
+            byte[] data, int tiff, int ifdRel, int insertAtRel, bool bigEndian,
+            System.Collections.Generic.List<(int Pos, int Value)> fixups,
+            System.Collections.Generic.HashSet<int> visited)
+        {
+            if (ifdRel <= 0 || !visited.Add(ifdRel)) return;
+            int p = tiff + ifdRel;
+            if (p + 2 > data.Length) return;
+            int count = Read16(data, p, bigEndian);
+            if (count <= 0 || count > 512) return;
+
+            int nextIfdPos = p + 2 + count * 12;
+            if (nextIfdPos + 4 <= data.Length)
+            {
+                int nextVal = Read32(data, nextIfdPos, bigEndian);
+                if (nextVal >= insertAtRel) fixups.Add((nextIfdPos, nextVal));
+                if (nextVal > 0) CollectIfdFixups(data, tiff, nextVal, insertAtRel, bigEndian, fixups, visited);
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                int e = p + 2 + i * 12;
+                if (e + 12 > data.Length) break;
+                ushort tag = Read16(data, e, bigEndian);
+                ushort type = Read16(data, e + 2, bigEndian);
+                int cnt = Read32(data, e + 4, bigEndian);
+                int valuePos = e + 8;
+                int off = Read32(data, valuePos, bigEndian);
+
+                // 指向其他 IFD 的指针：ExifIFD / GPS / Interop / 单值 SubIFD。
+                // 即使值内联（type=LONG, count=1）它也是偏移，必须修正并递归。
+                if (tag is 0x8769 or 0x8825 or 0xA005 or 0x014A)
+                {
+                    if (off >= insertAtRel) fixups.Add((valuePos, off));
+                    if (off > 0 && (tag != 0x014A || cnt == 1))
+                    {
+                        CollectIfdFixups(data, tiff, off, insertAtRel, bigEndian, fixups, visited);
+                    }
+                    continue;
+                }
+
+                int dataLen = cnt < 0 ? 0 : TypeToDataLength(type, (uint)cnt);
+                if (dataLen <= 4) continue; // 普通内联值，无偏移
+                if (off >= insertAtRel)
+                {
+                    fixups.Add((valuePos, off));
+                }
+            }
         }
 
         /// <summary>构造最小 APP1 Exif 段（含 FFE1 标记）：Exif\0\0 + TIFF(IFD0 → 0x927C → MakerNote)。</summary>
@@ -273,6 +740,12 @@ namespace LivePhotoBox.Services.Protocols
         {
             if (bigEndian) BinaryPrimitives.WriteUInt32BigEndian(d.AsSpan(off), (uint)v);
             else BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(off), (uint)v);
+        }
+
+        private static void WriteU16(byte[] d, int off, int v, bool bigEndian)
+        {
+            if (bigEndian) BinaryPrimitives.WriteUInt16BigEndian(d.AsSpan(off), (ushort)v);
+            else BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(off), (ushort)v);
         }
     }
 }

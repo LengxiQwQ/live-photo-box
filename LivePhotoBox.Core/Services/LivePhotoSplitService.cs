@@ -277,25 +277,100 @@ namespace LivePhotoBox.Services
                     await ClearVivoExifMarkerAsync(tempImagePath, token);
                 }
 
+                // Apple 残留（双文件标记）：拆出的图片要单独使用，不能带 Apple ContentIdentifier。
+                // 复用 SourceProtocolCleaner 的清洗（exiftool -ContentIdentifier= + vivo 尾标）；
+                // Apple 目标输出会重建配对标记，不在此列（仅无协议大清洗时执行）。
+                // 必须先于华为 Make 清理：exiftool 以 Make 识别 Apple MakerNote，若先清空
+                // Make=HUAWEI 再执行 -ContentIdentifier= 会因无法定位 Apple MN 而失效。
+                if (protocolIndex == 0 && sourceImageIsJpeg)
+                {
+                    await Protocols.SourceProtocolCleaner.CleanImageMarkersInPlaceAsync(tempImagePath, token);
+                }
+
+                // Apple 实况条目字节级剥离（0x0011 ContentIdentifier / 0x0017 LivePhotoVideoIndex /
+                // 0x0025，见协议文档 Apple 章节）：exiftool 只能清空 CID 值、删不掉 type=16 条目
+                // （-LivePhotoVideoIndex= 等四种写法实测无效），且 HEIC 源此前被 sourceImageIsJpeg
+                // 门控整体跳过。此步骤对 JPEG 与 HEIC 源统一执行，保持 MN 长度不变不破坏结构。
+                if (protocolIndex == 0)
+                {
+                    Protocols.AppleMakerNoteWriter.TryStripAppleLivePhotoEntries(
+                        tempImagePath, out string? stripMnError);
+                    if (stripMnError != null)
+                    {
+                        LogService.Split(
+                            $"Apple MakerNote strip failed (non-fatal): {stripMnError}",
+                            LogLevel.Warning);
+                    }
+                }
+
+                // 华为/荣耀 JPEG：EXIF 辅助识别标记（Make=HUAWEI/HONOR）与原生 MakerNote
+                // 标记（##**N4031，文档标注"非必需"）——无协议大清洗时一并清掉。
+                // Apple 协议不清这些原始相机字段（保留原厂 Make/Model/拍摄信息）。
+                if (protocol == LivePhotoProtocolType.Huawei && sourceImageIsJpeg && protocolIndex == 0)
+                {
+                    await ClearHuaweiExifMarkersAsync(tempImagePath, token);
+                }
+
                 // Apple 协议：图片端 Apple MakerNote 必须在格式转换前注入到源 JPG。
-                // heif-enc（libheif）会原样保留 MakerNote，而 exiftool 无法在转换后的
-                // HEIC/非 Apple 图上凭空创建 Apple MakerNote。HEIC 源（sourceImageIsHeic）
-                // 无 JPG 可注入，暂不支持（视频端仍完整）。
+                // heif-enc（libheif）/ heif-dec（ExifTool 元数据复制）会原样保留 MakerNote。
+                // 本软件合成/苹果衍生源的单文件保留了源苹果的 MakerNote（CID 被清空、条目仍在），
+                // 就地重建为 70 字节最小 MN（起点/长度不变）；原生相机 JPEG（小米/OPPO 等无
+                // 0x927C 条目）走 APP1 注入（新增条目）；原生 HEIC（华为等）解码为 JPEG 桥接
+                // 注入，目标为 HEIC 时再编码回 HEIC（heif-enc 保留 EXIF MakerNote）。
                 string? appleContentId = null;
-                if (protocolIndex == 1 && sourceImageIsJpeg)
+                string? appleBridgeJpeg = null; // HEIC 源经 JPEG 桥接注入 MN 的中间文件
+                if (protocolIndex == 1)
                 {
                     appleContentId = Guid.NewGuid().ToString("D").ToUpperInvariant();
-                    byte[] makerNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
-                    if (!Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(tempImagePath, makerNote, out string? mnError))
+                    bool mnOk = Protocols.AppleMakerNoteWriter.TryWriteContentIdentifier(
+                        tempImagePath, appleContentId, out string? mnError);
+                    if (!mnOk)
                     {
-                        LogService.Split($"Apple[image] pre-convert MakerNote injection failed: {mnError}", LogLevel.Warning);
+                        if (sourceImageIsJpeg)
+                        {
+                            byte[] makerNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
+                            mnOk = Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(
+                                tempImagePath, makerNote, out mnError);
+                        }
+                        else
+                        {
+                            // 原生 HEIC 没有 Apple MakerNote 也无法二进制注入：解码为 JPEG，
+                            // 注入后再决定最终格式（HEIC 目标则 heif-enc 编码回）。
+                            LogService.Split(
+                                "Apple[image] HEIC source: bridging via JPEG for MakerNote injection",
+                                LogLevel.Debug);
+                            appleBridgeJpeg = await HeicConverterService.ConvertToJpegAsync(
+                                tempImagePath, tempDir, token);
+                            byte[] makerNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
+                            mnOk = Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(
+                                appleBridgeJpeg, makerNote, out mnError);
+                        }
+                    }
+                    if (!mnOk)
+                    {
+                        LogService.Split(
+                            $"Apple[image] pre-convert MakerNote injection failed: {mnError}",
+                            LogLevel.Warning);
                     }
                 }
 
                 // 按目标图片格式转换（复用 HeicConverterService，不自行另写转换逻辑）
                 bool targetImageIsHeic = targetImageExtension.Equals(".heic", StringComparison.OrdinalIgnoreCase);
                 string workingImagePath = tempImagePath;
-                if (targetImageIsHeic && sourceImageIsJpeg)
+                if (appleBridgeJpeg != null)
+                {
+                    // HEIC 源桥接注入后：目标 HEIC → 编码回；目标 JPG → 直接用桥接 JPEG。
+                    if (targetImageIsHeic)
+                    {
+                        convertedImagePath = await HeicConverterService.ConvertToHeicAsync(appleBridgeJpeg, tempDir, token);
+                        workingImagePath = convertedImagePath;
+                    }
+                    else
+                    {
+                        workingImagePath = appleBridgeJpeg;
+                    }
+                }
+                else if (targetImageIsHeic && sourceImageIsJpeg)
                 {
                     convertedImagePath = await HeicConverterService.ConvertToHeicAsync(tempImagePath, tempDir, token);
                     workingImagePath = convertedImagePath;
@@ -319,6 +394,23 @@ namespace LivePhotoBox.Services
                 }
 
                 // 3. 视频处理：默认(0)原样输出；1/2 → MOV+H.265；3 → MP4+H.264
+                // 无协议拆分：先剥离视频里残留的实况协议元数据（单文件 + 双文件残留），再移动/转码。
+                // 拆出的视频要单独使用，不能带任何厂商实况标记。
+                if (protocolIndex == 0)
+                {
+                    // 单文件协议键：HUAWEI com.openharmony.*
+                    if (!Protocols.Mp4MdtaKeyStripper.TryStripHuaweiKeys(tempVideoPath, out string? stripError))
+                    {
+                        LogService.Split($"Video vendor metadata strip failed (non-fatal): {stripError}", LogLevel.Warning);
+                    }
+                    // Track 3（com.openharmony.timed_metadata.movingphoto），属单文件协议元数据轨
+                    Protocols.Mp4MdtaKeyStripper.TryStripTracks(
+                        tempVideoPath, ["com.openharmony.timed_metadata.movingphoto"], out _);
+                    // 双文件残留：Apple mdta keys（content.identifier/live-photo/vitality）、
+                    // mebx 实况时序轨、vivoMediaExtInfo uuid box（复用合成端清洗器）
+                    Protocols.SourceProtocolCleaner.CleanVideoMarkersInPlace(tempVideoPath);
+                }
+
                 if (outputFormatIndex == 0)
                 {
                     // 不需要转码，直接移动临时文件到目标位置
@@ -348,7 +440,9 @@ namespace LivePhotoBox.Services
                 }
 
                 // 4. 将源文件的关键元数据写回视频输出（供后续元数据匹配使用）
-                await CopyMetadataToVideoAsync(sourcePath, videoOutputPath, token);
+                // 读清洗后的图片（tempImagePath）而非原始单文件：保证视频元数据与
+                // 输出图片一致，不会把已被清洗掉的厂商标记（Make=HUAWEI 等）再带回去。
+                await CopyMetadataToVideoAsync(tempImagePath, videoOutputPath, token);
 
                 // 5. 给图片和视频打上 LivePhotoBox 标记（标识经本软件拆分过）
                 await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
@@ -1011,7 +1105,6 @@ namespace LivePhotoBox.Services
                 await CopyExactLengthAsync(sourceStream, destinationStream, remainder, token);
             }
         }
-        
 
         // 检测 APP1 段是否包含实况照片元数据，判断是否为需要剥离的元数据。
         // 检测顺序：
@@ -1032,6 +1125,8 @@ namespace LivePhotoBox.Services
             if (data.IndexOf("xmlns:Container=\"http://ns.google.com/photos/1.0/container/\""u8) >= 0) return true;
             if (data.IndexOf("xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\""u8) >= 0) return true;
             if (data.IndexOf("xmlns:MiCamera=\"http://ns.xiaomi.com/photos/1.0/camera/\""u8) >= 0) return true;
+            if (data.IndexOf("xmlns:VCamera=\"http://ns.vivo.com/photos/1.0/camera/\""u8) >= 0) return true;
+            if (data.IndexOf("xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\""u8) >= 0) return true;
             return false;
         }
 
@@ -1137,6 +1232,81 @@ namespace LivePhotoBox.Services
                     $"Failed to clear vivo EXIF UserComment: {ex.Message}",
                     LogLevel.Warning);
             }
+        }
+
+        // ── 华为/荣耀 EXIF 标记清理 ──────────────────────────────────
+        // 文档：华为 JPEG 输出时写入 Make=HUAWEI 作为辅助识别标记（荣耀为 HONOR）；
+        // MakerNote 原生标记 "##**N4031" 非必需。无协议大清洗时清掉，避免残留厂商标记。
+        private static async Task ClearHuaweiExifMarkersAsync(string imagePath, CancellationToken token)
+        {
+            try
+            {
+                string make = (await ReadExifTagAsync(imagePath, "-Make", token)).Trim();
+                bool isHuaweiMake = make.Equals("HUAWEI", StringComparison.OrdinalIgnoreCase)
+                    || make.Equals("HONOR", StringComparison.OrdinalIgnoreCase);
+
+                // MakerNote 原生标记 ##**N4031（ASCII）直接扫字节
+                bool hasNativeMakerNote = await FileContainsAsciiAsync(imagePath, "##**N4031", token);
+
+                if (!isHuaweiMake && !hasNativeMakerNote)
+                    return;
+
+                var args = new List<string> { "-overwrite_original" };
+                if (isHuaweiMake) args.Add("-Make=");
+                if (hasNativeMakerNote) args.Add("-MakerNote=");
+                args.Add(imagePath);
+                await LivePhotoRepairService.RunExifToolAsync(token, args.ToArray());
+
+                LogService.Split(
+                    $"Cleared HUAWEI/Honor EXIF markers (Make={(isHuaweiMake ? make : "keep")}, " +
+                    $"MakerNote={(hasNativeMakerNote ? "##**N4031" : "keep")})",
+                    LogLevel.Debug);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Split(
+                    $"Failed to clear HUAWEI EXIF markers: {ex.Message}",
+                    LogLevel.Warning);
+            }
+        }
+
+        // 用 exiftool 读取单个标签（-s -s -S 纯值输出）。
+        private static async Task<string> ReadExifTagAsync(string imagePath, string tagArg, CancellationToken token)
+        {
+            string? exifToolPath = ExternalToolLocator.FindExifTool();
+            if (string.IsNullOrEmpty(exifToolPath)) return "";
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    Arguments = $"{tagArg} -s -s -S \"{imagePath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                using var process = Process.Start(psi);
+                if (process == null) return "";
+                string value = await process.StandardOutput.ReadToEndAsync(token);
+                await process.WaitForExitAsync(token);
+                return value.Trim();
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { return ""; }
+        }
+
+        private static async Task<bool> FileContainsAsciiAsync(string path, string needle, CancellationToken token)
+        {
+            try
+            {
+                byte[] data = await File.ReadAllBytesAsync(path, token);
+                string text = Encoding.ASCII.GetString(data);
+                return text.Contains(needle, StringComparison.Ordinal);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { return false; }
         }
 
         // ── HEIC meta box XMP 剥离 ───────────────────────────────────────
