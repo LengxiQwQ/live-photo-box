@@ -288,7 +288,9 @@ def main() -> None:
 
     metrics = compute_metrics(merged, data)
     refs = ((data.get("referrers") or []) if isinstance(data.get("referrers"), list) else [])
-    updated_at = payload["fetched_at"].replace("T", " ").replace("Z", " UTC")
+    fetched = dt.datetime.fromisoformat(payload["fetched_at"].replace("Z", "+00:00"))
+    cn = fetched.astimezone(dt.timezone(dt.timedelta(hours=8)))
+    updated_at = cn.strftime("%Y-%m-%d %H:%M:%S") + " (UTC+8)"
 
     update_readme(root, render_section(metrics, refs, updated_at, "en"), "README.md")
     update_readme(root, render_section(metrics, refs, updated_at, "zh"), "README.zh-CN.md")
