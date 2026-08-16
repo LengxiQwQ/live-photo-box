@@ -209,149 +209,106 @@ def compute_metrics(merged: dict, data: dict) -> dict:
     }
 
 
-# ── C. 渲染 SVG 趋势图 ────────────────────────────────────────────
+# ── C. 渲染 SVG 信息图卡片 ────────────────────────────────────────
 
-def render_chart(merged: dict, out_path: Path, theme: str) -> None:
-    """自绘简约折线图：Views（实线）+ Clones（虚线），浅/深两版。"""
+def render_card(merged: dict, metrics: dict, refs: list, updated_at: str,
+                out_path: Path, theme: str) -> None:
+    """渲染 metrics 风格信息图卡片：渐变背景 + 圆角 + 大数字 + 迷你趋势 + 来源排行。"""
     if theme == "dark":
-        c_views, c_clones, c_grid, c_text = "#4ea1ff", "#9aa4af", "#2d333b", "#9db1c4"
+        bg1, bg2 = "#0d1117", "#1a2233"
+        border, text, sub = "#30363d", "#e6edf3", "#8b949e"
+        accent, accent2 = "#4ea1ff", "#7ee787"
+        chip_bg = "rgba(255,255,255,0.06)"
     else:
-        c_views, c_clones, c_grid, c_text = "#0078d7", "#6e7681", "#eaeef2", "#57606a"
+        bg1, bg2 = "#ffffff", "#f6f8fa"
+        border, text, sub = "#d0d7de", "#24292f", "#57606a"
+        accent, accent2 = "#0969da", "#1a7f37"
+        chip_bg = "rgba(9,105,218,0.05)"
 
-    days = sorted(set(merged["views"]) | set(merged["clones"]))
-    if len(days) > DAYS_IN_WINDOW:
-        days = days[-DAYS_IN_WINDOW:]
-    views_pts = [merged["views"].get(d, {}).get("count", 0) for d in days]
-    clones_pts = [merged["clones"].get(d, {}).get("count", 0) for d in days]
+    W, H, pad = 780, 270, 22
+    p = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
+        f'viewBox="0 0 {W} {H}" font-family="system-ui, -apple-system, Segoe UI, sans-serif">',
+        "<defs>"
+        '<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">'
+        f'<stop offset="0" stop-color="{bg1}"/><stop offset="1" stop-color="{bg2}"/></linearGradient>'
+        '<linearGradient id="sparkfill" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0" stop-color="{accent}" stop-opacity="0.4"/>'
+        f'<stop offset="1" stop-color="{accent}" stop-opacity="0"/></linearGradient>'
+        "</defs>",
+        f'<rect x="0" y="0" width="{W}" height="{H}" rx="14" fill="url(#bg)" stroke="{border}" stroke-width="1"/>',
+    ]
 
-    W, H = 780, 220
-    pad_l, pad_r, pad_t, pad_b = 52, 12, 28, 30
-    plot_w, plot_h = W - pad_l - pad_r, H - pad_t - pad_b
-    n = len(days)
+    # 标题 + 数据范围
+    first = metrics.get("first_date") or "—"
+    p.append(f'<circle cx="{pad + 8}" cy="30" r="4" fill="{accent}"/>')
+    p.append(f'<text x="{pad + 20}" y="35" font-size="15" font-weight="700" fill="{text}">Repository Traffic</text>')
+    p.append(f'<text x="{W - pad}" y="35" text-anchor="end" font-size="11" fill="{sub}">'
+             f'{first} → {updated_at[:16]} UTC</text>')
 
-    if n == 0:
-        svg = (
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" '
-            f'viewBox="0 0 {W} {H}" font-family="system-ui, -apple-system, Segoe UI, sans-serif">'
-            f'<text x="{W/2}" y="{H/2}" text-anchor="middle" font-size="13" fill="{c_text}">'
-            "No data yet</text></svg>"
-        )
-        out_path.write_text(svg, encoding="utf-8")
-        return
+    # 2x2 数字块
+    blocks = [
+        ("Views",   metrics["views_all"],      "all-time"),
+        ("Uniques", metrics["views_14_uniq"],  "14-day"),
+        ("Clones",  metrics["clones_all"],     "all-time"),
+        ("Cloners", metrics["clones_14_uniq"], "14-day"),
+    ]
+    bw = (W - pad * 2 - 24) / 2
+    bh = 62
+    for i, (label, value, sublabel) in enumerate(blocks):
+        r, c = divmod(i, 2)
+        bx = pad + c * (bw + 24)
+        by = 52 + r * (bh + 12)
+        p.append(f'<rect x="{bx:.1f}" y="{by}" width="{bw:.1f}" height="{bh}" rx="10" '
+                 f'fill="{chip_bg}" stroke="{border}" stroke-width="1"/>')
+        p.append(f'<text x="{bx + bw - 14:.1f}" y="{by + 22}" text-anchor="end" font-size="10" fill="{sub}">{sublabel}</text>')
+        p.append(f'<text x="{bx + 16:.1f}" y="{by + 26}" font-size="12" fill="{sub}">{label}</text>')
+        p.append(f'<text x="{bx + 16:.1f}" y="{by + 53}" font-size="27" font-weight="800" fill="{text}">{fmt_num(value)}</text>')
 
-    max_val = max(max(views_pts), max(clones_pts), 1)
-    y_max = max(max_val * 1.15, 4.0)
+    # 迷你趋势（Views sparkline）
+    days = sorted(merged["views"])
+    series = [merged["views"][d]["count"] for d in days][-DAYS_IN_WINDOW:]
+    n = len(series)
+    sy = 200
+    p.append(f'<text x="{pad}" y="{sy - 8}" font-size="11" fill="{sub}">Views trend · last {n} days</text>')
+    if n >= 2:
+        sw = W - pad * 2
+        sh = 26
+        maxv = max(series) or 1
+        pts = " ".join(f"{pad + sw * i / (n - 1):.1f},{sy + sh * (1 - v / maxv):.1f}"
+                       for i, v in enumerate(series))
+        p.append(f'<polygon points="{pad},{sy + sh} {pts} {pad + sw},{sy + sh}" fill="url(#sparkfill)"/>')
+        p.append(f'<polyline points="{pts}" fill="none" stroke="{accent}" stroke-width="2" '
+                 f'stroke-linejoin="round" stroke-linecap="round"/>')
+        lx, ly = pad + sw, sy + sh * (1 - series[-1] / maxv)
+        p.append(f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="3" fill="{accent}"/>')
+        p.append(f'<text x="{lx - 6:.1f}" y="{ly - 7:.1f}" text-anchor="end" font-size="11" '
+                 f'font-weight="600" fill="{accent}">{fmt_num(series[-1])}</text>')
 
-    def y(v: float) -> float:
-        return pad_t + plot_h * (1 - v / y_max)
+    # Top referrers
+    top = " · ".join(x.get("referrer", "") for x in refs[:5] if x.get("referrer"))
+    if top:
+        p.append(f'<text x="{pad}" y="258" font-size="11" fill="{sub}">Top referrers: '
+                 f'<tspan fill="{text}">{top}</tspan></text>')
 
-    def x(i: int) -> float:
-        return pad_l + plot_w * i / max(1, n - 1)
-
-    parts = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" '
-             f'font-family="system-ui, -apple-system, Segoe UI, sans-serif">']
-
-    # y 网格线 + 刻度
-    for g in range(5):
-        v = y_max * g / 4
-        yy = y(v)
-        parts.append(f'<line x1="{pad_l:.0f}" y1="{yy:.1f}" x2="{W - pad_r:.0f}" y2="{yy:.1f}" '
-                     f'stroke="{c_grid}" stroke-width="1"/>')
-        parts.append(f'<text x="{pad_l - 8:.0f}" y="{yy + 4:.1f}" text-anchor="end" font-size="11" '
-                     f'fill="{c_text}">{fmt_num(round(v))}</text>')
-
-    # x 轴日期标签（首 / 中 / 尾）
-    for i in sorted(set([0, n // 2, n - 1])):
-        parts.append(f'<text x="{x(i):.1f}" y="{H - 10:.0f}" text-anchor="middle" font-size="11" '
-                     f'fill="{c_text}">{days[i][5:]}</text>')
-
-    # 折线
-    def polyline(points, stroke, sw, dash):
-        pts = " ".join(f"{x(i):.1f},{y(p):.1f}" for i, p in enumerate(points))
-        return (f'<polyline points="{pts}" fill="none" stroke="{stroke}" stroke-width="{sw}" '
-                f'stroke-linejoin="round" stroke-linecap="round"'
-                + (f' stroke-dasharray="{dash}"' if dash else "") + "/>")
-
-    if n > 1:
-        parts.append(polyline(views_pts, c_views, 2.5, None))
-        parts.append(polyline(clones_pts, c_clones, 2, "6 4"))
-
-    # 末点圆点 + 末值标注（Views 上方、Clones 下方，避免重叠）
-    last_v, last_c = views_pts[-1], clones_pts[-1]
-    lx = x(n - 1)
-    if last_v > 0:
-        parts.append(f'<circle cx="{lx:.1f}" cy="{y(last_v):.1f}" r="3.5" fill="{c_views}"/>')
-        parts.append(f'<text x="{lx - 6:.1f}" y="{y(last_v) - 8:.1f}" text-anchor="end" font-size="11" '
-                     f'font-weight="600" fill="{c_views}">{fmt_num(last_v)}</text>')
-    if last_c > 0:
-        parts.append(f'<circle cx="{lx:.1f}" cy="{y(last_c):.1f}" r="3" fill="{c_clones}"/>')
-        parts.append(f'<text x="{lx + 6:.1f}" y="{y(last_c) + 14:.1f}" font-size="11" '
-                     f'font-weight="600" fill="{c_clones}">{fmt_num(last_c)}</text>')
-
-    # 图例（左上）
-    parts.append(f'<line x1="{pad_l:.0f}" y1="14" x2="{pad_l + 16:.0f}" y2="14" stroke="{c_views}" stroke-width="2.5"/>')
-    parts.append(f'<text x="{pad_l + 20:.0f}" y="18" font-size="11" fill="{c_text}">Views</text>')
-    parts.append(f'<line x1="{pad_l + 62:.0f}" y1="14" x2="{pad_l + 78:.0f}" y2="14" stroke="{c_clones}" stroke-width="2" stroke-dasharray="6 4"/>')
-    parts.append(f'<text x="{pad_l + 82:.0f}" y="18" font-size="11" fill="{c_text}">Clones</text>')
-
-    parts.append("</svg>")
-    out_path.write_text("".join(parts), encoding="utf-8")
+    p.append("</svg>")
+    out_path.write_text("".join(p), encoding="utf-8")
     log(f"rendered -> {out_path.name}")
 
 
 # ── D. 更新 README 区块 ───────────────────────────────────────────
 
-def render_section(metrics: dict, refs: list, paths: list, updated_at: str, lang: str,
-                   repo: str = "") -> str:
-    """生成双语 README 数据区块（替换 INSIGHTS 占位符之间的内容）。"""
-    def top5(items, key):
-        names = []
-        for it in items[:10]:
-            name = (it.get(key) or "").lstrip("/")
-            if key == "path" and repo:
-                # GitHub paths 端点返回 /{owner}/{repo}/... 前缀，剥掉并去冗余段
-                low = name.lower()
-                if low.startswith(repo.lower()):
-                    name = name[len(repo):]
-                name = re.sub(r"^/?(blob|tree)/[^/]+/", "", name)
-                name = name.strip("/")
-                name = "Home" if name == "" else name
-            if name and name not in names:
-                names.append(name)
-            if len(names) >= 5:
-                break
-        return " · ".join(names) if names else "—"
-
+def render_section(metrics: dict, updated_at: str, lang: str) -> str:
+    """生成双语 README 区块（图片卡片 + 数据范围 + 口径脚注）。"""
     if lang == "zh":
-        title_alt = "仓库浏览量 & 克隆量趋势"
-        rows = [
-            ("浏览 · 最近 14 天", fmt_num(metrics["views_14"]), fmt_num(metrics["views_14_uniq"])),
-            ("克隆 · 最近 14 天", fmt_num(metrics["clones_14"]), fmt_num(metrics["clones_14_uniq"])),
-            ("浏览 · 累计", fmt_num(metrics["views_all"]), fmt_num(metrics["views_14_uniq"])),
-            ("克隆 · 累计", fmt_num(metrics["clones_all"]), fmt_num(metrics["clones_14_uniq"])),
-        ]
-        table = "\n".join(f"| {a} | {b} | {c} |" for a, b, c in rows)
-        refs_line = "**热门来源：** " + top5(refs, "referrer")
-        paths_line = "**热门内容：** " + top5(paths, "path")
+        title_alt = "仓库流量统计"
         updated = (f"*数据开始：{metrics.get('first_date') or '—'} · 最后更新：{updated_at}*  \n"
-                   "*独立数 = 近 14 天窗口内的独立访客/克隆者；跨天独立访客不可累加，累计行的独立数同为近 14 天口径。*")
+                   "*独立数 = 近 14 天窗口内的独立访客/克隆者；跨天独立访客不可累加。*")
     else:
-        title_alt = "Repository views & clones over time"
-        rows = [
-            ("Views · last 14 days", fmt_num(metrics["views_14"]), fmt_num(metrics["views_14_uniq"])),
-            ("Clones · last 14 days", fmt_num(metrics["clones_14"]), fmt_num(metrics["clones_14_uniq"])),
-            ("Views · all-time", fmt_num(metrics["views_all"]), fmt_num(metrics["views_14_uniq"])),
-            ("Clones · all-time", fmt_num(metrics["clones_all"]), fmt_num(metrics["clones_14_uniq"])),
-        ]
-        table = "\n".join(f"| {a} | {b} | {c} |" for a, b, c in rows)
-        refs_line = "**Top referrers:** " + top5(refs, "referrer")
-        paths_line = "**Top content:** " + top5(paths, "path")
+        title_alt = "Repository traffic"
         updated = (f"*Data since {metrics.get('first_date') or '—'} · Last updated: {updated_at}*  \n"
                    "*Uniques = distinct visitors/cloners in the last 14-day window; "
-                   "cross-day uniques can't be summed, so all-time uniques reflect that window.*")
-
-    header = "| Metric | Count | Uniques |" if lang == "en" else "| 指标 | 次数 | 独立数 |"
-    divider = "|---|---|---|"
+                   "cross-day uniques can't be summed.*")
 
     return (
         "<!-- INSIGHTS:START -->\n"
@@ -359,8 +316,7 @@ def render_section(metrics: dict, refs: list, paths: list, updated_at: str, lang
         '  <source media="(prefers-color-scheme: dark)" srcset="insights/chart-dark.svg">\n'
         f'  <img src="insights/chart.svg" alt="{title_alt}" width="780">\n'
         "</picture></p>\n\n"
-        f"{header}\n{divider}\n{table}\n\n"
-        f"{refs_line}  \n{paths_line}  \n{updated}\n"
+        f"{updated}\n"
         "<!-- INSIGHTS:END -->"
     )
 
@@ -412,16 +368,15 @@ def main() -> None:
     traffic_path.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding="utf-8")
     log(f"wrote {traffic_path.name} (views={len(merged['views'])} days)")
 
-    render_chart(merged, root / "insights" / "chart.svg", "light")
-    render_chart(merged, root / "insights" / "chart-dark.svg", "dark")
-
     metrics = compute_metrics(merged, data)
     refs = ((data.get("referrers") or []) if isinstance(data.get("referrers"), list) else [])
-    paths = ((data.get("paths") or []) if isinstance(data.get("paths"), list) else [])
     updated_at = payload["fetched_at"].replace("T", " ").replace("Z", " UTC")
 
-    update_readme(root, render_section(metrics, refs, paths, updated_at, "en", repo), "README.md")
-    update_readme(root, render_section(metrics, refs, paths, updated_at, "zh", repo), "README.zh-CN.md")
+    render_card(merged, metrics, refs, updated_at, root / "insights" / "chart.svg", "light")
+    render_card(merged, metrics, refs, updated_at, root / "insights" / "chart-dark.svg", "dark")
+
+    update_readme(root, render_section(metrics, updated_at, "en"), "README.md")
+    update_readme(root, render_section(metrics, updated_at, "zh"), "README.zh-CN.md")
 
     log("done")
 

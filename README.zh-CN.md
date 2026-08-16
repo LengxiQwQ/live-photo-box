@@ -268,20 +268,11 @@ live-photo-box/
 <!-- INSIGHTS:START -->
 <p align="center"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="insights/chart-dark.svg">
-  <img src="insights/chart.svg" alt="仓库浏览量 & 克隆量趋势" width="780">
+  <img src="insights/chart.svg" alt="仓库流量统计" width="780">
 </picture></p>
 
-| 指标 | 次数 | 独立数 |
-|---|---|---|
-| 浏览 · 最近 14 天 | 725 | 120 |
-| 克隆 · 最近 14 天 | 227 | 66 |
-| 浏览 · 累计 | 725 | 120 |
-| 克隆 · 累计 | 227 | 66 |
-
-**热门来源：** github.com · Google · Bing · doubao.com · chatgpt.com  
-**热门内容：** Home · releases · releases/tag/v2.1.5 · README.zh-CN.md · releases/tag/v2.1.2  
-*数据开始：2026-08-02 · 最后更新：2026-08-16 15:30:05 UTC*  
-*独立数 = 近 14 天窗口内的独立访客/克隆者；跨天独立访客不可累加，累计行的独立数同为近 14 天口径。*
+*数据开始：2026-08-02 · 最后更新：2026-08-16 15:58:33 UTC*  
+*独立数 = 近 14 天窗口内的独立访客/克隆者；跨天独立访客不可累加。*
 <!-- INSIGHTS:END -->
 
 ---

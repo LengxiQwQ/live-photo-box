@@ -266,20 +266,11 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 <!-- INSIGHTS:START -->
 <p align="center"><picture>
   <source media="(prefers-color-scheme: dark)" srcset="insights/chart-dark.svg">
-  <img src="insights/chart.svg" alt="Repository views & clones over time" width="780">
+  <img src="insights/chart.svg" alt="Repository traffic" width="780">
 </picture></p>
 
-| Metric | Count | Uniques |
-|---|---|---|
-| Views · last 14 days | 725 | 120 |
-| Clones · last 14 days | 227 | 66 |
-| Views · all-time | 725 | 120 |
-| Clones · all-time | 227 | 66 |
-
-**Top referrers:** github.com · Google · Bing · doubao.com · chatgpt.com  
-**Top content:** Home · releases · releases/tag/v2.1.5 · README.zh-CN.md · releases/tag/v2.1.2  
-*Data since 2026-08-02 · Last updated: 2026-08-16 15:30:05 UTC*  
-*Uniques = distinct visitors/cloners in the last 14-day window; cross-day uniques can't be summed, so all-time uniques reflect that window.*
+*Data since 2026-08-02 · Last updated: 2026-08-16 15:58:33 UTC*  
+*Uniques = distinct visitors/cloners in the last 14-day window; cross-day uniques can't be summed.*
 <!-- INSIGHTS:END -->
 
 ---
