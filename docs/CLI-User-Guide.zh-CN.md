@@ -139,7 +139,6 @@ lpb split photo.jpg -y
 
 | 协议 | JPEG+MP4 | JPEG+MOV | HEIC+MP4 | HEIC+MOV | HEIC+MP4 (H.265) |
 |---|---|---|---|---|---|
-| Fusion | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
 | Micro Video | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
 | Motion Photo | ✅ | ✅ | ✖️ | ✅ | ✖️ |
 | OPPO O-Live | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
@@ -155,7 +154,6 @@ lpb split photo.jpg -y
 
 | 协议 | 支持设备 | 状态 |
 |---|---|---|
-| Fusion | Windows / Android（通用） | 🟡 测试中 |
 | Micro Video | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
 | Motion Photo | Windows / 小米 / Pixel | ✅ 可用 |
 | OPPO O-Live | Windows / 小米 / OPPO | ✅ 可用 |
@@ -167,7 +165,7 @@ lpb split photo.jpg -y
 
 | 协议 | 支持机型 | 状态 |
 |---|---|---|
-| Apple Live Photo | iPhone / iPad | 🟡 测试中 |
+| Apple Live Photo | iPhone / iPad | ✅ 可用 |
 | vivo Live Photo | vivo（≤ X200） | 🟡 测试中 |
 
 **拆分 — 协议 × 格式兼容矩阵：**
@@ -234,7 +232,7 @@ lpb protocols --json
 
 | 选项 | 说明 |
 |------|------|
-| `-p, --protocol <协议>` | 目标协议（默认 `motion photo`）：`fusion`、`micro video` (V1)、`motion photo` (V2)、`oppo`、`vivo`、`samsung`、`huawei`。运行 `lpb protocols` 查看完整矩阵。多词协议名也可写无空格形式（无需引号）：`microvideo`、`motionphoto` |
+| `-p, --protocol <协议>` | 目标协议（默认 `motion photo`）：`micro video` (V1)、`motion photo` (V2)、`oppo`、`vivo`、`samsung`、`huawei`。运行 `lpb protocols` 查看完整矩阵。多词协议名也可写无空格形式（无需引号）：`microvideo`、`motionphoto` |
 | `-f, --format <格式>` | 输出容器（默认：指定协议的首个可用格式）：`jpg+mp4`、`jpg+mov`、`heic+mp4`、`heic+mov`、`heic+mp4-h265` |
 | `-n, --naming <规则>` | 输出文件名规则。默认：单文件 = `suffix`，批量 = `keep`。`keep`、`suffix` 或 `custom:模板`（占位符见下） |
 
@@ -288,10 +286,8 @@ lpb merge photo.jpg video.mp4 --all-variants
 lpb merge photo.jpg video.mp4 --all-variants -o ./Out
 ```
 
-输出：`photo_variants/`（或指定目录下的 `photo_variants/`）生成 14 个文件：
+输出：`photo_variants/`（或指定目录下的 `photo_variants/`）生成 12 个文件：
 ```
-photo_Fusion_JPEG+MP4.jpg
-photo_Fusion_JPEG+MOV.jpg
 photo_MicroVideo_JPEG+MP4.jpg
 ...
 photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
@@ -356,8 +352,8 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 #### 工作流示例
 
 ```powershell
-# 批量转换为通用安卓格式
-lpb merge -d ./DCIM/Camera -p fusion -o ./LivePhotos -y
+# 批量转换为 Google Motion Photo 格式
+lpb merge -d ./DCIM/Camera -p motionphoto -o ./LivePhotos -y
 
 # 递归批量 + 保留目录结构 + 归档源文件
 lpb merge -d ./Photos -r -s -p motionphoto -o ./Output --after "move:./Originals" -y
@@ -388,6 +384,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 | 预览（不实际处理） | `lpb split -d ./MyPhotos --dry-run` |
 | 只拆分 vivo 实况照片 | `lpb split -d ./MyPhotos --pairing vivo -y` |
 | 覆盖已存在输出 | `lpb split photo.jpg -w` |
+| 导出所有变体（Apple + vivo + 无协议） | `lpb split photo.jpg --all-variants` |
 
 ---
 
@@ -399,7 +396,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 |------|------|
 | `<文件>` | 单个待拆分的单文件实况照片：`.jpg .jpeg .heic .heif`（图片 + 追加视频） |
 | `-d, --dir <文件夹>` | 包含单文件实况照片的文件夹（批量模式），所有检测到的实况照片都会被拆分 |
-| `--pairing <协议>` | 只拆分该协议的实况照片：`all`（不过滤，默认）、`fusion`、`v1`（MicroVideo）、`v2`（MotionPhoto）、`oppo`、`vivo`、`samsung`、`huawei` |
+| `--pairing <协议>` | 只拆分该协议的实况照片：`all`（不过滤，默认）、`v1`（MicroVideo）、`v2`（MotionPhoto）、`oppo`、`vivo`、`samsung`、`huawei` |
 | `-r, --recursive` | 扫描时包含所有子目录 |
 
 **输出**
@@ -440,6 +437,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 | `-y, --yes` | 跳过确认提示。适用于脚本 / 自动化 |
 | `--dry-run` | 预览：显示将要执行的操作，不实际处理文件 |
 | `-v, --verbose` | 逐文件输出状态，而非仅显示汇总 |
+| `--all-variants` | 从单个单文件实况照片导出所有拆分变体（仅单文件模式）；输出到 `{输出目录}/split_{名称}_All_Variants/` |
 
 #### 默认输出位置
 
@@ -454,6 +452,30 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 - 就地拆分：图片名与源文件冲突时自动重命名（`photo.jpg` → `photo (2).jpg`）；传 `-w` 则覆盖。
 - 批量文件名保持源名不变——它们进入独立的 `{文件夹名}_split/` 子文件夹。
 - `--dry-run` 会打印解析出的输出路径，且**不创建任何文件夹**。
+
+#### `--all-variants` — 一键导出所有拆分变体
+
+从单个单文件实况照片一键导出全部 7 组拆分变体（GUI 开放的所有协议 × 格式组合）。仅单文件模式——批量（`-d`）会被拒绝。适合开发者快速验证各协议的拆分输出。
+
+| 变体 | 输出文件对 |
+|------|-----------|
+| 无协议（保持原样） | `none_keep.<图片扩展名>` + `none_keep.<视频容器>` |
+| 无协议（JPG+MOV） | `none_jpg+mov.JPG` + `none_jpg+mov.MOV` |
+| 无协议（HEIC+MOV） | `none_heic+mov.HEIC` + `none_heic+mov.MOV` |
+| 无协议（JPG+MP4） | `none_jpg+mp4.JPG` + `none_jpg+mp4.MP4` |
+| Apple Live Photo (JPG+MOV) | `apple_jpg+mov.JPG` + `apple_jpg+mov.MOV` |
+| Apple Live Photo (HEIC+MOV) | `apple_heic+mov.HEIC` + `apple_heic+mov.MOV` |
+| vivo Live Photo (JPG+MP4) | `vivo_jpg+mp4.JPG` + `vivo_jpg+mp4.MP4` |
+
+```powershell
+# 默认输出到源文件所在目录的 split_{名称}_All_Variants/
+lpb split photo.jpg --all-variants
+
+# 指定输出目录
+lpb split photo.jpg --all-variants -o ./Out
+```
+
+输出：`split_photo_All_Variants/` 内含上述 14 个文件。文件名按 `{协议}_{格式}` 命名（小写 CLI 规范值，如 `-p apple -f jpg+mov` → `apple_jpg+mov`）——原文件名只进**文件夹名**；所有文件名/文件夹名一律不含空格。keep 变体的图片跟随源扩展名、视频跟随源视频容器（`.MOV` / `.MP4`）。此模式下 `-p` / `-f` / `-n` / `-w` / `--after` 均被忽略；`-j` 仍控制并行度。
 
 #### 协议 × 格式矩阵
 
@@ -476,7 +498,6 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 | 值 | 协议 |
 |----|------|
 | `all` | 不过滤（默认） |
-| `fusion` | Fusion |
 | `v1` | Micro Video (V1) |
 | `v2` | Motion Photo (V2) |
 | `oppo` | OPPO O-Live |

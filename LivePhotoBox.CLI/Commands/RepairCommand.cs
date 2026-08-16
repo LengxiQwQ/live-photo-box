@@ -357,7 +357,7 @@ namespace LivePhotoBox.Cli.Commands
                     else
                     {
                         CliConsole.WriteLine("Done", CliConsole.Success);
-                        if (verbose) Console.WriteLine($"    -> {actualPath}");
+                        if (verbose) Console.WriteLine($"-> {actualPath}");
                     }
                     return 0;
                 }
@@ -619,7 +619,7 @@ namespace LivePhotoBox.Cli.Commands
                         ct.ThrowIfCancellationRequested();
                         var (task, isRepair) = item;
                         if (verbose && !json)
-                            Console.WriteLine($"  [{task.Index}/{total}] {Path.GetFileName(task.SourcePath)} ...");
+                            Console.WriteLine($"[{task.Index}/{total}] {Path.GetFileName(task.SourcePath)} ...");
 
                         string? subDir = preserveSubdirs
                             ? PathHelper.GetRelativeSubDirectory(inputDir, task.SourcePath)
@@ -639,7 +639,7 @@ namespace LivePhotoBox.Cli.Commands
                                     if (task.Json != null) task.Json.Status = "repaired";
                                     Interlocked.Increment(ref ok);
                                     int c = Interlocked.Increment(ref completed);
-                                    if (!json) PrintLine(c, total, "OK  ", Path.GetFileName(task.SourcePath), verbose, targetPath, CliConsole.Success);
+                                    if (!json) PrintLine(c, total, "SUCCESS", Path.GetFileName(task.SourcePath), verbose, targetPath, CliConsole.Success);
                                 }
                                 else
                                 {
@@ -688,9 +688,9 @@ namespace LivePhotoBox.Cli.Commands
             else
             {
                 Console.WriteLine();
-                CliConsole.Write("Done: ", CliConsole.Accent);
+                CliConsole.Write("Done: ", CliConsole.Success);
                 CliConsole.Write(ok.ToString(), CliConsole.Highlight);
-                Console.Write(" OK, ");
+                Console.Write(" SUCCESS, ");
                 CliConsole.Write(fail.ToString(), CliConsole.Highlight);
                 Console.Write(" FAIL, ");
                 if (copyPerfect)
@@ -716,7 +716,6 @@ namespace LivePhotoBox.Cli.Commands
                 Console.WriteLine(" files:");
                 foreach (var t in repairTasks)
                 {
-                    Console.Write("  ");
                     CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
                     Console.Write("  ");
                     CliConsole.Write(Path.GetFileName(t.SourcePath), CliConsole.PathGreen);
@@ -736,7 +735,6 @@ namespace LivePhotoBox.Cli.Commands
                 Console.WriteLine(" files:");
                 foreach (var t in copyTasks)
                 {
-                    Console.Write("  ");
                     CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
                     Console.Write("  ");
                     CliConsole.Write(Path.GetFileName(t.SourcePath), CliConsole.PathGreen);
@@ -754,11 +752,11 @@ namespace LivePhotoBox.Cli.Commands
                 CliConsole.Write(tag + "  ", tagColor);
                 Console.WriteLine(string.IsNullOrEmpty(detail) ? fileName : $"{fileName}  ({detail})");
                 if (!string.IsNullOrEmpty(targetPath))
-                    Console.WriteLine($"    -> {targetPath}");
+                    Console.WriteLine($"-> {targetPath}");
             }
             else
             {
-                Console.Write($"  [{completed}/{total}] ");
+                Console.Write($"[{completed}/{total}] ");
                 CliConsole.Write(tag + "  ", tagColor);
                 Console.WriteLine(string.IsNullOrEmpty(detail) ? fileName : $"{fileName}  ({detail})");
             }

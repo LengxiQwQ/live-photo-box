@@ -227,7 +227,12 @@ namespace LivePhotoBox.ViewModels
         // 扫描时按此协议过滤单文件实况照片（复用 Core 的 LivePhotoProtocolDetector）。
         public int MatchProtocolIndex
         {
-            get => AppSettingsService.GetValue("SplitMatchProtocolIndex", 0);
+            get
+            {
+                int value = AppSettingsService.GetValue("SplitMatchProtocolIndex", 0);
+                // Fusion 已隐藏（index 1），若历史设置仍为 1，则回退到“所有单文件”。
+                return value == 1 ? 0 : value;
+            }
             set
             {
                 AppSettingsService.SetValue("SplitMatchProtocolIndex", value);

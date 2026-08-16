@@ -30,7 +30,7 @@ namespace LivePhotoBox.Cli.Commands
         private static readonly (string Name, string Devices, bool Supported)[] SplitProtocols =
         [
             ("None (split only)",  "Any device", true),
-            ("Apple Live Photo",   "iPhone / iPad", false),
+            ("Apple Live Photo",   "iPhone / iPad", true),
             ("vivo Live Photo",    "vivo (≤ X200)", false),
         ];
 
@@ -57,27 +57,26 @@ namespace LivePhotoBox.Cli.Commands
         private static void PrintTable()
         {
             Console.WriteLine();
-            CliConsole.WriteLine("  Merge — protocol × format compatibility", CliConsole.Accent);
+            CliConsole.WriteLine("Merge — protocol × format compatibility", CliConsole.Accent);
             Console.WriteLine();
 
             // 格式列使用带空格的可读名（如 JPEG + MP4），列宽 = 名称长度 + 2 空格间隔
             string[] fmt = ProtocolFormatMatrix.FormatNames;
             int[] colW = fmt.Select(f => f.Length + 2).ToArray();
 
-            Console.Write($"  {"Protocol".PadRight(22)}");
+            Console.Write($"{"Protocol".PadRight(22)}");
             for (int f = 0; f < fmt.Length; f++)
                 Console.Write(fmt[f].PadRight(colW[f]));
             Console.WriteLine();
 
-            Console.Write($"  {new string('─', 22)} ");
+            Console.Write($"{new string('─', 22)} ");
             for (int f = 0; f < fmt.Length; f++)
                 Console.Write(new string('─', colW[f] - 2) + "  ");
             Console.WriteLine();
 
-            for (int p = 0; p < ProtocolFormatMatrix.Matrix.Length; p++)
+            for (int p = 1; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
-                string display = p == 0 ? "Fusion (testing)" : ProtocolNameResolver.ProtocolDisplayNames[p];
-                Console.Write("  ");
+                string display = ProtocolNameResolver.ProtocolDisplayNames[p];
                 Console.Write(display.PadRight(22));
                 Console.Write(" ");
                 for (int f = 0; f < fmt.Length; f++)
@@ -91,27 +90,29 @@ namespace LivePhotoBox.Cli.Commands
             Console.WriteLine();
             WriteLegend();
             Console.WriteLine();
-            WriteIndexLine("  Protocol indices: ", "fusion=0  micro video=1  motion photo=2  oppo=3  vivo=4  samsung=5  huawei=6");
-            WriteIndexLine("  Format indices:   ", "jpg+mp4=0  jpg+mov=1  heic+mp4=2  heic+mov=3  heic+mp4-h265=4");
+            WriteIndexLine("Protocol indices: ", "micro video=1  motion photo=2  oppo=3  vivo=4  samsung=5  huawei=6");
+            WriteIndexLine("Format indices:   ", "jpg+mp4=0  jpg+mov=1  heic+mp4=2  heic+mov=3  heic+mp4-h265=4");
             Console.WriteLine();
 
             PrintDeviceTable("Merge — devices & availability",
-                ProtocolNameResolver.ProtocolDisplayNames, MergeDevices, MergeSupported);
+                ProtocolNameResolver.ProtocolDisplayNames.Skip(1).ToArray(),
+                MergeDevices.Skip(1).ToArray(),
+                MergeSupported.Skip(1).ToArray());
             PrintDeviceTable("Split — devices & availability",
                 SplitProtocols.Select(p => p.Name).ToArray(),
                 SplitProtocols.Select(p => p.Devices).ToArray(),
                 SplitProtocols.Select(p => p.Supported).ToArray());
 
             PrintSplitFormatMatrix();
-            WriteIndexLine("  Split protocol indices: ", "none=0  apple=1  vivo=2");
-            WriteIndexLine("  Split format indices:   ", "keep=0  jpg+mov=1  heic+mov=2  jpg+mp4=3");
+            WriteIndexLine("Split protocol indices: ", "none=0  apple=1  vivo=2");
+            WriteIndexLine("Split format indices:   ", "keep=0  jpg+mov=1  heic+mov=2  jpg+mp4=3");
 
             // Repair — fixes metadata; no protocol choice involved.
             Console.WriteLine();
-            CliConsole.WriteLine("  Repair — metadata fixes (no protocol needed)", CliConsole.Accent);
+            CliConsole.WriteLine("Repair — metadata fixes (no protocol needed)", CliConsole.Accent);
             Console.WriteLine();
-            Console.WriteLine("    Fixes rotation, embedded thumbnails, HEIC orientation, and video rotation.");
-            Console.WriteLine("    Apple Live Photos only (identified by ContentIdentifier UUID).");
+            Console.WriteLine("Fixes rotation, embedded thumbnails, HEIC orientation, and video rotation.");
+            Console.WriteLine("Apple Live Photos only (identified by ContentIdentifier UUID).");
         }
 
         // Prints a "protocol × devices × availability" table (merge or split).
@@ -121,19 +122,17 @@ namespace LivePhotoBox.Cli.Commands
             int devW = Math.Max("Devices".Length, devices.Max(d => d.Length));
 
             Console.WriteLine();
-            CliConsole.WriteLine($"  {title}", CliConsole.Accent);
+            CliConsole.WriteLine($"{title}", CliConsole.Accent);
             Console.WriteLine();
-            Console.Write("  ");
             Console.Write("Protocol".PadRight(nameW));
             Console.Write("   ");
             Console.Write("Devices".PadRight(devW));
             Console.Write("   Status");
             Console.WriteLine();
-            Console.WriteLine($"  {new string('─', nameW)}   {new string('─', devW)}   ──────────");
+            Console.WriteLine($"{new string('─', nameW)}   {new string('─', devW)}   ──────────");
 
             for (int i = 0; i < names.Length; i++)
             {
-                Console.Write("  ");
                 Console.Write(names[i].PadRight(nameW));
                 Console.Write("   ");
                 Console.Write(devices[i].PadRight(devW));
@@ -147,7 +146,7 @@ namespace LivePhotoBox.Cli.Commands
         private static void PrintSplitFormatMatrix()
         {
             Console.WriteLine();
-            CliConsole.WriteLine("  Split — protocol × format compatibility", CliConsole.Accent);
+            CliConsole.WriteLine("Split — protocol × format compatibility", CliConsole.Accent);
             Console.WriteLine();
 
             // split 格式列也统一为带空格的可读名（jpg+mov → JPG + MOV）
@@ -157,7 +156,6 @@ namespace LivePhotoBox.Cli.Commands
             int nameW = Math.Max("Protocol".Length, SplitProtocols.Max(p => p.Name.Length));
             int fmtW = Math.Max(8, fmtNames.Max(f => f.Length) + 1);
 
-            Console.Write("  ");
             Console.Write("Protocol".PadRight(nameW));
             Console.Write(" ");
             for (int f = 0; f < fmtNames.Length; f++)
@@ -167,7 +165,6 @@ namespace LivePhotoBox.Cli.Commands
             }
             Console.WriteLine();
 
-            Console.Write("  ");
             Console.Write(new string('─', nameW));
             Console.Write(" ");
             for (int f = 0; f < fmtNames.Length; f++)
@@ -179,7 +176,6 @@ namespace LivePhotoBox.Cli.Commands
 
             for (int s = 0; s < SplitProtocols.Length; s++)
             {
-                Console.Write("  ");
                 Console.Write(SplitProtocols[s].Name.PadRight(nameW));
                 Console.Write(" ");
                 for (int f = 0; f < fmtNames.Length; f++)
@@ -258,7 +254,6 @@ namespace LivePhotoBox.Cli.Commands
         {
             if (CliConsole.UseColor)
             {
-                Console.Write("  ");
                 CliConsole.Write("✅", CliConsole.Success);
                 Console.Write(" = supported   ");
                 CliConsole.Write("✖️", CliConsole.Error);
@@ -266,21 +261,21 @@ namespace LivePhotoBox.Cli.Commands
             }
             else
             {
-                Console.WriteLine("  ✅ = supported   ✖️ = not supported");
+                Console.WriteLine("✅ = supported   ✖️ = not supported");
             }
         }
 
         private static void PrintJson()
         {
-            var protocols = new object[ProtocolFormatMatrix.Matrix.Length];
-            for (int p = 0; p < ProtocolFormatMatrix.Matrix.Length; p++)
+            var protocols = new object[ProtocolFormatMatrix.Matrix.Length - 1];
+            for (int p = 1; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
                 int fmtCount = ProtocolFormatMatrix.FormatNames.Length;
                 var formats = new string[fmtCount];
                 for (int f = 0; f < fmtCount; f++)
                     formats[f] = ProtocolFormatMatrix.Matrix[p][f] ? ProtocolFormatMatrix.FormatNames[f] : null!;
 
-                protocols[p] = new
+                protocols[p - 1] = new
                 {
                     index = p,
                     name = ProtocolNameResolver.ProtocolNames[p],

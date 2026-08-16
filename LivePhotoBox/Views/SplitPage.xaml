@@ -394,7 +394,7 @@
                                           IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"
                                           Loaded="MatchProtocolComboBox_Loaded">
                                     <ComboBoxItem x:Uid="SplitPage_Match_All"/>
-                                    <ComboBoxItem x:Uid="SplitPage_Match_Fusion"/>
+                                    <ComboBoxItem x:Uid="SplitPage_Match_Fusion" Visibility="Collapsed"/>
                                     <ComboBoxItem x:Uid="SplitPage_Match_V1"/>
                                     <ComboBoxItem x:Uid="SplitPage_Match_V2"/>
                                     <ComboBoxItem x:Uid="SplitPage_Match_Oppo"/>

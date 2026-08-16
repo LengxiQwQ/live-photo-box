@@ -217,7 +217,11 @@ namespace LivePhotoBox.Services
             long videoSize = new FileInfo(sourceVid).Length;
 
             // ── Samsung HEIC path (mpvd + sefd box with Samsung Trailer) ──
-            if (HeicConverterService.IsHeicFile(sourceImg) && protocol is SamsungMotionPhotoProtocol samHeic)
+            // 仅在用户明确选择 HEIC 输出（格式 2）时走 HEIC；请求 jpg+* 时源图
+            // 已被 runner 转成 JPEG，这里加格式门控作为防御（P1-2）。
+            if (HeicConverterService.IsHeicFile(sourceImg)
+                && protocol is SamsungMotionPhotoProtocol samHeic
+                && outputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4)
             {
                 string videoMime = DetectVideoMime(sourceVid);
                 await WriteSamsungHeicAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samHeic, token, presentationTimestampUs);
@@ -233,7 +237,10 @@ namespace LivePhotoBox.Services
             }
 
             // ── HEIC native path (Motion Photo V2 with HEIC primary) ──
-            if (HeicConverterService.IsHeicFile(sourceImg) && protocol is MotionPhotoV2Protocol v2)
+            // 仅在用户选择 HEIC 输出（格式 2/3）时走 HEIC 原生路径（P1-2 防御性门控）。
+            if (HeicConverterService.IsHeicFile(sourceImg)
+                && protocol is MotionPhotoV2Protocol v2
+                && outputFormatIndex is ProtocolFormatMatrix.FormatHeicMp4 or ProtocolFormatMatrix.FormatHeicMov)
             {
                 string videoMime = DetectVideoMime(sourceVid);
                 byte[] xmpBytes = v2.BuildXmpMetadata(videoSize, presentationTimestampUs, "image/heic", "8", videoMime);
@@ -245,8 +252,11 @@ namespace LivePhotoBox.Services
             if (protocol is HuaweiMovingPhotoProtocol)
             {
                 // HEIC+H.265 format: force HEIC output regardless of source format
+                // 其余情况严格按用户请求（P1-2）：heic+mp4（2）/heic+mp4-h265（4）→ HEIC；
+                // jpg+mp4（0）→ JPEG（源图已被 runner 转成 JPEG）。
                 bool isHeicOutput = outputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265
-                    || HeicConverterService.IsHeicFile(sourceImg);
+                    || (outputFormatIndex is ProtocolFormatMatrix.FormatHeicMp4 or ProtocolFormatMatrix.FormatHeicMov
+                        && HeicConverterService.IsHeicFile(sourceImg));
                 // Pass raw presentation timestamp (microseconds) — WriteHuaweiNativeAsync
                 // converts it to a frame number using the actual video FPS.
                 await WriteHuaweiNativeAsync(sourceImg, sourceVid, targetPath,
@@ -395,7 +405,28 @@ namespace LivePhotoBox.Services
         //
         // HEIC output: patches the ftyp box to include "tmap" compatible brand
         //   (non-essential per the protocol doc, but present on all HUAWEI camera HEICs).
-        // JPEG output: writes Make=HUAWEI in EXIF via exiftool (also non-essential).
+        // JPEG output (方案 A，当前默认)：不改写 EXIF Make，保留来源图片的 Make 值。
+        //   原因：
+        //   1) 华为协议不是华为独占，荣耀（Honor）也用同一套（LIVE_ 尾标 + 嵌入 MP4 +
+        //      com.openharmony.covertime），实况照片判定不依赖 Make；Make 仅"辅助识别"。
+        //   2) 来源图片可能残留 Apple MakerNote 实况条目（0x0017 LivePhotoVideoIndex、
+        //      0x0025 等）。exiftool 解 Apple MakerNote 以 Make 为分派依据：Make=HUAWEI 时
+        //      会对这些 type=16 条目报 "Bad format (16)" 且读不出 LivePhotoVideoIndex；
+        //      已用 exiv2/MediaInfo/ImageMagick/piexif/GDI+/exifread 多工具验证，数据本身
+        //      完好、与 OPPO 输出逐字节一致，纯属 exiftool 解析行为。保留 Apple Make 则
+        //      exiftool 正常解码、无警告。
+        //
+        //   后备方案 B（若实测发现华为/荣耀相册确实依赖 Make=HUAWEI/HONOR 时启用）：
+        //   1) 恢复合成后写 Make：LivePhotoRepairService.RunExifToolAsync(token,
+        //      "-overwrite_original", "-Make=HUAWEI", targetPath)（荣耀场景用 "-Make=HONOR"）。
+        //   2) 同时必须清洗图片中残留的 Apple 实况 MakerNote 条目，否则 exiftool 会再次报
+        //      Bad format：实测 exiftool 无法删除这两个 type=16 条目（-LivePhotoVideoIndex=
+        //      / -StillImageTime= / -MakerNote:0x0017= 均无效），必须字节级改写 MakerNote——
+        //      删除 0x0017（LivePhotoVideoIndex）与 0x0025 两个 entry（各 12 字节 + 8 字节数据），
+        //      并同步修正 IFD 中后续条目指向的数据偏移。可参照 AppleMakerNoteWriter 的字节
+        //      处理模式实现（注意 -ContentIdentifier= 只能清配对 UUID，清不掉这两项）。
+        //   3) 改回后重新构建并跑一轮 merge → split 往返测试，确认华为/荣耀相册可播且
+        //      exiftool 无 Bad format 警告。
         //
         // sourceImg: Still image path (JPEG or HEIC, already in target format).
         // sourceVid: MP4 video path (caller ensures MP4 container).
@@ -436,12 +467,22 @@ namespace LivePhotoBox.Services
             // 1.6 Write com.openharmony.covertime to MP4 metadata.
             // Huawei Gallery reads this tag (in milliseconds) to position the cover frame.
             // Without it, the cover defaults to the first frame regardless of the tail values.
+            string? covertimeMp4ToCleanup = null;
             if (presentationTimestampUs > 0)
             {
                 int covertimeMs = (int)(presentationTimestampUs / 1000);
                 sourceVid = await WriteMp4CovertimeMetadataAsync(sourceVid, targetPath, covertimeMs, token);
+                covertimeMp4ToCleanup = sourceVid;
                 videoSize = new FileInfo(sourceVid).Length; // remux may change MP4 size
             }
+
+            // 1.7 嵌入视频 ftyp 品牌修正（P2-8）：真机华为 HEIC 实况的嵌入 MP4 为
+            //     major=mp42 / compat=[iso2, mp42]，而 ffmpeg 默认写 isom/[isom,iso2,avc1,mp41]。
+            //     字节级改写品牌（保持 box 尺寸不变，避免破坏 moov/stco 偏移），
+            //     与真机结构一致，拆分定位逻辑（按 ftyp 定位）不受影响。
+            sourceVid = await PatchMp4FtypBrandAsync(sourceVid, targetPath, token);
+            string? patchedMp4ToCleanup = sourceVid;
+            videoSize = new FileInfo(sourceVid).Length; // 品牌改写不改变尺寸，保险起见重读
 
             // 2. Build 60-byte tail (preserve original PPP:QQQQ when provided)
             byte[] tail = originalDurationMs > 0
@@ -470,7 +511,6 @@ namespace LivePhotoBox.Services
             }
 
             // 4. Append MP4 video
-            string? taggedMp4ToCleanup = (presentationTimestampUs > 0) ? sourceVid : null;
             using (var targetFs = new FileStream(
                 targetPath, FileMode.Append, FileAccess.Write, FileShare.None,
                 bufferSize: 8192, useAsync: true))
@@ -481,28 +521,23 @@ namespace LivePhotoBox.Services
                 await vidFs.CopyToAsync(targetFs, token);
                 await targetFs.WriteAsync(tail, 0, tail.Length, token);
             }
-            // Clean up temp tagged MP4 created by covertime injection
-            if (taggedMp4ToCleanup != null)
+            // Clean up temp MP4s created by covertime injection / ftyp brand patch
+            if (covertimeMp4ToCleanup != null)
             {
-                try { if (File.Exists(taggedMp4ToCleanup)) File.Delete(taggedMp4ToCleanup); } catch { }
+                try { if (File.Exists(covertimeMp4ToCleanup)) File.Delete(covertimeMp4ToCleanup); } catch { }
+            }
+            if (patchedMp4ToCleanup != null)
+            {
+                try { if (File.Exists(patchedMp4ToCleanup)) File.Delete(patchedMp4ToCleanup); } catch { }
             }
 
-            // 6. JPEG post-processing: write HUAWEI EXIF Make tag
-            if (!isHeicOutput)
-            {
-                try
-                {
-                    await LivePhotoRepairService.RunExifToolAsync(token,
-                        "-overwrite_original", "-Make=HUAWEI", targetPath);
-                }
-                catch (Exception ex)
-                {
-                    // Best-effort — Make tag is non-essential
-                    LogService.Merge(
-                        $"HUAWEI EXIF Make write failed (non-fatal): {ex.Message}",
-                        LogLevel.Warning);
-                }
-            }
+            // 5. ©too 补丁：真机华为 HEIC 实况的 moov/udta/meta/ilst 含
+            //    ©too = "Openharmony6.1"。ffmpeg 默认写 "LavfXX.XX.XXX" 且
+            //    -metadata too=... 无效（实测仍为 Lavf），需字节级改写。
+            PatchMp4TooAtom(targetPath);
+
+            // 6. JPEG 后处理：方案 A——不改写 EXIF Make（保留来源 Make，避免 exiftool
+            //    对残留 Apple MakerNote 实况条目报 Bad format）。详见方法头注释的方案 A/B。
 
             LogService.Merge(
                 $"HUAWEI Moving Photo written: {Path.GetFileName(targetPath)} " +
@@ -736,6 +771,56 @@ namespace LivePhotoBox.Services
             heicData[lastBrandOffset + 3] = (byte)'p';
 
             return heicData;
+        }
+
+        // 改写嵌入 MP4 的 ftyp 品牌为华为真机结构：major=mp42 / minor=0 /
+        // compat[0..1]=iso2,mp42（P2-8）。ffmpeg 默认写 isom/[isom,iso2,avc1,mp41]，
+        // 与真机华为 HEIC 实况不一致。
+        // 只改写字节、保持 box 尺寸不变——不改变后续 box 偏移，避免破坏 moov/stco 等
+        // 绝对偏移引用。返回值是品牌修正后的临时 MP4 路径（调用方负责清理）。
+        internal static async Task<string> PatchMp4FtypBrandAsync(
+            string mp4Path, string targetPath, CancellationToken token)
+        {
+            string patchedPath = Path.Combine(Path.GetTempPath(),
+                $"lpb_fb_{Guid.NewGuid():N}.mp4");
+            try
+            {
+                byte[] data = await File.ReadAllBytesAsync(mp4Path, token);
+                if (data.Length < 24 || data[4] != (byte)'f' || data[5] != (byte)'t'
+                    || data[6] != (byte)'y' || data[7] != (byte)'p')
+                {
+                    LogService.Merge("ftyp patch: video does not start with ftyp box, skipping",
+                        LogLevel.Warning);
+                    return mp4Path;
+                }
+
+                // major brand → "mp42"，minor → 0
+                data[8] = (byte)'m'; data[9] = (byte)'p';
+                data[10] = (byte)'4'; data[11] = (byte)'2';
+                data[12] = 0; data[13] = 0; data[14] = 0; data[15] = 0;
+
+                // compat[0] → "iso2"，compat[1] → "mp42"（保留后续 brand，无害）
+                if (data.Length >= 24)
+                {
+                    data[16] = (byte)'i'; data[17] = (byte)'s';
+                    data[18] = (byte)'o'; data[19] = (byte)'2';
+                    data[20] = (byte)'m'; data[21] = (byte)'p';
+                    data[22] = (byte)'4'; data[23] = (byte)'2';
+                }
+
+                await File.WriteAllBytesAsync(patchedPath, data, token);
+                LogService.Merge(
+                    $"ftyp brand patched → mp42/[iso2,mp42,...]: {Path.GetFileName(patchedPath)}",
+                    LogLevel.Debug);
+                return patchedPath;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Merge($"ftyp brand patch failed: {ex.Message}", LogLevel.Warning);
+                try { if (File.Exists(patchedPath)) File.Delete(patchedPath); } catch { }
+                return mp4Path;
+            }
         }
 
         // "openharmony6" — 12 bytes, exactly replaces ffmpeg's "LavfXX.XX.XXX"

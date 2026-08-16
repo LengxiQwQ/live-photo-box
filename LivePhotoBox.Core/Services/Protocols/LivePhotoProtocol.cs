@@ -91,7 +91,13 @@ namespace LivePhotoBox.Services.Protocols
             string marker,
             CancellationToken token)
         {
-            string tempPath = TempFileService.AllocateTempPath(workDir, hint, "jpg");
+            // 临时副本扩展名必须跟随源图片的实际容器（P1-3）：exiftool 按扩展名选择
+            // 写入器模块，若 HEIC 源被复制成 .jpg，exiftool 会报 "Not a valid JPG" 并
+            // 拒绝写入 UserComment（vivo 的 HEIC 源因此丢失 multi-frame 签名）。
+            string sourceExt = HeicConverterService.IsHeicFile(sourceImagePath)
+                ? "heic"
+                : "jpg";
+            string tempPath = TempFileService.AllocateTempPath(workDir, hint, sourceExt);
             try
             {
                 File.Copy(sourceImagePath, tempPath, true);

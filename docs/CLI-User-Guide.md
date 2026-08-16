@@ -139,7 +139,6 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 
 | Protocol | JPEG+MP4 | JPEG+MOV | HEIC+MP4 | HEIC+MOV | HEIC+MP4 (H.265) |
 |---|---|---|---|---|---|
-| Fusion | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
 | Micro Video | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
 | Motion Photo | ✅ | ✅ | ✖️ | ✅ | ✖️ |
 | OPPO O-Live | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
@@ -155,7 +154,6 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 
 | Protocol | Devices | Status |
 |---|---|---|
-| Fusion | Windows / Android (universal) | 🟡 In testing |
 | Micro Video | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
 | Motion Photo | Windows / Xiaomi / Pixel | ✅ Supported |
 | OPPO O-Live | Windows / Xiaomi / OPPO | ✅ Supported |
@@ -167,7 +165,7 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 
 | Protocol | Devices | Status |
 |---|---|---|
-| Apple Live Photo | iPhone / iPad | 🟡 In testing |
+| Apple Live Photo | iPhone / iPad | ✅ Supported |
 | vivo Live Photo | vivo (≤ X200) | 🟡 In testing |
 
 **Split — protocol × format compatibility:**
@@ -234,7 +232,7 @@ The primary command. Supports two operating modes:
 
 | Option | Description |
 |--------|-------------|
-| `-p, --protocol <p>` | Target protocol (default `motion photo`): `fusion`, `micro video` (V1), `motion photo` (V2), `oppo`, `vivo`, `samsung`, `huawei`. Run `lpb protocols` for the full matrix. Multi-word names also work without spaces (no quotes needed): `microvideo`, `motionphoto` |
+| `-p, --protocol <p>` | Target protocol (default `motion photo`): `micro video` (V1), `motion photo` (V2), `oppo`, `vivo`, `samsung`, `huawei`. Run `lpb protocols` for the full matrix. Multi-word names also work without spaces (no quotes needed): `microvideo`, `motionphoto` |
 | `-f, --format <f>` | Output container (default: first available for the protocol): `jpg+mp4`, `jpg+mov`, `heic+mp4`, `heic+mov`, `heic+mp4-h265` |
 | `-n, --naming <rule>` | Output filename rule. Default: single pair = `suffix`, batch = `keep`. `keep`, `suffix`, or `custom:TEMPLATE` (tokens below) |
 
@@ -288,10 +286,8 @@ lpb merge photo.jpg video.mp4 --all-variants
 lpb merge photo.jpg video.mp4 --all-variants -o ./Out
 ```
 
-Output: `photo_variants/` (in the image's directory or specified output) contains 14 files:
+Output: `photo_variants/` (in the image's directory or specified output) contains 12 files:
 ```
-photo_Fusion_JPEG+MP4.jpg
-photo_Fusion_JPEG+MOV.jpg
 photo_MicroVideo_JPEG+MP4.jpg
 ...
 photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
@@ -356,8 +352,8 @@ Only source files from **successfully** merged pairs are affected.
 #### Workflow Examples
 
 ```powershell
-# Batch to universal Android format
-lpb merge -d ./DCIM/Camera -p fusion -o ./LivePhotos -y
+# Batch to Google Motion Photo format
+lpb merge -d ./DCIM/Camera -p motionphoto -o ./LivePhotos -y
 
 # Recursive batch with structure preservation + source archiving
 lpb merge -d ./Photos -r -s -p motionphoto -o ./Output --after "move:./Originals" -y
@@ -388,6 +384,7 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 | Preview without processing | `lpb split -d ./MyPhotos --dry-run` |
 | Only split vivo live photos | `lpb split -d ./MyPhotos --pairing vivo -y` |
 | Overwrite existing outputs | `lpb split photo.jpg -w` |
+| Export all variants (Apple + vivo + no-protocol) | `lpb split photo.jpg --all-variants` |
 
 ---
 
@@ -399,7 +396,7 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 |--------|-------------|
 | `<file>` | One single-file live photo to split: `.jpg .jpeg .heic .heif` (image with an appended video) |
 | `-d, --dir <folder>` | Folder with single-file live photos (batch mode); all detected live photos are split |
-| `--pairing <protocol>` | Only split live photos of this protocol: `all` (no filter, default), `fusion`, `v1` (MicroVideo), `v2` (MotionPhoto), `oppo`, `vivo`, `samsung`, `huawei` |
+| `--pairing <protocol>` | Only split live photos of this protocol: `all` (no filter, default), `v1` (MicroVideo), `v2` (MotionPhoto), `oppo`, `vivo`, `samsung`, `huawei` |
 | `-r, --recursive` | Include subdirectories when scanning |
 
 **Output**
@@ -440,6 +437,7 @@ Naming tokens:
 | `-y, --yes` | Skip confirmation prompts. Useful for scripts / automation |
 | `--dry-run` | Preview: show what would be done, don't actually process files |
 | `-v, --verbose` | Show per-file status messages instead of summary only |
+| `--all-variants` | Export ALL split variants (single-file mode only); output to `{output}/split_{name}_All_Variants/` |
 
 #### Default Output Location
 
@@ -454,6 +452,30 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 - Splitting in place: when the image name would collide with the source file, it is auto-renamed (`photo.jpg` → `photo (2).jpg`); pass `-w` to overwrite instead.
 - Batch files keep their source names — they land in the separate `{folder}_split/` subfolder.
 - `--dry-run` prints the resolved output paths and creates **no** folders.
+
+#### `--all-variants` — Export every split variant
+
+From one single-file live photo, generate all 7 supported split variants in a single command (every protocol × format combination the GUI offers). Single-file mode only — batch (`-d`) is rejected. Ideal for developer QA and testing.
+
+| Variant | Output pair |
+|---------|-------------|
+| No protocol (keep original) | `none_keep.<img-ext>` + `none_keep.<vid-ext>` |
+| No protocol (JPG+MOV) | `none_jpg+mov.JPG` + `none_jpg+mov.MOV` |
+| No protocol (HEIC+MOV) | `none_heic+mov.HEIC` + `none_heic+mov.MOV` |
+| No protocol (JPG+MP4) | `none_jpg+mp4.JPG` + `none_jpg+mp4.MP4` |
+| Apple Live Photo (JPG+MOV) | `apple_jpg+mov.JPG` + `apple_jpg+mov.MOV` |
+| Apple Live Photo (HEIC+MOV) | `apple_heic+mov.HEIC` + `apple_heic+mov.MOV` |
+| vivo Live Photo (JPG+MP4) | `vivo_jpg+mp4.JPG` + `vivo_jpg+mp4.MP4` |
+
+```powershell
+# Default: writes to {source_dir}/split_{name}_All_Variants/
+lpb split photo.jpg --all-variants
+
+# Specify output directory
+lpb split photo.jpg --all-variants -o ./Out
+```
+
+Output: `split_photo_All_Variants/` contains the 14 files above. Files are named `{protocol}_{format}` (lowercase CLI values, e.g. `-p apple -f jpg+mov` → `apple_jpg+mov`) — the original name goes into the **folder** name only; no spaces in any file or folder name. For the keep variant the image keeps the source extension and the video keeps the source video's container (`.MOV` / `.MP4`). `-p` / `-f` / `-n` / `-w` / `--after` are ignored in this mode; `-j` still controls parallelism.
 
 #### Protocol × Format Matrix
 
@@ -476,7 +498,6 @@ When `--format` is omitted, the default is the protocol's first available format
 | Value | Protocol |
 |-------|----------|
 | `all` | No filter (default) |
-| `fusion` | Fusion |
 | `v1` | Micro Video (V1) |
 | `v2` | Motion Photo (V2) |
 | `oppo` | OPPO O-Live |

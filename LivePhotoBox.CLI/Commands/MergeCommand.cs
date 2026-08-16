@@ -35,9 +35,8 @@ namespace LivePhotoBox.Cli.Commands
             dirOpt.AddAlias("-d");
 
             var protocolOpt = new Option<string>("--protocol", () => "motion photo",
-                "Target phone format. fusion (universal Android)|micro video (V1)|motion photo (V2)|oppo|vivo|samsung|huawei.\n" +
+                "Target phone format. micro video (V1)|motion photo (V2)|oppo|vivo|samsung|huawei.\n" +
                 "Multi-word names also work without spaces (no quotes): microvideo, motionphoto.\n" +
-                "fusion is this tool's own format — in testing, stability unknown, not an official phone-vendor protocol.\n" +
                 "Use 'protocols' command to see all supported combinations.");
             protocolOpt.AddAlias("-p");
 
@@ -297,7 +296,7 @@ namespace LivePhotoBox.Cli.Commands
             // Resolve protocol
             if (!ProtocolNameResolver.TryResolveProtocol(protocolName, out int protocolIndex))
             {
-                CliConsole.WriteErrorLine($"Error: Unknown protocol '{protocolName}'. Use 'lpb protocols' to list available.{CliConsole.DidYouMean(protocolName, ["fusion", "micro video", "motion photo", "oppo", "vivo", "samsung", "huawei"])}");
+                CliConsole.WriteErrorLine($"Error: Unknown protocol '{protocolName}'. Use 'lpb protocols' to list available.{CliConsole.DidYouMean(protocolName, ["micro video", "motion photo", "oppo", "vivo", "samsung", "huawei"])}");
                 if (protocolName.Contains("apple", StringComparison.OrdinalIgnoreCase))
                     Console.Error.WriteLine("Note: Apple Live Photo is a split target (lpb split ... -p apple), not a merge protocol.");
                 return 1;
@@ -713,7 +712,6 @@ namespace LivePhotoBox.Cli.Commands
                     Console.WriteLine(" pairs:");
                     foreach (var t in tasks)
                     {
-                        Console.Write("  ");
                         CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
                         Console.Write("  ");
                         CliConsole.Write(Path.GetFileName(t.ImagePath), CliConsole.PathGreen);
@@ -791,7 +789,7 @@ namespace LivePhotoBox.Cli.Commands
                 onTaskStarted: task =>
                 {
                     if (verbose && !json)
-                        Console.Write($"  [{task.Index}/{tasks.Count}] {Path.GetFileName(task.ImagePath)} ... ");
+                        Console.Write($"[{task.Index}/{tasks.Count}] {Path.GetFileName(task.ImagePath)} ... ");
                 },
                 onTaskCompleted: (task, success, details, completed) =>
                 {
@@ -805,11 +803,11 @@ namespace LivePhotoBox.Cli.Commands
                         if (!json)
                         {
                             if (verbose)
-                                CliConsole.WriteLine("OK", CliConsole.Success);
+                                CliConsole.WriteLine("SUCCESS", CliConsole.Success);
                             else
                             {
-                                Console.Write($"  [{completed}/{tasks.Count}] ");
-                                CliConsole.Write("OK  ", CliConsole.Success);
+                                Console.Write($"[{completed}/{tasks.Count}] ");
+                                CliConsole.Write("SUCCESS  ", CliConsole.Success);
                                 Console.WriteLine(Path.GetFileName(task.ImagePath));
                             }
                         }
@@ -824,7 +822,7 @@ namespace LivePhotoBox.Cli.Commands
                                 CliConsole.WriteLine($"FAIL ({details})", CliConsole.Error);
                             else
                             {
-                                Console.Write($"  [{completed}/{tasks.Count}] ");
+                                Console.Write($"[{completed}/{tasks.Count}] ");
                                 CliConsole.Write("FAIL  ", CliConsole.Error);
                                 Console.WriteLine($"{Path.GetFileName(task.ImagePath)}  ({details})");
                             }
@@ -868,12 +866,12 @@ namespace LivePhotoBox.Cli.Commands
                     }
                     catch (Exception ex)
                     {
-                        if (!json) CliConsole.WriteErrorLine($"  WARN: Failed to move '{Path.GetFileName(task.ImagePath)}': {ex.Message}");
+                        if (!json) CliConsole.WriteErrorLine($"WARN: Failed to move '{Path.GetFileName(task.ImagePath)}': {ex.Message}");
                     }
                 }
                 if (!json)
                 {
-                    Console.Write("  Moved ");
+                    Console.Write("Moved ");
                     CliConsole.Write(moved.ToString(), CliConsole.Highlight);
                     Console.WriteLine(" source files.");
                 }
@@ -899,12 +897,12 @@ namespace LivePhotoBox.Cli.Commands
                     }
                     catch (Exception ex)
                     {
-                        if (!json) CliConsole.WriteErrorLine($"  WARN: Failed to recycle '{Path.GetFileName(task.ImagePath)}': {ex.Message}");
+                        if (!json) CliConsole.WriteErrorLine($"WARN: Failed to recycle '{Path.GetFileName(task.ImagePath)}': {ex.Message}");
                     }
                 }
                 if (!json)
                 {
-                    Console.Write("  Recycled ");
+                    Console.Write("Recycled ");
                     CliConsole.Write(recycled.ToString(), CliConsole.Highlight);
                     Console.WriteLine(" source files.");
                 }
@@ -916,9 +914,9 @@ namespace LivePhotoBox.Cli.Commands
             else
             {
                 Console.WriteLine();
-                CliConsole.Write("Done: ", CliConsole.Accent);
+                CliConsole.Write("Done: ", CliConsole.Success);
                 CliConsole.Write(ok.ToString(), CliConsole.Highlight);
-                Console.Write(" OK, ");
+                Console.Write(" SUCCESS, ");
                 CliConsole.Write(fail.ToString(), CliConsole.Highlight);
                 Console.Write(" FAIL, ");
                 CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
@@ -969,7 +967,7 @@ namespace LivePhotoBox.Cli.Commands
 
             // Build job list from the Matrix (single source of truth)
             var combos = new List<(int Proto, int Fmt, string BaseName, string Label)>();
-            for (int p = 0; p < ProtocolFormatMatrix.Matrix.Length; p++)
+            for (int p = 1; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
                 foreach (int f in ProtocolFormatMatrix.GetAvailableFormats(p))
                 {
@@ -995,7 +993,6 @@ namespace LivePhotoBox.Cli.Commands
                 Console.WriteLine(" variants:");
                 foreach (var c in combos)
                 {
-                    Console.Write("  ");
                     CliConsole.Write($"{c.BaseName}{(c.Fmt is 2 or 3 or ProtocolFormatMatrix.FormatHeicMp4H265 ? ".heic" : ".jpg")}", CliConsole.PathGreen);
                     Console.WriteLine();
                 }
@@ -1015,8 +1012,6 @@ namespace LivePhotoBox.Cli.Commands
                 await semaphore.WaitAsync(ct);
                 try
                 {
-                    int idx = Interlocked.Increment(ref completed);
-
                     var options = new LivePhotoMergeRunOptions
                     {
                         OutputDirectory = variantsDir,
@@ -1034,14 +1029,17 @@ namespace LivePhotoBox.Cli.Commands
                     if (success)
                     {
                         Interlocked.Increment(ref ok);
-                        Console.Write($"  [{idx}/{combos.Count}] ");
-                        CliConsole.Write("OK  ", CliConsole.Success);
+                        // 完成顺序编号：谁先跑完谁就是 [1/N]，打印自上而下单调递增。
+                        int idx = Interlocked.Increment(ref completed);
+                        Console.Write($"[{idx}/{combos.Count}] ");
+                        CliConsole.Write("SUCCESS  ", CliConsole.Success);
                         Console.WriteLine(c.Label);
                     }
                     else
                     {
                         Interlocked.Increment(ref fail);
-                        Console.Write($"  [{idx}/{combos.Count}] ");
+                        int idx = Interlocked.Increment(ref completed);
+                        Console.Write($"[{idx}/{combos.Count}] ");
                         CliConsole.Write("FAIL  ", CliConsole.Error);
                         Console.WriteLine($"{c.Label}  ({details})");
                     }
@@ -1053,7 +1051,7 @@ namespace LivePhotoBox.Cli.Commands
                 catch (Exception ex)
                 {
                     Interlocked.Increment(ref fail);
-                    CliConsole.WriteErrorLine($"  [{Interlocked.Increment(ref completed)}/{combos.Count}] ERROR  {c.Label}  ({ex.Message})");
+                    CliConsole.WriteErrorLine($"[{Interlocked.Increment(ref completed)}/{combos.Count}] ERROR  {c.Label}  ({ex.Message})");
                 }
                 finally
                 {
@@ -1064,9 +1062,9 @@ namespace LivePhotoBox.Cli.Commands
             await Task.WhenAll(tasks);
 
             Console.WriteLine();
-            CliConsole.Write("Done: ", CliConsole.Accent);
+            CliConsole.Write("Done: ", CliConsole.Success);
             CliConsole.Write(ok.ToString(), CliConsole.Highlight);
-            Console.Write(" OK, ");
+            Console.Write(" SUCCESS, ");
             CliConsole.Write(fail.ToString(), CliConsole.Highlight);
             Console.Write(" FAIL, ");
             CliConsole.Write(combos.Count.ToString(), CliConsole.Highlight);

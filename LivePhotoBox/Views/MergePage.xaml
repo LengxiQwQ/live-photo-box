@@ -425,7 +425,7 @@
                                           SelectedIndex="{x:Bind ViewModel.SelectedModeIndex, Mode=TwoWay}"
                                           IsEnabled="{x:Bind ViewModel.CanEditSelectedMode, Mode=OneWay}"
                                           Loaded="ProtocolComboBox_Loaded">
-                                    <ComboBoxItem x:Uid="MergePage_Protocol_Fusion"/>
+                                    <ComboBoxItem x:Uid="MergePage_Protocol_Fusion" Visibility="Collapsed"/>
                                     <ComboBoxItem x:Uid="MergePage_Protocol_V1"/>
                                     <ComboBoxItem x:Uid="MergePage_Protocol_V2"/>
                                     <ComboBoxItem x:Uid="MergePage_Protocol_Oppo"/>

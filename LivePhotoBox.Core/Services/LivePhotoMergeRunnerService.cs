@@ -182,19 +182,15 @@ namespace LivePhotoBox.Services
                     && HeicConverterService.IsHeicFile(imagePath);
                 if (!keepHeic && HeicConverterService.IsHeicFile(imagePath))
                 {
-                    if (protocol is MotionPhotoV2Protocol)
-                    {
-                        // Native HEIC path — no JPEG conversion needed.
-                        // The HEIC will be written directly with XMP injected via exiftool
-                        // into the ISOBMFF meta box, followed by an mpvd box with the video.
-                    }
-                    else
-                    {
-                        workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, taskTempDir, token);
-                        tempFiles.Add(workingImagePath);
-                        await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
-                        token.ThrowIfCancellationRequested();
-                    }
+                    // 输出容器必须严格以用户请求为准（P1-2）：请求 jpg+*（格式 0/1）时，
+                    // 任何 HEIC 源都必须转成 JPEG —— 包括 V2/vivo/Samsung 等 V2 子类协议。
+                    // 之前这里对 MotionPhotoV2Protocol 子类直接保留 HEIC，导致
+                    // motionphoto/vivo/samsung 的 jpg+* 输出是 HEIC 内容 + .jpg 扩展名。
+                    // （V2 的 HEIC 输出只应在用户明确选择 heic+* 时走 HEIC 原生路径。）
+                    workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, taskTempDir, token);
+                    tempFiles.Add(workingImagePath);
+                    await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
+                    token.ThrowIfCancellationRequested();
                 }
 
                 // JPG/PNG → HEIC conversion: when user selects HEIC output format
@@ -216,6 +212,20 @@ namespace LivePhotoBox.Services
                 long coverTimestampUs = options.KeyPhotoTimestampUs
                     ?? LivePhotoMergeService.ReadSourceCoverTimestamp(videoPath);
 
+                // ── 源协议标记清洗（Fusion 除外）──────────────────────────────
+                // 双文件源 → 单文件前，剥离源协议（苹果/各品牌）的实况照片标记，
+                // 保证目标单文件里只含目标协议自己的标记。只在临时副本上操作。
+                if (protocol is not MotionPhotoFusionProtocol)
+                {
+                    workingImagePath = await SourceProtocolCleaner.CleanImageAsync(workingImagePath, taskTempDir, token);
+                    if (!string.Equals(workingImagePath, imagePath, StringComparison.OrdinalIgnoreCase))
+                        tempFiles.Add(workingImagePath);
+
+                    workingVideoPath = await SourceProtocolCleaner.CleanVideoAsync(videoPath, taskTempDir, token);
+                    if (!string.Equals(workingVideoPath, videoPath, StringComparison.OrdinalIgnoreCase))
+                        tempFiles.Add(workingVideoPath);
+                }
+
                 bool forceMp4 = ComputeForceMp4(options.SelectedModeIndex, options.OutputFormatIndex);
                 // Huawei V6 (6): use brand mp42 + ©too via hwFaststart=false
                 bool hwFaststart = options.SelectedModeIndex != 6;
@@ -223,8 +233,34 @@ namespace LivePhotoBox.Services
                 string videoCodec = options.OutputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265
                     ? "hevc" : "h264";
                 (workingVideoPath, bool vt) = await VideoTranscodeService.EnsureMp4Async(
-                    videoPath, taskTempDir, token, forceMp4, hwFaststart, videoCodec);
+                    workingVideoPath, taskTempDir, token, forceMp4, hwFaststart, videoCodec);
                 if (vt) tempFiles.Add(workingVideoPath);
+
+                // ── MOV 输出清洗（P1-5）：剔除源 Apple 的 mebx/ContentDescribes 时序轨 ──
+                // EnsureMp4Async 在 forceMp4=false 时对 MOV 源直接跳过转码，导致源 Apple MOV
+                // （含 mebx 实况轨 + 多条 HEVC 流 + PCM）被原样嵌入单文件。这里用 ffmpeg
+                // 无损重封装为仅含主视频轨 + 音频轨的干净 MOV（-map 0:V:0 -map 0:a:0?），
+                // mebx/ContentDescribes/缩略图轨被丢弃，Apple mdta 实况键也不带入。
+                // 注意：封面时间戳必须在转码前读取（上面 coverTimestampUs 已读），
+                // 因为 mebx 轨的 StillImageTime 会被 -map 0:V:0 丢弃。
+                bool wantMov = options.OutputFormatIndex is 1 or 3;
+                if (wantMov)
+                {
+                    string cleanMov = TempFileService.AllocateTempPath(taskTempDir, "merge_mov_clean", "mov");
+                    var remuxResult = await VideoTranscodeService.RemuxAsync(
+                        workingVideoPath, cleanMov, token, useFaststart: false);
+                    if (remuxResult.Success)
+                    {
+                        workingVideoPath = cleanMov;
+                        tempFiles.Add(workingVideoPath);
+                    }
+                    else
+                    {
+                        LogService.Merge(
+                            $"MOV cleanup remux failed, using original video: {remuxResult.ErrorMessage}",
+                            LogLevel.Warning);
+                    }
+                }
 
                 string prepared = await protocol.PrepareImageAsync(workingImagePath, taskTempDir, token);
                 if (prepared != workingImagePath)
@@ -281,6 +317,22 @@ namespace LivePhotoBox.Services
                 {
                     await LivePhotoProtocol.WriteExifUserCommentAsync(
                         finalOutputPath, exifMarker, token);
+                }
+
+                // ── 源 Apple MakerNote 实况条目剥离（P1-1，合成端）─────────────────
+                // 所有图片输出（JPEG/HEIC）最后统一字节级剥离 Apple 实况 MakerNote 条目
+                // （0x0011 ContentIdentifier / 0x0017 LivePhotoVideoIndex /
+                //   0x0025 / 0x002b PhotoIdentifier）。
+                // exiftool 只能清空 CID 值、删不掉 0x0017/0x0025 这类 type=16 条目，
+                // 必须字节级处理（AppleMakerNoteWriter.TryStripAppleLivePhotoEntries，
+                // 保持 MN 长度不变，不破坏 EXIF/HEIC 结构）。
+                // 放在 UserComment 回写之后执行，保证最终产物是干净状态。
+                if (!Protocols.AppleMakerNoteWriter.TryStripAppleLivePhotoEntries(
+                        finalOutputPath, out string? mnStripError))
+                {
+                    LogService.Merge(
+                        $"Apple MakerNote strip failed (non-fatal): {mnStripError}",
+                        LogLevel.Warning);
                 }
 
                 LogService.Merge($"Merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");

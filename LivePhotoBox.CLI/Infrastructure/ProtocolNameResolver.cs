@@ -8,7 +8,8 @@ namespace LivePhotoBox.Cli.Infrastructure
     {
         private static readonly Dictionary<string, int> ProtocolMap = new(StringComparer.OrdinalIgnoreCase)
         {
-            ["fusion"]   = 0, ["f"] = 0,
+            // Fusion 隐藏：CLI 不再暴露 fusion 协议名。
+            // ["fusion"]   = 0, ["f"] = 0,
             ["v1"]       = 1, ["microvideo"] = 1, ["micro video"] = 1, ["micro"] = 1,
             ["v2"]       = 2, ["motionphoto"] = 2, ["motion photo"] = 2, ["motion"] = 2, ["mp"] = 2,
             ["oppo"]     = 3, ["olive"] = 3, ["o"] = 3,

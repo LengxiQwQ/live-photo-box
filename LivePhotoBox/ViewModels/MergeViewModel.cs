@@ -225,7 +225,12 @@ namespace LivePhotoBox.ViewModels
         // 当前选中的合并模式（协议）索引，持久化存储到设置中。
         public int SelectedModeIndex
         {
-            get => AppSettingsService.GetValue(nameof(SelectedModeIndex), 2);
+            get
+            {
+                int value = AppSettingsService.GetValue(nameof(SelectedModeIndex), 2);
+                // Fusion 已隐藏（index 0），若历史设置仍为 0，则回退到 Motion Photo V2。
+                return value == 0 ? 2 : value;
+            }
             set
             {
                 AppSettingsService.SetValue(nameof(SelectedModeIndex), value);

@@ -97,7 +97,7 @@
 
 | 拆分协议 | 支持机型 | 状态 |
 |---|---|---|
-| Apple Live Photo | iPhone / iPad | 🟡 测试中 |
+| Apple Live Photo | iPhone / iPad | ✅ 可用 |
 | vivo Live Photo | vivo（≤ x200） | 🟡 测试中 |
 
 ### 🛠️ 实况照片修复

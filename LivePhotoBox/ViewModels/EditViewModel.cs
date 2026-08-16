@@ -6812,7 +6812,8 @@ namespace LivePhotoBox.ViewModels
             [LivePhotoProtocolType.Vivo]     = "EditPage_Protocol_Vivo",
             [LivePhotoProtocolType.Samsung]  = "EditPage_Protocol_Samsung",
             [LivePhotoProtocolType.Huawei]   = "EditPage_Protocol_Huawei",
-            [LivePhotoProtocolType.Fusion]   = "EditPage_Protocol_Fusion",
+            // Fusion 隐藏：暂时不在编辑页显示融合协议名。
+            // [LivePhotoProtocolType.Fusion]   = "EditPage_Protocol_Fusion",
         };
 
         /// <summary>
