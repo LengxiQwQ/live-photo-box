@@ -205,6 +205,7 @@ def compute_metrics(merged: dict, data: dict) -> dict:
         "clones_14_uniq": clones_latest.get("uniques", 0),
         "views_all": sum(d.get("count", 0) for d in merged["views"].values()),
         "clones_all": sum(d.get("count", 0) for d in merged["clones"].values()),
+        "first_date": min(merged["views"]) if merged["views"] else "",
     }
 
 
@@ -332,7 +333,7 @@ def render_section(metrics: dict, refs: list, paths: list, updated_at: str, lang
         table = "\n".join(f"| {a} | {b} | {c} |" for a, b, c in rows)
         refs_line = "**热门来源：** " + top5(refs, "referrer")
         paths_line = "**热门内容：** " + top5(paths, "path")
-        updated = (f"*最后更新：{updated_at}*  \n"
+        updated = (f"*数据开始：{metrics.get('first_date') or '—'} · 最后更新：{updated_at}*  \n"
                    "*独立数 = 近 14 天窗口内的独立访客/克隆者；跨天独立访客不可累加，累计行的独立数同为近 14 天口径。*")
     else:
         title_alt = "Repository views & clones over time"
@@ -345,7 +346,7 @@ def render_section(metrics: dict, refs: list, paths: list, updated_at: str, lang
         table = "\n".join(f"| {a} | {b} | {c} |" for a, b, c in rows)
         refs_line = "**Top referrers:** " + top5(refs, "referrer")
         paths_line = "**Top content:** " + top5(paths, "path")
-        updated = (f"*Last updated: {updated_at}*  \n"
+        updated = (f"*Data since {metrics.get('first_date') or '—'} · Last updated: {updated_at}*  \n"
                    "*Uniques = distinct visitors/cloners in the last 14-day window; "
                    "cross-day uniques can't be summed, so all-time uniques reflect that window.*")
 
