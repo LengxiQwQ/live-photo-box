@@ -280,7 +280,7 @@ live-photo-box/
 
 **热门来源：** github.com · Google · Bing · doubao.com · chatgpt.com  
 **热门内容：** Home · releases · releases/tag/v2.1.5 · README.zh-CN.md · releases/tag/v2.1.2  
-*数据开始：2026-08-02 · 最后更新：2026-08-16 15:30:05 UTC*  
+*数据开始：2026-08-02 · 最后更新：2026-08-16 15:34:42 UTC*  
 *独立数 = 近 14 天窗口内的独立访客/克隆者；跨天独立访客不可累加，累计行的独立数同为近 14 天口径。*
 <!-- INSIGHTS:END -->
 
