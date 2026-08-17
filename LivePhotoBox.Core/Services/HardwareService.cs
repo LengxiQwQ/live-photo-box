@@ -364,8 +364,6 @@ namespace LivePhotoBox.Services
             return _cachedAvailableEncoders ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
 
-        // FindFFmpeg / FindExifTool → migrated to ExternalToolLocator
-
         // 通过 FFmpeg 检测可用的硬件编码器
         private static List<HardwareInfo> DetectGpusViaFFmpeg()
         {

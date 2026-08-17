@@ -3,12 +3,10 @@
  *
  * 统一实况照片发现服务。
  *
- * 按 DiscoveryScanMode 标志位运行对应检测/匹配步骤。
- * 检测步骤（拆分/资源浏览页面）：JPEG XMP 扫描 + HEIC 视频轨。
- * 匹配步骤（合并页面，三选一互斥）：文件名 / Apple CID / vivo ID。
- * 文件只被第一个命中它的步骤分类。
- *
- * 被 MergePage、SplitPage、KeyPhoto、RepairPage 共用。
+ *   - 按 DiscoveryScanMode 标志位运行检测/匹配步骤，被各页共用
+ *   - 检测（拆分/资源浏览页）：JPEG XMP 扫描 + HEIC 视频轨
+ *   - 匹配（合并页，三选一互斥）：文件名 / Apple CID / vivo ID
+ *   - 文件只被第一个命中它的步骤分类
  */
 
 using LivePhotoBox.Models;

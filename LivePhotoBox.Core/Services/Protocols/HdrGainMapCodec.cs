@@ -2,17 +2,15 @@ using System;
 
 namespace LivePhotoBox.Services.Protocols;
 
-// Apple hdrgainmap 与 ISO 21496-1 / Google Ultra HDR 增益图的编解码数学。
-// 这里只做纯数值运算，不做像素 I/O；像素读写由调用方（Service）负责。
-//
-// Apple 解码参考 Apple Developer 文档：
-//   hdr_rgb = sdr_rgb * (1.0 + (headroom - 1.0) * gainmap)
-// 其中 sdr_rgb / gainmap 先经 sRGB EOTF（Rec.709）线性化，结果位于线性 Display P3。
-//
-// ISO 21496-1 编码参考 Android Ultra HDR 规范：
-//   pixel_gain = (Yhdr + offset_hdr) / (Ysdr + offset_sdr)
-//   log_recovery = (log2(pixel_gain) - GainMapMin) / (GainMapMax - GainMapMin)
-//   recovery = pow(clamp(log_recovery), Gamma)
+/*
+ * HdrGainMapCodec.cs
+ *
+ * Apple hdrgainmap 与 ISO 21496-1 / Google Ultra HDR 增益图的编解码纯数值运算。
+ * 只做数值运算，不做像素 I/O；像素读写由调用方（Service）负责。
+ *
+ *   - Apple 解码：hdr_rgb = sdr_rgb * (1 + (headroom-1) * gainmap)，sdr_rgb/gainmap 先经 sRGB EOTF 线性化，结果位于线性 Display P3
+ *   - ISO 21496-1 编码：按 Android Ultra HDR 规范的 pixel_gain / log_recovery / recovery 公式
+ */
 internal static class HdrGainMapCodec
 {
     // Display P3 (D65) RGB -> XYZ 的 Y 行系数，用于把线性 P3 像素转成亮度。

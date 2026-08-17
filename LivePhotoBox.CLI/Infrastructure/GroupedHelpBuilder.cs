@@ -1,3 +1,12 @@
+/*
+ * GroupedHelpBuilder.cs
+ *
+ * 自定义 HelpBuilder：将命令选项按逻辑分区分组展示。
+ *
+ *   - 分区为 INPUT / OUTPUT / FORMAT / EXECUTION / POST
+ *   - 未归类的选项落入 OTHER，分区按声明顺序显示
+ */
+
 using System;
 using System.Collections.Generic;
 using System.CommandLine;
@@ -8,11 +17,6 @@ using System.Linq;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
-    /// <summary>
-    /// Custom HelpBuilder that groups options into logical sections
-    /// (INPUT / OUTPUT / FORMAT / EXECUTION / POST) instead of
-    /// dumping them alphabetically.
-    /// </summary>
     internal sealed class GroupedHelpBuilder : HelpBuilder
     {
         // Option → section label. Options not listed here go to "OTHER".

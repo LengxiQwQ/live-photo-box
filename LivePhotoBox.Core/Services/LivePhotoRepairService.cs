@@ -637,8 +637,7 @@ public static class LivePhotoRepairService
         //   核心发现：
         //   - 前 3 个 Rotation ≠ 0 → ffmpeg autorotate 一步到位 ✅
         //   - 左旋转 Rotation = 0 但轨道矩阵是 [1 0; 0 -1] (垂直翻转)
-        //     → 旧代码只看 Rotation 标签 → 误判为"完美无缺" ❌
-        //     → 新代码追加轨道矩阵检测 → 发现 flip_vertical ✅
+        //     → 只依赖 Rotation 标签会漏检，故追加轨道矩阵检测到 flip_vertical ✅
         //
         //   关键结论：
         //   Rotation 标签已经是综合了翻转和旋转的"最终答案"。
@@ -1206,12 +1205,6 @@ public static class LivePhotoRepairService
             WriteDebugLog("INFO", "RepairVideo", $"FFmpeg ({encType}) [{videoEncoder}] {Path.GetFileName(sourcePath)}");
             return await RunFFmpegAsync(args, token);
         }
-
-        // GetRepairEncoder → inline EncoderHelper calls in RepairVideoAsync
-        // GetSoftwareEncoder → EncoderHelper.GetSoftwareEncoder
-        // GetHardwareRepairParams → EncoderHelper.GetHardwareEncoderParams
-        // GetRepairThreadCount → EncoderHelper.GetThreadCount
-        // IsFFmpegEncoderAvailable → EncoderHelper.IsEncoderAvailable
 
         // Run FFmpeg process with given arguments. Returns (success, errorMessage).
         // On failure, errorMessage contains the last portion of FFmpeg stderr for diagnosis.

@@ -47,7 +47,7 @@ namespace LivePhotoBox.Services
         // inputDirectory: 要扫描的输入目录。
         // cancellationToken: 取消令牌。
         // progress: 进度报告器（total, completed, matchedPairs）。
-        // è¿å: 扫描结果，包含成功配对的列表与未配对文件的统计。
+        // 返回: 扫描结果，包含成功配对的列表与未配对文件的统计。
         public static LivePhotoScanResult Scan(
             string inputDirectory,
             CancellationToken cancellationToken = default,

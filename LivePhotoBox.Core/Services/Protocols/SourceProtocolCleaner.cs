@@ -6,20 +6,18 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services.Protocols
 {
-    // ═════════════════════════════════════════════════════════════════════
-    // SourceProtocolCleaner — 合成端「源协议标记清洗」。
-    //
-    // 合成方向的源是「双文件」（图片 + 视频），所以这里只清「双文件协议」的
-    // 实况照片标记；单文件协议标记（GCamera/OpCamera/VCamera/MiCamera XMP、
-    // oplus_/multi-frame UserComment、com.openharmony 键、LIVE_ 尾标等）由拆分端
-    // 负责清理——双文件源不可能携带，合成端不碰（与拆分端清理范围恰好相反）：
-    //   - Apple：图片 ContentIdentifier（Apple MakerNote）、视频配对键
-    //     （content.identifier / live-photo / vitality）、实况时序元数据轨
-    //     （ContentDescribes / 封面轨，stsd 含 live-photo-info / still-image-time）。
-    //   - vivo ≤X200：JPEG 尾部 vivo{...}cameralbum!、MP4 vivoMediaExtInfo uuid box。
-    //
-    // 只在临时副本上操作，绝不修改用户源文件；返回的临时路径由调用方随工作区清理。
-    // ═════════════════════════════════════════════════════════════════════
+    /*
+     * SourceProtocolCleaner.cs
+     *
+     * 合成端源协议标记清洗：剥离双文件源图片/视频携带的实况照片标记。
+     * 只清双文件协议标记；单文件协议标记由拆分端清理（双文件源不可能携带）。
+     *
+     *   - Apple：图片 ContentIdentifier（Apple MakerNote）、视频配对键
+     *     （content.identifier / live-photo / vitality）、实况时序元数据轨
+     *     （ContentDescribes / 封面轨）
+     *   - vivo ≤X200：JPEG 尾部 vivo{...}cameralbum!、MP4 vivoMediaExtInfo uuid box
+     *   - 只在临时副本上操作，绝不修改用户源文件；返回的临时路径由调用方随工作区清理
+     */
     public static class SourceProtocolCleaner
     {
         /// <summary>

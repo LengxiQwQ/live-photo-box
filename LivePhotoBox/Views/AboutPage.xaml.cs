@@ -1,8 +1,11 @@
-// ******************************************************************
-// 文件名: AboutPage.xaml.cs
-// 作者: LengxiQwQ
-// 描述: AboutPage 的后台代码，负责绑定 ViewModel
-// ******************************************************************
+/*
+ * AboutPage.xaml.cs
+ *
+ * 关于页面的代码后置。绑定 AboutViewModel，处理页面事件：
+ *   - 检查更新按钮（复用 SettingsPage 的更新检测对话框逻辑）
+ *   - 打开应用安装目录
+ *   - 复制作者邮箱 / QQ 联系信息到剪贴板
+ */
 
 using System;
 using System.Collections.Generic;

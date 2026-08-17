@@ -1,17 +1,17 @@
-// <summary>
-// Live Photo Box — Live Photo Protocol base class.
-// Provides the abstract contract and shared utilities for all live photo packaging
-// protocols. Each concrete subclass defines the XMP metadata format and optional
-// image pre-processing for a specific platform.
-// Supported protocol implementations:
-//   - Motion Photo Fusion (Id=0) — V2 + OPPO + VIVO + Samsung
-//   - Google MicroVideo V1 (deprecated, Id=1)
-//   - Google Motion Photo V2 (Id=2)
-//   - OPPO/OnePlus O-Live Photo (Id=3)
-//   - VIVO Live Photo (Id=4)
-//   - Samsung Motion Photo (Id=5)
-//   - HUAWEI Moving Photo (Id=6)
-// </summary>
+/*
+ * LivePhotoProtocol.cs
+ *
+ * Live Photo 各打包协议的抽象基类，提供通用契约与共享工具。
+ * 每个具体子类定义特定平台的 XMP 元数据格式与可选图片预处理。
+ *
+ *   - Motion Photo Fusion (Id=0)：V2 + OPPO + VIVO + Samsung
+ *   - Google MicroVideo V1 (Id=1，已废弃)
+ *   - Google Motion Photo V2 (Id=2)
+ *   - OPPO/OnePlus O-Live Photo (Id=3)
+ *   - VIVO Live Photo (Id=4)
+ *   - Samsung Motion Photo (Id=5)
+ *   - HUAWEI Moving Photo (Id=6)
+ */
 
 using System;
 using System.IO;
@@ -48,7 +48,7 @@ namespace LivePhotoBox.Services.Protocols
         // Build the complete XMP XML bytes for the Live Photo APP1 segment.
         // The returned bytes include the xpacket wrapper and are UTF-8 encoded.
         // videoSize: Size of the appended video in bytes.
-        // è¿å: UTF-8 encoded XMP bytes including xpacket wrapper markers.
+        // 返回: UTF-8 encoded XMP bytes including xpacket wrapper markers.
         public abstract byte[] BuildXmpMetadata(long videoSize);
 
         // Build XMP metadata with a specified presentation timestamp (microseconds).
@@ -58,7 +58,7 @@ namespace LivePhotoBox.Services.Protocols
         // override in protocol subclasses that support presentation timestamps.
         // videoSize: Size of the appended video in bytes.
         // presentationTimestampUs: The timestamp in microseconds of the selected cover frame.
-        // è¿å: UTF-8 encoded XMP bytes including xpacket wrapper markers.
+        // 返回: UTF-8 encoded XMP bytes including xpacket wrapper markers.
         public virtual byte[] BuildXmpMetadata(long videoSize, long presentationTimestampUs)
             => BuildXmpMetadata(videoSize);
 
@@ -141,7 +141,7 @@ namespace LivePhotoBox.Services.Protocols
 
         // Look up a protocol by its <see cref="Id"/>.
         // index: The protocol index (matches <see cref="Id"/>).
-        // è¿å: The matching <see cref="LivePhotoProtocol"/> instance, or MotionPhoto V2 as fallback if not found.
+        // 返回: The matching <see cref="LivePhotoProtocol"/> instance, or MotionPhoto V2 as fallback if not found.
         public static LivePhotoProtocol FromIndex(int index)
         {
             foreach (var p in _all)
@@ -172,7 +172,7 @@ namespace LivePhotoBox.Services.Protocols
         // silently ignore namespaces they don't recognise.
         // rdfDescription: The rdf:Description XML element.
         // protocolKey: Identifier of the protocol that generated this XMP (e.g. "MotionPhotoV2").If null or empty, the Protocol attribute is omitted.
-        // è¿å: UTF-8 encoded XMP bytes including xpacket wrapper markers.
+        // 返回: UTF-8 encoded XMP bytes including xpacket wrapper markers.
         protected static byte[] WrapXmp(string rdfDescription, string? protocolKey = null)
         {
             // Build the LivePhotoBox tracking marker with app version and optional protocol key
@@ -229,7 +229,7 @@ namespace LivePhotoBox.Services.Protocols
         // filePath: Path to the image file to modify.
         // comment: The UserComment string value to write.
         // token: Cancellation token.
-        // è¿å: True if the EXIF write succeeded; false if exiftool is unavailable or the write failed.
+        // 返回: True if the EXIF write succeeded; false if exiftool is unavailable or the write failed.
         public static async Task<bool> WriteExifUserCommentAsync(
             string filePath, string comment, CancellationToken token)
         {

@@ -1,6 +1,12 @@
-// <copyright file="MergeViewModel.cs" company="Live Photo Box">
-// Copyright (c) Live Photo Box. All rights reserved.
-// </copyright>
+/*
+ * MergeViewModel.cs
+ *
+ * MergePage（合成页面）的视图模型，负责将图片与视频合成为实况照片。
+ *
+ *   - 扫描输入文件夹中的图片-视频配对
+ *   - 选择合并协议（Google/HEIC/OPPO）并执行合并任务
+ *   - 将结果写入输出文件夹并统计耗时
+ */
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -26,9 +32,6 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.ViewModels
 {
-    // 实况照片合并页面的 ViewModel，对应 MergePage。
-    // 负责扫描输入文件夹中的图片-视频配对，选择合并协议（Google/HEIC/OPPO），
-    // 以及执行合并任务并将结果写入输出文件夹。
     public partial class MergeViewModel : WorkViewModelBase
     {
         // 用于统计合并耗时的计时器。
@@ -741,7 +744,7 @@ namespace LivePhotoBox.ViewModels
                     ProgressBarState = Models.ProgressBarState.Success;
                     CompleteScanSnapshot();
 
-                    // ✨【状态栏统计显示修复】：使用专属多语言词条
+                    // 使用专属多语言词条汇总合并完成统计。
                     int total = Tasks.Count;
                     int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
                     int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
@@ -1481,7 +1484,7 @@ namespace LivePhotoBox.ViewModels
                                 }
                             }
 
-                            // ✨ 核心修复：死等 UI 线程把状态更新完毕！
+                            // 等待 UI 线程把状态更新完毕再继续。
                             var tcs = new TaskCompletionSource<bool>();
                             if (App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                             {
@@ -1548,7 +1551,7 @@ namespace LivePhotoBox.ViewModels
                             }
                         }
 
-                        // 等待所有剩余任务完全结束（因为内部用了 TaskCompletionSource，执行到这里时所有的 UI 也100%更新完了）
+                        // 等待所有剩余任务完全结束。
                         if (!token.IsCancellationRequested)
                         {
                             await Task.WhenAll(pendingTasks);

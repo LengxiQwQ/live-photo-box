@@ -16,29 +16,23 @@ using LogSource = LivePhotoBox.Models.LogSource;
 // (Package.Current) always throws — guarded by try/catch below.
 using Windows.ApplicationModel;
 
-// =======================================================================================
-// LogService — 统一日志服务
-// =======================================================================================
-// 设计原则：
-//   - 每次会话 = 一个 .log 文件，文件名格式 app-YYYYMMDD-HHmmssfff-<pid>.log
-//   - 所有日志（常规信息、崩溃报告、会话标记）写入同一文件流
-//   - 崩溃报告直接追加到日志文件尾部（不设独立文件）
-//   - 崩溃检测通过读取上次会话日志尾部标记实现（无需额外状态文件）
-//   - 线程安全：ConcurrentQueue 入队，异步批量 flush + 同步加锁写盘
-//   - 保留策略：目录里始终 ≤100 个日志文件（含当前会话）+ 5 个 dump 文件
-// =======================================================================================
+/*
+ * LogService.cs
+ *
+ * 统一日志服务。
+ *
+ *   - 每次会话 = 一个 .log 文件，文件名 app-YYYYMMDD-HHmmssfff-<pid>.log
+ *   - 常规信息、崩溃报告、会话标记写入同一文件流；崩溃报告直接追加日志尾部
+ *   - 崩溃检测读取上次会话日志尾部标记，无需额外状态文件
+ *   - 线程安全：ConcurrentQueue 入队，异步批量 flush + 同步加锁写盘
+ *   - 保留策略：目录始终 ≤100 个日志文件（含当前会话）+ 5 个 dump 文件
+ */
 
 namespace LivePhotoBox.Services
 {
-    // Unified logging service.
-    // All logs — normal entries, crash reports, session markers — are written
-    // to a single log file per session. No separate crash files, no JSON state.
-    // Design principles:
-    // - One session = one log file
-    // - Crash reports are appended inline to the same log stream
-    // - Crash detection reads the previous session's log tail (no external state)
-    // - Thread-safe, async flush with immediate sync write for critical/crash entries
-    // - Max 100 log files in the directory (incl. the current session) + 5 dumps; older ones auto-deleted
+    // 统一日志服务（设计要点见文件头）。
+    // 崩溃报告直接追加到同一日志流，不另建独立崩溃文件、无 JSON 状态；
+    // 崩溃检测读上次会话日志尾部标记；关键/崩溃条目同步立即写盘。
     public static class LogService
     {
         #region Constants

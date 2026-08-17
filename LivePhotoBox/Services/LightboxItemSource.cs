@@ -35,8 +35,7 @@ namespace LivePhotoBox.Services
             {
                 ImagePath = t.ImagePath,
 
-                // ✅ 修复点：必须严格处理 VideoPath。如果是空的，必须传 null！
-                // 否则灯箱底层的 IsLivePhoto 属性会判断失误
+                // 空 VideoPath 必须传 null，否则灯箱底层的 IsLivePhoto 属性会判断失误
                 VideoPath = string.IsNullOrWhiteSpace(t.VideoPath) ? null : t.VideoPath,
 
                 AppendedVideoLength = 0
@@ -106,7 +105,7 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// 从文件路径列表构造 LightboxItem（通用回退）。
-        /// ✨ 修复：同样引入高并发机制，防止在多选文件时卡死 UI。
+        /// 用信号量限制并发解码，防止多选文件时卡死 UI。
         /// </summary>
         public static async Task<List<LightboxItem>> FromPathsAsync(IReadOnlyList<string> paths)
         {

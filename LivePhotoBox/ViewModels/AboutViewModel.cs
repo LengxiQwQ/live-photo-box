@@ -1,8 +1,12 @@
-// ******************************************************************
-// 文件名: AboutViewModel.cs
-// 作者: LengxiQwQ
-// 描述: AboutPage 的视图模型，提供版本信息、链接跳转与 GitHub 头像缓存
-// ******************************************************************
+/*
+ * AboutViewModel.cs
+ *
+ * AboutPage（关于页）的视图模型，提供版本信息、链接跳转与 GitHub 头像缓存。
+ *
+ *   - 暴露应用版本号与分发渠道（商店版/安装版/便携版）
+ *   - 提供更新记录（Changelog）链接，中英文跳转不同页面
+ *   - 自动下载并本地缓存 GitHub 用户头像
+ */
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -20,10 +24,6 @@ using Windows.System;
 
 namespace LivePhotoBox.ViewModels
 {
-    /// <summary>
-    /// 关于页面的视图模型。
-    /// 为 AboutPage 提供版本信息、链接跳转与 GitHub 头像自动加载。
-    /// </summary>
     public partial class AboutViewModel : ViewModelBase
     {
         #region Properties

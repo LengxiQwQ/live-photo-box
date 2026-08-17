@@ -1,3 +1,12 @@
+/*
+ * SettingsViewModel.cs
+ *
+ * SettingsPage（设置页面）的视图模型，管理应用的所有设置项。
+ *
+ *   - 管理语言、主题、背景、Banner、合并/拆分/修复参数、硬件编码等设置
+ *   - 提供默认值加载、持久化保存与 UI 双向绑定
+ */
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Models;
@@ -17,10 +26,6 @@ using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.ViewModels
 {
-    // 设置页面的 ViewModel。
-    // 管理所有应用设置项（语言、主题、背景、Banner、合并/拆分/修复参数、硬件编码等），
-    // 提供默认值加载、持久化保存和 UI 双向绑定支持。
-    // 继承自 ViewModelBase（无扫描/处理生命周期）。
     public partial class SettingsViewModel : ViewModelBase
     {
         // 初始化中标志位，避免初始化期间触发的 OnChanged 重复写入设置。
@@ -170,7 +175,6 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 三张预加载 Banner 的图片源，供 Image 控件直接绑定（切换时不换 Source，只换 Visibility）
         // 三张预加载 Banner 的 BitmapImage 源（索引 0）。
         public BitmapImage? BannerImage0 => _preloadedBanners.Count > 0 ? _preloadedBanners[0] : null;
         // 三张预加载 Banner 的 BitmapImage 源（索引 1）。
@@ -268,10 +272,6 @@ namespace LivePhotoBox.ViewModels
                 LogService.Split($"Saved encoder to settings: '{value.FfmpegEncoder}'", LogLevel.Debug);
             }
         }
-
-        // 根据一个 codec 的编码器名称，同时保存 H.264 和 HEVC 两个 codec 的编码器设置。
-        // 委托给 EncoderHelper（集中管理编码器逻辑，不再依赖 VideoTranscodeService）。
-        // SaveEncoderForBothCodecs → EncoderHelper.SaveEncoderForBothCodecs
 
         [ObservableProperty]
         private int _threadCount = 8;

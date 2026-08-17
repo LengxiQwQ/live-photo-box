@@ -3,29 +3,12 @@
  *
  * 实况照片协议检测器。
  *
- * 核心原则：文件内容标记（XMP / 二进制尾标）优先于配对方式（ContentIdentifier）。
- * 因为 XMP 和尾标是协议作者有意写入的身份标识，而 ContentIdentifier 只是配对 UUID，
- * 不能区分协议（OPPO 文件如果被 CID 匹配成了 DualFile，不应变成 Apple）。
- *
- * 只识别拥有"厂商相册必需的实况照片标识字段"的协议：
- *   华为 — LIVE_ 尾标（无此标记华为相册不认）
- *   三星 — SEFH/SEFT Trailer（三星相册完全不读 XMP）
- *   OPPO — OpCamera 命名空间（OpCamera:VideoLength、双时间戳封面帧）
- *   vivo — VCamera 命名空间（vivo 相册必需 VCamera 字段才识别实况照片）
- *   Fusion — LivePhotoBox 命名空间（自创融合协议）
- *   Apple — ContentIdentifier UUID 配对
- *   Google V1/V2 — 通用标准（小米等直接使用 V2，MiCamera 字段为相机数据非实况识别字段）
- *
- * 检测优先级（从高到低，先命中即返回）：
- *   1. 文件尾 LIVE_        → 华为
- *   2. 文件尾 SEFH+SEFT    → 三星
- *   3. XMP LivePhotoBox    → Fusion
- *   4. XMP OpCamera        → OPPO
- *   5. XMP VCamera         → vivo
- *   6. XMP MicroVideo 无 Directory → Google V1
- *   7. XMP Container:Directory / MotionPhoto → Google V2
- *   8. ContentIdentifier   → Apple（双文件）
- *   9. vivo 尾 JSON        → vivo 旧格式（双文件，≤X200）
+ *   - 核心原则：文件内容标记（XMP / 二进制尾标）优先于配对方式（ContentIdentifier），
+ *     因 XMP 与尾标是协议作者有意写入的身份标识，而 ContentIdentifier 只是配对 UUID
+ *   - 只识别拥有厂商相册必需实况标识的协议：华为 LIVE_ 尾标、三星 SEFH/SEFT、
+ *     OPPO OpCamera、vivo VCamera、Fusion LivePhotoBox、Apple ContentIdentifier、
+ *     Google V1/V2
+ *   - 按优先级从高到低检测，先命中即返回
  *
  * 参考：docs/实况照片协议完整分析报告.md §检测与识别
  */

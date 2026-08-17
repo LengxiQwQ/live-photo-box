@@ -1,15 +1,15 @@
+/*
+ * ScrollToTopButton.cs
+ *
+ * 悬浮"回到顶部"按钮辅助类。监听 ListView 内部 ScrollViewer 的垂直偏移，
+ * 超过阈值时显示按钮，点击后平滑滚动回顶部，回顶后自动隐藏。
+ * 供 RepairPage / SplitPage / MergePage 三页复用。
+ */
+
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
-
-// <summary>
-// File: ScrollToTopButton.cs
-// 悬浮"回到顶部"按钮辅助类。
-// 监听 ListView 内部 ScrollViewer 的垂直偏移，超过阈值时显示按钮，
-// 点击后平滑滚动回顶部，回顶后自动隐藏。
-// 供 RepairPage / SplitPage / MergePage 三页复用。
-// </summary>
 
 namespace LivePhotoBox.Helpers
 {

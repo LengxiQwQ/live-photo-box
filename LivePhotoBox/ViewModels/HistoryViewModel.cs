@@ -1,6 +1,12 @@
-// <copyright file="HistoryViewModel.cs" company="Live Photo Box">
-// Copyright (c) Live Photo Box. All rights reserved.
-// </copyright>
+/*
+ * HistoryViewModel.cs
+ *
+ * HistoryPage（历史记录页面）的视图模型，扫描并展示实况照片及历史操作记录。
+ *
+ *   - 扫描文件夹中的图片文件，解析 XMP 元数据检测实况照片
+ *   - 识别 LivePhotoBox 的历史操作记录（合并/拆分/修复）
+ *   - 以列表形式展示检测结果
+ */
 
 using System;
 using System.Collections.ObjectModel;
@@ -18,9 +24,6 @@ using LivePhotoBox.Services;
 
 namespace LivePhotoBox.ViewModels
 {
-    // 历史记录页面的 ViewModel，对应 HistoryPage。
-    // 支持扫描文件夹中的图片文件，通过解析 XMP 元数据检测实况照片
-    // 以及 LivePhotoBox 的历史操作记录（合并/拆分/修复），以列表形式展示。
     public partial class HistoryViewModel : ViewModelBase
     {
         // ── Protocol XMP namespaces ────────────────────────────────────────
@@ -123,7 +126,7 @@ namespace LivePhotoBox.ViewModels
                 var parallelOptions = new ParallelOptions
                 {
                     MaxDegreeOfParallelism = 4,
-                    CancellationToken = CancellationToken.None, // we could wire up cancellation
+                    CancellationToken = CancellationToken.None,
                 };
 
                 await Parallel.ForEachAsync(imageFiles, parallelOptions, async (file, ct) =>

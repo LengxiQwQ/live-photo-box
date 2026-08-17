@@ -1,3 +1,11 @@
+/*
+ * SelfUpdateService.cs
+ *
+ * CLI 手动更新服务：检查 → 询问 → 下载校验 → 便携版替换 / 安装版静默重装。
+ *
+ *   - WinGet 管理的副本不在处理范围（由 winget 负责），直接拒绝
+ */
+
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -13,10 +21,6 @@ using LivePhotoBox.Services;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
-    /// <summary>
-    /// CLI 手动更新服务：检查 → 询问 → 下载校验 → 便携版替换 / 安装版静默重装。
-    /// WinGet 管理的副本不在此列（由 winget 负责），直接拒绝。
-    /// </summary>
     internal static class SelfUpdateService
     {
         private static readonly HttpClient _download = new() { Timeout = TimeSpan.FromMinutes(15) };

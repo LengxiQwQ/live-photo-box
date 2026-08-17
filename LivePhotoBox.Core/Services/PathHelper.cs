@@ -1,15 +1,16 @@
 using System;
 using System.IO;
 
-// =======================================================================================
-// PathHelper — 文件路径辅助工具
-// =======================================================================================
-// 提供以下功能：
-//   - GetPairingKey：根据输入目录生成用于文件配对的唯一 key（含子文件夹路径）
-//   - GetUniqueFilePath：在输出目录中原子性地获取不冲突的文件路径
-//   - GetRelativeSubDirectory：获取文件相对于输入目录的子文件夹路径
-//   - TryReservePath：使用 FileMode.CreateNew 做操作系统级别的原子路径预留
-// =======================================================================================
+/*
+ * PathHelper.cs
+ *
+ * 文件路径辅助工具。
+ *
+ *   - GetPairingKey：生成含子文件夹路径的文件配对 key
+ *   - GetUniqueFilePath：原子性地获取不冲突的输出文件路径
+ *   - GetRelativeSubDirectory：获取文件相对输入目录的子文件夹路径
+ *   - TryReservePath：用 FileMode.CreateNew 做操作系统级原子路径预留
+ */
 
 namespace LivePhotoBox.Services
 {

@@ -1,17 +1,19 @@
+/*
+ * WingetInstallDetector.cs
+ *
+ * 检测当前 CLI 副本是否由 WinGet 安装（portable 包）。
+ *
+ *   - 判据：ARP 注册表 Uninstall 子键存在 WinGetPackageIdentifier=LengxiQwQ.LivePhotoBox，
+ *     且 InstallLocation / TargetFullPath 指向当前运行目录
+ *   - 这些值仅由 WinGet 写入，其它安装方式不会产生，判定无歧义
+ */
+
 using System;
 using System.IO;
 using Microsoft.Win32;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
-    /// <summary>
-    /// 检测当前 CLI 副本是否由 WinGet 安装（portable 包）。
-    /// 唯一判据：ARP 注册表 Uninstall 子键中存在
-    /// WinGetPackageIdentifier=LengxiQwQ.LivePhotoBox，
-    /// 且 InstallLocation / TargetFullPath 指向当前运行目录。
-    /// 这些值仅由 WinGet 写入（winget-cli 源码 PortableInstaller.cpp
-    /// RegisterARPEntry），其它安装方式不会产生，因此判定无歧义。
-    /// </summary>
     internal static class WingetInstallDetector
     {
         private const string PackageId = "LengxiQwQ.LivePhotoBox";

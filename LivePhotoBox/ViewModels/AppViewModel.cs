@@ -1,6 +1,12 @@
-// <copyright file="AppViewModel.cs" company="Live Photo Box">
-// Copyright (c) Live Photo Box. All rights reserved.
-// </copyright>
+/*
+ * AppViewModel.cs
+ *
+ * 应用的主 ViewModel，作为所有子页面 ViewModel 的统一入口与管理者。
+ *
+ *   - 持有并管理各子页面 ViewModel（合并/拆分/修复/首页/设置/关于/编辑/分类/历史等）
+ *   - 聚合底部状态栏的进度信息
+ *   - 转发页面间导航事件
+ */
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -14,9 +20,6 @@ using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.ViewModels
 {
-    // 应用程序主 ViewModel，作为所有子页面的统一入口和管理者。
-    // 负责子 ViewModel 的生命周期管理、底部状态栏的进度信息聚合
-    // 以及页面间导航事件的转发。
     public partial class AppViewModel : ViewModelBase
     {
         // 全局单例实例。

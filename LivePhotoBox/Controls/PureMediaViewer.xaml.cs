@@ -269,12 +269,9 @@ namespace LivePhotoBox.Controls
         }
 
         /// <summary>
-        /// 按视频宽高比缩放 MediaPlayerElement 使其填满 ViewportGrid 不产生黑边。
-        /// Uniform-fit：撑满一边，另一边留空（SwapChain 无 letterbox → 无黑底）。
-        /// </summary>
-        /// <summary>
-        /// 按视频宽高比缩放 MediaPlayerElement 使其填满 ViewportGrid 不产生黑边。
-        /// 仅在 Stretch.Uniform 模式下生效；其他模式由 Stretch 属性自行控制填充方式。
+        /// 按视频宽高比缩放 MediaPlayerElement 使其填满 ViewportGrid 不产生黑边
+        /// （SwapChain 无 letterbox → 无黑底）。仅在 Stretch.Uniform 模式下生效；
+        /// 其他模式由 Stretch 属性自行控制填充方式。
         /// </summary>
         private void FitPlayerToVideoAspect()
         {

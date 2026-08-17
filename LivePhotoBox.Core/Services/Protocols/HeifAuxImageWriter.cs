@@ -5,11 +5,14 @@ using System.Text;
 
 namespace LivePhotoBox.Services.Protocols;
 
-// 把 heif-enc 生成的“多张顶层图像 HEIC”原地改造成含 Apple hdrgainmap 辅助图的 HEIC。
-// heif-enc 命令行虽然不支持 auxC/auxl，但 libheif 生成的 HEIF 已经包含：
-//   - 多个 hvc1 图像 item
-//   - iloc / iinf / iprp / ipco / ipma / iref
-// 这里只追加 auxC 属性、ipma 关联和 auxl 引用，并同步修正 iloc 的绝对偏移。
+/*
+ * HeifAuxImageWriter.cs
+ *
+ * 把 heif-enc 生成的“多张顶层图像 HEIC”原地改造成含 Apple hdrgainmap 辅助图的 HEIC。
+ *
+ *   - heif-enc 已生成多个 hvc1 图像 item 及 iloc/iinf/iprp/ipco/ipma/iref
+ *   - 本类只追加 auxC 属性、ipma 关联和 auxl 引用，并同步修正 iloc 的绝对偏移
+ */
 internal static class HeifAuxImageWriter
 {
     private const string HdrGainMapUrn = "urn:com:apple:photo:2020:aux:hdrgainmap";

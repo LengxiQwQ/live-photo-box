@@ -1132,9 +1132,6 @@ namespace LivePhotoBox.Cli.Commands
             return fail > 0 ? 1 : 0;
         }
 
-        // Parse a user-supplied key photo timestamp into microseconds.
-        // Accepts decimal seconds (1.5), mm:ss (1:30), mm:ss.fff (1:30.500)
-        // or hh:mm:ss (0:01:30). Returns false on malformed / negative input.
         // ══════════════════════════════════════════════════════════════
         //  Recycle Bin via SHFileOperationW
         // ══════════════════════════════════════════════════════════════

@@ -1,3 +1,13 @@
+/*
+ * WorkViewModelBase.cs
+ *
+ * 工作流型页面（拆分/修复/合成）的抽象基类。
+ *
+ *   - 封装扫描、处理、暂停、取消、进度报告等通用生命周期
+ *   - 提供按钮文本、进度条状态、对话框显示等公用逻辑
+ *   - 子类需实现 OnInitializeRunState / OnFinalizeRunState / OnClearState 等方法
+ */
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Models;
@@ -11,10 +21,6 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.ViewModels
 {
-    // 工作流型页面（拆分/修复/合成）的抽象基类。
-    // 封装了扫描、处理、暂停、取消、进度报告等通用生命周期管理，
-    // 以及按钮文本、进度条状态、对话框显示等公用逻辑。
-    // 子类需实现 OnInitializeRunState / OnFinalizeRunState / OnClearState 等抽象方法。
     public abstract partial class WorkViewModelBase : ViewModelBase
     {
         // 崩溃日志强制使用的语言标签（英语），确保崩溃信息可读。
@@ -160,7 +166,7 @@ namespace LivePhotoBox.ViewModels
             NotifyStatusChanged();
         }
 
-        // ✨ 新增方法：直接注入文本，打破只能用多语言键值的局限性
+        // 直接注入文本，打破只能通过多语言键值设置状态文本的限制。
         protected void SetDirectStatus(string text)
         {
             _statusKey = "CustomDirectText";

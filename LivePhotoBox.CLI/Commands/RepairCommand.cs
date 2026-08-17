@@ -1,3 +1,13 @@
+/*
+ * RepairCommand.cs
+ *
+ * 修复命令：分析并修复实况照片/视频的元数据问题（旋转、缩略图、HEIC 方向、视频旋转）。
+ *
+ *   - 复用 Core 层 LivePhotoRepairService.AnalyzeFileAsync / RepairAsync，与 GUI 修复页同源
+ *   - 单文件与批量两种模式，默认只修复 Apple 实况照片（--all-devices 关闭过滤）
+ *   - 默认 4 项修复全开，--no-* 关闭；批量确认前列出待修复清单
+ */
+
 using LivePhotoBox.Cli.Infrastructure;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
@@ -12,12 +22,6 @@ using System.Text.Json;
 
 namespace LivePhotoBox.Cli.Commands
 {
-    // 修复命令：分析并修复实况照片/视频的元数据问题（旋转、缩略图、HEIC 方向、视频旋转）。
-    // 复用 Core 层 LivePhotoRepairService.AnalyzeFileAsync + RepairAsync，与 GUI 修复页同源。
-    // 单文件模式：lpb repair photo.jpg → photo_repaired.jpg（源文件不动）
-    // 批量模式：  lpb repair -d ./Photos → ./Photos/Photos_repaired/（源文件不动）
-    // 默认只修复 Apple 实况照片（ContentIdentifier UUID），--all-devices 关闭过滤。
-    // 默认 4 项修复全开，--no-* 关闭对应项；批量确认前列出待修复清单。
     internal static class RepairCommand
     {
         // 支持的图片/视频扩展名（单文件参数与批量扫描共用）。

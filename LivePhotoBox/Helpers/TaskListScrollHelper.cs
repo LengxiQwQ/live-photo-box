@@ -1,3 +1,11 @@
+/*
+ * TaskListScrollHelper.cs
+ *
+ * 任务列表自动滚动辅助类，封装 MergePage / SplitPage / RepairPage 的公共滚动逻辑：
+ * 处理中自动跟随（带防抖）、扫描结束滚到底部、处理完成后推到底部等。
+ * Merge 页面不需要扫描滚动（任务在扫描完成后一次性装入），但仍可使用 Nudge / ScrollIntoView。
+ */
+
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Dispatching;
@@ -5,13 +13,6 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.Threading.Tasks;
-
-// <summary>
-// File: TaskListScrollHelper.cs
-// 任务列表自动滚动辅助类，封装 MergePage / SplitPage / RepairPage 的公共滚动逻辑。
-// 提供处理中自动跟随（带防抖）、扫描结束滚到底部、处理完成后推到底部等功能。
-// Merge 页面不需要扫描滚动（任务在扫描完成后一次性装入），但仍可使用 Nudge / ScrollIntoView。
-// </summary>
 
 namespace LivePhotoBox.Helpers
 {

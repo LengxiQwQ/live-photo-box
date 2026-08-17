@@ -11,14 +11,19 @@ using XamlUnhandledExceptionEventArgs = Microsoft.UI.Xaml.UnhandledExceptionEven
 
 namespace LivePhotoBox.Services
 {
-    // Crash handler — registers exception handlers, writes crash dumps,
-    // and shows crash-report dialogs.
-    // All crash REPORTING (writing to log) is delegated to <see cref="LogService"/>.
-    // This class handles:
-    // - Exception handler registration (App / AppDomain / TaskScheduler)
-    // - WER local dump registration (native crashes → .dmp via Windows Error Reporting)
-    // - MiniDumpWriteDump (managed crashes → .dmp via dbghelp.dll)
-    // - Crash dialog UI (ContentDialog)
+    /*
+     * CrashHandler.cs
+     *
+     * 全局崩溃处理服务。注册各类未处理异常处理器，生成转储文件（.dmp），
+     * 并弹出崩溃报告对话框。
+     *
+     *   - 异常处理器注册（App / AppDomain / TaskScheduler）
+     *   - WER 本地转储（原生崩溃 → Windows Error Reporting 生成 .dmp）
+     *   - MiniDumpWriteDump（托管崩溃 → dbghelp.dll 生成 .dmp）
+     *   - 崩溃对话框 UI（ContentDialog）
+     *
+     * 崩溃报告（写日志）委托给 LogService。
+     */
     public static class CrashHandler
     {
         private static bool _initialized;

@@ -1,3 +1,12 @@
+/*
+ * InfoCommand.cs
+ *
+ * --info 全局选项：打印本地环境报告（公共字段 + 内置外部工具版本），不联网。
+ *
+ *   - 打印版本、日志路径、外部工具（exiftool/ffmpeg/jpegtran/heif-dec/heif-enc）版本
+ *   - 不联网，更新检查交由 update-check 命令
+ */
+
 using LivePhotoBox.Cli.Infrastructure;
 using LivePhotoBox.Services;
 using System;
@@ -7,7 +16,6 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Cli.Commands
 {
-    // --info 全局选项 — 本地环境报告：公共字段 + 内置外部工具版本。不联网（更新检查归 update-check）。
     internal static class InfoCommand
     {
         public static async Task<int> RunAsync()

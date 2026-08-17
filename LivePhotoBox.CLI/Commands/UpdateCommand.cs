@@ -1,3 +1,12 @@
+/*
+ * UpdateCommand.cs
+ *
+ * 更新相关命令：update-check（专用更新检查）与 update（检查 + 询问 + 自动更新）。
+ *
+ *   - update-check 只做检查，联网逻辑见 UpdateCheckService
+ *   - update 便携版自动替换、安装版静默重装，见 SelfUpdateService
+ */
+
 using System;
 using System.CommandLine;
 using System.Threading.Tasks;
@@ -7,7 +16,6 @@ using LivePhotoBox.Services;
 
 namespace LivePhotoBox.Cli.Commands
 {
-    // update-check — 专用更新检查命令；联网逻辑见 UpdateCheckService
     internal static class UpdateCommand
     {
         public static Command Create()

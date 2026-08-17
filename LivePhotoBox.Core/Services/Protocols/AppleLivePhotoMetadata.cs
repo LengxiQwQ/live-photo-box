@@ -11,46 +11,20 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services.Protocols
 {
-    // ═════════════════════════════════════════════════════════════════════════════
-    // AppleLivePhotoMetadata — 拆分输出「Apple Live Photo」双文件配对元数据写入。
-    //
-    // 拆分单文件实况照片、选 Apple 协议（protocolIndex==1）时，把输出的图片 + 视频
-    // 打上 Apple 实况照片的配对标记，使 iOS / Apple Photos 将其识别为一对实况照片。
-    //
-    // 依据（唯一事实源）：docs/实况照片协议完整分析报告.md「Apple Live Photo」章节，
-    // 以及真样本（iPhone 16 Pro Max 直出的 HEIC/MOV 与 JPG/MOV）的 exiftool dump。
-    //
-    // 分工（图片端二进制重建在 AppleMakerNoteWriter，视频端 mebx 轨在
-    // AppleLivePhotoMebxWriter；本类负责编排 + exiftool/ffmpeg 可写部分）：
-    //
-    //   图片端：
-    //     Apple MakerNote（仅 ContentIdentifier，与最小样本 IMG_6675.JPG 对齐）→
-    //       AppleMakerNoteWriter 在格式转换前注入源 JPG（SplitAsync 里调用），
-    //       heif-enc 原样保留，故 JPG/HEIC 输出都带上。
-    //     Make/Model → exiftool（本类）。
-    //   视频端：
-    //     ContentIdentifier / Make / Model / Software / CreationDate → ffmpeg
-    //       -movflags use_metadata_tags 写 mdta keys（exiftool 无法在新建 MOV 上
-    //       创建 ContentIdentifier，实测 "nothing changed"）。
-    //       mdta key 名以真样本 keys atom dump 为准：
-    //         com.apple.quicktime.content.identifier / .make / .model / .software / .creationdate
-    //     StillImageTime=-1 + TrackDuration（封面帧位置）+ ContentDescribes=Track 1
-    //       → AppleLivePhotoMebxWriter 追加 mebx 静态图像轨。
-    //
-    // 封面帧时间戳来源（ResolveCoverSecondsAsync，按优先级）：
-    //   1. Google MotionPhoto V2 / OPPO / vivo / 三星：XMP MotionPhotoPresentationTimestampUs（微秒）
-    //   2. Google MicroVideo V1：XMP MicroVideoPresentationTimestampUs（微秒）
-    //   3. OPPO：XMP MotionPhotoPrimaryPresentationTimestampUs（原始拍摄帧，微秒）
-    //   4. 华为/荣耀：嵌入 MP4 udta com.openharmony.covertime（毫秒字符串），
-    //      兜底读文件尾 60 字节 v6_fXX + PPP:QQQQ（帧号:总帧数）× 视频时长
-    //   5. 兜底：视频时长中点（协议文档允许，但非正确位置）
-    //
-    // 已知限制（见报告）：
-    //   a. （已解决）HEIC 源图片端 MakerNote：AppleMakerNoteWriter.TryWriteContentIdentifier
-    //      对 JPEG/HEIC 均可就地重建 Apple MakerNote（实测 HEIC 输出 CID 与视频一致）。
-    //   b. mebx 轨的 sample 复用的是样本 still-image-transform 元数据，不是真实封面
-    //      帧图像，故「封面帧时间戳」正确、「封面帧图像内容」仍待抽取/嵌入。
-    // ═════════════════════════════════════════════════════════════════════════════
+    /*
+     * AppleLivePhotoMetadata.cs
+     *
+     * 拆分单文件实况照片、选 Apple 协议时，为输出的图片 + 视频打上 Apple 实况照片配对标记，
+     * 使 iOS / Apple Photos 将其识别为一对实况照片。
+     *
+     *   - 编排：图片端 MakerNote 由 AppleMakerNoteWriter 注入，视频端 mebx 轨由 AppleLivePhotoMebxWriter 追加
+     *   - Make/Model 由 exiftool 写入；视频 ContentIdentifier/Make/Model/Software/CreationDate 由 ffmpeg 写 mdta 键
+     *   - ResolveCoverSecondsAsync 按优先级解析封面帧时间戳（各协议 XMP / 华为 covertime / 兜底中点）
+     *   - 依据：docs/实况照片协议完整分析报告.md 与真样本 exiftool dump
+     *
+     * 已知限制：mebx 轨 sample 复用样本的 still-image-transform 元数据，封面帧时间戳正确，
+     * 但封面帧图像内容尚未真正嵌入。
+     */
     public static class AppleLivePhotoMetadata
     {
         private const string AppleSoftwareVersion = "17.0.2"; // 对齐最小样本 IMG_6675 的 Software

@@ -1,3 +1,12 @@
+/*
+ * VersionInfo.cs
+ *
+ * 版本与环境信息：只读本地数据，不联网、不启动子进程。
+ *
+ *   - --version（快速）与 --info（完整）共用同一套字段
+ *   - 提供产品名、版本号、构建日期、仓库/反馈入口等信息
+ */
+
 using System;
 using System.IO;
 using System.Linq;
@@ -6,8 +15,6 @@ using System.Runtime.InteropServices;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
-    // 版本与环境信息 — 只读本地数据，不联网、不启动子进程。
-    // --version（快速）与 --info（完整）共用同一套字段。
     internal static class VersionInfo
     {
         // 仓库与反馈入口：info 尾部展示（Author/Email/QQ 等联系方式只在 README 提供）

@@ -1,11 +1,13 @@
-// <summary>
-// OPPO/OnePlus O-Live Photo protocol parser.
-// Extends Google Motion Photo V2 with OPPO-specific XMP attributes (OpCamera namespace)
-// and an EXIF UserComment marker (oplus_10485792) required by OPPO Gallery recognition.
-// Binary layout: [JPEG + GainMap] + [MP4 video] + [optional OnePlus trailer].
-// Protocol version: O-Live Photo V2 (GCamera + Container + OpCamera namespaces).
-// Used by: OPPO ColorOS and OnePlus OxygenOS devices.
-// </summary>
+/*
+ * OppoLivePhotoProtocol.cs
+ *
+ * OPPO/OnePlus O-Live Photo 协议解析器：在 Google Motion Photo V2 基础上扩展
+ * OPPO 私有 XMP 属性（OpCamera 命名空间）与 OPPO 相册识别必需的 EXIF UserComment 标记。
+ * 用于 OPPO ColorOS 与 OnePlus OxygenOS 设备。
+ *
+ *   - 二进制布局：[JPEG + GainMap] + [MP4 视频] + [可选 OnePlus 尾挂]
+ *   - UserComment = oplus_10485792（数字后缀为最大视频大小 10MB）
+ */
 
 using System;
 using System.IO;
@@ -80,7 +82,7 @@ namespace LivePhotoBox.Services.Protocols
         // Generates an rdf:Description with both GCamera/Container namespaces (Motion Photo V2)
         // and the OPPO-specific OpCamera namespace with OLivePhoto fields.
         // videoSize: Size of the appended MP4 video in bytes (trailer-free pure video size).
-        // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.
+        // 返回: UTF-8 encoded XMP bytes wrapped in xpacket markers.
         public override byte[] BuildXmpMetadata(long videoSize)
             => BuildXmpMetadata(videoSize, 0);
 
@@ -90,7 +92,7 @@ namespace LivePhotoBox.Services.Protocols
         // We set both to the selected frame's timestamp since we're replacing the cover.
         // videoSize: Size of the appended MP4 video in bytes (trailer-free pure video size).
         // presentationTimestampUs: Timestamp in microseconds of the selected frame.
-        // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.
+        // 返回: UTF-8 encoded XMP bytes wrapped in xpacket markers.
         public override byte[] BuildXmpMetadata(long videoSize, long presentationTimestampUs)
             => WrapXmp(RdfTemplate(videoSize, presentationTimestampUs), Key);
 
@@ -104,7 +106,7 @@ namespace LivePhotoBox.Services.Protocols
         // sourceImagePath: Path to the source JPEG image.
         // workDir: Working directory for temporary file creation.
         // token: Cancellation token.
-        // è¿å: Path to the processed image. If exiftool is available and succeeds, returns atemporary copy with the OPPO EXIF marker injected. Otherwise returns the original path.
+        // 返回: Path to the processed image. If exiftool is available and succeeds, returns atemporary copy with the OPPO EXIF marker injected. Otherwise returns the original path.
         public override async Task<string> PrepareImageAsync(
             string sourceImagePath, string workDir, CancellationToken token)
         {

@@ -1,16 +1,14 @@
-// <summary>
-// Google Motion Photo V2 protocol parser.
-// Implements the standard Motion Photo format using the Container:Directory XMP
-// structure with Item:Semantic="MotionPhoto" to describe the appended video payload.
-// This is the modern cross-platform standard used by Google Pixel, Samsung Galaxy,
-// and Xiaomi HyperOS 3+ devices.
-// Protocol version: Motion Photo V2 (GCamera + Container namespaces).
-//
-// Supports multiple primary image formats per the Google spec:
-//   - image/jpeg (default, Padding=0) — video appended as raw bytes
-//   - image/heic (Padding=8) — video wrapped in mpvd ISOBMFF box
-//   - image/avif (Padding=8) — same ISOBMFF structure as HEIC
-// </summary>
+/*
+ * MotionPhotoV2Protocol.cs
+ *
+ * Google Motion Photo V2 协议解析器：用 Container:Directory XMP 结构
+ * （Item:Semantic="MotionPhoto"）描述追加的视频载荷。
+ * 现代跨平台标准，用于 Google Pixel、Samsung Galaxy、小米 HyperOS 3+。
+ *
+ *   - image/jpeg（默认，Padding=0）：视频以原始字节追加
+ *   - image/heic（Padding=8）：视频包成 mpvd ISOBMFF box
+ *   - image/avif（Padding=8）：与 HEIC 相同的 ISOBMFF 结构
+ */
 
 using System.Text;
 

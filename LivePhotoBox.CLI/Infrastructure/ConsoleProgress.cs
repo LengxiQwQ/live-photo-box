@@ -1,11 +1,16 @@
+/*
+ * ConsoleProgress.cs
+ *
+ * 终端进度条渲染器：只在交互终端（未重定向）时原地 \r 重写。
+ *
+ *   - 管道/CI 输出自动降级为纯文本，不产生任何 \r / ANSI 转义
+ *   - 交互形如 "Downloading: [████░░░░] 45%  1.2 MB/s"，走完调用 Finish 换行
+ */
+
 using System;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
-    // 终端进度条渲染器 — 只在交互终端（未重定向）时原地 \r 重写；
-    // 管道/CI 输出自动降级为纯文本，不产生任何 \r / ANSI 转义。
-    // 交互形如 "Downloading: [████░░░░] 45%  1.2 MB/s"：标签 + 进度条同行；
-    // 走完 100% 后调用 Finish 换行，进度条留在屏幕不消失。
     internal static class ConsoleProgress
     {
         private static string _label = "";

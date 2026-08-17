@@ -6,24 +6,15 @@ using System.Text;
 
 namespace LivePhotoBox.Services.Protocols
 {
-    // ═════════════════════════════════════════════════════════════════════════════
-    // AppleLivePhotoMebxWriter — 给拆分输出的 MOV 补全 Apple Live Photo 结构。
-    //
-    // 两部分工作：
-    //  A. 归一化 ffmpeg 生成的 Video/Audio 轨，对齐最小样本 IMG_6675：
-    //     - 视频轨补 tapt（Clean/Production/Encoded 三 aperture = 视频实际宽高）
-    //     - tkhd.flags 0x03 → 0x0f（enabled+in_movie+in_preview+in_poster）
-    //     - tkhd/mdhd/mvhd 时间戳由 bitexact 清零 → 写回真实时间（Apple epoch）
-    //     - hdlr 名字 → Core Media Video / Core Media Audio / Core Media Data Handler
-    //     - vmhd graphicsmode → ditherCopy(64)、opcolor → 32768×3
-    //     - stsd hvc1 去掉 ffmpeg 多写的 fiel / pasp
-    //     - dinf/dref 条目 'url ' → 'alis'
-    //  B. 追加两条 NRT Metadata 轨（ContentDescribes 运动元数据轨 + mebx 静态封面轨）。
-    //
-    // 模板来源：能导入 iPhone 的最小 4 轨样本 2023_12_19_13_09_IMG_6675.MOV
-    //   Track1 Video + Track2 Audio + Track3 ContentDescribes + Track4 mebx 封面轨。
-    // sdtp/cslg/sgpd/sbgp 等「怀疑度低且较难」的差异暂不处理。
-    // ═════════════════════════════════════════════════════════════════════════════
+    /*
+     * AppleLivePhotoMebxWriter.cs
+     *
+     * 给拆分输出的 MOV 补全 Apple Live Photo 结构，使其可被 iPhone / Apple Photos 导入。
+     *
+     *   - 归一化 ffmpeg 生成的 Video/Audio 轨（tapt/tkhd/mdhd/mvhd/hdlr/vmhd/stsd/dref 等）
+     *   - 追加 ContentDescribes 运动元数据轨与 mebx 静态封面轨
+     *   - 布局对齐能导入 iPhone 的最小 4 轨样本 IMG_6675.MOV
+     */
     public static class AppleLivePhotoMebxWriter
     {
         // Track3（ContentDescribes / NRT Metadata，1043 字节）—— 最小样本逐字节复刻。

@@ -413,10 +413,6 @@ namespace LivePhotoBox.Views
 
         // ════════════════════════════════════════════════════════════
         //  实况照片就地视频预览（PureMediaViewer 叠加层交互）
-        // ════════════════════════════════════════════════════════════
-
-        // ════════════════════════════════════════════════════════════
-        //  实况照片就地视频预览（PureMediaViewer 叠加层交互）
         //  硬直切，无过渡动画
         // ════════════════════════════════════════════════════════════
 
@@ -1501,9 +1497,8 @@ namespace LivePhotoBox.Views
         /// <summary>用户点击了浏览按钮 → 抑制本次 LostFocus 扫描</summary>
         private bool _suppressLostFocusScan;
 
-        /// <summary>刷新按钮：重新扫描当前目录</summary>
         /// <summary>
-        /// 目录有内容 → 刷新重新扫描；目录为空 → 清空全部内容（等价"大叉号"）。
+        /// 刷新/清除按钮：目录有内容 → 刷新重新扫描；目录为空 → 清空全部内容（等价"大叉号"）。
         /// CurrentDirectory 变化时同步更新图标。
         /// </summary>
         private void RefreshOrClearDir_Click(object sender, RoutedEventArgs e)

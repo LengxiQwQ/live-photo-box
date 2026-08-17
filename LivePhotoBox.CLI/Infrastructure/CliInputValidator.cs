@@ -1,3 +1,11 @@
+/*
+ * CliInputValidator.cs
+ *
+ * CLI 输入校验辅助：目录自动识别、未知选项提示、输入/输出路径与并发数校验。
+ *
+ *   - merge / split / repair 三个命令共用，保证行为一致、改一处生效
+ */
+
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -6,10 +14,6 @@ using System.Linq;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
-    /// <summary>
-    /// CLI 输入校验辅助：目录自动识别、未知选项提示、输入/输出路径与并发数校验。
-    /// merge / split / repair 共用，保证三个命令行为一致、改一处生效。
-    /// </summary>
     internal static class CliInputValidator
     {
         /// <summary>--parallel 允许的上限（防止过大的并行度拖垮机器）。</summary>

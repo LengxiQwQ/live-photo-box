@@ -506,11 +506,6 @@ namespace LivePhotoBox.Services
         // ── 资产选择 ──────────────────────────────────────────────────
 
         /// <summary>
-        /// 根据安装类型选择合适的下载资产。
-        /// Inno Setup 安装版选 -setup.exe，便携版选 -portable.zip。
-        /// 匹配不到时返回 null。
-        /// </summary>
-        /// <summary>
         /// 获取即将下载的资产大小（字节），供 UI 显示下载进度。无匹配资产时返回 0。
         /// </summary>
         public static long GetAssetSize(GitHubReleaseResponse release)
@@ -762,15 +757,6 @@ namespace LivePhotoBox.Services
 
         // ── 安装启动 ──────────────────────────────────────────────────
 
-        /// <summary>
-        /// 启动更新安装程序。根据安装类型自动选择：
-        ///   - Inno Setup 安装版 → 静默运行 setup.exe（/VERYSILENT）
-        ///   - 便携版 → 解压 zip，创建 update.bat 等待主进程退出后替换文件
-        ///
-        /// 调用后应立即退出应用（Application.Current.Exit()）。
-        /// </summary>
-        /// <param name="downloadedPath">下载完成的文件路径</param>
-        /// <param name="isSetup">是否为 Inno Setup 安装版</param>
         /// <summary>
         /// 预处理更新包（解压 zip、写 .bat），返回一个可瞬间启动的路径。
         /// 「关闭时更新」在点按钮时就调用此方法，关窗口时只负责启动，实现秒关。

@@ -7,21 +7,17 @@ using System.Text;
 
 namespace LivePhotoBox.Services.Protocols
 {
-    /// <summary>
-    /// AppleLivePhotoMovBuilderV2 — 规范化的 Apple Live Photo MOV 生成器（替代 V1 的 IMG_6675 hex 模板方案）。
-    ///
-    /// 原则：
-    /// 1. 所有 ISO/IEC 14496-12（ISO BMFF）box 都由结构化代码生成：tkhd / mdhd / hdlr / vmhd / smhd /
-    ///    gmhd / dinf / dref / stsd / stts / ctts / cslg / stss / sdtp / stsc / stsz / stco / sgpd / sbgp /
-    ///    tapt / elst / mvhd / meta / keys / ilst，字段值按规范计算，不抄样本字节。
-    /// 2. 编码参数全部从源 ffmpeg MOV 解析：视频 hvcC / avcC、尺寸、色度子盒(colr/pasp)、stts/ctts/stss/
-    ///    stsc/stco/stsz；音频 esds（AudioSpecificConfig、bufferSize、bitrate）、声道数、采样率、priming。
-    ///    支持 hvc1 与 avc1 两种视频编码、任意声道/采样率的 AAC。
-    /// 3. 时间轴不复刻"600 固定刻度 + 归一化 ctts"，而是原样保留源的 timescale / stts / ctts（含 B 帧任意 GOP），
-    ///    cslg 由实际 ctts 计算，elst 用 media_time=0 / priming。
-    /// 4. Apple 私有的 mebx 元数据载荷（content-describes 样本、cover 样本、keys/setu bplist）属于
-    ///    "数据"而非"容器结构"，作为字节常量保留；其中唯一随源变化的 dims 由实际视频尺寸参数化。
-    /// </summary>
+    /*
+     * AppleLivePhotoMovBuilderV2.cs
+     *
+     * 规范化的 Apple Live Photo MOV 生成器（替代 V1 的 IMG_6675 hex 模板方案）。
+     *
+     *   - 所有 ISO/IEC 14496-12 box 由结构化代码生成，字段值按规范计算，不抄样本字节
+     *   - 编码参数全部从源 ffmpeg MOV 解析（支持 hvc1/avc1、任意声道/采样率 AAC）
+     *   - 时间轴原样保留源的 timescale / stts / ctts（含 B 帧任意 GOP）
+     *   - Apple 私有 mebx 元数据载荷（content-describes / cover 样本、keys/setu bplist）作为字节常量保留，
+     *     唯一随源变化的 dims 由实际视频尺寸参数化
+     */
     public static class AppleLivePhotoMovBuilderV2
     {
         // ── Apple 惯例（设计常量，非字节模板）──────────────────────────

@@ -1,8 +1,9 @@
-// ******************************************************************
-// 文件名: InstallChannelDetector.cs
-// 作者: LengxiQwQ
-// 描述: GUI 安装渠道检测 —— 按卸载工具的身份识别当前安装包类型
-// ******************************************************************
+/*
+ * InstallChannelDetector.cs
+ *
+ * GUI 安装渠道检测。按卸载工具的身份识别当前安装包类型
+ * （商店 / Inno Setup / Scoop / 便携版）。
+ */
 
 using System;
 using System.Diagnostics;

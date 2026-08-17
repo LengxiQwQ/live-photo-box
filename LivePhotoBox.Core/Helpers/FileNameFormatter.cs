@@ -1,10 +1,11 @@
 using System.IO;
 
-// <summary>
-// File: FileNameFormatter.cs
-// 提供文件名格式化工具方法，用于在任务列表中截断过长的文件名，
-// 使其在有限列宽内友好显示，同时保留文件扩展名。
-// </summary>
+/*
+ * FileNameFormatter.cs
+ *
+ * 提供文件名格式化工具方法，用于在任务列表中截断过长的文件名，
+ * 使其在有限列宽内友好显示，同时保留文件扩展名。
+ */
 
 namespace LivePhotoBox.Helpers
 {

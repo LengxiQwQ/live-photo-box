@@ -1,40 +1,16 @@
-// <summary>
-// Vivo Live Photo protocol (X300 series and later).
-// Real vivo X300 Ultra camera output (reverse-engineered 2026-08-08 from
-// C:\Users\LengxiQwQ\Downloads\实况照片样本\vivo实况照片样本) is a live-photo
-// container with GCamera + VCamera markers and a Container:Directory describing
-// the appended video, plus (because the camera always shoots Ultra HDR) an
-// embedded GainMap JPEG and the hdrgm namespace.
-//
-// DESIGN RULE (user directive 2026-08-08): the XMP metadata carries only
-// live-photo-relevant fields; the ONE exception is HDR — if the source image
-// already carries an Ultra HDR gain map, preserve it as-is (bytes are kept and
-// the GainMap item + hdrgm are declared with the real byte length); if the
-// source has no HDR, neither the gain map nor hdrgm is emitted — the container
-// then has just Primary + MotionPhoto.
-// The EXIF UserComment is a separate rule: it is reproduced in FULL (see below)
-// because it functions as vivo's private recognition signature — Google V2
-// files without it are NOT recognised by vivo Gallery.
-//
-// Binary layout (source WITH HDR):
-//   [Primary JPEG] [GainMap JPEG] [MP4 video]
-// Binary layout (source WITHOUT HDR):
-//   [Primary JPEG] [MP4 video]
-//
-// XMP structure (real vivo.jpg, WITH HDR):
-//   hdrgm namespace            http://ns.adobe.com/hdr-gain-map/1.0/
-//   hdrgm:Version="1.0"
-//   GCamera:MotionPhoto="1", MotionPhotoVersion="1",
-//   GCamera:MotionPhotoPresentationTimestampUs="1450273"
-//   VCamera:VMotionPhotoVersion="1", VMotionPhotoSource="1",
-//   VCamera:VMediaKitVersion="1.0.0.9"
-//   Container:Directory with THREE items:
-//     Primary   — Item:Semantic="Primary"   Item:Mime="image/jpeg"  (NO Length/Padding)
-//     GainMap   — Item:Semantic="GainMap"   Item:Mime="image/jpeg"  Item:Length=<gainMapBytes>
-//     MotionPhoto — Item:Mime="video/mp4"   Item:Semantic="MotionPhoto"
-//                  Item:Length=<videoBytes> Item:Padding="0"
-// Used by: Vivo devices (X300 series and later).
-// </summary>
+/*
+ * VivoLivePhotoProtocol.cs
+ *
+ * vivo Live Photo 协议（X300 系列及以后，真机逆向，用于 vivo 设备）。
+ * 容器含 GCamera + VCamera 标记、Container:Directory 描述追加的视频；
+ * 因相机总是拍 Ultra HDR，源图通常内嵌 GainMap JPEG 与 hdrgm 命名空间。
+ *
+ *   - 设计规则（用户 2026-08-08 指令）：XMP 只写实况相关字段；唯一例外是 HDR——
+ *     源图已有 Ultra HDR gain map 则原样保留（GainMap item + hdrgm 按真实字节长度声明），
+ *     否则既不输出 gain map 也不输出 hdrgm，容器只有 Primary + MotionPhoto
+ *   - EXIF UserComment 整段复刻：它是 vivo 私有识别签名，缺它 vivo 相册不识别 Google V2 文件
+ *   - 二进制布局：有 HDR 时 [Primary JPEG] [GainMap JPEG] [MP4 视频]；无 HDR 时 [Primary JPEG] [MP4 视频]
+ */
 
 using System;
 using System.IO;

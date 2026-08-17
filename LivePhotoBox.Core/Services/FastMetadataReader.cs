@@ -1,16 +1,11 @@
 /*
- * FastMetadataReader — 不依赖 exiftool，从文件二进制头直接读宽高和 EXIF 日期。
+ * FastMetadataReader.cs
  *
- * 用途：扫描目录时替代 exiftool 逐文件查询，4,821 文件 < 0.1s（exiftool 需 > 60s）。
+ * 不依赖 exiftool，从文件二进制头直接读取宽高与 EXIF 拍摄日期的快速读取器。
  *
- * 支持格式：
- *   JPEG — SOF0/1/2 标记 → 宽高（前 64KB）/ APP1 EXIF TIFF IFD → DateTimeOriginal
- *   PNG  — IHDR chunk → 宽高（固定偏移 24B）
- *   GIF  — Logical Screen Descriptor → 宽高（固定偏移 10B）
- *   BMP  — DIB header → 宽高（固定偏移 26B）
- *   WebP — VP8/VP8L/VP8X chunk → 宽高
- *
- * HEIC 等不支持的格式返回 (0,0,null)，调用方回退到 exiftool。
+ *   - 扫描目录时替代 exiftool 逐文件查询（数千文件 < 0.1s）
+ *   - 支持 JPEG（SOF 标记 + APP1 EXIF IFD）、PNG（IHDR）、GIF、BMP、WebP
+ *   - HEIC 等不支持的格式返回 (0,0,null)，调用方回退到 exiftool
  */
 
 using System;

@@ -1,6 +1,11 @@
-// <copyright file="HomeViewModel.cs" company="Live Photo Box">
-// Copyright (c) Live Photo Box. All rights reserved.
-// </copyright>
+/*
+ * HomeViewModel.cs
+ *
+ * HomePage（首页）的视图模型，负责功能入口的导航跳转。
+ *
+ *   - 为首页功能提供教程区域导航
+ *   - 通过 RequestNavigateToPage 事件请求页面跳转
+ */
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -9,8 +14,6 @@ using System;
 
 namespace LivePhotoBox.ViewModels
 {
-    // 首页的 ViewModel，对应 HomePage。
-    // 负责功能入口的导航跳转（使用教程、各功能引导等）。
     public partial class HomeViewModel : ViewModelBase
     {
         // <inheritdoc/>

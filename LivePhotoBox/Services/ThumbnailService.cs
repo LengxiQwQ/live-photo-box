@@ -17,13 +17,14 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
 {
-    // 缩略图服务 — 为文件列表提供异步缩略图加载与缓存。
-    // 支持三种来源：
-    // - 普通图片（JPG/PNG）：Windows Shell API (StorageFile.GetThumbnailAsync)
-    // - HEIC 图片：通过 BitmapDecoder 解码并缩放到 80px
-    // - 视频（MOV/MP4）：FFmpeg 抽第一帧，支持硬件加速解码
-    // 使用两级缓存（_thumbnailCache + _inflightLoads）防止重复加载，
-    // 并用 SemaphoreSlim 限制并发数（照片 4 路，视频根据硬件自动调整）。
+    /*
+     * ThumbnailService.cs
+     *
+     * 缩略图服务。为文件列表提供异步缩略图加载与缓存，支持三种来源：
+     * 普通图片（JPG/PNG，Shell API）、HEIC（BitmapDecoder 解码缩放）、
+     * 视频（FFmpeg 抽第一帧，支持硬件加速）。
+     * 使用两级缓存防止重复加载，SemaphoreSlim 限制并发（照片 4 路，视频按硬件调整）。
+     */
     public static class ThumbnailService
     {
         private static readonly ConcurrentDictionary<string, ImageSource> _thumbnailCache = new(StringComparer.OrdinalIgnoreCase);
@@ -58,7 +59,7 @@ namespace LivePhotoBox.Services
 
         // 从缓存中直接获取已加载的缩略图（同步，非阻塞）。
         // imagePath: 文件路径。
-        // è¿å: 缓存的 ImageSource，若尚未加载则返回 null。
+        // 返回: 缓存的 ImageSource，若尚未加载则返回 null。
         public static ImageSource? GetCached(string imagePath)
         {
             if (string.IsNullOrWhiteSpace(imagePath)) return null;
@@ -77,7 +78,7 @@ namespace LivePhotoBox.Services
         // 已缓存的直接返回，正在加载中的复用同一个 Task。
         // imagePath: 文件路径。
         // dispatcher: UI 线程调度器，用于在 UI 线程创建 BitmapImage。若为 null 则自动获取当前线程的。
-        // è¿å: 加载完成的 ImageSource，失败或取消返回 null。
+        // 返回: 加载完成的 ImageSource，失败或取消返回 null。
         public static Task<ImageSource?> LoadAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
             if (string.IsNullOrWhiteSpace(imagePath)) return Task.FromResult<ImageSource?>(null);
@@ -641,7 +642,7 @@ namespace LivePhotoBox.Services
             _inflightLoads.ContainsKey(path) ||
             _tryGetOrLoadInFlight.ContainsKey(path);
 
-        // For x:Bind property getter usage. Non-async, returns cached or triggers background load.
+        // 供 x:Bind 属性 getter 使用，非异步：返回缓存或触发后台加载。
         // targetSize：缩略图逻辑像素（长边），默认 80，会和 DPI 缩放相乘得到实际解码像素。
         // 例如 KeyPhoto 框 56×56，200% DPI → 实际解码 112px，保证高清不糊。
         public static ImageSource? TryGetOrLoad(

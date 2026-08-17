@@ -12,55 +12,19 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
 
-// =====================================================================================
-// LivePhotoSplitService —— 实况照片拆分核心
-// =====================================================================================
-//
-// 拆分后"图片"端为什么要重新构造（不直接 CopyExactLength）：
-// -------------------------------------------------------------------------------------
-// 原实况照片的图片部分在文件结构上 = 完整 JPEG，其 APP1 段里存放着 Google 规范的 XMP
-// 元数据（xmlns:GCamera="http://ns.google.com/photos/1.0/camera/" + GCamera:MicroVideo
-// 或 GCamera:MotionPhoto + GCamera:MicroVideoOffset 等字段）。
-//
-// 如果直接按字节截断复制出图片端（imageLength = totalSize - videoLength），输出的"图片"
-// 仍是一张完整的 JPEG 字节流，但同时**仍保留着"我是实况照片"的自白书**。
-// 下次扫描到这张图时，LivePhotoSplitScanService 会再次把它识别为实况照片，
-// 进入"已拆分"列表，用户又被诱导重复点击拆分——构成"假阳性循环"。
-//
-// 解决思路：拆分时按 JPEG 段结构逐段复制图片字节流，对每个 APP 段做"实况照片特征"嗅探，
-// 命中则整段丢弃。**EXIF 段、ICC 段、普通 XMP 段、量化表、哈夫曼表、压缩图像数据等
-// 全部原样保留**，确保拍摄日期、GPS 经纬度、光圈快门 ISO、镜头型号、方向、缩略图等
-// 一切用户元数据不丢失。
-//
-// 嗅探策略（按"结构匹配"，不按"关键词搜索"，兼容性最优）：
-// -------------------------------------------------------------------------------------
-//   1. 必须是 APP 段（marker 落在 0xFFE0 - 0xFFEF）
-//   2. 段 payload 必须以 Adobe XMP 规范规定的 29 字节固定头
-//      "http://ns.adobe.com/xap/1.0/\0" 开头（普通 EXIF 段以 "Exif\0\0" 开头，
-//      二进制层面不会混淆）
-//   3. XMP 段内必须声明 Google 实况照片规范强制要求的命名空间之一：
-//        - xmlns:GCamera="http://ns.google.com/photos/1.0/camera/"
-//        - xmlns:Container="http://ns.google.com/photos/1.0/container/"
-//      三个条件同时满足才视为"实况照片元数据段"，整段丢弃。
-//
-// 为什么不靠 GCamera: / MicroVideo / MotionPhoto 这些"关键词"做搜索：
-//   - EXIF 段是二进制 TIFF 结构，文本字段都在 IFD 里以 ASCII 存储，若 EXIF 的 Make
-//     字段恰好等于 "Google Camera"（Pixel 拍的照片就是），按关键词搜索会误伤 EXIF。
-//   - 普通 XMP 段（Lightroom / Photoshop / Apple Photos 等写入的元数据）可能含
-//     "Motion"、"MicroVideo" 等字样作为编辑历史标签，按关键词搜索会误伤 XMP。
-//   - 按 namespace 匹配是 Google 官方规范的强制字段，Android ExifInterface、所有
-//     Google/Samsung/Xiaomi/Huawei/OPPO 等厂商、第三方工具均遵循，零误伤。
-//
-// 兼容性范围（结构匹配）：
-//   - 本工具自己合成的实况照片 ✅（注入的 XMP 完全符合 Google 规范）
-//   - Google Pixel ✅
-//   - Samsung Galaxy（MicroVideo / MotionPhoto 两种变体）✅
-//   - 小米/华为/OPPO（Android 9+ 均走 Android ExifInterface）✅
-//   - iPhone Live Photo —— N/A（iOS 不用 JPEG 容器，不走 XMP APP1 段）
-//   - 普通 JPEG（无 XMP）✅ 不受影响
-//   - 含 EXIF 的普通 JPEG（拍摄参数/GPS）✅ EXIF 段原样保留
-//   - Lightroom/PS 处理过的 JPEG（XMP 调色/编辑历史）✅ 普通 XMP 段原样保留
-// =====================================================================================
+/*
+ * LivePhotoSplitService.cs
+ *
+ * 实况照片拆分核心。
+ *
+ *   - 将合成的实况照片拆回独立的图片与视频
+ *   - 图片端按 JPEG 段结构逐段重建：对每个 APP 段做"实况照片特征"嗅探，
+ *     命中 Google 实况 XMP 段则整段丢弃，其余（EXIF/ICC/普通 XMP/图像数据）原样保留
+ *   - 不直接按字节截断的原因：截断后图片端仍保留"我是实况照片"的标记，
+ *     再次扫描会被误判为实况照片，构成"假阳性循环"
+ *   - 嗅探按结构匹配（APP 段 + Adobe XMP 29 字节固定头 + Google 命名空间），
+ *     不按关键词，避免误伤 EXIF 段与含 Motion/MicroVideo 字样的普通 XMP 段
+ */
 
 namespace LivePhotoBox.Services
 {
@@ -933,7 +897,7 @@ namespace LivePhotoBox.Services
         // sourcePath: 源文件路径。
         // outputDirectory: 输出目录。
         // videoExtension: 视频扩展名（.mp4 / .mov）。
-        // è¿å: (图片输出路径, 视频输出路径)
+        // 返回: (图片输出路径, 视频输出路径)
         private static (string ImageOutputPath, string VideoOutputPath) BuildOutputPaths(string sourcePath, string outputDirectory, string imageExtension, string videoExtension, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false)
         {
             string sourceFileNameWithoutExtension = Path.GetFileNameWithoutExtension(sourcePath);

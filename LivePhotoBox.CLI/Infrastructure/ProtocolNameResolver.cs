@@ -1,9 +1,17 @@
+/*
+ * ProtocolNameResolver.cs
+ *
+ * 协议名称 ↔ 索引映射，供 CLI 命令解析用户输入的协议/格式名。
+ *
+ *   - ProtocolMap：协议别名（v1/motionphoto/oppo/vivo/...）→ 协议索引
+ *   - FormatMap：格式名（jpg+mp4/...）→ 输出格式索引，与 Core 的 ProtocolFormatMatrix 对齐
+ */
+
 using System;
 using System.Collections.Generic;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
-    // 协议名称 ↔ 索引映射，供 CLI 命令使用
     internal static class ProtocolNameResolver
     {
         private static readonly Dictionary<string, int> ProtocolMap = new(StringComparer.OrdinalIgnoreCase)

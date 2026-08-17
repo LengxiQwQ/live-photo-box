@@ -1,15 +1,16 @@
+/*
+ * ImageHoverService.cs
+ *
+ * 图片悬停预览服务。监听已注册 Border 的鼠标进入/离开事件，
+ * 在鼠标悬停时于覆盖层 Canvas 上显示该图片按比例缩放的大图预览。
+ */
+
 using System;
 using System.Collections.Generic;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
-
-// <summary>
-// File: ImageHoverService.cs
-// 提供鼠标悬停在列表项图片上时显示大图预览的功能。
-// 将图片按比例缩放至最大窗口比例内，并在指定 Canvas 覆盖层中显示。
-// </summary>
 
 namespace LivePhotoBox.Helpers
 {
@@ -35,7 +36,7 @@ namespace LivePhotoBox.Helpers
         // previewImage: 用于显示大图的 Image 控件。
         // maxWindowRatio: 预览图片最大尺寸占窗口的比例，默认 0.5（即不超过窗口宽高的 50%）。
         // margin: 预览图片距窗口左上角的边距（像素），默认 20。
-        // å¼å¸¸ ArgumentNullException: overlay、previewBorder 或 previewImage 为 null 时抛出。
+        // 抛出 ArgumentNullException：overlay、previewBorder 或 previewImage 为 null 时。
         public ImageHoverService(Canvas overlay, Border previewBorder, Image previewImage,
             double maxWindowRatio = 0.5, double margin = 20.0)
         {

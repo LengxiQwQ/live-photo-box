@@ -1,12 +1,11 @@
-// <summary>
-// Google MicroVideo V1 protocol parser.
-// Implements detection and generation of the deprecated Google MicroVideo format,
-// where the MP4 video payload is appended directly after the JPEG image.
-// The video byte offset from the end of the file is recorded in the XMP metadata
-// via the GCamera:MicroVideoOffset attribute.
-// Protocol version: MicroVideo V1 (GCamera namespace).
-// Used by: Older Xiaomi (MIUI) devices and legacy Google Pixel firmware.
-// </summary>
+/*
+ * MicroVideoV1Protocol.cs
+ *
+ * Google MicroVideo V1 协议解析器（已废弃）：检测与生成旧的 MicroVideo 格式。
+ * MP4 视频载荷直接追加在 JPEG 图像之后，视频相对文件末尾的字节偏移记录在
+ * XMP 的 GCamera:MicroVideoOffset 属性。
+ * 用于旧版小米 (MIUI) 设备与部分 Google Pixel 固件。
+ */
 
 using System.Text;
 
@@ -47,7 +46,7 @@ namespace LivePhotoBox.Services.Protocols
         // set to the video size. The video offset is measured from end of file,
         // so it equals the video payload size in bytes.
         // videoSize: Size of the appended MP4 video in bytes (equals the offset from end of file).
-        // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.
+        // 返回: UTF-8 encoded XMP bytes wrapped in xpacket markers.
         public override byte[] BuildXmpMetadata(long videoSize)
             => BuildXmpMetadata(videoSize, 0);
 
@@ -55,7 +54,7 @@ namespace LivePhotoBox.Services.Protocols
         // This timestamp tells the viewer where in the video the cover was taken.
         // videoSize: Size of the appended MP4 video in bytes.
         // presentationTimestampUs: Timestamp in microseconds of the selected frame.
-        // è¿å: UTF-8 encoded XMP bytes wrapped in xpacket markers.
+        // 返回: UTF-8 encoded XMP bytes wrapped in xpacket markers.
         public override byte[] BuildXmpMetadata(long videoSize, long presentationTimestampUs)
             => WrapXmp(string.Format(RdfTemplate, videoSize, presentationTimestampUs), Key);
     }

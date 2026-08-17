@@ -11,8 +11,12 @@ using Windows.Storage;
 
 namespace LivePhotoBox.Services
 {
-    // 统一图片预览服务 — 所有预览样式共用同一套优化加载逻辑。
-    // 特性：LRU 内存缓存 + DecodePixelWidth 解码限制 + 相邻预加载 + 令牌取消防拥堵。
+    /*
+     * ImagePreviewService.cs
+     *
+     * 统一图片预览服务。所有预览样式共用同一套优化加载逻辑：
+     * LRU 内存缓存 + DecodePixelWidth 解码限制 + 相邻预加载 + 令牌取消防拥堵。
+     */
     public sealed class ImagePreviewService
     {
         private readonly int _maxCacheSize;
@@ -23,7 +27,7 @@ namespace LivePhotoBox.Services
         private readonly LinkedList<string> _lruOrder = new();
         private readonly object _cacheLock = new();
 
-        // 🔴 新增：用于随时掐断旧的预加载任务，防止后台拥堵
+        // 预加载取消令牌，用于随时掐断上一次未完成的预加载，防止后台拥堵
         private CancellationTokenSource? _preloadCts;
 
         private static int _heicConcurrencyCache;
@@ -57,7 +61,6 @@ namespace LivePhotoBox.Services
             _preloadBackward = preloadBackward;
         }
 
-        // 🔴 增加了 CancellationToken 参数
         public Task<ImageSource?> LoadAsync(string filePath, CancellationToken token = default)
             => LoadInternalAsync(filePath, false, token);
 
@@ -127,7 +130,7 @@ namespace LivePhotoBox.Services
             }
             catch (OperationCanceledException)
             {
-                // 🔴 任务被成功打断，静默退出
+                // 任务被取消，静默返回
                 return null;
             }
             catch (Exception ex)
@@ -145,7 +148,7 @@ namespace LivePhotoBox.Services
         {
             var semaphore = usePriority ? _prioritySemaphore : HeicSemaphore;
 
-            // 🔴 核心奥义：如果在排队等候通道期间，用户划走了，这里会瞬间抛出异常离开队伍，绝不干占茅坑！
+            // 排队等信号量期间若用户已取消，WaitAsync(token) 会立即抛 OperationCanceledException 离开队列
             await semaphore.WaitAsync(token);
             try
             {
@@ -224,8 +227,7 @@ namespace LivePhotoBox.Services
 
         public void PreloadNeighbors(IReadOnlyList<string> allPaths, int centerIndex, int direction)
         {
-            // 🔴 核心优化：每次预加载前，直接掐断上一次没完成的预加载。
-            // 保证你快速滚动时，那些被错过的甜点区图片立马停止下载/解码，为新图片让出算力
+            // 预加载前先掐断上一次未完成的预加载，快速滚动时及时为新图片让出算力
             _preloadCts?.Cancel();
             _preloadCts = new CancellationTokenSource();
             var token = _preloadCts.Token;

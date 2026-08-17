@@ -5,9 +5,12 @@ using System.IO;
 
 namespace LivePhotoBox.Services.Protocols;
 
-// ISO/IEC 14496-12 (ISOBMFF) / ISO/IEC 23008-12 (HEIF) 的最小盒子解析器。
-// 只用于定位 Exif item（meta -> iinf/infe -> iloc），不解析像素数据。
-// 盒子结构是公开标准：box = [32bit size][4CC type][body]，size==1 时用 64bit largesize。
+/*
+ * HeifBoxParser.cs
+ *
+ * ISO/IEC 14496-12 (ISOBMFF) / ISO/IEC 23008-12 (HEIF) 的最小盒子解析器。
+ * 只用于定位 Exif item（meta -> iinf/infe -> iloc），不解析像素数据。
+ */
 internal static class HeifBoxParser
 {
     private readonly struct ItemInfo

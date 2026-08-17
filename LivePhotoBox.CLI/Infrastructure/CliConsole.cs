@@ -1,11 +1,18 @@
+/*
+ * CliConsole.cs
+ *
+ * 终端着色辅助：仅在交互式终端启用颜色。
+ *
+ *   - 输出被重定向（管道/文件/CI）或设置 NO_COLOR 时自动退回纯文本
+ *   - 提供预定义颜色常量与带色输出方法
+ */
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
-    // 终端着色辅助 — 仅在交互式终端启用颜色；
-    // 输出被重定向（管道/文件/CI）或设置了 NO_COLOR 时自动退回纯文本。
     internal static class CliConsole
     {
         // 标签（冒号前的文字）

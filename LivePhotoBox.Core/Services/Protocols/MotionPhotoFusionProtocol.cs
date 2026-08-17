@@ -1,22 +1,15 @@
-// <summary>
-// Motion Photo Fusion protocol.
-// Combines Google V2, OPPO, VIVO, and Samsung private identification fields
-// into a single file so that all four platform galleries recognise it as a live photo.
-//
-// XMP namespaces (all coexist in one rdf:Description):
-//   GCamera  — Google Photos / Xiaomi / Windows detection
-//   OpCamera — OPPO ColorOS / OnePlus OxygenOS Gallery detection
-//   VCamera  — VIVO Gallery detection (X300 series and later)
-//
-// Binary layout (inherits Samsung SEFH/SEFT trailer):
-//   [JPEG + unified XMP] + [24B tag header] + [MP4/MOV video] + [version tag] + [SEFH/SEFT]
-//
-// Additional markers:
-//   EXIF UserComment = "oplus_10485792" — required by OPPO Gallery
-//
-// Identified as LivePhotoBox:Protocol="MotionPhotoFusion" in XMP for tooling.
-// Not fused: HUAWEI (proprietary binary tail, no XMP) and V1 (deprecated).
-// </summary>
+/*
+ * MotionPhotoFusionProtocol.cs
+ *
+ * Motion Photo Fusion 协议：把 Google V2、OPPO、VIVO、Samsung 私有标识字段合并到单文件，
+ * 使四个平台相册都能识别为实况照片。
+ *
+ *   - XMP 命名空间共存于一个 rdf:Description：GCamera（Google Photos/小米/Windows）、
+ *     OpCamera（OPPO ColorOS/OnePlus OxygenOS）、VCamera（VIVO X300 系列及以后）
+ *   - 二进制布局继承 Samsung SEFH/SEFT 尾挂：[JPEG+统一 XMP] + [24B tag header] + [MP4/MOV] + [version tag] + [SEFH/SEFT]
+ *   - EXIF UserComment = "oplus_10485792"（OPPO 相册必需）
+ *   - 不融合 HUAWEI（专有二进制尾标、无 XMP）与已废弃的 V1
+ */
 
 using System;
 using System.IO;

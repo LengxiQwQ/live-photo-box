@@ -1,23 +1,16 @@
-// <summary>
-// Samsung Motion Photo protocol.
-// Samsung uses a dual-track metadata system:
-//   1. V2 XMP (GCamera:MotionPhoto + Container:Directory) — for Google Photos compatibility
-//   2. Samsung Private Trailer (7 tags + SEFH/SEFT) — the ONLY thing Samsung Gallery reads
-//
-// JPEG binary layout:
-//   [JPEG with V2 XMP] + [Tag data: MotionPhoto_Data(video) + MotionPhoto_Version] + [SEFH ... SEFT]
-//
-// HEIC binary layout:
-//   [HEIC with V2 XMP] + [mpvd box: mpvd header + MP4 video + sefd box: sefd header + Tag data + SEFH/SEFT]
-//
-// In HEIC, MotionPhoto_Data contains a 12-byte pointer ("mpv2" + offset + size) instead of the video itself.
-//
-// Reference:
-//   - PetrVys/MotionPhoto2 (Python implementation, SamsungTags.py)
-//   - doodspav/motionphoto (ExifTool Samsung Trailer reverse-engineering)
-//   - docs/实况照片协议完整分析报告.md
-// Used by: Samsung Galaxy S23+, Galaxy Tab S9+, and newer.
-// </summary>
+/*
+ * SamsungMotionPhotoProtocol.cs
+ *
+ * Samsung Motion Photo 协议：双轨元数据系统。用于 Samsung Galaxy S23+、Galaxy Tab S9+ 及更新设备。
+ *
+ *   - V2 XMP（GCamera:MotionPhoto + Container:Directory）供 Google Photos 兼容
+ *   - Samsung 私有尾挂（7 个 tag + SEFH/SEFT）是 Samsung 相册唯一读取的部分
+ *   - JPEG 布局：[带 V2 XMP 的 JPEG] + [Tag data：MotionPhoto_Data(视频) + MotionPhoto_Version] + [SEFH...SEFT]
+ *   - HEIC 布局：[带 V2 XMP 的 HEIC] + [mpvd box 内含 MP4 视频 + sefd box 内含 Tag data + SEFH/SEFT]；
+ *     HEIC 中 MotionPhoto_Data 存 12 字节指针（"mpv2" + offset + size）而非视频本体
+ *
+ * 参考：PetrVys/MotionPhoto2、doodspav/motionphoto、docs/实况照片协议完整分析报告.md
+ */
 
 using System;
 using System.Buffers.Binary;

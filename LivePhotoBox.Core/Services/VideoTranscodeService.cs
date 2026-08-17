@@ -131,7 +131,7 @@ namespace LivePhotoBox.Services
         // inputPath: 输入视频路径
         // outputPath: 输出视频路径
         // token: 取消令牌
-        // è¿å: 转换结果
+        // 返回: 转换结果
         public static async Task<TranscodeResult> RemuxAsync(
             string inputPath,
             string outputPath,
@@ -476,7 +476,7 @@ namespace LivePhotoBox.Services
         // Ensure the source video is in MP4 format, transcoding if necessary.
         // If already MP4, returns the original path with zero overhead.
         // If MOV (or other), transcodes to a temp file in <paramref name="workDir"/>.
-        // è¿å: (pathToUse, wasTranscoded):pathToUse — original or temp file path;wasTranscoded — true when a temp file was created (caller must clean up).
+        // 返回: (pathToUse, wasTranscoded):pathToUse — original or temp file path;wasTranscoded — true when a temp file was created (caller must clean up).
         // <param name="forceMp4">When true, always transcode to MP4. When false, only transcode if
         // the container is not MP4-compatible (e.g. AVI, MKV). MOV files are left as-is.</param>
         // <param name="useFaststart">When true (default), use +faststart to move moov to beginning
@@ -933,7 +933,7 @@ namespace LivePhotoBox.Services
         // 自动从设置读取保存的硬件编码器，或检测 FFmpeg 可用编码器。
         // targetFormat: 目标视频格式。
         // forceSoftware: 是否强制使用软件编码器。
-        // è¿å: (编码器名, 编码参数)。
+        // 返回: (编码器名, 编码参数)。
         private static (string encoder, string encoderParams) GetEncoderForCodecAndFormat(
             string codec, VideoFormat targetFormat, bool forceSoftware = false,
             string? forceEncoder = null)
@@ -993,7 +993,7 @@ namespace LivePhotoBox.Services
         // 通过枚举 FFmpeg 编码器列表检测可用的硬件编码器。
         // 按优先级顺序：NVENC > AMF > QSV > VAAPI。
         // codec: 编码标准（"h264" 或 "hevc"）。
-        // è¿å: 检测到的硬件编码器名，如 "h264_nvenc"，若无则返回 null。
+        // 返回: 检测到的硬件编码器名，如 "h264_nvenc"，若无则返回 null。
         private static string? DetectHardwareEncoderForCodec(string codec)
         {
             try

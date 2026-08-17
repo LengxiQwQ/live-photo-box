@@ -9,13 +9,16 @@ namespace LivePhotoBox.Services.Protocols
     using System.Threading;
     using System.Threading.Tasks;
 
-    /// <summary>
-    /// vivo 旧格式双文件（≤X200 系列）配对元数据写入器。
-    /// JPEG 尾部追加 vivo{JSON} 私有尾标，MP4 尾部追加
-    /// vivoMediaExtInfo uuid box；两端共享同一个 com.android.camera.livephoto ID。
-    /// 字节结构依据 designs/各个机型测试/双文件/vivo双文件.jpg 与
-    /// designs/各个机型测试/双文件/vivo双文件.mp4 逆向得出。
-    /// </summary>
+    /*
+     * VivoDualFileMetadataWriter.cs
+     *
+     * vivo 旧格式双文件（≤X200 系列）配对元数据写入器。
+     *
+     *   - JPEG 尾部追加 vivo{JSON} 私有尾标
+     *   - MP4 尾部追加 vivoMediaExtInfo uuid box
+     *   - 两端共享同一个 com.android.camera.livephoto ID
+     *   - 字节结构依据真机样本（designs/各个机型测试/双文件/）逆向得出
+     */
     public static class VivoDualFileMetadataWriter
     {
         /// <summary>JPEG 私有尾标 JSON（vivo{...} 整体）。</summary>

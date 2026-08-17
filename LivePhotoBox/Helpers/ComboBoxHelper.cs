@@ -1,16 +1,17 @@
+/*
+ * ComboBoxHelper.cs
+ *
+ * 为 WinUI 3 ComboBox 提供自适应宽度功能。
+ * 自动测量下拉列表中最宽选项的文本宽度，并将 ComboBox 的 Width 设为该宽度 + 留白余量，
+ * 解决 ComboBox 默认只按选中项定宽、不按最宽项定宽的问题。
+ */
+
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml;
 using System;
 using System.Collections.Specialized;
 using System.Reflection;
-
-// <summary>
-// File: ComboBoxHelper.cs
-// 为 WinUI 3 ComboBox 提供自适应宽度功能。
-// 自动测量下拉列表中最宽选项的文本宽度，并将 ComboBox 的 Width 设为该宽度 + 留白余量，
-// 解决 ComboBox 默认只按选中项定宽、不按最宽项定宽的问题。
-// </summary>
 
 namespace LivePhotoBox.Helpers
 {

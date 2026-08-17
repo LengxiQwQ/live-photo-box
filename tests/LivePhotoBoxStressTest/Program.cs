@@ -1,12 +1,13 @@
 /*
- * LivePhotoBoxStressTest — 模拟 EditPage 真实扫描链路的完整压力测试
+ * Program.cs
  *
- * 真实扫描不只是枚举文件名，还包括:
- *   1. 文件枚举
- *   2. JPEG XMP 标记检测 (识别实况照片协议)
- *   3. HEIC ftyp box 检测
- *   4. JPG/HEIC ↔ MOV 配对 (ContentIdentifier UUID 匹配)
- *   5. exiftool 批量查询元数据 (分辨率/日期/相机型号/协议标签)
+ * 模拟 EditPage 真实扫描链路的完整压力测试。
+ *
+ *   - 文件枚举
+ *   - JPEG XMP 标记检测（识别实况照片协议）
+ *   - HEIC ftyp box 检测
+ *   - JPG/HEIC ↔ MOV 配对（ContentIdentifier UUID 匹配）
+ *   - exiftool 批量查询元数据（分辨率/日期/相机型号/协议标签）
  *
  * 用法: dotnet run -c Release -- --dir <path> [--mode full|scan|switch|timeline]
  */
@@ -262,7 +263,7 @@ if (mode is "scan" or "full")
         int pairedByCid = 0;
         var dualFilePhotos = new List<(string Photo, string Video)>();
 
-        // First: fast name-based pairing (大部分 Apple 导出都是同名的)
+        // 先用文件名快速配对（大部分 Apple 导出都是同名）
         foreach (var img in imagePaths)
         {
             var baseName = Path.GetFileNameWithoutExtension(img);

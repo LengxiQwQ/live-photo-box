@@ -5,9 +5,13 @@ using System.Runtime.InteropServices;
 
 namespace LivePhotoBox.Services
 {
-    // WinUI / WinAppSDK MRT Core 资源提供器。
-    // 通过 ResourceLoader 从编译后的 resources.pri 加载本地化字符串。
-    // 这是 GUI 模式的 ResourceService 后端。
+    /*
+     * WinUiResourceProvider.cs
+     *
+     * WinUI / WinAppSDK MRT Core 资源提供器。
+     * 通过 ResourceLoader 从编译后的 resources.pri 加载本地化字符串，
+     * 作为 GUI 模式的 ResourceService 后端。
+     */
     public sealed class WinUiResourceProvider : IResourceProvider
     {
         private static readonly ResourceManager ResourceManager = new();

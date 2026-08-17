@@ -1,7 +1,14 @@
+/*
+ * WorkViewModelBase.ScanStateHook.cs
+ *
+ * WorkViewModelBase 的分部类，处理 IsScanning 属性变化时的扫描状态钩子。
+ *
+ *   - 在扫描开始/结束时更新进度条状态与按钮样式
+ *   - 通过 OnScanStateChanged 通知子类
+ */
+
 namespace LivePhotoBox.ViewModels
 {
-    // WorkViewModelBase 的分部类：处理 IsScanning 属性变化时的扫描状态钩子。
-    // 负责在扫描开始/结束时更新进度条状态、按钮样式，并通知子类。
     public abstract partial class WorkViewModelBase
     {
         // IsScanning 属性变更时：更新 ProgressBarState 和 ScanButtonStyle，并调用子类钩子。

@@ -5,32 +5,17 @@ using System.Text;
 
 namespace LivePhotoBox.Services.Protocols
 {
-    // ═════════════════════════════════════════════════════════════════════════════
-    // AppleMakerNoteWriter — 二进制重建 Apple MakerNote 并注入图片 EXIF。
-    //
-    // 背景：exiftool 只能在「已有 Apple MakerNote」的文件上写 ContentIdentifier /
-    // LivePhotoVideoIndex / ImageCaptureType（实测对非 Apple 的 JPG/HEIC 均 "0 updated"，
-    // 因为这些字段挂在 Apple 私有 MakerNote IFD 里，exiftool 不会凭空创建该结构）。
-    // 拆分输出（来自 Google/小米/华为等单文件实况）的图片没有 Apple MakerNote，
-    // 故本类按真样本反推的字节格式自建一个最小 Apple MakerNote，patch 进图片 EXIF。
-    //
-    // Apple MakerNote 字节格式（exiftool MakerNotes.pm: Start=valuePtr+14, Base=valuePtr）：
-    //   [0..9]   "Apple iOS\0"（10 字节头）
-    //   [10..11] 0x00 0x01
-    //   [12..13] "MM"（大端，Apple 样本固定 MM）
-    //   [14..15] IFD 条目数（uint16 BE）
-    //   [16..]   IFD 条目（每条 12 字节：tag/type/count/value-or-offset）
-    //   ... 4 字节 next-IFD 偏移（0）
-    //   ... 数据区（ASCII 串 / int64 值），偏移相对整个 MakerNote 块起点
-    //
-    // 字段 tag（Apple.pm）—— 最小样本 IMG_6675.JPG 的 MakerNote 只有一条：
-    //   0x0011 ContentIdentifier type=2(ASCII) 37 字节（36 字符 UUID + \0）
-    // （之前多写 MakerNoteVersion / ImageCaptureType / LivePhotoVideoIndex，与最小样本
-    //   不对齐；已精简为只写 ContentIdentifier，产物与最小样本逐字节一致，70 字节。）
-    //
-    // 注入（JPEG）：把 MakerNote 条目（tag 0x927C，位于 ExifIFD）的 count/offset 指向
-    // 追加在 APP1 Exif 段末尾的新块，并增长 APP1 段长。旧 MakerNote 成为孤儿字节，无害。
-    // ═════════════════════════════════════════════════════════════════════════════
+    /*
+     * AppleMakerNoteWriter.cs
+     *
+     * 二进制重建最小 Apple MakerNote 并注入图片 EXIF（exiftool 无法凭空创建该结构，
+     * 只会对已存在的 MakerNote 写字段）。
+     *
+     *   - 按真样本字节格式自建最小 Apple MakerNote，仅含 ContentIdentifier（0x0011），
+     *     与最小样本 IMG_6675.JPG 逐字节对齐（70 字节）
+     *   - 注入（JPEG）：把 MakerNote 条目（tag 0x927C，位于 ExifIFD）的 count/offset
+     *     指向追加在 APP1 Exif 段末尾的新块并增长 APP1 段长；旧 MakerNote 成为孤儿字节，无害
+     */
     public static class AppleMakerNoteWriter
     {
         // 构造最小 Apple MakerNote 块（返回 70 字节，与最小样本 IMG_6675.JPG 一致）。

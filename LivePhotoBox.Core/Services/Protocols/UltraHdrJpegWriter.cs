@@ -5,12 +5,17 @@ using System.Text;
 
 namespace LivePhotoBox.Services.Protocols;
 
-// 把已经解码出来的 SDR 主 JPEG + gain map JPEG 拼成 Google Ultra HDR / ISO 21496-1 JPEG。
-// 结构参考荣耀 Ultra HDR 真机样本：
-//   APP1 XMP（hdrgm + GContainer Primary/GainMap）
-//   APP2 ISO 21496-1 marker
-//   APP2 MPF（两幅图像：primary + gain map）
-//   主 JPEG 字节 + gain map JPEG 字节
+/*
+ * UltraHdrJpegWriter.cs
+ *
+ * 把已解码的 SDR 主 JPEG + gain map JPEG 拼成 Google Ultra HDR / ISO 21496-1 JPEG。
+ * 结构参考荣耀 Ultra HDR 真机样本。
+ *
+ *   - APP1 XMP（hdrgm + GContainer Primary/GainMap）
+ *   - APP2 ISO 21496-1 marker
+ *   - APP2 MPF（两幅图像：primary + gain map）
+ *   - 主 JPEG 字节 + gain map JPEG 字节
+ */
 internal static class UltraHdrJpegWriter
 {
     private static readonly byte[] XmpHeader = Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0");

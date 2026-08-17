@@ -1,3 +1,12 @@
+/*
+ * UpdateCheckService.cs
+ *
+ * 更新检查共享服务：检查 GitHub 是否有新版本。
+ *
+ *   - update-check 与 info 复用同一套联网逻辑
+ *   - 默认 GitHub API，可用环境变量 LPB_GITHUB_RELEASES_API_URL 覆盖
+ */
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -8,7 +17,6 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Cli.Infrastructure
 {
-    // 更新检查共享服务 — update-check 与 info 复用同一套联网逻辑
     internal static class UpdateCheckService
     {
         // 默认 GitHub API；可用环境变量 LPB_GITHUB_RELEASES_API_URL 覆盖（本地假服务验证重试/下载用）

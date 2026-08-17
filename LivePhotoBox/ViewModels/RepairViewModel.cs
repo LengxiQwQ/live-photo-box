@@ -1,3 +1,14 @@
+/*
+ * RepairViewModel.cs
+ *
+ * RepairPage（修复页面）的视图模型，负责修复结构不完整的实况照片。
+ *
+ *   - 扫描输入目录中的实况照片（JPG/HEIC + MOV/MP4 配对）
+ *   - 分析每对文件的元数据完整性（缩略图、ContentIdentifier、视频时长等）
+ *   - 对需修复的文件执行修复（原地替换或输出到独立目录）
+ *   - 继承 WorkViewModelBase，复用扫描/处理/暂停/取消生命周期
+ */
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Collections;
@@ -18,11 +29,6 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.ViewModels
 {
-    // 实况照片修复页面的 ViewModel。
-    // 负责扫描输入目录中的实况照片（JPG/HEIC + MOV/MP4 配对），
-    // 分析每对文件的元数据完整性（缩略图、ContentIdentifier、视频时长等），
-    // 并对需要修复的文件执行修复操作（原地替换或输出到独立目录）。
-    // 继承自 WorkViewModelBase，复用扫描/处理/暂停/取消等生命周期管理。
     public partial class RepairViewModel : WorkViewModelBase
     {
         // 文件修复处理中的最短显示持续时间，避免进度闪烁。
@@ -120,7 +126,7 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private int _thumbErrorCount = 0;
 
-        // 配对成功的实况照片组数（新增统计）
+        // 配对成功的实况照片组数。
         [ObservableProperty]
         private int _totalPairsCount = 0;
 
@@ -825,8 +831,6 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 // 计算统计
-
-                // 计算统计
                 int pairCount = pairedWorkItems.Count;
                 int standaloneImg = standaloneWorkItems.Count(w => w.imagePath != null);
                 int standaloneVid = standaloneWorkItems.Count(w => w.videoPath != null);
@@ -1248,7 +1252,7 @@ namespace LivePhotoBox.ViewModels
                     }
                     finally
                     {
-                        // 释放所有常驻 exiftool 实例（替代旧代码的 using var 自动释放）
+                        // 释放所有常驻 exiftool 实例。
                         foreach (var tool in exifToolPool)
                             tool.Dispose();
                     }

@@ -1,3 +1,11 @@
+/*
+ * TaskListAutoScroller.cs
+ *
+ * 任务列表自动滚动控制器。统一管理列表的"跟随最新任务"行为：
+ * 扫描/处理阶段自动滚动到最新任务（120ms 防抖），
+ * 用户手动上滚时暂停跟随，2 秒空闲后自动恢复，手动滚到底部立即恢复。
+ */
+
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Dispatching;
@@ -7,14 +15,6 @@ using Microsoft.UI.Xaml.Media;
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-
-// <summary>
-// File: TaskListAutoScroller.cs
-// 任务列表自动滚动控制器。统一管理列表的"跟随最新任务"行为：
-// 扫描/处理阶段自动滚动到最新任务（120ms 防抖），
-// 用户手动上滚时暂停跟随，2 秒空闲后自动恢复，
-// 用户手动滚到底部立即恢复。
-// </summary>
 
 namespace LivePhotoBox.Helpers
 {

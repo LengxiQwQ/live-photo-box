@@ -148,7 +148,7 @@ namespace LivePhotoBox.Services
         // tempDir: 临时文件目录。
         // pauseEvent: 暂停信号量。
         // token: 取消令牌。
-        // è¿å: (是否成功, 结果描述)
+        // 返回: (是否成功, 结果描述)
         public static async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
             string imagePath,
             string videoPath,
@@ -182,11 +182,9 @@ namespace LivePhotoBox.Services
                     && HeicConverterService.IsHeicFile(imagePath);
                 if (!keepHeic && HeicConverterService.IsHeicFile(imagePath))
                 {
-                    // 输出容器必须严格以用户请求为准（P1-2）：请求 jpg+*（格式 0/1）时，
-                    // 任何 HEIC 源都必须转成 JPEG —— 包括 V2/vivo/Samsung 等 V2 子类协议。
-                    // 之前这里对 MotionPhotoV2Protocol 子类直接保留 HEIC，导致
-                    // motionphoto/vivo/samsung 的 jpg+* 输出是 HEIC 内容 + .jpg 扩展名。
-                    // （V2 的 HEIC 输出只应在用户明确选择 heic+* 时走 HEIC 原生路径。）
+                    // 输出容器严格以用户请求为准：请求 jpg+*（格式 0/1）时，任何 HEIC 源
+                    // 都必须转成 JPEG，包括 V2/vivo/Samsung 等 V2 子类协议；V2 的 HEIC
+                    // 原生路径仅用于用户明确选择 heic+* 时。
                     workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, taskTempDir, token);
                     tempFiles.Add(workingImagePath);
                     await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);

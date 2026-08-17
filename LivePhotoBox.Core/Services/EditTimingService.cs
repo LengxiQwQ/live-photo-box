@@ -3,15 +3,10 @@
  *
  * 实况照片关键帧时间读取服务。
  *
- * 不同协议对"静态照片位置"和"封面帧位置"的定义不同：
- *   • Google V1/V2: 只有一个时间戳，照片=封面
- *   • OPPO O-Live: 有分离概念 — MotionPhotoPrimaryTimestamp(照片) vs MotionPhotoTimestamp(封面)
- *     且改封面后原始高清图被移到 GContainer 的 "Original" item 中
- *   • Apple: 后续扩展
- *
- * 设计原则：通过 XMP 文本检测协议 → 按协议读取对应标签 → 返回 (photoTime, coverTime)。
- * 协议检测使用已缓存的 XMP 文本（与 JpegProtocolMap / GetProtocolName 一致），
- * 无需额外 exiftool 调用。
+ *   - 通过 XMP 文本检测协议后读取对应时间标签，返回 (photoTime, coverTime)
+ *   - 协议差异：Google 仅一个时间戳（照片=封面）；OPPO 分离照片与封面，
+ *     且改封面后原始高清图被移到 GContainer 的 Original item
+ *   - 复用已缓存的 XMP 文本检测协议，无需额外 exiftool 调用
  */
 
 using System;

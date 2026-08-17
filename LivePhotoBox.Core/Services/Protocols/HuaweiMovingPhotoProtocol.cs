@@ -1,28 +1,17 @@
-// <summary>
-// HUAWEI Moving Photo protocol (native format).
-// HUAWEI uses a proprietary binary format with a 60-byte LIVE_ tail marker
-// instead of XMP metadata. Two container variants:
-//   - JPEG: [JPEG still image] + [MP4 video] + [60-byte tail]
-//   - HEIC: [HEIC still image] + [MP4 video] + [60-byte tail]
-//
-// The LIVE_ tail is the ONLY live-photo detection marker. All other markers
-// (tmap, com.openharmony.*, Track 3 timed_metadata, MPF structure, MakerNote,
-// _cuva, ICC Profile) are non-essential and are NOT written by this protocol.
-//
-// Binary layout follows the SDK simplified format (verified working):
-//   [still image] + [raw MP4] + [60B tail]
-//
-// 60B tail fields:
-//   [+0..+5]  "v6_f{XX}"     Cover frame number (controls Gallery progress bar)
-//   [+6..+19] spaces          Padding
-//   [+20..+27] "{PPP}:{QQQQ}" Cover frame : Total frames (read-only history)
-//   [+28..+39] spaces          Padding
-//   [+40..+51] "LIVE_{NNNN}"  MP4 size + 20 (live-photo detection marker)
-//   [+52..+59] spaces          Padding
-//
-// Reference: docs/实况照片协议完整分析报告.md, scripts/Python_Scripts/convert_apple_to_huawei.py
-// Used by: HUAWEI and Honor devices.
-// </summary>
+/*
+ * HuaweiMovingPhotoProtocol.cs
+ *
+ * HUAWEI Moving Photo 协议（原生格式）：用 60 字节 LIVE_ 尾标标记实况照片，不用 XMP 元数据。
+ * 用于华为与荣耀设备。
+ *
+ *   - 两种容器：JPEG / HEIC：[静止图] + [MP4 视频] + [60 字节尾标]
+ *   - LIVE_ 尾标是唯一实况检测标记；tmap、com.openharmony.*、Track 3 时序元数据、
+ *     MPF、MakerNote、_cuva、ICC Profile 均非必需、本协议不写入
+ *   - 60B 尾标字段：+0..+5 "v6_f{XX}" 封面帧号（控制相册进度条）、+20..+27 "{PPP}:{QQQQ}"
+ *     封面帧:总帧数（只读历史）、+40..+51 "LIVE_{NNNN}" = MP4 大小+20（实况检测标记）
+ *
+ * 参考：docs/实况照片协议完整分析报告.md、scripts/Python_Scripts/convert_apple_to_huawei.py
+ */
 
 using System;
 using System.IO;

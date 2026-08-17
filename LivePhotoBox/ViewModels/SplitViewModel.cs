@@ -1,3 +1,13 @@
+/*
+ * SplitViewModel.cs
+ *
+ * SplitPage（拆分页面）的视图模型，负责将单文件实况照片拆分为图片与视频。
+ *
+ *   - 扫描输入目录中的单文件实况照片（JPEG）
+ *   - 选择输出协议（无协议/Apple/vivo）与输出格式
+ *   - 将图片与视频分别写入输出目录并统计耗时
+ */
+
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
@@ -19,9 +29,6 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.ViewModels
 {
-    // 实况照片拆分页面的 ViewModel，对应 SplitPage。
-    // 负责扫描输入目录中的单文件实况照片（JPEG），选择输出协议（无协议/Apple/vivo）与输出格式，
-    // 并执行拆分任务，将图片与视频分别写入输出目录。
     public partial class SplitViewModel : WorkViewModelBase
     {
         // 用于统计拆分耗时的计时器。

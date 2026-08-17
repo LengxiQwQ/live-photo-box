@@ -6,20 +6,15 @@ using System.Text;
 
 namespace LivePhotoBox.Services.Protocols
 {
-    // ═════════════════════════════════════════════════════════════════════
-    // Mp4MdtaKeyStripper — 按 key 名/值剔除 MP4/MOV 中的厂商实况照片元数据。
-    //
-    // 背景：合成单文件实况照片时（如 HUAWEI），merge 会把厂商私有键写进视频的
-    //   moov > udta > meta > keys/ilst（mdta 键，ffmpeg -movflags use_metadata_tags）。
-    // 无协议拆分（keep 原样抽出视频）时这些键会跟着流进输出，导致「无协议产物
-    // 仍带厂商实况数据」。本类在不动视频编码、不动其它元数据的前提下，成对删除
-    // keys/ilst 中命中的条目，重算各级 box 大小，必要时修正 stco/co64 绝对偏移。
-    //
-    // mdta 布局（ffmpeg 写法，本项目 merge 同款）：
-    //   keys: [size]["keys"][ver/flags 4][count 4]  [entrySize]["mdta"][name...] ...
-    //   ilst: [size]["ilst"]  [itemSize][index 4][dataBox...] ...
-    //   dataBox: [size]["data"][type 4][locale 4][value...]
-    // ═════════════════════════════════════════════════════════════════════
+    /*
+     * Mp4MdtaKeyStripper.cs
+     *
+     * 按 key 名/值成对剔除 MP4/MOV moov>udta>meta 的 keys/ilst 中厂商实况照片 mdta 键，
+     * 避免无协议拆分（keep 原样抽视频）产物仍带厂商实况数据。
+     *
+     *   - 不动视频编码与其它元数据
+     *   - 成对删除 keys/ilst 命中条目，重算各级 box 大小，必要时修正 stco/co64 绝对偏移
+     */
     public static class Mp4MdtaKeyStripper
     {
         /// <summary>
