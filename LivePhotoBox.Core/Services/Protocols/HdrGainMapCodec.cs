@@ -55,6 +55,19 @@ internal static class HdrGainMapCodec
     }
 
     /// <summary>
+    /// sRGB / Rec.709 电光传递函数的反函数（OETF），把线性值转成 0..1 非线性值。
+    /// Apple 官方文档把增益图描述为 Rec.709 转移，但解码参考（johncf/apple-hdr-heic）
+    /// 用 sRGB EOTF，因此这里用对应的 sRGB OETF 做反向编码；8bit 下两者差异可忽略。
+    /// </summary>
+    public static float SrgbOetf(float linear)
+    {
+        linear = Math.Clamp(linear, 0f, 1f);
+        return linear <= 0.0031308f
+            ? linear * 12.92f
+            : 1.055f * MathF.Pow(linear, 1.0f / 2.4f) - 0.055f;
+    }
+
+    /// <summary>
     /// 计算线性 Display P3 像素的相对亮度（0..1 归一化）。
     /// </summary>
     public static float Luminance(float r, float g, float b)
@@ -122,6 +135,97 @@ internal static class HdrGainMapCodec
     }
 
     /// <summary>
+    /// 依据 ISO 21496-1 规范把 0..1 的 recovery 值解码成每像素线性倍率
+    /// （pixel_gain = Yhdr/Ysdr，约等于 exp2(log_boost)）。
+    /// </summary>
+    public static float DecodeIsoRecovery(float recovery, IsoGainMapMetadata metadata)
+    {
+        recovery = Math.Clamp(recovery, 0f, 1f);
+        double logRecovery = Math.Pow(recovery, 1.0 / Math.Max(metadata.Gamma, 1e-9));
+        double logBoost = metadata.GainMapMin * (1.0 - logRecovery)
+            + metadata.GainMapMax * logRecovery;
+        return (float)Math.Pow(2.0, logBoost);
+    }
+
+    /// <summary>
+    /// 把每像素线性倍率（pixel_gain）转成 Apple 增益图值。
+    /// 返回已经过 sRGB OETF 编码的 0..1 增益值（乘以 255 即量化为 8bit）。
+    /// </summary>
+    public static float EncodeAppleGain(float pixelGain, double headroom)
+    {
+        double linear = (pixelGain - 1.0) / Math.Max(headroom - 1.0, 1e-9);
+        linear = Math.Clamp(linear, 0.0, 1.0);
+        return SrgbOetf((float)linear);
+    }
+
+    /// <summary>
+    /// 由目标 headroom 计算要写入 Apple MakerNote 的 HDRHeadroom(0x21) 与
+    /// HDRGain(0x30) 有理数值。依据 Apple 官方文档分段函数的反函数。
+    /// maker33 固定使用 Apple 真机样本的 46219/29460（1.568873048）。
+    /// </summary>
+    public static (HdrSignedRational Maker33, HdrSignedRational Maker48) ComputeAppleMakerValues(double targetHeadroom)
+    {
+        var maker33 = new HdrSignedRational(46219, 29460);
+        double stops = Math.Log2(Math.Max(targetHeadroom, 1.0));
+
+        double maker48;
+        if (stops >= 2.3)
+        {
+            // maker48 <= 0.01 分支：stops = -70 * maker48 + 3.0
+            maker48 = (3.0 - stops) / 70.0;
+        }
+        else
+        {
+            // maker48 > 0.01 分支：stops = -0.303 * maker48 + 2.303
+            maker48 = (2.303 - stops) / 0.303;
+        }
+
+        maker48 = Math.Clamp(maker48, 0.0, 1.0);
+        return (maker33, ToSignedRational(maker48));
+    }
+
+    private static HdrSignedRational ToSignedRational(double value)
+    {
+        // 连分数法求分母 <= 10^7 的最佳有理数逼近。
+        const long maxDenominator = 10_000_000L;
+        double x = value;
+        long p0 = 0, q0 = 1, p1 = 1, q1 = 0;
+
+        while (true)
+        {
+            long a = (long)Math.Floor(x);
+            if (a <= 0)
+            {
+                break;
+            }
+
+            long p2 = a * p1 + p0;
+            long q2 = a * q1 + q0;
+            if (q2 > maxDenominator || p2 > int.MaxValue || p2 < int.MinValue)
+            {
+                break;
+            }
+
+            p0 = p1;
+            q0 = q1;
+            p1 = p2;
+            q1 = q2;
+
+            double frac = x - a;
+            if (frac < 1e-12)
+            {
+                break;
+            }
+
+            x = 1.0 / frac;
+        }
+
+        return q1 > 0
+            ? new HdrSignedRational(p1, q1)
+            : new HdrSignedRational((long)Math.Round(value * 1_000_000L), 1_000_000L);
+    }
+
+    /// <summary>
     /// 把 0..1 的 recovery 值量化成 8 位灰度字节。
     /// </summary>
     public static byte[] QuantizeGainMap(float[] gain)
@@ -135,6 +239,11 @@ internal static class HdrGainMapCodec
         return bytes;
     }
 }
+
+/// <summary>
+/// 32 位有符号有理数（TIFF SRATIONAL，type 10）。
+/// </summary>
+internal readonly record struct HdrSignedRational(long Numerator, long Denominator);
 
 /// <summary>
 /// ISO 21496-1 / Ultra HDR JPEG 的 hdrgm XMP 元数据。

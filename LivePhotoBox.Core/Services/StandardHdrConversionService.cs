@@ -1,6 +1,7 @@
 using LivePhotoBox.Services.Protocols;
 using ImageMagick;
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -30,40 +31,50 @@ public static class StandardHdrConversionService
     }
 
     public static async Task<string> ConvertJpegToHeicAsync(
-        string sourcePath, string outputDirectory, CancellationToken token = default,
-        float gainMapBoost = 8.0f)
+        string sourcePath, string outputDirectory, CancellationToken token = default)
     {
         Directory.CreateDirectory(outputDirectory);
 
-        string gainMapPath = TempFileService.AllocateTempPath(outputDirectory, "uhdr_gainmap", "jpg");
+        string isoGainMapPath = TempFileService.AllocateTempPath(outputDirectory, "uhdr_gainmap", "jpg");
+        string appleGainMapPath = TempFileService.AllocateTempPath(outputDirectory, "apple_gainmap", "jpg");
         string heicPath = TempFileService.AllocateTempPath(outputDirectory, "uhdr", "heic");
 
         try
         {
-            if (!await TryExtractJpegGainMapAsync(sourcePath, gainMapPath, token))
+            if (!await TryExtractJpegGainMapAsync(sourcePath, isoGainMapPath, token))
             {
                 throw new InvalidDataException("Source JPEG does not contain a standard Ultra HDR gain map.");
             }
 
-            ApplyGainMapBoost(gainMapPath, gainMapBoost);
-            await RunHeifEncTwoImagesAsync(sourcePath, gainMapPath, heicPath, token);
+            IsoGainMapMetadata iso = ReadIsoGainMapMetadata(isoGainMapPath, token);
+            double headroom = Math.Pow(2.0, iso.HDRCapacityMax);
+
+            (byte[] appleGain, uint width, uint height) = ComputeAppleGainMap(
+                isoGainMapPath, iso, headroom);
+            WriteGrayJpeg(appleGain, width, height, appleGainMapPath);
+
+            await RunHeifEncTwoImagesAsync(sourcePath, appleGainMapPath, heicPath, token);
             if (!HeifAuxImageWriter.TryAddHdrGainMapAux(heicPath, out string? patchError))
             {
                 throw new InvalidOperationException($"Failed to add Apple hdrgainmap auxiliary image: {patchError}");
             }
 
             await InjectAppleHdrGainMapXmpAsync(heicPath, token);
+            InjectAppleHdrMakerNote(heicPath, headroom);
+
             return heicPath;
         }
         catch
         {
-            TryDelete(gainMapPath);
+            TryDelete(isoGainMapPath);
+            TryDelete(appleGainMapPath);
             TryDelete(heicPath);
             throw;
         }
         finally
         {
-            TryDelete(gainMapPath);
+            TryDelete(isoGainMapPath);
+            TryDelete(appleGainMapPath);
         }
     }
 
@@ -187,6 +198,65 @@ public static class StandardHdrConversionService
         WriteGrayJpeg(gray, width, height, outputGainMapPath);
         return metadata;
     }
+
+    private static IsoGainMapMetadata ReadIsoGainMapMetadata(string gainMapPath, CancellationToken token)
+    {
+        string tags = ReadExifTags(gainMapPath, token,
+            "-s", "-n", "-GainMapMin", "-GainMapMax", "-Gamma",
+            "-OffsetSDR", "-OffsetHDR", "-HDRCapacityMin", "-HDRCapacityMax");
+
+        var values = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (string line in tags.Split('\n'))
+        {
+            int separator = line.IndexOf(':');
+            if (separator < 0)
+            {
+                continue;
+            }
+
+            string name = line[..separator].Trim();
+            string value = line[(separator + 1)..].Trim();
+            if (double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out double parsed))
+            {
+                values[name] = parsed;
+            }
+        }
+
+        return new IsoGainMapMetadata(
+            GainMapMin: GetValue(values, "GainMapMin", 0.0),
+            GainMapMax: GetValue(values, "GainMapMax", 1.0),
+            Gamma: GetValue(values, "Gamma", 1.0),
+            OffsetSDR: GetValue(values, "OffsetSDR", 1e-6),
+            OffsetHDR: GetValue(values, "OffsetHDR", 1e-6),
+            HDRCapacityMin: GetValue(values, "HDRCapacityMin", 0.0),
+            HDRCapacityMax: GetValue(values, "HDRCapacityMax", 1.0));
+    }
+
+    // 逐像素把 ISO 21496-1 增益图映射成 Apple 增益图。
+    // 两者都是半分辨率单通道，因此可直接按像素转换，无需上下采样。
+    private static (byte[] Gray, uint Width, uint Height) ComputeAppleGainMap(
+        string isoGainMapPath, IsoGainMapMetadata iso, double headroom)
+    {
+        using var gainImage = new MagickImage(isoGainMapPath);
+        uint width = gainImage.Width;
+        uint height = gainImage.Height;
+        int pixelCount = checked((int)(width * height));
+
+        ushort[] raw = gainImage.GetPixels().ToShortArray(PixelMapping.RGB);
+        var gray = new byte[pixelCount];
+        for (int i = 0; i < pixelCount; i++)
+        {
+            float recovery = raw[i * 3] / 65535f;
+            float pixelGain = HdrGainMapCodec.DecodeIsoRecovery(recovery, iso);
+            float appleGain = HdrGainMapCodec.EncodeAppleGain(pixelGain, headroom);
+            gray[i] = (byte)Math.Clamp((int)MathF.Round(appleGain * 255f), 0, 255);
+        }
+
+        return (gray, width, height);
+    }
+
+    private static double GetValue(IReadOnlyDictionary<string, double> values, string key, double fallback)
+        => values.TryGetValue(key, out double value) ? value : fallback;
 
     private static float[] ReadRgbFloat(MagickImage image)
     {
@@ -382,16 +452,14 @@ public static class StandardHdrConversionService
         return stdout;
     }
 
-    private static void ApplyGainMapBoost(string gainMapPath, float factor)
+    private static void InjectAppleHdrMakerNote(string heicPath, double headroom)
     {
-        if (Math.Abs(factor - 1.0f) < 0.0001f)
+        (HdrSignedRational maker33, HdrSignedRational maker48) = HdrGainMapCodec.ComputeAppleMakerValues(headroom);
+        byte[] makerNote = AppleMakerNoteWriter.BuildHdrMakerNote(maker33, maker48);
+        if (!AppleMakerNoteWriter.TryInjectMakerNoteIntoHeic(heicPath, makerNote, out string? error))
         {
-            return;
+            throw new InvalidOperationException($"Failed to inject Apple HDR MakerNote: {error}");
         }
-
-        using var image = new MagickImage(gainMapPath);
-        image.Evaluate(Channels.All, EvaluateOperator.Multiply, factor);
-        image.Write(gainMapPath);
     }
 
     private static async Task InjectAppleHdrGainMapXmpAsync(string heicPath, CancellationToken token)
@@ -409,12 +477,12 @@ public static class StandardHdrConversionService
         try
         {
             string xmp =
-                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">" +
+                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"XMP Core 6.0.0\">" +
                 "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
                 "<rdf:Description rdf:about=\"\" " +
-                "xmlns:HDRGainMap=\"http://ns.apple.com/HDRGainMap/1.0/\" " +
-                "HDRGainMap:Version=\"0.2.0.0\" " +
-                "HDRGainMap:Headroom=\"20.0\"/>" +
+                "xmlns:HDRGainMap=\"http://ns.apple.com/HDRGainMap/1.0/\">" +
+                "<HDRGainMap:HDRGainMapVersion>65536</HDRGainMap:HDRGainMapVersion>" +
+                "</rdf:Description>" +
                 "</rdf:RDF></x:xmpmeta>";
 
             await File.WriteAllTextAsync(xmpPath, xmp, new UTF8Encoding(false), token);

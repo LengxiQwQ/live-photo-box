@@ -59,6 +59,35 @@ namespace LivePhotoBox.Services.Protocols
             return ms.ToArray();
         }
 
+        // 构造仅含 HDRHeadroom(0x21) 与 HDRGain(0x30) 的 Apple MakerNote。
+        // 两条目均为 SRATIONAL（type 10，8 字节 = 分子 int32 + 分母 int32）。
+        // 布局与最小样本一致：头 10 + 版本 2 + "MM" 2 + 条目数 2 + 2×12 + next-IFD 4 = 44，
+        // 数据区自偏移 44 开始，每条 8 字节，总长 60。
+        internal static byte[] BuildHdrMakerNote(HdrSignedRational hdrHeadroom, HdrSignedRational hdrGain)
+        {
+            const int headroomDataOffset = 10 + 2 + 2 + 2 + 2 * 12 + 4; // 44
+            const int gainDataOffset = headroomDataOffset + 8;           // 52
+            const int total = gainDataOffset + 8;                        // 60
+
+            var ms = new MemoryStream(total);
+            ms.Write(Encoding.ASCII.GetBytes("Apple iOS\0"));
+            ms.WriteByte(0x00);
+            ms.WriteByte(0x01);
+            ms.Write(Encoding.ASCII.GetBytes("MM"));
+
+            WriteU16Be(ms, 2);                                                         // entry count = 2
+            WriteEntry(ms, 0x0021, 10, 1, (uint)headroomDataOffset);                  // HDRHeadroom
+            WriteEntry(ms, 0x0030, 10, 1, (uint)gainDataOffset);                      // HDRGain
+            WriteU32Be(ms, 0);                                                        // next IFD = 0
+
+            WriteU32Be(ms, (uint)hdrHeadroom.Numerator);
+            WriteU32Be(ms, (uint)hdrHeadroom.Denominator);
+            WriteU32Be(ms, (uint)hdrGain.Numerator);
+            WriteU32Be(ms, (uint)hdrGain.Denominator);
+
+            return ms.ToArray();
+        }
+
         // 将 MakerNote 块注入 JPEG 的 APP1 Exif 段。
         // 已有 0x927C 条目 → 重指向追加在段尾的新块；有 EXIF 但无条目 → 增长 ExifIFD
         // 新增条目（修正后续偏移）；无 EXIF → 新建最小 APP1 Exif。
@@ -164,6 +193,14 @@ namespace LivePhotoBox.Services.Protocols
         // 失败（未知结构 / 容量不足等）返回 false，交由上层回退 HDR 重编码。
         public static bool TryInjectAppleMakerNoteIntoHeic(string heicPath, string contentId, out string? error)
         {
+            return TryInjectMakerNoteIntoHeic(heicPath, BuildMakerNote(contentId), out error);
+        }
+
+        // 将任意已构造的 Apple MakerNote 块原位注入 HEIC 的 Exif item。
+        // 不重编码像素：按 iloc 定位 Exif item，重建其内部 TIFF 的 MakerNote，
+        // 要求新 TIFF 长度 <= 原 extent 长度，文件总长度与所有盒子偏移保持不变。
+        public static bool TryInjectMakerNoteIntoHeic(string heicPath, byte[] makerNote, out string? error)
+        {
             error = null;
             try
             {
@@ -209,7 +246,6 @@ namespace LivePhotoBox.Services.Protocols
                 byte[] tiff = new byte[tiffLen];
                 Array.Copy(data, tiffStart, tiff, 0, tiffLen);
 
-                byte[] makerNote = BuildMakerNote(contentId);
                 byte[]? newTiff = InjectMakerNoteIntoTiff(tiff, makerNote, out string? tiffError);
                 if (newTiff == null)
                 {

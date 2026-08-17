@@ -196,9 +196,14 @@ public sealed class SameFormatHdrRegressionTests
 
             string tags = await ReadExifTagsAsync(
                 converted,
-                "-s", "-AuxiliaryImageType");
+                "-s", "-AuxiliaryImageType", "-HDRHeadroom", "-HDRGain",
+                "-HDRGainMapVersion", "-GainMapMax");
 
             Assert.Contains("urn:com:apple:photo:2020:aux:hdrgainmap", tags);
+            Assert.Contains("HDRHeadroom", tags);
+            Assert.Contains("HDRGain", tags);
+            Assert.Contains("0.1.0.0", tags);
+            Assert.DoesNotContain("GainMapMax", tags);
         }
         finally
         {
