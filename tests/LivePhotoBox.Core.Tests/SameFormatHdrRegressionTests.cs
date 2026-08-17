@@ -180,6 +180,57 @@ public sealed class SameFormatHdrRegressionTests
         }
     }
 
+    [Fact]
+    public async Task StandardConversion_JpegUltraHdrToHeic_WritesAppleHdrGainMap()
+    {
+        string source = ResolveSample("荣耀.jpg");
+        string outputDir = CreateTempDirectory();
+
+        LivePhotoSplitResult split = await LivePhotoSplitService.SplitAsync(
+            source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None);
+
+        try
+        {
+            string converted = await StandardHdrConversionService.ConvertJpegToHeicAsync(
+                split.ImageOutputPath, outputDir, CancellationToken.None);
+
+            string tags = await ReadExifTagsAsync(
+                converted,
+                "-s", "-AuxiliaryImageType");
+
+            Assert.Contains("urn:com:apple:photo:2020:aux:hdrgainmap", tags);
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
+    [Fact]
+    public async Task StandardConversion_AppleHeicToJpeg_WritesGoogleUltraHdrGainMap()
+    {
+        string source = ResolveSample("苹果双文件.HEIC");
+        string outputDir = CreateTempDirectory();
+
+        try
+        {
+            string converted = await StandardHdrConversionService.ConvertHeicToJpegAsync(
+                source, outputDir, CancellationToken.None);
+
+            string tags = await ReadExifTagsAsync(
+                converted,
+                "-s", "-GainMapImage", "-DirectoryItemSemantic", "-DirectoryItemMime");
+
+            Assert.Contains("GainMapImage", tags);
+            Assert.Contains("Primary, GainMap", tags);
+            Assert.Contains("image/jpeg", tags);
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
     private static string ResolveSample(string fileName)
     {
         string path = Path.Combine(AppContext.BaseDirectory, "samples", fileName);

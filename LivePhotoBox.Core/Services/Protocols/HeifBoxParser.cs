@@ -274,7 +274,7 @@ internal static class HeifBoxParser
         return true;
     }
 
-    private static bool TryFindBox(byte[] data, int start, int end, string want, out int boxStart, out int boxLen, out int bodyStart)
+    internal static bool TryFindBox(byte[] data, int start, int end, string want, out int boxStart, out int boxLen, out int bodyStart)
     {
         int p = start;
         while (p + 8 <= end)
@@ -310,7 +310,7 @@ internal static class HeifBoxParser
         return false;
     }
 
-    private static bool TryWalkBoxes(byte[] data, int start, int end, Action<string, int, int> visit)
+    internal static bool TryWalkBoxes(byte[] data, int start, int end, Action<string, int, int> visit)
     {
         int p = start;
         while (p + 8 <= end)
@@ -336,7 +336,7 @@ internal static class HeifBoxParser
         return true;
     }
 
-    private static string ReadFourCc(byte[] data, int off)
+    internal static string ReadFourCc(byte[] data, int off)
     {
         if (off + 4 > data.Length) return string.Empty;
         return ((char)data[off]).ToString()
@@ -345,11 +345,11 @@ internal static class HeifBoxParser
              + (char)data[off + 3];
     }
 
-    private static ushort Read16(byte[] data, int off) => BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(off));
-    private static uint Read32(byte[] data, int off) => BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(off));
-    private static ulong Read64(byte[] data, int off) => BinaryPrimitives.ReadUInt64BigEndian(data.AsSpan(off));
+    internal static ushort Read16(byte[] data, int off) => BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(off));
+    internal static uint Read32(byte[] data, int off) => BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(off));
+    internal static ulong Read64(byte[] data, int off) => BinaryPrimitives.ReadUInt64BigEndian(data.AsSpan(off));
 
-    private static long ReadUInt(byte[] data, int off, int size)
+    internal static long ReadUInt(byte[] data, int off, int size)
     {
         long value = 0;
         for (int i = 0; i < size; i++)

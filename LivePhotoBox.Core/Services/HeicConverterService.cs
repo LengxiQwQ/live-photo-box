@@ -34,39 +34,55 @@ namespace LivePhotoBox.Services
 
         // ── 公开 API ──────────────────────────────────────
 
-        public static Task<string> ConvertToJpegAsync(string heicPath, CancellationToken token = default)
+        public static async Task<string> ConvertToJpegAsync(string heicPath, CancellationToken token = default)
         {
-            if (!IsHeicFile(heicPath)) return Task.FromResult(heicPath);
+            if (!IsHeicFile(heicPath)) return heicPath;
+
+            if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
+            {
+                string dir = Path.GetDirectoryName(heicPath) ?? string.Empty;
+                return await StandardHdrConversionService.ConvertHeicToJpegAsync(heicPath, dir, token);
+            }
 
             string jpegPath = Path.Combine(
                 Path.GetDirectoryName(heicPath) ?? string.Empty,
                 Path.GetFileNameWithoutExtension(heicPath) + ".jpg");
 
-            return ConvertInternalAsync(heicPath, jpegPath, quality: 100, token);
+            return await ConvertInternalAsync(heicPath, jpegPath, quality: 100, token);
         }
 
-        public static Task<string> ConvertToJpegAsync(string heicPath, string outputDirectory, CancellationToken token = default)
+        public static async Task<string> ConvertToJpegAsync(string heicPath, string outputDirectory, CancellationToken token = default)
         {
-            if (!IsHeicFile(heicPath)) return Task.FromResult(heicPath);
+            if (!IsHeicFile(heicPath)) return heicPath;
+
+            if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
+            {
+                return await StandardHdrConversionService.ConvertHeicToJpegAsync(heicPath, outputDirectory, token);
+            }
 
             // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
             string tempPath = TempFileService.AllocateTempPath(outputDirectory, "heic", "jpg");
 
-            return ConvertInternalAsync(heicPath, tempPath, quality: 100, token);
+            return await ConvertInternalAsync(heicPath, tempPath, quality: 100, token);
         }
 
         /// <summary>
         /// 转换 HEIC 为 JPEG，可指定质量（1-100）。
         /// 用于导出等不需要 100% 质量的场景，避免文件过大。
         /// </summary>
-        public static Task<string> ConvertToJpegAsync(string heicPath, string outputDirectory, int quality, CancellationToken token = default)
+        public static async Task<string> ConvertToJpegAsync(string heicPath, string outputDirectory, int quality, CancellationToken token = default)
         {
-            if (!IsHeicFile(heicPath)) return Task.FromResult(heicPath);
+            if (!IsHeicFile(heicPath)) return heicPath;
+
+            if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
+            {
+                return await StandardHdrConversionService.ConvertHeicToJpegAsync(heicPath, outputDirectory, token);
+            }
 
             // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
             string tempPath = TempFileService.AllocateTempPath(outputDirectory, "heic", "jpg");
 
-            return ConvertInternalAsync(heicPath, tempPath, quality, token);
+            return await ConvertInternalAsync(heicPath, tempPath, quality, token);
         }
 
         /// <summary>
@@ -81,6 +97,11 @@ namespace LivePhotoBox.Services
             string sourcePath, string outputDirectory, CancellationToken token = default)
         {
             if (IsHeicFile(sourcePath)) return sourcePath;
+
+            if (StandardHdrConversionService.HasStandardJpegGainMap(sourcePath, token))
+            {
+                return await StandardHdrConversionService.ConvertJpegToHeicAsync(sourcePath, outputDirectory, token);
+            }
 
             // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
             string heicPath = TempFileService.AllocateTempPath(outputDirectory, "heic", "heic");
