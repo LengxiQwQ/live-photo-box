@@ -227,7 +227,7 @@ def render_section(metrics: dict, refs: list, paths: list, updated_at: str, lang
             continue  # 仓库主页 Home 冗余，跳过
         if name not in names:
             names.append(name)
-        if len(names) >= 6:
+        if len(names) >= 4:
             break
     content = " · ".join(names) if names else "—"
 
