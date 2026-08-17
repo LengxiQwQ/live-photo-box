@@ -1,10 +1,14 @@
 # Live Photo Box Changelog
 
-> Current version: **v2.1.5**
+> Current version: **v2.2.0**
 > Project started: 2026-03-27
 > Tech stack: WinUI 3 + .NET 9 + C# 13
 
 ---
+
+## v2.2.x — HDR Support, Split Protocol Conversion & CLI Split/Repair
+
+> **v2.2.0** (2026-08-17) **[Feature]** Split page redesigned to mirror the Merge page — batch split & protocol conversion (Apple dual-file; vivo dual-file in testing, ≤ X200) and lossless HEIC splitting; full HDR support — HDR survives protocol conversion, Apple & Google gain maps convert both ways; CLI gains `split` / `repair` commands with `--json` script output, friendlier errors, and direct folder arguments; **[Optimize]** Fusion protocol (the author's universal format, aimed at any-device playback) temporarily retired for polishing; changelog & CLI manual open as rendered web pages; Merge page opens not-yet-created output folders
 
 ## v2.1.x — Multi-Brand Compatibility, Page Redesign & CLI
 

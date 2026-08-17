@@ -1,0 +1,28 @@
+v2.2.0 更新内容
+
+新增：
+- 🖼️ 全面支持 HDR 效果 — 转换实况照片协议时 HDR 效果不丢失，Apple 增益图与 Google 增益图等标准格式可双向转换
+- 🔗 拆分页大重构 — 完全镜像合成页布局，批量拆分与协议转换一站式完成：协议版本、输出格式、命名模板、覆盖策略、完成后源文件处理
+- 📱 新增 Apple 实况照片协议 — 拆分后可输出 Apple 双文件（照片 + MOV），Apple 元数据已打通；受 iOS 系统限制，需通过爱思助手等第三方软件导入
+- 📱 vivo 实况照片协议（测试中，≤ X200）— 输出 JPG + MP4 双文件；作者暂无 vivo 手机，测试通过欢迎反馈
+- 📤 HEIC 无损拆分 — 10-bit 色深、HDR 增益图与原始元数据原样保留
+
+优化：
+- 🧹 融合协议暂时下线 — 作者自创的统一协议（目标：所有设备可查看），还需打磨，未来会再次见面
+
+💡 命令行模式仅随 GitHub 版发布，商店版暂不包含；需要请前往 GitHub Releases 下载。
+
+
+v2.2.0 What's New
+
+New:
+- 🖼️ Full HDR support — HDR survives protocol conversion; Apple and Google gain maps convert both ways
+- 🔗 Split page redesigned to mirror the Merge page — batch split and protocol conversion in one place: protocol, output format, naming templates, overwrite policy, and after-completion actions
+- 📱 New Apple Live Photo protocol — split output can be written as Apple dual-file (photo + MOV) with paired metadata; due to iOS restrictions, import via third-party tools such as 爱思助手 (i4Tools)
+- 📱 vivo Live Photo protocol (in testing, ≤ X200) — output as JPG + MP4 dual-file pairs; feedback welcome if it works on your vivo phone
+- 📤 Lossless HEIC splitting — 10-bit depth, HDR gain map, and original metadata are kept intact
+
+Optimized:
+- 🧹 Fusion protocol temporarily retired — the author's universal format (aimed at any-device playback) needs more polishing and will return later
+
+💡 CLI mode ships with the GitHub release only — the Store version does not include it. Download from GitHub Releases if you need it.
