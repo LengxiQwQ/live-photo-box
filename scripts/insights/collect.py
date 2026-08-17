@@ -210,10 +210,25 @@ def compute_metrics(merged: dict, data: dict) -> dict:
 
 # ── D. 更新 README 区块 ───────────────────────────────────────────
 
-def render_section(metrics: dict, refs: list, updated_at: str, lang: str) -> str:
+def render_section(metrics: dict, refs: list, paths: list, updated_at: str, lang: str,
+                   repo: str = "") -> str:
     """生成双语 README 极简数据区块：纯 Markdown 文本，无图标/表格/图片。"""
     first = metrics.get("first_date") or "—"
     top = " · ".join(x.get("referrer", "") for x in refs[:6] if x.get("referrer")) or "—"
+
+    # 热门内容路径（剥掉 /owner/repo 前缀、blob/tree 冗余段）
+    names = []
+    for it in (paths or [])[:10]:
+        name = (it.get("path") or "").lstrip("/")
+        if repo and name.lower().startswith(repo.lower()):
+            name = name[len(repo):]
+        name = re.sub(r"^/?(blob|tree)/[^/]+/", "", name).strip("/")
+        name = "Home" if name == "" else name
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= 6:
+            break
+    content = " · ".join(names) if names else "—"
 
     if lang == "zh":
         lines = [
@@ -222,6 +237,7 @@ def render_section(metrics: dict, refs: list, updated_at: str, lang: str) -> str
             f"访问次数：**{fmt_num(metrics['views_all'])}** ｜ 不重复访客：**{fmt_num(metrics['views_14_uniq'])}**（近 14 天） ｜ 仓库克隆：**{fmt_num(metrics['clones_all'])}** ｜ 不重复克隆：**{fmt_num(metrics['clones_14_uniq'])}**（近 14 天）",
             "",
             f"**热门来源：** {top}",
+            f"**热门内容：** {content}",
             "",
             f"> 数据开始：{first} · 最后更新：{updated_at}",
         ]
@@ -232,6 +248,7 @@ def render_section(metrics: dict, refs: list, updated_at: str, lang: str) -> str
             f"Views: **{fmt_num(metrics['views_all'])}** ｜ Uniques: **{fmt_num(metrics['views_14_uniq'])}** (14-day) ｜ Clones: **{fmt_num(metrics['clones_all'])}** ｜ Cloners: **{fmt_num(metrics['clones_14_uniq'])}** (14-day)",
             "",
             f"**Top referrers:** {top}",
+            f"**Top content:** {content}",
             "",
             f"> Data since {first} · Last updated: {updated_at}",
         ]
@@ -288,12 +305,13 @@ def main() -> None:
 
     metrics = compute_metrics(merged, data)
     refs = ((data.get("referrers") or []) if isinstance(data.get("referrers"), list) else [])
+    paths = ((data.get("paths") or []) if isinstance(data.get("paths"), list) else [])
     fetched = dt.datetime.fromisoformat(payload["fetched_at"].replace("Z", "+00:00"))
     cn = fetched.astimezone(dt.timezone(dt.timedelta(hours=8)))
     updated_at = cn.strftime("%Y-%m-%d") + " (UTC+8)"
 
-    update_readme(root, render_section(metrics, refs, updated_at, "en"), "README.md")
-    update_readme(root, render_section(metrics, refs, updated_at, "zh"), "README.zh-CN.md")
+    update_readme(root, render_section(metrics, refs, paths, updated_at, "en", repo), "README.md")
+    update_readme(root, render_section(metrics, refs, paths, updated_at, "zh", repo), "README.zh-CN.md")
 
     log("done")
 
