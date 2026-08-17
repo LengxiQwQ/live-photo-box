@@ -71,6 +71,24 @@ namespace LivePhotoBox.Services
                 // 无论 LivePhotoType 是什么，先检查文件自身的内容标记。
                 // 这样即使文件被 CID 匹配误标为 DualFile，
                 // 内容中的 XMP/尾标仍然能正确识别协议。
+                // Dual-file VIVO tail marker takes priority over XMP.
+                // A dual-file JPG may still carry an HDR gain-map XMP whose
+                // Container:Directory (Primary/GainMap) would otherwise be
+                // mistaken for Google MotionPhoto V2.
+                if (livePhotoType == LivePhotoType.DualFile)
+                {
+                    byte[]? tail = ReadFileTail(filePath, TailProbeBytes);
+                    if (tail != null)
+                    {
+                        string tailText = Encoding.UTF8.GetString(tail);
+                        if (tailText.Contains(
+                                "com.android.camera.livephoto", StringComparison.Ordinal))
+                        {
+                            return LivePhotoProtocolType.Vivo;
+                        }
+                    }
+                }
+
                 var contentProtocol = DetectFromFileContent(filePath, xmpText);
                 if (contentProtocol != LivePhotoProtocolType.Unknown)
                     return contentProtocol;
@@ -86,13 +104,9 @@ namespace LivePhotoBox.Services
                         return LivePhotoProtocolType.Apple;
 
                     // vivo 旧格式双文件 → JPEG 尾 vivo{JSON} / MP4 uuid box
-                    byte[]? tail = ReadFileTail(filePath, TailProbeBytes);
-                    if (tail != null)
-                    {
-                        string tailText = Encoding.UTF8.GetString(tail);
-                        if (tailText.Contains("com.android.camera.livephoto", StringComparison.Ordinal))
-                            return LivePhotoProtocolType.Vivo;
-                    }
+                    // VIVO dual-file tail was already checked in the phase 0
+                    // block above; reaching here means the file is Apple-style
+                    // dual-file (or an unmarked pair).
                 }
 
                 return LivePhotoProtocolType.Unknown;

@@ -104,7 +104,9 @@ namespace LivePhotoBox.Services.Protocols
             || name.Contains("live-photo", StringComparison.OrdinalIgnoreCase)
             || name.Contains("vitality", StringComparison.OrdinalIgnoreCase);
 
-        // vivo ≤X200 JPEG 尾部：文件末尾的 vivo{JSON}cameralbum! 整体截断。
+        // vivo ≤X200 JPEG 尾部：从最后一个 vivo{ 到文件末尾整体截断。
+        // 新版样本的 cameralbum! 之后还有 ID、FF FF FF FF 与 11 字节签名，
+        // 不能再用 "以 cameralbum! 结尾" 判断。
         private static void StripVivoJpegTail(string path)
         {
             try
@@ -113,7 +115,10 @@ namespace LivePhotoBox.Services.Protocols
                 if (data.Length < 16) return;
                 string text = Encoding.ASCII.GetString(data);
                 int idx = text.LastIndexOf("vivo{", StringComparison.Ordinal);
-                if (idx > 0 && text.EndsWith("cameralbum!", StringComparison.Ordinal))
+                int markerIdx = idx > 0
+                    ? text.IndexOf("cameralbum!", idx, StringComparison.Ordinal)
+                    : -1;
+                if (idx > 0 && markerIdx >= 0)
                 {
                     byte[] trimmed = new byte[idx];
                     Array.Copy(data, 0, trimmed, 0, idx);

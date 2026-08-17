@@ -223,7 +223,8 @@ namespace LivePhotoBox.Services
             //   1 = JPG + MOV（H.265/HEVC）
             //   2 = HEIC + MOV（H.265/HEVC）
             //   3 = JPG + MP4（H.264/AVC）
-            //   protocolIndex（0=无协议 / 1=Apple / 2=vivo）本迭代仅作占位，不写配对元数据。
+            //   protocolIndex（0=无协议 / 1=Apple / 2=vivo）。
+            //   vivo 双文件配对标记在输出落盘后由 VivoDualFileMetadataWriter 写入。
             // ──────────────────────────────────────────────────────────────────────────────
             string targetImageExtension = outputFormatIndex switch
             {
@@ -287,7 +288,7 @@ namespace LivePhotoBox.Services
                 // Apple 目标输出会重建配对标记，不在此列（仅无协议大清洗时执行）。
                 // 必须先于华为 Make 清理：exiftool 以 Make 识别 Apple MakerNote，若先清空
                 // Make=HUAWEI 再执行 -ContentIdentifier= 会因无法定位 Apple MN 而失效。
-                if (protocolIndex == 0 && sourceImageIsJpeg)
+                if ((protocolIndex == 0 || protocolIndex == 2) && sourceImageIsJpeg)
                 {
                     await Protocols.SourceProtocolCleaner.CleanImageMarkersInPlaceAsync(tempImagePath, token);
                 }
@@ -296,7 +297,7 @@ namespace LivePhotoBox.Services
                 // 0x0025，见协议文档 Apple 章节）：exiftool 只能清空 CID 值、删不掉 type=16 条目
                 // （-LivePhotoVideoIndex= 等四种写法实测无效），且 HEIC 源此前被 sourceImageIsJpeg
                 // 门控整体跳过。此步骤对 JPEG 与 HEIC 源统一执行，保持 MN 长度不变不破坏结构。
-                if (protocolIndex == 0)
+                if (protocolIndex == 0 || protocolIndex == 2)
                 {
                     Protocols.AppleMakerNoteWriter.TryStripAppleLivePhotoEntries(
                         tempImagePath, out string? stripMnError);
@@ -311,7 +312,8 @@ namespace LivePhotoBox.Services
                 // 华为/荣耀 JPEG：EXIF 辅助识别标记（Make=HUAWEI/HONOR）与原生 MakerNote
                 // 标记（##**N4031，文档标注"非必需"）——无协议大清洗时一并清掉。
                 // Apple 协议不清这些原始相机字段（保留原厂 Make/Model/拍摄信息）。
-                if (protocol == LivePhotoProtocolType.Huawei && sourceImageIsJpeg && protocolIndex == 0)
+                if (protocol == LivePhotoProtocolType.Huawei && sourceImageIsJpeg
+                    && (protocolIndex == 0 || protocolIndex == 2))
                 {
                     await ClearHuaweiExifMarkersAsync(tempImagePath, token);
                 }
@@ -445,7 +447,7 @@ namespace LivePhotoBox.Services
                 // 3. 视频处理：默认(0)原样输出；1/2 → MOV+H.265；3 → MP4+H.264
                 // 无协议拆分：先剥离视频里残留的实况协议元数据（单文件 + 双文件残留），再移动/转码。
                 // 拆出的视频要单独使用，不能带任何厂商实况标记。
-                if (protocolIndex == 0)
+                if (protocolIndex == 0 || protocolIndex == 2)
                 {
                     // 单文件协议键：HUAWEI com.openharmony.*
                     if (!Protocols.Mp4MdtaKeyStripper.TryStripHuaweiKeys(tempVideoPath, out string? stripError))
@@ -506,12 +508,17 @@ namespace LivePhotoBox.Services
                 // ── 按 protocolIndex 写入双文件配对元数据 ───────────────────────────────
                 // protocolIndex == 1（Apple）：给图片与视频两端写入配对元数据，
                 //   使 Apple Photos 将两者识别为一对实况照片。
-                // protocolIndex == 2（vivo）：在 JPG 尾部追加 vivo JSON 尾标（vivo{...}cameralbum!），
-                //   并在 MP4 写入 vivoMediaExtInfo uuid box（当前未实现）。
+                // protocolIndex == 2（vivo）：在 JPG 尾部追加 vivo JSON 尾标，
+                //   并在 MP4 写入 vivoMediaExtInfo uuid box，两端使用同一配对 ID。
                 if (protocolIndex == 1)
                 {
                     await Protocols.AppleLivePhotoMetadata.WritePairMetadataAsync(
                         sourcePath, metadataText, imageOutputPath, videoOutputPath, appleContentId, token);
+                }
+                else if (protocolIndex == 2)
+                {
+                    await Protocols.VivoDualFileMetadataWriter.WritePairMetadataAsync(
+                        imageOutputPath, videoOutputPath, token);
                 }
                 // ─────────────────────────────────────────────────────────────────────────────
 

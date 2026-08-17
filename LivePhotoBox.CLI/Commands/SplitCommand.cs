@@ -21,7 +21,7 @@ namespace LivePhotoBox.Cli.Commands
 
         // Split-specific protocol name → index map.
         // Deliberately separate from ProtocolNameResolver: the merge page's vivo=4 conflicts with
-        // split's vivo=2 (global split protocolIndex: 0=none / 1=Apple / 2=vivo, placeholder only).
+        // split's vivo=2 (global split protocolIndex: 0=none / 1=Apple / 2=vivo).
         private static readonly Dictionary<string, int> SplitProtocolMap = new(StringComparer.OrdinalIgnoreCase)
         {
             ["none"]  = 0,
@@ -104,7 +104,7 @@ namespace LivePhotoBox.Cli.Commands
 
             var protocolOpt = new Option<string>("--protocol", () => "none",
                 "Target phone format. none (split only)|apple (Apple Live Photo)|vivo (vivo Live Photo, ≤ X200).\n" +
-                "This iteration only splits the file — pairing metadata is not written yet.");
+                "vivo writes JPG tail + MP4 uuid box pairing metadata; apple writes ContentIdentifier/mebx.");
             protocolOpt.AddAlias("-p");
 
             var formatOpt = new Option<string?>("--format",

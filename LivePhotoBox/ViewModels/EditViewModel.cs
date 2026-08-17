@@ -2091,8 +2091,9 @@ namespace LivePhotoBox.ViewModels
                 byte[]? vivoTail = null;
                 try
                 {
-                    // vivo 尾标格式: vivo{...JSON...}cameralbum!
-                    // 位于 JPEG 文件末尾，cameralbum! 之后无额外数据
+                    // vivo 尾标格式: vivo{...JSON...}cameralbum![ID][FF FF FF FF][签名]
+                    // 位于 JPEG 文件末尾；新版样本 cameralbum! 之后仍有数据，
+                    // 因此从 vivo{ 一直取到文件末尾。
                     const int tailProbe = 8192;
                     using var srcFs = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                     int probeSize = (int)Math.Min(srcFs.Length, tailProbe);
@@ -2127,7 +2128,7 @@ namespace LivePhotoBox.ViewModels
 
                         if (endIdx > vivoIdx)
                         {
-                            int tailLen = endIdx - vivoIdx;
+                            int tailLen = probeSize - vivoIdx;
                             vivoTail = new byte[tailLen];
                             Array.Copy(probe, vivoIdx, vivoTail, 0, tailLen);
                             LogService.FileOp(
