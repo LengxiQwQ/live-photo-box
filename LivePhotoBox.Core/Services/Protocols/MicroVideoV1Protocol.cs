@@ -25,10 +25,10 @@ namespace LivePhotoBox.Services.Protocols
         public override string Key => "MicroVideoV1";
 
         // Human-readable label in Chinese for UI display.
-        public override string DisplayName => "Google Micro Video (V1)";
+        public override string DisplayName => "Google Micro Video (v1)";
 
         // Human-readable label in English for UI display.
-        public override string DisplayNameEn => "Google Micro Video (V1)";
+        public override string DisplayNameEn => "Google Micro Video (v1)";
 
         // XMP RDF template for MicroVideo V1 metadata.
         // Uses a self-closing rdf:Description tag with GCamera namespace attributes.

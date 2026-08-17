@@ -732,6 +732,14 @@ namespace LivePhotoBox.ViewModels
             Tasks.Remove(task);
             TotalCount = Tasks.Count;
             UpdateIsQueueEmpty(Tasks.Count);
+
+            // 删除到最后一行 = 视为清空列表：与"清空列表"按钮走同一套完整重置逻辑，
+            // 否则用户逐行删完还得再点一次"清空列表"才是真清空。
+            if (Tasks.Count == 0 && !IsProcessing && !IsScanning)
+            {
+                ClearState();
+                return;
+            }
             NotifyStatsChanged();
         }
 

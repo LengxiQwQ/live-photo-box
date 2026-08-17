@@ -38,8 +38,8 @@ namespace LivePhotoBox.Cli.Infrastructure
         public static string GetProtocolDisplayName(int index) => index switch
         {
             0 => "Fusion (universal Android)",
-            1 => "Micro Video (Windows / Xiaomi / Pixel)",
-            2 => "Motion Photo (Windows / Xiaomi / Pixel)",
+            1 => "Google Micro Video (v1) (Windows / Xiaomi / Pixel)",
+            2 => "Google Motion Photo (v2) (Windows / Xiaomi / Pixel)",
             3 => "OPPO O-Live (Windows / Xiaomi / OPPO)",
             4 => "vivo Live Photo (Windows / vivo X300+)",
             5 => "Samsung Motion Photo (Windows / Samsung)",
@@ -49,7 +49,7 @@ namespace LivePhotoBox.Cli.Infrastructure
 
         // 用户可见的协议显示名（正确大小写、带空格）
         public static string[] ProtocolDisplayNames { get; } =
-            ["Fusion", "Micro Video", "Motion Photo",
+            ["Fusion", "Google Micro Video (v1)", "Google Motion Photo (v2)",
              "OPPO O-Live", "vivo Live Photo", "Samsung Motion Photo",
              "HUAWEI Moving Photo"];
 

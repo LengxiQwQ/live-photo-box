@@ -29,10 +29,10 @@ namespace LivePhotoBox.Services.Protocols
         public override string Key => "MotionPhotoV2";
 
         // Human-readable label in Chinese for UI display.
-        public override string DisplayName => "Google Motion Photo (V2)";
+        public override string DisplayName => "Google Motion Photo (v2)";
 
         // Human-readable label in English for UI display.
-        public override string DisplayNameEn => "Google Motion Photo (V2)";
+        public override string DisplayNameEn => "Google Motion Photo (v2)";
 
         // ── Primary image format ────────────────────────────────────────
 

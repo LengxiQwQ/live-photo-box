@@ -213,7 +213,7 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
-                    <FontIcon Glyph="&#xE8B1;" FontSize="18" VerticalAlignment="Center"
+                    <FontIcon Glyph="&#xE8C6;" FontSize="18" VerticalAlignment="Center"
                               Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
                     <StackPanel VerticalAlignment="Center" Spacing="2">
                         <TextBlock x:Uid="SplitPage_PageTitle" FontSize="16" FontWeight="SemiBold"
@@ -230,6 +230,7 @@
                                   Foreground="{ThemeResource AccentFillColorDefaultBrush}"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
+                    <!-- 设置里没有拆分相关内容，此一键去往设置按钮已注释隐藏（2026-08-17）
                     <Button x:Uid="SplitPage_SettingsBtn" Height="34" Width="34" Padding="0"
                             Background="Transparent" BorderBrush="Transparent"
                             Click="GoToSplitSettings_Click">
@@ -237,6 +238,7 @@
                                   Foreground="{ThemeResource AccentFillColorDefaultBrush}"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
                     </Button>
+                    -->
                     <Border Width="1" Height="20" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
                             VerticalAlignment="Center" Margin="4,0"/>
                     <Button x:Uid="SplitPage_AddFilesBtn" Height="32" FontSize="14" Padding="12,0" CornerRadius="5"

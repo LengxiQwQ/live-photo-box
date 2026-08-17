@@ -133,8 +133,8 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 
 | Protocol | JPEG + MP4 | JPEG + MOV | HEIC + MP4 | HEIC + MOV | HEIC + MP4 (H.265) |
 |---|---|---|---|---|---|
-| Micro Video | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
-| Motion Photo | ✅ | ✅ | ✖️ | ✅ | ✖️ |
+| Google Micro Video (v1) | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
+| Google Motion Photo (v2) | ✅ | ✅ | ✖️ | ✅ | ✖️ |
 | OPPO O-Live | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | vivo Live Photo | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | Samsung Motion Photo | ✅ | ✖️ | ✅ | ✖️ | ✖️ |
@@ -146,8 +146,8 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 
 | Protocol | Devices | Status |
 |---|---|---|
-| Micro Video | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
-| Motion Photo | Windows / Xiaomi / Pixel | ✅ Supported |
+| Google Micro Video (v1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
+| Google Motion Photo (v2) | Windows / Xiaomi / Pixel | ✅ Supported |
 | OPPO O-Live | Windows / Xiaomi / OPPO | ✅ Supported |
 | vivo Live Photo | Windows / vivo (≥ X300) | 🟡 In testing |
 | Samsung Motion Photo | Windows / Samsung | 🟡 In testing |
@@ -227,7 +227,7 @@ The primary command. Supports two operating modes:
 
 | Option | Description |
 |--------|-------------|
-| `-p, --protocol <p>` | Target protocol (default `motion photo`): `micro video` (V1), `motion photo` (V2), `oppo`, `vivo`, `samsung`, `huawei`. Run `lpb protocols` for the full matrix. Multi-word names also work without spaces (no quotes needed): `microvideo`, `motionphoto` |
+| `-p, --protocol <p>` | Target protocol (default `motion photo`): `micro video` (v1), `motion photo` (v2), `oppo`, `vivo`, `samsung`, `huawei`. Run `lpb protocols` for the full matrix. Multi-word names also work without spaces (no quotes needed): `microvideo`, `motionphoto` |
 | `-f, --format <f>` | Output container (default: first available for the protocol): `jpg+mp4`, `jpg+mov`, `heic+mp4`, `heic+mov`, `heic+mp4-h265` |
 | `-n, --naming <rule>` | Output filename rule. Default: single pair = `suffix`, batch = `keep`. `keep`, `suffix`, or `custom:TEMPLATE` (tokens below) |
 
@@ -480,8 +480,8 @@ Omitted `--format` defaults to the protocol's first available format: `keep` (`n
 | Value | Protocol |
 |-------|----------|
 | `all` | No filter (default) |
-| `v1` | Micro Video (V1) |
-| `v2` | Motion Photo (V2) |
+| `v1` | Google Micro Video (v1) |
+| `v2` | Google Motion Photo (v2) |
 | `oppo` | OPPO O-Live |
 | `vivo` | vivo Live Photo |
 | `samsung` | Samsung Motion Photo |

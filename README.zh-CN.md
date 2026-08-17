@@ -81,8 +81,8 @@
 
 | 合成协议 | 支持设备 | 状态 |
 |---|---|---|
-| Google Micro Video | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
-| Google Motion Photo | Windows / 小米 / Pixel | ✅ 可用 |
+| Google Micro Video (v1) | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
+| Google Motion Photo (v2) | Windows / 小米 / Pixel | ✅ 可用 |
 | OPPO O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
 | HUAWEI Moving Photo | 华为 / 荣耀 | ✅ 可用 |
 | Samsung Motion Photo | Windows / Samsung | 🟡 测试中 |

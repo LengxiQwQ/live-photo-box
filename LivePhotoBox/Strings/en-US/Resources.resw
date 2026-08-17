@@ -752,10 +752,10 @@ Do you want to restart now?</value>
     <value>Desktop Acrylic</value>
   </data>
   <data name="MergePage_Protocol_V1.Content" xml:space="preserve">
-    <value>Google - Micro Video (V1)</value>
+    <value>Google - Micro Video (v1)</value>
   </data>
   <data name="MergePage_Protocol_V2.Content" xml:space="preserve">
-    <value>Google - Motion Photo (V2)</value>
+    <value>Google - Motion Photo (v2)</value>
   </data>
   <data name="MergePage_Protocol_Oppo.Content" xml:space="preserve">
     <value>OPPO/OnePlus - O Live Photo</value>
@@ -773,7 +773,7 @@ Do you want to restart now?</value>
     <value>vivo - Live Photo ⚠️</value>
   </data>
   <data name="MergePage_Protocol_Vivo_Hint" xml:space="preserve">
-    <value>Windows / Xiaomi / vivo (≥ X300)</value>
+    <value>Windows / Xiaomi / vivo (≥ x300)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
@@ -1465,7 +1465,7 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>vivo Live Photo</value>
   </data>
   <data name="MergePage_Pairing_Vivo_Hint" xml:space="preserve">
-    <value>vivo / iQOO</value>
+    <value>vivo (≤ x200) / iQOO</value>
   </data>
   <data name="MergePage_Filter_All.Text" xml:space="preserve">
     <value>All</value>
@@ -1510,7 +1510,7 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Efficient, larger video file</value>
   </data>
   <data name="MergePage_FormatHint_GoogleOnly" xml:space="preserve">
-    <value>Google Photos only</value>
+    <value>⚠️ Google Photos only</value>
   </data>
   <data name="MergePage_FormatHint_Untested" xml:space="preserve">
     <value>⚠️ Untested</value>
@@ -1732,13 +1732,13 @@ Supported video formats: MOV, MP4
     <value>After scanning, select the appropriate protocol from the "Protocol" dropdown:
 
 🔹 Only viewing on Windows?
-Any protocol works. Motion Photo (V2) is recommended.
+Any protocol works. Motion Photo (v2) is recommended.
 
 🔹 Importing to an Android device?
 Choose the protocol that best matches your phone brand.
 
-· Micro Video (V1): Xiaomi (older MIUI)
-· Motion Photo (V2): Pixel / Xiaomi / Redmi
+· Micro Video (v1): Xiaomi (older MIUI)
+· Motion Photo (v2): Pixel / Xiaomi / Redmi
 · O-Live Photo: OPPO / OnePlus
 
 ⚠️ Currently not supported:
@@ -2126,10 +2126,10 @@ Place any of these files into the same folder.</value>
     <value>Fix {0}</value>
   </data>
   <data name="History_Protocol_MotionPhotoV2" xml:space="preserve">
-    <value>Motion Photo V2</value>
+    <value>Google Motion Photo (v2)</value>
   </data>
   <data name="History_Protocol_MicroVideoV1" xml:space="preserve">
-    <value>MicroVideo V1</value>
+    <value>Google Micro Video (v1)</value>
   </data>
   <data name="History_Protocol_OPPO" xml:space="preserve">
     <value>OPPO Live Photo</value>
@@ -2671,10 +2671,10 @@ Place any of these files into the same folder.</value>
     <value>Apple Live Photo</value>
   </data>
   <data name="EditPage_Protocol_GoogleV1" xml:space="preserve">
-    <value>Google Micro Video (V1)</value>
+    <value>Google Micro Video (v1)</value>
   </data>
   <data name="EditPage_Protocol_GoogleV2" xml:space="preserve">
-    <value>Google Motion Photo (V2)</value>
+    <value>Google Motion Photo (v2)</value>
   </data>
   <data name="EditPage_Protocol_OPPO" xml:space="preserve">
     <value>OPPO O-Live Photo</value>
@@ -3629,7 +3629,7 @@ Tip: Drag ☰ handles to reorder segments.</value>
     <value>vivo Live Photo ⚠️</value>
   </data>
   <data name="SplitPage_Protocol_Vivo_Hint" xml:space="preserve">
-    <value>vivo / iQOO</value>
+    <value>vivo (≤ x200) / iQOO</value>
   </data>
   <data name="SplitPage_OutputFormatLabel.Text" xml:space="preserve">
     <value>Output format:</value>
@@ -3650,10 +3650,10 @@ Tip: Drag ☰ handles to reorder segments.</value>
     <value>No re-encoding, original quality</value>
   </data>
   <data name="SplitPage_FormatHint_JpgMov" xml:space="preserve">
-    <value>HEVC compression, smaller file</value>
+    <value>Best compatibility</value>
   </data>
   <data name="SplitPage_FormatHint_HeicMov" xml:space="preserve">
-    <value>HEIC photo, smallest file</value>
+    <value>Efficient, smallest file</value>
   </data>
   <data name="SplitPage_FormatHint_JpgMp4" xml:space="preserve">
     <value>H.264, best compatibility</value>
@@ -3874,13 +3874,13 @@ Tip: Drag ☰ handles to reorder segments.</value>
     <value>Windows / Pixel / Xiaomi / OPPO / vivo / Samsung ⚠️ Custom fusion protocol</value>
   </data>
   <data name="SplitPage_Match_V1.Content" xml:space="preserve">
-    <value>Google - Micro Video (V1)</value>
+    <value>Google - Micro Video (v1)</value>
   </data>
   <data name="SplitPage_Match_V1_Hint" xml:space="preserve">
     <value>Windows / Xiaomi (older MIUI) / Pixel</value>
   </data>
   <data name="SplitPage_Match_V2.Content" xml:space="preserve">
-    <value>Google - Motion Photo (V2)</value>
+    <value>Google - Motion Photo (v2)</value>
   </data>
   <data name="SplitPage_Match_V2_Hint" xml:space="preserve">
     <value>Windows / Xiaomi / Pixel</value>
@@ -3895,7 +3895,7 @@ Tip: Drag ☰ handles to reorder segments.</value>
     <value>vivo - Live Photo ⚠️</value>
   </data>
   <data name="SplitPage_Match_Vivo_Hint" xml:space="preserve">
-    <value>Windows / Xiaomi / vivo (≥ X300)</value>
+    <value>Windows / Xiaomi / vivo (≥ x300)</value>
   </data>
   <data name="SplitPage_Match_Samsung.Content" xml:space="preserve">
     <value>Samsung - Motion Photo ⚠️</value>
@@ -3908,5 +3908,8 @@ Tip: Drag ☰ handles to reorder segments.</value>
   </data>
   <data name="SplitPage_Match_Huawei_Hint" xml:space="preserve">
     <value>HUAWEI / Honor</value>
+  </data>
+  <data name="MergePage_Task_Processing" xml:space="preserve">
+    <value>Merging...</value>
   </data>
 </root>

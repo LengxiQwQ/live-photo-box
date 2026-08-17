@@ -64,12 +64,12 @@ namespace LivePhotoBox.Cli.Commands
             string[] fmt = ProtocolFormatMatrix.FormatNames;
             int[] colW = fmt.Select(f => f.Length + 2).ToArray();
 
-            Console.Write($"{"Protocol".PadRight(22)}");
+            Console.Write($"{"Protocol".PadRight(24)} ");
             for (int f = 0; f < fmt.Length; f++)
                 Console.Write(fmt[f].PadRight(colW[f]));
             Console.WriteLine();
 
-            Console.Write($"{new string('─', 22)} ");
+            Console.Write($"{new string('─', 24)} ");
             for (int f = 0; f < fmt.Length; f++)
                 Console.Write(new string('─', colW[f] - 2) + "  ");
             Console.WriteLine();
@@ -77,7 +77,7 @@ namespace LivePhotoBox.Cli.Commands
             for (int p = 1; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
                 string display = ProtocolNameResolver.ProtocolDisplayNames[p];
-                Console.Write(display.PadRight(22));
+                Console.Write(display.PadRight(24));
                 Console.Write(" ");
                 for (int f = 0; f < fmt.Length; f++)
                 {

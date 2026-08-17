@@ -34,7 +34,7 @@ namespace LivePhotoBox.Cli.Commands
             dirOpt.AddAlias("-d");
 
             var protocolOpt = new Option<string>("--protocol", () => "motion photo",
-                "Target phone format. micro video (V1)|motion photo (V2)|oppo|vivo|samsung|huawei.\n" +
+                "Target phone format. micro video (v1)|motion photo (v2)|oppo|vivo|samsung|huawei.\n" +
                 "Multi-word names also work without spaces (no quotes): microvideo, motionphoto.\n" +
                 "Use 'protocols' command to see all supported combinations.");
             protocolOpt.AddAlias("-p");

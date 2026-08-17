@@ -133,8 +133,8 @@ lpb split ./MyPhotos -y
 
 | 协议 | JPEG + MP4 | JPEG + MOV | HEIC + MP4 | HEIC + MOV | HEIC + MP4 (H.265) |
 |---|---|---|---|---|---|
-| Micro Video | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
-| Motion Photo | ✅ | ✅ | ✖️ | ✅ | ✖️ |
+| Google Micro Video (v1) | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
+| Google Motion Photo (v2) | ✅ | ✅ | ✖️ | ✅ | ✖️ |
 | OPPO O-Live | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | vivo Live Photo | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | Samsung Motion Photo | ✅ | ✖️ | ✅ | ✖️ | ✖️ |
@@ -146,8 +146,8 @@ lpb split ./MyPhotos -y
 
 | 协议 | 支持设备 | 状态 |
 |---|---|---|
-| Micro Video | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
-| Motion Photo | Windows / 小米 / Pixel | ✅ 可用 |
+| Google Micro Video (v1) | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
+| Google Motion Photo (v2) | Windows / 小米 / Pixel | ✅ 可用 |
 | OPPO O-Live | Windows / 小米 / OPPO | ✅ 可用 |
 | vivo Live Photo | Windows / vivo（≥ X300） | 🟡 测试中 |
 | Samsung Motion Photo | Windows / Samsung | 🟡 测试中 |
@@ -227,7 +227,7 @@ lpb protocols --json
 
 | 选项 | 说明 |
 |------|------|
-| `-p, --protocol <协议>` | 目标协议（默认 `motion photo`）：`micro video` (V1)、`motion photo` (V2)、`oppo`、`vivo`、`samsung`、`huawei`。运行 `lpb protocols` 查看完整矩阵。多词协议名也可写无空格形式（无需引号）：`microvideo`、`motionphoto` |
+| `-p, --protocol <协议>` | 目标协议（默认 `motion photo`）：`micro video` (v1)、`motion photo` (v2)、`oppo`、`vivo`、`samsung`、`huawei`。运行 `lpb protocols` 查看完整矩阵。多词协议名也可写无空格形式（无需引号）：`microvideo`、`motionphoto` |
 | `-f, --format <格式>` | 输出容器（默认：指定协议的首个可用格式）：`jpg+mp4`、`jpg+mov`、`heic+mp4`、`heic+mov`、`heic+mp4-h265` |
 | `-n, --naming <规则>` | 输出文件名规则。默认：单文件 = `suffix`，批量 = `keep`。`keep`、`suffix` 或 `custom:模板`（占位符见下） |
 
@@ -480,8 +480,8 @@ lpb split photo.jpg --all-variants -o ./Out
 | 值 | 协议 |
 |----|------|
 | `all` | 不过滤（默认） |
-| `v1` | Micro Video (V1) |
-| `v2` | Motion Photo (V2) |
+| `v1` | Google Micro Video (v1) |
+| `v2` | Google Motion Photo (v2) |
 | `oppo` | OPPO O-Live |
 | `vivo` | vivo Live Photo |
 | `samsung` | Samsung Motion Photo |

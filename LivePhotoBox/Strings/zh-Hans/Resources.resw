@@ -751,10 +751,10 @@
     <value>Desktop Acrylic</value>
   </data>
   <data name="MergePage_Protocol_V1.Content" xml:space="preserve">
-    <value>Google - Micro Video (V1)</value>
+    <value>Google - Micro Video (v1)</value>
   </data>
   <data name="MergePage_Protocol_V2.Content" xml:space="preserve">
-    <value>Google - Motion Photo (V2)</value>
+    <value>Google - Motion Photo (v2)</value>
   </data>
   <data name="MergePage_Protocol_Oppo.Content" xml:space="preserve">
     <value>OPPO - O-Live Photo</value>
@@ -772,7 +772,7 @@
     <value>vivo - Live Photo ⚠️</value>
   </data>
   <data name="MergePage_Protocol_Vivo_Hint" xml:space="preserve">
-    <value>Windows / 小米 / vivo (≥ X300)</value>
+    <value>Windows / 小米 / vivo (≥ x300)</value>
   </data>
   <data name="SettingsPage_SplitFormat_MP4.Content" xml:space="preserve">
     <value>MP4 (H.264 &amp; AAC)</value>
@@ -1464,7 +1464,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>vivo Live Photo</value>
   </data>
   <data name="MergePage_Pairing_Vivo_Hint" xml:space="preserve">
-    <value>vivo / iQOO</value>
+    <value>vivo (≤ x200) / iQOO</value>
   </data>
   <data name="MergePage_Filter_All.Text" xml:space="preserve">
     <value>全部</value>
@@ -1509,7 +1509,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>高效，视频占用空间大</value>
   </data>
   <data name="MergePage_FormatHint_GoogleOnly" xml:space="preserve">
-    <value>仅 Google 相册可识别</value>
+    <value>⚠️ 仅 Google 相册可识别</value>
   </data>
   <data name="MergePage_FormatHint_Untested" xml:space="preserve">
     <value>⚠️ 有待测试</value>
@@ -1731,13 +1731,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>扫描完成后，在「协议版本」选择适合你的封装协议：
 
 🔹 仅需在 Windows 上查看？
-任意协议均可，推荐 Motion Photo (V2)。
+任意协议均可，推荐 Motion Photo (v2)。
 
 🔹 要导入 Android 设备？
 根据手机品牌选择最匹配的协议即可。
 
-· Micro Video (V1): 小米（旧版MIUI）
-· Motion Photo (V2): Pixel / 小米 / 红米
+· Micro Video (v1): 小米（旧版MIUI）
+· Motion Photo (v2): Pixel / 小米 / 红米
 · O-Live Photo: OPPO / OnePlus
 
 ⚠️ 暂不支持以下设备：
@@ -2125,10 +2125,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>修复 {0}</value>
   </data>
   <data name="History_Protocol_MotionPhotoV2" xml:space="preserve">
-    <value>Motion Photo V2</value>
+    <value>Google Motion Photo (v2)</value>
   </data>
   <data name="History_Protocol_MicroVideoV1" xml:space="preserve">
-    <value>MicroVideo V1</value>
+    <value>Google Micro Video (v1)</value>
   </data>
   <data name="History_Protocol_OPPO" xml:space="preserve">
     <value>OPPO Live Photo</value>
@@ -2670,10 +2670,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>Apple Live Photo</value>
   </data>
   <data name="EditPage_Protocol_GoogleV1" xml:space="preserve">
-    <value>Google Micro Video (V1)</value>
+    <value>Google Micro Video (v1)</value>
   </data>
   <data name="EditPage_Protocol_GoogleV2" xml:space="preserve">
-    <value>Google Motion Photo (V2)</value>
+    <value>Google Motion Photo (v2)</value>
   </data>
   <data name="EditPage_Protocol_OPPO" xml:space="preserve">
     <value>OPPO O-Live Photo</value>
@@ -3628,7 +3628,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>vivo Live Photo ⚠️</value>
   </data>
   <data name="SplitPage_Protocol_Vivo_Hint" xml:space="preserve">
-    <value>vivo / iQOO</value>
+    <value>vivo (≤ x200) / iQOO</value>
   </data>
   <data name="SplitPage_OutputFormatLabel.Text" xml:space="preserve">
     <value>输出格式：</value>
@@ -3649,10 +3649,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>不转码，保持原始质量</value>
   </data>
   <data name="SplitPage_FormatHint_JpgMov" xml:space="preserve">
-    <value>H.265 压缩，体积更小</value>
+    <value>兼容性最佳</value>
   </data>
   <data name="SplitPage_FormatHint_HeicMov" xml:space="preserve">
-    <value>HEIC 照片，体积最小</value>
+    <value>高效，体积最小</value>
   </data>
   <data name="SplitPage_FormatHint_JpgMp4" xml:space="preserve">
     <value>H.264，兼容性最好</value>
@@ -3873,13 +3873,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>Windows / Pixel / 小米 / OPPO / vivo / 三星 ⚠️ 作者自创融合协议</value>
   </data>
   <data name="SplitPage_Match_V1.Content" xml:space="preserve">
-    <value>Google - Micro Video (V1)</value>
+    <value>Google - Micro Video (v1)</value>
   </data>
   <data name="SplitPage_Match_V1_Hint" xml:space="preserve">
     <value>Windows / 小米（旧版 MIUI）/ Pixel</value>
   </data>
   <data name="SplitPage_Match_V2.Content" xml:space="preserve">
-    <value>Google - Motion Photo (V2)</value>
+    <value>Google - Motion Photo (v2)</value>
   </data>
   <data name="SplitPage_Match_V2_Hint" xml:space="preserve">
     <value>Windows / 小米 / Pixel</value>
@@ -3894,7 +3894,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>vivo - Live Photo ⚠️</value>
   </data>
   <data name="SplitPage_Match_Vivo_Hint" xml:space="preserve">
-    <value>Windows / 小米 / vivo (≥ X300)</value>
+    <value>Windows / 小米 / vivo (≥ x300)</value>
   </data>
   <data name="SplitPage_Match_Samsung.Content" xml:space="preserve">
     <value>Samsung - Motion Photo ⚠️</value>
@@ -3907,5 +3907,8 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="SplitPage_Match_Huawei_Hint" xml:space="preserve">
     <value>华为 / 荣耀</value>
+  </data>
+  <data name="MergePage_Task_Processing" xml:space="preserve">
+    <value>正在合成...</value>
   </data>
 </root>
