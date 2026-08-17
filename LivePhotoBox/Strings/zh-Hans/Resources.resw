@@ -811,11 +811,18 @@
     <value>欢迎使用 实况照片工具箱！</value>
   </data>
   <data name="HomePage_Intro1.Text" xml:space="preserve">
-    <value>你好呀！Live Photo Box 是一款专为 Windows 打造的实况照片工具箱。如果你是一位 Apple 用户，用 iPhone 拍了很多实况照片，换到 Windows 或是 Android 手机后却发现它们再也动不起来了——别担心，你来对地方了。我想让每一段鲜活的回忆，无论在哪台设备上，都能原汁原味地呈现。</value>
+    <value>照片记录的是一个瞬间，而实况照片记录的是那个瞬间发生之前与之后的故事。
+
+可当你换了手机、换了电脑，或者把照片从一个平台传到另一个平台，这些原本鲜活的画面却常常因为设备之间的差异而停止播放。而我想做的，就是让这些回忆重新动起来。
+
+无论你的实况照片来自 Apple、小米、OPPO、vivo、华为、荣耀、三星、Google 还是其他设备，你都可以在这里进行合成、拆分、转换、修复与编辑。实况照片工具箱不仅关注照片能不能 "动起来"，也尽可能保留它原本的样子——无论是 HDR 画面、EXIF 与拍摄时间、相机参数，还是图片与视频中的其他原始信息，都尽可能完整地保留下来。让你跨越设备与平台迁移照片时，不只是带走了一张会动的照片，也带走了那段回忆原本的细节与质感。</value>
   </data>
   <data name="HomePage_Intro2.Text" xml:space="preserve">
-    <value>在这里，你可以自由地合成、拆分和修复实况照片。Apple 为优化前置拍摄性能，将实况视频的物理像素横向存储，依赖内置 Rotation 标签来判断画面方向——但 Windows 系统会忽略这个标签直接渲染原始像素，导致画面旋转；iOS 17.3 之前还存在缩略图拉伸的问题。Live Photo Box 通过底层物理级矫正，彻底根治这些跨平台兼容性顽疾。
-合成与拆分也同样拿手：任意图片 + 视频 → 标准实况照片，全面适配 Apple、Google、OPPO、vivo、小米、华为、三星等主流实况协议；无损提取原始素材，完整保留 EXIF 与拍摄参数。此外，实况照片编辑功能也已上线——进入编辑页面即可从动态视频中挑选最精彩的一帧作为封面，让每一张实况照片都定格在最完美的瞬间。</value>
+    <value>在「合成与拆分」页面，你可以在不同厂商的实况照片格式之间自由转换，也可以将图片与视频重新组合成实况照片，或从已有的实况照片中提取原始素材。在「编辑」页面，你还可以重新选择封面、调整动态内容，并将编辑后的照片导出为其他格式，让同一段回忆能够以不同的方式继续陪伴你。对于苹果实况照片常见的方向错误、画面拉伸等兼容性问题，在「修复」页面也提供了针对性的修复能力。
+
+实况照片工具箱所做的，不只是处理一种照片，而是希望让不同品牌的实况照片能够跨越设备与平台，自由地保存、迁移与再次观看。
+
+设备可以更换，平台可以变化，但属于你的回忆，不应该因此失去它的生命。</value>
   </data>
   <data name="HomePage_TipLabel.Text" xml:space="preserve">
     <value>友情提示 :</value>
@@ -1201,7 +1208,7 @@
     <value>取消扫描</value>
   </data>
   <data name="HomePage_CoreFeaturesTitle.Text" xml:space="preserve">
-    <value>核心功能指南</value>
+    <value>核心功能指南（内容已很久未更新，仅供参考）</value>
   </data>
   <data name="HomePage_FeatureIntroLabel.Text" xml:space="preserve">
     <value>功能简介：</value>
@@ -1213,7 +1220,7 @@
     <value>实况照片合成</value>
   </data>
   <data name="HomePage_MergeDesc.Text" xml:space="preserve">
-    <value>将 Apple 实况照片转换为单文件，使用各家安卓协议，使其可在 Windows 等设备上查看。支持图片（HEIC/HEIF/JPG/JPEG）与视频（MOV/MP4）合成，以及封装为 HEIF 的实况照片。</value>
+    <value>将图片 + 视频合成为单文件实况照片，支持 Google Micro Video (v1) / Google Motion Photo (v2) / OPPO / vivo / Samsung / HUAWEI 等主流协议，在 Windows 和 Android 设备上均可查看。支持图片（JPG/JPEG、HEIC/HEIF）与视频（MOV/MP4）合成。</value>
   </data>
   <data name="HomePage_MergeUsage.Text" xml:space="preserve">
     <value>将准备好的 (照片 JPG/HEIC + MOV/MP4 视频) 放在同一文件夹，点击"开始合成"即可。</value>
@@ -1635,7 +1642,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>缺少内置工具：Tools\heif-dec.exe</value>
   </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
-    <value>将 Apple 实况照片或任意图片 + 视频组合为标准实况照片（单文件格式），方便在 Windows 及 Android 设备上查看</value>
+    <value>将照片与视频合成为标准实况照片，支持批量转换协议</value>
   </data>
   <data name="HomePage_Tutorial_ImagePlaceholder.Text" xml:space="preserve">
     <value>教程图片待添加</value>
@@ -1647,7 +1654,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>选择文件夹</value>
   </data>
   <data name="HomePage_Tutorial_Step3_Title.Text" xml:space="preserve">
-    <value>扫描并确认</value>
+    <value>选择协议与格式</value>
   </data>
   <data name="HomePage_Tutorial_Step4_Title.Text" xml:space="preserve">
     <value>等待完成</value>
@@ -1659,7 +1666,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>点击右侧按钮，即可体验内置预设，直观了解完整合成流程</value>
   </data>
   <data name="HomePage_SplitSubtitle.Text" xml:space="preserve">
-    <value>将单文件实况照片拆分为原始照片和视频</value>
+    <value>将实况照片拆分为照片和视频，或双文件实况照片协议</value>
   </data>
   <data name="HomePage_SplitTutorial_Step1_Title.Text" xml:space="preserve">
     <value>准备实况照片</value>
@@ -1728,23 +1735,25 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>在「实况照片合成」页面，点击「浏览」按钮，选择你刚才准备好的文件夹。输出目录会自动设置，如需自定义可手动修改。</value>
   </data>
   <data name="HomePage_Tutorial_Step3_Desc.Text" xml:space="preserve">
-    <value>扫描完成后，在「协议版本」选择适合你的封装协议：
+    <value>扫描完成后，在「合成协议」中选择目标协议，再选择输出格式：
 
-🔹 仅需在 Windows 上查看？
-任意协议均可，推荐 Motion Photo (v2)。
+· Google Micro Video (v1)
+· Google Motion Photo (v2)
+· OPPO O-Live Photo
+· HUAWEI Moving Photo
 
-🔹 要导入 Android 设备？
-根据手机品牌选择最匹配的协议即可。
+· vivo Live Photo（≥ x300）⚠️ 测试中
+· Samsung Motion Photo ⚠️ 测试中
 
-· Micro Video (v1): 小米（旧版MIUI）
-· Motion Photo (v2): Pixel / 小米 / 红米
-· O-Live Photo: OPPO / OnePlus
+💡 具体支持机型，请看「合成协议」下拉菜单提示
 
-⚠️ 暂不支持以下设备：
-· iPhone / VIVO / iQOO —— 采用分离式实况照片
-· 三星 / 华为 / 荣耀 —— 未经测试
+输出格式（图片 + 视频）：
+· JPEG + MP4 — 通用，兼容性最好
+· JPEG + MOV — Apple 风格
+· HEIC + MP4 / HEIC + MOV — 体积更小
+· HEIC + MP4 (H.265) — 仅华为原生
 
-选定协议后，点击「开始合成」即可。</value>
+选定后点击「开始合成」即可。</value>
   </data>
   <data name="HomePage_Tutorial_Step4_Desc.Text" xml:space="preserve">
     <value>合成过程会自动处理，无需额外操作。完成后，输出文件夹中即为合并好的实况照片！
@@ -1752,16 +1761,28 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
 转换后的单文件格式可在 Windows 和 Android 设备上直接查看和播放 ~</value>
   </data>
   <data name="HomePage_SplitTutorial_Step1_Desc.Text" xml:space="preserve">
-    <value>需要导入单文件格式的实况照片 JPG 格式，一个文件同时包含静态照片和动态视频，可以是：
+    <value>需要拆分的单文件实况照片（一个文件同时包含静态照片和动态视频），支持以下协议：
 
- • 本软件转换生成的实况照片
- • Android 手机直接拍摄的实况照片
-（单文件格式，不包括 VIVO）
+· Google Micro Video (v1)
+· Google Motion Photo (v2)
+· OPPO O-Live Photo
+· HUAWEI Moving Photo
 
-将以上任意文件放入同一文件夹即可。</value>
+· vivo Live Photo ⚠️ 测试中
+· Samsung Motion Photo ⚠️ 测试中
+
+💡 具体支持机型，请看「匹配方式」下拉菜单提示
+
+在「匹配方式」中选择对应协议类型或「所有单文件实况照片」，把文件放入同一文件夹即可。</value>
   </data>
   <data name="HomePage_SplitTutorial_Step2_Desc.Text" xml:space="preserve">
-    <value>点击「浏览」按钮选择文件夹，程序会自动扫描并识别实况照片。查看统计确认无误后，点击「开始拆分」即可。</value>
+    <value>点击「浏览」选择文件夹，程序自动扫描并识别实况照片。确认统计无误后，选择输出协议与格式：
+
+· 无协议 — 直接导出照片 + 视频
+· Apple — JPG + MOV / HEIC + MOV
+· vivo（≤ x200）— JPG + MP4 ⚠️ 测试中
+
+点击「开始拆分」即可。</value>
   </data>
   <data name="HomePage_SplitTutorial_Step3_Desc.Text" xml:space="preserve">
     <value>拆分完成后，输出目录中会看到同文件名的照片和视频文件，直接打开即可查看。</value>
@@ -3616,7 +3637,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>无协议（原始格式）</value>
   </data>
   <data name="SplitPage_Protocol_None_Hint" xml:space="preserve">
-    <value>不写入配对元数据</value>
+    <value>移除原始实况照片协议拆分</value>
   </data>
   <data name="SplitPage_Protocol_Apple.Content" xml:space="preserve">
     <value>Apple Live Photo</value>

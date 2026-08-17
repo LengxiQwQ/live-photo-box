@@ -48,7 +48,7 @@ namespace LivePhotoBox.Cli.Infrastructure
             0 => "Fusion (universal Android)",
             1 => "Google Micro Video (v1) (Windows / Xiaomi / Pixel)",
             2 => "Google Motion Photo (v2) (Windows / Xiaomi / Pixel)",
-            3 => "OPPO O-Live (Windows / Xiaomi / OPPO)",
+            3 => "OPPO O-Live Photo (Windows / Xiaomi / OPPO)",
             4 => "vivo Live Photo (Windows / vivo X300+)",
             5 => "Samsung Motion Photo (Windows / Samsung)",
             6 => "HUAWEI Moving Photo (HUAWEI / Honor)",
@@ -58,7 +58,7 @@ namespace LivePhotoBox.Cli.Infrastructure
         // 用户可见的协议显示名（正确大小写、带空格）
         public static string[] ProtocolDisplayNames { get; } =
             ["Fusion", "Google Micro Video (v1)", "Google Motion Photo (v2)",
-             "OPPO O-Live", "vivo Live Photo", "Samsung Motion Photo",
+             "OPPO O-Live Photo", "vivo Live Photo", "Samsung Motion Photo",
              "HUAWEI Moving Photo"];
 
         // 协议标识符：用于 --all-variants 文件名与 JSON name 字段，保持无空格

@@ -548,7 +548,7 @@ namespace LivePhotoBox.Services
 
         // 从 XMP 元数据文本中提取视频尾部长度。
         // 深度防御：依次尝试全部已知厂商的偏移量格式。
-        //   MicroVideo V1 → MotionPhoto V2 → OPPO O-Live → 小米
+        //   MicroVideo V1 → MotionPhoto V2 → OPPO O-Live Photo → 小米
         // 只要任一格式匹配成功即返回，多道 fallback 确保 XMP 被
         // 修图软件/exiftool 部分修改后仍能解析。
         public static long GetAppendedVideoLength(string metadataText)

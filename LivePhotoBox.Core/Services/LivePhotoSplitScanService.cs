@@ -375,7 +375,7 @@ namespace LivePhotoBox.Services
         }
 
         // 依次尝试所有已知厂商的实况照片视频偏移量格式：
-        //   MicroVideo V1 → MotionPhoto V2 → OPPO O-Live → 小米
+        //   MicroVideo V1 → MotionPhoto V2 → OPPO O-Live Photo → 小米
         // 返回第一个成功解析的有效偏移量（字节），或 null。
         private static long? TryParseVideoOffset(string metadataText)
         {

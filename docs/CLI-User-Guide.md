@@ -135,7 +135,7 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 |---|---|---|---|---|---|
 | Google Micro Video (v1) | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
 | Google Motion Photo (v2) | ✅ | ✅ | ✖️ | ✅ | ✖️ |
-| OPPO O-Live | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
+| OPPO O-Live Photo | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | vivo Live Photo | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | Samsung Motion Photo | ✅ | ✖️ | ✅ | ✖️ | ✖️ |
 | HUAWEI Moving Photo | ✅ | ✖️ | ✅ | ✖️ | ✅ |
@@ -148,7 +148,7 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 |---|---|---|
 | Google Micro Video (v1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
 | Google Motion Photo (v2) | Windows / Xiaomi / Pixel | ✅ Supported |
-| OPPO O-Live | Windows / Xiaomi / OPPO | ✅ Supported |
+| OPPO O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
 | vivo Live Photo | Windows / vivo (≥ X300) | 🟡 In testing |
 | Samsung Motion Photo | Windows / Samsung | 🟡 In testing |
 | HUAWEI Moving Photo | HUAWEI / Honor | ✅ Supported |
@@ -482,7 +482,7 @@ Omitted `--format` defaults to the protocol's first available format: `keep` (`n
 | `all` | No filter (default) |
 | `v1` | Google Micro Video (v1) |
 | `v2` | Google Motion Photo (v2) |
-| `oppo` | OPPO O-Live |
+| `oppo` | OPPO O-Live Photo |
 | `vivo` | vivo Live Photo |
 | `samsung` | Samsung Motion Photo |
 | `huawei` | HUAWEI Moving Photo |

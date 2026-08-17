@@ -230,7 +230,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         // 匹配方式索引：0=所有单文件实况照片协议 / 1=Fusion / 2=MicroVideo V1 / 3=MotionPhoto V2
-        //                / 4=OPPO O-Live / 5=vivo Live Photo / 6=Samsung Motion Photo / 7=HUAWEI Moving Photo。
+        //                / 4=OPPO O-Live Photo / 5=vivo Live Photo / 6=Samsung Motion Photo / 7=HUAWEI Moving Photo。
         // 扫描时按此协议过滤单文件实况照片（复用 Core 的 LivePhotoProtocolDetector）。
         public int MatchProtocolIndex
         {

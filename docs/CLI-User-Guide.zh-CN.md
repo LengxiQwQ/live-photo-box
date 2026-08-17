@@ -135,7 +135,7 @@ lpb split ./MyPhotos -y
 |---|---|---|---|---|---|
 | Google Micro Video (v1) | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
 | Google Motion Photo (v2) | ✅ | ✅ | ✖️ | ✅ | ✖️ |
-| OPPO O-Live | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
+| OPPO O-Live Photo | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | vivo Live Photo | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | Samsung Motion Photo | ✅ | ✖️ | ✅ | ✖️ | ✖️ |
 | HUAWEI Moving Photo | ✅ | ✖️ | ✅ | ✖️ | ✅ |
@@ -148,7 +148,7 @@ lpb split ./MyPhotos -y
 |---|---|---|
 | Google Micro Video (v1) | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
 | Google Motion Photo (v2) | Windows / 小米 / Pixel | ✅ 可用 |
-| OPPO O-Live | Windows / 小米 / OPPO | ✅ 可用 |
+| OPPO O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
 | vivo Live Photo | Windows / vivo（≥ X300） | 🟡 测试中 |
 | Samsung Motion Photo | Windows / Samsung | 🟡 测试中 |
 | HUAWEI Moving Photo | 华为 / 荣耀 | ✅ 可用 |
@@ -482,7 +482,7 @@ lpb split photo.jpg --all-variants -o ./Out
 | `all` | 不过滤（默认） |
 | `v1` | Google Micro Video (v1) |
 | `v2` | Google Motion Photo (v2) |
-| `oppo` | OPPO O-Live |
+| `oppo` | OPPO O-Live Photo |
 | `vivo` | vivo Live Photo |
 | `samsung` | Samsung Motion Photo |
 | `huawei` | HUAWEI Moving Photo |
