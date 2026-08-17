@@ -216,15 +216,16 @@ def render_section(metrics: dict, refs: list, paths: list, updated_at: str, lang
     first = metrics.get("first_date") or "—"
     top = " · ".join(x.get("referrer", "") for x in refs[:6] if x.get("referrer")) or "—"
 
-    # 热门内容路径（剥掉 /owner/repo 前缀、blob/tree 冗余段）
+    # 热门内容路径（剥掉 /owner/repo 前缀、blob/tree 冗余段；跳过仓库主页 Home）
     names = []
-    for it in (paths or [])[:10]:
+    for it in (paths or [])[:15]:
         name = (it.get("path") or "").lstrip("/")
         if repo and name.lower().startswith(repo.lower()):
             name = name[len(repo):]
         name = re.sub(r"^/?(blob|tree)/[^/]+/", "", name).strip("/")
-        name = "Home" if name == "" else name
-        if name and name not in names:
+        if not name:
+            continue  # 仓库主页 Home 冗余，跳过
+        if name not in names:
             names.append(name)
         if len(names) >= 6:
             break
@@ -236,8 +237,8 @@ def render_section(metrics: dict, refs: list, paths: list, updated_at: str, lang
             "",
             f"访问次数：**{fmt_num(metrics['views_all'])}** ｜ 不重复访客：**{fmt_num(metrics['views_14_uniq'])}**（近 14 天） ｜ 仓库克隆：**{fmt_num(metrics['clones_all'])}** ｜ 不重复克隆：**{fmt_num(metrics['clones_14_uniq'])}**（近 14 天）",
             "",
-            f"**热门来源：** {top}",
-            f"**热门内容：** {content}",
+            f"**热门来源（近 14 天）：** {top}  ",
+            f"**热门内容（近 14 天）：** {content}",
             "",
             f"> 数据开始：{first} · 最后更新：{updated_at}",
         ]
@@ -247,8 +248,8 @@ def render_section(metrics: dict, refs: list, paths: list, updated_at: str, lang
             "",
             f"Views: **{fmt_num(metrics['views_all'])}** ｜ Uniques: **{fmt_num(metrics['views_14_uniq'])}** (14-day) ｜ Clones: **{fmt_num(metrics['clones_all'])}** ｜ Cloners: **{fmt_num(metrics['clones_14_uniq'])}** (14-day)",
             "",
-            f"**Top referrers:** {top}",
-            f"**Top content:** {content}",
+            f"**Top referrers (14-day):** {top}  ",
+            f"**Top content (14-day):** {content}",
             "",
             f"> Data since {first} · Last updated: {updated_at}",
         ]
