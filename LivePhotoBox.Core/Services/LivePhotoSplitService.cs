@@ -99,7 +99,7 @@ namespace LivePhotoBox.Services
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
             TimeSpan.FromSeconds(2));
 
-        public static async Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int protocolIndex, int outputFormatIndex, CancellationToken token, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false)
+        public static async Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int protocolIndex, int outputFormatIndex, CancellationToken token, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false, long? keyTimestampUs = null)
         {
             Directory.CreateDirectory(outputDirectory);
 
@@ -513,7 +513,7 @@ namespace LivePhotoBox.Services
                 if (protocolIndex == 1)
                 {
                     await Protocols.AppleLivePhotoMetadata.WritePairMetadataAsync(
-                        sourcePath, metadataText, imageOutputPath, videoOutputPath, appleContentId, token);
+                        sourcePath, metadataText, imageOutputPath, videoOutputPath, appleContentId, keyTimestampUs, token);
                 }
                 else if (protocolIndex == 2)
                 {

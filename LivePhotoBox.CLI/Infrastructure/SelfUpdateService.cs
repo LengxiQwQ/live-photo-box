@@ -156,7 +156,9 @@ namespace LivePhotoBox.Cli.Infrastructure
             }
             catch (Exception ex)
             {
-                CliConsole.WriteErrorLine($"Update failed: {ex.Message}");
+                CliConsole.WriteErrorWithHint(
+                    $"Error: Update failed. {UpdateCheckService.DescribeError(ex)}",
+                    "Try again later, or download the release manually from the GitHub releases page.");
                 return 1;
             }
         }

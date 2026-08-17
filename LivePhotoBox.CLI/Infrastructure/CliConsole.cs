@@ -154,7 +154,8 @@ namespace LivePhotoBox.Cli.Infrastructure
             }
         }
 
-        // 为非法输入生成 "Did you mean: ...?" 提示（前缀优先；无前缀匹配且输入 ≥3 字符时用包含匹配）
+        // 为非法输入生成 "Did you mean: ...?" 提示（前缀优先；无前缀匹配且输入 ≥3 字符时用包含匹配；
+        // 仍无匹配时用编辑距离 ≤2 的模糊匹配，最多给 3 个候选）
         public static string DidYouMean(string input, IEnumerable<string> validValues)
         {
             string trimmed = input.Trim();
@@ -166,7 +167,63 @@ namespace LivePhotoBox.Cli.Infrastructure
                 matches = validValues
                     .Where(v => v.Contains(trimmed, StringComparison.OrdinalIgnoreCase))
                     .ToList();
+            if (matches.Count == 0 && trimmed.Length >= 3)
+                matches = validValues
+                    .Select(v => (Value: v, Distance: LevenshteinDistance(trimmed.ToLowerInvariant(), v.ToLowerInvariant())))
+                    .Where(x => x.Distance <= 2)
+                    .OrderBy(x => x.Distance)
+                    .Take(3)
+                    .Select(x => x.Value)
+                    .ToList();
+            // 多词值（如 "motion photo"）：输入与其中任意单词接近也算候选，避免长短悬殊匹配不到
+            if (matches.Count == 0 && trimmed.Length >= 3)
+                matches = validValues
+                    .Where(v => v.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                        .Any(w => w.Length >= 3 && LevenshteinDistance(trimmed.ToLowerInvariant(), w.ToLowerInvariant()) <= 2))
+                    .Take(3)
+                    .ToList();
             return matches.Count > 0 ? $" Did you mean: {string.Join(", ", matches)}?" : "";
+        }
+
+        private static int LevenshteinDistance(string a, string b)
+        {
+            if (a.Length == 0) return b.Length;
+            if (b.Length == 0) return a.Length;
+            var prev = new int[b.Length + 1];
+            var curr = new int[b.Length + 1];
+            for (int j = 0; j <= b.Length; j++) prev[j] = j;
+            for (int i = 1; i <= a.Length; i++)
+            {
+                curr[0] = i;
+                for (int j = 1; j <= b.Length; j++)
+                {
+                    int cost = a[i - 1] == b[j - 1] ? 0 : 1;
+                    curr[j] = Math.Min(Math.Min(curr[j - 1] + 1, prev[j] + 1), prev[j - 1] + cost);
+                }
+                (prev, curr) = (curr, prev);
+            }
+            return prev[b.Length];
+        }
+
+        // 错误 + 可选纠正提示（提示行弱化为灰色，方便用户一眼区分"哪里错了 / 怎么改"）
+        public static void WriteErrorWithHint(string message, string? hint = null)
+        {
+            WriteErrorLine(message);
+            if (!string.IsNullOrEmpty(hint)) WriteHintLine(hint);
+        }
+
+        // 弱化提示行（stderr）：用于错误后告诉用户怎么纠正。
+        public static void WriteHintLine(string hint)
+        {
+            if (!UseColor)
+            {
+                Console.Error.WriteLine($"Hint: {hint}");
+                return;
+            }
+            var old = Console.ForegroundColor;
+            Console.ForegroundColor = Muted;
+            Console.Error.WriteLine($"Hint: {hint}");
+            Console.ForegroundColor = old;
         }
     }
 }

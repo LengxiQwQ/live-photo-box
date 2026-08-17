@@ -27,6 +27,11 @@
     <ProjectReference Include="..\LivePhotoBox.Core\LivePhotoBox.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 让 CLI 测试项目能访问 internal 的命令/辅助类 -->
+    <InternalsVisibleTo Include="LivePhotoBox.CLI.Tests" />
+  </ItemGroup>
+
   <!-- 编译时从 Package.appxmanifest 自动同步版本号 -->
   <Target Name="SyncVersionFromManifest" BeforeTargets="BeforeBuild">
     <XmlPeek XmlInputPath="../LivePhotoBox/Package.appxmanifest" Query="/x:Package/x:Identity/@Version" Namespaces="&lt;Namespace Prefix='x' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10'/&gt;">

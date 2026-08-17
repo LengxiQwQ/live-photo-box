@@ -3,7 +3,7 @@
 - **💻 `info` 命令与 `--version`** — 新增 `lpb info`：一条命令查看版本、构建日期、运行时、系统、作者联系方式，以及内置外部工具（exiftool、ffmpeg、jpegtran、heif-dec、heif-enc）的版本，末尾顺带检查更新；`lpb --version` 纯本地秒出，不联网、不启动子进程
   > New `lpb info` command and `--version` flag — version, build date, runtime, platform, author contact, and bundled tool versions (exiftool, ffmpeg, jpegtran, heif-dec, heif-enc) at a glance, plus a built-in update check; `--version` is fully local and instant.
 
-- **⏱️ `--key-timestamp` 自定义封面时间** — merge 新增 `--key-timestamp`：指定封面在视频时间轴上的位置，支持 秒（1.5）、分:秒（1:30）、时:分:秒（0:01:30）写法；默认跟随源视频自带时间轴，自动适配各协议存储方式，可与 `--all-variants` 组合
+- **⏱️ `--key-timestamp` 自定义封面时间** — merge 新增 `--key-timestamp`：指定封面在视频时间轴上的位置，支持 秒（2.500）、分:秒（1:30.500）、时:分:秒（0:01:30.500）写法；默认跟随源视频自带时间轴，自动适配各协议存储方式，可与 `--all-variants` 组合
   > New `--key-timestamp` merge option — set the key photo position on the video timeline in seconds, mm:ss or hh:mm:ss; defaults to the source video's own timeline, adapts to each protocol automatically, and works with `--all-variants`.
 
 - **⬆️ 手动更新模式** — 此前 CLI 无法更新，现在 `lpb update-check` 可以检查新版本，并按安装方式提示如何更新（便携版下载解压覆盖、安装版重新安装、WinGet 安装运行 `winget upgrade`，WinGet 包审核中、上架后可用）

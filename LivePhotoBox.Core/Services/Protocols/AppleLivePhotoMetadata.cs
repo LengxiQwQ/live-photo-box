@@ -83,12 +83,14 @@ namespace LivePhotoBox.Services.Protocols
         // 入口：给拆分输出的一对图片 + 视频写入 Apple Live Photo 配对元数据。
         // contentId：由 SplitAsync 在格式转换前生成并已注入图片端 MakerNote；
         // HEIC 源（无预生成）传 null，此处兜底生成（图片端 MakerNote 缺失，属已知限制）。
+        // keyTimestampUs：用户通过 CLI --key-timestamp 指定的封面位置（微秒）；null 时按源解析。
         public static async Task WritePairMetadataAsync(
             string sourcePath,
             string metadataText,
             string imageOutputPath,
             string videoOutputPath,
             string? contentId,
+            long? keyTimestampUs,
             CancellationToken token)
         {
             token.ThrowIfCancellationRequested();
@@ -96,8 +98,11 @@ namespace LivePhotoBox.Services.Protocols
             // 1. 配对 UUID（图片与视频两端一致）。
             contentId ??= Guid.NewGuid().ToString("D").ToUpperInvariant();
 
-            // 2. 封面帧时间戳（按源协议解析：V2 / V1 / OPPO / 华为；全无则视频中点）。
-            double coverSeconds = await ResolveCoverSecondsAsync(sourcePath, metadataText, videoOutputPath, token);
+            // 2. 封面帧时间戳：用户覆盖（--key-timestamp）优先，否则按源协议解析
+            //    （V2 / V1 / OPPO / 华为；全无则视频中点）。
+            double coverSeconds = keyTimestampUs.HasValue
+                ? keyTimestampUs.Value / 1_000_000.0
+                : await ResolveCoverSecondsAsync(sourcePath, metadataText, videoOutputPath, token);
 
             // 3. 视频端：按 ISO/IEC 14496-12 规范化重建 Apple Live Photo MOV
             //    （ftyp + moov(4 轨 + meta) + wide + 单 mdat）。所有容器 box 由结构化代码

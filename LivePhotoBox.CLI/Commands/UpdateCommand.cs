@@ -25,8 +25,10 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 catch (Exception ex)
                 {
-                    LogService.Error($"[Update] Update check failed: {ex.Message}", ex, LogSource.System);
-                    CliConsole.WriteErrorLine($"Update check failed: {ex.Message}");
+                    LogService.Error($"[Update] Update check failed: {ex}", ex, LogSource.System);
+                    CliConsole.WriteErrorWithHint(
+                        $"Error: Update check failed. {UpdateCheckService.DescribeError(ex)}",
+                        "Run 'lpb --info' to view the log folder if this keeps happening.");
                     context.ExitCode = 1;
                 }
             });
@@ -53,8 +55,10 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 catch (Exception ex)
                 {
-                    LogService.Error($"[Update] Update failed: {ex.Message}", ex, LogSource.System);
-                    CliConsole.WriteErrorLine($"Update failed: {ex.Message}");
+                    LogService.Error($"[Update] Update failed: {ex}", ex, LogSource.System);
+                    CliConsole.WriteErrorWithHint(
+                        $"Error: Update failed. {UpdateCheckService.DescribeError(ex)}",
+                        "Try again later, or download the release manually from the GitHub releases page.");
                     context.ExitCode = 1;
                 }
             });
@@ -70,6 +74,7 @@ namespace LivePhotoBox.Cli.Commands
                 LogService.Error($"[Update] Check failed: {result.ErrorMessage}", source: LogSource.System);
                 UpdateCheckService.WriteCheckStatus($"unreachable ({result.ErrorMessage})", CliConsole.Error);
                 UpdateCheckService.PrintManualDownload();
+                CliConsole.WriteHintLine("Check your network connection and try again.");
                 return 2;
             }
 

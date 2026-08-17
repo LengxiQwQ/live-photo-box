@@ -10,23 +10,24 @@ Live Photo Box 同时提供图形界面与命令行两种形态。命令行入�
 
 ---
 
-## 分发包说明
+## 安装
 
-[Releases 页面](https://github.com/lengxiqwq/live-photo-box/releases) 提供三种包：
+[Releases 页面](https://github.com/lengxiqwq/live-photo-box/releases) 提供四种安装方式：
 
-| 包名 | 内容 | 适用场景 | PATH |
-|---------|----------|----------|------|
-| `*-x64-setup.exe` | GUI + CLI，安装向导一键安装 | 普通用户，想要完整桌面应用 | 安装时可选择加入 |
-| `*-x64-portable.zip` | GUI + CLI，解压即用 | U 盘便携使用，或不想安装时试用 | 需手动添加 |
-| `*-x64-cli.zip` | 纯 CLI，不含 GUI 及其运行时 | 服务器、脚本、CI/CD，最小体积 | 需手动添加 |
+| 方式 | 安装 | 内容 | PATH |
+|------|------|------|------|
+| WinGet | `winget install LengxiQwQ.LivePhotoBox` | 仅 CLI | 自动加入，无需手动 |
+| 安装版 | 运行 `*-x64-setup.exe` | GUI + CLI | 安装时可选加入，无需手动 |
+| 便携版 | 解压 `*-x64-portable.zip` | GUI + CLI | 需手动添加 |
+| 纯 CLI | 解压 `*-x64-cli.zip` | 仅 CLI | 需手动添加 |
 
-三种包均包含相同的 `livephotobox.exe` 及四个别名。纯 CLI 包体积最小。
+所有包均包含相同的 `livephotobox.exe` 及四个别名。WinGet 与安装版在安装时自动配置 PATH，无需手动添加；仅便携版与纯 CLI 包需手动添加（见下文）。WinGet 安装的副本由 WinGet 负责更新/卸载，不使用内置更新（见下文「更新」）。
 
 ---
 
 ## 将 CLI 加入 PATH
 
-在 Windows 上，直接运行当前目录里的可执行文件需要 `.\` 前缀——例如 `.\lpb --version`。想让 `lpb`（或任意别名）在任何目录下都能直接调用，需要把安装文件夹加入**用户 PATH**。
+在 Windows 上，直接运行当前目录里的可执行文件需要 `.\` 前缀——例如 `.\lpb --version`。想让 `lpb`（或任意别名）在任何目录下都能直接调用，需要把安装文件夹加入**用户 PATH**。WinGet 与安装版在安装时已自动加入 PATH，以下步骤仅适用于便携版与纯 CLI 包。
 
 安装包根目录附带两个辅助脚本，可一键完成：
 
@@ -69,27 +70,17 @@ Live Photo Box 同时提供图形界面与命令行两种形态。命令行入�
 |------|------|------|
 | `-y`, `--yes` | `update` | 跳过确认提示，直接自动更新（脚本环境必需） |
 
-### WinGet 安装
+### WinGet 安装的副本
 
-通过 WinGet 安装的副本（`winget install LengxiQwQ.LivePhotoBox`）**不使用内置更新**——安装、升级、卸载均由 WinGet 负责：
+通过 WinGet 安装的副本**不使用内置更新**——安装、升级、卸载均由 WinGet 负责：
 
-- `lpb update` 与 `lpb update-check` 仍会联网检查并在有新版时报告，但 `lpb update` **不会**下载或安装任何内容——它只打印 `Update with: winget upgrade LengxiQwQ.LivePhotoBox` 后退出。
-- 更新 WinGet 副本：
-  ```
-  winget upgrade LengxiQwQ.LivePhotoBox
-  ```
-- 卸载同理：`winget uninstall LengxiQwQ.LivePhotoBox`。
+- `lpb update` / `update-check` 仍会报告新版本，但 `lpb update` 不会安装——只打印 `Update with: winget upgrade LengxiQwQ.LivePhotoBox` 后退出。
+- 更新：`winget upgrade LengxiQwQ.LivePhotoBox` · 卸载：`winget uninstall LengxiQwQ.LivePhotoBox`。
 - 不确定自己的副本是哪种渠道？运行 `lpb --info`——WinGet 副本会显示 `Channel: WinGet (CLI-only)`。
 
-### 其他安装方式
+### 便携版与安装版
 
-便携版、便携包（GUI + CLI）和安装版副本由 `lpb update` 自行更新。发现新版本时，会打印新版本号和匹配的安装包，然后询问 `Update now? [Y/n]`——回车或输入 `y` 继续。安装包按安装类型自动选择：
-
-| 安装类型 | 安装包 |
-|---------|--------|
-| Portable CLI-only（纯 CLI） | `*-x64-cli.zip` |
-| Portable bundle (GUI + CLI)（便携包） | `*-x64-portable.zip` |
-| Installer (Inno Setup, GUI + CLI)（安装版） | `*-x64-setup.exe` |
+`lpb update` 自行完成更新，先询问 `Update now? [Y/n]`（回车/`y` 继续），匹配的安装包会自动选择。
 
 两者都需联网，失败时会打印失败原因及 `Manual download: …` 手动下载链接。
 
@@ -115,6 +106,9 @@ lpb merge -d ./MyPhotos -p huawei -y
 
 # 把单文件实况照片拆回图片 + 视频
 lpb split photo.jpg -y
+
+# 批量拆分文件夹（自动识别目录；-d 也可用）
+lpb split ./MyPhotos -y
 ```
 
 ---
@@ -137,7 +131,7 @@ lpb split photo.jpg -y
 
 **兼容矩阵** — 每个协议支持的输出格式：
 
-| 协议 | JPEG+MP4 | JPEG+MOV | HEIC+MP4 | HEIC+MOV | HEIC+MP4 (H.265) |
+| 协议 | JPEG + MP4 | JPEG + MOV | HEIC + MP4 | HEIC + MOV | HEIC + MP4 (H.265) |
 |---|---|---|---|---|---|
 | Micro Video | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
 | Motion Photo | ✅ | ✅ | ✖️ | ✅ | ✖️ |
@@ -147,8 +141,6 @@ lpb split photo.jpg -y
 | HUAWEI Moving Photo | ✅ | ✖️ | ✅ | ✖️ | ✅ |
 
 `✅` — 支持 &nbsp;|&nbsp; `✖️` — 不支持
-
-`heic+mp4-h265`（索引 4）为华为原生 HEVC (H.265)。
 
 **合成 — 设备支持：**
 
@@ -161,7 +153,7 @@ lpb split photo.jpg -y
 | Samsung Motion Photo | Windows / Samsung | 🟡 测试中 |
 | HUAWEI Moving Photo | 华为 / 荣耀 | ✅ 可用 |
 
-**拆分 — 设备支持**（CLI 已支持拆分，见下文 `split` 一节）：
+**拆分 — 设备支持：**
 
 | 协议 | 支持机型 | 状态 |
 |---|---|---|
@@ -170,13 +162,13 @@ lpb split photo.jpg -y
 
 **拆分 — 协议 × 格式兼容矩阵：**
 
-| 协议 | keep | jpg+mov | heic+mov | jpg+mp4 |
+| 协议 | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | None（仅拆分） | ✅ | ✅ | ✅ | ✅ |
 | Apple Live Photo | ✖️ | ✅ | ✅ | ✖️ |
 | vivo Live Photo | ✖️ | ✖️ | ✖️ | ✅ |
 
-**JSON 输出**（供脚本消费）——包含每个协议的索引、显示名、支持设备、状态与格式，以及拆分表：
+**JSON 输出**（供脚本消费）：
 
 ```powershell
 lpb protocols --json
@@ -191,19 +183,22 @@ lpb protocols --json
 | 模式 | 参数 | 使用场景 |
 |------|------|----------|
 | 单对合成 | `photo.jpg video.mp4`（自动识别） | 一张图片 + 一个视频 |
-| 批量文件夹 | `-d` | 目录内自动按文件名配对 |
+| 批量文件夹 | `<路径>`（无扩展名自动识别）或 `-d` | 目录内自动按文件名配对 |
 
 #### 使用示例
 
 | 目标 | 命令 |
 |------|------|
+| 批量合成文件夹，自动确认 | `lpb merge ./MyPhotos -p motionphoto -y`（目录自动识别；`-d` 也可用） |
 | 华为原生 HEVC（单对） | `lpb merge photo.jpg video.mp4 -p huawei -f heic+mp4-h265 -y` |
 | 批量 → 华为，显式输出目录 | `lpb merge -d ./MyPhotos -p huawei -o ./Output -y` |
 | 批量含子目录，保留文件夹结构 | `lpb merge -d ./Photos -r -s -p motionphoto -o ./Output -y` |
 | 预览（不创建任何文件夹） | `lpb merge -d ./Photos -p motionphoto --dry-run` |
 | 自定义文件名模板 | `lpb merge -d ./Photos -p motionphoto -n "custom:{name}_{protocol}_{date}" -y` |
 | 覆盖已存在输出而非自动重命名 | `lpb merge photo.jpg video.mp4 -p huawei -y -w` |
-| 自定义封面位置（视频 2.5 秒处） | `lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y` |
+| 自定义封面位置（视频 2.500 秒处） | `lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.500 -y` |
+
+> **注意：** 不支持通配符（`*.jpg`）。请用 `-d` 指定文件夹，或显式列出文件。
 
 ---
 
@@ -213,11 +208,11 @@ lpb protocols --json
 
 | 选项 | 说明 |
 |------|------|
-| `<图片> <视频>` | 图片 + 视频文件对，扩展名自动识别，顺序任意。图片：`.jpg .jpeg .heic .heif`；视频：`.mp4 .mov` |
-| `-d, --dir <文件夹>` | 扫描目录（批量模式），同基础名称的文件自动配对 |
+| `<图片> <视频>` | 图片 + 视频文件对，扩展名自动识别，顺序任意。图片：`.jpg .jpeg .heic .heif`；视频：`.mp4 .mov`；只传一个无扩展名的文件夹路径时自动识别为批量模式 |
+| `-d, --dir <路径>` | 扫描目录（批量模式），同基础名称的文件自动配对；也可直接作为位置参数传入 |
 | `-r, --recursive` | 扫描时包含所有子目录 |
 | `--pairing <方式>` | 配对策略（仅批量）：`name` — 按文件名（默认）；`cid` — Apple ContentIdentifier UUID；`vivo` — vivo 相机 ID |
-| `--key-timestamp <时间>` | 封面在视频时间轴上的位置（仅单文件）。支持秒（`1.5`）、分:秒（`1:30`）、时:分:秒（`0:01:30`）；默认跟随源视频 |
+| `--key-timestamp <时间>` | 封面在视频时间轴上的位置（仅单文件）。支持秒（`2.500`）、分:秒（`1:30.500`）、时:分:秒（`0:01:30.500`）；默认跟随源视频 |
 
 **输出**
 
@@ -267,7 +262,7 @@ lpb protocols --json
 | 模式 | 默认输出 | 示例 |
 |------|----------|------|
 | 单文件对 | **照片（图片）所在目录**（照片和视频可能在不同文件夹，以照片为准） | `D:\Pics\IMG_001.jpg` + `D:\Videos\clip.mp4` → `D:\Pics\IMG_001_motionphoto.jpg` |
-| 批量（`-d`） | 输入目录下的子文件夹，命名为 `{输入目录名}_{协议后缀}` | `lpb merge -d ./MyPhotos -p motionphoto` → `./MyPhotos/MyPhotos_motionphoto/` |
+| 批量（文件夹 / `-d`） | 输入目录下的子文件夹，命名为 `{输入目录名}_{协议后缀}` | `lpb merge ./MyPhotos -p motionphoto` → `./MyPhotos/MyPhotos_motionphoto/` |
 
 - 文件夹/文件名均为英文：`MyPhotos_huawei/`、`IMG_001huawei.jpg`。
 - 单文件对默认命名为 `{源文件名}{协议后缀}`（如 `IMG_001motionphoto.jpg`），不会覆盖源照片。
@@ -296,21 +291,20 @@ photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
 注意：
 - 仅支持单对模式，不支持 `--dir` 批量模式
 - 命名固定，不接受 `--naming` / `--protocol` / `--format` 选项
-- 支持 `--key-timestamp`，所有变体应用同一时间戳
 
 #### `--key-timestamp` — 自定义封面在视频中的位置
 
-单文件合成时，实况照片的元数据会记录**封面（key photo）在视频时间轴上的位置**。默认情况下工具会跟随源视频自带的时间轴；指定本参数后则使用你给的值。
+设置**封面（key photo）在视频时间轴上的位置**。默认跟随源视频自带的时间轴。
 
 ```powershell
-# 封面位于视频第 2.5 秒处
-lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
+# 封面位于视频第 2.500 秒处
+lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.500 -y
 
 # 也支持 分:秒 / 时:分:秒 写法
 lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 ```
 
-- 时间格式：秒（`1.5`）、分:秒（`1:30`）、时:分:秒（`0:01:30`）。
+- 时间格式：秒（`2.500`）、分:秒（`1:30.500`）、时:分:秒（`0:01:30.500`）。
 - 仅单文件模式可用；批量模式（`-d`）传该参数会直接报错退出。
 - 可与 `--all-variants` 组合，所有变体使用同一时间戳。
 
@@ -337,7 +331,7 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | 顺序编号 | `-n "custom:Photo_{counter:D4}"` | `Photo_0001.jpg` |
 | 完整元数据 | `-n "custom:{name}_{protocol}_{date}_{time}"` | `IMG_001_huawei_20260803_143022.jpg` |
 
-> **说明：** 省略 `-n` 时，**单文件**合成默认 `suffix`（输出在照片原目录，加协议后缀避免覆盖源照片）；**批量**合成默认 `keep`（输出进独立子文件夹，文件名不变）。显式传 `-n` 始终以你为准。
+> **说明：** 省略 `-n` 时，单文件默认 `suffix`、批量默认 `keep`。显式传 `-n` 始终以你为准。
 
 #### 完成后操作
 
@@ -349,20 +343,6 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 仅**合成成功**的文件对的源文件会受影响。
 
-#### 工作流示例
-
-```powershell
-# 批量转换为 Google Motion Photo 格式
-lpb merge -d ./DCIM/Camera -p motionphoto -o ./LivePhotos -y
-
-# 递归批量 + 保留目录结构 + 归档源文件
-lpb merge -d ./Photos -r -s -p motionphoto -o ./Output --after "move:./Originals" -y
-
-# 脚本批处理 + 错误日志
-lpb merge -d ./Photos -p huawei -o ./Out -y -v 2>errors.log
-if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
-```
-
 ---
 
 ### `split` — 拆分单文件实况照片
@@ -372,19 +352,22 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 | 模式 | 参数 | 使用场景 |
 |------|------|----------|
 | 单文件 | `<文件>`（按扩展名自动识别） | 拆分单个单文件实况照片 |
-| 批量文件夹 | `-d` | 拆分目录内所有单文件实况照片 |
+| 批量文件夹 | `<路径>`（无扩展名自动识别）或 `-d` | 拆分目录内所有单文件实况照片 |
 
 #### 使用示例
 
 | 目标 | 命令 |
 |------|------|
 | 拆分单个文件（图片 + 视频输出到源文件旁） | `lpb split photo.jpg` |
-| 批量拆分文件夹，自动确认 | `lpb split -d ./MyPhotos -y` |
+| 批量拆分文件夹，自动确认 | `lpb split ./MyPhotos -y`（目录自动识别；`-d` 也可用） |
 | 把视频转换为 JPG+MP4 (H.264) | `lpb split photo.jpg -f jpg+mp4` |
 | 预览（不实际处理） | `lpb split -d ./MyPhotos --dry-run` |
 | 只拆分 vivo 实况照片 | `lpb split -d ./MyPhotos --pairing vivo -y` |
 | 覆盖已存在输出 | `lpb split photo.jpg -w` |
 | 导出所有变体（Apple + vivo + 无协议） | `lpb split photo.jpg --all-variants` |
+| 设置封面位置（Apple 转换） | `lpb split photo.jpg -p apple --key-timestamp 2.500 -y` |
+
+> **注意：** 不支持通配符（`*.jpg`）。请用 `-d` 指定文件夹，或显式列出文件。
 
 ---
 
@@ -394,8 +377,8 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 
 | 选项 | 说明 |
 |------|------|
-| `<文件>` | 单个待拆分的单文件实况照片：`.jpg .jpeg .heic .heif`（图片 + 追加视频） |
-| `-d, --dir <文件夹>` | 包含单文件实况照片的文件夹（批量模式），所有检测到的实况照片都会被拆分 |
+| `<文件>` | 单个待拆分的单文件实况照片：`.jpg .jpeg .heic .heif`（图片 + 追加视频）；也可传文件夹路径，无扩展名即自动识别为批量模式 |
+| `-d, --dir <路径>` | 包含单文件实况照片的文件夹（批量模式），所有检测到的实况照片都会被拆分；也可直接作为位置参数传入 |
 | `--pairing <协议>` | 只拆分该协议的实况照片：`all`（不过滤，默认）、`v1`（MicroVideo）、`v2`（MotionPhoto）、`oppo`、`vivo`、`samsung`、`huawei` |
 | `-r, --recursive` | 扫描时包含所有子目录 |
 
@@ -412,8 +395,9 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 
 | 选项 | 说明 |
 |------|------|
-| `-p, --protocol <协议>` | 目标手机格式（默认 `none`）：`none`（仅拆分）、`apple`（Apple Live Photo）、`vivo`（vivo Live Photo，≤ X200）。本迭代仅拆分文件——尚未写入配对元数据 |
+| `-p, --protocol <协议>` | 目标手机格式（默认 `none`）：`none`（仅拆分）、`apple`（Apple Live Photo）、`vivo`（vivo Live Photo，≤ X200）。apple/vivo 会写入配对元数据（ContentIdentifier / vivo 尾标 + uuid box） |
 | `-f, --format <格式>` | 输出格式（默认：指定协议的首个可用格式）：`keep`（不转换）、`jpg+mov` (H.265)、`heic+mov` (H.265)、`jpg+mp4` (H.264) |
+| `--key-timestamp <时间>` | 覆盖封面（key photo）在视频时间轴上的位置（仅 Apple 转换、单文件）。支持秒（`2.500`）、分:秒（`1:30.500`）、时:分:秒（`0:01:30.500`）；默认跟随源 |
 | `-n, --naming <规则>` | 输出文件名规则。默认：`keep`。`keep`（保持原名）或 `custom:模板`（占位符见下） |
 
 命名占位符：
@@ -446,7 +430,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 | 模式 | 默认输出 | 示例 |
 |------|----------|------|
 | 单文件 | **源文件所在目录** | `lpb split photo.jpg` → 图片 + 视频输出到源文件旁 |
-| 批量（`-d`） | 输入目录下的子文件夹，命名为 `{文件夹名}_split` | `lpb split -d ./MyPhotos` → `./MyPhotos/MyPhotos_split/` |
+| 批量（文件夹 / `-d`） | 输入目录下的子文件夹，命名为 `{文件夹名}_split` | `lpb split ./MyPhotos` → `./MyPhotos/MyPhotos_split/` |
 
 - 图片保持源基础名与扩展名；视频保持源视频的容器（`.mov` 或 `.mp4`）。
 - 就地拆分：图片名与源文件冲突时自动重命名（`photo.jpg` → `photo (2).jpg`）；传 `-w` 则覆盖。
@@ -455,7 +439,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 
 #### `--all-variants` — 一键导出所有拆分变体
 
-从单个单文件实况照片一键导出全部 7 组拆分变体（GUI 开放的所有协议 × 格式组合）。仅单文件模式——批量（`-d`）会被拒绝。适合开发者快速验证各协议的拆分输出。
+从单个单文件实况照片一键导出全部 7 组拆分变体。仅单文件模式——批量（`-d`）会被拒绝。适合开发者快速验证各协议的拆分输出。
 
 | 变体 | 输出文件对 |
 |------|-----------|
@@ -475,25 +459,23 @@ lpb split photo.jpg --all-variants
 lpb split photo.jpg --all-variants -o ./Out
 ```
 
-输出：`split_photo_All_Variants/` 内含上述 14 个文件。文件名按 `{协议}_{格式}` 命名（小写 CLI 规范值，如 `-p apple -f jpg+mov` → `apple_jpg+mov`）——原文件名只进**文件夹名**；所有文件名/文件夹名一律不含空格。keep 变体的图片跟随源扩展名、视频跟随源视频容器（`.MOV` / `.MP4`）。此模式下 `-p` / `-f` / `-n` / `-w` / `--after` 均被忽略；`-j` 仍控制并行度。
+文件名按 `{协议}_{格式}` 命名（小写 CLI 规范值，如 `-p apple -f jpg+mov` → `apple_jpg+mov`）；原文件名只进**文件夹名**，所有名称不含空格。keep 变体图片跟随源扩展名、视频跟随源容器（`.MOV` / `.MP4`）。`-p` / `-f` / `-n` / `-w` / `--after` 被忽略；`-j` 仍控制并行度。
 
 #### 协议 × 格式矩阵
 
 每个拆分协议支持的输出格式：
 
-| 协议 | keep | jpg+mov | heic+mov | jpg+mp4 |
+| 协议 | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | `none`（仅拆分） | ✅ | ✅ | ✅ | ✅ |
 | `apple`（Apple Live Photo） | ✖️ | ✅ | ✅ | ✖️ |
 | `vivo`（vivo Live Photo） | ✖️ | ✖️ | ✖️ | ✅ |
 
-`✅` — 支持 &nbsp;|&nbsp; `✖️` — 不支持
-
-省略 `--format` 时，默认取该协议的首个可用格式：`none` 为 `keep`、`apple` 为 `jpg+mov`、`vivo` 为 `jpg+mp4`。传入协议不支持的 `--format` 会报错（可用 `lpb protocols` 查看）。
+省略 `--format` 时，默认取该协议的首个可用格式：`none` → `keep`、`apple` → `jpg+mov`、`vivo` → `jpg+mp4`。
 
 #### 配对过滤
 
-`--pairing` 把拆分限定为某一协议，其他协议的实况照片会被跳过。`all`（默认）扫描全部。
+`--pairing` 把拆分限定为某一协议，其他协议会被跳过。
 
 | 值 | 协议 |
 |----|------|
@@ -507,7 +489,7 @@ lpb split photo.jpg --all-variants -o ./Out
 
 #### 命名模板速查
 
-split 只支持 `keep`（默认）和 `custom:模板`——没有 `suffix` 模式。模板同时命名图片与视频（各自保留自己的扩展名，如 `.jpg` / `.mov`）。
+split 只支持 `keep`（默认）和 `custom:模板`（无 `suffix` 模式）。模板同时命名图片与视频，各自保留自己的扩展名。
 
 | 目的 | 模板 | 输出示例 |
 |------|----------|----------------|
@@ -525,23 +507,6 @@ split 只支持 `keep`（默认）和 `custom:模板`——没有 `suffix` 模�
 
 仅**拆分成功**的实况照片的源文件会受影响。
 
-#### 工作流示例
-
-```powershell
-# 拆分单个实况照片，视频转换为 JPG+MP4 (H.264)
-lpb split photo.jpg -f jpg+mp4 -y
-
-# 批量拆分文件夹，只拆分 vivo 实况照片，自动确认
-lpb split -d ./DCIM/Camera --pairing vivo -y
-
-# 递归批量 + 保留目录结构 + 归档源文件
-lpb split -d ./Photos -r -s -o ./Output --after "move:./Originals" -y
-
-# 脚本批处理 + 错误日志
-lpb split -d ./Photos -o ./Out -y -v 2>errors.log
-if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
-```
-
 ---
 
 ### `repair` — 修复实况照片元数据
@@ -551,18 +516,20 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 | 模式 | 参数 | 使用场景 |
 |------|------|----------|
 | 单文件 | `<文件>`（按扩展名自动识别） | 修复单个图片或视频 |
-| 批量文件夹 | `-d` | 目录内所有媒体文件 |
+| 批量文件夹 | `<路径>`（无扩展名自动识别）或 `-d` | 目录内所有媒体文件 |
 
 #### 使用示例
 
 | 目标 | 命令 |
 |------|------|
 | 修复单个文件 | `lpb repair photo.jpg` |
-| 批量修复文件夹 | `lpb repair -d ./MyPhotos -y` |
+| 批量修复文件夹，自动确认 | `lpb repair ./MyPhotos -y`（目录自动识别；`-d` 也可用） |
 | 预览（不写入） | `lpb repair -d ./MyPhotos --dry-run` |
 | 只修图片旋转 | `lpb repair -d ./Photos --no-thumbnail --no-heic --no-video -y` |
 | 修复所有设备文件 | `lpb repair -d ./MyPhotos --all-devices -y` |
 | 同时复制完好文件 | `lpb repair -d ./MyPhotos --copy-perfect -y` |
+
+> **注意：** 不支持通配符（`*.jpg`）。请用 `-d` 指定文件夹，或显式列出文件。
 
 ---
 
@@ -572,8 +539,8 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 
 | 选项 | 说明 |
 |------|------|
-| `<文件>` | 单个待修复的图片或视频。图片：`.jpg .jpeg .heic .heif`；视频：`.mov .mp4` |
-| `-d, --dir <文件夹>` | 扫描目录（批量模式）。每个媒体文件都会被分析，只有需要修复的文件才会被修复 |
+| `<文件>` | 单个待修复的图片或视频。图片：`.jpg .jpeg .heic .heif`；视频：`.mov .mp4`；无扩展名的文件夹路径自动识别为批量模式 |
+| `-d, --dir <路径>` | 扫描目录（批量模式）。每个媒体文件都会被分析，只有需要修复的文件才会被修复；也可直接作为位置参数传入 |
 | `-r, --recursive` | 扫描时包含所有子目录 |
 
 **修复项**
@@ -616,7 +583,7 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 | HEIC 方向 | 修正 EXIF 方向以匹配 QuickTime `Rotation`（镜像标记或角度不一致） | HEIC/HEIF |
 | 视频旋转烘焙 | FFmpeg 重编码，把旋转矩阵烘焙进像素 | MOV/MP4 |
 
-> **HEIC 说明：** CLI 默认开启 HEIC 方向修复（四项全开）；GUI 的 `IsHeicRepairEnabled` 设置默认关闭。传 `--no-heic` 可对齐 GUI 的默认行为。
+> **说明：** 四项修复默认全开；传 `--no-heic` 可关闭 HEIC 方向修复（对齐 GUI 默认行为）。
 
 #### 默认输出位置
 
@@ -625,15 +592,15 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 | 模式 | 默认输出 | 示例 |
 |------|----------|------|
 | 单文件 | 源文件所在目录下的 `{文件名}_repaired{扩展名}` | `IMG_001.jpg` → `IMG_001_repaired.jpg` |
-| 批量（`-d`） | `{输入目录}/{输入目录名}_repaired/`，文件名保持源名 | `lpb repair -d ./MyPhotos` → `./MyPhotos/MyPhotos_repaired/` |
+| 批量（文件夹 / `-d`） | `{输入目录}/{输入目录名}_repaired/`，文件名保持源名 | `lpb repair ./MyPhotos` → `./MyPhotos/MyPhotos_repaired/` |
 
 #### Apple 实况照片过滤
 
-默认只修复 **Apple 实况照片**——通过 `ContentIdentifier` UUID（图片和配对视频都携带）识别，没有该标识的文件自动跳过。传 `--all-devices` 可修复所有设备的文件。
+默认只修复 **Apple 实况照片**——通过 `ContentIdentifier` UUID（图片和配对视频都携带）识别，其余跳过。传 `--all-devices` 可修复所有设备。
 
 #### 脚本模式（JSON 输出）
 
-使用 `--json` 时，`repair` 会向 stdout 输出一份 UTF-8 编码的 JSON 文档——没有颜色、对齐和交互提示，脚本可以稳定解析，不受文件名长度或终端宽度影响。`--json` 隐含 `--yes`（跳过确认）。
+使用 `--json` 时，`repair` 向 stdout 输出一份 UTF-8 JSON 文档（无颜色、无提示）。`--json` 隐含 `--yes`（跳过确认）。
 
 批量模式输出：
 
@@ -663,33 +630,15 @@ if ($LASTEXITCODE -ne 0) { Write-Host "部分文件失败，详见 errors.log" }
 
 单文件模式返回扁平对象：`command`、`mode`、`input`、`output`、`status`、`issue`、`reason`。
 
-JSON 为 UTF-8 编码；脚本管道读取时请按 UTF-8 解码（如 Python `json.loads(sys.stdin.buffer.read().decode("utf-8"))`）。
-
-#### 工作流示例
-
-```powershell
-# 修复文件夹内所有实况照片（仅 Apple 实况照片，自动确认）
-lpb repair -d ./DCIM/Camera -y
-
-# 修复所有设备、递归、保留目录结构——先预览
-lpb repair -d ./Photos --all-devices -r -s --dry-run
-
-# 仅剥离缩略图——不动旋转和视频
-lpb repair -d ./Photos --no-rotate --no-heic --no-video -y
-```
+JSON 为 UTF-8 编码；脚本读取时请按 UTF-8 解码（如 Python `json.loads(sys.stdin.buffer.read().decode("utf-8"))`）。
 
 ---
 
 ### `--info` / `--version` — 查看版本与环境信息
 
-| 选项 | 打印内容 |
-|------|----------|
-| `lpb --version` / `lpb -v` | 仅版本号（单行） |
-| `lpb --info` | 版本号、安装详情（构建日期、运行时、平台、渠道、位置）、日志目录与当前日志文件、内置工具版本（exiftool、ffmpeg、…）、仓库与反馈入口、版权 |
+`lpb --version`（`-v`）单行打印版本号；`lpb --info` 打印安装详情（构建日期、运行时、平台、渠道、位置）、日志目录与当前日志文件、内置工具版本、仓库与反馈入口。两者均瞬间完成、不联网；输出在交互终端着色，重定向或设置 `NO_COLOR` 时回退为纯文本。
 
-两者均瞬间完成、不联网——只报本地环境信息；检查更新请用 `lpb update-check`。输出在交互终端中着色，重定向或设置 `NO_COLOR` 时自动回退为纯文本。
-
-`-v` 是根级 `--version` 的快捷方式。在子命令内（如 `lpb merge -v`），`-v` 保持子命令自身的含义（`--verbose`）。
+注意：根级 `-v` 表示 `--version`；子命令内（如 `lpb merge -v`）保持子命令自身含义（`--verbose`）。
 
 ---
 

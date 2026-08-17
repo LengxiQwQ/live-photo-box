@@ -15,6 +15,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LivePhotoBox.Core.Tests", "tests\LivePhotoBox.Core.Tests\LivePhotoBox.Core.Tests.csproj", "{B0BB8D62-B016-40AB-A990-C9251D6CE279}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LivePhotoBox.CLI.Tests", "tests\LivePhotoBox.CLI.Tests\LivePhotoBox.CLI.Tests.csproj", "{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM64 = Debug|ARM64
@@ -113,12 +115,29 @@ Global
 		{B0BB8D62-B016-40AB-A990-C9251D6CE279}.Release|x86.Build.0 = Release|x64
 		{B0BB8D62-B016-40AB-A990-C9251D6CE279}.Release|Any CPU.ActiveCfg = Release|x64
 		{B0BB8D62-B016-40AB-A990-C9251D6CE279}.Release|Any CPU.Build.0 = Release|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Debug|ARM64.ActiveCfg = Debug|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Debug|ARM64.Build.0 = Debug|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Debug|x64.ActiveCfg = Debug|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Debug|x64.Build.0 = Debug|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Debug|x86.ActiveCfg = Debug|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Debug|x86.Build.0 = Debug|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Debug|Any CPU.Build.0 = Debug|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Release|ARM64.ActiveCfg = Release|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Release|ARM64.Build.0 = Release|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Release|x64.ActiveCfg = Release|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Release|x64.Build.0 = Release|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Release|x86.ActiveCfg = Release|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Release|x86.Build.0 = Release|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Release|Any CPU.ActiveCfg = Release|x64
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822}.Release|Any CPU.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{B0BB8D62-B016-40AB-A990-C9251D6CE279} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{0E5B6FA8-3BD7-46B8-8337-ED57D32D2822} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A872D999-5EA8-4681-94F5-65A7B04BEFE8}

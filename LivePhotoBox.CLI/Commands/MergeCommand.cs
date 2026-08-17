@@ -4,7 +4,6 @@ using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -27,11 +26,11 @@ namespace LivePhotoBox.Cli.Commands
         {
             // Positional: just drop two files, auto-detect image/video by extension
             var filesArg = new Argument<string[]>("files",
-                "Image + video file pair (.jpg/.heic/.png + .mp4/.mov). Auto-detected by extension.");
+                "Image + video file pair (.jpg/.jpeg/.heic/.heif + .mp4/.mov) auto-detected by extension, or a folder path (no file extension = batch mode, same as --dir).");
             filesArg.Arity = new ArgumentArity(0, 2);
 
             var dirOpt = new Option<DirectoryInfo?>("--dir",
-                "Folder with images + videos. Files with matching names are paired. For batch mode.");
+                "Folder with images + videos. Files with matching names are paired. For batch mode; a folder path can also be passed as the positional argument.");
             dirOpt.AddAlias("-d");
 
             var protocolOpt = new Option<string>("--protocol", () => "motion photo",
@@ -54,7 +53,7 @@ namespace LivePhotoBox.Cli.Commands
 
             var parallelOpt = new Option<int>("--parallel",
                 () => Math.Min(Environment.ProcessorCount, 5),
-                "How many files to process at once. More = faster CPU usage.");
+                "How many files to process at once (1-64). More = faster CPU usage.");
             parallelOpt.AddAlias("-j");
 
             var yesOpt = new Option<bool>("--yes",
@@ -95,7 +94,7 @@ namespace LivePhotoBox.Cli.Commands
 
             var keyTimestampOpt = new Option<string?>("--key-timestamp",
                 "Set the key photo position on the video timeline (single-pair mode only).\n" +
-                "Accepts seconds (1.5), mm:ss (1:30) or hh:mm:ss (0:01:30).\n" +
+                "Accepts seconds (2.500), mm:ss (1:30.500) or hh:mm:ss (0:01:30.500).\n" +
                 "Default: follow the source video's own timeline (Apple MOV / vivo metadata).");
 
             var cmd = new Command("merge",
@@ -103,11 +102,13 @@ namespace LivePhotoBox.Cli.Commands
                 "Images: .jpg .jpeg .heic .heif   Videos: .mp4 .mov\n\n" +
                 "Single pair:  lpb merge photo.jpg video.mp4 -p huawei\n" +
                 "              (writes next to photo.jpg as photo_huawei.jpg)\n" +
-                "Batch folder: lpb merge -d ./MyPhotos -p motionphoto -y\n" +
+                "Batch folder: lpb merge ./MyPhotos -p motionphoto -y\n" +
+                "              (folder auto-detected by missing extension; -d/--dir also works)\n" +
                 "              (writes ./MyPhotos/MyPhotos_motionphoto/)\n" +
                 "Preview:      lpb merge -d ./MyPhotos --dry-run\n" +
                 "All variants: lpb merge photo.jpg video.mp4 --all-variants\n" +
-                "Key time:     lpb merge photo.jpg video.mp4 --key-timestamp 1.5\n" +
+                "Key time:     lpb merge photo.jpg video.mp4 --key-timestamp 2.500\n" +
+                "Wildcards:    not supported — pass a folder or explicit files\n" +
                 "Formats:      lpb protocols")
             {
                 filesArg,
@@ -128,11 +129,19 @@ namespace LivePhotoBox.Cli.Commands
                 // System.CommandLine 会把未知选项当成位置参数（文件名）吞掉，提前识别避免误导性报错
                 if (files is { Length: > 0 })
                 {
-                    string? unknown = files.FirstOrDefault(f =>
-                        f.StartsWith('-') && !ImageExtensions.Contains(Path.GetExtension(f)) && !VideoExtensions.Contains(Path.GetExtension(f)));
+                    // 通配符在 cmd/PowerShell 下原样传递（Git Bash 会先展开），统一给出友好提示
+                    string? wildcard = files.FirstOrDefault(CliInputValidator.HasWildcard);
+                    if (wildcard != null)
+                    {
+                        CliInputValidator.WriteWildcardNotSupported();
+                        context.ExitCode = 1;
+                        return;
+                    }
+
+                    string? unknown = files.FirstOrDefault(f => CliInputValidator.IsUnknownOption(f, ImageExtensions.Concat(VideoExtensions)));
                     if (unknown != null)
                     {
-                        CliConsole.WriteErrorLine($"Error: Unknown option '{unknown}'. Run 'lpb merge --help' to see available options.");
+                        CliInputValidator.WriteUnknownOptionError(unknown, cmd.Options.SelectMany(o => o.Aliases), "merge");
                         context.ExitCode = 1;
                         return;
                     }
@@ -142,20 +151,42 @@ namespace LivePhotoBox.Cli.Commands
                     var resolved = ResolveImageVideo(files[0], files[1]);
                     if (resolved == null)
                     {
-                        CliConsole.WriteErrorLine("Error: Cannot determine which file is the image and which is the video.");
-                        Console.Error.WriteLine("Supported image formats: .jpg, .jpeg, .heic, .heif");
-                        Console.Error.WriteLine("Supported video formats: .mp4, .mov");
+                        CliConsole.WriteErrorWithHint(
+                            "Error: Cannot determine which file is the image and which is the video.",
+                            "Pass one image (.jpg/.jpeg/.heic/.heif) and one video (.mp4/.mov), e.g. 'lpb merge photo.jpg video.mp4'.");
                         context.ExitCode = 1;
                         return;
                     }
-                    image ??= resolved.Value.Image;
-                    video ??= resolved.Value.Video;
+                    var img = resolved.Value.Image;
+                    var vid = resolved.Value.Video;
+                    if (!CliInputValidator.ValidateInputFile(img) || !CliInputValidator.ValidateInputFile(vid))
+                    {
+                        context.ExitCode = 1;
+                        return;
+                    }
+                    image ??= img;
+                    video ??= vid;
                 }
                 else if (files is { Length: 1 })
                 {
-                    CliConsole.WriteErrorLine("Error: Provide TWO files (image + video), or use --dir for batch mode.");
-                    context.ExitCode = 1;
-                    return;
+                    // 位置参数不带扩展名即自动识别为目录（批量模式，等价 -d/--dir）。
+                    // 已存在的目录优先按目录处理，即使目录名含点（如 "My.Photos"）。
+                    string p = files[0];
+                    var folderStatus = CliInputValidator.ResolveFolderInput(
+                        p, "images need .jpg/.jpeg/.heic/.heif, videos need .mp4/.mov", ref dir);
+                    if (folderStatus == CliInputValidator.FolderInputStatus.NotFound)
+                    {
+                        context.ExitCode = 1;
+                        return;
+                    }
+                    if (folderStatus == CliInputValidator.FolderInputStatus.NotFolder)
+                    {
+                        CliConsole.WriteErrorWithHint(
+                            "Error: Provide TWO files (image + video), or use --dir for batch mode.",
+                            "Examples: 'lpb merge photo.jpg video.mp4' or 'lpb merge ./MyPhotos -p motionphoto -y'.");
+                        context.ExitCode = 1;
+                        return;
+                    }
                 }
 
                 var protocolName = context.ParseResult.GetValueForOption(protocolOpt)!;
@@ -184,14 +215,24 @@ namespace LivePhotoBox.Cli.Commands
                 long? keyTimestampUs = null;
                 if (keyTimestampText != null)
                 {
-                    if (!TryParseKeyTimestamp(keyTimestampText, out long parsedUs))
+                    if (!CliInputValidator.TryParseKeyTimestamp(keyTimestampText, out long parsedUs))
                     {
-                        CliConsole.WriteErrorLine($"Error: Invalid --key-timestamp '{keyTimestampText}'.");
-                        Console.Error.WriteLine("Use seconds (e.g. 1.5), mm:ss (e.g. 1:30) or hh:mm:ss (e.g. 0:01:30).");
+                        CliConsole.WriteErrorWithHint(
+                            $"Error: Invalid --key-timestamp '{keyTimestampText}'.",
+                            "Use seconds (e.g. 2.500), mm:ss (e.g. 1:30.500) or hh:mm:ss (e.g. 0:01:30.500).");
                         context.ExitCode = 1;
                         return;
                     }
                     keyTimestampUs = parsedUs;
+                }
+
+                // 批量目录必须存在（-d/--dir 兜底）、输出路径不能是文件、并发数 1..64
+                if (!CliInputValidator.ValidateInputDirectory(dir)
+                    || !CliInputValidator.ValidateOutputDirectory(output)
+                    || !CliInputValidator.ValidateParallel(parallel))
+                {
+                    context.ExitCode = 1;
+                    return;
                 }
 
                 context.ExitCode = await RunAsync(
@@ -283,7 +324,9 @@ namespace LivePhotoBox.Cli.Commands
 
             if (isSingle && isBatch)
             {
-                CliConsole.WriteErrorLine("Error: Cannot use both single-pair (--image/--video) and batch (--dir) mode.");
+                CliConsole.WriteErrorWithHint(
+                    "Error: Cannot use both single-pair and batch (--dir) mode.",
+                    "Pass either a file pair (photo.jpg video.mp4) or a folder (./MyPhotos), not both.");
                 return 1;
             }
 
@@ -296,7 +339,8 @@ namespace LivePhotoBox.Cli.Commands
             // Resolve protocol
             if (!ProtocolNameResolver.TryResolveProtocol(protocolName, out int protocolIndex))
             {
-                CliConsole.WriteErrorLine($"Error: Unknown protocol '{protocolName}'. Use 'lpb protocols' to list available.{CliConsole.DidYouMean(protocolName, ["micro video", "motion photo", "oppo", "vivo", "samsung", "huawei"])}");
+                string[] protocolSuggestions = ["micro video", "microvideo", "motion photo", "motionphoto", "oppo", "vivo", "samsung", "huawei"];
+                CliConsole.WriteErrorLine($"Error: Unknown protocol '{protocolName}'.{CliConsole.DidYouMean(protocolName, protocolSuggestions)} Use 'lpb protocols' to list available.");
                 if (protocolName.Contains("apple", StringComparison.OrdinalIgnoreCase))
                     Console.Error.WriteLine("Note: Apple Live Photo is a split target (lpb split ... -p apple), not a merge protocol.");
                 return 1;
@@ -346,6 +390,13 @@ namespace LivePhotoBox.Cli.Commands
             {
                 namingRuleIndex = 2;
                 customPattern = naming.Substring(7);
+                if (string.IsNullOrWhiteSpace(customPattern))
+                {
+                    CliConsole.WriteErrorWithHint(
+                        "Error: custom: naming template cannot be empty.",
+                        "Example: -n \"custom:{name}_{protocol}_{date:yyyy-MM-dd}\"");
+                    return 1;
+                }
             }
             else
             {
@@ -367,7 +418,16 @@ namespace LivePhotoBox.Cli.Commands
             string? afterMoveDir = null;
             bool afterRecycle = false;
             if (after.StartsWith("move:", StringComparison.OrdinalIgnoreCase))
+            {
                 afterMoveDir = after.Substring(5);
+                if (string.IsNullOrWhiteSpace(afterMoveDir))
+                {
+                    CliConsole.WriteErrorWithHint(
+                        "Error: --after move: requires a non-empty folder path.",
+                        "Example: --after \"move:./Archived\"");
+                    return 1;
+                }
+            }
             else if (after.Equals("recycle", StringComparison.OrdinalIgnoreCase))
                 afterRecycle = true;
             else if (!after.Equals("none", StringComparison.OrdinalIgnoreCase))
@@ -1075,42 +1135,6 @@ namespace LivePhotoBox.Cli.Commands
         // Parse a user-supplied key photo timestamp into microseconds.
         // Accepts decimal seconds (1.5), mm:ss (1:30), mm:ss.fff (1:30.500)
         // or hh:mm:ss (0:01:30). Returns false on malformed / negative input.
-        private static bool TryParseKeyTimestamp(string text, out long microseconds)
-        {
-            microseconds = 0;
-            if (string.IsNullOrWhiteSpace(text))
-                return false;
-            text = text.Trim();
-
-            double seconds;
-            if (text.Contains(':'))
-            {
-                string[] parts = text.Split(':');
-                if (parts.Length is < 2 or > 3)
-                    return false;
-
-                double total = 0;
-                for (int i = 0; i < parts.Length - 1; i++)
-                {
-                    if (!int.TryParse(parts[i], NumberStyles.None, CultureInfo.InvariantCulture, out int v) || v < 0)
-                        return false;
-                    total = total * 60 + v;
-                }
-
-                if (!double.TryParse(parts[^1], NumberStyles.Float, CultureInfo.InvariantCulture, out double last) || last < 0)
-                    return false;
-                seconds = total * 60 + last;
-            }
-            else
-            {
-                if (!double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out seconds) || seconds < 0)
-                    return false;
-            }
-
-            microseconds = (long)Math.Round(seconds * 1_000_000.0);
-            return true;
-        }
-
         // ══════════════════════════════════════════════════════════════
         //  Recycle Bin via SHFileOperationW
         // ══════════════════════════════════════════════════════════════

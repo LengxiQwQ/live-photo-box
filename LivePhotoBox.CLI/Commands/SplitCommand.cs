@@ -92,11 +92,11 @@ namespace LivePhotoBox.Cli.Commands
         public static Command Create()
         {
             var filesArg = new Argument<string?>("files",
-                "One live photo file to split (.jpg/.jpeg/.heic/.heif with an appended video).");
+                "Live photo file (.jpg/.jpeg/.heic/.heif) or folder path. A path without a file extension is auto-detected as a folder (same as --dir).");
             filesArg.Arity = ArgumentArity.ZeroOrOne;
 
             var dirOpt = new Option<DirectoryInfo?>("--dir",
-                "Folder with single-file live photos. All detected live photos are split. For batch mode.");
+                "Folder with single-file live photos. All detected live photos are split. For batch mode; a folder path can also be passed as the positional argument.");
             dirOpt.AddAlias("-d");
 
             var pairingOpt = new Option<string>("--pairing", () => "all",
@@ -111,6 +111,11 @@ namespace LivePhotoBox.Cli.Commands
                 "Output format. keep (no conversion)|jpg+mov (H.265)|heic+mov (H.265)|jpg+mp4 (H.264).\nDefault: first available for the chosen protocol.");
             formatOpt.AddAlias("-f");
 
+            var keyTimestampOpt = new Option<string?>("--key-timestamp",
+                "Override the key photo (cover) position on the video timeline (Apple conversion, single-file mode).\n" +
+                "Accepts seconds (2.500), mm:ss (1:30.500) or hh:mm:ss (0:01:30.500).\n" +
+                "Default: follow the source live photo's own timeline.");
+
             var outputOpt = new Option<DirectoryInfo?>("--output",
                 "Output folder. Default: the source file's own directory for a single file; a \"{folder}_split\" subfolder inside the input folder for batch mode.");
             outputOpt.AddAlias("-o");
@@ -121,7 +126,7 @@ namespace LivePhotoBox.Cli.Commands
 
             var parallelOpt = new Option<int>("--parallel",
                 () => Math.Min(Environment.ProcessorCount, 5),
-                "How many files to process at once. More = faster CPU usage.");
+                "How many files to process at once (1-64). More = faster CPU usage.");
             parallelOpt.AddAlias("-j");
 
             var yesOpt = new Option<bool>("--yes",
@@ -164,15 +169,17 @@ namespace LivePhotoBox.Cli.Commands
                 "Input: .jpg .jpeg .heic .heif (single-file live photos with an appended video)\n\n" +
                 "Single file:  lpb split photo.jpg\n" +
                 "              (writes photo.jpg + photo.mov next to the source)\n" +
-                "Batch folder: lpb split -d ./MyPhotos -y\n" +
+                "Batch folder: lpb split ./MyPhotos -y\n" +
+                "              (folder auto-detected by missing extension; -d/--dir also works)\n" +
                 "              (writes ./MyPhotos/MyPhotos_split/)\n" +
                 "Convert:      lpb split photo.jpg -f jpg+mp4\n" +
                 "All variants: lpb split photo.jpg --all-variants\n" +
                 "Preview:      lpb split -d ./MyPhotos --dry-run\n" +
+                "Wildcards:    not supported — pass a folder or explicit files\n" +
                 "Formats:      lpb protocols")
             {
                 filesArg,
-                dirOpt, pairingOpt, protocolOpt, formatOpt, outputOpt, namingOpt,
+                dirOpt, pairingOpt, protocolOpt, formatOpt, keyTimestampOpt, outputOpt, namingOpt,
                 parallelOpt, yesOpt, jsonOpt, dryRunOpt, verboseOpt,
                 overwriteOpt, recursiveOpt, preserveSubdirsOpt, afterOpt,
                 allVariantsOpt
@@ -185,6 +192,7 @@ namespace LivePhotoBox.Cli.Commands
                 var pairingName = context.ParseResult.GetValueForOption(pairingOpt)!;
                 var protocolName = context.ParseResult.GetValueForOption(protocolOpt)!;
                 var formatName = context.ParseResult.GetValueForOption(formatOpt);
+                var keyTimestampText = context.ParseResult.GetValueForOption(keyTimestampOpt);
                 var output = context.ParseResult.GetValueForOption(outputOpt);
                 var naming = context.ParseResult.GetValueForOption(namingOpt)!;
                 // 用户是否显式传了 --naming（未传时单文件默认 suffix、批量默认 keep）
@@ -203,34 +211,81 @@ namespace LivePhotoBox.Cli.Commands
                 var after = context.ParseResult.GetValueForOption(afterOpt)!;
                 var allVariants = context.ParseResult.GetValueForOption(allVariantsOpt);
 
+                long? keyTimestampUs = null;
+                if (keyTimestampText != null)
+                {
+                    if (!CliInputValidator.TryParseKeyTimestamp(keyTimestampText, out long parsedUs))
+                    {
+                        CliConsole.WriteErrorWithHint(
+                            $"Error: Invalid --key-timestamp '{keyTimestampText}'.",
+                            "Use seconds (e.g. 2.500), mm:ss (e.g. 1:30.500) or hh:mm:ss (e.g. 0:01:30.500).");
+                        context.ExitCode = 1;
+                        return;
+                    }
+                    keyTimestampUs = parsedUs;
+                }
+
                 if (singlePath != null)
                 {
+                    // 通配符在 cmd/PowerShell 下原样传递（Git Bash 会先展开），统一给出友好提示
+                    if (CliInputValidator.HasWildcard(singlePath))
+                    {
+                        CliInputValidator.WriteWildcardNotSupported();
+                        context.ExitCode = 1;
+                        return;
+                    }
+
                     // System.CommandLine 会把未知选项当成位置参数（文件名）吞掉，提前识别避免误导性报错
-                    if (singlePath.StartsWith('-') && !ImageExtensions.Contains(Path.GetExtension(singlePath)))
+                    if (CliInputValidator.IsUnknownOption(singlePath, ImageExtensions))
                     {
-                        CliConsole.WriteErrorLine($"Error: Unknown option '{singlePath}'. Run 'lpb split --help' to see available options.");
+                        CliInputValidator.WriteUnknownOptionError(singlePath, cmd.Options.SelectMany(o => o.Aliases), "split");
                         context.ExitCode = 1;
                         return;
                     }
-                    string ext = Path.GetExtension(singlePath);
-                    if (!ImageExtensions.Contains(ext))
+
+                    // 位置参数不带扩展名即自动识别为目录（批量模式，等价 -d/--dir）；
+                    // 已存在的目录优先，目录名含点（如 "My.Photos"）也能正确识别。
+                    var folderStatus = CliInputValidator.ResolveFolderInput(
+                        singlePath, "supported files need .jpg/.jpeg/.heic/.heif", ref dir);
+                    if (folderStatus == CliInputValidator.FolderInputStatus.NotFound)
                     {
-                        CliConsole.WriteErrorLine($"Error: Unsupported file type '{ext}'. Supported: .jpg, .jpeg, .heic, .heif");
                         context.ExitCode = 1;
                         return;
                     }
-                    if (!File.Exists(singlePath))
+                    if (folderStatus == CliInputValidator.FolderInputStatus.Resolved)
                     {
-                        CliConsole.WriteErrorLine($"Error: File not found: {singlePath}");
-                        context.ExitCode = 1;
-                        return;
+                        singlePath = null;
                     }
+                    else
+                    {
+                        string ext = Path.GetExtension(singlePath);
+                        if (!ImageExtensions.Contains(ext))
+                        {
+                            CliConsole.WriteErrorLine($"Error: Unsupported file type '{ext}'. Supported: .jpg, .jpeg, .heic, .heif");
+                            context.ExitCode = 1;
+                            return;
+                        }
+                        if (!CliInputValidator.ValidateInputFile(new FileInfo(singlePath)))
+                        {
+                            context.ExitCode = 1;
+                            return;
+                        }
+                    }
+                }
+
+                // 批量目录必须存在（-d/--dir 兜底）、输出路径不能是文件、并发数 1..64
+                if (!CliInputValidator.ValidateInputDirectory(dir)
+                    || !CliInputValidator.ValidateOutputDirectory(output)
+                    || !CliInputValidator.ValidateParallel(parallel))
+                {
+                    context.ExitCode = 1;
+                    return;
                 }
 
                 context.ExitCode = await RunAsync(
                     singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose,
-                    overwrite, recursive, preserveSubdirs, after, allVariants,
+                    overwrite, recursive, preserveSubdirs, after, allVariants, keyTimestampUs,
                     context.GetCancellationToken());
             });
 
@@ -241,21 +296,43 @@ namespace LivePhotoBox.Cli.Commands
             string? singlePath, DirectoryInfo? dir,
             string pairingName, string protocolName, string? formatName, DirectoryInfo? output,
             string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,
-            bool overwrite, bool recursive, bool preserveSubdirs, string after, bool allVariants,
+            bool overwrite, bool recursive, bool preserveSubdirs, string after, bool allVariants, long? keyTimestampUs,
             CancellationToken ct)
         {
             bool isSingle = singlePath != null;
             bool isBatch = dir != null;
 
+            // --all-variants 优先给出专属错误（避免先报通用的"缺少输入"误导用户）
+            if (allVariants && !isSingle && !isBatch)
+            {
+                CliConsole.WriteErrorWithHint(
+                    "Error: --all-variants requires a single live photo file.",
+                    "Example: 'lpb split photo.jpg --all-variants'");
+                return 1;
+            }
+
             if (!isSingle && !isBatch)
             {
-                CliConsole.WriteErrorLine("Error: Specify a live photo file, or use --dir for batch mode.");
+                CliConsole.WriteErrorWithHint(
+                    "Error: Specify a live photo file, or use --dir for batch mode.",
+                    "Examples: 'lpb split photo.jpg' or 'lpb split ./MyPhotos -y'.");
                 return 1;
             }
 
             if (isSingle && isBatch)
             {
-                CliConsole.WriteErrorLine("Error: Cannot use both single-file and --dir batch mode.");
+                CliConsole.WriteErrorWithHint(
+                    "Error: Cannot use both single-file and --dir batch mode.",
+                    "Pass either a single file or a folder, not both.");
+                return 1;
+            }
+
+            // --key-timestamp 只支持单文件（批量时每张照片的源时间戳不同，无法共用同一个覆盖值）
+            if (keyTimestampUs.HasValue && !isSingle)
+            {
+                CliConsole.WriteErrorWithHint(
+                    "Error: --key-timestamp only works with a single live photo file (not --dir batch mode).",
+                    "Example: 'lpb split photo.jpg -p apple --key-timestamp 2.500'");
                 return 1;
             }
 
@@ -272,6 +349,13 @@ namespace LivePhotoBox.Cli.Commands
                     CliConsole.WriteErrorLine("Error: --all-variants requires a single live photo file.");
                     return 1;
                 }
+                if (keyTimestampUs.HasValue)
+                {
+                    CliConsole.WriteErrorWithHint(
+                        "Error: --key-timestamp is not supported with --all-variants.",
+                        "Use it with a single Apple conversion, e.g. 'lpb split photo.jpg -p apple --key-timestamp 2.500'.");
+                    return 1;
+                }
 
                 // Default output to the source file's directory (not cwd)
                 string outputDir = output?.FullName ?? Path.GetDirectoryName(Path.GetFullPath(singlePath))!;
@@ -283,6 +367,15 @@ namespace LivePhotoBox.Cli.Commands
             if (!SplitProtocolMap.TryGetValue(protocolName.Trim(), out int protocolIndex))
             {
                 CliConsole.WriteErrorLine($"Error: Unknown protocol '{protocolName}'. Valid: none, apple, vivo.{CliConsole.DidYouMean(protocolName, ["none", "apple", "vivo"])}");
+                return 1;
+            }
+
+            // --key-timestamp 只在 Apple 转换（写封面位置元数据）时有意义；vivo 写入器固定 cover=0，无协议无封面概念。
+            if (keyTimestampUs.HasValue && protocolIndex != 1)
+            {
+                CliConsole.WriteErrorWithHint(
+                    "Error: --key-timestamp only works when converting to Apple Live Photo (-p apple).",
+                    "Example: 'lpb split photo.jpg -p apple --key-timestamp 2.500'");
                 return 1;
             }
 
@@ -337,6 +430,13 @@ namespace LivePhotoBox.Cli.Commands
             else if (naming.StartsWith("custom:", StringComparison.OrdinalIgnoreCase))
             {
                 customPattern = naming.Substring(7);
+                if (string.IsNullOrWhiteSpace(customPattern))
+                {
+                    CliConsole.WriteErrorWithHint(
+                        "Error: custom: naming template cannot be empty.",
+                        "Example: -n \"custom:{name}_split_{date:yyyy-MM-dd}\"");
+                    return 1;
+                }
             }
             else
             {
@@ -348,7 +448,16 @@ namespace LivePhotoBox.Cli.Commands
             string? afterMoveDir = null;
             bool afterRecycle = false;
             if (after.StartsWith("move:", StringComparison.OrdinalIgnoreCase))
+            {
                 afterMoveDir = after.Substring(5);
+                if (string.IsNullOrWhiteSpace(afterMoveDir))
+                {
+                    CliConsole.WriteErrorWithHint(
+                        "Error: --after move: requires a non-empty folder path.",
+                        "Example: --after \"move:./Archived\"");
+                    return 1;
+                }
+            }
             else if (after.Equals("recycle", StringComparison.OrdinalIgnoreCase))
                 afterRecycle = true;
             else if (!after.Equals("none", StringComparison.OrdinalIgnoreCase))
@@ -438,7 +547,7 @@ namespace LivePhotoBox.Cli.Commands
                     Directory.CreateDirectory(outputDir);
                     return await SplitSingleAsync(
                         singlePath!, outputDir, protocolIndex, formatIndex, customPattern,
-                        overwrite, verbose, json, afterMoveDir, afterRecycle, ct);
+                        overwrite, verbose, json, afterMoveDir, afterRecycle, keyTimestampUs, ct);
                 }
                 else
                 {
@@ -509,7 +618,7 @@ namespace LivePhotoBox.Cli.Commands
         private static async Task<int> SplitSingleAsync(
             string sourcePath, string outputDir, int protocolIndex, int formatIndex,
             string? customPattern, bool overwrite, bool verbose, bool json,
-            string? afterMoveDir, bool afterRecycle, CancellationToken ct)
+            string? afterMoveDir, bool afterRecycle, long? keyTimestampUs, CancellationToken ct)
         {
             string baseName = Path.GetFileNameWithoutExtension(sourcePath);
             try
@@ -520,7 +629,8 @@ namespace LivePhotoBox.Cli.Commands
 
                 var result = await LivePhotoSplitService.SplitAsync(
                     sourcePath, outputDir, protocolIndex, formatIndex, ct,
-                    inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite);
+                    inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite,
+                    keyTimestampUs: keyTimestampUs);
 
                 if (json)
                 {

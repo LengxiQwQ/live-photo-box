@@ -10,23 +10,24 @@ Live Photo Box is available in two forms — a graphical interface and a command
 
 ---
 
-## Distribution Packages
+## Installation
 
-Three packages are available on the [Releases page](https://github.com/lengxiqwq/live-photo-box/releases):
+Four install options are available on the [Releases page](https://github.com/lengxiqwq/live-photo-box/releases):
 
-| Package | Contents | Best for | PATH |
-|---------|----------|----------|------|
-| `*-x64-setup.exe` | GUI + CLI, installed via setup wizard | General users who want the full app | Optional during install |
-| `*-x64-portable.zip` | GUI + CLI, no installation required | Portable use on USB drives, or trying without installing | Add manually |
-| `*-x64-cli.zip` | CLI only, no GUI or GUI dependencies | Servers, scripts, CI/CD, minimal footprint | Add manually |
+| Method | Install | Contents | PATH |
+|--------|---------|----------|------|
+| WinGet | `winget install LengxiQwQ.LivePhotoBox` | CLI only | Added automatically — no manual step |
+| Installer | Run `*-x64-setup.exe` | GUI + CLI | Optional during install — no manual step |
+| Portable | Extract `*-x64-portable.zip` | GUI + CLI | Add manually |
+| CLI-only | Extract `*-x64-cli.zip` | CLI only | Add manually |
 
-All three packages include the same `livephotobox.exe` and its four aliases. The CLI-only package is the smallest.
+All packages include the same `livephotobox.exe` and its four aliases. WinGet and installer copies get PATH set up during install — only the portable and CLI-only zips need manual PATH (see below). WinGet-managed copies are updated and uninstalled via WinGet — not `lpb update` (see Updating below).
 
 ---
 
 ## Adding the CLI to your PATH
 
-On Windows, running an executable from the current folder requires a `.\` prefix — e.g. `.\lpb --version`. To call `lpb` (or any alias) from any directory, add the install folder to your **user PATH**.
+On Windows, running an executable from the current folder requires a `.\` prefix — e.g. `.\lpb --version`. To call `lpb` (or any alias) from any directory, add the install folder to your **user PATH**. WinGet and installer copies get PATH set up during install — the steps below are only needed for the portable and CLI-only zips.
 
 The package includes two helper scripts at its root for one-click setup:
 
@@ -69,27 +70,17 @@ Updates are **user-triggered**.
 |--------|------------|-------------|
 | `-y`, `--yes` | `update` | Skip the confirmation prompt and update automatically (required for scripts) |
 
-### WinGet installs
+### WinGet-managed copies
 
-A copy installed with WinGet (`winget install LengxiQwQ.LivePhotoBox`) **does not use the built-in update** — WinGet owns installing, upgrading, and uninstalling:
+A copy installed with WinGet **does not use the built-in update** — WinGet owns installing, upgrading, and uninstalling:
 
-- `lpb update` and `lpb update-check` still check GitHub and report a newer version, but `lpb update` does **not** download or install anything — it prints `Update with: winget upgrade LengxiQwQ.LivePhotoBox` and exits.
-- To update a WinGet copy:
-  ```
-  winget upgrade LengxiQwQ.LivePhotoBox
-  ```
-- Uninstall the same way: `winget uninstall LengxiQwQ.LivePhotoBox`.
+- `lpb update` / `update-check` still report newer versions, but `lpb update` does not install — it prints `Update with: winget upgrade LengxiQwQ.LivePhotoBox` and exits.
+- Update: `winget upgrade LengxiQwQ.LivePhotoBox` · Uninstall: `winget uninstall LengxiQwQ.LivePhotoBox`.
 - Not sure which channel your copy is? Run `lpb --info` — a WinGet copy reports `Channel: WinGet (CLI-only)`.
 
-### Other install types
+### Portable & installer copies
 
-For portable, portable-bundle, and installer copies, `lpb update` performs the update itself. When a newer version is found, it prints the version and the matching package, then asks `Update now? [Y/n]` — Enter or `y` proceeds. The package is picked automatically by install type:
-
-| Install type | Package |
-|--------------|---------|
-| Portable CLI-only | `*-x64-cli.zip` |
-| Portable bundle (GUI + CLI) | `*-x64-portable.zip` |
-| Installer (Inno Setup, GUI + CLI) | `*-x64-setup.exe` |
+`lpb update` performs the update itself, asking `Update now? [Y/n]` first (Enter/`y` proceeds); the matching package is picked automatically.
 
 Both commands need internet; on failure they print the reason and a `Manual download: …` link.
 
@@ -115,6 +106,9 @@ lpb merge -d ./MyPhotos -p huawei -y
 
 # Split a single-file live photo back into photo + video
 lpb split photo.jpg -y
+
+# Batch-split a folder (folder is auto-detected; -d also works)
+lpb split ./MyPhotos -y
 ```
 
 ---
@@ -137,7 +131,7 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 
 **Compatibility matrix** — which output formats each protocol supports:
 
-| Protocol | JPEG+MP4 | JPEG+MOV | HEIC+MP4 | HEIC+MOV | HEIC+MP4 (H.265) |
+| Protocol | JPEG + MP4 | JPEG + MOV | HEIC + MP4 | HEIC + MOV | HEIC + MP4 (H.265) |
 |---|---|---|---|---|---|
 | Micro Video | ✅ | ✅ | ✖️ | ✖️ | ✖️ |
 | Motion Photo | ✅ | ✅ | ✖️ | ✅ | ✖️ |
@@ -147,8 +141,6 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 | HUAWEI Moving Photo | ✅ | ✖️ | ✅ | ✖️ | ✅ |
 
 `✅` — supported &nbsp;|&nbsp; `✖️` — not supported
-
-`heic+mp4-h265` (index 4) is HUAWEI-native HEVC (H.265).
 
 **Merge — device support:**
 
@@ -161,7 +153,7 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 | Samsung Motion Photo | Windows / Samsung | 🟡 In testing |
 | HUAWEI Moving Photo | HUAWEI / Honor | ✅ Supported |
 
-**Split — device support** (split is supported in the CLI — see the `split` section below):
+**Split — device support:**
 
 | Protocol | Devices | Status |
 |---|---|---|
@@ -170,13 +162,13 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 
 **Split — protocol × format compatibility:**
 
-| Protocol | keep | jpg+mov | heic+mov | jpg+mp4 |
+| Protocol | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | None (split only) | ✅ | ✅ | ✅ | ✅ |
 | Apple Live Photo | ✖️ | ✅ | ✅ | ✖️ |
 | vivo Live Photo | ✖️ | ✖️ | ✖️ | ✅ |
 
-**JSON output** for scripting — includes each protocol's index, display name, devices, status, and formats, plus the split table:
+**JSON output** for scripting:
 
 ```powershell
 lpb protocols --json
@@ -191,19 +183,22 @@ The primary command. Supports two operating modes:
 | Mode | Arguments | Use case |
 |------|-----------|----------|
 | Single pair | `photo.jpg video.mp4` (auto-detected) | One image and one video |
-| Batch folder | `-d` | Directory of pairs (auto-matched by filename) |
+| Batch folder | `<path>` (auto-detected: no extension) or `-d` | Directory of pairs (auto-matched by filename) |
 
 #### Examples
 
 | Goal | Command |
 |------|---------|
+| Batch merge a folder, auto-confirm | `lpb merge ./MyPhotos -p motionphoto -y` (folder auto-detected; `-d` also works) |
 | HUAWEI native HEVC (single pair) | `lpb merge photo.jpg video.mp4 -p huawei -f heic+mp4-h265 -y` |
 | Batch → HUAWEI, explicit output folder | `lpb merge -d ./MyPhotos -p huawei -o ./Output -y` |
 | Recursive batch, keep folder structure | `lpb merge -d ./Photos -r -s -p motionphoto -o ./Output -y` |
 | Preview without creating folders | `lpb merge -d ./Photos -p motionphoto --dry-run` |
 | Custom filename template | `lpb merge -d ./Photos -p motionphoto -n "custom:{name}_{protocol}_{date}" -y` |
 | Overwrite instead of auto-renaming | `lpb merge photo.jpg video.mp4 -p huawei -y -w` |
-| Set key photo position (2.5 s) | `lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y` |
+| Set key photo position (2.500 s) | `lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.500 -y` |
+
+> **Note:** Wildcards (`*.jpg`) are not supported. Pass a folder (`-d`) or list files explicitly.
 
 ---
 
@@ -213,11 +208,11 @@ The primary command. Supports two operating modes:
 
 | Option | Description |
 |--------|-------------|
-| `<image> <video>` | Image + video pair, auto-detected by extension, any order. Images: `.jpg .jpeg .heic .heif`; videos: `.mp4 .mov` |
-| `-d, --dir <folder>` | Directory to scan (batch mode); files sharing the same base name auto-pair |
+| `<image> <video>` | Image + video pair, auto-detected by extension, any order. Images: `.jpg .jpeg .heic .heif`; videos: `.mp4 .mov`. A single folder path without a file extension is auto-detected as batch mode |
+| `-d, --dir <path>` | Directory to scan (batch mode); files sharing the same base name auto-pair. A path can also be passed as the positional argument |
 | `-r, --recursive` | Include subdirectories when scanning |
 | `--pairing <method>` | Pairing strategy (batch only): `name` — by filename (default); `cid` — Apple ContentIdentifier UUID; `vivo` — vivo camera ID |
-| `--key-timestamp <time>` | Key photo position on the video timeline (single-pair only). Accepts seconds (`1.5`), `mm:ss` (`1:30`), `hh:mm:ss` (`0:01:30`); default follows the source video |
+| `--key-timestamp <time>` | Key photo position on the video timeline (single-pair only). Accepts seconds (`2.500`), `mm:ss` (`1:30.500`), `hh:mm:ss` (`0:01:30.500`); default follows the source video |
 
 **Output**
 
@@ -267,7 +262,7 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 | Mode | Default output | Example |
 |------|----------------|---------|
 | Single pair | The **image's own directory** (photo and video may live in different folders; the photo wins) | `D:\Pics\IMG_001.jpg` + `D:\Videos\clip.mp4` → `D:\Pics\IMG_001_motionphoto.jpg` |
-| Batch (`-d`) | A subfolder inside the input folder, named `{input_folder}_<protocol>` | `lpb merge -d ./MyPhotos -p motionphoto` → `./MyPhotos/MyPhotos_motionphoto/` |
+| Batch (folder / `-d`) | A subfolder inside the input folder, named `{input_folder}_<protocol>` | `lpb merge ./MyPhotos -p motionphoto` → `./MyPhotos/MyPhotos_motionphoto/` |
 
 - Folder/file names are English: `MyPhotos_huawei/`, `IMG_001huawei.jpg`.
 - Single-pair files are named `{source_name}<protocol_suffix>` by default (e.g. `IMG_001motionphoto.jpg`) so they never overwrite the source photo.
@@ -276,7 +271,7 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 
 #### `--all-variants` — Generate every protocol × format combo
 
-Instead of running separate merge commands for each protocol and format, generate all 14 supported combinations (7 protocols × their available formats) in one go. Ideal for developer QA and testing.
+Generates all 14 supported combinations (7 protocols × their available formats) in one command. Ideal for developer QA and testing.
 
 ```powershell
 # Default: writes to {image_dir}/{name}_variants/
@@ -296,21 +291,20 @@ photo_HUAWEI_MovingPhoto_HEIC+MP4 (H.265).heic
 Notes:
 - Single-pair mode only. Batch mode (`--dir`) is not supported.
 - Naming is fixed — `--naming`, `--protocol`, and `--format` are ignored.
-- `--key-timestamp` is supported — all variants use the same timestamp.
 
 #### `--key-timestamp` — Set the key photo position in the video
 
-When merging a single pair, the live photo metadata records **where on the video timeline the key photo (cover) belongs**. By default the tool follows the source video's own timeline; passing this option overrides it with your value.
+Sets **where on the video timeline the key photo (cover) belongs**. Default: follows the source video's own timeline.
 
 ```powershell
-# Cover is at 2.5 seconds into the video
-lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.5 -y
+# Cover is at 2.500 seconds into the video
+lpb merge photo.jpg video.mp4 -p huawei --key-timestamp 2.500 -y
 
 # mm:ss and hh:mm:ss forms are also accepted
 lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 ```
 
-- Time formats: seconds (`1.5`), `mm:ss` (`1:30`), `hh:mm:ss` (`0:01:30`).
+- Time formats: seconds (`2.500`), `mm:ss` (`1:30.500`), `hh:mm:ss` (`0:01:30.500`).
 - Single-pair mode only — with batch mode (`-d`) it exits with an error.
 - Can be combined with `--all-variants` — all variants share the same timestamp.
 
@@ -337,7 +331,7 @@ In batch mode (`-d`), the tool must decide which image belongs to which video:
 | Sequential numbering | `-n "custom:Photo_{counter:D4}"` | `Photo_0001.jpg` |
 | Full metadata | `-n "custom:{name}_{protocol}_{date}_{time}"` | `IMG_001_huawei_20260803_143022.jpg` |
 
-> **Note:** when `-n` is omitted, **single-pair** merges default to `suffix` (so the output never collides with the source photo) while **batch** merges default to `keep` (outputs go into a separate subfolder, so names stay unchanged). Explicitly passing `-n` always wins.
+> **Note:** omitted `-n`: single-pair defaults to `suffix`, batch to `keep`. An explicit `-n` always wins.
 
 #### After-Completion Actions
 
@@ -349,20 +343,6 @@ In batch mode (`-d`), the tool must decide which image belongs to which video:
 
 Only source files from **successfully** merged pairs are affected.
 
-#### Workflow Examples
-
-```powershell
-# Batch to Google Motion Photo format
-lpb merge -d ./DCIM/Camera -p motionphoto -o ./LivePhotos -y
-
-# Recursive batch with structure preservation + source archiving
-lpb merge -d ./Photos -r -s -p motionphoto -o ./Output --after "move:./Originals" -y
-
-# Scripted batch with error logging
-lpb merge -d ./Photos -p huawei -o ./Out -y -v 2>errors.log
-if ($LASTEXITCODE -ne 0) { Write-Host "Some files failed — see errors.log" }
-```
-
 ---
 
 ### `split` — Split single-file live photos
@@ -372,19 +352,22 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 | Mode | Arguments | Use case |
 |------|-----------|----------|
 | Single file | `<file>` (auto-detected by extension) | Split one single-file live photo |
-| Batch folder | `-d` | Split every single-file live photo in a directory |
+| Batch folder | `<path>` (auto-detected: no extension) or `-d` | Split every single-file live photo in a directory |
 
 #### Examples
 
 | Goal | Command |
 |------|---------|
 | Split a single file (photo + video next to the source) | `lpb split photo.jpg` |
-| Batch split a folder, auto-confirm | `lpb split -d ./MyPhotos -y` |
+| Batch split a folder, auto-confirm | `lpb split ./MyPhotos -y` (folder auto-detected; `-d` also works) |
 | Convert the video to JPG+MP4 (H.264) | `lpb split photo.jpg -f jpg+mp4` |
 | Preview without processing | `lpb split -d ./MyPhotos --dry-run` |
 | Only split vivo live photos | `lpb split -d ./MyPhotos --pairing vivo -y` |
 | Overwrite existing outputs | `lpb split photo.jpg -w` |
 | Export all variants (Apple + vivo + no-protocol) | `lpb split photo.jpg --all-variants` |
+| Set key photo position (Apple conversion) | `lpb split photo.jpg -p apple --key-timestamp 2.500 -y` |
+
+> **Note:** Wildcards (`*.jpg`) are not supported. Pass a folder (`-d`) or list files explicitly.
 
 ---
 
@@ -394,8 +377,8 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 
 | Option | Description |
 |--------|-------------|
-| `<file>` | One single-file live photo to split: `.jpg .jpeg .heic .heif` (image with an appended video) |
-| `-d, --dir <folder>` | Folder with single-file live photos (batch mode); all detected live photos are split |
+| `<file>` | One single-file live photo to split: `.jpg .jpeg .heic .heif` (image with an appended video), or a folder path — a path without a file extension is auto-detected as a folder (batch mode) |
+| `-d, --dir <path>` | Folder with single-file live photos (batch mode); all detected live photos are split. A path can also be passed as the positional argument |
 | `--pairing <protocol>` | Only split live photos of this protocol: `all` (no filter, default), `v1` (MicroVideo), `v2` (MotionPhoto), `oppo`, `vivo`, `samsung`, `huawei` |
 | `-r, --recursive` | Include subdirectories when scanning |
 
@@ -412,8 +395,9 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 
 | Option | Description |
 |--------|-------------|
-| `-p, --protocol <p>` | Target phone format (default `none`): `none` (split only), `apple` (Apple Live Photo), `vivo` (vivo Live Photo, ≤ X200). This iteration only splits the file — pairing metadata is not written yet |
+| `-p, --protocol <p>` | Target phone format (default `none`): `none` (split only), `apple` (Apple Live Photo), `vivo` (vivo Live Photo, ≤ X200). Apple/vivo write pairing metadata (ContentIdentifier / vivo tail + uuid box) |
 | `-f, --format <f>` | Output format (default: first available for the protocol): `keep` (no conversion), `jpg+mov` (H.265), `heic+mov` (H.265), `jpg+mp4` (H.264) |
+| `--key-timestamp <time>` | Override the key photo (cover) position (Apple conversion, single-file only). Accepts seconds (`2.500`), `mm:ss` (`1:30.500`), `hh:mm:ss` (`0:01:30.500`). Default: follow the source |
 | `-n, --naming <rule>` | Output filename rule. Default: `keep`. `keep` (same name) or `custom:TEMPLATE` (tokens below) |
 
 Naming tokens:
@@ -446,7 +430,7 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 | Mode | Default output | Example |
 |------|----------------|---------|
 | Single file | The **source file's own directory** | `lpb split photo.jpg` → photo + video next to the source |
-| Batch (`-d`) | A subfolder inside the input folder, named `{folder}_split` | `lpb split -d ./MyPhotos` → `./MyPhotos/MyPhotos_split/` |
+| Batch (folder / `-d`) | A subfolder inside the input folder, named `{folder}_split` | `lpb split ./MyPhotos` → `./MyPhotos/MyPhotos_split/` |
 
 - The image keeps the source base name and extension; the video keeps the source video's container (`.mov` or `.mp4`).
 - Splitting in place: when the image name would collide with the source file, it is auto-renamed (`photo.jpg` → `photo (2).jpg`); pass `-w` to overwrite instead.
@@ -455,7 +439,7 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 
 #### `--all-variants` — Export every split variant
 
-From one single-file live photo, generate all 7 supported split variants in a single command (every protocol × format combination the GUI offers). Single-file mode only — batch (`-d`) is rejected. Ideal for developer QA and testing.
+From one single-file live photo, generate all 7 supported split variants in one command. Single-file mode only — batch (`-d`) is rejected. Ideal for developer QA and testing.
 
 | Variant | Output pair |
 |---------|-------------|
@@ -475,25 +459,23 @@ lpb split photo.jpg --all-variants
 lpb split photo.jpg --all-variants -o ./Out
 ```
 
-Output: `split_photo_All_Variants/` contains the 14 files above. Files are named `{protocol}_{format}` (lowercase CLI values, e.g. `-p apple -f jpg+mov` → `apple_jpg+mov`) — the original name goes into the **folder** name only; no spaces in any file or folder name. For the keep variant the image keeps the source extension and the video keeps the source video's container (`.MOV` / `.MP4`). `-p` / `-f` / `-n` / `-w` / `--after` are ignored in this mode; `-j` still controls parallelism.
+Files are named `{protocol}_{format}` (lowercase CLI values, e.g. `-p apple -f jpg+mov` → `apple_jpg+mov`); the original name goes into the **folder** name only; no spaces in any name. For the keep variant the image keeps the source extension and the video keeps the source container (`.MOV` / `.MP4`). `-p` / `-f` / `-n` / `-w` / `--after` are ignored; `-j` still controls parallelism.
 
 #### Protocol × Format Matrix
 
 Which output formats each split protocol supports:
 
-| Protocol | keep | jpg+mov | heic+mov | jpg+mp4 |
+| Protocol | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | `none` (split only) | ✅ | ✅ | ✅ | ✅ |
 | `apple` (Apple Live Photo) | ✖️ | ✅ | ✅ | ✖️ |
 | `vivo` (vivo Live Photo) | ✖️ | ✖️ | ✖️ | ✅ |
 
-`✅` — supported &nbsp;|&nbsp; `✖️` — not supported
-
-When `--format` is omitted, the default is the protocol's first available format: `keep` for `none`, `jpg+mov` for `apple`, `jpg+mp4` for `vivo`. Passing a `--format` the protocol does not support is an error (run `lpb protocols` to check).
+Omitted `--format` defaults to the protocol's first available format: `keep` (`none`), `jpg+mov` (`apple`), `jpg+mp4` (`vivo`).
 
 #### Pairing Filter
 
-`--pairing` restricts splitting to one protocol; live photos of other protocols are skipped. `all` (the default) scans everything.
+`--pairing` restricts splitting to one protocol; others are skipped.
 
 | Value | Protocol |
 |-------|----------|
@@ -507,7 +489,7 @@ When `--format` is omitted, the default is the protocol's first available format
 
 #### Naming Templates
 
-Split only supports `keep` (the default) and `custom:TEMPLATE` — there is no `suffix` mode. The template names both the image and the video (each keeps its own extension, e.g. `.jpg` / `.mov`).
+Split supports only `keep` (default) and `custom:TEMPLATE` (no `suffix`). The template names both image and video, each keeping its own extension.
 
 | Goal | Template | Example Output |
 |------|----------|----------------|
@@ -525,23 +507,6 @@ Split only supports `keep` (the default) and `custom:TEMPLATE` — there is no `
 
 Only source files from **successfully** split live photos are affected.
 
-#### Workflow Examples
-
-```powershell
-# Split a single live photo, converting the video to JPG+MP4 (H.264)
-lpb split photo.jpg -f jpg+mp4 -y
-
-# Batch split a folder, only vivo live photos, auto-confirm
-lpb split -d ./DCIM/Camera --pairing vivo -y
-
-# Recursive batch with structure preservation + source archiving
-lpb split -d ./Photos -r -s -o ./Output --after "move:./Originals" -y
-
-# Scripted batch with error logging
-lpb split -d ./Photos -o ./Out -y -v 2>errors.log
-if ($LASTEXITCODE -ne 0) { Write-Host "Some files failed — see errors.log" }
-```
-
 ---
 
 ### `repair` — Repair live photo metadata
@@ -551,18 +516,20 @@ Analyzes and fixes four kinds of metadata problems on existing live photo files:
 | Mode | Arguments | Use case |
 |------|-----------|----------|
 | Single file | `<file>` (auto-detected by extension) | Fix one image or video |
-| Batch folder | `-d` | Every media file in a directory |
+| Batch folder | `<path>` (auto-detected: no extension) or `-d` | Every media file in a directory |
 
 #### Examples
 
 | Goal | Command |
 |------|---------|
 | Fix a single file | `lpb repair photo.jpg` |
-| Batch fix a folder | `lpb repair -d ./MyPhotos -y` |
+| Batch fix a folder, auto-confirm | `lpb repair ./MyPhotos -y` (folder auto-detected; `-d` also works) |
 | Preview without writing | `lpb repair -d ./MyPhotos --dry-run` |
 | Only fix image rotation | `lpb repair -d ./Photos --no-thumbnail --no-heic --no-video -y` |
 | Repair files from all devices | `lpb repair -d ./MyPhotos --all-devices -y` |
 | Also copy intact files | `lpb repair -d ./MyPhotos --copy-perfect -y` |
+
+> **Note:** Wildcards (`*.jpg`) are not supported. Pass a folder (`-d`) or list files explicitly.
 
 ---
 
@@ -572,8 +539,8 @@ Analyzes and fixes four kinds of metadata problems on existing live photo files:
 
 | Option | Description |
 |--------|-------------|
-| `<file>` | A single image or video to repair. Images: `.jpg .jpeg .heic .heif`; videos: `.mov .mp4` |
-| `-d, --dir <folder>` | Directory to scan (batch mode). Every media file is analyzed; only files that need a fix are repaired |
+| `<file>` | A single image or video to repair. Images: `.jpg .jpeg .heic .heif`; videos: `.mov .mp4`. A folder path without a file extension is auto-detected as batch mode |
+| `-d, --dir <path>` | Directory to scan (batch mode). Every media file is analyzed; only files that need a fix are repaired. A path can also be passed as the positional argument |
 | `-r, --recursive` | Include subdirectories when scanning |
 
 **Fix**
@@ -616,7 +583,7 @@ All four fixes are **on by default** — use the `--no-*` flags to turn individu
 | HEIC orientation | Fixes EXIF orientation to match the QuickTime `Rotation` (mirror flag or angle mismatch) | HEIC/HEIF |
 | Video rotation bake | FFmpeg re-encode baking the rotation matrix into the pixels | MOV/MP4 |
 
-> **HEIC note:** the CLI enables the HEIC orientation fix by default (all four fixes on); the GUI's `IsHeicRepairEnabled` setting defaults to off. Pass `--no-heic` to match the GUI default.
+> **Note:** all four fixes are on by default; pass `--no-heic` to disable HEIC orientation (matches the GUI default).
 
 #### Default Output Location
 
@@ -625,15 +592,15 @@ Repair never overwrites the source files. When `-o` is omitted:
 | Mode | Default output | Example |
 |------|----------------|---------|
 | Single file | `{name}_repaired{ext}` in the source file's directory | `IMG_001.jpg` → `IMG_001_repaired.jpg` |
-| Batch (`-d`) | `{input}/{input}_repaired/`, keeping source names | `lpb repair -d ./MyPhotos` → `./MyPhotos/MyPhotos_repaired/` |
+| Batch (folder / `-d`) | `{input}/{input}_repaired/`, keeping source names | `lpb repair ./MyPhotos` → `./MyPhotos/MyPhotos_repaired/` |
 
 #### Apple Live Photo Filter
 
-By default only **Apple Live Photos** are repaired — identified by their `ContentIdentifier` UUID (present in both the still image and the paired video). Files without it are skipped. Pass `--all-devices` to repair files from every device.
+Default: only **Apple Live Photos** (identified by the `ContentIdentifier` UUID in both still and paired video) are repaired; others are skipped. Pass `--all-devices` to repair every device.
 
 #### Script Mode (JSON Output)
 
-With `--json`, `repair` prints a single UTF-8 JSON document to stdout — no colors, no alignment, no prompts — so scripts can parse it reliably regardless of filename length or terminal width. `--json` implies `--yes` (skips confirmation).
+With `--json`, `repair` prints a single UTF-8 JSON document to stdout (no colors or prompts). `--json` implies `--yes` (skips confirmation).
 
 Batch mode output:
 
@@ -663,33 +630,15 @@ Top-level counts: `scanned` (media files found), `apple` (Apple Live Photos via 
 
 Single-file mode returns a flat object instead: `command`, `mode`, `input`, `output`, `status`, `issue`, `reason`.
 
-The JSON is UTF-8 encoded — when piping into a script, read stdout as UTF-8 (e.g. Python `json.loads(sys.stdin.buffer.read().decode("utf-8"))`).
-
-#### Workflow Examples
-
-```powershell
-# Fix every live photo in a folder (Apple Live Photos only, auto-confirm)
-lpb repair -d ./DCIM/Camera -y
-
-# Fix all devices, recurse, keep folder structure — preview first
-lpb repair -d ./Photos --all-devices -r -s --dry-run
-
-# Strip thumbnails only — leave rotation and videos untouched
-lpb repair -d ./Photos --no-rotate --no-heic --no-video -y
-```
+JSON is UTF-8 — read stdout as UTF-8 in scripts (e.g. Python `json.loads(sys.stdin.buffer.read().decode("utf-8"))`).
 
 ---
 
 ### `--info` / `--version` — Show version and environment
 
-| Flag | Prints |
-|------|--------|
-| `lpb --version` / `lpb -v` | Version only (single line) |
-| `lpb --info` | Version, install details (build date, runtime, platform, channel, location), log directory and current log file, bundled tool versions (exiftool, ffmpeg, …), repository and feedback links, and copyright |
+`lpb --version` (`-v`) prints the version on one line; `lpb --info` prints install details (build date, runtime, platform, channel, location), the log directory and current log file, bundled tool versions, and repository/feedback links. Both run instantly with no network; output is colorized in interactive terminals, plain text when redirected or `NO_COLOR` is set.
 
-Both run instantly with no network — environment info only; checking for updates is done via `lpb update-check`. Output is colorized in an interactive terminal and falls back to plain text when redirected or when `NO_COLOR` is set.
-
-`-v` is a root-level shortcut for `--version`. Inside subcommands (e.g. `lpb merge -v`), `-v` keeps its subcommand meaning (`--verbose`).
+Note: root-level `-v` means `--version`; inside subcommands (e.g. `lpb merge -v`) it keeps its subcommand meaning (`--verbose`).
 
 ---
 

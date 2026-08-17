@@ -7,8 +7,11 @@ using System.CommandLine;
 using System.CommandLine.Builder;
 using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -61,6 +64,8 @@ namespace LivePhotoBox.Cli
                         "  lpb protocols                       List what formats are available\n" +
                         "  lpb merge photo.jpg video.mp4       Convert one pair\n" +
                         "  lpb merge -d ./Photos -p huawei -y  Batch convert a folder\n" +
+                        "  lpb split photo.jpg                 Split a live photo\n" +
+                        "  lpb split ./Photos -y               Batch split a folder\n" +
                         "  lpb repair photo.jpg                Fix live photo metadata\n" +
                         "  lpb repair -d ./Photos -y           Batch fix a folder\n" +
                         "  lpb --info                          Show detailed environment info")
@@ -87,8 +92,19 @@ namespace LivePhotoBox.Cli
                         .UseParseDirective()
                         .UseSuggestDirective()
                         .RegisterWithDotnetSuggest()
-                        .UseTypoCorrections()
                         .UseParseErrorReporting()
+                        // 自定义解析错误输出：默认行为会先打印整篇帮助再在末尾补一行错误，
+                        // 太吵且没有纠正提示。这里改成"简短错误 + 建议 + 帮助提示"。
+                        .AddMiddleware(async (context, next) =>
+                        {
+                            if (context.ParseResult.Errors.Count > 0)
+                            {
+                                PrintParseError(context, root);
+                                context.ExitCode = 1;
+                                return;
+                            }
+                            await next(context);
+                        })
                         .UseExceptionHandler(OnUnhandledException)
                         .CancelOnProcessTermination()
                         .UseHelpBuilder(context => new GroupedHelpBuilder(context.Console))
@@ -106,12 +122,84 @@ namespace LivePhotoBox.Cli
             return exitCode;
         }
 
+        // 解析错误（未知选项/命令、缺参数、参数类型不对、位置参数过多等）→ 一行错误 + 可能的
+        // "Did you mean" 建议 + 帮助提示。不再整篇打印帮助。
+        private static void PrintParseError(InvocationContext context, RootCommand root)
+        {
+            string commandName = context.ParseResult.CommandResult?.Command?.Name ?? "";
+            if (commandName.Length == 0 || commandName == root.Name) commandName = "lpb";
+            var allOptionAliases = root.Options.SelectMany(o => o.Aliases)
+                .Concat(root.Subcommands.SelectMany(s => s.Options).SelectMany(o => o.Aliases))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            var aliasSet = new HashSet<string>(allOptionAliases, StringComparer.Ordinal);
+
+            // 解析器对"未知选项 + 值"的处理很混乱（会把后面的路径/值报成错误对象），
+            // 直接从原始 token 里识别拼错的选项，给出干净的 "Unknown option + Did you mean" 提示。
+            var unknownOptions = context.ParseResult.Tokens
+                .Where(t => t.Value.StartsWith('-')
+                         && t.Value != "--"
+                         && !aliasSet.Contains(t.Value)
+                         && !double.TryParse(t.Value, out _))
+                .Select(t => t.Value)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+
+            if (unknownOptions.Count > 0)
+            {
+                foreach (var opt in unknownOptions)
+                    CliConsole.WriteErrorLine($"Error: Unknown option '{opt}'.{CliConsole.DidYouMean(opt, allOptionAliases)}");
+            }
+            else
+            {
+                var messages = context.ParseResult.Errors.Select(e => e.Message).ToList();
+                // "Required command was not provided." 在已有更具体的"无法识别的命令/参数"错误时是纯噪音
+                if (messages.Any(m => m.Contains("Unrecognized command or argument", StringComparison.Ordinal)))
+                    messages.RemoveAll(m => m == "Required command was not provided.");
+
+                foreach (var raw in messages)
+                {
+                    string message = raw.Replace(" as expected type 'System.Int32'", " as a whole number");
+                    if (message == "Required command was not provided.")
+                        message = "No command specified. Try: merge, split, repair, protocols, update";
+                    string? token = ExtractQuotedToken(message);
+                    string suggestion = "";
+                    if (token != null && !aliasSet.Contains(token))
+                    {
+                        suggestion = token.StartsWith('-')
+                            ? CliConsole.DidYouMean(token, allOptionAliases)
+                            : CliConsole.DidYouMean(token, root.Subcommands.Select(s => s.Name));
+                    }
+                    CliConsole.WriteErrorLine($"Error: {message}{suggestion}");
+                }
+            }
+            CliConsole.WriteHintLine(commandName == "lpb"
+                ? "Run 'lpb --help' to see usage and options."
+                : $"Run 'lpb {commandName} --help' to see usage and options.");
+        }
+
+        private static string? ExtractQuotedToken(string message)
+        {
+            var match = Regex.Match(message, "'([^']*)'");
+            return match.Success ? match.Groups[1].Value : null;
+        }
+
         // 未处理异常（命令处理器抛出的、未被内部 catch 捕获的）→ 记录进日志（含堆栈）+ 输出到 stderr。
         // 退出码由异常处理器中间件置 1；随后 Main 的 finally 会再写一条退出码日志 + CLEAN SHUTDOWN。
         private static void OnUnhandledException(Exception exception, InvocationContext context)
         {
-            LogService.Error($"Unhandled CLI exception: {exception.Message}", exception, LogSource.System);
-            context.Console.Error.Write($"Unhandled exception: {exception.Message}");
+            LogService.Error($"Unhandled CLI exception: {exception}", exception, LogSource.System);
+            string message = exception switch
+            {
+                FileNotFoundException e => $"File not found: {e.FileName ?? e.Message}",
+                DirectoryNotFoundException e => $"Directory not found: {e.Message}",
+                UnauthorizedAccessException e => $"Access denied: {e.Message}",
+                IOException e => $"I/O error: {e.Message}",
+                ArgumentException e => $"Invalid value: {e.Message}",
+                _ => $"Unexpected error: {exception.Message}",
+            };
+            CliConsole.WriteErrorLine($"Error: {message}");
+            CliConsole.WriteHintLine("This is likely a bug or an unusual input. Check the log for details (run 'lpb --info' for the log folder) and retry with --verbose.");
         }
 
         // 把命令行参数拼成一行可重放的文本（含空格的参数加引号），写进日志便于事后还原现场。

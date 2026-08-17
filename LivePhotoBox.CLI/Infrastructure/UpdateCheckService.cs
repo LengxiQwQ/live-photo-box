@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text.Json;
@@ -256,6 +257,18 @@ namespace LivePhotoBox.Cli.Infrastructure
                 };
             }
             return "network error";
+        }
+
+        /// <summary>把更新相关的异常翻译成用户能看懂的一句话（网络 / 响应格式 / 其他）。</summary>
+        public static string DescribeError(Exception ex)
+        {
+            if (ex is HttpRequestException or HttpIOException or TaskCanceledException or SocketException)
+                return "Cannot reach GitHub (timeout or network error). Check your network connection.";
+            if (ex is IOException)
+                return "I/O error while reading the update server response.";
+            if (ex is JsonException or InvalidOperationException or FormatException or ArgumentException)
+                return "GitHub returned an unexpected response.";
+            return ex.Message;
         }
 
         private static bool TryParseVersion(string s, out (int Major, int Minor, int Build) v)

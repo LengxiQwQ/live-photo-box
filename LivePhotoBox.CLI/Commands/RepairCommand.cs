@@ -32,11 +32,11 @@ namespace LivePhotoBox.Cli.Commands
         public static Command Create()
         {
             var filesArg = new Argument<string?>("files",
-                "One image or video file to repair (.jpg/.jpeg/.heic/.heif/.mov/.mp4).");
+                "One image or video file to repair (.jpg/.jpeg/.heic/.heif/.mov/.mp4), or a folder path (no file extension = batch mode, same as --dir).");
             filesArg.Arity = ArgumentArity.ZeroOrOne;
 
             var dirOpt = new Option<DirectoryInfo?>("--dir",
-                "Folder with images and videos. Every detected file is analyzed and repaired. For batch mode.");
+                "Folder with images and videos. Every detected file is analyzed and repaired. For batch mode; a folder path can also be passed as the positional argument.");
             dirOpt.AddAlias("-d");
 
             var outputOpt = new Option<DirectoryInfo?>("--output",
@@ -63,7 +63,7 @@ namespace LivePhotoBox.Cli.Commands
 
             var parallelOpt = new Option<int>("--parallel",
                 () => Math.Min(Environment.ProcessorCount, 5),
-                "How many files to process at once. More = faster CPU usage.");
+                "How many files to process at once (1-64). More = faster CPU usage.");
             parallelOpt.AddAlias("-j");
 
             var yesOpt = new Option<bool>("--yes",
@@ -98,12 +98,14 @@ namespace LivePhotoBox.Cli.Commands
                 "Images: .jpg .jpeg .heic .heif   Videos: .mov .mp4\n\n" +
                 "Single file: lpb repair photo.jpg\n" +
                 "             (writes photo_repaired.jpg next to the source)\n" +
-                "Batch:       lpb repair -d ./MyPhotos -y\n" +
+                "Batch:       lpb repair ./MyPhotos -y\n" +
+                "             (folder auto-detected by missing extension; -d/--dir also works)\n" +
                 "             (writes ./MyPhotos/MyPhotos_repaired/)\n" +
                 "Disable fix: lpb repair photo.jpg --no-rotate --no-thumbnail\n" +
                 "All devices: lpb repair -d ./MyPhotos --all-devices\n" +
                 "Copy intact: lpb repair -d ./MyPhotos --copy-perfect\n" +
-                "Preview:     lpb repair -d ./MyPhotos --dry-run")
+                "Preview:     lpb repair -d ./MyPhotos --dry-run\n" +
+                "Wildcards:   not supported — pass a folder or explicit files")
             {
                 filesArg,
                 dirOpt, outputOpt,
@@ -136,28 +138,59 @@ namespace LivePhotoBox.Cli.Commands
 
                 if (singlePath != null)
                 {
+                    // 通配符在 cmd/PowerShell 下原样传递（Git Bash 会先展开），统一给出友好提示
+                    if (CliInputValidator.HasWildcard(singlePath))
+                    {
+                        CliInputValidator.WriteWildcardNotSupported();
+                        context.ExitCode = 1;
+                        return;
+                    }
+
                     // System.CommandLine 会把未知选项当成位置参数（文件名）吞掉，提前识别避免误导性报错
-                    if (singlePath.StartsWith('-') &&
-                        !ImageExtensions.Contains(Path.GetExtension(singlePath)) &&
-                        !VideoExtensions.Contains(Path.GetExtension(singlePath)))
+                    if (CliInputValidator.IsUnknownOption(singlePath, ImageExtensions.Concat(VideoExtensions)))
                     {
-                        CliConsole.WriteErrorLine($"Error: Unknown option '{singlePath}'. Run 'lpb repair --help' to see available options.");
+                        CliInputValidator.WriteUnknownOptionError(singlePath, cmd.Options.SelectMany(o => o.Aliases), "repair");
                         context.ExitCode = 1;
                         return;
                     }
-                    string ext = Path.GetExtension(singlePath);
-                    if (!ImageExtensions.Contains(ext) && !VideoExtensions.Contains(ext))
+
+                    // 位置参数不带扩展名即自动识别为目录（批量模式，等价 -d/--dir）；
+                    // 已存在的目录优先，目录名含点（如 "My.Photos"）也能正确识别。
+                    var folderStatus = CliInputValidator.ResolveFolderInput(
+                        singlePath, "images need .jpg/.jpeg/.heic/.heif, videos need .mov/.mp4", ref dir);
+                    if (folderStatus == CliInputValidator.FolderInputStatus.NotFound)
                     {
-                        CliConsole.WriteErrorLine($"Error: Unsupported file type '{ext}'. Supported: .jpg, .jpeg, .heic, .heif, .mov, .mp4");
                         context.ExitCode = 1;
                         return;
                     }
-                    if (!File.Exists(singlePath))
+                    if (folderStatus == CliInputValidator.FolderInputStatus.Resolved)
                     {
-                        CliConsole.WriteErrorLine($"Error: File not found: {singlePath}");
-                        context.ExitCode = 1;
-                        return;
+                        singlePath = null;
                     }
+                    else
+                    {
+                        string ext = Path.GetExtension(singlePath);
+                        if (!ImageExtensions.Contains(ext) && !VideoExtensions.Contains(ext))
+                        {
+                            CliConsole.WriteErrorLine($"Error: Unsupported file type '{ext}'. Supported: .jpg, .jpeg, .heic, .heif, .mov, .mp4");
+                            context.ExitCode = 1;
+                            return;
+                        }
+                        if (!CliInputValidator.ValidateInputFile(new FileInfo(singlePath)))
+                        {
+                            context.ExitCode = 1;
+                            return;
+                        }
+                    }
+                }
+
+                // 批量目录必须存在（-d/--dir 兜底）、输出路径不能是文件、并发数 1..64
+                if (!CliInputValidator.ValidateInputDirectory(dir)
+                    || !CliInputValidator.ValidateOutputDirectory(output)
+                    || !CliInputValidator.ValidateParallel(parallel))
+                {
+                    context.ExitCode = 1;
+                    return;
                 }
 
                 context.ExitCode = await RunAsync(
@@ -185,13 +218,26 @@ namespace LivePhotoBox.Cli.Commands
 
             if (!isSingle && !isBatch)
             {
-                CliConsole.WriteErrorLine("Error: Specify a file to repair, or use --dir for batch mode.");
+                CliConsole.WriteErrorWithHint(
+                    "Error: Specify a file to repair, or use --dir for batch mode.",
+                    "Examples: 'lpb repair photo.jpg' or 'lpb repair ./MyPhotos -y'.");
                 return 1;
             }
 
             if (isSingle && isBatch)
             {
-                CliConsole.WriteErrorLine("Error: Cannot use both single-file and --dir batch mode.");
+                CliConsole.WriteErrorWithHint(
+                    "Error: Cannot use both single-file and --dir batch mode.",
+                    "Pass either a single file or a folder, not both.");
+                return 1;
+            }
+
+            // --copy-perfect 是批量专属选项：单文件模式下静默忽略会误导用户，改成明确报错。
+            if (copyPerfect && isSingle)
+            {
+                CliConsole.WriteErrorWithHint(
+                    "Error: --copy-perfect only works in batch mode.",
+                    "Use it with a folder, e.g. 'lpb repair -d ./MyPhotos --copy-perfect -y'.");
                 return 1;
             }
 
@@ -207,7 +253,9 @@ namespace LivePhotoBox.Cli.Commands
             // 四项全关且未请求复制完好文件 → 无操作可执行
             if (noRotate && noThumbnail && noHeic && noVideo && !copyPerfect)
             {
-                CliConsole.WriteErrorLine("Error: All repair options are disabled. Nothing to repair.");
+                CliConsole.WriteErrorWithHint(
+                    "Error: All repair options are disabled. Nothing to repair.",
+                    "Re-enable at least one fix (omit the --no-* flags) or add --copy-perfect to copy intact files.");
                 return 1;
             }
 
