@@ -1,5 +1,6 @@
 # winget-releaser.yml — 发布 Release 后自动把新版本提交到 winget
-# 触发：GitHub Release 正式发布（非 draft）→ 自动开 winget 更新 PR → 自动合入
+# 触发：GitHub Release 正式发布（非 draft）→ 自动开 winget 更新 PR → 自动合入；
+#       也可手动触发（Actions 里 Run workflow / workflow_dispatch），用于等上一版审核通过后再补提。
 # 前置条件：包必须已存在于 microsoft/winget-pkgs（首次由 PR #411313 合入建立）
 # Token：WINGET_TOKEN 需有 public_repo / repo 权限（本机 gh token 可直接复用）
 # 注意：更新已有 manifest 时，komac 保留原有 NestedInstallerFiles（6 个别名）不变，
@@ -10,6 +11,7 @@ name: Publish to WinGet / winget 自动更新
 on:
   release:
     types: [released]
+  workflow_dispatch:
 
 jobs:
   publish:
