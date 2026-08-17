@@ -10,6 +10,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 // =====================================================================================
 // LivePhotoSplitService —— 实况照片拆分核心
@@ -66,6 +67,8 @@ namespace LivePhotoBox.Services
     public static class LivePhotoSplitService
     {
         private const int MetadataProbeBytes = 1024 * 1024; // 探测前 1MB 的元数据
+
+        private static readonly byte[] XmpHeaderBytes = Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0");
 
         // 添加了 TimeSpan.FromSeconds(2) 作为超时保护，防止正则表达式遇到损坏文件陷入死循环
         private static readonly Regex MicroVideoOffsetRegex = new(
@@ -1102,23 +1105,62 @@ namespace LivePhotoBox.Services
                             consumedInImage += sniffLength;
                         }
 
-                        bool isLivePhotoSegment = sniffLength > 0 && ContainsLivePhotoMarker(segmentBuffer, sniffLength);
                         int remainingPayload = segmentPayloadLength - sniffLength;
 
-                        if (isLivePhotoSegment)
+                        // JPEG HDR gain-map（Google Ultra HDR / ISO 21496-1）也使用 XMP APP1：
+                        // xmlns:hdrgm 和 Container/GainMap 与 MotionPhoto 可能出现在同一个 XMP 段里。
+                        // 旧逻辑把整个 XMP 段丢弃，会连 gain map 元数据一起删掉。现在改成：
+                        //   1. 只含 HDR：原样保留；
+                        //   2. 只含实况照片：整段丢弃；
+                        //   3. 同时含 HDR + 实况照片：重写 XMP，只删实况照片字段，保留 hdrgm/GainMap。
+                        bool isXmpSegment = sniffLength > 0
+                            && segmentBuffer.AsSpan(0, Math.Min(sniffLength, XmpHeaderBytes.Length))
+                                .SequenceEqual(XmpHeaderBytes.AsSpan(0, Math.Min(sniffLength, XmpHeaderBytes.Length)));
+
+                        if (isXmpSegment)
                         {
-                            // 💡【核心剔除逻辑】：如果命中实况照片元数据
-                            // 跳过剩余流内容，并且 **绝不写入** 这 4 字节的 Header 和已经嗅探的内容！
-                            if (remainingPayload > 0)
+                            byte[] fullPayload = await ReadFullAppPayloadAsync(
+                                sourceStream, segmentBuffer, sniffLength, segmentPayloadLength, token);
+                            consumedInImage += remainingPayload;
+                            remainingPayload = 0;
+
+                            string xmpText = ExtractXmpText(fullPayload);
+                            bool hasHdr = ContainsHdrGainMapXmp(xmpText);
+                            bool hasLivePhoto = ContainsLivePhotoXmp(xmpText);
+
+                            if (hasHdr && hasLivePhoto)
                             {
-                                await SkipExactAsync(sourceStream, remainingPayload, token);
-                                consumedInImage += remainingPayload;
+                                if (TryRewriteXmpPreservingHdr(xmpText, out string? rewrittenXmp))
+                                {
+                                    byte[] rewrittenPayload = BuildXmpPayload(rewrittenXmp!);
+                                    await WriteAppSegmentAsync(destinationStream, marker, rewrittenPayload, token);
+                                    LogService.Split(
+                                        $"Rewrote LivePhoto XMP segment (len={segmentLength}) preserving HDR gain map",
+                                        LogLevel.Debug);
+                                }
+                                else
+                                {
+                                    // 解析失败时宁可保留整段，也不能因为剥离失败而丢 HDR 增益图。
+                                    await WriteAppSegmentAsync(destinationStream, marker, fullPayload, token);
+                                    LogService.Split(
+                                        $"Could not rewrite HDR+LivePhoto XMP (len={segmentLength}); preserved segment",
+                                        LogLevel.Warning);
+                                }
                             }
-                            LogService.Split($"Stripped LivePhoto APP{marker - 0xE0} segment (len={segmentLength})", LogLevel.Debug);
+                            else if (hasLivePhoto)
+                            {
+                                LogService.Split(
+                                    $"Stripped LivePhoto APP{marker - 0xE0} segment (len={segmentLength})",
+                                    LogLevel.Debug);
+                            }
+                            else
+                            {
+                                await WriteAppSegmentAsync(destinationStream, marker, fullPayload, token);
+                            }
                         }
                         else
                         {
-                            // 正常元数据 (如 EXIF，ICC 色彩配置等)：原样保留
+                            // 非 XMP 的 APP 段（EXIF、ICC、MPF 等）原样保留。
                             await destinationStream.WriteAsync(header.AsMemory(0, 4), token);
                             if (sniffLength > 0)
                             {
@@ -1156,28 +1198,153 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // 检测 APP1 段是否包含实况照片元数据，判断是否为需要剥离的元数据。
-        // 检测顺序：
-        // 1. 先看是否包含本应用的 LivePhotoBox 命名空间标记（最精确）
-        // 2. 如果没有，再回退到通用实况照片命名空间检测（兼容早期没有标记的旧文件）
-        private static bool ContainsLivePhotoMarker(byte[] buffer, int length)
+        private static async Task<byte[]> ReadFullAppPayloadAsync(
+            Stream sourceStream, byte[] sniffBuffer, int sniffLength, int totalPayloadLength,
+            CancellationToken token)
         {
-            ReadOnlySpan<byte> data = new ReadOnlySpan<byte>(buffer, 0, length);
-            ReadOnlySpan<byte> xmpHeader = "http://ns.adobe.com/xap/1.0/\0"u8;
-            if (data.Length < xmpHeader.Length) return false;
-            if (!data[..xmpHeader.Length].SequenceEqual(xmpHeader)) return false;
+            byte[] fullPayload = new byte[totalPayloadLength];
+            if (sniffLength > 0)
+            {
+                Buffer.BlockCopy(sniffBuffer, 0, fullPayload, 0, Math.Min(sniffLength, totalPayloadLength));
+            }
 
-            // 精确检测：本应用的 LivePhotoBox 标记（Merge / Split 合成时注入，WrapXmp 统一写入）
-            if (data.IndexOf("xmlns:LivePhotoBox=\"https://github.com/LengxiQwQ/live-photo-box\""u8) >= 0) return true;
+            int remaining = totalPayloadLength - sniffLength;
+            if (remaining > 0)
+            {
+                byte[] rest = new byte[remaining];
+                int read = await ReadExactAsync(sourceStream, rest, remaining, token);
+                if (read != remaining)
+                {
+                    throw new EndOfStreamException("Unexpected EOF while reading APP payload.");
+                }
 
-            // 回退检测：通用实况照片命名空间（兼容旧版本应用合成的文件）
-            if (data.IndexOf("xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\""u8) >= 0) return true;
-            if (data.IndexOf("xmlns:Container=\"http://ns.google.com/photos/1.0/container/\""u8) >= 0) return true;
-            if (data.IndexOf("xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\""u8) >= 0) return true;
-            if (data.IndexOf("xmlns:MiCamera=\"http://ns.xiaomi.com/photos/1.0/camera/\""u8) >= 0) return true;
-            if (data.IndexOf("xmlns:VCamera=\"http://ns.vivo.com/photos/1.0/camera/\""u8) >= 0) return true;
-            if (data.IndexOf("xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\""u8) >= 0) return true;
-            return false;
+                Buffer.BlockCopy(rest, 0, fullPayload, sniffLength, remaining);
+            }
+
+            return fullPayload;
+        }
+
+        private static string ExtractXmpText(byte[] payload)
+        {
+            if (payload.Length < XmpHeaderBytes.Length
+                || !payload.AsSpan(0, XmpHeaderBytes.Length).SequenceEqual(XmpHeaderBytes))
+            {
+                return string.Empty;
+            }
+
+            return Encoding.UTF8.GetString(payload, XmpHeaderBytes.Length, payload.Length - XmpHeaderBytes.Length);
+        }
+
+        private static bool ContainsHdrGainMapXmp(string xmpText)
+        {
+            return xmpText.Contains("xmlns:hdrgm=", StringComparison.Ordinal)
+                || xmpText.Contains("hdrgm:", StringComparison.OrdinalIgnoreCase)
+                || xmpText.Contains("Item:Semantic=\"GainMap\"", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ContainsLivePhotoXmp(string xmpText)
+        {
+            return xmpText.Contains("xmlns:GCamera=", StringComparison.Ordinal)
+                || xmpText.Contains("xmlns:OpCamera=", StringComparison.Ordinal)
+                || xmpText.Contains("xmlns:MiCamera=", StringComparison.Ordinal)
+                || xmpText.Contains("xmlns:VCamera=", StringComparison.Ordinal)
+                || xmpText.Contains("xmlns:LivePhotoBox=", StringComparison.Ordinal)
+                || xmpText.Contains("Item:Semantic=\"MotionPhoto\"", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryRewriteXmpPreservingHdr(string xmpText, out string? rewritten)
+        {
+            rewritten = null;
+            try
+            {
+                var doc = XDocument.Parse(xmpText, LoadOptions.PreserveWhitespace);
+                XNamespace rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+                XNamespace container = "http://ns.google.com/photos/1.0/container/";
+                XNamespace item = "http://ns.google.com/photos/1.0/container/item/";
+
+                bool changed = false;
+
+                // 删除 Directory 中语义为 MotionPhoto 的条目，保留 Primary / GainMap。
+                foreach (var li in doc.Descendants(rdf + "li").ToList())
+                {
+                    var itemElement = li.Elements()
+                        .FirstOrDefault(e => e.Name.Namespace == container && e.Name.LocalName == "Item");
+                    string? semantic = itemElement?.Attribute(item + "Semantic")?.Value;
+                    if (string.Equals(semantic, "MotionPhoto", StringComparison.OrdinalIgnoreCase))
+                    {
+                        li.Remove();
+                        changed = true;
+                    }
+                }
+
+                string[] livePhotoNamespaces =
+                [
+                    "http://ns.google.com/photos/1.0/camera/",
+                    "http://ns.oplus.com/photos/1.0/camera/",
+                    "http://ns.xiaomi.com/photos/1.0/camera/",
+                    "http://ns.vivo.com/photos/1.0/camera/",
+                    "https://github.com/LengxiQwQ/live-photo-box"
+                ];
+
+                foreach (var element in doc.Descendants().ToList())
+                {
+                    foreach (var attribute in element.Attributes()
+                                 .Where(a => livePhotoNamespaces.Contains(a.Name.NamespaceName))
+                                 .ToList())
+                    {
+                        attribute.Remove();
+                        changed = true;
+                    }
+
+                    if (livePhotoNamespaces.Contains(element.Name.NamespaceName))
+                    {
+                        element.Remove();
+                        changed = true;
+                    }
+                }
+
+                if (!changed)
+                {
+                    return false;
+                }
+
+                rewritten = doc.ToString(SaveOptions.DisableFormatting);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static byte[] BuildXmpPayload(string xmpText)
+        {
+            byte[] xmlBytes = Encoding.UTF8.GetBytes(xmpText);
+            byte[] payload = new byte[XmpHeaderBytes.Length + xmlBytes.Length];
+            Buffer.BlockCopy(XmpHeaderBytes, 0, payload, 0, XmpHeaderBytes.Length);
+            Buffer.BlockCopy(xmlBytes, 0, payload, XmpHeaderBytes.Length, xmlBytes.Length);
+            return payload;
+        }
+
+        private static async Task WriteAppSegmentAsync(
+            Stream destinationStream, byte marker, byte[] payload, CancellationToken token)
+        {
+            int segmentLength = payload.Length + 2;
+            if (segmentLength > ushort.MaxValue)
+            {
+                throw new InvalidDataException($"JPEG APP segment too large: {segmentLength}");
+            }
+
+            byte[] header =
+            [
+                0xFF,
+                marker,
+                (byte)(segmentLength >> 8),
+                (byte)segmentLength
+            ];
+
+            await destinationStream.WriteAsync(header.AsMemory(0, header.Length), token);
+            await destinationStream.WriteAsync(payload.AsMemory(0, payload.Length), token);
         }
 
         // Clear the OPPO <c>oplus_*</c> marker from EXIF UserComment —
