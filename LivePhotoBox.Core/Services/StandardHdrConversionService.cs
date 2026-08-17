@@ -18,6 +18,9 @@ namespace LivePhotoBox.Services;
 // 当前阶段先打通“已经是标准增益图”的文件；华为等厂商私有格式不在这里处理。
 public static class StandardHdrConversionService
 {
+    // Apple HDRGainMapVersion 0.1.0.0 的整数编码（0x00010000）。
+    private const int AppleHdrGainMapVersionInteger = 65536;
+
     public static bool HasStandardJpegGainMap(string sourcePath, CancellationToken token = default)
     {
         string tags = ReadExifTags(sourcePath, token, "-s", "-GainMapImage");
@@ -467,7 +470,7 @@ public static class StandardHdrConversionService
         string? exifToolPath = ExternalToolLocator.FindExifTool();
         if (string.IsNullOrEmpty(exifToolPath))
         {
-            return;
+            throw new InvalidOperationException(ResourceService.GetString("Error_ExifToolMissing"));
         }
 
         string directory = Path.GetDirectoryName(heicPath)!;
@@ -481,7 +484,7 @@ public static class StandardHdrConversionService
                 "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
                 "<rdf:Description rdf:about=\"\" " +
                 "xmlns:HDRGainMap=\"http://ns.apple.com/HDRGainMap/1.0/\">" +
-                "<HDRGainMap:HDRGainMapVersion>65536</HDRGainMap:HDRGainMapVersion>" +
+                $"<HDRGainMap:HDRGainMapVersion>{AppleHdrGainMapVersionInteger}</HDRGainMap:HDRGainMapVersion>" +
                 "</rdf:Description>" +
                 "</rdf:RDF></x:xmpmeta>";
 
@@ -494,14 +497,10 @@ public static class StandardHdrConversionService
 
             if (!File.Exists(outputPath))
             {
-                return;
+                throw new InvalidOperationException("exiftool did not produce the HDR gain map XMP output.");
             }
 
             File.Move(outputPath, heicPath, overwrite: true);
-        }
-        catch
-        {
-            // XMP 注入失败不阻断转换；基础 HEIC + auxC 仍然有效。
         }
         finally
         {

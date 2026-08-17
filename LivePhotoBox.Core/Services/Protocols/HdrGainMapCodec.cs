@@ -20,6 +20,14 @@ internal static class HdrGainMapCodec
     private const double LumaG = 0.691738522;
     private const double LumaB = 0.079286914;
 
+    // Apple 真机样本里 HDRHeadroom(0x21) 的有理数值（1.568873048）。
+    // 由目标 headroom 反推 MakerNote 时，maker33 固定沿用该值。
+    private const long AppleMaker33Numerator = 46219;
+    private const long AppleMaker33Denominator = 29460;
+
+    // Apple 官方 headroom 分段函数里 maker48 的分支分界（stops）。
+    private const double AppleHeadroomStopsBoundary = 2.3;
+
     /// <summary>
     /// 依据 Apple MakerNote 里的 HDRHeadroom(0x0021) 与 HDRGain(0x0030)
     /// 计算 hdrgainmap 的 headroom（最大线性增益）。
@@ -165,11 +173,11 @@ internal static class HdrGainMapCodec
     /// </summary>
     public static (HdrSignedRational Maker33, HdrSignedRational Maker48) ComputeAppleMakerValues(double targetHeadroom)
     {
-        var maker33 = new HdrSignedRational(46219, 29460);
+        var maker33 = new HdrSignedRational(AppleMaker33Numerator, AppleMaker33Denominator);
         double stops = Math.Log2(Math.Max(targetHeadroom, 1.0));
 
         double maker48;
-        if (stops >= 2.3)
+        if (stops >= AppleHeadroomStopsBoundary)
         {
             // maker48 <= 0.01 分支：stops = -70 * maker48 + 3.0
             maker48 = (3.0 - stops) / 70.0;
