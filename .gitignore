@@ -400,3 +400,5 @@ FodyWeavers.xsd
 # Build script backups (kept on disk for reference, not tracked)
 /scripts/build-release.multifile.bak.ps1
 /LivePhotoBox.CLI/LivePhotoBox.CLI.multifile.bak.csproj
+
+/docs/实况照片协议完整分析报告.md
