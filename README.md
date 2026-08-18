@@ -1,6 +1,6 @@
 <div align="center">
 <h1>
-  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
+  <img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/LivePhotoBox/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
   Live Photo Box（实况照片工具箱）
 </h1>
 <p><em>Unifying all live photo protocols for seamless cross-device viewing & migration</em></p>
@@ -19,13 +19,12 @@
 <p align="center">
   📖 README Language: &nbsp;<strong>English  &nbsp;·&nbsp; <a href="README.zh-CN.md">简体中文</a></strong>
 </p>
-
 </div>
 
 ## 🚀 Download
 
 <div align="center">
-  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" hspace="35" /></a>
+  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" hspace="35" /></a>
 </div>
 <p align="center">
 </p>
@@ -35,23 +34,21 @@
 
 ---
 
-## 💡 What Is This?
+## 💡 Cross-Device Live Photos
 
-Every brand's Live Photos are essentially a still image + a short video clip, but each vendor uses its own incompatible container format. After switching phones or sharing across platforms, you often see:
+Although Live Photos from different brands all combine a still image with a short video, they use different file structures and data formats. When moving across devices or platforms, this can lead to playback issues, incorrect orientation, lost motion, or missing metadata.
 
-- **No dynamic preview** — Windows shows only a static image
-- **Metadata loss &amp; pairing corruption** — Live Photos degrade into plain JPEGs
-- **Rotated or stretched videos** — playback looks wrong
+**Live Photo Box** provides a unified way to merge, split, convert, repair, and edit Live Photos, making it easy to move them between different brands and devices.
 
-**Live Photo Box** freely converts between all major protocols. Switch devices, share, migrate — your Live Photos stay alive.
+It also preserves as much of the original detail and information as possible, including HDR, EXIF data, camera settings, capture information, and original media content — keeping every conversion as close as possible to the original photo.
 
 ---
 
 ## 📸 Screenshots
 
-<p align="center"><b>🖼️ Live Photo Edit</b><br><img src="screenshots/Edit.png" alt="Edit" width="80%" /></p>
+<p align="center"><b>🖼️ Live Photo Edit</b><br><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/Edit.png" alt="Edit" width="80%" /></p>
 
-<p align="center"><b>🔗 Merge Live Photo</b><br><img src="screenshots/merge.png" alt="Merge" width="80%" /></p>
+<p align="center"><b>🔗 Merge Live Photo</b><br><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/merge.png" alt="Merge" width="80%" /></p>
 
 ---
 
@@ -71,42 +68,44 @@ Freely change your Live Photo cover — pick the perfect moment from the video t
 Convert a **dual-file Live Photo** (or any image + video pair) into a **single-file Live Photo**, viewable on Windows and Android devices.
 
 - **Merge anything in one click**: drag & drop or pick an image (`JPG` / `HEIC`) + a video (`MP4` / `MOV`), or scan a whole folder and auto-pair everything into a batch queue
-- **Smart pairing**: match image + video automatically by filename, Apple `ContentIdentifier` UUID, or vivo camera ID
+- **Smart pairing**: auto-match image + video by filename, Apple `ContentIdentifier` UUID, or vivo camera ID — or merge an existing dual-file Live Photo pair directly
 - **Any target protocol**: switch between all major phone protocols in one click, with `JPEG+MP4` / `JPEG+MOV` / `HEIC+MP4` / `HEIC+MOV` / `HEIC+MP4 (H.265)` outputs — available formats adapt to the selected protocol
-- **Visual naming templates**: build filenames from segments (original name / protocol / date / time / EXIF date-time / counter / custom text) with drag-to-reorder, presets, separators, and live preview
+- **Batch file naming**: quickly compose filenames from template segments (original name / protocol / date / time / EXIF date-time / counter / custom text) with drag-to-reorder, presets, separators, and live preview — no regex needed
 - **Post-processing**: after merging, move outputs to a folder, or recycle the sources
 - **Parallel batch merging**: a queue with search, multi-dimension sorting, and status filters — multiple tasks process in parallel with live progress, success/fail counts, and elapsed time
 
 | Merge Protocol | Devices | Status |
 |---|---|---|
-| Google Micro Video (v1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
-| Google Motion Photo (v2) | Windows / Xiaomi / Pixel | ✅ Supported |
-| OPPO O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
-| HUAWEI Moving Photo | HUAWEI / Honor | ✅ Supported |
-| Samsung Motion Photo | Windows / Samsung | 🟡 In testing |
-| vivo Live Photo | Windows / vivo (≥ X300) | 🟡 In testing |
+| Google - Micro Video (v1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
+| Google - Motion Photo (v2) | Windows / Xiaomi / Pixel | ✅ Supported |
+| OPPO - O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
+| HUAWEI - Moving Photo | HUAWEI / Honor | ✅ Supported |
+| Samsung - Motion Photo | Windows / Samsung | 🟡 In testing |
+| vivo - Live Photo | Windows / vivo (≥ X300) | 🟡 In testing |
 
 ### 📸 Split Live Photo
 
-Split a **Live Photo** (single-file form) into an independent still image (`JPG` / `HEIC`) and video (`MP4` / `MOV`).
+Split a **Live Photo** (single-file form) back into a **dual-file Live Photo**, or into an independent still image (`JPG` / `HEIC`) and video (`MP4` / `MOV`).
 
-- Strips `XMP` metadata to prevent the split image from being erroneously re-identified as a Live Photo, while preserving all other metadata
-- Rebuilds `JPEG` segment-by-segment; `EXIF` / `ICC` / `GPS` / shooting parameters are retained
+- **Batch split**: scan a folder, auto-detect and queue all Live Photos; filter by protocol (Google / OPPO / vivo / Samsung / HUAWEI) to split only a specific brand
+- **Protocol output**: convert to an Apple / vivo dual-file Live Photo (writes pairing metadata), or re-encode to `HEIC+MOV` / `JPG+MOV` / `JPG+MP4`
+- **Strips Live Photo metadata** so the split image is no longer re-identified as a Live Photo, while preserving all other metadata — `EXIF` / `ICC` / `GPS` / shooting parameters are retained
+- **Naming templates**: same segment-based naming as the Merge page, with drag-to-reorder and live preview
+
+> ⚠️ **About iPhone / iPad**: due to iOS restrictions, Live Photos cannot be imported directly into iOS devices. This tool only produces the Live Photo data — import them via third-party software such as i4Tools (爱思助手).
 
 | Split Protocol | Devices | Status |
 |---|---|---|
-| Apple Live Photo | iPhone / iPad | ✅ Supported |
-| vivo Live Photo | vivo (≤ X200) | 🟡 In testing |
+| Apple - Live Photo | iPhone / iPad | ✅ Supported |
+| vivo - Live Photo | vivo (≤ X200) | 🟡 In testing |
 
 ### 🛠️ Repair Live Photo
 
-Repair the display anomalies that appear when Apple Live Photos are exported.
+Repair the display anomalies that appear when Apple Live Photos are exported. After scanning, review **diagnostic details** for each photo and filter by file type or repair status.
 
 - **Excess thumbnail & horizontal stretch** (pre-iOS 17.3): Apple once embedded low-resolution thumbnails tagged with orientation, which Windows misinterprets as landscape, causing stretching or squashing. Losslessly fixed via `jpegtran` rotation + stripping the extraneous thumbnail
 - **Front-camera video rotation**: the iPhone front camera stores vertical pixels horizontally and relies on an orientation tag — which Windows ignores. Fixed by `FFmpeg` re-encode to bake the rotation matrix into the pixel data
-- **HEIC orientation correction**: rectifies miswritten `Orientation` tags
-- **ContentIdentifier restoration**: auto-repairs photo-video `UUID` pairings
-- Scan and review **diagnostic details** per photo; filter by file type or repair status
+- **HEIC orientation correction**: rectifies miswritten `Orientation` tags (if present)
 
 ### 📂 Photo Organize (In Development)
 
@@ -119,11 +118,12 @@ Automatically scan, categorize, and archive photos by device, date, and Live Pho
 
 Live Photo Box ships a **command-line interface** — `livephotobox` — that shares 100% of its core logic with the GUI, ideal for scripting and AI agents.
 
-- **Commands**: `merge` (single-pair or batch), `protocols` (protocol × format compatibility matrix), `update-check` (check for the latest release), `update` (check & install updates)
+- **Commands**: `merge` (single-pair or batch), `split` (back to image + video), `repair` (fix Apple Live Photo display issues), `protocols` (query protocol × format compatibility matrix), `update` / `update-check` (check & install updates)
 - **Four executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lpb`
-- **Batch merging** with metadata-based pairing (`name`, Apple `ContentIdentifier` UUID, vivo camera ID), custom naming templates, and `--after` actions (`move` to a folder / recycle bin)
+- **Batch pairing & naming**: auto-pair by filename, Apple `ContentIdentifier` UUID, or vivo camera ID; rename outputs with templates like `-n custom:{name}_{date}`; `--after` moves sources to a folder / recycle bin on completion
+- **Script-friendly**: `--json` outputs structured results that scripts and AI agents can consume directly; `--dry-run` previews operations without touching files
 - **Sane output defaults**: single-pair merges write next to the source photo (protocol-suffixed name); batch merges write into a `{folder}_<protocol>` subfolder — never the terminal’s current directory. `-w` overwrites existing outputs instead of auto-renaming
-- **Distribution**: bundled with the installer (optional “Add to PATH”), or a standalone `-x64-cli.zip`
+- **Distribution**: bundled with the installer / portable build (optional “Add to PATH”), or a standalone single-file `-x64-cli.zip` (no install needed; ships `add-to-path.cmd` / `remove-from-path.cmd` helpers to add/remove PATH in one click); install the CLI-only edition via `winget install LengxiQwQ.LivePhotoBox`
 
 📖 **CLI User Guide**: [English](docs/CLI-User-Guide.md) · [简体中文](docs/CLI-User-Guide.zh-CN.md)
 
@@ -139,14 +139,17 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 | Architecture | MVVM (CommunityToolkit.Mvvm) | 8.4.2 |
 | Image Processing | Magick.NET (ImageMagick) + Win2D | 14.16.0 / 1.3.2 |
 | Image Scaling | PhotoSauce.MagicScaler | 0.15.0 |
-| Metadata Engine | `ExifTool` (daemon mode, v13.x) | — |
-| Video Processing | `FFmpeg` (NVENC / QSV / AMF hardware acceleration) | — |
+| Metadata Engine | `ExifTool` (daemon mode) | 13.59 |
+| Video Processing | `FFmpeg` (NVENC / QSV / AMF hardware acceleration) | n8.0.1 |
 | JPEG Operations | `jpegtran` (lossless rotation, thumbnail stripping) | — |
-| HEIC Codec | `libheif` (`heif-enc` / `heif-dec`) | — |
+| HEIC Codec | `libheif` (`heif-enc` / `heif-dec`) | 1.23.1 |
+| HEIC Native Decode | PhotoSauce.NativeCodecs.Libheif (MagicScaler pipeline) | 1.19.5-preview1 |
 | Markdown Rendering | Markdig | 1.3.2 |
 | UI Extensions | CommunityToolkit.WinUI + FluentIcons | — |
 | Command Line | System.CommandLine | 2.0.0-beta4.22272.1 |
 | Packaging | MSIX self-contained (no runtime required) | — |
+
+> `ExifTool` / `FFmpeg` / `jpegtran` / `libheif` are bundled external tools (in the `Tools/` folder) that handle metadata read/write and audio-video processing.
 
 ---
 
@@ -164,16 +167,17 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 # Clone the repository
 git clone https://github.com/lengxiqwq/live-photo-box.git
 cd live-photo-box
-
-# Restore NuGet packages
-dotnet restore
-
-# Build the project
-dotnet build "LivePhotoBox/LivePhotoBox.csproj"
-
-# Run
-dotnet run --project "LivePhotoBox/LivePhotoBox.csproj"
 ```
+
+The repo ships ready-made PowerShell build scripts (`scripts/`) for both GUI and CLI — no need to run `dotnet` commands by hand:
+
+| Script | Produces |
+|--------|----------|
+| `scripts/build-dev.ps1` | Unpackaged dev build (GUI + CLI) into `publish/` |
+| `scripts/build-cli-release.ps1` | Standalone single-file CLI zip (`publish/Live-Photo-Box-v{version}-x64-cli.zip`) |
+| `scripts/build-release.ps1` | Full release trio: portable zip + CLI zip + installer |
+
+> Scripts accept `-CI` for GitHub Actions and other CI environments (no `pause` prompt).
 
 ---
 
@@ -193,10 +197,12 @@ live-photo-box/
 │   ├── ViewModels/           # MVVM ViewModel layer
 │   └── Views/                # XAML pages
 ├── LivePhotoBox.CLI/         # Command-line interface (livephotobox)
+├── tests/                    # Test projects (Core / CLI / UI / benchmarks)
 ├── docs/                     # Project documentation
 ├── changelogs/               # Release notes
 ├── scripts/                  # Build & packaging scripts
 ├── screenshots/              # Screenshots
+├── lpb.cmd                   # Dev alias for the source CLI (runs current code, same as `dotnet run`)
 └── README.md
 ```
 
@@ -248,7 +254,6 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM framework | MIT |
 | [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | High-performance image scaling | MIT |
 | [Markdig](https://github.com/xoofx/markdig) | Markdown rendering | BSD-2-Clause |
-| [Win2D](https://github.com/microsoft/Win2D) | GPU-accelerated graphics | MIT |
 | [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent icon set | MIT |
 
 ---

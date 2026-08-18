@@ -1,6 +1,6 @@
 <div align="center">
 <h1>
-  <img src="LivePhotoBox/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
+  <img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/LivePhotoBox/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
   Live Photo Box（实况照片工具箱）
 </h1>
 <p><em>统一各类实况照片协议，实现跨设备无缝查看与迁移</em></p>
@@ -26,11 +26,11 @@
 ## 🚀 下载
 
 <div align="center">
-  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="./screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" hspace="35" /></a>
+  <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" hspace="35" /></a>
 </div>
 <p align="center">
- 
 </p>
+
 <p align="center">
   或通过 <b>winget</b> 安装 <b>纯命令行版本</b>： <code>winget install LengxiQwQ.LivePhotoBox</code>
 </p>
@@ -39,21 +39,19 @@
 
 ## 💡 这是什么？
 
-各品牌的实况照片（Live Photo）本质上都是一张照片 + 一段视频，但各家封装格式互不兼容。一旦跨品牌换机、跨平台分享，往往就会出现：
+不同品牌的实况照片虽然都由图片与短视频组成，却采用了不同的文件结构和数据方式。跨设备或跨平台迁移后，常常会遇到无法播放、方向异常、动态丢失或元数据缺失等问题。
 
-- **无法预览动态**：在 Windows 上只能看到一张静态图片
-- **元数据丢失、配对失效**：实况照片退化成一张普通 JPEG
-- **方向异常**：前置摄像头视频被旋转、拉伸，无法正常播放
+**实况照片工具箱** 提供统一的实况照片处理能力，支持合成、拆分、格式转换、修复与编辑，并可在不同品牌与设备之间迁移实况照片。
 
-**实况照片工具箱**支持在各种协议之间自由转换。换机、分享、迁移，动态依然鲜活。
+同时最大程度保留原始照片的细节与信息，包括 HDR、EXIF、相机参数、拍摄信息以及原始媒体内容，让每一次转换，都尽可能接近照片最初的样子。
 
 ---
 
 ## 📸 应用截图
 
-<p align="center"><b>🖼️ 实况照片编辑</b><br><img src="screenshots/编辑页.png" alt="编辑" width="80%" /></p>
+<p align="center"><b>🖼️ 实况照片编辑</b><br><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/%E7%BC%96%E8%BE%91%E9%A1%B5.png" alt="编辑" width="80%" /></p>
 
-<p align="center"><b>🔗 实况照片合成</b><br><img src="screenshots/合成页.png" alt="合成" width="80%" /></p>
+<p align="center"><b>🔗 实况照片合成</b><br><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/%E5%90%88%E6%88%90%E9%A1%B5.png" alt="合成" width="80%" /></p>
 
 ---
 
@@ -73,42 +71,44 @@
 将**双文件实况照片协议**（或任意图片 + 视频）转换为**单文件实况照片**，在 Windows 及 Android 设备上均可查看。
 
 - **任意素材，一键合成**：拖拽或选择图片（`JPG` / `HEIC`）+ 视频（`MP4` / `MOV`）直接合成；也可以扫描整个文件夹，自动识别配对、批量入队
-- **多种智能配对**：按文件名、Apple `ContentIdentifier` UUID、vivo 相机 ID 自动匹配图片与视频
+- **多种智能配对**：按文件名、Apple `ContentIdentifier` UUID、vivo 相机 ID 自动匹配图片与视频；也可直接合并现成的双文件实况照片
 - **多品牌协议自由切换**：主流品牌目标协议一键切换，配合 `JPEG+MP4` / `JPEG+MOV` / `HEIC+MP4` / `HEIC+MOV` / `HEIC+MP4(H.265)` 输出格式，随协议自动筛选可用项
-- **可视化命名模板**：片段式编排（原名 / 协议 / 日期 / 时间 / EXIF 日期时间 / 计数器 / 自定义文本），支持拖拽排序、预设模板、分隔符选择与实时预览
+- **批量文件命名**：命名模板快速编排（原名 / 协议 / 日期 / 时间 / EXIF 日期时间 / 计数器 / 自定义文本），支持拖拽排序、预设模板、分隔符选择与实时预览——无需编写正则表达式即可批量重命名
 - **收尾处理**：合成完成后可选择移动到指定目录，或移入回收站
 - **并行批量合成**：任务队列支持搜索、多维度排序与状态筛选，多任务并行处理，实时显示进度、成功/失败统计与耗时
 
 | 合成协议 | 支持设备 | 状态 |
 |---|---|---|
-| Google Micro Video (v1) | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
-| Google Motion Photo (v2) | Windows / 小米 / Pixel | ✅ 可用 |
-| OPPO O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
-| HUAWEI Moving Photo | 华为 / 荣耀 | ✅ 可用 |
-| Samsung Motion Photo | Windows / Samsung | 🟡 测试中 |
-| vivo Live Photo | Windows / vivo（≥ x300） | 🟡 测试中 |
+| Google - Micro Video (v1) | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
+| Google - Motion Photo (v2) | Windows / 小米 / Pixel | ✅ 可用 |
+| OPPO - O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
+| HUAWEI - Moving Photo | 华为 / 荣耀 | ✅ 可用 |
+| Samsung - Motion Photo | Windows / Samsung | 🟡 测试中 |
+| vivo - Live Photo | Windows / vivo（≥ x300） | 🟡 测试中 |
 
 ### 📸 实况照片拆分
 
-将**实况照片**（单文件形式）拆分为独立的静态图片（`JPG` / `HEIC`）和视频（`MP4` / `MOV`）。
+将**实况照片**（单文件形式）拆分为**双文件实况照片**形式，或独立的静态图片（`JPG` / `HEIC`）和视频（`MP4` / `MOV`）。
 
-- 智能剥离 `XMP` 元数据，防止拆分后的图片被再次误识别为实况照片。但保留照片其他元数据
-- 按 `JPEG` 段结构逐段重建，不丢失 `EXIF` / `ICC` / `GPS` / 拍摄参数
+- **批量拆分**：扫描整个文件夹自动识别实况照片、批量入队；可按协议筛选（Google / OPPO / vivo / Samsung / 华为），只拆分目标品牌
+- **协议输出**：可转为 Apple / vivo 双文件实况照片（写入配对元数据），也可重新封装为 `HEIC+MOV` / `JPG+MOV` / `JPG+MP4` 格式
+- **剥离实况照片元数据**：防止拆分后的图片被再次误识别为实况照片；保留照片其他元数据，不丢失 `EXIF` / `ICC` / `GPS` / 拍摄参数
+- **命名模板**：与合成页一致的片段式命名，支持拖拽排序与实时预览
+
+> ⚠️ **关于 iPhone / iPad**：受 iOS 系统限制，实况照片无法直接导入 iOS 设备。本软件只负责生成实况照片数据，导入需通过爱思助手（i4Tools）等第三方软件完成。
 
 | 拆分协议 | 支持机型 | 状态 |
 |---|---|---|
-| Apple Live Photo | iPhone / iPad | ✅ 可用 |
-| vivo Live Photo | vivo（≤ x200） | 🟡 测试中 |
+| Apple - Live Photo | iPhone / iPad | ✅ 可用 |
+| vivo - Live Photo | vivo（≤ x200） | 🟡 测试中 |
 
 ### 🛠️ 实况照片修复
 
-修复 Apple 实况照片导出后出现的显示异常。
+修复针对 Apple 实况照片导出后出现的显示异常。扫描后可查看每张照片的**诊断详情**，可以按文件类型或修复状态快速筛选。
 
 - **多余缩略图及横向拉伸**（iOS 17.3 之前）：Apple 曾嵌入低分辨率缩略图但带有方向标签，Windows 误将其当作横向图片处理，导致拉宽或压扁 。我们使用 `jpegtran` 无损旋转 + 剥离多余缩略图
 - **前置摄像头视频旋转**：iPhone 前置镜头纵向像素横向存储，依赖方向标签指示角度，Windows 不识别。我们用 `FFmpeg` 重编码消除旋转矩阵
-- **HEIC 方向错误**：修正错误的 `Orientation` 标签
-- **ContentIdentifier 丢失**：自动修复照片-视频的 `UUID` 配对关系
-- 扫描后可查看每张照片的**诊断详情**，可以按文件类型或修复状态快速筛选
+- **HEIC 方向错误**：修正错误的 `Orientation` 标签（如果存在）
 
 ### 📂 自动整理相册（功能开发中）
 
@@ -120,11 +120,11 @@
 
 Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 100% 核心逻辑，适合脚本和 AI Agent 调用。
 
-- **命令**：`merge`（单对或批量合成）、`protocols`（协议 × 格式兼容矩阵）、`update-check`（检查最新版本）、`update`（检查并安装更新）
+- **命令**：`merge`（单对或批量合成）、`split`（拆回图片 + 视频）、`repair`（修复 Apple 实况照片显示问题）、`protocols`（协议 × 格式兼容矩阵查询）、`update` / `update-check`（检查并安装更新）
 - **四个可执行别名**：`livephotobox` / `livephoto` / `livebox` / `lpb`
-- **批量合成**：支持基于元数据的配对（`name`、Apple `ContentIdentifier` UUID、vivo 相机 ID）、自定义命名模板、`--after` 动作（移动到文件夹 / 回收站）
-- **合理的输出默认值**：单对合成默认输出到源照片所在目录（文件名带协议后缀）；批量合成默认输出到 `{文件夹}_{协议}` 子文件夹——绝不会落到终端当前目录。`-w` 直接覆盖已存在的输出而非自动重命名
-- **分发**：随安装包内置（可选"添加到 PATH"），或独立 `-x64-cli.zip`
+- **批量配对和命名方式**：按文件名、Apple `ContentIdentifier` UUID、vivo 相机 ID 自动配对；`-n custom:{name}_{date}` 等命名模板批量重命名输出；`--after` 支持完成后移动到文件夹 / 回收站
+- **脚本友好**：使用`--json` 输出结构化结果，供脚本与 AI Agent 直接消费；`--dry-run` 可预览操作而不实际处理文件
+- **分发**：随安装包 / 便携版内置（可选"添加到 PATH"），或独立 `-x64-cli.zip`（单文件免安装，包内附 `add-to-path.cmd` / `remove-from-path.cmd` 辅助脚本，双击即可一键加入 / 移除 PATH）；也可用 `winget install LengxiQwQ.LivePhotoBox` 一键安装纯 CLI 版
 
 📖 **CLI 使用指南**：[English](docs/CLI-User-Guide.md) · [简体中文](docs/CLI-User-Guide.zh-CN.md)
 
@@ -141,14 +141,17 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 | 架构 | MVVM（CommunityToolkit.Mvvm） | 8.4.2 |
 | 图像处理 | Magick.NET（ImageMagick）+ Win2D | 14.16.0 / 1.3.2 |
 | 图像缩放 | PhotoSauce.MagicScaler | 0.15.0 |
-| 元数据引擎 | `ExifTool`（常驻进程模式，v13.x） | — |
-| 视频处理 | `FFmpeg`（NVENC / QSV / AMF 硬件加速） | — |
+| 元数据引擎 | `ExifTool`（常驻进程模式） | 13.59 |
+| 视频处理 | `FFmpeg`（NVENC / QSV / AMF 硬件加速） | n8.0.1 |
 | JPEG 操作 | `jpegtran`（无损旋转、缩略图剥离） | — |
-| HEIC 编解码 | `libheif`（`heif-enc` / `heif-dec`） | — |
+| HEIC 编解码 | `libheif`（`heif-enc` / `heif-dec`） | 1.23.1 |
+| HEIC 原生解码 | PhotoSauce.NativeCodecs.Libheif（MagicScaler 管线） | 1.19.5-preview1 |
 | Markdown 渲染 | Markdig | 1.3.2 |
 | UI 扩展 | CommunityToolkit.WinUI + FluentIcons | — |
 | 命令行 | System.CommandLine | 2.0.0-beta4.22272.1 |
 | 打包 | MSIX 自包含（无需安装运行时） | — |
+
+> `ExifTool` / `FFmpeg` / `jpegtran` / `libheif` 为随包附带的外部工具（`Tools/` 目录），负责元数据读写与音视频处理。
 
 ---
 
@@ -166,16 +169,17 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 # 克隆仓库到本地
 git clone https://github.com/lengxiqwq/live-photo-box.git
 cd live-photo-box
-
-# 还原 NuGet 依赖包
-dotnet restore
-
-# 编译项目
-dotnet build LivePhotoBox/LivePhotoBox.csproj
-
-# 启动运行
-dotnet run --project LivePhotoBox/LivePhotoBox.csproj
 ```
+
+仓库提供现成的 PowerShell 构建脚本（`scripts/`），GUI 与 CLI 均可一键构建，无需手敲 dotnet 命令：
+
+| 脚本 | 产物 |
+|------|------|
+| `scripts/build-dev.ps1` | 未打包开发版（GUI + CLI），输出到 `publish/` |
+| `scripts/build-cli-release.ps1` | 独立 CLI 单文件包（`publish/Live-Photo-Box-v{版本}-x64-cli.zip`） |
+| `scripts/build-release.ps1` | 完整发布三件套：便携版 zip + CLI zip + 安装包 |
+
+> 脚本支持 `-CI` 参数，供 GitHub Actions 等 CI 环境使用（不弹 `pause` 等待）。
 
 ---
 
@@ -195,10 +199,12 @@ live-photo-box/
 │   ├── ViewModels/           # MVVM ViewModel 层
 │   └── Views/                # XAML 页面
 ├── LivePhotoBox.CLI/         # 命令行工具（livephotobox）
+├── tests/                    # 测试项目（Core / CLI / UI / 基准测试）
 ├── docs/                     # 项目文档
 ├── changelogs/               # 更新日志
 ├── scripts/                  # 构建与打包脚本
 ├── screenshots/              # 截图资源
+├── lpb.cmd                   # 源码版 CLI 开发别名（直接运行当前源码，等价 dotnet run）
 └── README.md
 ```
 
@@ -250,7 +256,6 @@ live-photo-box/
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM 框架 | MIT |
 | [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | 高性能图片缩放 | MIT |
 | [Markdig](https://github.com/xoofx/markdig) | Markdown 渲染 | BSD-2-Clause |
-| [Win2D](https://github.com/microsoft/Win2D) | GPU 加速图形 | MIT |
 | [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent 图标集 | MIT |
 
 ---
