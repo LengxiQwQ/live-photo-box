@@ -79,7 +79,7 @@ namespace LivePhotoBox.ViewModels
         };
 
         // 当前页面是否有底部状态栏（仅合并/拆分/修复页面显示）。
-        public bool IsStatusBarVisible => CurrentStatusPageTag is "Merge" or "Split" or "Repair";
+        public bool IsStatusBarVisible => CurrentStatusPageTag is "Merge" or "Split";
 
         // 拆分页面的扫描总进度计数。
         private int _splitScanTotal;
