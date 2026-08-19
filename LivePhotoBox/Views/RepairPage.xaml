@@ -253,7 +253,8 @@
                 </Grid>
             </Border>
 
-            <Border x:Name="RepairTaskListSurface" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8" Background="{ThemeResource CustomPanelAcrylicBrush}" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="1" Padding="8" AllowDrop="True">
+            <Border x:Name="RepairTaskListSurface" Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                    Style="{StaticResource SurfaceCardStyle}" Padding="0" AllowDrop="True">
                 <Grid>
                     <Grid>
                         <Grid.RowDefinitions>
@@ -463,7 +464,9 @@
 
             <!-- ═══════════ Row 3：底部状态面板 ═══════════ -->
             <Border Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
-                    Style="{StaticResource SurfaceCardStyle}" Padding="12,10,12,10">
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="4" Padding="14,5,14,6">
                 <Grid RowSpacing="4">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
