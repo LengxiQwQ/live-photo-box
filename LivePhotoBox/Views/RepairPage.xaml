@@ -16,6 +16,7 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <Grid.ColumnDefinitions>
@@ -461,6 +462,105 @@
                         <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
                             <FontIcon Glyph="&#xE838;" FontSize="36" Foreground="White"/>
                             <TextBlock x:Uid="RepairPage_DropToBrowse" FontSize="14" FontWeight="SemiBold" Foreground="White" HorizontalAlignment="Center"/>
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <!-- ═══════════ Row 3：底部状态面板 ═══════════ -->
+            <Border Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1" CornerRadius="4" Padding="14,5,14,6">
+                <Grid RowSpacing="4">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- 进度条区域 -->
+                    <Rectangle Grid.Row="0" Height="4" VerticalAlignment="Center"
+                               Margin="0,4,0,4" RadiusX="2" RadiusY="2"
+                               Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                               HorizontalAlignment="Stretch"/>
+                    <ProgressBar Grid.Row="0" Height="4" CornerRadius="2"
+                                 Margin="0,4,0,4" VerticalAlignment="Center"
+                                 Value="{x:Bind ViewModel.FooterProgressValue, Mode=OneWay}" Maximum="100"
+                                 IsIndeterminate="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarIndeterminateConverter}, Mode=OneWay}"
+                                 Foreground="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarForegroundConverter}, Mode=OneWay}"
+                                 Background="Transparent"
+                                 BorderThickness="0" Padding="0" HorizontalAlignment="Stretch"/>
+
+                    <!-- 状态文字（左）+ 统计 + 耗时（右） -->
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- 左侧：状态文字 -->
+                        <TextBlock Grid.Column="0" FontSize="11" FontWeight="SemiBold"
+                                   VerticalAlignment="Center" HorizontalAlignment="Left"
+                                   TextTrimming="CharacterEllipsis" TextWrapping="NoWrap"
+                                   Text="{x:Bind ViewModel.FooterStatusText, Mode=OneWay}"
+                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}" Opacity="0.9"/>
+
+                        <!-- 右侧：统计圆点 + 耗时 -->
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <!-- 总计 -->
+                            <StackPanel Orientation="Horizontal" Spacing="3"
+                                        Visibility="{x:Bind ViewModel.FooterTotalVisible, Mode=OneWay}">
+                                <Border Width="7" Height="7" CornerRadius="4" Background="#888888" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="RepairPage_FooterTotal" FontSize="10" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontSize="10"
+                                           VerticalAlignment="Center" Margin="1,0,0,0"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <!-- 成功 -->
+                            <StackPanel Orientation="Horizontal" Spacing="3"
+                                        Visibility="{x:Bind ViewModel.FooterSuccessVisible, Mode=OneWay}">
+                                <Border Width="7" Height="7" CornerRadius="4" Background="#10B981" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="RepairPage_FooterSuccess" FontSize="10" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.SuccessCount, Mode=OneWay}" FontSize="10"
+                                           VerticalAlignment="Center" Margin="1,0,0,0"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <!-- 失败 -->
+                            <StackPanel Orientation="Horizontal" Spacing="3"
+                                        Visibility="{x:Bind ViewModel.FooterFailedVisible, Mode=OneWay}">
+                                <Border Width="7" Height="7" CornerRadius="4" Background="#EF4444" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="RepairPage_FooterFailed" FontSize="10" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.FailedCount, Mode=OneWay}" FontSize="10"
+                                           VerticalAlignment="Center" Margin="1,0,0,0"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <!-- 未处理 -->
+                            <StackPanel Orientation="Horizontal" Spacing="3"
+                                        Visibility="{x:Bind ViewModel.FooterUnprocessedVisible, Mode=OneWay}">
+                                <Border Width="7" Height="7" CornerRadius="4" Background="#F59E0B" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="RepairPage_FooterUnprocessed" FontSize="10" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.PendingCount, Mode=OneWay}" FontSize="10"
+                                           VerticalAlignment="Center" Margin="1,0,0,0"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <!-- 已取消 -->
+                            <StackPanel Orientation="Horizontal" Spacing="3"
+                                        Visibility="{x:Bind ViewModel.FooterCancelledVisible, Mode=OneWay}">
+                                <Border Width="7" Height="7" CornerRadius="4" Background="#EF4444" VerticalAlignment="Center"/>
+                                <TextBlock x:Uid="RepairPage_FooterCancelled" FontSize="10" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.CancelledCount, Mode=OneWay}" FontSize="10"
+                                           VerticalAlignment="Center" Margin="1,0,0,0"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <!-- 耗时 -->
+                            <TextBlock FontSize="10" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                       Text="{x:Bind ViewModel.ElapsedTimeText, Mode=OneWay}"/>
                         </StackPanel>
                     </Grid>
                 </Grid>

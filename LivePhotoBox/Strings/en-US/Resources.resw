@@ -3959,39 +3959,6 @@ Then click "Start Split".</value>
   <data name="SettingsPage_ResetLayout_DialogContent_Line2" xml:space="preserve">
     <value>Window position, size and panel splitter ratios will be restored to default.</value>
   </data>
-  <data name="RepairPage_PageTitle.Text" xml:space="preserve">
-    <value>Repair Live Photos</value>
-  </data>
-  <data name="RepairPage_PageSubtitle.Text" xml:space="preserve">
-    <value>Diagnose and fix incomplete live photo metadata</value>
-  </data>
-  <data name="RepairPage_InputOutputHeader.Text" xml:space="preserve">
-    <value>Input &amp; Output Directories</value>
-  </data>
-  <data name="RepairPage_QueueHeader.Text" xml:space="preserve">
-    <value>Repair Queue</value>
-  </data>
-  <data name="RepairPage_StatsHeader.Text" xml:space="preserve">
-    <value>Statistics</value>
-  </data>
-  <data name="RepairPage_StatusProcessing" xml:space="preserve">
-    <value>Processing: {0} files</value>
-  </data>
-  <data name="RepairPage_StatusTotal" xml:space="preserve">
-    <value>{0} total</value>
-  </data>
-  <data name="RepairPage_StatusElapsed" xml:space="preserve">
-    <value>Elapsed {0}</value>
-  </data>
-  <data name="RepairPage_ScanMatched" xml:space="preserve">
-    <value>{0} matched</value>
-  </data>
-  <data name="RepairPage_ScanUnmatched" xml:space="preserve">
-    <value>{0} unmatched</value>
-  </data>
-  <data name="RepairPage_StatusElapsedIdle" xml:space="preserve">
-    <value>--:-- elapsed</value>
-  </data>
   <data name="RepairPage_FooterTotal.Text" xml:space="preserve">
     <value>Total </value>
   </data>

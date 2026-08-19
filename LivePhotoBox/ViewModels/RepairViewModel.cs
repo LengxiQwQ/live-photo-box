@@ -265,6 +265,88 @@ namespace LivePhotoBox.ViewModels
         // 分组标签可见性 — 仅"全部"、有任务、非扫描中时显示
         public Visibility ViewGroupVisibility => FilterMode == 0 && Tasks.Count > 0 && !IsScanning ? Visibility.Visible : Visibility.Collapsed;
 
+        // ── 底部栏统一属性 ──
+
+        // 待处理任务（Task 维度：一个配对格子算一个待处理项）。
+        public int PendingCount => Tasks.Count(t => t.Status == ProcessStatus.Pending);
+        // 处理中任务。
+        public int ProcessingCount => Tasks.Count(t => t.Status == ProcessStatus.Processing);
+        // 已完成任务（Task 维度：格子里两个 Entry 都完成即算完成）。
+        public int SuccessCount => Tasks.Count(t => t.Status == ProcessStatus.Success);
+        // 失败任务数（Task 维度：格子里有任意 Entry 失败即算失败）。
+        public int FailedCount => Tasks.Count(t => t.Status == ProcessStatus.Failed);
+        // 被取消任务数。
+        public int CancelledCount => Tasks.Count(t => t.Status == ProcessStatus.Cancelled);
+
+        // 底部栏耗时文字（格式 mm:ss）。
+        public string ElapsedTimeText => _stopwatch.Elapsed.TotalSeconds > 0
+            ? ResourceService.Format("MergePage_StatusElapsed", _stopwatch.Elapsed.ToString(@"mm\:ss"))
+            : ResourceService.GetString("MergePage_StatusElapsedIdle");
+
+        /// <summary>底部栏进度条数值（0~100），综合扫描和处理进度。</summary>
+        public double FooterProgressValue
+        {
+            get
+            {
+                if (IsScanning)
+                    return _repairLocalScanTotal > 0 ? (_repairLocalScanProcessed * 100.0 / _repairLocalScanTotal) : 0;
+                if (_repairLocalScanTotal > 0 && !IsProcessing && !_repairDone)
+                    return 100.0; // 扫描刚完成，进度条滚到头
+                return Progress;
+            }
+        }
+
+        /// <summary>
+        /// 底部栏左侧状态文字，覆盖所有生命周期：
+        /// 空闲 → Status；扫描中 → 扫描进度；处理中 → ProcessingStatusText；
+        /// 停止 → "已停止"；完成 → "处理完成"。
+        /// </summary>
+        public string FooterStatusText
+        {
+            get
+            {
+                if (IsScanning)
+                {
+                    return _repairLocalScanTotal > 0
+                        ? ResourceService.Format("StatusBar_Scanning_Repair", _repairLocalScanProcessed, _repairLocalScanTotal)
+                        : ResourceService.GetString("Status_Scanning");
+                }
+                if (IsProcessing)
+                    return ProcessingStatusText;
+                if (_repairStoppedByUser)
+                    return ResourceService.GetString("Status_StoppedSimple");
+                if (_repairDone && Progress >= 100)
+                    return ResourceService.GetString("Status_DoneSimple");
+                // Idle / Ready — 使用 SetStatus 设置的文字（如 "初始化"、"扫描完成：..."）
+                return Status;
+            }
+        }
+
+        // ── 统计项可见性（零值自动隐藏） ──
+
+        public Visibility FooterTotalVisible => TotalPairsCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FooterSuccessVisible => SuccessCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FooterFailedVisible => FailedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FooterUnprocessedVisible => (!_repairStoppedByUser && PendingCount > 0) ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FooterCancelledVisible => (_repairStoppedByUser && CancelledCount > 0) ? Visibility.Visible : Visibility.Collapsed;
+
+        private void NotifyStatsChanged()
+        {
+            OnPropertyChanged(nameof(PendingCount));
+            OnPropertyChanged(nameof(ProcessingCount));
+            OnPropertyChanged(nameof(SuccessCount));
+            OnPropertyChanged(nameof(FailedCount));
+            OnPropertyChanged(nameof(CancelledCount));
+            OnPropertyChanged(nameof(ElapsedTimeText));
+            OnPropertyChanged(nameof(FooterProgressValue));
+            OnPropertyChanged(nameof(FooterStatusText));
+            OnPropertyChanged(nameof(FooterTotalVisible));
+            OnPropertyChanged(nameof(FooterSuccessVisible));
+            OnPropertyChanged(nameof(FooterFailedVisible));
+            OnPropertyChanged(nameof(FooterUnprocessedVisible));
+            OnPropertyChanged(nameof(FooterCancelledVisible));
+        }
+
         // 根据任务确定其所属分组名称
         public static string GetTaskGroupName(RepairTask task)
         {
@@ -378,17 +460,28 @@ namespace LivePhotoBox.ViewModels
 
         protected override void OnBeginScanSession()
         {
+            _repairLocalScanTotal = 0;
+            _repairLocalScanProcessed = 0;
             AppViewModel.Instance.BeginRepairScanSession();
+            OnPropertyChanged(nameof(FooterProgressValue));
+            OnPropertyChanged(nameof(FooterStatusText));
         }
 
         protected override void OnApplyScanProgress(WorkProgressSnapshot snapshot)
         {
+            _repairLocalScanTotal = snapshot.Total;
+            _repairLocalScanProcessed = snapshot.Completed;
             AppViewModel.Instance.ApplyRepairScanProgress(snapshot);
+            OnPropertyChanged(nameof(FooterProgressValue));
+            OnPropertyChanged(nameof(FooterStatusText));
         }
 
         protected override void OnCompleteScanSnapshot()
         {
+            _repairLocalScanProcessed = _repairLocalScanTotal;
             AppViewModel.Instance.CompleteFooterWorkSnapshot();
+            OnPropertyChanged(nameof(FooterProgressValue));
+            OnPropertyChanged(nameof(FooterStatusText));
         }
 
         private void UiUpdateTimer_Tick(object? sender, object e)
@@ -398,12 +491,21 @@ namespace LivePhotoBox.ViewModels
             Progress = (currentCompleted * 100.0) / _totalRepairEntries;
             ProgressText = $"{currentCompleted}/{_totalRepairEntries}";
             CheckAndApplyPendingState();
+            // 暂停时冻结计时，恢复时继续
+            if (IsPaused && _stopwatch.IsRunning)
+                _stopwatch.Stop();
+            else if (!IsPaused && !_stopwatch.IsRunning && !_repairStoppedByUser && !_repairDone)
+                _stopwatch.Start();
+            OnPropertyChanged(nameof(ElapsedTimeText));
+            OnPropertyChanged(nameof(FooterProgressValue));
+            OnPropertyChanged(nameof(FooterStatusText));
         }
 
         protected override void OnInitializeRunState()
         {
             _repairStoppedByUser = false;
             _repairDone = false;
+            _stopwatch = Stopwatch.StartNew();
 
             // 进度按 Entry（文件）算，不是按 Task（格子）算 — 配对格子里的两个文件各算一个
             _completedEntriesCount = 0;
@@ -420,6 +522,7 @@ namespace LivePhotoBox.ViewModels
 
             SetDirectStatus(ProcessingStatusText);
             OnPropertyChanged(nameof(ActionBtnText));
+            NotifyStatsChanged();
             _uiUpdateTimer.Start();
         }
 
@@ -431,10 +534,12 @@ namespace LivePhotoBox.ViewModels
             if (_cancelledByUser)
             {
                 _repairStoppedByUser = true;
+                _notifyStatsOnFinalize = true;
             }
             else
             {
                 _repairDone = true;
+                _notifyStatsOnFinalize = true;
 
                 if (_totalRepairEntries > 0)
                 {
@@ -459,6 +564,12 @@ namespace LivePhotoBox.ViewModels
                     SetStatus("Status_RepairCompletedSummary", totalEntries, elapsed, succeeded, skipped, failed);
                     LogService.Repair($"Repair completed: {succeeded} repaired, {skipped} skipped, {failed} failed in {elapsed:F1}s");
                 }
+            }
+
+            if (_notifyStatsOnFinalize)
+            {
+                _notifyStatsOnFinalize = false;
+                NotifyStatsChanged();
             }
             OnPropertyChanged(nameof(ActionBtnText));
         }
@@ -513,6 +624,12 @@ namespace LivePhotoBox.ViewModels
         private bool _repairStoppedByUser;
         // 是否自然完成。
         private bool _repairDone;
+        // 底部栏本地扫描计数。
+        private int _repairLocalScanTotal;
+        // 底部栏本地已扫描计数。
+        private int _repairLocalScanProcessed;
+        // 完成（或停止）后追加一次统计刷新。
+        private bool _notifyStatsOnFinalize;
         // 每个 Entry 的处理开始时间，用于保证最短显示时长。
         private readonly Dictionary<RepairFileEntry, DateTimeOffset> _taskProcessingStartTimes = new();
         // UI 更新定时器（60ms 间隔），用于刷新进度条和文本。

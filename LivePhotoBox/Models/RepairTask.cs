@@ -182,6 +182,25 @@ namespace LivePhotoBox.Models
 
         #endregion
 
+        #region Task-Level Status
+
+        // 任务级状态：配对 = 两个 Entry 中最差状态；单独 = 唯一 Entry 的状态。
+        public ProcessStatus Status => File2Entry != null
+            ? AggregateStatus(File1Entry?.Status ?? ProcessStatus.Pending, File2Entry.Status)
+            : File1Entry?.Status ?? ProcessStatus.Pending;
+
+        // 汇总两个 Entry 的状态：处理中 > 待处理 > 失败 > 成功 > 已取消。
+        private static ProcessStatus AggregateStatus(ProcessStatus a, ProcessStatus b)
+        {
+            if (a == ProcessStatus.Processing || b == ProcessStatus.Processing) return ProcessStatus.Processing;
+            if (a == ProcessStatus.Pending || b == ProcessStatus.Pending) return ProcessStatus.Pending;
+            if (a == ProcessStatus.Failed || b == ProcessStatus.Failed) return ProcessStatus.Failed;
+            if (a == ProcessStatus.Cancelled || b == ProcessStatus.Cancelled) return ProcessStatus.Cancelled;
+            return ProcessStatus.Success;
+        }
+
+        #endregion
+
         #region Group Header Factory
 
         // 仅供 <see cref="CreateGroupHeader"/> 使用的内部构造
