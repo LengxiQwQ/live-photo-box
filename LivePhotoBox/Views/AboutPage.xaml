@@ -434,11 +434,12 @@
                                             <!-- GitHub Sponsors -->
                                             <Button Command="{x:Bind ViewModel.OpenLinkCommand}"
                                                     CommandParameter="https://github.com/sponsors/LengxiQwQ"
-                                                    HorizontalAlignment="Stretch">
+                                                    HorizontalAlignment="Stretch"
+                                                    Style="{ThemeResource AccentButtonStyle}">
                                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                                     <Image Width="16" Height="16" VerticalAlignment="Center">
                                                         <Image.Source>
-                                                            <SvgImageSource UriSource="ms-appx:///Assets/Icons/Social/github.svg"/>
+                                                            <SvgImageSource UriSource="ms-appx:///Assets/Icons/Social/github-white.svg"/>
                                                         </Image.Source>
                                                     </Image>
                                                     <TextBlock x:Uid="AboutPage_Sponsor_GitHub" Margin="0,0,0,1"/>

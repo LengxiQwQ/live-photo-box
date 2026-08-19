@@ -74,7 +74,13 @@ namespace LivePhotoBox.Views
                 if (_isTestToolsVisible != value)
                 {
                     _isTestToolsVisible = value;
-                    AppSettingsService.SetValue(nameof(IsTestToolsVisible), value);
+
+                    // 崩溃自动展开不保存状态，只有用户手动点击才保存
+                    if (!_isCrashAutoExpand)
+                    {
+                        AppSettingsService.SetValue(nameof(IsTestToolsVisible), value);
+                    }
+
                     ViewModel.RefreshCrashLogs();
                     NotifyPropertyChanged(nameof(TestToolsVisibility));
                     NotifyPropertyChanged(nameof(CrashNoticeVisibility));
@@ -86,6 +92,7 @@ namespace LivePhotoBox.Views
         }
 
         private bool _isTestToolsVisible;
+        private bool _isCrashAutoExpand;
 
         // 构造函数：初始化组件，注册 Loaded 事件（预加载 Banner + 崩溃检测）
         public SettingsPage()
@@ -107,10 +114,12 @@ namespace LivePhotoBox.Views
                 GitHubTokenBox.PlaceholderText = ResourceService.GetString("SettingsPage_Debug_GitHubTokenBox_Placeholder");
                 RefreshGitHubTokenStatus();
 
-                // 如果上一次非正常退出，自动展开日志与调试工具区
+                // 如果上一次非正常退出，自动展开日志与调试工具区（不保存状态）
                 if (LogService.LastSessionCrashed && !IsTestToolsVisible)
                 {
+                    _isCrashAutoExpand = true;
                     IsTestToolsVisible = true;
+                    _isCrashAutoExpand = false;
                 }
             };
         }

@@ -125,6 +125,7 @@ namespace LivePhotoBox.Views
                     {
                         Spacing = 2,
                         VerticalAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Left,
                         Children = { nameBlock, hintBlock }
                     };
 
@@ -214,6 +215,7 @@ namespace LivePhotoBox.Views
                     {
                         Spacing = 2,
                         VerticalAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Left,
                         Children = { nameBlock, hintBlock }
                     };
 
@@ -366,6 +368,7 @@ namespace LivePhotoBox.Views
                     {
                         Spacing = 2,
                         VerticalAlignment = VerticalAlignment.Center,
+                        HorizontalAlignment = HorizontalAlignment.Left,
                         Children = { nameBlock, hintBlock }
                     };
 

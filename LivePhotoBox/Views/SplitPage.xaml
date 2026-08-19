@@ -1016,7 +1016,7 @@
                           IsHitTestVisible="False"
                           VerticalAlignment="Center" HorizontalAlignment="Center">
                         <StackPanel Spacing="24" HorizontalAlignment="Center">
-                            <FontIcon Glyph="&#xE8B1;" FontSize="42"
+                            <FontIcon Glyph="&#xE8C6;" FontSize="42"
                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                       HorizontalAlignment="Center"/>
                             <StackPanel Spacing="8" HorizontalAlignment="Center">
@@ -1162,8 +1162,10 @@
         <TeachingTip x:Name="ErrorDetailTip" IsLightDismissEnabled="False" PreferredPlacement="Left"
                      Closed="ErrorDetailTip_Closed">
             <TeachingTip.Content>
-                <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap"
-                           IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
+                <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto">
+                    <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap"
+                               IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
+                </ScrollViewer>
             </TeachingTip.Content>
         </TeachingTip>
     </Grid>

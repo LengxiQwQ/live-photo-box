@@ -633,7 +633,7 @@ namespace LivePhotoBox.ViewModels
             IsCopyPerfectToOutput = AppSettingsService.GetValue(nameof(IsCopyPerfectToOutput), false);
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
-            IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), true);
+            IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), false);
             IsDragDropAutoPairEnabled = AppSettingsService.GetValue(nameof(IsDragDropAutoPairEnabled), false);
             IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), true);
             ThumbnailProviderIndex = AppSettingsService.GetValue(nameof(ThumbnailProviderIndex), 0);
@@ -773,8 +773,9 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void RestoreDefaultSettings()
         {
-            // 1. 清空所有已保存设置 → 下次读取全部走默认值
+            // 1. 清空所有已保存设置 → 下次读取全部走默认值（含窗口布局记忆）
             AppSettingsService.ClearAll();
+            LogService.Info("All settings + window layout cleared.", LogSource.Settings);
 
             // 2. 重新从默认值加载 → UI 刷新 + OnChanged 回写默认值
             LoadSettings();
