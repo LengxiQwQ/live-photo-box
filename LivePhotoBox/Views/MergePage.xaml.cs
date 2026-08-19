@@ -34,6 +34,9 @@ namespace LivePhotoBox.Views
 {
     public sealed partial class MergePage : Page
     {
+        // ── 面板拖拽分隔条宽度常量 ──
+        private const double DefaultLeftPanelWidth = 320;
+
         // 任务列表自动滚动器，在处理/扫描过程中保持当前任务可见
         private readonly TaskListAutoScroller _scroller;
 
@@ -453,6 +456,9 @@ namespace LivePhotoBox.Views
 
             // 恢复上次的自定义命名片段
             ViewModel.LoadSegmentsFromTemplate();
+
+            // 恢复上次拖拽的左侧面板宽度
+            RestoreLeftPanelWidth();
         }
 
         // 页面卸载时分离自动滚动器，解绑 ViewModel 事件
@@ -1096,23 +1102,38 @@ namespace LivePhotoBox.Views
         }
 
         // ── 拖拽分隔条（GridSplitter） ──
-        private bool _isSplitterDragging;
+        private const double _MinLeftWidth = 224;
+        private const double _MaxLeftWidth = 900;
+        private const double _DesiredRightWidth = 420;
+        private const string _LeftPanelWidthKey = "MergePage_LeftPanelWidth";
 
-        // 分隔条按下：记录左栏起始宽度
+        private bool _isSplitterDragging;
+        private double _splitterAnchorX;          // 按下时鼠标在父 Grid 中的 X
+        private double _splitterAnchorWidth;      // 按下时左栏的实际宽度
+
+        // 分隔条按下：记录锚点（鼠标 X + 左栏宽度）
         private void Splitter_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             _isSplitterDragging = true;
+            var parentGrid = (Grid)LeftConfigPanel.Parent!;
+            var point = e.GetCurrentPoint(parentGrid);
+            _splitterAnchorX = point.Position.X;
+            _splitterAnchorWidth = LeftConfigPanel.ActualWidth;
             GridSplitterBar.CapturePointer(e.Pointer);
             e.Handled = true;
         }
 
-        // 分隔条拖动：根据鼠标在父 Grid 中的 X 坐标直接设置左栏宽度
+        // 分隔条拖动：鼠标的移动量原样加到左栏宽度上（不直接以鼠标 X 为准，避免像素错位）
         private void Splitter_PointerMoved(object sender, PointerRoutedEventArgs e)
         {
             if (!_isSplitterDragging) return;
             if (LeftConfigPanel.Parent is not Grid parentGrid) return;
             var point = e.GetCurrentPoint(parentGrid);
-            var newWidth = Math.Clamp(point.Position.X, 220, 800);
+            var newWidth = _splitterAnchorWidth + (point.Position.X - _splitterAnchorX);
+            // 左栏最小/最大限制
+            newWidth = Math.Clamp(newWidth, _MinLeftWidth, _MaxLeftWidth);
+            // 右侧面板最小宽度保护（保证按钮/列标题不被挤没）
+            newWidth = Math.Min(newWidth, Math.Max(0, parentGrid.ActualWidth - _DesiredRightWidth));
             parentGrid.ColumnDefinitions[0].Width = new GridLength(newWidth);
             e.Handled = true;
         }
@@ -1122,6 +1143,7 @@ namespace LivePhotoBox.Views
         {
             _isSplitterDragging = false;
             GridSplitterBar.ReleasePointerCapture(e.Pointer);
+            SaveLeftPanelWidth();
             e.Handled = true;
         }
 
@@ -1148,9 +1170,44 @@ namespace LivePhotoBox.Views
         {
             if (LeftConfigPanel.Parent is Grid parentGrid)
             {
-                parentGrid.ColumnDefinitions[0].Width = new GridLength(320);
+                parentGrid.ColumnDefinitions[0].Width = new GridLength(DefaultLeftPanelWidth);
+                SaveLeftPanelWidth();
             }
             e.Handled = true;
+        }
+
+        // 恢复上次保存的左侧面板宽度
+        private void RestoreLeftPanelWidth()
+        {
+            if (LeftConfigPanel.Parent is not Grid parentGrid) return;
+            double saved = Services.AppSettingsService.GetValue(_LeftPanelWidthKey, DefaultLeftPanelWidth);
+            saved = Math.Clamp(saved, _MinLeftWidth, _MaxLeftWidth);
+            // 不超过可用宽度（保留右侧最小宽度）
+            saved = Math.Min(saved, Math.Max(_MinLeftWidth, parentGrid.ActualWidth - _DesiredRightWidth));
+            parentGrid.ColumnDefinitions[0].Width = new GridLength(saved);
+        }
+
+        // 保存当前左栏宽度
+        private void SaveLeftPanelWidth()
+        {
+            double w = LeftConfigPanel.ActualWidth;
+            if (w <= 0) return;
+            Services.AppSettingsService.SetValue(_LeftPanelWidthKey, Math.Round(w));
+        }
+
+        // 窗口大小变化时，如果左栏超限则自动回缩
+        private void ContentGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (sender is not Grid parentGrid) return;
+            var col0 = parentGrid.ColumnDefinitions[0];
+            var currentLeft = LeftConfigPanel.ActualWidth;
+            // 如果左栏 + 右侧最小宽度 > 总宽度，回缩左栏
+            var maxAllowed = Math.Max(_MinLeftWidth, parentGrid.ActualWidth - _DesiredRightWidth);
+            if (currentLeft > maxAllowed && !_isSplitterDragging)
+            {
+                col0.Width = new GridLength(maxAllowed);
+                SaveLeftPanelWidth();
+            }
         }
         // ── 拖拽分隔条结束 ──
     }

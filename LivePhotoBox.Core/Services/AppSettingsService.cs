@@ -143,6 +143,25 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
+        /// 删除指定键的值。
+        /// </summary>
+        public static void RemoveValue(string key)
+        {
+            var settings = LocalSettings;
+            if (settings != null)
+            {
+                settings.Values.Remove(key);
+                return;
+            }
+
+            // 非打包模式：从 JSON 文件移除
+            if (_jsonStore.Remove(key))
+            {
+                PersistJsonStore();
+            }
+        }
+
+        /// <summary>
         /// 清空所有设置后触发的事件。各 ViewModel 订阅此事件以刷新 UI 状态。
         /// </summary>
         public static event Action? SettingsCleared;

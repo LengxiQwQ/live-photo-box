@@ -12,6 +12,7 @@ using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
 using System.Collections.Generic;
@@ -133,6 +134,54 @@ namespace LivePhotoBox.ViewModels
             AppSettingsService.SetValue(nameof(IsRememberWindowLayout), value);
             LogService.Info($"Remember window layout: {(value ? "ON" : "OFF")}", LogSource.Settings);
         }
+
+        [RelayCommand]
+        private async Task ResetWindowLayoutAsync()
+        {
+            // 弹出确认对话框，让用户决定是否重置
+            var contentPanel = new StackPanel
+            {
+                Spacing = 4,
+                Children =
+                {
+                    new TextBlock
+                    {
+                        Text = ResourceService.GetString("SettingsPage_ResetLayout_DialogContent_Line1"),
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                    new TextBlock
+                    {
+                        Text = ResourceService.GetString("SettingsPage_ResetLayout_DialogContent_Line2"),
+                        TextWrapping = TextWrapping.Wrap,
+                    },
+                }
+            };
+
+            var dialog = new Microsoft.UI.Xaml.Controls.ContentDialog
+            {
+                Title = ResourceService.GetString("SettingsPage_ResetLayout_DialogTitle"),
+                Content = contentPanel,
+                PrimaryButtonText = ResourceService.GetString("Msg_Confirm"),
+                CloseButtonText = ResourceService.GetString("Msg_Cancel"),
+                XamlRoot = App.MainWindow?.Content?.XamlRoot,
+            };
+
+            if (await dialog.ShowAsync() == Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
+            {
+                // 删除所有窗口布局记忆键
+                AppSettingsService.RemoveValue("MainWindow_X");
+                AppSettingsService.RemoveValue("MainWindow_Y");
+                AppSettingsService.RemoveValue("MainWindow_Width");
+                AppSettingsService.RemoveValue("MainWindow_Height");
+                AppSettingsService.RemoveValue("MainWindow_Maximized");
+                AppSettingsService.RemoveValue("MergePage_LeftPanelWidth");
+                AppSettingsService.RemoveValue("SplitPage_LeftPanelWidth");
+
+                LogService.Info("Window layout reset to defaults.", LogSource.Settings);
+            }
+        }
+
+        public string ResetLayoutButtonText => ResourceService.GetString("SettingsPage_ResetLayout_Button");
 
         #region Banner Settings
 

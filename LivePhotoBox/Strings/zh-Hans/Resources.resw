@@ -3944,6 +3944,66 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>记住窗口布局</value>
   </data>
   <data name="SettingsPage_RememberLayout_Desc.Text" xml:space="preserve">
-    <value>关闭后保留窗口位置、大小和面板拖拽比例</value>
+    <value>关闭后保留窗口位置、大小和面板拖拽比例，或重置到默认布局</value>
+  </data>
+  <data name="SettingsPage_ResetLayout_Button" xml:space="preserve">
+    <value>重置</value>
+  </data>
+  <data name="SettingsPage_ResetLayout_DialogTitle" xml:space="preserve">
+    <value>重置窗口布局</value>
+  </data>
+  <data name="SettingsPage_ResetLayout_DialogContent_Line1" xml:space="preserve">
+    <value>下次启动时生效</value>
+  </data>
+  <data name="SettingsPage_ResetLayout_DialogContent_Line2" xml:space="preserve">
+    <value>将恢复窗口位置、大小和面板拖拽比例的默认布局</value>
+  </data>
+  <data name="RepairPage_PageTitle.Text" xml:space="preserve">
+    <value>实况照片显示修复</value>
+  </data>
+  <data name="RepairPage_PageSubtitle.Text" xml:space="preserve">
+    <value>诊断并修复结构不完整的实况照片元数据</value>
+  </data>
+  <data name="RepairPage_InputOutputHeader.Text" xml:space="preserve">
+    <value>输入输出目录</value>
+  </data>
+  <data name="RepairPage_QueueHeader.Text" xml:space="preserve">
+    <value>修复队列</value>
+  </data>
+  <data name="RepairPage_StatsHeader.Text" xml:space="preserve">
+    <value>统计信息</value>
+  </data>
+  <data name="RepairPage_StatusProcessing" xml:space="preserve">
+    <value>处理中：{0} 个文件</value>
+  </data>
+  <data name="RepairPage_StatusTotal" xml:space="preserve">
+    <value>共 {0} 个文件</value>
+  </data>
+  <data name="RepairPage_StatusElapsed" xml:space="preserve">
+    <value>已用 {0}</value>
+  </data>
+  <data name="RepairPage_ScanMatched" xml:space="preserve">
+    <value>匹配 {0}</value>
+  </data>
+  <data name="RepairPage_ScanUnmatched" xml:space="preserve">
+    <value>未匹配 {0}</value>
+  </data>
+  <data name="RepairPage_StatusElapsedIdle" xml:space="preserve">
+    <value>用时 --:--</value>
+  </data>
+  <data name="RepairPage_FooterTotal.Text" xml:space="preserve">
+    <value>总数 </value>
+  </data>
+  <data name="RepairPage_FooterSuccess.Text" xml:space="preserve">
+    <value>成功 </value>
+  </data>
+  <data name="RepairPage_FooterFailed.Text" xml:space="preserve">
+    <value>失败 </value>
+  </data>
+  <data name="RepairPage_FooterUnprocessed.Text" xml:space="preserve">
+    <value>未处理 </value>
+  </data>
+  <data name="RepairPage_FooterCancelled.Text" xml:space="preserve">
+    <value>已取消 </value>
   </data>
 </root>

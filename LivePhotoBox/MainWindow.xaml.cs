@@ -614,11 +614,28 @@ namespace LivePhotoBox
                 uint dpi = GetDpiForWindow(hWnd);
                 float scaleFactor = dpi / 96f;
 
-                // 物理像素 → 逻辑像素
-                int logicalX = (int)(appWindow.Position.X / scaleFactor);
-                int logicalY = (int)(appWindow.Position.Y / scaleFactor);
-                int logicalW = (int)(appWindow.Size.Width / scaleFactor);
-                int logicalH = (int)(appWindow.Size.Height / scaleFactor);
+                // 用 rcNormalPosition（还原态矩形）作为记忆的窗口位置/大小：
+                // 全屏/最大化时 appWindow.Size 是工作区全尺寸，若存它，
+                // 退出最大化后窗口模式会错误地保持全屏大小——没有独立的窗口模式记忆。
+                // rcNormalPosition 始终记录"窗口模式"下的矩形，最大化/最小化不影响它。
+                int logicalX, logicalY, logicalW, logicalH;
+                var placement = new WINDOWPLACEMENT();
+                placement.Length = Marshal.SizeOf<WINDOWPLACEMENT>();
+                if (GetWindowPlacement(hWnd, ref placement))
+                {
+                    logicalX = (int)(placement.NormalPositionLeft / scaleFactor);
+                    logicalY = (int)(placement.NormalPositionTop / scaleFactor);
+                    logicalW = (int)((placement.NormalPositionRight - placement.NormalPositionLeft) / scaleFactor);
+                    logicalH = (int)((placement.NormalPositionBottom - placement.NormalPositionTop) / scaleFactor);
+                }
+                else
+                {
+                    // 回退：用 AppWindow 当前物理尺寸
+                    logicalX = (int)(appWindow.Position.X / scaleFactor);
+                    logicalY = (int)(appWindow.Position.Y / scaleFactor);
+                    logicalW = (int)(appWindow.Size.Width / scaleFactor);
+                    logicalH = (int)(appWindow.Size.Height / scaleFactor);
+                }
 
                 // 检测最大化状态（通过 P/Invoke 查窗口状态）
                 bool isMaximized = IsWindowMaximized(hWnd);

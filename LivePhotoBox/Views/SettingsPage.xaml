@@ -186,8 +186,13 @@
                     <controls:SettingsCard.HeaderIcon>
                         <FontIcon Glyph="&#xE8A7;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
-                    <ToggleSwitch IsOn="{x:Bind ViewModel.IsRememberWindowLayout, Mode=TwoWay}"
-                                  x:Uid="Toggle_OnOff"/>
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <Button Content="{x:Bind ViewModel.ResetLayoutButtonText, Mode=OneWay}"
+                                Command="{x:Bind ViewModel.ResetWindowLayoutCommand}"
+                                Height="32" FontSize="13" FontFamily="Microsoft YaHei UI"/>
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IsRememberWindowLayout, Mode=TwoWay}"
+                                      x:Uid="Toggle_OnOff"/>
+                    </StackPanel>
                 </controls:SettingsCard>
 
                 <!-- 主页背景（可折叠） -->

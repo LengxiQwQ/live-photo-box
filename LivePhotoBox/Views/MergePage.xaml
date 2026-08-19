@@ -278,7 +278,7 @@
         </Border>
 
         <!-- ═══════════ Row 1：主内容 ═══════════ -->
-        <Grid Grid.Row="1" ColumnSpacing="2">
+        <Grid Grid.Row="1" x:Name="ContentGrid" ColumnSpacing="0" SizeChanged="ContentGrid_SizeChanged">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="320" MinWidth="260"/>
                 <ColumnDefinition Width="Auto"/>
@@ -776,10 +776,7 @@
                     PointerCaptureLost="Splitter_PointerCaptureLost"
                     PointerEntered="Splitter_PointerEntered"
                     PointerExited="Splitter_PointerExited"
-                    DoubleTapped="Splitter_DoubleTapped">
-                <Rectangle Width="2" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
-                           HorizontalAlignment="Center" />
-            </Border>
+                    DoubleTapped="Splitter_DoubleTapped" />
 
             <!-- ▼ 右侧面板：任务队列 ▼ -->
             <Border x:Name="MergeTaskListSurface" Grid.Column="2"
