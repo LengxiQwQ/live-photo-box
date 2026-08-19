@@ -278,8 +278,9 @@
         <!-- ═══════════ Row 1：主内容 ═══════════ -->
         <Grid Grid.Row="1" ColumnSpacing="2">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="320" MinWidth="260"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*" MinWidth="360"/>
             </Grid.ColumnDefinitions>
 
             <!-- ▼ 左侧面板 ▼ -->
@@ -759,8 +760,22 @@
             </Grid>
         </Border>
 
+            <!-- ── 拖拽分隔条 ── -->
+            <Border Grid.Column="1" x:Name="GridSplitterBar" Width="4"
+                    Background="Transparent" VerticalAlignment="Stretch"
+                    PointerPressed="Splitter_PointerPressed"
+                    PointerMoved="Splitter_PointerMoved"
+                    PointerReleased="Splitter_PointerReleased"
+                    PointerCaptureLost="Splitter_PointerCaptureLost"
+                    PointerEntered="Splitter_PointerEntered"
+                    PointerExited="Splitter_PointerExited"
+                    DoubleTapped="Splitter_DoubleTapped">
+                <Rectangle Width="2" Fill="{ThemeResource DividerStrokeColorDefaultBrush}"
+                           HorizontalAlignment="Center" />
+            </Border>
+
             <!-- ▼ 右侧面板：任务队列 ▼ -->
-            <Border x:Name="SplitTaskListSurface" Grid.Column="1"
+            <Border x:Name="SplitTaskListSurface" Grid.Column="2"
                     Style="{StaticResource SurfaceCardStyle}" Padding="0" AllowDrop="True">
                 <Grid>
                     <Grid>

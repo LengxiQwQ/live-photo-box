@@ -174,6 +174,22 @@
                     </StackPanel>
                 </controls:SettingsCard>
 
+                <!-- 记住窗口布局 -->
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_RememberLayout_Header" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_RememberLayout_Desc" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE8A7;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.IsRememberWindowLayout, Mode=TwoWay}"
+                                  x:Uid="Toggle_OnOff"/>
+                </controls:SettingsCard>
+
                 <!-- 主页背景（可折叠） -->
                 <controls:SettingsExpander FontFamily="Microsoft YaHei UI">
                     <controls:SettingsExpander.Header>

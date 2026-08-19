@@ -1530,7 +1530,7 @@ namespace LivePhotoBox.Services
         // 注：不走 exiftool -b -EmbeddedVideoFile —— 实测 exiftool 对本 App 自产的
         // 2-tag 简化 Trailer 解析报错（"Error processing Samsung trailer"），
         // 直接按协议文档字节格式解析对原厂 7-tag 与自产 2-tag 均可靠。
-        private static (long videoStart, long videoLength)? FindSamsungJpegVideoRange(string filePath)
+        public static (long videoStart, long videoLength)? FindSamsungJpegVideoRange(string filePath)
         {
             try
             {

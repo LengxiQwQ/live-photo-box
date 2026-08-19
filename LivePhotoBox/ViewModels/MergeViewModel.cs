@@ -1016,11 +1016,17 @@ namespace LivePhotoBox.ViewModels
 
             var pendingText = ResourceService.GetString("Task_Pending");
             var newTasks = new List<MergeTask>();
+            var unmatchedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var matchedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var imgPath in images)
             {
                 var baseName = Path.GetFileNameWithoutExtension(imgPath);
-                if (!vidDict.TryGetValue(baseName, out var vidPath)) continue;
+                if (!vidDict.TryGetValue(baseName, out var vidPath))
+                {
+                    unmatchedImages.Add(imgPath);
+                    continue;
+                }
 
                 // 根据配对方式验证
                 bool valid = PairingMethodIndex switch
@@ -1031,7 +1037,13 @@ namespace LivePhotoBox.ViewModels
                     _ => true
                 };
 
-                if (!valid) continue;
+                if (!valid)
+                {
+                    unmatchedImages.Add(imgPath);
+                    continue;
+                }
+
+                matchedVideos.Add(vidPath);
 
                 long imgSize = new FileInfo(imgPath).Length;
                 long vidSize = new FileInfo(vidPath).Length;
@@ -1056,6 +1068,13 @@ namespace LivePhotoBox.ViewModels
                 });
             }
 
+            // 未匹配的视频 = 所有视频中未被匹配上的
+            var unmatchedVideos = videos.Where(v => !matchedVideos.Contains(v)).ToList();
+
+            // 累计未匹配计数
+            StandaloneImagesCount += unmatchedImages.Count;
+            StandaloneVideosCount += unmatchedVideos.Count;
+
             if (newTasks.Count > 0)
             {
                 foreach (var t in newTasks)
@@ -1063,7 +1082,12 @@ namespace LivePhotoBox.ViewModels
                 TotalPairsCount = Tasks.Count(t => t != null);
                 UpdateIsQueueEmpty(Tasks.Count);
                 NotifyStatsChanged();
-                LogService.Merge($"Added {newTasks.Count} file pairs to queue (total: {TotalPairsCount})");
+                LogService.Merge($"Added {newTasks.Count} file pairs to queue (total: {TotalPairsCount}, unmatched images: {StandaloneImagesCount}, unmatched videos: {StandaloneVideosCount})");
+            }
+            else
+            {
+                // 没有成功配对也要刷新统计显示
+                NotifyStatsChanged();
             }
         }
 
@@ -1073,10 +1097,11 @@ namespace LivePhotoBox.ViewModels
             if (string.IsNullOrEmpty(folderPath) || !Directory.Exists(folderPath)) return;
 
             var scanResult = LivePhotoMergeScanService.Scan(folderPath, GetScanningToken());
-            if (scanResult.Pairs.Count == 0) return;
 
             var pendingText = ResourceService.GetString("Task_Pending");
             int startIndex = Tasks.Count;
+            var matchedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var invalidImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var pair in scanResult.Pairs)
             {
@@ -1088,7 +1113,13 @@ namespace LivePhotoBox.ViewModels
                     2 => VerifyVivoPair(pair.ImagePath, pair.VideoPath),
                     _ => true
                 };
-                if (!valid) continue;
+                if (!valid)
+                {
+                    invalidImages.Add(pair.ImagePath);
+                    continue;
+                }
+
+                matchedVideos.Add(pair.VideoPath);
 
                 Tasks.Add(new MergeTask
                 {
@@ -1109,10 +1140,27 @@ namespace LivePhotoBox.ViewModels
                 });
             }
 
+            // 未匹配统计：
+            // 图片 = 扫描结果中的独立图片 + 配对验证失败被拒绝的图片
+            // 视频 = 扫描结果中的独立视频 + 配对验证失败被拒绝的配对视频
+            var standaloneImagePaths = new HashSet<string>(scanResult.StandaloneImagePaths ?? [], StringComparer.OrdinalIgnoreCase);
+            int unmatchedImages = standaloneImagePaths.Count +
+                invalidImages.Count(p => !standaloneImagePaths.Contains(p));
+            var unmatchedVideosPaths = new HashSet<string>(scanResult.StandaloneVideoPaths ?? [], StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in scanResult.Pairs)
+            {
+                if (!matchedVideos.Contains(pair.VideoPath))
+                    unmatchedVideosPaths.Add(pair.VideoPath);
+            }
+            int unmatchedVideos = unmatchedVideosPaths.Count;
+
+            StandaloneImagesCount += unmatchedImages;
+            StandaloneVideosCount += unmatchedVideos;
+
             TotalPairsCount = Tasks.Count(t => t != null);
             UpdateIsQueueEmpty(Tasks.Count);
             NotifyStatsChanged();
-            LogService.Merge($"Added folder '{folderPath}' to queue (total: {TotalPairsCount})");
+            LogService.Merge($"Added folder '{folderPath}' to queue (total: {TotalPairsCount}, unmatched images: {StandaloneImagesCount}, unmatched videos: {StandaloneVideosCount})");
         }
 
         // ── 配对验证辅助方法 ──
@@ -1211,7 +1259,7 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
-                SetStatus("Status_WarnOutput");
+                await ShowNoOutputDirectoryDialogAsync("Merge");
                 return;
             }
 

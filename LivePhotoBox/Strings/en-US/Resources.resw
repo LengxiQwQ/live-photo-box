@@ -1396,6 +1396,18 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="RepairPage_Msg_NoInputDirectory" xml:space="preserve">
     <value>Please select a folder containing images to be repaired. The app will automatically scan for images with thumbnail rotation or stretching issues caused by device compatibility and perform a lossless repair.</value>
   </data>
+  <data name="MergePage_Msg_NoOutputDirectoryTitle" xml:space="preserve">
+    <value>Save Directory Not Set</value>
+  </data>
+  <data name="MergePage_Msg_NoOutputDirectory" xml:space="preserve">
+    <value>Please set the save directory first. Use "Browse" to pick an output folder, or drag files into the queue to auto-fill the output directory.</value>
+  </data>
+  <data name="SplitPage_Msg_NoOutputDirectoryTitle" xml:space="preserve">
+    <value>Save Directory Not Set</value>
+  </data>
+  <data name="SplitPage_Msg_NoOutputDirectory" xml:space="preserve">
+    <value>Please set the save directory first. Use "Browse" to pick an output folder, or drag files into the queue to auto-fill the output directory.</value>
+  </data>
   <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
     <value>Open Folder</value>
   </data>
@@ -3516,9 +3528,7 @@ Then click "Start Split".</value>
 {protocol} — Protocol suffix (microvideo, motionphoto, oppo, vivo, samsung, huawei)
 {date} or {date:yyMMdd} — Current date in custom format
 {time} or {time:HH-mm} — Current time in custom format
-{counter} or {counter:D3} — Task sequence number
-
-Tip: Drag ☰ handles to reorder segments.</value>
+{counter} or {counter:D3} — Task sequence number</value>
   </data>
   <data name="NamingSegment_OriginalName" xml:space="preserve">
     <value>Original Name</value>
@@ -3791,9 +3801,7 @@ Tip: Drag ☰ handles to reorder segments.</value>
     <value>{name} — Original file name (without extension)
 {date} or {date:yyMMdd} — Current date in custom format
 {time} or {time:HH-mm} — Current time in custom format
-{counter} or {counter:D3} — Task sequence number
-
-Tip: Drag ☰ handles to reorder segments.</value>
+{counter} or {counter:D3} — Task sequence number</value>
   </data>
   <data name="SplitPage_QueueHeader.Text" xml:space="preserve">
     <value>Task Queue</value>
@@ -3932,5 +3940,11 @@ Tip: Drag ☰ handles to reorder segments.</value>
   </data>
   <data name="MergePage_Task_Processing" xml:space="preserve">
     <value>Merging...</value>
+  </data>
+  <data name="SettingsPage_RememberLayout_Header.Text" xml:space="preserve">
+    <value>Remember Window Layout</value>
+  </data>
+  <data name="SettingsPage_RememberLayout_Desc.Text" xml:space="preserve">
+    <value>Retain window position, size and panel splitter ratio on close</value>
   </data>
 </root>

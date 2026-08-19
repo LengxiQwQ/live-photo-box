@@ -1017,16 +1017,24 @@ namespace LivePhotoBox.ViewModels
                 });
             }
 
+            // 未被识别/被过滤掉的都计入跳过（未匹配）
+            int newlySkipped = filePaths.Count - newTasks.Count;
             if (newTasks.Count > 0)
             {
                 foreach (var t in newTasks)
                     Tasks.Add(t);
                 TotalCount = Tasks.Count(t => t != null);
-                RecognizedCount = TotalCount;
-                SkippedCount += filePaths.Count - newTasks.Count;
+                SkippedCount += newlySkipped;
                 UpdateIsQueueEmpty(Tasks.Count);
                 NotifyStatsChanged();
-                LogService.Split($"Added {newTasks.Count} file(s) to queue (total: {TotalCount})");
+                LogService.Split($"Added {newTasks.Count} file(s) to queue (total: {TotalCount}, skipped: {SkippedCount})");
+            }
+            else if (newlySkipped > 0)
+            {
+                // 全部未匹配也要刷新统计显示
+                SkippedCount += newlySkipped;
+                NotifyStatsChanged();
+                LogService.Split($"No files matched (skipped: {SkippedCount})");
             }
         }
 
@@ -1155,7 +1163,8 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrWhiteSpace(OutputDirectory))
             {
-                OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_SplitPhotos"));
+                await ShowNoOutputDirectoryDialogAsync("Split");
+                return;
             }
 
             // 开始拆分前：强制归位排序和筛选到默认值

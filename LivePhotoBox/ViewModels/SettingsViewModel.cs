@@ -121,6 +121,19 @@ namespace LivePhotoBox.ViewModels
         // 窗口透明度的 UI 百分比文本。
         public string WindowOpacityText => $"{WindowOpacity * 100:F0}%";
 
+        // ============================================================
+        // 窗口布局记忆
+        // ============================================================
+
+        [ObservableProperty]
+        private bool _isRememberWindowLayout = true;
+
+        partial void OnIsRememberWindowLayoutChanged(bool value)
+        {
+            AppSettingsService.SetValue(nameof(IsRememberWindowLayout), value);
+            LogService.Info($"Remember window layout: {(value ? "ON" : "OFF")}", LogSource.Settings);
+        }
+
         #region Banner Settings
 
         public List<BannerPreset> BannerPresets { get; } = new()
@@ -569,6 +582,7 @@ namespace LivePhotoBox.ViewModels
             IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), true);
             ThumbnailProviderIndex = AppSettingsService.GetValue(nameof(ThumbnailProviderIndex), 0);
             TimelineModeIndex = AppSettingsService.GetValue(nameof(TimelineModeIndex), 1);
+            IsRememberWindowLayout = AppSettingsService.GetValue(nameof(IsRememberWindowLayout), true);
         }
 
         // 异步加载硬件编码信息（WMI + FFmpeg 检测），完成后设置 SelectedHardware。

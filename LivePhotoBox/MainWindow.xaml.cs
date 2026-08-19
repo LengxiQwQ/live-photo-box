@@ -44,6 +44,13 @@ namespace LivePhotoBox
         private const int DefaultWindowWidth = 1222;
         private const int DefaultWindowHeight = 731;
 
+        // 窗口布局记忆键名
+        private const string WndKeyX = "MainWindow_X";
+        private const string WndKeyY = "MainWindow_Y";
+        private const string WndKeyW = "MainWindow_Width";
+        private const string WndKeyH = "MainWindow_Height";
+        private const string WndKeyMax = "MainWindow_Maximized";
+
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr hwnd);
 
@@ -112,6 +119,9 @@ namespace LivePhotoBox
             // 除此之外的"资源释放"都是替 OS 干它本来就会干的事。
             Closed += (_, _) =>
             {
+                // 0. 记住窗口位置/大小/最大化状态（用户可在设置里关闭）
+                SaveWindowLayout();
+
                 // 1. 离开当前页面 → 触发 Page.Unloaded → 停止页面级 DispatcherQueue 定时器
                 //    （如 RepairPage 的缩略图检查定时器）
                 try { MainFrame.Navigate(typeof(Microsoft.UI.Xaml.Controls.Page)); }
@@ -160,23 +170,32 @@ namespace LivePhotoBox
                     uint dpi = GetDpiForWindow(hWnd);
                     float scaleFactor = dpi / 96f;
 
-                    int scaledWidth = (int)(DefaultWindowWidth * scaleFactor);
-                    int scaledHeight = (int)(DefaultWindowHeight * scaleFactor);
-
-                    appWindow.Resize(new SizeInt32(scaledWidth, scaledHeight));
-
-                    var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
-                    if (displayArea != null)
+                    // 若用户开启"记住窗口布局"，优先恢复记忆的位置/大小
+                    if (ViewModel.Settings.IsRememberWindowLayout
+                        && TryRestoreWindowLayout(appWindow, displayAreaFallback: DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary)))
                     {
-                        var workArea = displayArea.WorkArea;
+                        // 已恢复，跳过默认居中逻辑
+                    }
+                    else
+                    {
+                        int scaledWidth = (int)(DefaultWindowWidth * scaleFactor);
+                        int scaledHeight = (int)(DefaultWindowHeight * scaleFactor);
 
-                        int x = workArea.X + (workArea.Width - scaledWidth) / 2;
-                        int y = workArea.Y + (workArea.Height - scaledHeight) / 2;
+                        appWindow.Resize(new SizeInt32(scaledWidth, scaledHeight));
 
-                        x = Math.Max(workArea.X, x);
-                        y = Math.Max(workArea.Y, y);
+                        var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
+                        if (displayArea != null)
+                        {
+                            var workArea = displayArea.WorkArea;
 
-                        appWindow.Move(new PointInt32(x, y));
+                            int x = workArea.X + (workArea.Width - scaledWidth) / 2;
+                            int y = workArea.Y + (workArea.Height - scaledHeight) / 2;
+
+                            x = Math.Max(workArea.X, x);
+                            y = Math.Max(workArea.Y, y);
+
+                            appWindow.Move(new PointInt32(x, y));
+                        }
                     }
                 }
                 catch (Exception ex)
@@ -517,6 +536,145 @@ namespace LivePhotoBox
                 NavView.SelectionChanged += NavView_SelectionChanged;
             }
         }
+
+        #region Window Layout Persistence
+
+        // 恢复窗口位置/大小/最大化状态。返回 true 表示成功恢复。
+        private bool TryRestoreWindowLayout(AppWindow appWindow, DisplayArea? displayAreaFallback)
+        {
+            try
+            {
+                int savedX = AppSettingsService.GetValue(WndKeyX, -1);
+                int savedY = AppSettingsService.GetValue(WndKeyY, -1);
+                int savedW = AppSettingsService.GetValue(WndKeyW, -1);
+                int savedH = AppSettingsService.GetValue(WndKeyH, -1);
+                bool savedMax = AppSettingsService.GetValue(WndKeyMax, false);
+
+                if (savedW <= 0 || savedH <= 0) return false;
+
+                // 检查是否在当前显示器范围内（多显示器/分辨率变化容错）
+                var displayArea = DisplayArea.GetFromPoint(new PointInt32(savedX, savedY), DisplayAreaFallback.Nearest)
+                                  ?? displayAreaFallback;
+                if (displayArea == null) return false;
+                var workArea = displayArea.WorkArea;
+
+                // 如果恢复区域完全不在工作区外，回退
+                if (savedX + savedW < workArea.X || savedX > workArea.X + workArea.Width ||
+                    savedY + savedH < workArea.Y || savedY > workArea.Y + workArea.Height)
+                    return false;
+
+                // 确保不超出工作区边界
+                savedX = Math.Max(workArea.X, savedX);
+                savedY = Math.Max(workArea.Y, savedY);
+                savedW = Math.Min(savedW, workArea.Width);
+                savedH = Math.Min(savedH, workArea.Height);
+
+                IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                uint dpi = GetDpiForWindow(hWnd);
+                float scaleFactor = dpi / 96f;
+
+                // 保存的值是逻辑像素，AppWindow 需要物理像素（DPI 缩放后）
+                int physW = (int)(savedW * scaleFactor);
+                int physH = (int)(savedH * scaleFactor);
+                int physX = (int)(savedX * scaleFactor);
+                int physY = (int)(savedY * scaleFactor);
+
+                appWindow.Move(new PointInt32(physX, physY));
+                appWindow.Resize(new SizeInt32(physW, physH));
+
+                // 最大化状态通过 P/Invoke 设置
+                if (savedMax)
+                {
+                    var hWnd2 = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                    ShowWindow(hWnd2, SW_MAXIMIZE);
+                }
+
+                LogService.Info($"Window layout restored: {savedW}x{savedH} @ ({savedX},{savedY}) max={savedMax}", LogSource.UI);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Window layout restore failed: {ex.Message}", source: LogSource.UI);
+                return false;
+            }
+        }
+
+        // 保存当前窗口位置/大小/最大化状态
+        private void SaveWindowLayout()
+        {
+            try
+            {
+                if (!ViewModel.Settings.IsRememberWindowLayout) return;
+
+                IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                var windowId = Win32Interop.GetWindowIdFromWindow(hWnd);
+                var appWindow = AppWindow.GetFromWindowId(windowId);
+                if (appWindow == null) return;
+
+                uint dpi = GetDpiForWindow(hWnd);
+                float scaleFactor = dpi / 96f;
+
+                // 物理像素 → 逻辑像素
+                int logicalX = (int)(appWindow.Position.X / scaleFactor);
+                int logicalY = (int)(appWindow.Position.Y / scaleFactor);
+                int logicalW = (int)(appWindow.Size.Width / scaleFactor);
+                int logicalH = (int)(appWindow.Size.Height / scaleFactor);
+
+                // 检测最大化状态（通过 P/Invoke 查窗口状态）
+                bool isMaximized = IsWindowMaximized(hWnd);
+
+                AppSettingsService.SetValue(WndKeyX, logicalX);
+                AppSettingsService.SetValue(WndKeyY, logicalY);
+                AppSettingsService.SetValue(WndKeyW, logicalW);
+                AppSettingsService.SetValue(WndKeyH, logicalH);
+                AppSettingsService.SetValue(WndKeyMax, isMaximized);
+
+                LogService.Info($"Window layout saved: {logicalW}x{logicalH} @ ({logicalX},{logicalY}) max={isMaximized}", LogSource.UI);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Window layout save failed: {ex.Message}", source: LogSource.UI);
+            }
+        }
+
+        // 检查窗口是否最大化
+        private static bool IsWindowMaximized(IntPtr hWnd)
+        {
+            var placement = new WINDOWPLACEMENT();
+            placement.Length = Marshal.SizeOf<WINDOWPLACEMENT>();
+            if (GetWindowPlacement(hWnd, ref placement))
+            {
+                return placement.ShowCmd == SW_MAXIMIZE;
+            }
+            return false;
+        }
+
+        // Win32 常量
+        private const int SW_MAXIMIZE = 3;
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct WINDOWPLACEMENT
+        {
+            public int Length;
+            public int Flags;
+            public int ShowCmd;
+            public int PtMinPositionX;
+            public int PtMinPositionY;
+            public int PtMaxPositionX;
+            public int PtMaxPositionY;
+            public int NormalPositionLeft;
+            public int NormalPositionTop;
+            public int NormalPositionRight;
+            public int NormalPositionBottom;
+        }
+
+        #endregion
 
         #region Window Opacity
 

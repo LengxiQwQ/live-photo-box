@@ -101,7 +101,7 @@ namespace LivePhotoBox.Cli.Infrastructure
                 CliInstallChannel.Scoop => IsGuiCoLocated(dir)
                     ? "Scoop (GUI + CLI)"
                     : "Scoop (CLI-only)",
-                CliInstallChannel.InnoSetup => "Inno Setup (GUI + CLI)",
+                CliInstallChannel.InnoSetup => "Inno Setup installer (GUI + CLI)",
                 CliInstallChannel.PortableBundle => "Portable (GUI + CLI)",
                 // 枚举剩余值仅 PortableCli，这里只作防御性兜底
                 _ => "Portable (CLI-only)"

@@ -525,6 +525,7 @@ namespace LivePhotoBox.Views
         }
 
         // "添加文件"：多选图片文件 → 追加到队列
+        // 自动设置输出目录为第一个文件所在目录下的子文件夹（与拖拽行为一致）
         private async void AddFiles_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button btn) return;
@@ -542,7 +543,20 @@ namespace LivePhotoBox.Views
                 if (files.Count > 0)
                 {
                     var paths = files.Select(f => f.Path).ToList();
+                    var wasEmpty = ViewModel.Tasks.Count == 0;
                     await ViewModel.AddFilesToQueueAsync(paths);
+
+                    // 队列从空变为有内容时，自动设置输出目录为第一个文件所在目录下的子文件夹
+                    if (wasEmpty && ViewModel.Tasks.Count > 0)
+                    {
+                        var firstFileDir = Path.GetDirectoryName(paths[0]);
+                        if (!string.IsNullOrEmpty(firstFileDir))
+                        {
+                            ViewModel.OutputDirectory = Path.Combine(
+                                firstFileDir,
+                                ResourceService.GetString("OutputDir_SplitPhotos"));
+                        }
+                    }
                 }
             }
             finally { btn.IsEnabled = true; }
@@ -1043,5 +1057,63 @@ namespace LivePhotoBox.Views
             ViewModel.LoadSegmentsFromTemplate();
         }
 
+        // ── 拖拽分隔条（GridSplitter） ──
+        private bool _isSplitterDragging;
+
+        // 分隔条按下：记录左栏起始宽度
+        private void Splitter_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            _isSplitterDragging = true;
+            GridSplitterBar.CapturePointer(e.Pointer);
+            e.Handled = true;
+        }
+
+        // 分隔条拖动：根据鼠标在父 Grid 中的 X 坐标直接设置左栏宽度
+        private void Splitter_PointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_isSplitterDragging) return;
+            if (LeftConfigPanel.Parent is not Grid parentGrid) return;
+            var point = e.GetCurrentPoint(parentGrid);
+            var newWidth = Math.Clamp(point.Position.X, 220, 800);
+            parentGrid.ColumnDefinitions[0].Width = new GridLength(newWidth);
+            e.Handled = true;
+        }
+
+        // 分隔条释放：停止拖动
+        private void Splitter_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            _isSplitterDragging = false;
+            GridSplitterBar.ReleasePointerCapture(e.Pointer);
+            e.Handled = true;
+        }
+
+        private void Splitter_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+        {
+            _isSplitterDragging = false;
+        }
+
+        // 鼠标进入分隔条 → 显示左右拖拽光标
+        private void Splitter_PointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            this.ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(
+                Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
+        }
+
+        // 鼠标离开分隔条 → 恢复默认光标
+        private void Splitter_PointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            this.ProtectedCursor = null;
+        }
+
+        // 双击分隔条：重置为默认宽度
+        private void Splitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            if (LeftConfigPanel.Parent is Grid parentGrid)
+            {
+                parentGrid.ColumnDefinitions[0].Width = new GridLength(320);
+            }
+            e.Handled = true;
+        }
+        // ── 拖拽分隔条结束 ──
     }
 }

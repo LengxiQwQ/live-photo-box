@@ -1395,6 +1395,18 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="RepairPage_Msg_NoInputDirectory" xml:space="preserve">
     <value>请先选择需要修复的图片文件夹。程序会自动扫描目录，识别出因设备兼容性导致在 Windows 上出现缩略图旋转或拉伸问题的图片，并进行无损修复。</value>
   </data>
+  <data name="MergePage_Msg_NoOutputDirectoryTitle" xml:space="preserve">
+    <value>尚未设置保存目录</value>
+  </data>
+  <data name="MergePage_Msg_NoOutputDirectory" xml:space="preserve">
+    <value>请先设置保存目录。可以通过「浏览」选择输出文件夹，或直接将文件拖拽到队列中自动填充输出目录。</value>
+  </data>
+  <data name="SplitPage_Msg_NoOutputDirectoryTitle" xml:space="preserve">
+    <value>尚未设置保存目录</value>
+  </data>
+  <data name="SplitPage_Msg_NoOutputDirectory" xml:space="preserve">
+    <value>请先设置保存目录。可以通过「浏览」选择输出文件夹，或直接将文件拖拽到队列中自动填充输出目录。</value>
+  </data>
   <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
     <value>打开目录</value>
   </data>
@@ -3515,9 +3527,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
 {protocol} — 协议后缀（microvideo, motionphoto, oppo, vivo, samsung, huawei）
 {date} 或 {date:yyMMdd} — 当前日期（支持自定义格式）
 {time} 或 {time:HH-mm} — 当前时间（支持自定义格式）
-{counter} 或 {counter:D3} — 递增任务序号
-
-提示：拖拽 ≡ 手柄可调整片段顺序。</value>
+{counter} 或 {counter:D3} — 递增任务序号</value>
   </data>
   <data name="NamingSegment_OriginalName" xml:space="preserve">
     <value>原文件名</value>
@@ -3790,9 +3800,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>{name} — 原始文件名（不含扩展名）
 {date} 或 {date:yyMMdd} — 当前日期（支持自定义格式）
 {time} 或 {time:HH-mm} — 当前时间（支持自定义格式）
-{counter} 或 {counter:D3} — 递增任务序号
-
-提示：拖拽 ≡ 手柄可调整片段顺序。</value>
+{counter} 或 {counter:D3} — 递增任务序号</value>
   </data>
   <data name="SplitPage_QueueHeader.Text" xml:space="preserve">
     <value>任务队列</value>
@@ -3931,5 +3939,11 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="MergePage_Task_Processing" xml:space="preserve">
     <value>正在合成...</value>
+  </data>
+  <data name="SettingsPage_RememberLayout_Header.Text" xml:space="preserve">
+    <value>记住窗口布局</value>
+  </data>
+  <data name="SettingsPage_RememberLayout_Desc.Text" xml:space="preserve">
+    <value>关闭后保留窗口位置、大小和面板拖拽比例</value>
   </data>
 </root>

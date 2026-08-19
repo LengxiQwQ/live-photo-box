@@ -478,6 +478,19 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 显示"未设置输出目录"对话框。
+        protected async Task ShowNoOutputDirectoryDialogAsync(string targetFeature)
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                await DialogService.ShowSingleAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    ResourceService.GetString($"{targetFeature}Page_Msg_NoOutputDirectoryTitle"),
+                    ResourceService.GetString($"{targetFeature}Page_Msg_NoOutputDirectory"),
+                    ResourceService.GetString("Msg_GotIt"));
+            }
+        }
+
         // 显示"输入目录无效或不存在"对话框。
         protected async Task ShowInvalidInputDirectoryDialogAsync()
         {
