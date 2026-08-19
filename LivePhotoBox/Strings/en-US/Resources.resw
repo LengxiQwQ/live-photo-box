@@ -1597,6 +1597,12 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="Msg_InvalidInputDirectory" xml:space="preserve">
     <value>The specified input directory does not exist. Please check the path and try again.</value>
   </data>
+  <data name="Msg_OtherPageProcessingTitle" xml:space="preserve">
+    <value>Another page is processing</value>
+  </data>
+  <data name="Msg_OtherPageProcessing" xml:space="preserve">
+    <value>Please wait for the current task to complete before starting a new operation</value>
+  </data>
   <data name="Log_MissingDependency" xml:space="preserve">
     <value>Missing core dependency file</value>
   </data>

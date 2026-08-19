@@ -489,6 +489,13 @@ namespace LivePhotoBox.ViewModels
             PropertyChanged += OnPropertyChangedHandler;
         }
 
+        // 是否有任一工作页面正在处理中（用于全局处理互斥）。
+        // 扫描不互斥（只读元数据），只有真正的编解码处理才需要互斥。
+        public bool IsAnyWorkPageProcessing =>
+            (Merge?.IsProcessing ?? false) ||
+            (Split?.IsProcessing ?? false) ||
+            (Repair?.IsProcessing ?? false);
+
         // 子 ViewModel 状态变更时刷新底部状态栏。
         private void OnChildStatusChanged(object? sender, EventArgs e)
         {
@@ -503,7 +510,12 @@ namespace LivePhotoBox.ViewModels
             switch (e.PropertyName)
             {
                 case "IsScanning":
+                    NotifyFooterProperties();
+                    break;
                 case "IsProcessing":
+                    NotifyFooterProperties();
+                    OnPropertyChanged(nameof(IsAnyWorkPageProcessing));
+                    break;
                 case "MergeProgress":
                 case "Progress":
                 case "Status":

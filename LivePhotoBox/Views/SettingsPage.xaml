@@ -184,7 +184,7 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xE8A7;" FontSize="16"/>
+                        <FontIcon Glyph="&#xE9A6;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
                     <StackPanel Orientation="Horizontal" Spacing="16">
                         <Button Content="{x:Bind ViewModel.ResetLayoutButtonText, Mode=OneWay}"

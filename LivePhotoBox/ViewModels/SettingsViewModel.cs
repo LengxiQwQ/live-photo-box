@@ -163,8 +163,15 @@ namespace LivePhotoBox.ViewModels
                 Content = contentPanel,
                 PrimaryButtonText = ResourceService.GetString("Msg_Confirm"),
                 CloseButtonText = ResourceService.GetString("Msg_Cancel"),
+                DefaultButton = Microsoft.UI.Xaml.Controls.ContentDialogButton.Primary,
                 XamlRoot = App.MainWindow?.Content?.XamlRoot,
             };
+
+            // 继承主窗口强调色，让 Primary 按钮显示主题色
+            if (Application.Current.Resources.TryGetValue("SystemAccentColor", out var accent))
+                dialog.Resources["SystemAccentColor"] = accent;
+            if (Application.Current.Resources.TryGetValue("SystemControlHighlightAccentBrush", out var highlightBrush))
+                dialog.Resources["SystemControlHighlightAccentBrush"] = highlightBrush;
 
             if (await dialog.ShowAsync() == Microsoft.UI.Xaml.Controls.ContentDialogResult.Primary)
             {

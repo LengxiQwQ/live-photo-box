@@ -1712,6 +1712,13 @@ namespace LivePhotoBox.ViewModels
             bool confirmed = await ShowRepairOptionsDialogAsync();
             if (!confirmed) return;
 
+            // 检查其他页面是否正在处理中（优先级最低，在所有其他验证之后）
+            if (AppViewModel.Instance.IsAnyWorkPageProcessing)
+            {
+                await ShowOtherPageProcessingDialogAsync();
+                return;
+            }
+
             if (IsOutputToDirectory)
             {
                 if (string.IsNullOrWhiteSpace(OutputDirectory))

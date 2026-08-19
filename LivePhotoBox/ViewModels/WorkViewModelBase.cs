@@ -517,6 +517,20 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        // 显示"另一个页面正在处理中"对话框。
+        // 这是所有验证中优先级最低的一项：在其他检查（空目录/输出目录等）通过之后才检查。
+        protected async Task ShowOtherPageProcessingDialogAsync()
+        {
+            if (App.MainWindow?.Content?.XamlRoot != null)
+            {
+                await DialogService.ShowSingleAsync(
+                    App.MainWindow.Content.XamlRoot,
+                    ResourceService.GetString("Msg_OtherPageProcessingTitle"),
+                    ResourceService.GetString("Msg_OtherPageProcessing"),
+                    ResourceService.GetString("Msg_GotIt"));
+            }
+        }
+
         // 缓存的默认按钮样式。
         private static Style? _defaultButtonStyle;
         // 缓存的扫描取消按钮样式。

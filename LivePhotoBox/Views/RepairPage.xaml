@@ -10,8 +10,7 @@
     NavigationCacheMode="Required">
 
     <Grid>
-        <Grid Padding="24,24,24,40">
-
+        <Grid Padding="8,6,8,6" RowSpacing="2">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
@@ -558,7 +557,9 @@
                      PreferredPlacement="Left"
                      Closed="ErrorDetailTip_Closed">
             <TeachingTip.Content>
-                <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap" IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
+                <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto">
+                    <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap" IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
+                </ScrollViewer>
             </TeachingTip.Content>
         </TeachingTip>
 

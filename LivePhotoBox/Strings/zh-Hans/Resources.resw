@@ -1596,6 +1596,12 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="Msg_InvalidInputDirectory" xml:space="preserve">
     <value>指定的输入目录不存在，请检查路径是否正确后重试。</value>
   </data>
+  <data name="Msg_OtherPageProcessingTitle" xml:space="preserve">
+    <value>另一个页面正在处理中</value>
+  </data>
+  <data name="Msg_OtherPageProcessing" xml:space="preserve">
+    <value>请等待当前处理任务完成后再开始新的操作</value>
+  </data>
   <data name="Log_MissingDependency" xml:space="preserve">
     <value>缺失核心依赖文件</value>
   </data>

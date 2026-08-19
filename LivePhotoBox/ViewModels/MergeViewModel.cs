@@ -1263,6 +1263,13 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
+            // 检查其他页面是否正在处理中（优先级最低，在所有其他验证之后）
+            if (AppViewModel.Instance.IsAnyWorkPageProcessing)
+            {
+                await ShowOtherPageProcessingDialogAsync();
+                return;
+            }
+
             // 开始合成前：强制归位排序和筛选到默认值
             // 确保用户能从上到下看到有序的执行进度
             _sortIndex = 0;
