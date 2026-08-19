@@ -9,6 +9,16 @@
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
+    <Page.Resources>
+        <Style x:Key="SurfaceCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="4"/>
+            <Setter Property="Padding" Value="12"/>
+        </Style>
+    </Page.Resources>
+
     <Grid>
         <Grid Padding="8,6,8,6" RowSpacing="2">
             <Grid.RowDefinitions>
@@ -453,9 +463,7 @@
 
             <!-- ═══════════ Row 3：底部状态面板 ═══════════ -->
             <Border Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1" CornerRadius="4" Padding="14,5,14,6">
+                    Style="{StaticResource SurfaceCardStyle}" Padding="12,10,12,10">
                 <Grid RowSpacing="4">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
