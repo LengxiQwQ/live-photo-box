@@ -694,6 +694,12 @@ Do you want to restart now?</value>
   <data name="MergePage_EmptyQueueDesc.Text" xml:space="preserve">
     <value>Supports JPG / HEIC / MP4 / MOV formats</value>
   </data>
+  <data name="MergePage_EmptyTutorialHint.Text" xml:space="preserve">
+    <value>View the interactive tutorial</value>
+  </data>
+  <data name="MergePage_EmptySettingsHint.Text" xml:space="preserve">
+    <value>Advanced settings</value>
+  </data>
   <data name="MergePage_EmptyQueueHint_Part1.Text" xml:space="preserve">
     <value>Click </value>
   </data>
@@ -708,6 +714,9 @@ Do you want to restart now?</value>
   </data>
   <data name="SplitPage_EmptyQueueDesc.Text" xml:space="preserve">
     <value>Supports JPG / HEIC formats</value>
+  </data>
+  <data name="SplitPage_EmptyTutorialHint.Text" xml:space="preserve">
+    <value>View the interactive tutorial</value>
   </data>
   <data name="SplitPage_EmptyQueueHint_Part1.Text" xml:space="preserve">
     <value>Click </value>
@@ -767,7 +776,7 @@ Do you want to restart now?</value>
     <value>Windows / Xiaomi / Pixel</value>
   </data>
   <data name="MergePage_Protocol_Oppo_Hint" xml:space="preserve">
-    <value>Windows / Xiaomi / OPPO</value>
+    <value>Windows / Xiaomi / OPPO / ONEPLUS</value>
   </data>
   <data name="MergePage_Protocol_Vivo.Content" xml:space="preserve">
     <value>vivo - Live Photo ⚠️</value>
@@ -1370,10 +1379,10 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Help &amp; Tutorials</value>
   </data>
   <data name="MergePage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Go to Home for tutorials</value>
+    <value>View interactive tutorial</value>
   </data>
   <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Go to Home for tutorials</value>
+    <value>View interactive tutorial</value>
   </data>
   <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Go to Home for tutorials</value>
@@ -1411,6 +1420,82 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
     <value>Open Folder</value>
   </data>
+  <!-- Merge page tutorial strings -->
+  <data name="MergeTutorial_Btn_Next" xml:space="preserve">
+    <value>Next</value>
+  </data>
+  <data name="MergeTutorial_Btn_Close" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="MergeTutorial_Btn_Done" xml:space="preserve">
+    <value>Done</value>
+  </data>
+  <data name="MergeTutorial_Step01_Title" xml:space="preserve">
+    <value>📁 Set Input &amp; Output</value>
+  </data>
+  <data name="MergeTutorial_Step01_Content" xml:space="preserve">
+    <value>Prepare your source files and choose where the merged photos will be saved.
+
+**📥 Input:** Either an input directory or dragged files. As long as the task queue has content, the input directory is not required.
+
+**📥 Input directory:** pick a folder with images and videos; files are scanned and paired automatically, and the queue is entirely replaced.
+
+**🖱️ Drag &amp; drop:** drag to the left panel to replace the queue, or to the right panel to add files.
+
+**📤 Output directory:** where the merged Live Photos are saved; this one is required.
+
+**🔍 Scan button:** scanning starts automatically once you set the input directory; click Scan to refresh manually.
+
+**⚙️ Subfolder scanning:** by default, not scanned. Go to Settings → Scan to enable recursive scanning and preserve folder structure.</value>
+  </data>
+  <data name="MergeTutorial_Step02_Title" xml:space="preserve">
+    <value>🔗 Matching Method</value>
+  </data>
+  <data name="MergeTutorial_Step02_Content" xml:space="preserve">
+    <value>Determines how images and videos are paired together.
+
+**👍** The default filename-based matching works for most cases.
+
+**⚠️** Switch only when your folder contains mixed files from different devices and you need to filter for a specific protocol.</value>
+  </data>
+  <data name="MergeTutorial_Step03_Title" xml:space="preserve">
+    <value>📱 Protocol</value>
+  </data>
+  <data name="MergeTutorial_Step03_Content" xml:space="preserve">
+    <value>Determines which devices can recognize the Live Photo.
+
+**📋** Each protocol has a detailed description in the dropdown list.
+
+**🖥️** For viewing on Windows only, Google V2 is recommended.</value>
+  </data>
+  <data name="MergeTutorial_Step04_Title" xml:space="preserve">
+    <value>📦 Output Format</value>
+  </data>
+  <data name="MergeTutorial_Step04_Content" xml:space="preserve">
+    <value>Choose the output file format combination.
+
+**🎯** Pick the one that suits your needs. The first option is generally recommended.</value>
+  </data>
+  <data name="MergeTutorial_Step05_Title" xml:space="preserve">
+    <value>🏷️ Naming Template</value>
+  </data>
+  <data name="MergeTutorial_Step05_Content" xml:space="preserve">
+    <value>Customize how output files are named.
+
+**📋** Use built-in presets, or add custom segments freely.
+
+**🔀** Drag and drop each segment to reorder.
+
+**👁️** A live preview shows the final filename below.</value>
+  </data>
+  <data name="MergeTutorial_Step06_Title" xml:space="preserve">
+    <value>🚀 Start Merging</value>
+  </data>
+  <data name="MergeTutorial_Step06_Content" xml:space="preserve">
+    <value>Once you have confirmed the input/output directories and the task queue, you are ready to start.
+
+**✅** Click the "Start Merge" button to begin processing all tasks with your settings.</value>
+  </data>
   <data name="MergePage_OpenOutputBtn.Content" xml:space="preserve">
     <value>Open Folder</value>
   </data>
@@ -1422,6 +1507,82 @@ Open the output folder when done — your photos are back to normal ~</value>
   </data>
   <data name="MergePage_AddFilesBtn_Text.Text" xml:space="preserve">
     <value>Add Files</value>
+  </data>
+  <!-- Split page tutorial strings -->
+  <data name="SplitTutorial_Btn_Next" xml:space="preserve">
+    <value>Next</value>
+  </data>
+  <data name="SplitTutorial_Btn_Close" xml:space="preserve">
+    <value>Close</value>
+  </data>
+  <data name="SplitTutorial_Btn_Done" xml:space="preserve">
+    <value>Done</value>
+  </data>
+  <data name="SplitTutorial_Step01_Title" xml:space="preserve">
+    <value>📁 Set Input &amp; Output</value>
+  </data>
+  <data name="SplitTutorial_Step01_Content" xml:space="preserve">
+    <value>Prepare your Live Photos and choose where the split files will be saved.
+
+**📥 Input:** Either an input directory or dragged files. As long as the task queue has content, the input directory is not required.
+
+**📥 Input directory:** pick a folder with Live Photos; files are scanned and split candidates are recognized automatically, and the queue is entirely replaced.
+
+**🖱️ Drag &amp; drop:** drag to the left panel to replace the queue, or to the right panel to add files.
+
+**📤 Output directory:** where the split images and videos are saved; this one is required.
+
+**🔍 Scan button:** scanning starts automatically once you set the input directory; click Scan to refresh manually.
+
+**⚙️ Subfolder scanning:** by default, not scanned. Go to Settings → Scan to enable recursive scanning.</value>
+  </data>
+  <data name="SplitTutorial_Step02_Title" xml:space="preserve">
+    <value>🔗 Matching Method</value>
+  </data>
+  <data name="SplitTutorial_Step02_Content" xml:space="preserve">
+    <value>Filters which Live Photo protocols are picked up when scanning.
+
+**👍** The default "all single-file Live Photo protocols" recognizes everything it can find.
+
+**⚠️** Switch only when your folder contains mixed protocols and you want to process a specific one.</value>
+  </data>
+  <data name="SplitTutorial_Step03_Title" xml:space="preserve">
+    <value>📱 Output Protocol</value>
+  </data>
+  <data name="SplitTutorial_Step03_Content" xml:space="preserve">
+    <value>Determines the naming of the split images and videos.
+
+**📋** Each option has a description in the dropdown list.
+
+**🖥️** "None" keeps the original file naming; Apple and vivo use their device naming rules.</value>
+  </data>
+  <data name="SplitTutorial_Step04_Title" xml:space="preserve">
+    <value>📦 Output Format</value>
+  </data>
+  <data name="SplitTutorial_Step04_Content" xml:space="preserve">
+    <value>Choose the output format combination for the split files.
+
+**🎯** Pick the one that suits your needs. The first option is generally recommended.</value>
+  </data>
+  <data name="SplitTutorial_Step05_Title" xml:space="preserve">
+    <value>🏷️ Naming Template</value>
+  </data>
+  <data name="SplitTutorial_Step05_Content" xml:space="preserve">
+    <value>Customize how output files are named.
+
+**📋** Use built-in presets, or add custom segments freely.
+
+**🔀** Drag and drop each segment to reorder.
+
+**👁️** A live preview shows the final filename below.</value>
+  </data>
+  <data name="SplitTutorial_Step06_Title" xml:space="preserve">
+    <value>🚀 Start Splitting</value>
+  </data>
+  <data name="SplitTutorial_Step06_Content" xml:space="preserve">
+    <value>Once you have confirmed the input/output directories and the task queue, you are ready to start.
+
+**✅** Click the "Start Split" button to process all tasks with your settings.</value>
   </data>
   <data name="MergePage_AddFolderBtn_Text.Text" xml:space="preserve">
     <value>Add Folder</value>
@@ -1466,7 +1627,7 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Date Taken</value>
   </data>
   <data name="MergePage_PairingMethodLabel.Text" xml:space="preserve">
-    <value>Pairing method:</value>
+    <value>Matching method:</value>
   </data>
   <data name="MergePage_Pairing_Filename.Content" xml:space="preserve">
     <value>By filename</value>
@@ -3894,7 +4055,7 @@ Then click "Start Split".</value>
     <value>Drop file to append</value>
   </data>
   <data name="SplitPage_MatchMethodLabel.Text" xml:space="preserve">
-    <value>Pairing method:</value>
+    <value>Matching method:</value>
   </data>
   <data name="SplitPage_Match_All.Content" xml:space="preserve">
     <value>All single-file Live Photo protocols</value>
@@ -3924,7 +4085,7 @@ Then click "Start Split".</value>
     <value>OPPO/OnePlus - O Live Photo</value>
   </data>
   <data name="SplitPage_Match_Oppo_Hint" xml:space="preserve">
-    <value>Windows / Xiaomi / OPPO</value>
+    <value>Windows / Xiaomi / OPPO / ONEPLUS</value>
   </data>
   <data name="SplitPage_Match_Vivo.Content" xml:space="preserve">
     <value>vivo - Live Photo ⚠️</value>

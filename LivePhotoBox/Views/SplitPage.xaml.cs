@@ -22,6 +22,8 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Documents;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -1173,5 +1175,219 @@ namespace LivePhotoBox.Views
             }
         }
         // ── 拖拽分隔条结束 ──
+
+        // ── 拆分引导教程 ──────────────────────────────────
+
+        // 教学步骤定义：目标控件名 + 标题 + 说明文字（全部走资源文件多语言）
+        private struct TutorialStep
+        {
+            public string? TargetName;                 // 目标控件 x:Name（延迟解析，防止引用前未初始化）
+            public string? TitleKey;                   // 标题资源 key
+            public string? ContentKey;                 // 正文资源 key
+            public TeachingTipPlacementMode Placement; // 弹窗位置
+            public bool IsLast;
+        }
+
+        // 当前引导所处的步骤索引（-1 表示未在引导中）
+        private int _tutorialIndex = -1;
+        // 等待关闭动画结束后要打开的下一步索引（-1 表示无待开启步骤）
+        private int _tutorialPendingIndex = -1;
+        private readonly List<TutorialStep> _tutorialSteps = new();
+
+        // 点击顶栏帮助按钮：启动拆分页的引导教程（不再跳转到主页）
+        private void HelpBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (TutorialTip.IsOpen) { TutorialTip.IsOpen = false; return; }
+            ShowTutorialStep(0);
+        }
+
+        // 显示指定步骤的 TeachingTip；每步都有「下一步」和「关闭」，最后一步只有「完成」
+        private void ShowTutorialStep(int index)
+        {
+            if (_tutorialSteps.Count == 0) BuildTutorialSteps();
+            if (index < 0 || index >= _tutorialSteps.Count) return;
+
+            _tutorialIndex = index;
+            var step = _tutorialSteps[index];
+
+            // 延迟解析目标控件：防止在页面加载前引用未初始化的控件
+            TutorialTip.Target = ResolveTarget(step.TargetName);
+
+            // 标题带 emoji + 计数：📁 设置输入输出目录（1/6）
+            int total = _tutorialSteps.Count;
+            TutorialTip.Title = step.TitleKey != null
+                ? $"{ResourceService.GetString(step.TitleKey)}（{index + 1}/{total}）"
+                : "";
+
+            // 正文：按 **粗体** 标记拆分段落
+            var content = step.ContentKey != null ? ResourceService.GetString(step.ContentKey) : "";
+            BuildTutorialContent(content);
+
+            // 每个步骤使用独立的弹出位置
+            TutorialTip.PreferredPlacement = step.Placement;
+
+            // 最后一步只有一个「完成」按钮，隐藏「下一步」
+            TutorialTip.ActionButtonContent = step.IsLast ? null : ResourceService.GetString("SplitTutorial_Btn_Next");
+            TutorialTip.CloseButtonContent = ResourceService.GetString(step.IsLast ? "SplitTutorial_Btn_Done" : "SplitTutorial_Btn_Close");
+
+            TutorialTip.IsOpen = true;
+        }
+
+        // 按段落（空行分隔）拆分正文，段内支持 **粗体** 标记；
+        // 每段是一个独立 TextBlock，粗体部分用 Run + FontWeight 实现
+        private void BuildTutorialContent(string text)
+        {
+            var panel = TutorialContentPanel;
+            panel.Children.Clear();
+
+            var paragraphs = text.Split('\n');
+            foreach (var raw in paragraphs)
+            {
+                var para = raw.Trim();
+                if (para.Length == 0) continue;
+
+                var tb = new TextBlock
+                {
+                    MaxWidth = 440,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 12,
+                    LineHeight = 20,
+                    LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+                    IsTextSelectionEnabled = true,
+                    Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                };
+
+                AppendBoldSegments(tb, para);
+                panel.Children.Add(tb);
+            }
+        }
+
+        // 解析一段文字中的 **粗体** 标记，拆成普通/粗体 Run 追加到 TextBlock
+        private static void AppendBoldSegments(TextBlock tb, string para)
+        {
+            int idx = 0;
+            while (idx < para.Length)
+            {
+                int boldStart = para.IndexOf("**", idx);
+                if (boldStart < 0)
+                {
+                    tb.Inlines.Add(new Run { Text = para[idx..] });
+                    return;
+                }
+
+                if (boldStart > idx)
+                    tb.Inlines.Add(new Run { Text = para[idx..boldStart] });
+
+                int boldEnd = para.IndexOf("**", boldStart + 2);
+                if (boldEnd < 0)
+                {
+                    // 没有配对的结束 ** → 作为普通文本
+                    tb.Inlines.Add(new Run { Text = para[boldStart..] });
+                    return;
+                }
+
+                tb.Inlines.Add(new Run { Text = para[(boldStart + 2)..boldEnd], FontWeight = FontWeights.SemiBold });
+                idx = boldEnd + 2;
+            }
+        }
+
+        // 根据名称解析目标控件（在页面加载完成后 FindName 才可用）
+        private FrameworkElement? ResolveTarget(string? name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+            return FindName(name) as FrameworkElement;
+        }
+
+        // 构建拆分页的引导步骤（目标控件用名称存储，显示时才解析）
+        private void BuildTutorialSteps()
+        {
+            _tutorialSteps.Clear();
+
+            // 第 1 步：输入输出目录（指向整个输入输出区域，从右侧弹出）
+            _tutorialSteps.Add(new TutorialStep
+            {
+                TargetName = "InputOutputSection",
+                TitleKey = "SplitTutorial_Step01_Title",
+                ContentKey = "SplitTutorial_Step01_Content",
+                Placement = TeachingTipPlacementMode.Right,
+            });
+
+            // 第 2 步：匹配方式（筛选协议）
+            _tutorialSteps.Add(new TutorialStep
+            {
+                TargetName = "MatchProtocolComboBox",
+                TitleKey = "SplitTutorial_Step02_Title",
+                ContentKey = "SplitTutorial_Step02_Content",
+                Placement = TeachingTipPlacementMode.Right,
+            });
+
+            // 第 3 步：输出协议
+            _tutorialSteps.Add(new TutorialStep
+            {
+                TargetName = "ProtocolComboBox",
+                TitleKey = "SplitTutorial_Step03_Title",
+                ContentKey = "SplitTutorial_Step03_Content",
+                Placement = TeachingTipPlacementMode.Right,
+            });
+
+            // 第 4 步：输出格式
+            _tutorialSteps.Add(new TutorialStep
+            {
+                TargetName = "OutputFormatComboBox",
+                TitleKey = "SplitTutorial_Step04_Title",
+                ContentKey = "SplitTutorial_Step04_Content",
+                Placement = TeachingTipPlacementMode.Right,
+            });
+
+            // 第 5 步：命名格式
+            _tutorialSteps.Add(new TutorialStep
+            {
+                TargetName = "CustomNamingSection",
+                TitleKey = "SplitTutorial_Step05_Title",
+                ContentKey = "SplitTutorial_Step05_Content",
+                Placement = TeachingTipPlacementMode.Right,
+            });
+
+            // 第 6 步：开始拆分（右上角主操作按钮；从按钮下方弹出）
+            _tutorialSteps.Add(new TutorialStep
+            {
+                TargetName = "StartSplitButton",
+                TitleKey = "SplitTutorial_Step06_Title",
+                ContentKey = "SplitTutorial_Step06_Content",
+                Placement = TeachingTipPlacementMode.Bottom,
+                IsLast = true,
+            });
+        }
+
+        // 下一步按钮：记录待跳转步骤，关闭后再打开（解决 TeachingTip 关闭动画问题）
+        private void TutorialTip_ActionButtonClick(TeachingTip sender, object args)
+        {
+            int next = _tutorialIndex + 1;
+            if (next < _tutorialSteps.Count)
+            {
+                _tutorialPendingIndex = next;
+                TutorialTip.IsOpen = false;
+            }
+        }
+
+        // 关闭/完成按钮：结束引导
+        private void TutorialTip_CloseButtonClick(TeachingTip sender, object args)
+        {
+            _tutorialPendingIndex = -1;
+            TutorialTip.IsOpen = false;
+            _tutorialIndex = -1;
+        }
+
+        // 关闭动画完成后：如果有待跳转步骤，打开下一步
+        private void TutorialTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args)
+        {
+            if (_tutorialPendingIndex >= 0)
+            {
+                int next = _tutorialPendingIndex;
+                _tutorialPendingIndex = -1;
+                ShowTutorialStep(next);
+            }
+        }
+
     }
 }
