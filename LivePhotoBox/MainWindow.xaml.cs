@@ -130,6 +130,12 @@ namespace LivePhotoBox
         // 最近一次处于"处理中"（IsProcessing=true）的页面。
         // 用于区分"处理任务被取消"（任务栏显示红色）与"扫描被取消"（任务栏不显示）。
         private WorkViewModelBase? _lastProcessingVm;
+        // 任务栏是否正处于"不确定进度"（动画绿条）模式，用于记录模式切换日志。
+        private bool _taskbarIsIndeterminate;
+
+        // 进度值低于该阈值时，任务栏上的确定型进度条几乎不可见
+        // （例如 2472 项队列前几分钟只有 <1%），改用动画绿色条让用户明确看到"正在处理"。
+        private const double TaskbarIndeterminateThreshold = 5.0;
 
         // 重置布局后的重启标记：避免重启退出时 Closed 事件把当前（旧）尺寸写回设置
         public bool IsRestartingAfterLayoutReset { get; set; }
@@ -835,11 +841,7 @@ namespace LivePhotoBox
                     case ProgressBarState.Pausing:
                         // Pausing 是暂停过渡态（约几百 ms），仍按绿色正常进度显示，
                         // 与底部进度条颜色转换器语义一致
-                        _taskbarList.SetProgressState(_windowHandle, TaskbarProgressFlags.Normal);
-                        _taskbarList.SetProgressValue(
-                            _windowHandle,
-                            (ulong)Math.Clamp(activeVm.Progress, 0, 100),
-                            100);
+                        SetTaskbarProgressOrIndeterminate(activeVm.Progress);
                         break;
 
                     case ProgressBarState.Paused:
@@ -868,6 +870,37 @@ namespace LivePhotoBox
             {
                 // COM 调用失败（如桌面切换、explorer 重启）时静默降级，下次成功自动恢复
                 LogService.Warn($"Taskbar progress update failed: {ex.Message}", source: LogSource.UI);
+            }
+        }
+
+        // 设置任务栏进度：进度值太小（< 阈值）时用动画绿色条（TBPF_INDETERMINATE），
+        // 否则用确定型百分比（TBPF_NORMAL + SetProgressValue）。
+        // 切换回确定型时先设状态再设值，顺序必须符合 ITaskbarList3 要求。
+        private void SetTaskbarProgressOrIndeterminate(double progress)
+        {
+            double pct = Math.Clamp(progress, 0, 100);
+            if (pct < TaskbarIndeterminateThreshold)
+            {
+                if (!_taskbarIsIndeterminate)
+                {
+                    _taskbarIsIndeterminate = true;
+                    LogService.Info(
+                        $"Taskbar progress: indeterminate (progress={pct:F2}% < {TaskbarIndeterminateThreshold}%).",
+                        LogSource.UI);
+                }
+                _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Indeterminate);
+            }
+            else
+            {
+                if (_taskbarIsIndeterminate)
+                {
+                    _taskbarIsIndeterminate = false;
+                    LogService.Info(
+                        $"Taskbar progress: determinate (progress={pct:F2}% >= {TaskbarIndeterminateThreshold}%).",
+                        LogSource.UI);
+                }
+                _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Normal);
+                _taskbarList.SetProgressValue(_windowHandle, (ulong)pct, 100);
             }
         }
 
