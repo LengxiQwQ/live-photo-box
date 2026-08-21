@@ -45,7 +45,7 @@ namespace LivePhotoBox
     internal enum TaskbarProgressFlags : int
     {
         NoProgress = 0x00000000,     // 隐藏任务栏进度
-        Indeterminate = 0x00000001,  // 无限循环动画（未使用：扫描不进任务栏）
+        Indeterminate = 0x00000001,  // 无限循环动画（处理中显示；部分 Win11 任务栏上确定型不可见）
         Normal = 0x00000002,         // 正常确定进度（绿色）
         Error = 0x00000004,          // 错误（红色）
         Paused = 0x00000008          // 暂停（黄色）
@@ -833,13 +833,10 @@ namespace LivePhotoBox
                 {
                     case ProgressBarState.Processing:
                     case ProgressBarState.Pausing:
-                        // Pausing 是暂停过渡态（约几百 ms），仍按绿色正常进度显示，
-                        // 与底部进度条颜色转换器语义一致
-                        _taskbarList.SetProgressState(_windowHandle, TaskbarProgressFlags.Normal);
-                        _taskbarList.SetProgressValue(
-                            _windowHandle,
-                            (ulong)Math.Clamp(activeVm.Progress, 0, 100),
-                            100);
+                        // 处理中统一显示"不确定进度"动画条：实测部分 Windows 11
+                        // 新任务栏上确定型（TBPF_NORMAL）百分比条只渲染一条极细的底线，
+                        // 肉眼几乎不可见；动画条则始终清晰可见。真实百分比仍在页面内显示。
+                        _taskbarList.SetProgressState(_windowHandle, TaskbarProgressFlags.Indeterminate);
                         break;
 
                     case ProgressBarState.Paused:
