@@ -2186,6 +2186,7 @@ namespace LivePhotoBox.ViewModels
 
                 // ── 10. 修改日期 ─────────────────────────────────────────
                 try { File.SetLastWriteTime(targetJpgPath, DateTime.Now); } catch { }
+                try { File.SetLastWriteTime(targetMovPath, DateTime.Now); } catch { }
 
                 IsModified = false;
 

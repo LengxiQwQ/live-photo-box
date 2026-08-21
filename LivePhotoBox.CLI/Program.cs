@@ -68,6 +68,8 @@ namespace LivePhotoBox.Cli
                         "  lpb split ./Photos -y               Batch split a folder\n" +
                         "  lpb repair photo.jpg                Fix live photo metadata\n" +
                         "  lpb repair -d ./Photos -y           Batch fix a folder\n" +
+                        "  lpb cover photo.jpg --at 2.5        Change cover frame\n" +
+                        "  lpb cover photo.jpg                  View current cover info\n" +
                         "  lpb --info                          Show detailed environment info")
                     {
                         MergeCommand.Create(),
@@ -75,7 +77,8 @@ namespace LivePhotoBox.Cli
                         RepairCommand.Create(),
                         ProtocolsCommand.Create(),
                         UpdateCommand.Create(),
-                        UpdateCommand.CreateUpdate()
+                        UpdateCommand.CreateUpdate(),
+                        CoverCommand.Create()
                     };
 
                     // Declare --info so `lpb --help` lists it (the fast path above handles actual invocation).

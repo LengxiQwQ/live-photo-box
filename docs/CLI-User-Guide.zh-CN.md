@@ -109,6 +109,12 @@ lpb split photo.jpg -y
 
 # 批量拆分文件夹（自动识别目录；-d 也可用）
 lpb split ./MyPhotos -y
+
+# 查看现有实况照片的封面位置与协议信息（不修改）
+lpb cover photo.jpg
+
+# 把封面改到视频 1.5 秒处（输出 源名_cover{帧号}.jpg 到原目录）
+lpb cover photo.jpg --at 1.5 -y
 ```
 
 ---
@@ -120,6 +126,7 @@ lpb split ./MyPhotos -y
 | `lpb protocols` | 查看协议 × 格式兼容矩阵与设备支持 |
 | `lpb merge` | 合成图片 + 视频（单对或批量） |
 | `lpb split` | 把单文件实况照片拆回独立的图片与视频 |
+| `lpb cover` | 修改已有实况照片的封面帧（Key Photo），别名 `keyphoto` |
 | `lpb repair` | 分析并修复实况照片元数据 |
 | `lpb --info` / `lpb --version`（`-v`） | 查看版本、环境与内置工具版本 |
 
@@ -244,6 +251,7 @@ lpb protocols --json
 | `{exif_time}` | 照片拍摄时间（从文件读取） |
 | `{counter}` | 自增编号 (001, 002, …) |
 | `{counter:D3}` | 定宽编号，如 D3 = 001 |
+| `{frame}` | 封面帧序号（1-based；仅 cover 命令使用） |
 
 **执行**
 
@@ -412,6 +420,7 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | `{exif_time}` | 照片拍摄时间（从文件读取） |
 | `{counter}` | 自增编号 (001, 002, …) |
 | `{counter:D3}` | 定宽编号，如 D3 = 001 |
+| `{frame}` | 封面帧序号（1-based；仅 cover 命令使用） |
 
 **执行**
 
@@ -506,6 +515,105 @@ split 只支持 `keep`（默认）和 `custom:模板`（无 `suffix` 模式）�
 | 保留源文件（默认） | `lpb split -d ./Photos --after none -y` |
 
 仅**拆分成功**的实况照片的源文件会受影响。
+
+---
+
+### `cover` — 修改实况照片封面帧（Key Photo）
+
+修改已有实况照片的封面帧（Key Photo），不重新合成视频。别名 `keyphoto`（对齐 Apple 术语）。
+
+自动识别单文件（华为/V2/OPPO/Samsung/Fusion）和双文件（Apple HEIC+MOV、Vivo 旧双文件）格式。
+
+#### 三种模式
+
+`cover` 有三种模式：
+
+| 模式 | 命令 | 效果 |
+|------|------|------|
+| 只读查看 | `lpb cover photo.jpg` | 显示协议、总帧数、时长、当前封面帧。**不创建、不修改任何文件**。也可加 `--json` 给脚本用 |
+| 预览（dry-run） | `lpb cover photo.jpg --at 2.5 --dry-run` 或 `--frame 10 --dry-run` | 在只读信息之外，再显示新封面位置和输出路径，然后停止。**不创建、不修改任何文件** |
+| 执行 | `lpb cover photo.jpg --at 2.5 -y` 或 `--frame 10 -y` | 真正写出带新封面帧的实况照片文件 |
+
+`--at` 和 `--frame` 是两种指定**同一件事**的方式：新封面在哪里。一个按“视频时间”指定，一个按“帧序号”指定，所以两者互斥——同时给会冲突。它们本身都不代表“检查”或“执行”；是否执行由 `--dry-run` / 确认提示 / `--json` 控制。
+
+> **OPPO/一加 说明**：OPPO 相册按时间戳定位封面时总会落在后一帧。对 OPPO/一加实况照片使用 `--frame` 或 `--at` 时，CLI 会自动把时间戳往前让一帧，让 OPPO 相册显示、导出和存储的封面，都正好是你选中的那一帧。
+
+#### 使用示例
+
+| 目标 | 命令 |
+|------|------|
+| 查看总帧数、时长与当前封面（不修改） | `lpb cover photo.jpg` |
+| 把封面改到视频 2.5 秒处 | `lpb cover photo.jpg --at 2.5 -y` |
+| 双文件 Apple 实况 | `lpb cover photo.heic video.mov --at 2.5 -y` |
+| 帧序号模式（1-based，10 = 第 10 帧） | `lpb cover photo.jpg --frame 10 -y` |
+| 仅预览不修改 | `lpb cover photo.jpg --at 2.5 --dry-run` |
+| 推荐流程：先查看，再设第 10 帧 | `lpb cover photo.jpg` → `lpb cover photo.jpg --frame 10 -y` |
+| 别名 keyphoto | `lpb keyphoto photo.jpg --at 2.5 -y` |
+| 自定义命名模板 | `lpb cover photo.jpg --at 2.5 -n "custom:{name}_frame{frame}" -y` |
+| 覆盖已有输出 | `lpb cover photo.jpg --at 2.5 -y -w` |
+| 指定输出目录 | `lpb cover photo.jpg --at 2.5 -o ./Output -y` |
+| JSON 脚本模式 | `lpb cover photo.jpg --at 2.5 --json` |
+
+#### 完整选项参考
+
+**输入**
+
+| 选项 | 说明 |
+|------|------|
+| `<文件>` | 实况照片文件路径。单文件自动识别协议；双文件自动配对（Apple CID / 文件名） |
+| `<图片> <视频>` | 双文件实况时显式指定图片和视频文件，自动识别顺序 |
+| `--at <时间>` | 按**视频时间**指定新封面位置。支持秒（`2.500`）、分:秒（`1:30.500`）、时:分:秒（`0:01:30.500`）。与 `--frame` 互斥 |
+| `--frame <序号>` | 按**帧序号**指定新封面位置，**1-based**（1 = 第 1 帧，10 = 第 10 帧）。与 `--at` 互斥 |
+
+**输出**
+
+| 选项 | 说明 |
+|------|------|
+| `-o, --output <目录>` | 输出目录（默认：源文件所在目录） |
+| `-n, --naming <规则>` | 输出文件名规则。默认：`suffix`（追加 `_cover{帧号}`）。`keep`（保持原名）或 `custom:模板` |
+| `-w, --overwrite` | 覆盖已有文件（默认自动重命名） |
+
+**执行**
+
+| 选项 | 说明 |
+|------|------|
+| `-y, --yes` | 跳过确认提示 |
+| `--dry-run` | 预览：显示当前封面信息、新封面位置和输出路径，不修改文件 |
+| `-v, --verbose` | 详细输出 |
+| `--json` | JSON 格式输出（隐含 `--yes`） |
+
+#### 命名模板
+
+命令默认生成 `{源文件名}_cover{帧号}` 格式（如 `IMG_1234_cover46.jpg`），支持 `-n` 自定义：
+
+| 占位符 | 含义 | 示例 |
+|--------|------|------|
+| `{name}` | 源文件名 | `IMG_1234` |
+| `{protocol}` | 协议简称 | `huawei` |
+| `{date}` | 当前日期 | `20260820` |
+| `{date:格式}` | 自定义日期 | `{date:yyyy-MM-dd}` → `2026-08-20` |
+| `{time}` | 当前时间 | `143022` |
+| `{exif_date}` | 拍摄日期 | `20260803` |
+| `{exif_time}` | 拍摄时间 | `100530` |
+| `{frame}` | **封面帧序号（1-based）** | `46` |
+| `{counter}` | 自增编号 | `1` |
+| `{counter:D3}` | 定宽编号 | `001` |
+
+**命名模板速查**
+
+| 目的 | 模板 | 输出示例 |
+|------|------|---------|
+| 默认（含帧号） | `-n "custom:{name}_cover{frame}"` | `IMG_1234_cover46.jpg` |
+| 保持原名覆盖 | `-n keep` | `IMG_1234.jpg` |
+| 含日期 | `-n "custom:{name}_{protocol}_{date}_{frame}"` | `IMG_1234_huawei_20260820_46.jpg` |
+| 含时间戳 | `-n "custom:{name}_at{frame}_{time}"` | `IMG_1234_at46_143022.jpg` |
+
+#### 默认输出位置
+
+| 模式 | 默认输出目录 | 示例 |
+|------|-------------|------|
+| 单文件 | 源文件所在目录 | `lpb cover photo.jpg --at 2.5` → `./photo_cover46.jpg` |
+| 双文件 | 图片所在目录 | `lpb cover photo.heic --at 2.5` → `./photo_cover46.HEIC` + `.MOV` |
 
 ---
 

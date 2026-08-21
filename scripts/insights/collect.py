@@ -16,7 +16,7 @@
   TRAFFIC_TOKEN     必需：带 public_repo/repo scope 的 PAT（GITHUB_TOKEN 无法读 traffic API）
   GITHUB_REPOSITORY 可选：owner/repo；不设时从 git remote 推导
 命令行参数：
-  --root <dir>  输出根目录（默认：脚本所在仓库根；本地验证时指向 _ai-tmp 副本）
+  --root <dir>  输出根目录（默认：脚本所在仓库根；本地验证时指向 ai-tmp 副本）
 """
 
 from __future__ import annotations

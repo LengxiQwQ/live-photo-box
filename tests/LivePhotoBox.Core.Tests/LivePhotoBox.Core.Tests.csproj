@@ -24,24 +24,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\designs\各个机型测试\荣耀.jpg">
-      <Link>samples\荣耀.jpg</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\designs\各个机型测试\ONEPLUS_test.jpg">
-      <Link>samples\ONEPLUS_test.jpg</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\designs\各个机型测试\vivo.jpg">
-      <Link>samples\vivo.jpg</Link>
+    <Content Include="..\..\designs\各个机型测试\**\*">
+      <Link>samples\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="..\..\designs\谷歌自己合成的.heic">
       <Link>samples\谷歌自己合成的.heic</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </Content>
-    <Content Include="..\..\designs\各个机型测试\双文件\苹果双文件.HEIC">
-      <Link>samples\苹果双文件.HEIC</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

@@ -45,6 +45,9 @@ namespace LivePhotoBox.Controls
         private static readonly ImagePreviewService _previewService = new(
             maxCacheSize: 40, decodePixelWidth: 1920, preloadForward: 6, preloadBackward: 2);
 
+        // 提取结果缓存：文件路径 → 临时视频文件路径。同一张照片第二次点 LIVE 直接命中，零重新提取。
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _extractedVideoCache = new();
+
         // ── 字段 ──────────────────────────────────────
 
         private IReadOnlyList<string> _paths = Array.Empty<string>();
@@ -187,6 +190,51 @@ namespace LivePhotoBox.Controls
 
             _activeVideoSlot = -1;
             await TransitionToVisualAsync(LightboxImage);
+
+            // 图片已显示。此后台探测单文件实况（读 XMP 头 + 尾部 LIVE_ 标记），
+            // 检测到实况则置 IsLivePhoto=true 显示 LIVE 按钮；普通照片永不显示。
+            // 探测不阻塞图片显示，按钮延迟出现（用户已确认可接受）。
+            if (_currentIndex >= 0 && _currentIndex < _items.Count)
+            {
+                var item = _items[_currentIndex];
+                if (!item.IsLivePhoto && item.VideoPath == null)
+                {
+                    _ = DetectLivePhotoInBackgroundAsync(item);
+                }
+            }
+        }
+
+        /// <summary>
+        /// 后台探测单文件实况照片：复用 LightboxItemSource.DetectSingleFileVideo
+        /// （读 XMP 头 64KB + 尾部 LIVE_ 标记），探测到 videoLen&gt;0 就更新条目并显示 LIVE 按钮。
+        /// </summary>
+        private async Task DetectLivePhotoInBackgroundAsync(LightboxItem item)
+        {
+            try
+            {
+                await Task.Run(() =>
+                {
+                    LightboxItemSource.DetectSingleFileVideo(item.ImagePath, out long videoLen);
+                    if (videoLen > 0)
+                    {
+                        item.AppendedVideoLength = videoLen;
+                        item.IsLivePhoto = true;
+                    }
+                });
+
+                // 回到 UI 线程更新按钮
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (_currentIndex < 0 || _currentIndex >= _items.Count) return;
+                    if (_items[_currentIndex] != item) return;   // 已切换条目
+                    if (item.IsLivePhoto)
+                    {
+                        LivePhotoButton.Visibility = Visibility.Visible;
+                        LivePulseSb.Begin();
+                    }
+                });
+            }
+            catch { /* 探测失败静默——普通照片 */ }
         }
 
         private async Task ShowVideoAsync(string path, CancellationToken token)
@@ -307,6 +355,13 @@ namespace LivePhotoBox.Controls
                 try { File.Delete(_extractedVideoPath); } catch { }
                 _extractedVideoPath = null;
             }
+
+            // 关闭灯箱时清空提取缓存并删除全部临时视频文件
+            foreach (var temp in _extractedVideoCache.Values)
+            {
+                try { File.Delete(temp); } catch { }
+            }
+            _extractedVideoCache.Clear();
         }
 
         private static async Task<bool> WaitForMediaOpenedAsync(MediaPlayerElement player,
@@ -602,7 +657,8 @@ namespace LivePhotoBox.Controls
 
             string? videoSource = item.VideoPath;
 
-            // 无配对视频路径 → 从单文件实况中提取嵌入视频
+            // 无配对视频路径 → 从单文件实况中提取嵌入视频。
+            // 按方法探测顺序自动定位（LIVE_→mpvd→SEF→尾部），无需协议枚举。
             if (videoSource == null)
             {
                 LightboxSpinner.Visibility = Visibility.Visible;
@@ -610,18 +666,16 @@ namespace LivePhotoBox.Controls
                 LivePulseSb.Stop();
                 try
                 {
-                    // 按协议分流提取（华为 moov / 三星 Trailer / HEIC mpvd / 尾部切取）
-                    videoSource = await LivePhotoVideoExtractor.ExtractVideoAsync(
-                        item.ImagePath, item.DetectedProtocol, item.AppendedVideoLength);
-
-                    if (videoSource != null)
+                    // 先查缓存：同一文件已提取过则直接命中，零重新提取
+                    if (!_extractedVideoCache.TryGetValue(item.ImagePath, out videoSource))
                     {
-                        // 清理旧临时文件再保存新引用
-                        if (_extractedVideoPath != null)
+                        videoSource = await LivePhotoVideoExtractor.ExtractVideoAutoAsync(
+                            item.ImagePath, item.AppendedVideoLength);
+
+                        if (videoSource != null)
                         {
-                            try { File.Delete(_extractedVideoPath); } catch { }
+                            _extractedVideoCache[item.ImagePath] = videoSource;
                         }
-                        _extractedVideoPath = videoSource;
                     }
                 }
                 catch { videoSource = null; }
@@ -639,8 +693,8 @@ namespace LivePhotoBox.Controls
 
         private static async Task<string?> ExtractAppendedVideoAsync(string filePath, long videoLength)
         {
-            // 已废弃：改用 LivePhotoVideoExtractor 按协议分流提取。
-            // 保留此方法仅用于编译兼容，实际调用已改为 LivePhotoVideoExtractor。
+            // 已废弃：改用 LivePhotoVideoExtractor.ExtractVideoAutoAsync（方法探测）。
+            // 此方法保留仅用于编译兼容，实际调用已改为 ExtractVideoAutoAsync。
             await Task.Yield();
             return null;
         }

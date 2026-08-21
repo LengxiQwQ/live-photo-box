@@ -2,7 +2,7 @@
 # 触发：GitHub Release 正式发布（非 draft）→ 自动开 winget 更新 PR → 自动合入
 # 前置条件：包必须已存在于 microsoft/winget-pkgs（首次由 PR #411313 合入建立）
 # Token：WINGET_TOKEN 需有 public_repo / repo 权限（本机 gh token 可直接复用）
-# 注意：更新已有 manifest 时，komac 保留原有 NestedInstallerFiles（6 个别名）不变，
+# 注意：更新已有 manifest 时，komac 保留原有 NestedInstallerFiles（4 个别名）不变，
 #       只更新版本号 / URL / SHA256。首次更新后验证一次。
 
 name: Publish to WinGet / winget 自动更新
@@ -20,6 +20,5 @@ jobs:
         with:
           identifier: LengxiQwQ.LivePhotoBox
           token: ${{ secrets.WINGET_TOKEN }}
-          # 只匹配 CLI zip：Live-Photo-Box-v2.1.5-x64-cli.zip
           # portable.zip / setup.exe 不进 winget（winget 只发布 CLI）
           installers-regex: '-x64-cli\.zip$'

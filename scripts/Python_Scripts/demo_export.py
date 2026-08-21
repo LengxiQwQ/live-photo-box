@@ -16,8 +16,8 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 # ══════════ 配置 ══════════
 CONFIG = {
     "app_exe": r"D:\Projects\live-photo-box\LivePhotoBox\bin\Debug\net9.0-windows10.0.19041.0\win-x64\Live Photo Box.exe",
-    "folder":  r"D:\Projects\live-photo-box\_ai-tmp\hw_drive",          # 含华为实况的文件夹
-    "out_mp4": r"D:\Projects\live-photo-box\_ai-tmp\hw_drive\exported.mp4",
+    "folder":  r"D:\Projects\live-photo-box\ai-tmp\hw_drive",          # 含华为实况的文件夹
+    "out_mp4": r"D:\Projects\live-photo-box\ai-tmp\hw_drive\exported.mp4",
 }
 WINAPP_MCP_EXE = r"C:\Users\LengxiQwQ\AppData\Roaming\npm\node_modules\winapp-mcp\server\WinAppMCP.exe"
 RESULT = {}

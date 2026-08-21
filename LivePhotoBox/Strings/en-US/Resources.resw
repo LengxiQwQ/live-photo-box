@@ -1436,65 +1436,71 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="MergeTutorial_Step01_Content" xml:space="preserve">
     <value>Prepare your source files and choose where the merged photos will be saved.
 
-**📥 Input:** Either an input directory or dragged files. As long as the task queue has content, the input directory is not required.
+**📥 Input directory:** Pick a folder with images and videos. The app will scan and pair them automatically (this replaces the entire task queue). The input directory is not required — any content in the queue works.
 
-**📥 Input directory:** pick a folder with images and videos; files are scanned and paired automatically, and the queue is entirely replaced.
+**📤 Output directory:** Where the merged Live Photos will be saved.
 
-**🖱️ Drag &amp; drop:** drag to the left panel to replace the queue, or to the right panel to add files.
+**🔍 Scan button:** Scanning starts automatically once you set the input directory. You can also click "Scan" to refresh manually.
 
-**📤 Output directory:** where the merged Live Photos are saved; this one is required.
-
-**🔍 Scan button:** scanning starts automatically once you set the input directory; click Scan to refresh manually.
-
-**⚙️ Subfolder scanning:** by default, not scanned. Go to Settings → Scan to enable recursive scanning and preserve folder structure.</value>
+**⚙️ Scanning method:** Files in subfolders are not scanned by default. Go to Settings → General to enable recursive subfolder scanning.</value>
   </data>
   <data name="MergeTutorial_Step02_Title" xml:space="preserve">
-    <value>🔗 Matching Method</value>
+    <value>🖱️ Drag &amp; Drop</value>
   </data>
   <data name="MergeTutorial_Step02_Content" xml:space="preserve">
-    <value>Determines how images and videos are paired together.
+    <value>You can also drag and drop files and folders directly.
 
-**👍** The default filename-based matching works for most cases.
+**📂 Folders:** Dragging to the left panel replaces the entire queue (clears it first, then adds the new content). Dragging to the right panel appends them.
 
-**⚠️** Switch only when your folder contains mixed files from different devices and you need to filter for a specific protocol.</value>
+**📄 Files:** Dragging individual files always appends to the queue without replacing anything.</value>
   </data>
   <data name="MergeTutorial_Step03_Title" xml:space="preserve">
-    <value>📱 Protocol</value>
+    <value>🔗 Matching Method</value>
   </data>
   <data name="MergeTutorial_Step03_Content" xml:space="preserve">
-    <value>Determines which devices can recognize the Live Photo.
+    <value>Determines how photos and videos are paired together.
+
+**👍** The default filename-based matching is fine for most cases.
+
+**⚠️** Switch only when you have files from multiple devices and want to filter for a specific protocol.</value>
+  </data>
+  <data name="MergeTutorial_Step04_Title" xml:space="preserve">
+    <value>📱 Protocol</value>
+  </data>
+  <data name="MergeTutorial_Step04_Content" xml:space="preserve">
+    <value>Determines which devices can recognize the Live Photo format.
 
 **📋** Each protocol has a detailed description in the dropdown list.
 
-**🖥️** For viewing on Windows only, Google V2 is recommended.</value>
-  </data>
-  <data name="MergeTutorial_Step04_Title" xml:space="preserve">
-    <value>📦 Output Format</value>
-  </data>
-  <data name="MergeTutorial_Step04_Content" xml:space="preserve">
-    <value>Choose the output file format combination.
-
-**🎯** Pick the one that suits your needs. The first option is generally recommended.</value>
+**🖥️** If you only need to view on Windows, Google V2 is recommended.</value>
   </data>
   <data name="MergeTutorial_Step05_Title" xml:space="preserve">
-    <value>🏷️ Naming Template</value>
+    <value>📦 Output Format</value>
   </data>
   <data name="MergeTutorial_Step05_Content" xml:space="preserve">
+    <value>Choose the format combination for the output files.
+
+**🎯** Pick the one that suits your needs. The first option is generally a good starting point.</value>
+  </data>
+  <data name="MergeTutorial_Step06_Title" xml:space="preserve">
+    <value>🏷️ Naming Template</value>
+  </data>
+  <data name="MergeTutorial_Step06_Content" xml:space="preserve">
     <value>Customize how output files are named.
 
-**📋** Use built-in presets, or add custom segments freely.
+**📋** Use built-in presets or add your own segments.
 
-**🔀** Drag and drop each segment to reorder.
+**🔀** Drag each segment to reorder.
 
 **👁️** A live preview shows the final filename below.</value>
   </data>
-  <data name="MergeTutorial_Step06_Title" xml:space="preserve">
+  <data name="MergeTutorial_Step07_Title" xml:space="preserve">
     <value>🚀 Start Merging</value>
   </data>
-  <data name="MergeTutorial_Step06_Content" xml:space="preserve">
+  <data name="MergeTutorial_Step07_Content" xml:space="preserve">
     <value>Once you have confirmed the input/output directories and the task queue, you are ready to start.
 
-**✅** Click the "Start Merge" button to begin processing all tasks with your settings.</value>
+**✅** Click "Start Merge" to begin processing all tasks with your settings.</value>
   </data>
   <data name="MergePage_OpenOutputBtn.Content" xml:space="preserve">
     <value>Open Folder</value>
@@ -1522,67 +1528,73 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>📁 Set Input &amp; Output</value>
   </data>
   <data name="SplitTutorial_Step01_Content" xml:space="preserve">
-    <value>Prepare your Live Photos and choose where the split files will be saved.
+    <value>Prepare your Live Photo files and choose where the split results will be saved.
 
-**📥 Input:** Either an input directory or dragged files. As long as the task queue has content, the input directory is not required.
+**📥 Input directory:** Pick a folder with Live Photos. The app will scan and identify split candidates automatically (this replaces the entire task queue). The input directory is not required — any content in the queue works.
 
-**📥 Input directory:** pick a folder with Live Photos; files are scanned and split candidates are recognized automatically, and the queue is entirely replaced.
+**📤 Output directory:** Where the split images and videos will be saved.
 
-**🖱️ Drag &amp; drop:** drag to the left panel to replace the queue, or to the right panel to add files.
+**🔍 Scan button:** Scanning starts automatically once you set the input directory. You can also click "Scan" to refresh manually.
 
-**📤 Output directory:** where the split images and videos are saved; this one is required.
-
-**🔍 Scan button:** scanning starts automatically once you set the input directory; click Scan to refresh manually.
-
-**⚙️ Subfolder scanning:** by default, not scanned. Go to Settings → Scan to enable recursive scanning.</value>
+**⚙️ Scanning method:** Files in subfolders are not scanned by default. Go to Settings → General to enable recursive subfolder scanning.</value>
   </data>
   <data name="SplitTutorial_Step02_Title" xml:space="preserve">
-    <value>🔗 Matching Method</value>
+    <value>🖱️ Drag &amp; Drop</value>
   </data>
   <data name="SplitTutorial_Step02_Content" xml:space="preserve">
-    <value>Filters which Live Photo protocols are picked up when scanning.
+    <value>You can also drag and drop files and folders directly.
 
-**👍** The default "all single-file Live Photo protocols" recognizes everything it can find.
+**📂 Folders:** Dragging to the left panel replaces the entire queue (clears it first, then adds the new content). Dragging to the right panel appends them.
 
-**⚠️** Switch only when your folder contains mixed protocols and you want to process a specific one.</value>
+**📄 Files:** Dragging individual files always appends to the queue without replacing anything.</value>
   </data>
   <data name="SplitTutorial_Step03_Title" xml:space="preserve">
-    <value>📱 Output Protocol</value>
+    <value>🔗 Matching Method</value>
   </data>
   <data name="SplitTutorial_Step03_Content" xml:space="preserve">
-    <value>Determines the naming of the split images and videos.
+    <value>Filters which Live Photo protocols are detected when scanning.
+
+**👍** The default "all single-file protocols" recognizes everything it finds.
+
+**⚠️** Switch only when you have mixed protocols and want to process a specific one.</value>
+  </data>
+  <data name="SplitTutorial_Step04_Title" xml:space="preserve">
+    <value>📱 Output Protocol</value>
+  </data>
+  <data name="SplitTutorial_Step04_Content" xml:space="preserve">
+    <value>Determines how the split images and videos are named.
 
 **📋** Each option has a description in the dropdown list.
 
-**🖥️** "None" keeps the original file naming; Apple and vivo use their device naming rules.</value>
-  </data>
-  <data name="SplitTutorial_Step04_Title" xml:space="preserve">
-    <value>📦 Output Format</value>
-  </data>
-  <data name="SplitTutorial_Step04_Content" xml:space="preserve">
-    <value>Choose the output format combination for the split files.
-
-**🎯** Pick the one that suits your needs. The first option is generally recommended.</value>
+**🖥️** "None" keeps the original file naming. Apple and vivo use their respective device naming rules.</value>
   </data>
   <data name="SplitTutorial_Step05_Title" xml:space="preserve">
-    <value>🏷️ Naming Template</value>
+    <value>📦 Output Format</value>
   </data>
   <data name="SplitTutorial_Step05_Content" xml:space="preserve">
+    <value>Choose the format combination for the split files.
+
+**🎯** Pick the one that suits your needs. The first option is generally a good starting point.</value>
+  </data>
+  <data name="SplitTutorial_Step06_Title" xml:space="preserve">
+    <value>🏷️ Naming Template</value>
+  </data>
+  <data name="SplitTutorial_Step06_Content" xml:space="preserve">
     <value>Customize how output files are named.
 
-**📋** Use built-in presets, or add custom segments freely.
+**📋** Use built-in presets or add your own segments.
 
-**🔀** Drag and drop each segment to reorder.
+**🔀** Drag each segment to reorder.
 
 **👁️** A live preview shows the final filename below.</value>
   </data>
-  <data name="SplitTutorial_Step06_Title" xml:space="preserve">
+  <data name="SplitTutorial_Step07_Title" xml:space="preserve">
     <value>🚀 Start Splitting</value>
   </data>
-  <data name="SplitTutorial_Step06_Content" xml:space="preserve">
+  <data name="SplitTutorial_Step07_Content" xml:space="preserve">
     <value>Once you have confirmed the input/output directories and the task queue, you are ready to start.
 
-**✅** Click the "Start Split" button to process all tasks with your settings.</value>
+**✅** Click "Start Split" to begin processing all tasks with your settings.</value>
   </data>
   <data name="MergePage_AddFolderBtn_Text.Text" xml:space="preserve">
     <value>Add Folder</value>
@@ -4112,7 +4124,7 @@ Then click "Start Split".</value>
     <value>Remember Window Layout</value>
   </data>
   <data name="SettingsPage_RememberLayout_Desc.Text" xml:space="preserve">
-    <value>Retain window position, size and panel splitter ratio on close, or reset to default layout</value>
+    <value>Retain window size and panel splitter ratio on close, or reset to default layout</value>
   </data>
   <data name="SettingsPage_ResetLayout_Button" xml:space="preserve">
     <value>Reset</value>
@@ -4121,10 +4133,10 @@ Then click "Start Split".</value>
     <value>Reset Window Layout</value>
   </data>
   <data name="SettingsPage_ResetLayout_DialogContent_Line1" xml:space="preserve">
-    <value>Takes effect on next launch</value>
+    <value>The app will restart to apply the reset immediately</value>
   </data>
   <data name="SettingsPage_ResetLayout_DialogContent_Line2" xml:space="preserve">
-    <value>Window position, size and panel splitter ratios will be restored to default.</value>
+    <value>Window size and panel splitter ratios will be restored to default.</value>
   </data>
   <data name="RepairPage_FooterTotal.Text" xml:space="preserve">
     <value>Total </value>

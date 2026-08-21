@@ -8,6 +8,7 @@
  *   - 窗口透明度控制
  *   - 主题切换与标题栏按钮配色
  *   - 状态栏/历史导航可见性控制
+ *   - 任务栏进度条（ITaskbarList3，仅处理队列进行时显示）
  *
  * 对应 ViewModel：AppViewModel（单例）
  *
@@ -39,14 +40,54 @@ using WinRT;
 
 namespace LivePhotoBox
 {
+    // 任务栏进度条状态（TBPF_* 原生标志位）。
+    // 底层类型用 int（I4，与原生 TBPF UINT 位对齐一致），保证 [ComImport] vtable 调用正确。
+    internal enum TaskbarProgressFlags : int
+    {
+        NoProgress = 0x00000000,     // 隐藏任务栏进度
+        Indeterminate = 0x00000001,  // 无限循环动画（未使用：扫描不进任务栏）
+        Normal = 0x00000002,         // 正常确定进度（绿色）
+        Error = 0x00000004,          // 错误（红色）
+        Paused = 0x00000008          // 暂停（黄色）
+    }
+
+    // ITaskbarList3 COM 接口。只声明本项目实际调用的方法，且声明顺序必须与
+    // 原生 vtable 槽位一致（.NET COM 互操作按声明顺序映射槽位）：
+    //   IUnknown(0-2) → HrInit(3) → AddTab(4) → DeleteTab(5) → ActivateTab(6)
+    //   → SetActiveAlt(7) → MarkFullscreenWindow(8) → SetProgressValue(9)
+    //   → SetProgressState(10)
+    // 槽位 11 及以后的方法（RegisterTab、SetTabOrder 等）本项目从不调用，
+    // 因此无需声明占位；若将来要调用它们，必须按原生顺序补全，否则槽位错位
+    // 会导致静默失败或崩溃。
+    // 注意：不要改用 ITaskbarList4（IID C43DC798-...）。部分 Windows 环境
+    // （如第三方任务栏替换/精简系统）对 TaskbarList coclass 的
+    // ITaskbarList4 QI 会返回 E_NOINTERFACE，导致初始化失败；而 ITaskbarList3
+    // 是社区成熟实现（DevWinUI、Windows Terminal）采用的最小可靠接口，
+    // SetProgressValue/SetProgressState 位于槽位 9/10，足够本功能使用。
+    [ComImport]
+    [Guid("ea1afb91-9e28-4b86-90e9-9e9f8a5eefaf")]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface ITaskbarList3
+    {
+        // ITaskbarList
+        void HrInit();
+        void AddTab(IntPtr hwnd);
+        void DeleteTab(IntPtr hwnd);
+        void ActivateTab(IntPtr hwnd);
+        void SetActiveAlt(IntPtr hwnd);
+        // ITaskbarList2
+        void MarkFullscreenWindow(IntPtr hwnd, [MarshalAs(UnmanagedType.Bool)] bool fFullscreen);
+        // ITaskbarList3
+        void SetProgressValue(IntPtr hwnd, ulong ullCompleted, ulong ullTotal);
+        void SetProgressState(IntPtr hwnd, TaskbarProgressFlags tbpFlags);
+    }
+
     public sealed partial class MainWindow : Window
     {
         private const int DefaultWindowWidth = 1222;
         private const int DefaultWindowHeight = 731;
 
-        // 窗口布局记忆键名
-        private const string WndKeyX = "MainWindow_X";
-        private const string WndKeyY = "MainWindow_Y";
+        // 窗口布局记忆键名（位置不再记忆，启动永远居中）
         private const string WndKeyW = "MainWindow_Width";
         private const string WndKeyH = "MainWindow_Height";
         private const string WndKeyMax = "MainWindow_Maximized";
@@ -78,6 +119,20 @@ namespace LivePhotoBox
 
         // 首次导航标记：抑制 NavigationView 初始化触发的选中动画
         private bool _isFirstNavigation = true;
+
+        // ── 任务栏进度条 ──────────────────────────────────
+        // ITaskbarList3 COM 单例，用于在任务栏按钮上显示进度条。
+        private static ITaskbarList3? _taskbarList;
+        // 缓存窗口句柄，避免重复调用 WindowNative.GetWindowHandle。
+        private IntPtr _windowHandle;
+        // 成功闪烁的 CancellationTokenSource：处理完成时短暂显示 100% 后清除。
+        private CancellationTokenSource? _successFlashCts;
+        // 最近一次处于"处理中"（IsProcessing=true）的页面。
+        // 用于区分"处理任务被取消"（任务栏显示红色）与"扫描被取消"（任务栏不显示）。
+        private WorkViewModelBase? _lastProcessingVm;
+
+        // 重置布局后的重启标记：避免重启退出时 Closed 事件把当前（旧）尺寸写回设置
+        public bool IsRestartingAfterLayoutReset { get; set; }
 
         // 全局 AppViewModel 单例
         public AppViewModel ViewModel => AppViewModel.Instance;
@@ -130,6 +185,12 @@ namespace LivePhotoBox
                 // 2. 释放 Acrylic 控制器（DWM COM，必须在窗口句柄有效时做）
                 CleanupAcrylicController();
 
+                // 2.5 取消任务栏成功闪烁延迟任务，并清除任务栏进度
+                _successFlashCts?.Cancel();
+                _successFlashCts?.Dispose();
+                _successFlashCts = null;
+                ClearTaskbarProgress();
+
                 // 3. 停止所有 DispatcherTimer 并解除 Tick 回调
                 //    Merge / Split / Repair 各有一个 60ms UI 刷新定时器
                 ViewModel.Cleanup();
@@ -142,6 +203,9 @@ namespace LivePhotoBox
             // 启用自定义标题栏
             ExtendsContentIntoTitleBar = true;
             SetTitleBar(AppTitleBar);
+
+            // 初始化任务栏进度条（ITaskbarList3 COM）
+            InitializeTaskbarList();
 
             // 获取窗口句柄并设置图标、尺寸和居中位置（支持 DPI 缩放）
             IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -170,32 +234,45 @@ namespace LivePhotoBox
                     uint dpi = GetDpiForWindow(hWnd);
                     float scaleFactor = dpi / 96f;
 
-                    // 若用户开启"记住窗口布局"，优先恢复记忆的位置/大小
-                    if (ViewModel.Settings.IsRememberWindowLayout
-                        && TryRestoreWindowLayout(appWindow, displayAreaFallback: DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary)))
+                    // 窗口位置不记忆：无论是否开启"记住窗口布局"，都按默认/记忆的尺寸
+                    // 恢复后，把窗口居中到当前显示器工作区。
+                    int restoreW = DefaultWindowWidth;
+                    int restoreH = DefaultWindowHeight;
+                    if (ViewModel.Settings.IsRememberWindowLayout)
                     {
-                        // 已恢复，跳过默认居中逻辑
+                        restoreW = AppSettingsService.GetValue(WndKeyW, DefaultWindowWidth);
+                        restoreH = AppSettingsService.GetValue(WndKeyH, DefaultWindowHeight);
+                        if (restoreW <= 0) restoreW = DefaultWindowWidth;
+                        if (restoreH <= 0) restoreH = DefaultWindowHeight;
                     }
-                    else
+
+                    // 限制在显示器工作区内，避免记忆的尺寸比当前屏幕还大
+                    var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
+                    if (displayArea != null)
                     {
-                        int scaledWidth = (int)(DefaultWindowWidth * scaleFactor);
-                        int scaledHeight = (int)(DefaultWindowHeight * scaleFactor);
+                        var workArea = displayArea.WorkArea;
+                        restoreW = Math.Min(restoreW, workArea.Width);
+                        restoreH = Math.Min(restoreH, workArea.Height);
+                    }
 
-                        appWindow.Resize(new SizeInt32(scaledWidth, scaledHeight));
+                    appWindow.Resize(new SizeInt32((int)(restoreW * scaleFactor), (int)(restoreH * scaleFactor)));
 
-                        var displayArea = DisplayArea.GetFromWindowId(windowId, DisplayAreaFallback.Primary);
-                        if (displayArea != null)
-                        {
-                            var workArea = displayArea.WorkArea;
+                    // 居中显示
+                    if (displayArea != null)
+                    {
+                        var workArea = displayArea.WorkArea;
+                        int x = workArea.X + (workArea.Width - appWindow.Size.Width) / 2;
+                        int y = workArea.Y + (workArea.Height - appWindow.Size.Height) / 2;
+                        x = Math.Max(workArea.X, x);
+                        y = Math.Max(workArea.Y, y);
+                        appWindow.Move(new PointInt32(x, y));
+                    }
 
-                            int x = workArea.X + (workArea.Width - scaledWidth) / 2;
-                            int y = workArea.Y + (workArea.Height - scaledHeight) / 2;
-
-                            x = Math.Max(workArea.X, x);
-                            y = Math.Max(workArea.Y, y);
-
-                            appWindow.Move(new PointInt32(x, y));
-                        }
+                    // 若记忆了最大化状态，则在居中后恢复最大化
+                    if (ViewModel.Settings.IsRememberWindowLayout
+                        && AppSettingsService.GetValue(WndKeyMax, false))
+                    {
+                        ShowWindow(hWnd, SW_MAXIMIZE);
                     }
                 }
                 catch (Exception ex)
@@ -204,6 +281,13 @@ namespace LivePhotoBox
                     appWindow.Resize(new SizeInt32(DefaultWindowWidth, DefaultWindowHeight));
                 }
             }
+
+            // 预热任务栏进度条：此时窗口句柄已可用（上面已成功用于设置图标/尺寸），
+            // 提前在 UI 线程建立 ITaskbarList3 COM 连接，避免首次进度更新从
+            // 工作线程触发时才初始化（COM 对象公寓模型与句柄获取时机的不确定性）。
+            // 初始化成功会在日志留下 Info，失败则留下 Warn，均不影响主功能。
+            _windowHandle = hWnd;
+            EnsureTaskbarList();
 
             // NavigationView 加载完成后本地化设置项标签
             NavView.Loaded += (_, _) =>
@@ -237,12 +321,28 @@ namespace LivePhotoBox
             NavigateToPage(typeof(Views.HomePage), null, new SuppressNavigationTransitionInfo());
         }
 
-        // 响应 AppViewModel 属性变更：状态栏可见性
+        // 响应 AppViewModel 属性变更：状态栏可见性、任务栏进度条
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(AppViewModel.IsStatusBarVisible))
+            if (e.PropertyName is nameof(AppViewModel.IsStatusBarVisible))
             {
                 UpdateStatusBarVisibility();
+                return;
+            }
+
+            // 任务栏进度条：直接读取三个页面 ViewModel 各自的进度/状态，
+            // 不依赖 AppViewModel 的全局 FooterProgress* 值（那个已禁用）。
+            // AppViewModel.OnChildPropertyChangedHandler 在子 VM 的 IsProcessing /
+            // Progress / ProgressBarState 变化时触发 NotifyFooterProperties()，
+            // 这里监听其转发的 PropertyChanged 事件来驱动刷新。
+            switch (e.PropertyName)
+            {
+                case nameof(AppViewModel.FooterIsIndeterminate):
+                case nameof(AppViewModel.FooterProgressBarState):
+                case nameof(AppViewModel.FooterProgressBarValue):
+                case nameof(AppViewModel.IsAnyWorkPageProcessing):
+                    UpdateTaskbarProgress();
+                    break;
             }
         }
 
@@ -539,71 +639,13 @@ namespace LivePhotoBox
 
         #region Window Layout Persistence
 
-        // 恢复窗口位置/大小/最大化状态。返回 true 表示成功恢复。
-        private bool TryRestoreWindowLayout(AppWindow appWindow, DisplayArea? displayAreaFallback)
-        {
-            try
-            {
-                int savedX = AppSettingsService.GetValue(WndKeyX, -1);
-                int savedY = AppSettingsService.GetValue(WndKeyY, -1);
-                int savedW = AppSettingsService.GetValue(WndKeyW, -1);
-                int savedH = AppSettingsService.GetValue(WndKeyH, -1);
-                bool savedMax = AppSettingsService.GetValue(WndKeyMax, false);
-
-                if (savedW <= 0 || savedH <= 0) return false;
-
-                // 检查是否在当前显示器范围内（多显示器/分辨率变化容错）
-                var displayArea = DisplayArea.GetFromPoint(new PointInt32(savedX, savedY), DisplayAreaFallback.Nearest)
-                                  ?? displayAreaFallback;
-                if (displayArea == null) return false;
-                var workArea = displayArea.WorkArea;
-
-                // 如果恢复区域完全不在工作区外，回退
-                if (savedX + savedW < workArea.X || savedX > workArea.X + workArea.Width ||
-                    savedY + savedH < workArea.Y || savedY > workArea.Y + workArea.Height)
-                    return false;
-
-                // 确保不超出工作区边界
-                savedX = Math.Max(workArea.X, savedX);
-                savedY = Math.Max(workArea.Y, savedY);
-                savedW = Math.Min(savedW, workArea.Width);
-                savedH = Math.Min(savedH, workArea.Height);
-
-                IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
-                uint dpi = GetDpiForWindow(hWnd);
-                float scaleFactor = dpi / 96f;
-
-                // 保存的值是逻辑像素，AppWindow 需要物理像素（DPI 缩放后）
-                int physW = (int)(savedW * scaleFactor);
-                int physH = (int)(savedH * scaleFactor);
-                int physX = (int)(savedX * scaleFactor);
-                int physY = (int)(savedY * scaleFactor);
-
-                appWindow.Move(new PointInt32(physX, physY));
-                appWindow.Resize(new SizeInt32(physW, physH));
-
-                // 最大化状态通过 P/Invoke 设置
-                if (savedMax)
-                {
-                    var hWnd2 = WinRT.Interop.WindowNative.GetWindowHandle(this);
-                    ShowWindow(hWnd2, SW_MAXIMIZE);
-                }
-
-                LogService.Info($"Window layout restored: {savedW}x{savedH} @ ({savedX},{savedY}) max={savedMax}", LogSource.UI);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                LogService.Warn($"Window layout restore failed: {ex.Message}", source: LogSource.UI);
-                return false;
-            }
-        }
-
-        // 保存当前窗口位置/大小/最大化状态
+        // 保存当前窗口大小/最大化状态（不记忆位置，启动时永远居中）
         private void SaveWindowLayout()
         {
             try
             {
+                // 重置布局后即将重启，跳过保存，否则刚删除的键又被写回
+                if (IsRestartingAfterLayoutReset) return;
                 if (!ViewModel.Settings.IsRememberWindowLayout) return;
 
                 IntPtr hWnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -614,56 +656,37 @@ namespace LivePhotoBox
                 uint dpi = GetDpiForWindow(hWnd);
                 float scaleFactor = dpi / 96f;
 
-                // 用 rcNormalPosition（还原态矩形）作为记忆的窗口位置/大小：
+                // 用 rcNormalPosition（还原态矩形）作为记忆的窗口大小：
                 // 全屏/最大化时 appWindow.Size 是工作区全尺寸，若存它，
                 // 退出最大化后窗口模式会错误地保持全屏大小——没有独立的窗口模式记忆。
                 // rcNormalPosition 始终记录"窗口模式"下的矩形，最大化/最小化不影响它。
-                int logicalX, logicalY, logicalW, logicalH;
+                int logicalW, logicalH;
+                bool isMaximized = false;
                 var placement = new WINDOWPLACEMENT();
                 placement.Length = Marshal.SizeOf<WINDOWPLACEMENT>();
                 if (GetWindowPlacement(hWnd, ref placement))
                 {
-                    logicalX = (int)(placement.NormalPositionLeft / scaleFactor);
-                    logicalY = (int)(placement.NormalPositionTop / scaleFactor);
                     logicalW = (int)((placement.NormalPositionRight - placement.NormalPositionLeft) / scaleFactor);
                     logicalH = (int)((placement.NormalPositionBottom - placement.NormalPositionTop) / scaleFactor);
+                    isMaximized = placement.ShowCmd == SW_MAXIMIZE;
                 }
                 else
                 {
                     // 回退：用 AppWindow 当前物理尺寸
-                    logicalX = (int)(appWindow.Position.X / scaleFactor);
-                    logicalY = (int)(appWindow.Position.Y / scaleFactor);
                     logicalW = (int)(appWindow.Size.Width / scaleFactor);
                     logicalH = (int)(appWindow.Size.Height / scaleFactor);
                 }
 
-                // 检测最大化状态（通过 P/Invoke 查窗口状态）
-                bool isMaximized = IsWindowMaximized(hWnd);
-
-                AppSettingsService.SetValue(WndKeyX, logicalX);
-                AppSettingsService.SetValue(WndKeyY, logicalY);
                 AppSettingsService.SetValue(WndKeyW, logicalW);
                 AppSettingsService.SetValue(WndKeyH, logicalH);
                 AppSettingsService.SetValue(WndKeyMax, isMaximized);
 
-                LogService.Info($"Window layout saved: {logicalW}x{logicalH} @ ({logicalX},{logicalY}) max={isMaximized}", LogSource.UI);
+                LogService.Info($"Window layout saved: {logicalW}x{logicalH} max={isMaximized}", LogSource.UI);
             }
             catch (Exception ex)
             {
                 LogService.Warn($"Window layout save failed: {ex.Message}", source: LogSource.UI);
             }
-        }
-
-        // 检查窗口是否最大化
-        private static bool IsWindowMaximized(IntPtr hWnd)
-        {
-            var placement = new WINDOWPLACEMENT();
-            placement.Length = Marshal.SizeOf<WINDOWPLACEMENT>();
-            if (GetWindowPlacement(hWnd, ref placement))
-            {
-                return placement.ShowCmd == SW_MAXIMIZE;
-            }
-            return false;
         }
 
         // Win32 常量
@@ -724,6 +747,228 @@ namespace LivePhotoBox
                 byte alpha = (byte)(value * 255);
                 SetLayeredWindowAttributes(hWnd, 0, alpha, LWA_ALPHA);
             }
+        }
+
+        #endregion
+
+        #region Taskbar Progress
+
+        // 成功完成后任务栏 100% 绿色保持时长（毫秒）。
+        private const int SuccessFlashDelayMs = 1500;
+
+        // 初始化任务栏进度条（延迟初始化：窗口句柄和 COM 接口首次需要时才建立）。
+        private void InitializeTaskbarList()
+        {
+            _windowHandle = IntPtr.Zero;
+        }
+
+        // 核心更新入口：根据当前实际处理页面的状态刷新任务栏进度条。
+        // 直接读取各页面 ViewModel（Merge/Split/Repair.IsProcessing 和 ProgressBarState），
+        // 不依赖 AppViewModel 的全局 FooterProgress* 属性（那个已禁用，且需要 CurrentStatusPageTag）。
+        private void UpdateTaskbarProgress()
+        {
+            // 每次调用都尝试延迟初始化（窗口句柄和 COM 接口首次需要时才建立）
+            if (!EnsureTaskbarList()) return;
+
+            try
+            {
+                // 找出当前正在处理的页面（三个页面互斥，只能有一个在处理）
+                WorkViewModelBase? activeVm = null;
+                if (ViewModel.Merge.IsProcessing) activeVm = ViewModel.Merge;
+                else if (ViewModel.Split.IsProcessing) activeVm = ViewModel.Split;
+                else if (ViewModel.Repair.IsProcessing) activeVm = ViewModel.Repair;
+
+                if (activeVm == null)
+                {
+                    // 没有页面在处理中：检查是否停留在"成功"或"取消"终态
+                    // （这两个状态在 IsProcessing=false 后仍保留在子 VM 上）。
+                    var successVm = FindTerminalStateVm(ProgressBarState.Success);
+                    if (successVm != null)
+                    {
+                        // 刚完成 → 短暂显示 100% 绿色，1.5 秒后清除
+                        CancelSuccessFlash();
+                        _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Normal);
+                        _taskbarList.SetProgressValue(_windowHandle, 100, 100);
+                        ScheduleSuccessClear();
+                    }
+                    else
+                    {
+                        // 已取消 → 红色（保持到下一次操作开始或状态清除，
+                        // 与页面内进度条语义一致）。但只针对"处理任务被取消"：
+                        // 扫描被取消时 ProgressBarState 同样是 Cancelled，
+                        // 而扫描不进任务栏，因此用 _lastProcessingVm 区分。
+                        var cancelledVm = FindTerminalStateVm(ProgressBarState.Cancelled);
+                        if (cancelledVm != null && cancelledVm == _lastProcessingVm)
+                        {
+                            CancelSuccessFlash();
+                            _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Error);
+                            _taskbarList.SetProgressValue(
+                                _windowHandle,
+                                (ulong)Math.Clamp(cancelledVm.Progress, 0, 100),
+                                100);
+                        }
+                        else
+                        {
+                            CancelSuccessFlash();
+                            ClearTaskbarProgress();
+                            // 处理刚结束时会先经过这里（IsProcessing=false 但
+                            // ProgressBarState 仍短暂是 Processing），紧接着才变为
+                            // Cancelled/Success，因此只有确认所有页面都已离开
+                            // "处理类"状态（空闲/扫描等）才清除标记，否则取消红色
+                            // 或成功闪烁会因标记丢失而不显示。
+                            if (!IsAnyProcessingLikeState())
+                            {
+                                _lastProcessingVm = null;
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                // 有页面在处理 → 取消上一次的成功闪烁，立即按最新状态刷新
+                _lastProcessingVm = activeVm;
+                CancelSuccessFlash();
+
+                switch (activeVm.ProgressBarState)
+                {
+                    case ProgressBarState.Processing:
+                    case ProgressBarState.Pausing:
+                        // Pausing 是暂停过渡态（约几百 ms），仍按绿色正常进度显示，
+                        // 与底部进度条颜色转换器语义一致
+                        _taskbarList.SetProgressState(_windowHandle, TaskbarProgressFlags.Normal);
+                        _taskbarList.SetProgressValue(
+                            _windowHandle,
+                            (ulong)Math.Clamp(activeVm.Progress, 0, 100),
+                            100);
+                        break;
+
+                    case ProgressBarState.Paused:
+                        _taskbarList.SetProgressState(_windowHandle, TaskbarProgressFlags.Paused);
+                        _taskbarList.SetProgressValue(
+                            _windowHandle,
+                            (ulong)Math.Clamp(activeVm.Progress, 0, 100),
+                            100);
+                        break;
+
+                    case ProgressBarState.Cancelled:
+                        _taskbarList.SetProgressState(_windowHandle, TaskbarProgressFlags.Error);
+                        _taskbarList.SetProgressValue(
+                            _windowHandle,
+                            (ulong)Math.Clamp(activeVm.Progress, 0, 100),
+                            100);
+                        break;
+
+                    default:
+                        // Idle / Scanning / 未知状态 → 不显示（扫描不进任务栏，符合需求）
+                        ClearTaskbarProgress();
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                // COM 调用失败（如桌面切换、explorer 重启）时静默降级，下次成功自动恢复
+                LogService.Warn($"Taskbar progress update failed: {ex.Message}", source: LogSource.UI);
+            }
+        }
+
+        // 是否有页面仍停留在"处理类"状态（Processing/Pausing/Paused）。
+        // 用于区分"处理刚结束的过渡瞬间"与"确实已回到空闲/扫描"。
+        private bool IsAnyProcessingLikeState()
+        {
+            return ViewModel.Merge.ProgressBarState is ProgressBarState.Processing
+                    or ProgressBarState.Pausing
+                    or ProgressBarState.Paused
+                || ViewModel.Split.ProgressBarState is ProgressBarState.Processing
+                    or ProgressBarState.Pausing
+                    or ProgressBarState.Paused
+                || ViewModel.Repair.ProgressBarState is ProgressBarState.Processing
+                    or ProgressBarState.Pausing
+                    or ProgressBarState.Paused;
+        }
+
+        // 在没有页面处理时，查找仍停留在指定终态（Success/Cancelled）的页面。
+        private WorkViewModelBase? FindTerminalStateVm(ProgressBarState state)
+        {
+            if (ViewModel.Merge.ProgressBarState == state) return ViewModel.Merge;
+            if (ViewModel.Split.ProgressBarState == state) return ViewModel.Split;
+            if (ViewModel.Repair.ProgressBarState == state) return ViewModel.Repair;
+            return null;
+        }
+
+        // 延迟到需要时创建 ITaskbarList3 COM 单例（Explorer 必须已就绪）。
+        // 同时也延迟获取窗口句柄，确保 WindowNative.GetWindowHandle 有效。
+        // 返回 true 表示成功就绪，false 表示暂不可用。
+        private bool EnsureTaskbarList()
+        {
+            if (_taskbarList != null) return true;
+            try
+            {
+                // 窗口句柄可能尚未获取（构造函数中设为 IntPtr.Zero），现在延迟获取
+                if (_windowHandle == IntPtr.Zero)
+                {
+                    _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                    if (_windowHandle == IntPtr.Zero) return false; // 仍无效，稍后再试
+                }
+
+                var type = Type.GetTypeFromCLSID(new Guid("56fdf344-fd6d-11d0-958a-006097c9a090"));
+                if (type == null) return false;
+                _taskbarList = (ITaskbarList3)Activator.CreateInstance(type);
+                _taskbarList.HrInit();
+                LogService.Info(
+                    $"Taskbar progress ready (hwnd=0x{_windowHandle.ToInt64():X}).",
+                    LogSource.UI);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // 任务栏进度是增强功能，初始化失败不阻塞功能；下次再尝试。
+                LogService.Warn($"Taskbar progress init failed: {ex.Message}", source: LogSource.UI);
+                _taskbarList = null;
+                return false;
+            }
+        }
+
+        // 隐藏任务栏进度条（TBPF_NOPROGRESS）。
+        private void ClearTaskbarProgress()
+        {
+            try
+            {
+                _taskbarList?.SetProgressState(_windowHandle, TaskbarProgressFlags.NoProgress);
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Taskbar progress clear failed: {ex.Message}", source: LogSource.UI);
+            }
+        }
+
+        // 取消待执行的成功闪烁清除（防止旧任务在切换页面后误清新任务的进度条）。
+        private void CancelSuccessFlash()
+        {
+            _successFlashCts?.Cancel();
+            _successFlashCts?.Dispose();
+            _successFlashCts = null;
+        }
+
+        // 处理成功完成后延迟清除任务栏进度（短暂显示 100% 绿色）。
+        private void ScheduleSuccessClear()
+        {
+            _successFlashCts = new CancellationTokenSource();
+            var token = _successFlashCts.Token;
+            DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    await Task.Delay(SuccessFlashDelayMs, token).ConfigureAwait(true);
+                    if (!token.IsCancellationRequested)
+                    {
+                        ClearTaskbarProgress();
+                    }
+                }
+                catch (TaskCanceledException)
+                {
+                    // 新任务开始或窗口关闭时取消，忽略
+                }
+            });
         }
 
         #endregion

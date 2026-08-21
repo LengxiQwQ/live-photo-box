@@ -462,7 +462,7 @@
             </Border>
 
             <!-- ═══════════ Row 3：底部状态面板 ═══════════ -->
-            <Border Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3"
+            <Border Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="3" CornerRadius="8"
                     Style="{StaticResource SurfaceCardStyle}" Padding="14,5,14,6">
                 <Grid RowSpacing="4">
                     <Grid.RowDefinitions>

@@ -22,7 +22,7 @@ else:
     print(f"(使用默认源，可传参: python {os.path.basename(__file__)} <HEIC路径> <MOV路径>)")
 
 BASE     = r"C:\Users\LengxiQwQ\Desktop"
-WORK     = r"D:\Projects\live-photo-box\_ai-tmp\huawei_final"
+WORK     = r"D:\Projects\live-photo-box\ai-tmp\huawei_final"
 os.makedirs(WORK, exist_ok=True)
 OUT_STEM = os.path.splitext(os.path.basename(SRC_HEIC))[0]
 

@@ -39,7 +39,7 @@ bld/
 # AI assistant files
 .claude/
 .codegraph/
-_ai-tmp/
+ai-tmp/
 .codex/
 .agents/
 /AGENTS.md

@@ -693,12 +693,6 @@
   <data name="MergePage_EmptyQueueDesc.Text" xml:space="preserve">
     <value>支持 JPG / HEIC / MP4 / MOV 格式</value>
   </data>
-  <data name="MergePage_EmptyTutorialHint.Text" xml:space="preserve">
-    <value>查看操作引导教程</value>
-  </data>
-  <data name="MergePage_EmptySettingsHint.Text" xml:space="preserve">
-    <value>查看高级设置</value>
-  </data>
   <data name="MergePage_EmptyQueueHint_Part1.Text" xml:space="preserve">
     <value>您可以点击 </value>
   </data>
@@ -713,9 +707,6 @@
   </data>
   <data name="SplitPage_EmptyQueueDesc.Text" xml:space="preserve">
     <value>支持 JPG / HEIC 格式</value>
-  </data>
-  <data name="SplitPage_EmptyTutorialHint.Text" xml:space="preserve">
-    <value>查看操作引导教程</value>
   </data>
   <data name="SplitPage_EmptyQueueHint_Part1.Text" xml:space="preserve">
     <value>您可以点击 </value>
@@ -1416,82 +1407,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SplitPage_Msg_NoOutputDirectory" xml:space="preserve">
     <value>请先设置保存目录。可以通过「浏览」选择输出文件夹，或直接将文件拖拽到队列中自动填充输出目录。</value>
   </data>
-  <!-- 合成页引导教程文案 -->
-  <data name="MergeTutorial_Btn_Next" xml:space="preserve">
-    <value>下一步</value>
-  </data>
-  <data name="MergeTutorial_Btn_Close" xml:space="preserve">
-    <value>关闭</value>
-  </data>
-  <data name="MergeTutorial_Btn_Done" xml:space="preserve">
-    <value>完成</value>
-  </data>
-  <data name="MergeTutorial_Step01_Title" xml:space="preserve">
-    <value>📁 设置输入输出目录</value>
-  </data>
-  <data name="MergeTutorial_Step01_Content" xml:space="preserve">
-    <value>准备素材并指定合成结果保存位置。
-
-**📥 输入方式：**可以是输入目录，也可以直接拖拽文件，只要任务队列里有内容即可，输入目录并非必需。
-
-**📥 输入目录：**选择包含图片和视频的文件夹，程序会自动扫描并配对，但会替换当前任务队列的全部内容。
-
-**🖱️ 拖拽文件：**拖到左侧面板替换整个队列，拖到右侧队列区域等同于添加文件。
-
-**📤 输出目录：**合成后实况照片的保存位置，此项为必需。
-
-**🔍 扫描按钮：**输入目录设置完成后会自动扫描，也可随时点【扫描】手动刷新。
-
-**⚙️ 扫描方式：**子文件夹中的素材默认不扫描，可前往「设置」→「扫描方式」开启递归扫描子文件夹，以及保留输出子文件夹结构。</value>
-  </data>
-  <data name="MergeTutorial_Step02_Title" xml:space="preserve">
-    <value>🔗 匹配方式</value>
-  </data>
-  <data name="MergeTutorial_Step02_Content" xml:space="preserve">
-    <value>决定图片和视频如何配对成一组。
-
-**👍** 默认按文件名匹配即可，一般无需修改。
-
-**⚠️** 仅当文件夹中混杂了多种设备的素材、想筛选出特定协议的配对时，才需要切换匹配方式。</value>
-  </data>
-  <data name="MergeTutorial_Step03_Title" xml:space="preserve">
-    <value>📱 协议版本</value>
-  </data>
-  <data name="MergeTutorial_Step03_Content" xml:space="preserve">
-    <value>决定生成的实况照片如何在其他设备上识别。
-
-**📋** 每个协议在列表中都有详细说明，按需选择即可。
-
-**🖥️** 仅需在 Windows 上查看时，推荐使用 Google V2。</value>
-  </data>
-  <data name="MergeTutorial_Step04_Title" xml:space="preserve">
-    <value>📦 输出格式</value>
-  </data>
-  <data name="MergeTutorial_Step04_Content" xml:space="preserve">
-    <value>选择合成后的文件格式组合。
-
-**🎯** 根据你的使用场景选择，一般推荐第一个选项。</value>
-  </data>
-  <data name="MergeTutorial_Step05_Title" xml:space="preserve">
-    <value>🏷️ 命名格式</value>
-  </data>
-  <data name="MergeTutorial_Step05_Content" xml:space="preserve">
-    <value>自定义输出文件的命名规则。
-
-**📋** 可直接套用内置模板，也可自由添加片段。
-
-**🔀** 每个片段支持拖拽调整顺序。
-
-**👁️** 下方会实时预览最终文件名。</value>
-  </data>
-  <data name="MergeTutorial_Step06_Title" xml:space="preserve">
-    <value>🚀 开始合成</value>
-  </data>
-  <data name="MergeTutorial_Step06_Content" xml:space="preserve">
-    <value>确认输入目录、输出目录和任务队列无误后，即可开始合成。
-
-**✅** 点击「开始合成」，程序将按你的设置批量生成实况照片。</value>
-  </data>
   <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
     <value>打开目录</value>
   </data>
@@ -1506,82 +1421,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="MergePage_AddFilesBtn_Text.Text" xml:space="preserve">
     <value>添加文件</value>
-  </data>
-  <!-- 拆分页引导教程文案 -->
-  <data name="SplitTutorial_Btn_Next" xml:space="preserve">
-    <value>下一步</value>
-  </data>
-  <data name="SplitTutorial_Btn_Close" xml:space="preserve">
-    <value>关闭</value>
-  </data>
-  <data name="SplitTutorial_Btn_Done" xml:space="preserve">
-    <value>完成</value>
-  </data>
-  <data name="SplitTutorial_Step01_Title" xml:space="preserve">
-    <value>📁 设置输入输出目录</value>
-  </data>
-  <data name="SplitTutorial_Step01_Content" xml:space="preserve">
-    <value>准备实况照片文件并指定拆分结果保存位置。
-
-**📥 输入方式：**可以是输入目录，也可以直接拖拽文件，只要任务队列里有内容即可，输入目录并非必需。
-
-**📥 输入目录：**选择包含实况照片的文件夹，程序会自动扫描并识别出可拆分的文件，但会替换当前任务队列的全部内容。
-
-**🖱️ 拖拽文件：**拖到左侧面板替换整个队列，拖到右侧队列区域等同于添加文件。
-
-**📤 输出目录：**拆分后图片和视频的保存位置，此项为必需。
-
-**🔍 扫描按钮：**输入目录设置完成后会自动扫描，也可随时点【扫描】手动刷新。
-
-**⚙️ 扫描方式：**子文件夹中的素材默认不扫描，可前往「设置」→「扫描方式」开启递归扫描子文件夹。</value>
-  </data>
-  <data name="SplitTutorial_Step02_Title" xml:space="preserve">
-    <value>🔗 匹配方式</value>
-  </data>
-  <data name="SplitTutorial_Step02_Content" xml:space="preserve">
-    <value>筛选扫描结果中哪些协议的实况照片需要处理。
-
-**👍** 默认选择「所有单文件实况照片协议」，所有能找到的实况照片都会被识别。
-
-**⚠️** 仅当文件夹中混杂了多种协议的实况照片、你只想处理特定协议时，才需要切换匹配方式。</value>
-  </data>
-  <data name="SplitTutorial_Step03_Title" xml:space="preserve">
-    <value>📱 输出协议</value>
-  </data>
-  <data name="SplitTutorial_Step03_Content" xml:space="preserve">
-    <value>决定拆分后的图片和视频按什么协议命名。
-
-**📋** 每个选项在列表中都有说明，按需选择即可。
-
-**🖥️** 选择「无协议」则保留原始文件命名；Apple 和 vivo 分别对应相应设备的命名规则。</value>
-  </data>
-  <data name="SplitTutorial_Step04_Title" xml:space="preserve">
-    <value>📦 输出格式</value>
-  </data>
-  <data name="SplitTutorial_Step04_Content" xml:space="preserve">
-    <value>选择拆分后的文件格式组合。
-
-**🎯** 根据你的使用场景选择，一般推荐第一个选项。</value>
-  </data>
-  <data name="SplitTutorial_Step05_Title" xml:space="preserve">
-    <value>🏷️ 命名格式</value>
-  </data>
-  <data name="SplitTutorial_Step05_Content" xml:space="preserve">
-    <value>自定义输出文件的命名规则。
-
-**📋** 可直接套用内置模板，也可自由添加片段。
-
-**🔀** 每个片段支持拖拽调整顺序。
-
-**👁️** 下方会实时预览最终文件名。</value>
-  </data>
-  <data name="SplitTutorial_Step06_Title" xml:space="preserve">
-    <value>🚀 开始拆分</value>
-  </data>
-  <data name="SplitTutorial_Step06_Content" xml:space="preserve">
-    <value>确认输入目录、输出目录和任务队列无误后，即可开始拆分。
-
-**✅** 点击「开始拆分」，程序将按你的设置逐一处理所有任务。</value>
   </data>
   <data name="MergePage_AddFolderBtn_Text.Text" xml:space="preserve">
     <value>添加文件夹</value>
@@ -4111,7 +3950,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>记住窗口布局</value>
   </data>
   <data name="SettingsPage_RememberLayout_Desc.Text" xml:space="preserve">
-    <value>关闭后保留窗口位置、大小和面板拖拽比例，或重置到默认布局</value>
+    <value>关闭后保留窗口大小和面板拖拽比例，或重置到默认布局</value>
   </data>
   <data name="SettingsPage_ResetLayout_Button" xml:space="preserve">
     <value>重置</value>
@@ -4120,10 +3959,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>重置窗口布局</value>
   </data>
   <data name="SettingsPage_ResetLayout_DialogContent_Line1" xml:space="preserve">
-    <value>下次启动时生效</value>
+    <value>应用将自动重启，重置后立即生效</value>
   </data>
   <data name="SettingsPage_ResetLayout_DialogContent_Line2" xml:space="preserve">
-    <value>将恢复窗口位置、大小和面板拖拽比例的默认布局</value>
+    <value>窗口大小和面板拖拽比例将恢复默认布局</value>
   </data>
   <data name="RepairPage_FooterTotal.Text" xml:space="preserve">
     <value>总数 </value>
@@ -4139,5 +3978,177 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="RepairPage_FooterCancelled.Text" xml:space="preserve">
     <value>已取消 </value>
+  </data>
+  <data name="MergeTutorial_Btn_Next" xml:space="preserve">
+    <value>下一步</value>
+  </data>
+  <data name="MergeTutorial_Btn_Close" xml:space="preserve">
+    <value>关闭</value>
+  </data>
+  <data name="MergeTutorial_Btn_Done" xml:space="preserve">
+    <value>完成</value>
+  </data>
+  <data name="MergeTutorial_Step01_Title" xml:space="preserve">
+    <value>📁 设置输入输出目录</value>
+  </data>
+  <data name="MergeTutorial_Step01_Content" xml:space="preserve">
+    <value>准备素材并指定合成结果保存位置。
+
+**📥 输入目录：**选择包含图片和视频的文件夹，程序会自动扫描并配对，会替换当前任务队列的全部内容。（非必需，只要任务队列里有内容即可）
+
+**📤 输出目录：**合成后实况照片的保存位置。
+
+**🔍 扫描按钮：**输入目录设置完成后会自动扫描，也可随时点【扫描】手动刷新。
+
+**⚙️ 扫描方式：**子文件夹中的素材默认不扫描，可前往「设置」→「通用」开启扫描子文件夹选项。</value>
+  </data>
+  <data name="MergeTutorial_Step02_Title" xml:space="preserve">
+    <value>🖱️ 拖拽与扫描</value>
+  </data>
+  <data name="MergeTutorial_Step02_Content" xml:space="preserve">
+    <value>除了设置目录，也可以直接拖拽文件和文件夹。
+
+**📂 拖拽文件夹：**拖到左侧配置面板将完整替换队列，先清空再添加；拖到右侧任务队列区域则直接追加。
+
+**📄 拖拽文件：**只会追加文件到队列，不会替换已有内容。</value>
+  </data>
+  <data name="MergeTutorial_Step03_Title" xml:space="preserve">
+    <value>🔗 匹配方式</value>
+  </data>
+  <data name="MergeTutorial_Step03_Content" xml:space="preserve">
+    <value>决定图片和视频如何配对成一组。
+
+**👍** 默认按文件名匹配即可，一般无需修改。
+
+**⚠️** 仅当文件夹中混杂了多种设备的素材、想筛选出特定协议的配对时，才需要切换匹配方式。</value>
+  </data>
+  <data name="MergeTutorial_Step04_Title" xml:space="preserve">
+    <value>📱 协议版本</value>
+  </data>
+  <data name="MergeTutorial_Step04_Content" xml:space="preserve">
+    <value>决定生成的实况照片如何在其他设备上识别。
+
+**📋** 每个协议在列表中都有详细说明，按需选择即可。
+
+**🖥️** 仅需在 Windows 上查看时，推荐使用 Google V2。</value>
+  </data>
+  <data name="MergeTutorial_Step05_Title" xml:space="preserve">
+    <value>📦 输出格式</value>
+  </data>
+  <data name="MergeTutorial_Step05_Content" xml:space="preserve">
+    <value>选择合成后的文件格式组合。
+
+**🎯** 根据你的使用场景选择，一般推荐第一个选项。</value>
+  </data>
+  <data name="MergeTutorial_Step06_Title" xml:space="preserve">
+    <value>🏷️ 命名格式</value>
+  </data>
+  <data name="MergeTutorial_Step06_Content" xml:space="preserve">
+    <value>自定义输出文件的命名规则。
+
+**📋** 可直接套用内置模板，也可自由添加片段。
+
+**🔀** 每个片段支持拖拽调整顺序。
+
+**👁️** 下方会实时预览最终文件名。</value>
+  </data>
+  <data name="SplitTutorial_Btn_Next" xml:space="preserve">
+    <value>下一步</value>
+  </data>
+  <data name="SplitTutorial_Btn_Close" xml:space="preserve">
+    <value>关闭</value>
+  </data>
+  <data name="SplitTutorial_Btn_Done" xml:space="preserve">
+    <value>完成</value>
+  </data>
+  <data name="SplitTutorial_Step01_Title" xml:space="preserve">
+    <value>📁 设置输入输出目录</value>
+  </data>
+  <data name="SplitTutorial_Step01_Content" xml:space="preserve">
+    <value>准备实况照片文件并指定拆分结果保存位置。
+
+**📥 输入目录：**选择包含实况照片的文件夹，程序会自动扫描并识别出可拆分的文件，会替换当前任务队列的全部内容。
+输入目录并非必需，只要任务队列里有内容即可。
+
+**📤 输出目录：**拆分后图片和视频的保存位置。
+
+**🔍 扫描按钮：**输入目录设置完成后会自动扫描，也可随时点【扫描】手动刷新。
+
+**⚙️ 扫描方式：**子文件夹中的素材默认不扫描，可前往「设置」→「通用」开启扫描子文件夹选项。</value>
+  </data>
+  <data name="SplitTutorial_Step02_Title" xml:space="preserve">
+    <value>🖱️ 拖拽与扫描</value>
+  </data>
+  <data name="SplitTutorial_Step02_Content" xml:space="preserve">
+    <value>除了设置目录，也可以直接拖拽文件和文件夹。
+
+**📂 拖拽文件夹：**拖到左侧配置面板将完整替换队列，先清空再添加；拖到右侧任务队列区域则直接追加。
+
+**📄 拖拽文件：**只会追加文件到队列，不会替换已有内容。</value>
+  </data>
+  <data name="SplitTutorial_Step03_Title" xml:space="preserve">
+    <value>🔗 匹配方式</value>
+  </data>
+  <data name="SplitTutorial_Step03_Content" xml:space="preserve">
+    <value>筛选扫描结果中哪些协议的实况照片需要处理。
+
+**👍** 默认选择「所有单文件实况照片协议」，所有能找到的实况照片都会被识别。
+
+**⚠️** 仅当文件夹中混杂了多种协议的实况照片、你只想处理特定协议时，才需要切换匹配方式。</value>
+  </data>
+  <data name="SplitTutorial_Step04_Title" xml:space="preserve">
+    <value>📱 输出协议</value>
+  </data>
+  <data name="SplitTutorial_Step04_Content" xml:space="preserve">
+    <value>决定拆分后的图片和视频按什么协议命名。
+
+**📋** 每个选项在列表中都有说明，按需选择即可。
+
+**🖥️** 选择「无协议」则保留原始文件命名；Apple 和 vivo 分别对应相应设备的命名规则。</value>
+  </data>
+  <data name="SplitTutorial_Step05_Title" xml:space="preserve">
+    <value>📦 输出格式</value>
+  </data>
+  <data name="SplitTutorial_Step05_Content" xml:space="preserve">
+    <value>选择拆分后的文件格式组合。
+
+**🎯** 根据你的使用场景选择，一般推荐第一个选项。</value>
+  </data>
+  <data name="SplitTutorial_Step06_Title" xml:space="preserve">
+    <value>🏷️ 命名格式</value>
+  </data>
+  <data name="SplitTutorial_Step06_Content" xml:space="preserve">
+    <value>自定义输出文件的命名规则。
+
+**📋** 可直接套用内置模板，也可自由添加片段。
+
+**🔀** 每个片段支持拖拽调整顺序。
+
+**👁️** 下方会实时预览最终文件名。</value>
+  </data>
+  <data name="MergePage_EmptyTutorialHint.Text" xml:space="preserve">
+    <value>查看操作引导教程</value>
+  </data>
+  <data name="MergePage_EmptySettingsHint.Text" xml:space="preserve">
+    <value>查看高级设置</value>
+  </data>
+  <data name="SplitPage_EmptyTutorialHint.Text" xml:space="preserve">
+    <value>查看操作引导教程</value>
+  </data>
+  <data name="MergeTutorial_Step07_Title" xml:space="preserve">
+    <value>🚀 开始合成</value>
+  </data>
+  <data name="MergeTutorial_Step07_Content" xml:space="preserve">
+    <value>确认输入目录、输出目录和任务队列无误后，即可开始合成。
+
+**✅** 点击「开始合成」，程序将按你的设置批量生成实况照片。</value>
+  </data>
+  <data name="SplitTutorial_Step07_Title" xml:space="preserve">
+    <value>🚀 开始拆分</value>
+  </data>
+  <data name="SplitTutorial_Step07_Content" xml:space="preserve">
+    <value>确认输入目录、输出目录和任务队列无误后，即可开始拆分。
+
+**✅** 点击「开始拆分」，程序将按你的设置逐一处理所有任务。</value>
   </data>
 </root>

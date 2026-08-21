@@ -1115,6 +1115,7 @@ namespace LivePhotoBox.Views
             public string? ContentKey;                 // 正文资源 key
             public TeachingTipPlacementMode Placement; // 弹窗位置
             public bool IsLast;
+            public bool UseTip2;                       // 是否使用独立气泡（锚定在分隔条列）
         }
 
         // 当前引导所处的步骤索引（-1 表示未在引导中）
@@ -1130,7 +1131,7 @@ namespace LivePhotoBox.Views
             ShowTutorialStep(0);
         }
 
-        // 显示指定步骤的 TeachingTip；每步都有「下一步」和「关闭」，最后一步只有「关闭」
+        // 显示指定步骤的 TeachingTip；每步都有「下一步」和「关闭」，最后一步只有「完成」
         private void ShowTutorialStep(int index)
         {
             if (_tutorialSteps.Count == 0) BuildTutorialSteps();
@@ -1139,10 +1140,17 @@ namespace LivePhotoBox.Views
             _tutorialIndex = index;
             var step = _tutorialSteps[index];
 
+            // 第 2 步（拖拽与扫描）用独立的气泡，锚定在分隔条列，从中间弹出
+            if (step.UseTip2)
+            {
+                ShowTutorialStep2();
+                return;
+            }
+
             // 延迟解析目标控件：防止在页面加载前引用未初始化的控件
             TutorialTip.Target = ResolveTarget(step.TargetName);
 
-            // 标题带 emoji + 计数：📁 设置输入输出目录（1/6）
+            // 标题带 emoji + 计数：📁 设置输入输出目录（1/7）
             int total = _tutorialSteps.Count;
             TutorialTip.Title = step.TitleKey != null
                 ? $"{ResourceService.GetString(step.TitleKey)}（{index + 1}/{total}）"
@@ -1160,6 +1168,53 @@ namespace LivePhotoBox.Views
             TutorialTip.CloseButtonContent = ResourceService.GetString(step.IsLast ? "MergeTutorial_Btn_Done" : "MergeTutorial_Btn_Close");
 
             TutorialTip.IsOpen = true;
+        }
+
+        // 显示第 2 步（拖拽与扫描）：锚定在分隔条列的正中，无箭头
+        private void ShowTutorialStep2()
+        {
+            _tutorialIndex = 1; // 第 2 步索引
+
+            int total = _tutorialSteps.Count;
+            TutorialTip2.Title = $"{ResourceService.GetString("MergeTutorial_Step02_Title")}（2/{total}）";
+            BuildTutorialContent2(ResourceService.GetString("MergeTutorial_Step02_Content"));
+
+            TutorialTip2.ActionButtonContent = ResourceService.GetString("MergeTutorial_Btn_Next");
+            TutorialTip2.CloseButtonContent = ResourceService.GetString("MergeTutorial_Btn_Close");
+
+            // 将气泡锚定到分隔条上方 20% 处的锚点
+            TutorialTip2.Target = TutorialTip2Anchor;
+            TutorialTip2.PreferredPlacement = TeachingTipPlacementMode.Bottom;
+
+            TutorialTip2.IsOpen = true;
+        }
+
+        // 第 2 步正文渲染（复用粗体解析）
+        private void BuildTutorialContent2(string text)
+        {
+            var panel = TutorialContentPanel2;
+            panel.Children.Clear();
+
+            var paragraphs = text.Split('\n');
+            foreach (var raw in paragraphs)
+            {
+                var para = raw.Trim();
+                if (para.Length == 0) continue;
+
+                var tb = new TextBlock
+                {
+                    MaxWidth = 400,
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 12,
+                    LineHeight = 20,
+                    LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+                    IsTextSelectionEnabled = true,
+                    Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                };
+
+                AppendBoldSegments(tb, para);
+                panel.Children.Add(tb);
+            }
         }
 
 
@@ -1185,7 +1240,7 @@ namespace LivePhotoBox.Views
 
                 var tb = new TextBlock
                 {
-                    MaxWidth = 440,
+                    MaxWidth = 400,
                     TextWrapping = TextWrapping.Wrap,
                     FontSize = 12,
                     LineHeight = 20,
@@ -1242,48 +1297,57 @@ namespace LivePhotoBox.Views
                 Placement = TeachingTipPlacementMode.Right,
             });
 
-            // 第 2 步：配对方式（独立控件）
+            // 第 2 步：拖拽与扫描（无箭头，锚定在分隔条列中间）
+            _tutorialSteps.Add(new TutorialStep
+            {
+                TitleKey = "MergeTutorial_Step02_Title",
+                ContentKey = "MergeTutorial_Step02_Content",
+                Placement = TeachingTipPlacementMode.Auto,
+                UseTip2 = true,
+            });
+
+            // 第 3 步：匹配方式（独立控件）
             _tutorialSteps.Add(new TutorialStep
             {
                 TargetName = "PairingMethodComboBox",
-                TitleKey = "MergeTutorial_Step02_Title",
-                ContentKey = "MergeTutorial_Step02_Content",
-                Placement = TeachingTipPlacementMode.Right,
-            });
-
-            // 第 3 步：协议版本（独立控件）
-            _tutorialSteps.Add(new TutorialStep
-            {
-                TargetName = "ProtocolComboBox",
                 TitleKey = "MergeTutorial_Step03_Title",
                 ContentKey = "MergeTutorial_Step03_Content",
                 Placement = TeachingTipPlacementMode.Right,
             });
 
-            // 第 4 步：输出格式（独立控件）
+            // 第 4 步：协议版本（独立控件）
             _tutorialSteps.Add(new TutorialStep
             {
-                TargetName = "OutputFormatComboBox",
+                TargetName = "ProtocolComboBox",
                 TitleKey = "MergeTutorial_Step04_Title",
                 ContentKey = "MergeTutorial_Step04_Content",
                 Placement = TeachingTipPlacementMode.Right,
             });
 
-            // 第 5 步：命名格式（独立控件）
+            // 第 5 步：输出格式（独立控件）
             _tutorialSteps.Add(new TutorialStep
             {
-                TargetName = "CustomNamingSection",
+                TargetName = "OutputFormatComboBox",
                 TitleKey = "MergeTutorial_Step05_Title",
                 ContentKey = "MergeTutorial_Step05_Content",
                 Placement = TeachingTipPlacementMode.Right,
             });
 
-            // 第 6 步：开始合成（右上角主操作按钮；从按钮下方弹出）
+            // 第 6 步：命名格式（独立控件）
+            _tutorialSteps.Add(new TutorialStep
+            {
+                TargetName = "CustomNamingSection",
+                TitleKey = "MergeTutorial_Step06_Title",
+                ContentKey = "MergeTutorial_Step06_Content",
+                Placement = TeachingTipPlacementMode.Right,
+            });
+
+            // 第 7 步：开始合成（右上角主操作按钮；从按钮下方弹出）
             _tutorialSteps.Add(new TutorialStep
             {
                 TargetName = "StartMergeButton",
-                TitleKey = "MergeTutorial_Step06_Title",
-                ContentKey = "MergeTutorial_Step06_Content",
+                TitleKey = "MergeTutorial_Step07_Title",
+                ContentKey = "MergeTutorial_Step07_Content",
                 Placement = TeachingTipPlacementMode.Bottom,
                 IsLast = true,
             });
@@ -1311,12 +1375,39 @@ namespace LivePhotoBox.Views
         // 关闭动画完成后：如果有待跳转步骤，打开下一步
         private void TutorialTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args)
         {
-            if (_tutorialPendingIndex >= 0)
+            ShowTutorialPendingIfAny();
+        }
+
+        // ---- 第 2 步气泡（分隔条列锚点）导航 ----
+        private void TutorialTip2_ActionButtonClick(TeachingTip sender, object args)
+        {
+            int next = _tutorialIndex + 1;
+            if (next < _tutorialSteps.Count)
             {
-                int next = _tutorialPendingIndex;
-                _tutorialPendingIndex = -1;
-                ShowTutorialStep(next);
+                _tutorialPendingIndex = next;
+                TutorialTip2.IsOpen = false;
             }
+        }
+
+        private void TutorialTip2_CloseButtonClick(TeachingTip sender, object args)
+        {
+            _tutorialPendingIndex = -1;
+            TutorialTip2.IsOpen = false;
+            _tutorialIndex = -1;
+        }
+
+        private void TutorialTip2_Closed(TeachingTip sender, TeachingTipClosedEventArgs args)
+        {
+            ShowTutorialPendingIfAny();
+        }
+
+        // 统一的下一步调度：关闭动画后打开待跳转步骤
+        private void ShowTutorialPendingIfAny()
+        {
+            if (_tutorialPendingIndex < 0) return;
+            int next = _tutorialPendingIndex;
+            _tutorialPendingIndex = -1;
+            ShowTutorialStep(next);
         }
 
 

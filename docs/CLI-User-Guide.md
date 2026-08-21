@@ -109,6 +109,12 @@ lpb split photo.jpg -y
 
 # Batch-split a folder (folder is auto-detected; -d also works)
 lpb split ./MyPhotos -y
+
+# View current cover position & protocol info of an existing live photo (no changes)
+lpb cover photo.jpg
+
+# Change the cover to 1.5s into the video (writes {name}_cover{frame}.jpg next to the source)
+lpb cover photo.jpg --at 1.5 -y
 ```
 
 ---
@@ -120,6 +126,7 @@ lpb split ./MyPhotos -y
 | `lpb protocols` | View protocol × format compatibility and device support |
 | `lpb merge` | Merge image+video pairs (single pair or batch) |
 | `lpb split` | Split single-file live photos into separate image and video files |
+| `lpb cover` | Change the cover frame (Key Photo) of an existing live photo; alias `keyphoto` |
 | `lpb repair` | Analyze and repair live photo metadata |
 | `lpb --info` / `lpb --version` (`-v`) | Show version, environment, and bundled tool versions |
 
@@ -244,6 +251,7 @@ Naming tokens:
 | `{exif_time}` | Photo capture time (from the file) |
 | `{counter}` | Auto-increment (001, 002, …) |
 | `{counter:D3}` | Zero-padded counter, e.g. D3 = 001 |
+| `{frame}` | Cover frame number (1-based; cover command only) |
 
 **Execution**
 
@@ -412,6 +420,7 @@ Naming tokens:
 | `{exif_time}` | Photo capture time (from the file) |
 | `{counter}` | Auto-increment (001, 002, …) |
 | `{counter:D3}` | Zero-padded counter, e.g. D3 = 001 |
+| `{frame}` | Cover frame number (1-based; cover command only) |
 
 **Execution**
 
@@ -506,6 +515,105 @@ Split supports only `keep` (default) and `custom:TEMPLATE` (no `suffix`). The te
 | Leave source files unchanged (default) | `lpb split -d ./Photos --after none -y` |
 
 Only source files from **successfully** split live photos are affected.
+
+---
+
+### `cover` — Change the cover frame (Key Photo)
+
+Change the cover frame (Key Photo) of an existing live photo without re-encoding the video. Alias `keyphoto` (aligns with Apple terminology).
+
+Auto-detects single-file (Huawei/V2/OPPO/Samsung/Fusion) and dual-file (Apple HEIC+MOV, Vivo old dual-file) formats.
+
+#### Modes
+
+`cover` has three modes:
+
+| Mode | Command | What happens |
+|------|---------|--------------|
+| Read-only view | `lpb cover photo.jpg` | Shows protocol, total frames, duration and current cover frame. **No files are created or modified.** Also works with `--json` for scripts. |
+| Preview (dry-run) | `lpb cover photo.jpg --at 2.5 --dry-run` or `--frame 10 --dry-run` | Shows the same info plus the new cover position and output path, then stops. **No files are created or modified.** |
+| Execute | `lpb cover photo.jpg --at 2.5 -y` or `--frame 10 -y` | Writes a new live photo file with the selected cover frame. |
+
+`--at` and `--frame` are two ways to specify the **same thing: the new cover position**. They are mutually exclusive because giving both would be ambiguous (a time and a frame number can disagree). Neither one is "check" or "execute" by itself — execution is controlled by `--dry-run` / confirmation / `--json`.
+
+> **OPPO/OnePlus note**: OPPO Gallery locates the cover by timestamp and always lands one frame later. When you use `--frame` or `--at` on an OPPO/OnePlus live photo, the CLI automatically writes a timestamp one frame earlier so OPPO Gallery displays, exports and stores the exact frame you selected.
+
+#### Usage Examples
+
+| Goal | Command |
+|------|---------|
+| View total frames, duration & current cover (no changes) | `lpb cover photo.jpg` |
+| Change cover to 2.5s into the video | `lpb cover photo.jpg --at 2.5 -y` |
+| Dual-file Apple Live Photo | `lpb cover photo.heic video.mov --at 2.5 -y` |
+| Frame number mode (1-based, 10 = the 10th frame) | `lpb cover photo.jpg --frame 10 -y` |
+| Preview without changes | `lpb cover photo.jpg --at 2.5 --dry-run` |
+| Workflow: inspect first, then set frame 10 | `lpb cover photo.jpg` → `lpb cover photo.jpg --frame 10 -y` |
+| Alias `keyphoto` | `lpb keyphoto photo.jpg --at 2.5 -y` |
+| Custom naming template | `lpb cover photo.jpg --at 2.5 -n "custom:{name}_frame{frame}" -y` |
+| Overwrite existing output | `lpb cover photo.jpg --at 2.5 -y -w` |
+| Custom output directory | `lpb cover photo.jpg --at 2.5 -o ./Output -y` |
+| JSON script mode | `lpb cover photo.jpg --at 2.5 --json` |
+
+#### Full Option Reference
+
+**Input**
+
+| Option | Description |
+|--------|-------------|
+| `<file>` | Live photo file path. Single-file auto-detects protocol; dual-file auto-pairs (Apple CID / filename) |
+| `<image> <video>` | Explicit image+video pair for dual-file live photos (order auto-detected) |
+| `--at <time>` | New cover position by **video time**. Accepts seconds (`2.500`), mm:ss (`1:30.500`), hh:mm:ss (`0:01:30.500`). Mutually exclusive with `--frame` |
+| `--frame <number>` | New cover position by **frame number, 1-based** (1 = first frame, 10 = the 10th frame). Mutually exclusive with `--at` |
+
+**Output**
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output <dir>` | Output directory (default: source file's directory) |
+| `-n, --naming <rule>` | Output filename rule. Default: `suffix` (appends `_cover{frame}`). `keep` or `custom:TEMPLATE` |
+| `-w, --overwrite` | Overwrite existing files (default: auto-rename) |
+
+**Execution**
+
+| Option | Description |
+|--------|-------------|
+| `-y, --yes` | Skip confirmation prompts |
+| `--dry-run` | Preview: show current cover info, the new cover position and output path, without modifying files |
+| `-v, --verbose` | Show detailed progress |
+| `--json` | JSON output (implies `--yes`) |
+
+#### Naming Template
+
+The command generates `{source_name}_cover{frame}` by default (e.g. `IMG_1234_cover46.jpg`), customizable with `-n`:
+
+| Token | Meaning | Example |
+|-------|---------|---------|
+| `{name}` | Source filename | `IMG_1234` |
+| `{protocol}` | Protocol suffix | `huawei` |
+| `{date}` | Current date | `20260820` |
+| `{date:format}` | Custom date format | `{date:yyyy-MM-dd}` → `2026-08-20` |
+| `{time}` | Current time | `143022` |
+| `{exif_date}` | Capture date (from file) | `20260803` |
+| `{exif_time}` | Capture time (from file) | `100530` |
+| `{frame}` | **Cover frame number (1-based)** | `46` |
+| `{counter}` | Auto-increment | `1` |
+| `{counter:D3}` | Zero-padded counter | `001` |
+
+**Naming Template Quick Reference**
+
+| Goal | Template | Output Example |
+|------|----------|----------------|
+| Default (with frame) | `-n "custom:{name}_cover{frame}"` | `IMG_1234_cover46.jpg` |
+| Keep original name | `-n keep` | `IMG_1234.jpg` |
+| With date | `-n "custom:{name}_{protocol}_{date}_{frame}"` | `IMG_1234_huawei_20260820_46.jpg` |
+| With timestamp | `-n "custom:{name}_at{frame}_{time}"` | `IMG_1234_at46_143022.jpg` |
+
+#### Default Output Location
+
+| Mode | Default Output Directory | Example |
+|------|------------------------|---------|
+| Single-file | Source file's directory | `lpb cover photo.jpg --at 2.5` → `./photo_cover46.jpg` |
+| Dual-file | Image's directory | `lpb cover photo.heic --at 2.5` → `./photo_cover46.HEIC` + `.MOV` |
 
 ---
 

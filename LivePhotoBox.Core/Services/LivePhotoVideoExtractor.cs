@@ -23,6 +23,100 @@ namespace LivePhotoBox.Services
     public static class LivePhotoVideoExtractor
     {
         /// <summary>
+        /// 按视频存储位置顺序自动探测并提取嵌入的视频到临时文件。
+        /// 不依赖协议枚举，按固定顺序尝试：
+        ///   ① 尾部含 "LIVE_" → 华为 moov 定位（视频在文件中间）
+        ///   ② HEIC/HEIF 含 mpvd box → 从 box 提取
+        ///   ③ 尾部含 SEFH+SEFT → MotionPhoto_Data 标签提取（三星 JPEG）
+        ///   ④ appendedVideoLength &gt; 0 → 文件末尾前推切取（Google V1/V2/OPPO/vivo/小米）
+        /// </summary>
+        /// <param name="filePath">实况照片文件路径</param>
+        /// <param name="appendedVideoLength">尾部视频长度（尾部追加协议的值，未知传 0）</param>
+        /// <param name="ct">取消令牌</param>
+        /// <returns>临时视频文件路径，失败返回 null</returns>
+        public static async Task<string?> ExtractVideoAutoAsync(
+            string filePath,
+            long appendedVideoLength,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+                return null;
+
+            await Task.Yield();
+
+            try
+            {
+                // ── ① 华为/荣耀：文件尾 60B 有 LIVE_ 标记，视频在文件中间 ──
+                //    必须先探测华为——它的视频后面还有 60B 尾标，不能按尾部切取
+                if (HasTailMarker(filePath, "LIVE_"u8))
+                {
+                    var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(filePath);
+                    if (range != null)
+                    {
+                        var (videoStart, _, videoLength) = range.Value;
+                        return await ExtractRangeToTempAsync(filePath, videoStart, videoLength, ct);
+                    }
+                }
+
+                // ── ② 三星/Google V2 HEIC：mpvd box 内嵌视频 ──
+                if (IsHeicFile(filePath))
+                {
+                    long mpvdLen = LivePhotoMergeService.GetMpvdVideoLength(filePath);
+                    if (mpvdLen > 0)
+                    {
+                        long mpvdStart = LivePhotoMergeService.GetMpvdVideoStart(filePath);
+                        return await ExtractRangeToTempAsync(filePath, mpvdStart, mpvdLen, ct);
+                    }
+                }
+
+                // ── ③ 三星 JPEG：SEFH+SEFT 验证区 + MotionPhoto_Data 标签 ──
+                //    视频在 Trailer 内（SEF 区之前），不能直接切尾
+                if (!IsHeicFile(filePath) && HasTailMarker(filePath, "SEFH"u8))
+                {
+                    var samsungRange = LivePhotoSplitService.FindSamsungJpegVideoRange(filePath);
+                    if (samsungRange != null)
+                    {
+                        var (videoStart, videoLength) = samsungRange.Value;
+                        return await ExtractRangeToTempAsync(filePath, videoStart, videoLength, ct);
+                    }
+                }
+
+                // ── ④ 尾部追加协议（Google V1/V2/OPPO/vivo/小米）──
+                //    最通用兜底：从文件末尾前推 appendedVideoLength 字节切取
+                if (appendedVideoLength > 0)
+                {
+                    return await ExtractTailToTempAsync(filePath, appendedVideoLength, ct);
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                LogService.Split($"LivePhotoVideoExtractor failed: {ex.Message}", LogLevel.Warning);
+                return null;
+            }
+        }
+
+        /// <summary>读取文件末尾 4KB 并检查是否包含指定字节标记</summary>
+        private static bool HasTailMarker(string filePath, ReadOnlySpan<byte> marker)
+        {
+            try
+            {
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                if (fs.Length < marker.Length) return false;
+                int readSize = (int)Math.Min(fs.Length, 4096);
+                byte[] tailBuf = new byte[readSize];
+                fs.Seek(-readSize, SeekOrigin.End);
+                fs.ReadExactly(tailBuf, 0, readSize);
+                return tailBuf.AsSpan().IndexOf(marker) >= 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 按协议从实况照片文件中提取嵌入的视频到临时文件。
         /// </summary>
         /// <param name="filePath">实况照片文件路径</param>

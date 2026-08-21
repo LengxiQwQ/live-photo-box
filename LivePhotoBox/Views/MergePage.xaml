@@ -768,15 +768,26 @@
         </Border>
 
             <!-- ── 拖拽分隔条 ── -->
-            <Border Grid.Column="1" x:Name="GridSplitterBar" Width="4"
-                    Background="Transparent" VerticalAlignment="Stretch"
-                    PointerPressed="Splitter_PointerPressed"
-                    PointerMoved="Splitter_PointerMoved"
-                    PointerReleased="Splitter_PointerReleased"
-                    PointerCaptureLost="Splitter_PointerCaptureLost"
-                    PointerEntered="Splitter_PointerEntered"
-                    PointerExited="Splitter_PointerExited"
-                    DoubleTapped="Splitter_DoubleTapped" />
+            <Grid Grid.Column="1" Width="4">
+                <Grid x:Name="GridSplitterColumn" Width="4" VerticalAlignment="Stretch">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="20*"/>
+                        <RowDefinition Height="80*"/>
+                    </Grid.RowDefinitions>
+                    <Border x:Name="GridSplitterBar" Grid.RowSpan="2" Width="4"
+                            Background="Transparent" VerticalAlignment="Stretch"
+                            PointerPressed="Splitter_PointerPressed"
+                            PointerMoved="Splitter_PointerMoved"
+                            PointerReleased="Splitter_PointerReleased"
+                            PointerCaptureLost="Splitter_PointerCaptureLost"
+                            PointerEntered="Splitter_PointerEntered"
+                            PointerExited="Splitter_PointerExited"
+                            DoubleTapped="Splitter_DoubleTapped" />
+                    <!-- 第 2 步引导气泡锚点：位于分隔条上方约 20% 处 -->
+                    <Border x:Name="TutorialTip2Anchor" Grid.Row="0" Width="4"
+                            Background="Transparent" IsHitTestVisible="False" />
+                </Grid>
+            </Grid>
 
             <!-- ▼ 右侧面板：任务队列 ▼ -->
             <Border x:Name="MergeTaskListSurface" Grid.Column="2"
@@ -1222,13 +1233,26 @@
 
         <!-- 合成引导教程：按步骤指向左侧设置面板的各个配置项 -->
         <TeachingTip x:Name="TutorialTip" IsLightDismissEnabled="False"
-                     MaxWidth="480"
+                     MaxWidth="440"
                      ActionButtonClick="TutorialTip_ActionButtonClick"
                      CloseButtonClick="TutorialTip_CloseButtonClick"
                      Closed="TutorialTip_Closed">
             <TeachingTip.Content>
                 <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto">
                     <StackPanel x:Name="TutorialContentPanel" Spacing="8" />
+                </ScrollViewer>
+            </TeachingTip.Content>
+        </TeachingTip>
+    <!-- 引导教程第 2 步气泡（锚定在分隔条列，居中弹出） -->
+        <TeachingTip x:Name="TutorialTip2"
+                     IsLightDismissEnabled="False"
+                     PreferredPlacement="Center"
+                     ActionButtonClick="TutorialTip2_ActionButtonClick"
+                     CloseButtonClick="TutorialTip2_CloseButtonClick"
+                     Closed="TutorialTip2_Closed">
+            <TeachingTip.Content>
+                <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto">
+                    <StackPanel x:Name="TutorialContentPanel2" Spacing="8" />
                 </ScrollViewer>
             </TeachingTip.Content>
         </TeachingTip>

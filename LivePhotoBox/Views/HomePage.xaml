@@ -71,8 +71,8 @@
                                     <TextBlock x:Uid="HomePage_MergeSubtitle" FontSize="13" Foreground="{ThemeResource TextFillColorTertiaryBrush}" FontFamily="Microsoft YaHei UI" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </StackPanel>
-                            <Button x:Uid="HomePage_TryMergeDemo" x:Name="TryMergeDemoButton" Style="{ThemeResource AccentButtonStyle}" 
-                                    Click="TryMergeDemo_Click" Grid.Column="2" VerticalAlignment="Center"/>
+                            <Button x:Uid="HomePage_TryMergeDemo" x:Name="TryMergeDemoButton" Style="{ThemeResource AccentButtonStyle}"
+                                    Click="TryMergeDemo_Click" Grid.Column="2" VerticalAlignment="Center" IsEnabled="False"/>
                         </Grid>
 
                         <!-- 步骤一：准备照片文件夹 - 左字右图 -->
@@ -311,7 +311,7 @@
                             <Button x:Uid="HomePage_TryMergeDemo" x:Name="TutorialLoadSampleButton"
                                     Style="{ThemeResource AccentButtonStyle}"
                                     Click="TryMergeDemo_Click"
-                                    Grid.Column="1" VerticalAlignment="Center"/>
+                                    Grid.Column="1" VerticalAlignment="Center" IsEnabled="False"/>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -334,8 +334,8 @@
                                     <TextBlock x:Uid="HomePage_SplitSubtitle" FontSize="13" Foreground="{ThemeResource TextFillColorTertiaryBrush}" FontFamily="Microsoft YaHei UI" Margin="0,2,0,0"/>
                                 </StackPanel>
                             </StackPanel>
-                            <Button x:Uid="HomePage_TrySplitDemo" x:Name="TrySplitDemoButton" Style="{ThemeResource AccentButtonStyle}" 
-                                    Click="TrySplitDemo_Click" Grid.Column="2" VerticalAlignment="Center"/>
+                            <Button x:Uid="HomePage_TrySplitDemo" x:Name="TrySplitDemoButton" Style="{ThemeResource AccentButtonStyle}"
+                                    Click="TrySplitDemo_Click" Grid.Column="2" VerticalAlignment="Center" IsEnabled="False"/>
                         </Grid>
 
                         <!-- 步骤一：准备实况照片 - 左字右图 -->
@@ -519,7 +519,7 @@
                             <Button x:Uid="HomePage_TrySplitDemo" x:Name="TutorialLoadSplitSampleButton"
                                     Style="{ThemeResource AccentButtonStyle}"
                                     Click="TrySplitDemo_Click"
-                                    Grid.Column="1" VerticalAlignment="Center"/>
+                                    Grid.Column="1" VerticalAlignment="Center" IsEnabled="False"/>
                         </Grid>
                     </StackPanel>
                 </Border>
@@ -543,7 +543,7 @@
                                 </StackPanel>
                             </StackPanel>
                             <Button x:Uid="HomePage_TryRepairDemo" x:Name="TryRepairDemoButton" Style="{ThemeResource AccentButtonStyle}"
-                                    Click="TryRepairDemo_Click" Grid.Column="2" VerticalAlignment="Center"/>
+                                    Click="TryRepairDemo_Click" Grid.Column="2" VerticalAlignment="Center" IsEnabled="False"/>
                         </Grid>
 
                         <!-- 步骤一：它能修复什么？- 左字右图 -->
@@ -745,7 +745,7 @@
                             <Button x:Uid="HomePage_TryRepairDemo" x:Name="TutorialLoadRepairSampleButton"
                                     Style="{ThemeResource AccentButtonStyle}"
                                     Click="TryRepairDemo_Click"
-                                    Grid.Column="1" VerticalAlignment="Center"/>
+                                    Grid.Column="1" VerticalAlignment="Center" IsEnabled="False"/>
                         </Grid>
                     </StackPanel>
                 </Border>

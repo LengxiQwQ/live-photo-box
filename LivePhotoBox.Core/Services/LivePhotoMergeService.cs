@@ -108,7 +108,7 @@ namespace LivePhotoBox.Services
         // taskIndex: 任务序号（1-based，用于 counter token）
         // sourceImagePath: 原图片路径（用于 {exif_date}/{exif_time} 读取文件时间）
         public static string RenderNamingTemplate(string template, string baseName, int protocolIndex, int taskIndex,
-            string? sourceImagePath = null)
+            string? sourceImagePath = null, int frameNumber = 0)
         {
             // 解析拍摄日期/时间（懒加载，仅在需要时读取）
             DateTime? _captureTime = null;
@@ -133,6 +133,7 @@ namespace LivePhotoBox.Services
                     "exif_date" => GetCaptureTime().ToString(format ?? "yyyyMMdd"),
                     "exif_time" => GetCaptureTime().ToString(format ?? "HHmmss"),
                     "counter" => format != null ? taskIndex.ToString(format) : taskIndex.ToString(),
+                    "frame" => format != null ? frameNumber.ToString(format) : frameNumber.ToString(),
                     _ => match.Value, // 未知 token：保留原样
                 };
             });
@@ -546,7 +547,8 @@ namespace LivePhotoBox.Services
         }
 
         // Estimate total video frame count. Prefers ffprobe nb_frames (exact),
-        // then exiftool MediaDuration (30fps approximation), then falls back to 1.
+        // then exiftool MediaDuration (30fps approximation),
+        // then ffmpeg frame-by-frame count (exact, slower), then falls back to 1.
         public static async Task<int> DetectVideoFrameCountAsync(string videoPath, CancellationToken token)
         {
             // 1. Try ffprobe nb_frames (exact, matches Python pipeline)
@@ -587,32 +589,44 @@ namespace LivePhotoBox.Services
             try
             {
                 string? exifToolPath = ExternalToolLocator.FindExifTool();
-                if (string.IsNullOrEmpty(exifToolPath)) return 1;
-
-                var psi = new ProcessStartInfo
+                if (!string.IsNullOrEmpty(exifToolPath))
                 {
-                    FileName = exifToolPath,
-                    Arguments = $"-MediaDuration -s -s -S \"{videoPath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = exifToolPath,
+                        Arguments = $"-MediaDuration -s -s -S \"{videoPath}\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
 
-                using var process = Process.Start(psi);
-                if (process == null) return 1;
+                    using var process = Process.Start(psi);
+                    if (process != null)
+                    {
+                        string output = await process.StandardOutput.ReadToEndAsync(token);
+                        await process.WaitForExitAsync(token);
 
-                string output = await process.StandardOutput.ReadToEndAsync(token);
-                await process.WaitForExitAsync(token);
+                        string raw = output.Trim();
+                        if (!string.IsNullOrWhiteSpace(raw))
+                        {
+                            double duration = ParseMediaDuration(raw);
+                            if (duration > 0)
+                            {
+                                int frames = (int)Math.Ceiling(duration * 30);
+                                return Math.Max(1, frames);
+                            }
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { /* fall through to ffmpeg count */ }
 
-                string raw = output.Trim();
-                if (string.IsNullOrWhiteSpace(raw)) return 1;
-
-                double duration = ParseMediaDuration(raw);
-                if (duration <= 0) return 1;
-
-                int frames = (int)Math.Ceiling(duration * 30);
-                return Math.Max(1, frames);
+            // 3. Fallback: ffmpeg frame-by-frame count (exact for HEVC/VFR).
+            try
+            {
+                return await CountFramesViaFfmpegAsync(videoPath, token);
             }
             catch (OperationCanceledException) { throw; }
             catch
@@ -621,9 +635,61 @@ namespace LivePhotoBox.Services
             }
         }
 
+        private static async Task<int> CountFramesViaFfmpegAsync(string videoPath, CancellationToken token)
+        {
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+            if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
+                return 1;
+
+            string frameDir = Path.Combine(Path.GetTempPath(), $"lpb_framecount_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(frameDir);
+            try
+            {
+                string outputPattern = Path.Combine(frameDir, "frame_%06d.jpg");
+                string args = $"-i \"{videoPath}\" -vsync 0 " +
+                              $"-q:v 3 -f image2 \"{outputPattern}\" -y -loglevel error";
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+
+                using var process = Process.Start(psi);
+                if (process == null)
+                    return 1;
+
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+
+                try
+                {
+                    await process.WaitForExitAsync(linkedCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { process.Kill(); } catch { /* best effort */ }
+                    throw;
+                }
+
+                if (process.ExitCode != 0)
+                    return 1;
+
+                int count = Directory.GetFiles(frameDir, "frame_*.jpg").Length;
+                return Math.Max(1, count);
+            }
+            finally
+            {
+                try { Directory.Delete(frameDir, recursive: true); } catch { /* best effort */ }
+            }
+        }
+
         // Detect actual video FPS from exiftool VideoFrameRate tag.
         // Returns frames per second as double, or 30.0 on failure.
-        private static async Task<double> DetectVideoFpsAsync(string videoPath, CancellationToken token)
+        public static async Task<double> DetectVideoFpsAsync(string videoPath, CancellationToken token)
         {
             try
             {
@@ -716,6 +782,93 @@ namespace LivePhotoBox.Services
             }
         }
 
+        /// <summary>
+        /// 使用 ffmpeg 在指定时间戳提取一帧 JPEG，输出到指定目录。
+        /// 使用 -ss 输入索引模式（快速定位）+ -frames:v 1 精确截取一帧。
+        /// GUI（EditViewModel）与 CLI（CoverCommand）共用。
+        /// </summary>
+        /// <param name="videoPath">视频文件路径</param>
+        /// <param name="outputDir">输出目录（必须存在，调用方负责创建和清理）</param>
+        /// <param name="timestampSec">时间戳（秒）</param>
+        /// <param name="token">取消令牌</param>
+        /// <returns>JPEG 文件路径，失败返回 null</returns>
+        public static async Task<string?> ExtractFrameAtTimestampAsync(
+            string videoPath, string outputDir, double timestampSec, CancellationToken token)
+        {
+            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+            if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
+            {
+                LogService.Merge("ExtractFrameAtTimestamp: ffmpeg not found", LogLevel.Warning);
+                return null;
+            }
+
+            try
+            {
+                token.ThrowIfCancellationRequested();
+
+                string outputPath = Path.Combine(outputDir, "cover_frame.jpg");
+
+                // -ss 在前（输入索引模式）快速定位，-frames:v 1 只取一帧
+                // -q:v 2 高质量 JPEG
+                string args = $"-y -ss {timestampSec:F3} -i \"{videoPath}\" " +
+                              $"-frames:v 1 -q:v 2 -f image2 \"{outputPath}\" -loglevel error";
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = args,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true
+                };
+
+                using var process = new Process { StartInfo = psi };
+                process.Start();
+
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+
+                try
+                {
+                    await process.WaitForExitAsync(linkedCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { process.Kill(); } catch { }
+                    return null;
+                }
+
+                string stderr = await process.StandardError.ReadToEndAsync(token);
+                if (process.ExitCode != 0)
+                {
+                    LogService.Merge(
+                        $"ExtractFrameAtTimestamp: ffmpeg error (exit {process.ExitCode}) at {timestampSec:F3}s: {stderr.Trim()}",
+                        LogLevel.Warning);
+                    return null;
+                }
+
+                if (!File.Exists(outputPath) || new FileInfo(outputPath).Length == 0)
+                {
+                    LogService.Merge(
+                        $"ExtractFrameAtTimestamp: output file is empty at {timestampSec:F3}s",
+                        LogLevel.Warning);
+                    return null;
+                }
+
+                LogService.Merge(
+                    $"ExtractFrameAtTimestamp: frame at {timestampSec:F3}s -> {outputPath}",
+                    LogLevel.Info);
+
+                return outputPath;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Merge($"ExtractFrameAtTimestamp failed: {ex.Message}", LogLevel.Error, ex);
+                return null;
+            }
+        }
+
         // Parse exiftool MediaDuration PrintConv string to seconds.
         // Reuses the same parsing logic as LivePhotoRepairService.
         // Handles: "2.35 s", "0:01:05", "2.35" (raw numeric).
@@ -747,6 +900,88 @@ namespace LivePhotoBox.Services
                 return rawVal;
 
             return 0;
+        }
+
+        /// <summary>
+        /// 检测视频时长（秒）。用 exiftool MediaDuration（不带 ffprobe）。
+        /// GUI 与 CLI 共用；返回 0 表示无法探测。
+        /// </summary>
+        public static async Task<double> DetectVideoDurationAsync(string videoPath, CancellationToken token)
+        {
+            try
+            {
+                string? exifToolPath = ExternalToolLocator.FindExifTool();
+                if (!string.IsNullOrEmpty(exifToolPath))
+                {
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = exifToolPath,
+                        Arguments = $"-MediaDuration -s -s -S \"{videoPath}\"",
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    };
+                    using var process = Process.Start(psi);
+                    if (process != null)
+                    {
+                        string output = await process.StandardOutput.ReadToEndAsync(token);
+                        await process.WaitForExitAsync(token);
+                        string raw = output.Trim();
+                        if (!string.IsNullOrEmpty(raw) && raw != "N/A" && raw != "unknown")
+                        {
+                            double durationSec = ParseMediaDuration(raw);
+                            if (durationSec > 0)
+                                return durationSec;
+                        }
+                    }
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { /* fall through to ffmpeg */ }
+
+            // Fallback: parse Duration from ffmpeg -i output.
+            try
+            {
+                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
+                if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
+                    return 0;
+
+                var psi = new ProcessStartInfo
+                {
+                    FileName = ffmpegPath,
+                    Arguments = $"-hide_banner -i \"{videoPath}\"",
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                };
+                using var process = Process.Start(psi);
+                if (process == null)
+                    return 0;
+
+                string stderr = await process.StandardError.ReadToEndAsync(token);
+                await process.WaitForExitAsync(token);
+
+                var match = System.Text.RegularExpressions.Regex.Match(
+                    stderr,
+                    @"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)");
+                if (match.Success &&
+                    int.TryParse(match.Groups[1].Value, out int hours) &&
+                    int.TryParse(match.Groups[2].Value, out int minutes) &&
+                    double.TryParse(
+                        match.Groups[3].Value,
+                        System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out double seconds))
+                {
+                    return hours * 3600 + minutes * 60 + seconds;
+                }
+
+                return 0;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { return 0; }
         }
 
         // Insert "tmap" as the last compatible brand in the HEIC ftyp box.

@@ -184,7 +184,26 @@ namespace LivePhotoBox.ViewModels
                 AppSettingsService.RemoveValue("MergePage_LeftPanelWidth");
                 AppSettingsService.RemoveValue("SplitPage_LeftPanelWidth");
 
-                LogService.Info("Window layout reset to defaults.", LogSource.Settings);
+                LogService.Info("Window layout reset to defaults. Restarting...", LogSource.Settings);
+
+                // 标记重启，防止退出时 Closed 事件把刚删除的键写回
+                if (App.MainWindow is MainWindow mainWindow)
+                    mainWindow.IsRestartingAfterLayoutReset = true;
+
+                // 自动重启，使重置立即生效
+                string? processPath = Environment.ProcessPath;
+                if (!string.IsNullOrWhiteSpace(processPath))
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(processPath) { UseShellExecute = true });
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.Error($"Failed to restart after layout reset: {ex.Message}", ex, LogSource.Settings);
+                    }
+                }
+                Application.Current.Exit();
             }
         }
 
