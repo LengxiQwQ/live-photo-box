@@ -1178,8 +1178,6 @@ namespace LivePhotoBox.ViewModels
                 string workImagePath = Path.Combine(tempWorkDir, $"frame_{Guid.NewGuid():N}.jpg");
                 File.Copy(frame.FullFramePath, workImagePath, overwrite: true);
 
-                // 从原图复制全部可用 EXIF 标签（-all:all），但显式排除 XMP 组
-                // （因为后续 WriteNativeAsync 会写入全新的协议 XMP，旧 XMP 会冲突）
                 await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
                     "-TagsFromFile", photoPath,
                     "-all:all",
@@ -1191,8 +1189,6 @@ namespace LivePhotoBox.ViewModels
                     "-overwrite_original",
                     "-quiet",
                     workImagePath);
-
-                LogService.FileOp("KeyPhoto Save: EXIF copied to frame JPEG", LogLevel.Info);
 
                 // ── 7. 协议预处理（OPPO 注入 oplus_ EXIF 标记） ────────
                 string processedImagePath = await protocol.PrepareImageAsync(
@@ -1237,7 +1233,6 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 long actualVideoSize = new FileInfo(tempVideoPath).Length;
-                LogService.FileOp($"KeyPhoto Save: video extracted ({actualVideoSize} bytes)", LogLevel.Info);
 
                 // ── 9. 构建输出文件 ─────────────────────────────────────
                 long presentationTimestampUs = (long)(frame.Timestamp.TotalSeconds * 1_000_000);
@@ -1254,24 +1249,11 @@ namespace LivePhotoBox.ViewModels
                         selectedModeIndex: protocolIndex,
                         CancellationToken.None,
                         presentationTimestampUs);
-
-                    LogService.FileOp(
-                        $"KeyPhoto Save: Samsung-family output written via WriteLivePhotoAsync, " +
-                        $"protocol={protocol.Key}, timestampUs={presentationTimestampUs}",
-                        LogLevel.Info);
                 }
                 else
                 {
                     // 标准协议（V1, V2, OPPO, Vivo standalone）：SOI + APP1 XMP + JPEG + video
                     byte[] xmpBytes = protocol.BuildXmpMetadata(actualVideoSize, presentationTimestampUs);
-
-                    // 日志：输出生成的 XMP 文本（前 600 字符），便于排查时间戳是否写入
-                    string xmpText = System.Text.Encoding.UTF8.GetString(xmpBytes);
-                    LogService.FileOp(
-                        $"KeyPhoto Save: XMP generated ({xmpText.Length} chars), " +
-                        $"presentationTimestampUs={presentationTimestampUs}μs (≈{frame.Timestamp.TotalSeconds:F4}s). " +
-                        $"XMP preview: [{xmpText[..Math.Min(xmpText.Length, 600)]}]",
-                        LogLevel.Info);
 
                     tempOutputPath = Path.Combine(tempWorkDir, "output.jpg");
                     await LivePhotoMergeService.WriteNativeAsync(
@@ -1284,26 +1266,6 @@ namespace LivePhotoBox.ViewModels
                 await tempFile.CopyAndReplaceAsync(savedFile);
 
                 LogService.FileOp($"KeyPhoto Save: combined file written to '{targetPath}'", LogLevel.Info);
-
-                // ── 10. 验证：用 exiftool 回读刚保存文件的 PresentationTimestamp ──
-                string? verifyExifPath = ExternalToolLocator.FindExifTool();
-                if (!string.IsNullOrEmpty(verifyExifPath))
-                {
-                    try
-                    {
-                        long? readBackTimestamp = await ReadTimestampFromFileAsync(targetPath);
-                        LogService.FileOp(
-                            $"KeyPhoto Save: verify timestamp after write: " +
-                            $"expect={presentationTimestampUs}, readback={(readBackTimestamp.HasValue ? readBackTimestamp.Value.ToString() : "N/A")}",
-                            readBackTimestamp == presentationTimestampUs ? LogLevel.Info : LogLevel.Warning);
-                    }
-                    catch (Exception ex)
-                    {
-                        LogService.FileOp(
-                            $"KeyPhoto Save: timestamp verify failed: {ex.Message}",
-                            LogLevel.Warning);
-                    }
-                }
 
                 IsModified = false;
 
@@ -1461,9 +1423,6 @@ namespace LivePhotoBox.ViewModels
                 {
                     originalCoverMs = tailInfo.Value.coverMs;
                     originalDurationMs = tailInfo.Value.durationMs;
-                    LogService.FileOp(
-                        $"KeyPhoto Save[Huawei]: original tail — coverMs={originalCoverMs}, durationMs={originalDurationMs}",
-                        LogLevel.Info);
                 }
 
                 // ── 5. 创建 temp 工作目录 ────────────────────────────────
@@ -1485,8 +1444,6 @@ namespace LivePhotoBox.ViewModels
                     "-overwrite_original",
                     "-quiet",
                     workImagePath);
-
-                LogService.FileOp("KeyPhoto Save[Huawei]: EXIF copied to frame JPEG", LogLevel.Info);
 
                 // ── 7. 提取嵌入 MP4 ─────────────────────────────────────
                 var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(photoPath);
@@ -1511,26 +1468,15 @@ namespace LivePhotoBox.ViewModels
                     }
                 }
 
-                LogService.FileOp(
-                    $"KeyPhoto Save[Huawei]: embedded MP4 extracted — {videoLength} bytes",
-                    LogLevel.Info);
-
                 // ── 7.5 注入 covertime 元数据（新版华为相册封面帧定位）───
                 int covertimeMs = (int)frame.Timestamp.TotalMilliseconds;
                 tempVideoPath = await LivePhotoMergeService.WriteMp4CovertimeMetadataAsync(
                     tempVideoPath, targetPath, covertimeMs, CancellationToken.None);
-                LogService.FileOp(
-                    $"KeyPhoto Save[Huawei]: covertime injected — {covertimeMs}ms",
-                    LogLevel.Info);
 
                 // ── 8. 获取视频总帧数、计算封面帧 ──────────────────────
                 int totalFrames = await LivePhotoMergeService.DetectVideoFrameCountAsync(
                     tempVideoPath, CancellationToken.None);
                 int coverFrame = frame.FrameIndex; // 0-based timeline frame index
-
-                LogService.FileOp(
-                    $"KeyPhoto Save[Huawei]: coverFrame={coverFrame}, totalFrames={totalFrames}",
-                    LogLevel.Info);
 
                 // ── 9. 构建新尾部 ───────────────────────────────────────
                 long actualVideoSize = new FileInfo(tempVideoPath).Length;
@@ -1573,10 +1519,6 @@ namespace LivePhotoBox.ViewModels
                         await vidFs.CopyToAsync(targetFs);
                         await targetFs.WriteAsync(tail, 0, tail.Length);
                     }
-
-                    LogService.FileOp(
-                        $"KeyPhoto Save[Huawei]: HEIC written — {patched.Length} + {actualVideoSize} + 60 tail",
-                        LogLevel.Info);
                 }
                 else
                 {
@@ -1602,10 +1544,6 @@ namespace LivePhotoBox.ViewModels
                             $"KeyPhoto Save[Huawei]: HUAWEI EXIF Make write failed (non-fatal): {ex.Message}",
                             LogLevel.Warning);
                     }
-
-                    LogService.FileOp(
-                        $"KeyPhoto Save[Huawei]: JPEG written with HUAWEI EXIF",
-                        LogLevel.Info);
                 }
 
                 IsModified = false;
@@ -1764,18 +1702,13 @@ namespace LivePhotoBox.ViewModels
                     "-quiet",
                     workImagePath);
 
-                LogService.FileOp($"KeyPhoto Save[{logTag}]: EXIF copied to frame JPEG", LogLevel.Info);
-
                 // ── 6.5. 协议特定的图片预处理 ─────────────────────────
-                // Fusion (protocolIndex=0) 需要注入 OPPO oplus_ EXIF 标记，
-                // 以通过 OPPO Gallery 识别。Samsung (protocolIndex=5) 基类 PrepareImageAsync 为 no-op。
                 var resolvedProtocol = LivePhotoProtocol.FromIndex(protocolIndex);
                 string preparedPath = await resolvedProtocol.PrepareImageAsync(
                     workImagePath, tempWorkDir, CancellationToken.None);
                 if (preparedPath != workImagePath)
                 {
                     workImagePath = preparedPath;
-                    LogService.FileOp($"KeyPhoto Save[{logTag}]: protocol-specific image preparation done", LogLevel.Info);
                 }
 
                 // ── 7. 调用 WriteLivePhotoAsync（自动路由到 WriteSamsungJpegAsync） ──
@@ -1890,9 +1823,6 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 long videoSize = new FileInfo(tempVideoPath).Length;
-                LogService.FileOp(
-                    $"KeyPhoto Save[V2-Heic]: video extracted — {videoSize} bytes",
-                    LogLevel.Info);
 
                 // ── 帧 JPEG 注入原图 EXIF ───────────────────────────────
                 string workImagePath = Path.Combine(tempWorkDir, $"frame_{Guid.NewGuid():N}.jpg");
@@ -1909,8 +1839,6 @@ namespace LivePhotoBox.ViewModels
                     "-overwrite_original",
                     "-quiet",
                     workImagePath);
-
-                LogService.FileOp("KeyPhoto Save[V2-Heic]: EXIF copied to frame JPEG", LogLevel.Info);
 
                 // ── heif-enc: JPEG → HEIC ────────────────────────────────
                 string frameHeicPath = Path.Combine(tempWorkDir, $"keyframe_{Guid.NewGuid():N}.heic");
@@ -1933,8 +1861,6 @@ namespace LivePhotoBox.ViewModels
                 if (heifProc.ExitCode != 0 || new FileInfo(frameHeicPath).Length == 0)
                     throw new InvalidOperationException($"heif-enc failed (exit {heifProc.ExitCode})");
 
-                LogService.FileOp("KeyPhoto Save[V2-Heic]: frame JPEG converted to HEIC", LogLevel.Info);
-
                 // ── heif-enc 不保留 EXIF，手动从 enriched JPEG 拷贝 ──
                 // WriteHeicNativeAsync 会注入新的 XMP，此处拷贝全部 EXIF 但排除 XMP
                 await LivePhotoRepairService.RunExifToolAsync(CancellationToken.None,
@@ -1948,7 +1874,7 @@ namespace LivePhotoBox.ViewModels
                     "-overwrite_original",
                     "-quiet",
                     frameHeicPath);
-                LogService.FileOp("KeyPhoto Save[V2-Heic]: EXIF copied to HEIC", LogLevel.Info);
+                // heif-enc 不保留 EXIF，手动从 enriched JPEG 拷贝
 
                 // ── 调用 WriteLivePhotoAsync ──
                 // V2 HEIC → is HEIC + is MotionPhotoV2Protocol
@@ -2131,9 +2057,6 @@ namespace LivePhotoBox.ViewModels
                             int tailLen = probeSize - vivoIdx;
                             vivoTail = new byte[tailLen];
                             Array.Copy(probe, vivoIdx, vivoTail, 0, tailLen);
-                            LogService.FileOp(
-                                $"KeyPhoto Save[vivo-old]: vivo tail extracted — {tailLen} bytes",
-                                LogLevel.Info);
                         }
                     }
                 }
@@ -2160,14 +2083,11 @@ namespace LivePhotoBox.ViewModels
                     "-quiet",
                     tempJpgPath);
 
-                LogService.FileOp("KeyPhoto Save[vivo-old]: EXIF copied to frame JPEG", LogLevel.Info);
-
                 // ── 7. 追加 vivo 尾标到新 JPEG ───────────────────────────
                 if (vivoTail != null && vivoTail.Length > 0)
                 {
                     using var dstFs = new FileStream(tempJpgPath, FileMode.Append, FileAccess.Write, FileShare.None);
                     await dstFs.WriteAsync(vivoTail, 0, vivoTail.Length);
-                    LogService.FileOp("KeyPhoto Save[vivo-old]: vivo tail appended to new JPEG", LogLevel.Info);
                 }
 
                 // ── 8. 复制新 JPEG 到用户选择的位置 ──────────────────────
@@ -2180,9 +2100,6 @@ namespace LivePhotoBox.ViewModels
                 string targetMovPath = Path.Combine(outputDir, targetBaseName + ".MP4");
 
                 File.Copy(pairedVideoPath, targetMovPath, overwrite: true);
-                LogService.FileOp(
-                    $"KeyPhoto Save[vivo-old]: paired MP4 copied → '{Path.GetFileName(targetMovPath)}'",
-                    LogLevel.Info);
 
                 // ── 10. 修改日期 ─────────────────────────────────────────
                 try { File.SetLastWriteTime(targetJpgPath, DateTime.Now); } catch { }
@@ -2335,8 +2252,6 @@ namespace LivePhotoBox.ViewModels
                     "-quiet",
                     enrichedJpegPath);
 
-                LogService.FileOp("KeyPhoto Save[Apple]: EXIF + MakerNote copied to frame JPEG", LogLevel.Info);
-
                 // ── 6. 写 MotionPhotoPresentationTimestampUs 到帧 JPEG 的 XMP ──
                 long presentationTimestampUs = (long)(frame.Timestamp.TotalSeconds * 1_000_000);
                 try
@@ -2360,9 +2275,6 @@ namespace LivePhotoBox.ViewModels
                         "-overwrite_original",
                         "-quiet",
                         enrichedJpegPath);
-                    LogService.FileOp(
-                        $"KeyPhoto Save[Apple]: timestamp {presentationTimestampUs}μs written to JPEG XMP",
-                        LogLevel.Info);
                 }
                 catch (Exception ex)
                 {
@@ -2373,10 +2285,7 @@ namespace LivePhotoBox.ViewModels
 
                 // ── 7. heif-enc: JPEG → HEIC（libheif + x265，保留 EXIF） ──
                 string tempHeicPath = Path.Combine(tempWorkDir, $"keyframe_{Guid.NewGuid():N}.heic");
-                // -q 90 = 高质量（1-100），-p x265:preset=fast 平衡速度和质量
                 string heifArgs = $"-o \"{tempHeicPath}\" -q 90 \"{enrichedJpegPath}\"";
-
-                LogService.FileOp($"KeyPhoto Save[Apple]: heif-enc args: {heifArgs}", LogLevel.Info);
 
                 var psi = new System.Diagnostics.ProcessStartInfo
                 {
@@ -2416,7 +2325,6 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 long heicSize = new FileInfo(tempHeicPath).Length;
-                LogService.FileOp($"KeyPhoto Save[Apple]: HEIC encoded ({heicSize} bytes)", LogLevel.Info);
                 if (heicSize == 0)
                 {
                     LogService.FileOp("KeyPhoto Save[Apple]: HEIC is 0 bytes after heif-enc", LogLevel.Error);
@@ -2437,7 +2345,6 @@ namespace LivePhotoBox.ViewModels
                         "-overwrite_original",
                         "-quiet",
                         tempHeicPath);
-                    LogService.FileOp("KeyPhoto Save[Apple]: tags copied from JPEG -> HEIC", LogLevel.Info);
                 }
                 catch (Exception ex)
                 {
@@ -2450,8 +2357,6 @@ namespace LivePhotoBox.ViewModels
                 var tempHeicFile = await StorageFile.GetFileFromPathAsync(tempHeicPath);
                 await tempHeicFile.CopyAndReplaceAsync(savedFile);
 
-                LogService.FileOp($"KeyPhoto Save[Apple]: HEIC saved to '{targetHeicPath}'", LogLevel.Info);
-
                 // ── 9b. 显式写回 ContentIdentifier，确保配对识别 ──────
                 if (!string.IsNullOrEmpty(contentIdentifier))
                 {
@@ -2462,9 +2367,6 @@ namespace LivePhotoBox.ViewModels
                             "-overwrite_original",
                             "-quiet",
                             targetHeicPath);
-                        LogService.FileOp(
-                            $"KeyPhoto Save[Apple]: ContentIdentifier written to HEIC: {contentIdentifier}",
-                            LogLevel.Info);
                     }
                     catch (Exception ex)
                     {
@@ -2474,12 +2376,7 @@ namespace LivePhotoBox.ViewModels
                     }
                 }
 
-                // ── 10. 静默复制 MOV 到同目录（同名覆盖，不做占位预留）──
-                //     不用 PathHelper.GetUniqueFilePath——其 TryReservePath 会创建 0 字节
-                //     占位文件，在 Windows Defender / Search Indexer 等系统组件竞争下，
-                //     File.Copy 覆盖时可能因文件被外部短暂锁定而失败 → MOV 丢失。
-                //     改用直接 Path.Combine + File.Copy(overwrite: true)，干净可靠。
-                //     HEIC 文件名由用户通过 FileSavePicker 确认，MOV 同名伴随是最自然的行为。
+                // ── 10. 静默复制 MOV 到同目录 ──
                 string targetDir = Path.GetDirectoryName(targetHeicPath)!;
                 string movFileName = Path.GetFileNameWithoutExtension(targetHeicPath) + Path.GetExtension(pairedVideoPath);
                 string targetMovPath = Path.Combine(targetDir, movFileName);
@@ -2487,22 +2384,16 @@ namespace LivePhotoBox.ViewModels
                 try
                 {
                     File.Copy(pairedVideoPath, targetMovPath, overwrite: true);
-                    LogService.FileOp($"KeyPhoto Save[Apple]: MOV copied to '{targetMovPath}'", LogLevel.Info);
                     NotifyShellFileCreated(targetMovPath);
                 }
                 catch (Exception ex)
                 {
-                    // MOV 复制失败不阻断整体流程：HEIC 已成功保存，单独记录错误日志
                     LogService.FileOp(
                         $"KeyPhoto Save[Apple]: MOV copy FAILED — {ex.GetType().Name}: {ex.Message}",
                         LogLevel.Error, ex);
                 }
 
                 // ── 10b. 更新 MOV mebx 轨的封面时间 ──────────────────────
-                // Apple 实况照片的封面时间存在 MOV 的 mebx 轨 edit list 中
-                //（elst[0].trackDur ÷ mvhd.timescale = 封面在视频中的秒数）。
-                // 复制了原始 MOV 后其值仍是旧的，用二进制 patch 直接改 elst 和 tkhd，
-                // 不 remux、不重编码、毫秒级完成。
                 try
                 {
                     EditTimingService.PatchAppleStillImageTime(
@@ -2525,9 +2416,6 @@ namespace LivePhotoBox.ViewModels
                             "-overwrite_original",
                             "-quiet",
                             targetMovPath);
-                        LogService.FileOp(
-                            $"KeyPhoto Save[Apple]: ContentIdentifier written to MOV: {contentIdentifier}",
-                            LogLevel.Info);
                     }
                     catch (Exception ex)
                     {
@@ -2535,20 +2423,6 @@ namespace LivePhotoBox.ViewModels
                             $"KeyPhoto Save[Apple]: ContentIdentifier write to MOV failed: {ex.Message}",
                             LogLevel.Warning);
                     }
-                }
-
-                // ── 11. 验证 ─────────────────────────────────────────────
-                try
-                {
-                    long? readBack = await ReadTimestampFromFileAsync(targetHeicPath);
-                    LogService.FileOp(
-                        $"KeyPhoto Save[Apple]: verify timestamp expect={presentationTimestampUs}, " +
-                        $"readback={(readBack.HasValue ? readBack.Value.ToString() : "N/A")}",
-                        readBack == presentationTimestampUs ? LogLevel.Info : LogLevel.Warning);
-                }
-                catch (Exception ex)
-                {
-                    LogService.FileOp($"KeyPhoto Save[Apple]: verify failed (non-fatal): {ex.Message}", LogLevel.Warning);
                 }
 
                 IsModified = false;
@@ -4223,7 +4097,6 @@ namespace LivePhotoBox.ViewModels
                     $"embeddedVideoLen={item?.AppendedVideoLength}",
                     LogLevel.Info);
             }
-            LogService.Debug($"KeyPhoto SelectFile: type={item?.LivePhotoType}, videoPath={videoPath ?? "null"}, embeddedVideoLen={embeddedVideoLen}", LogSource.UI);
             _ = LoadPropertiesAsync(filePath, videoPath, embeddedVideoLen, myGeneration, token);
         }
 
@@ -4337,7 +4210,6 @@ namespace LivePhotoBox.ViewModels
                 $"videoPath='{(videoPath != null ? Path.GetFileName(videoPath) : "null")}', " +
                 $"embeddedVideoLen={embeddedVideoLen}",
                 LogLevel.Info);
-            LogService.Debug($"KeyPhoto LoadProperties: image='{Path.GetFileName(imagePath)}', video='{(videoPath != null ? Path.GetFileName(videoPath) : "none")}', embedded={embeddedVideoLen}", LogSource.UI);
 
             string? tempVideoPath = null;
             try
@@ -4413,8 +4285,7 @@ namespace LivePhotoBox.ViewModels
                             LogLevel.Info);
                     }
 
-                    // Google V2 HEIC（mpvd box 内嵌视频）：没有 LIVE_ 尾标也不是华为格式，
-                    // 但 mpvd box 包含完整 MP4。用 GetMpvdVideoRange 提取。
+                    // Google V2 HEIC（mpvd box 内嵌视频）
                     if (!isHuawei && videoPath == null
                         && HeicConverterService.IsHeicFile(imagePath))
                     {
@@ -4489,10 +4360,8 @@ namespace LivePhotoBox.ViewModels
                     }, token);
                     videoPath = tempVideoPath;
                     LogService.FileOp(
-                        $"Timeline[LoadProps] Embedded video extracted to temp: '{tempVideoPath}', " +
-                        $"exists={File.Exists(tempVideoPath)}, size={new FileInfo(tempVideoPath).Length}",
+                        $"Timeline[LoadProps] Embedded video extracted to temp: exists={File.Exists(tempVideoPath)}, size={new FileInfo(tempVideoPath).Length}",
                         LogLevel.Info);
-                    LogService.Debug($"KeyPhoto embedded video extracted to temp: {tempVideoPath}", LogSource.UI);
                 }
 
                 // 构建照片查询
@@ -4531,7 +4400,6 @@ namespace LivePhotoBox.ViewModels
                     LogService.FileOp(
                         $"Timeline[LoadProps] exiftool stderr: {stderr.Trim()}",
                         LogLevel.Warning);
-                    LogService.Debug($"[KeyPhoto exiftool stderr] {stderr.Trim()}", LogSource.UI);
                 }
 
                 if (token.IsCancellationRequested)
@@ -4542,10 +4410,6 @@ namespace LivePhotoBox.ViewModels
 
                 var imgJson = imgTask.Result;
                 var vidJson = vidTask.Result;
-
-                LogService.Debug($"KeyPhoto exiftool image output: {TruncateJson(imgJson)}", LogSource.UI);
-                if (!string.IsNullOrWhiteSpace(vidJson))
-                    LogService.Debug($"KeyPhoto exiftool video output: {TruncateJson(vidJson)}", LogSource.UI);
 
                 var dispatcher = App.MainWindow?.DispatcherQueue;
                 if (dispatcher == null)
@@ -4564,7 +4428,6 @@ namespace LivePhotoBox.ViewModels
                     $"Codec='{vidProps.CompressorID ?? "null"}', MediaDur='{vidProps.MediaDuration ?? "null"}', " +
                     $"Dur='{vidProps.Duration ?? "null"}', FPS='{vidProps.VideoFrameRate ?? "null"}'",
                     LogLevel.Info);
-                LogService.Debug($"KeyPhoto video props: W={vidProps.Width} H={vidProps.Height} Size={vidProps.FileSizeBytes} BR={vidProps.AvgBitrate} Codec={vidProps.CompressorID} Dur={vidProps.MediaDuration} FPS={vidProps.VideoFrameRate}", LogSource.UI);
 
                 // ── 后台线程预计算 ──────────────────────────────────────────
                 // 以下操作涉及 exiftool Process.Start 或磁盘 I/O，在后台线程执行，
@@ -4747,14 +4610,12 @@ namespace LivePhotoBox.ViewModels
             catch (OperationCanceledException)
             {
                 LogService.FileOp($"Timeline[LoadProps] CANCELLED (OperationCanceledException)", LogLevel.Warning);
-                LogService.FileOp($"KeyPhoto property load cancelled for '{Path.GetFileName(imagePath)}'", LogLevel.Warning);
             }
             catch (Exception ex)
             {
                 LogService.FileOp(
                     $"Timeline[LoadProps] EXCEPTION: {ex.GetType().Name}: {ex.Message}",
                     LogLevel.Error, ex);
-                LogService.FileOp($"KeyPhoto property load failed for '{Path.GetFileName(imagePath)}': {ex.Message}", LogLevel.Error, ex);
             }
             finally
             {
@@ -4763,9 +4624,6 @@ namespace LivePhotoBox.ViewModels
                 if (tempVideoPath != null)
                 {
                     _tempVideoPath = tempVideoPath;
-                    LogService.FileOp(
-                        $"Timeline[LoadProps] Temp video stored: '{tempVideoPath}', will cleanup after extraction",
-                        LogLevel.Info);
                 }
             }
         }
@@ -5081,9 +4939,9 @@ namespace LivePhotoBox.ViewModels
                                 // 不预设 Thumbnail — 排水泵从 JPEG 加载视频帧缩略图，天然正确
                                 stillFrame = mergedFrame;
                                 LogService.FileOp(
-                                    $"Timeline[Extract] Still photo ⭐ merged onto vid frame #{mergedFrame.FrameIndex} " +
-                                    $"(OPPO split, diff={starMinDiff * 1000:F2}ms, time={coverTimeSeconds}s)",
-                                    LogLevel.Info);
+                                    $"Timeline[Extract] ⭐ merged onto vid frame #{mergedFrame.FrameIndex} " +
+                                    $"(OPPO, diff={starMinDiff * 1000:F2}ms, time={coverTimeSeconds}s)",
+                                    LogLevel.Debug);
                             }
                             else
                             {

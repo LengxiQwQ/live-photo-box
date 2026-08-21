@@ -348,7 +348,7 @@
 
                                         <TextBlock Grid.Row="0" Grid.Column="3" Margin="8,0,0,0" Text="{x:Bind File1IssueDescription, Mode=OneWay}" Foreground="{x:Bind File1IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File1IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="1"/>
 
-                                        <TextBlock Grid.Row="0" Grid.Column="4" Margin="10,0,0,0" Text="{x:Bind File1Details, Mode=OneWay}" Foreground="{x:Bind File1DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="1"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="4" Margin="10,0,0,0" Text="{x:Bind File1DisplayStatusText, Mode=OneWay}" Foreground="{x:Bind File1DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" HorizontalAlignment="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="1"/>
 
                                         <!-- Row 1: 配对分隔线 — 横跨文件→问题→状态 -->
                                         <Border Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3"
@@ -368,7 +368,7 @@
 
                                         <TextBlock Grid.Row="2" Grid.Column="3" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2IssueDescription, Mode=OneWay}" Foreground="{x:Bind File2IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File2IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="2"/>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="4" Margin="10,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2Details, Mode=OneWay}" Foreground="{x:Bind File2DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="2"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="4" Margin="10,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2DisplayStatusText, Mode=OneWay}" Foreground="{x:Bind File2DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" HorizontalAlignment="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="2"/>
                                     </Grid>
                                 </Border>
                         </DataTemplate>

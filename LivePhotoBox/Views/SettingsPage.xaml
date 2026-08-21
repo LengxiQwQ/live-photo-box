@@ -648,6 +648,65 @@
             </StackPanel>
 
             <!-- ====================================================================== -->
+            <!--  通知与声音                                                            -->
+            <!-- ====================================================================== -->
+            <StackPanel Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
+                    <FontIcon Glyph="&#xEA8F;" FontSize="18" Foreground="{ThemeResource SystemAccentColor}"/>
+                    <TextBlock x:Uid="SettingsPage_Notifications_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
+                </StackPanel>
+
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_NotificationFrequency_Label" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_NotificationFrequency_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE9E9;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ComboBox SelectedIndex="{x:Bind ViewModel.NotificationFrequencyIndex, Mode=TwoWay}" MinWidth="220">
+                        <ComboBoxItem x:Uid="SettingsPage_NotifFreq_Always"/>
+                        <ComboBoxItem x:Uid="SettingsPage_NotifFreq_Over15"/>
+                        <ComboBoxItem x:Uid="SettingsPage_NotifFreq_Over30"/>
+                        <ComboBoxItem x:Uid="SettingsPage_NotifFreq_Over60"/>
+                        <ComboBoxItem x:Uid="SettingsPage_NotifFreq_Over120"/>
+                        <ComboBoxItem x:Uid="SettingsPage_NotifFreq_Over300"/>
+                        <ComboBoxItem x:Uid="SettingsPage_NotifFreq_Never"/>
+                    </ComboBox>
+                </controls:SettingsCard>
+
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_NotificationSound_Label" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_NotificationSound_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE767;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Button Command="{x:Bind ViewModel.PreviewNotificationSoundCommand}"
+                                Width="32" Height="32" Padding="0"
+                                VerticalAlignment="Center"
+                                x:Uid="SettingsPage_NotifSound_Preview">
+                            <FontIcon Glyph="&#xE767;" FontSize="16"/>
+                        </Button>
+                        <ComboBox SelectedIndex="{x:Bind ViewModel.NotificationSoundIndex, Mode=TwoWay}" MinWidth="220">
+                            <ComboBoxItem x:Uid="SettingsPage_NotifSound_Mail"/>
+                            <ComboBoxItem x:Uid="SettingsPage_NotifSound_Default"/>
+                            <ComboBoxItem x:Uid="SettingsPage_NotifSound_Reminder"/>
+                            <ComboBoxItem x:Uid="SettingsPage_NotifSound_IM"/>
+                            <ComboBoxItem x:Uid="SettingsPage_NotifSound_SMS"/>
+                            <ComboBoxItem x:Uid="SettingsPage_NotifSound_Alarm"/>
+                        </ComboBox>
+                    </StackPanel>
+                </controls:SettingsCard>
+            </StackPanel>
+
+            <!-- ====================================================================== -->
             <!--  示例内容                                                             -->
             <!-- ====================================================================== -->
             <StackPanel x:Name="SampleContentRoot" Spacing="4">

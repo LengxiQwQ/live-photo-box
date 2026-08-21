@@ -993,6 +993,18 @@ Devices change. Platforms change. But the memories that belong to you shouldn't 
   <data name="Task_Failed" xml:space="preserve">
     <value>Failed</value>
   </data>
+  <data name="MergePage_Task_Failed" xml:space="preserve">
+    <value>Merge failed</value>
+  </data>
+  <data name="SplitPage_Task_Failed" xml:space="preserve">
+    <value>Split failed</value>
+  </data>
+  <data name="RepairPage_Task_Failed" xml:space="preserve">
+    <value>Repair failed</value>
+  </data>
+  <data name="Task_TapToViewHint" xml:space="preserve">
+    <value>Tap to view</value>
+  </data>
   <data name="SettingsPage_Crash_Header.Text" xml:space="preserve">
     <value>Application Logs</value>
   </data>
@@ -3781,6 +3793,63 @@ Then click "Start Split".</value>
   </data>
   <data name="HomePage_NoSample_GoToSettings" xml:space="preserve">
     <value>Go to Settings</value>
+  </data>
+  <data name="SettingsPage_Notifications_Header.Text" xml:space="preserve">
+    <value>Notifications &amp; Sound</value>
+  </data>
+  <data name="SettingsPage_NotificationFrequency_Label.Text" xml:space="preserve">
+    <value>Notification frequency</value>
+  </data>
+  <data name="SettingsPage_NotificationFrequency_Desc.Text" xml:space="preserve">
+    <value>Choose when to send a system notification after a task finishes</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Always.Content" xml:space="preserve">
+    <value>Notify for every task</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Over15.Content" xml:space="preserve">
+    <value>Notify when task duration exceeds 15 seconds</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Over30.Content" xml:space="preserve">
+    <value>Notify when task duration exceeds 30 seconds</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Over60.Content" xml:space="preserve">
+    <value>Notify when task duration exceeds 1 minute</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Over120.Content" xml:space="preserve">
+    <value>Notify when task duration exceeds 2 minutes</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Over300.Content" xml:space="preserve">
+    <value>Notify when task duration exceeds 5 minutes</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Never.Content" xml:space="preserve">
+    <value>Never show notifications</value>
+  </data>
+  <data name="SettingsPage_NotificationSound_Label.Text" xml:space="preserve">
+    <value>Notification sound</value>
+  </data>
+  <data name="SettingsPage_NotificationSound_Desc.Text" xml:space="preserve">
+    <value>Choose the system sound played when a task finishes</value>
+  </data>
+  <data name="SettingsPage_NotifSound_Default.Content" xml:space="preserve">
+    <value>Notification ringtone</value>
+  </data>
+  <data name="SettingsPage_NotifSound_Reminder.Content" xml:space="preserve">
+    <value>Calendar</value>
+  </data>
+  <data name="SettingsPage_NotifSound_IM.Content" xml:space="preserve">
+    <value>Instant message</value>
+  </data>
+  <data name="SettingsPage_NotifSound_Mail.Content" xml:space="preserve">
+    <value>Mail (default)</value>
+  </data>
+  <data name="SettingsPage_NotifSound_SMS.Content" xml:space="preserve">
+    <value>SMS</value>
+  </data>
+  <data name="SettingsPage_NotifSound_Alarm.Content" xml:space="preserve">
+    <value>Alarm</value>
+  </data>
+  <data name="SettingsPage_NotifSound_Preview.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Preview sound</value>
   </data>
   <data name="SettingsPage_SampleContent_Header.Text" xml:space="preserve">
     <value>Sample Content</value>

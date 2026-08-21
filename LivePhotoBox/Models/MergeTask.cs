@@ -43,6 +43,13 @@ namespace LivePhotoBox.Models
         // 任务失败且有错误详情时返回 true（用于 UI 显示错误图标）
         public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
 
+        // 队列中显示的状态文字：失败时显示两行"合成失败 / 点击查看"（简短、不截断），
+        // 完整错误详情在点击后弹出的 TeachingTip 中查看；其余状态沿用原详情文案。
+        public string DisplayStatusText => Status == ProcessStatus.Failed
+            ? ResourceService.GetString("MergePage_Task_Failed") + "\n" +
+              ResourceService.GetString("Task_TapToViewHint")
+            : Details;
+
         // 图片原始大小（字节），用于排序
         public long ImageSizeBytes { get; set; }
         // 视频原始大小（字节），用于排序
@@ -101,12 +108,14 @@ namespace LivePhotoBox.Models
         partial void OnStatusChanged(ProcessStatus value)
         {
             OnPropertyChanged(nameof(HasErrorDetails));
+            OnPropertyChanged(nameof(DisplayStatusText));
         }
 
         // 详情变更时刷新 HasErrorDetails
         partial void OnDetailsChanged(string value)
         {
             OnPropertyChanged(nameof(HasErrorDetails));
+            OnPropertyChanged(nameof(DisplayStatusText));
         }
 
         #endregion

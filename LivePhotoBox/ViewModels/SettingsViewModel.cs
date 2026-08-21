@@ -439,6 +439,59 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
+        #region Notification Settings
+
+        // 通知频率索引：0=每次任务都通知，1=>15 秒，2=>30 秒，3=>1 分钟，4=>2 分钟，5=>5 分钟，6=永不通知。
+        [ObservableProperty]
+        private int _notificationFrequencyIndex;
+
+        partial void OnNotificationFrequencyIndexChanged(int value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(NotificationFrequencyIndex), value);
+            LogService.Info($"Notification frequency index changed to: {value}", LogSource.Settings);
+        }
+
+        // 通知声音索引：0=邮件（默认），1=通知铃声，2=日历，3=即时消息，4=短信，5=闹钟。
+        // 默认 0 = Notification.Mail（声音方案里的"邮件"音）。
+        [ObservableProperty]
+        private int _notificationSoundIndex = 0;
+
+        partial void OnNotificationSoundIndexChanged(int value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(NotificationSoundIndex), value);
+            LogService.Info($"Notification sound index changed to: {value}", LogSource.Settings);
+        }
+
+        // 试听播放器（复用单例，避免重复创建和资源泄漏）
+        private static readonly Windows.Media.Playback.MediaPlayer NotificationPreviewPlayer = new();
+
+        // 试听当前选择的系统通知声音：按当前声音方案读取 wav 路径（不硬编码文件路径），播放给用户确认。
+        [RelayCommand]
+        private void PreviewNotificationSound()
+        {
+            string? wavPath = NotificationService.GetSoundEventWavPath(NotificationSoundIndex);
+            if (string.IsNullOrEmpty(wavPath) || !File.Exists(wavPath))
+            {
+                LogService.Debug($"Notification preview skipped: no sound file for index {NotificationSoundIndex}", LogSource.Settings);
+                return;
+            }
+
+            try
+            {
+                NotificationPreviewPlayer.Source = Windows.Media.Core.MediaSource.CreateFromUri(new Uri(wavPath));
+                NotificationPreviewPlayer.Play();
+                LogService.Info($"Notification sound preview: {Path.GetFileName(wavPath)}", LogSource.Settings);
+            }
+            catch (Exception ex)
+            {
+                LogService.Debug($"Notification preview failed: {ex.Message}", LogSource.Settings);
+            }
+        }
+
+        #endregion
+
         #region General Settings
 
         [ObservableProperty]
@@ -643,6 +696,8 @@ namespace LivePhotoBox.ViewModels
             ThumbnailProviderIndex = AppSettingsService.GetValue(nameof(ThumbnailProviderIndex), 0);
             TimelineModeIndex = AppSettingsService.GetValue(nameof(TimelineModeIndex), 1);
             IsRememberWindowLayout = AppSettingsService.GetValue(nameof(IsRememberWindowLayout), true);
+            NotificationFrequencyIndex = AppSettingsService.GetValue(nameof(NotificationFrequencyIndex), 0);
+            NotificationSoundIndex = AppSettingsService.GetValue(nameof(NotificationSoundIndex), 0);
         }
 
         // 异步加载硬件编码信息（WMI + FFmpeg 检测），完成后设置 SelectedHardware。

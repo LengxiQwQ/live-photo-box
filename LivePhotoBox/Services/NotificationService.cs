@@ -11,6 +11,7 @@
 
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using Microsoft.Win32;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using System;
@@ -19,10 +20,6 @@ namespace LivePhotoBox.Services
 {
     public static class NotificationService
     {
-        // 通知阈值（秒）：任务持续超过此值才弹通知。
-        // 测试期 = 0 立即触发；上线后改为 120（2 分钟）。
-        private const int NotificationThresholdSeconds = 0;
-
         // 通知激活事件 — 点击通知时触发，参数为页面标签 (Merge/Split/Repair)
         public static event Action<string?>? ActivationRequested;
 
@@ -78,8 +75,21 @@ namespace LivePhotoBox.Services
             if (_registerFailed) return;
             if (!_initialized) return;
 
+            // 通知频率设置（来自设置页"通知与声音"）：0=每次任务都通知，1=>15 秒，2=>30 秒，3=>1 分钟，4=>2 分钟，5=>5 分钟，6=永不通知。
+            int frequencyIndex = AppSettingsService.GetValue("NotificationFrequencyIndex", 0);
+            int thresholdSeconds = frequencyIndex switch
+            {
+                1 => 15,
+                2 => 30,
+                3 => 60,
+                4 => 120,
+                5 => 300,
+                6 => int.MaxValue, // 永不显示通知
+                _ => 0
+            };
+
             // 阈值判断：短任务不弹通知（用户还在原地等）
-            if (elapsedSeconds < NotificationThresholdSeconds)
+            if (elapsedSeconds < thresholdSeconds)
                 return;
 
             try
@@ -104,11 +114,23 @@ namespace LivePhotoBox.Services
                     .AddText(title)
                     .AddText(body);
 
-                // 设置场景为"提醒"：弹窗 + 播放系统提醒音，确保用户能感知到
+                // 设置场景为"提醒"：弹窗更持久、优先级更高，确保用户能感知到
                 builder.SetScenario(AppNotificationScenario.Reminder);
-                // 显式指定系统声音事件（Notification.Reminder → 声音方案中的"提醒"音），
-                // 按事件名引用而非硬编码文件路径，用户更换声音方案时自动跟随
-                builder.SetAudioEvent(AppNotificationSoundEvent.Reminder);
+
+                // 按用户选择指定系统声音事件（按事件名引用，不硬编码文件路径，用户更换声音方案时自动跟随）：
+                // 0=邮件（默认），1=通知铃声，2=日历，3=即时消息，4=短信，5=闹钟
+                int soundIndex = AppSettingsService.GetValue("NotificationSoundIndex", 0);
+                var soundEvent = soundIndex switch
+                {
+                    0 => AppNotificationSoundEvent.Mail,
+                    1 => AppNotificationSoundEvent.Default,
+                    2 => AppNotificationSoundEvent.Reminder,
+                    3 => AppNotificationSoundEvent.IM,
+                    4 => AppNotificationSoundEvent.SMS,
+                    5 => AppNotificationSoundEvent.Alarm,
+                    _ => AppNotificationSoundEvent.Mail,
+                };
+                builder.SetAudioEvent(soundEvent);
 
                 // 设置激活参数（点击通知时传递页面标签）
                 if (pageTag != null)
@@ -120,6 +142,36 @@ namespace LivePhotoBox.Services
             catch (Exception ex)
             {
                 LogService.Debug($"Failed to show notification: {ex.Message}", LogSource.App);
+            }
+        }
+
+        // 根据声音设置索引返回系统声音方案中对应事件名（用于试听读取 wav 路径）。
+        private static string GetSoundEventName(int soundIndex) => soundIndex switch
+        {
+            0 => "Notification.Mail",
+            1 => "Notification.Default",
+            2 => "Notification.Reminder",
+            3 => "Notification.IM",
+            4 => "Notification.SMS",
+            5 => "Notification.Looping.Alarm",
+            _ => "Notification.Mail",
+        };
+
+        // 试听用：读取当前系统声音方案为指定事件配置的音频文件路径（跟随用户声音方案，不硬编码）。
+        // 事件被设为"无"或读取失败时返回 null。
+        public static string? GetSoundEventWavPath(int soundIndex)
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(
+                    $@"AppEvents\Schemes\Apps\.Default\{GetSoundEventName(soundIndex)}\.current");
+                string? path = key?.GetValue(null) as string;
+                return string.IsNullOrWhiteSpace(path) ? null : path;
+            }
+            catch (Exception ex)
+            {
+                LogService.Debug($"Failed to read sound event path: {ex.Message}", LogSource.App);
+                return null;
             }
         }
 

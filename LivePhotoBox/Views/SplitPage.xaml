@@ -977,7 +977,7 @@
                                             <Border Width="8" Height="8" CornerRadius="4"
                                                     Background="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
                                                     VerticalAlignment="Center"/>
-                                            <TextBlock Text="{x:Bind Details, Mode=OneWay}"
+                                            <TextBlock Text="{x:Bind DisplayStatusText, Mode=OneWay}"
                                                        Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
                                                        FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"
                                                        TextTrimming="CharacterEllipsis"
