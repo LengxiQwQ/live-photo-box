@@ -45,7 +45,7 @@ namespace LivePhotoBox
     internal enum TaskbarProgressFlags : int
     {
         NoProgress = 0x00000000,     // 隐藏任务栏进度
-        Indeterminate = 0x00000001,  // 无限循环动画（处理中显示；部分 Win11 任务栏上确定型不可见）
+        Indeterminate = 0x00000001,  // 无限循环动画（首个任务完成前显示：激活进度层并保证可见）
         Normal = 0x00000002,         // 正常确定进度（绿色）
         Error = 0x00000004,          // 错误（红色）
         Paused = 0x00000008          // 暂停（黄色）
@@ -833,10 +833,7 @@ namespace LivePhotoBox
                 {
                     case ProgressBarState.Processing:
                     case ProgressBarState.Pausing:
-                        // 处理中统一显示"不确定进度"动画条：实测部分 Windows 11
-                        // 新任务栏上确定型（TBPF_NORMAL）百分比条只渲染一条极细的底线，
-                        // 肉眼几乎不可见；动画条则始终清晰可见。真实百分比仍在页面内显示。
-                        _taskbarList.SetProgressState(_windowHandle, TaskbarProgressFlags.Indeterminate);
+                        UpdateProcessingTaskbar(activeVm.Progress);
                         break;
 
                     case ProgressBarState.Paused:
@@ -865,6 +862,24 @@ namespace LivePhotoBox
             {
                 // COM 调用失败（如桌面切换、explorer 重启）时静默降级，下次成功自动恢复
                 LogService.Warn($"Taskbar progress update failed: {ex.Message}", source: LogSource.UI);
+            }
+        }
+
+        // 处理中的任务栏显示：进度仍为 0（首个任务未完成）时保持不确定动画条，
+        // 保证全程可见、不出现空白期；一旦进度 > 0 立即切确定型百分比。
+        private void UpdateProcessingTaskbar(double progress)
+        {
+            if (progress <= 0)
+            {
+                _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Indeterminate);
+            }
+            else
+            {
+                _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Normal);
+                _taskbarList.SetProgressValue(
+                    _windowHandle,
+                    (ulong)Math.Clamp(progress, 0, 100),
+                    100);
             }
         }
 
