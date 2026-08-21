@@ -15,6 +15,7 @@ namespace LivePhotoBox.ViewModels
         partial void OnIsScanningChanged(bool value)
         {
             OnPropertyChanged(nameof(ScanButtonStyle));
+            OnPropertyChanged(nameof(IsScanIndeterminate));
             if (value)
             {
                 ProgressBarState = Models.ProgressBarState.Scanning;

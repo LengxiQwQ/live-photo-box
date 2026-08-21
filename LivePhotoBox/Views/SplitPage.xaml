@@ -1109,7 +1109,7 @@
                 <ProgressBar Grid.Row="0" Height="4" CornerRadius="2"
                              Margin="0,4,0,4" VerticalAlignment="Center"
                              Value="{x:Bind ViewModel.FooterProgressValue, Mode=OneWay}" Maximum="100"
-                             IsIndeterminate="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarIndeterminateConverter}, Mode=OneWay}"
+                             IsIndeterminate="{x:Bind ViewModel.IsScanIndeterminate, Mode=OneWay}"
                              Foreground="{x:Bind ViewModel.ProgressBarState, Converter={StaticResource ProgressBarForegroundConverter}, Mode=OneWay}"
                              Background="Transparent"
                              BorderThickness="0" Padding="0" HorizontalAlignment="Stretch"/>

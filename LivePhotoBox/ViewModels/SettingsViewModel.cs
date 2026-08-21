@@ -400,20 +400,6 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"HEIC repair setting changed to: {(value ? "enabled" : "disabled")}", LogSource.Settings);
         }
 
-        // 修复输出模式 — 开启时修复到单独目录，关闭时原地替换
-        [ObservableProperty]
-        private bool _isRepairOutputToDirectory;
-
-        partial void OnIsRepairOutputToDirectoryChanged(bool value)
-        {
-            if (_isInitializing) return;
-            AppSettingsService.SetValue("IsOutputToDirectory", value);
-            // 同步到 RepairViewModel（防御性 null 检查，初始化顺序可能导致 Repair 尚未创建）
-            if (AppViewModel.Instance?.Repair != null)
-                AppViewModel.Instance.Repair.IsOutputToDirectory = value;
-            LogService.Info($"Repair output mode: {(value ? "separate directory" : "in-place")}", LogSource.Settings);
-        }
-
         // 修复非实况照片的视频 — 开启后同时修复 > 3.5s 的普通长视频
         [ObservableProperty]
         private bool _isNonLivePhotoVideoRepairEnabled;
@@ -643,7 +629,6 @@ namespace LivePhotoBox.ViewModels
             HeicDecoderIndex = AppSettingsService.GetValue(nameof(HeicDecoderIndex), 0);
             MergeThreadCount = AppSettingsService.GetValue("MergeThreadCount", 4);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
-            IsRepairOutputToDirectory = AppSettingsService.GetValue("IsOutputToDirectory", false);
             IsRepairScanLoadThumbnail = AppSettingsService.GetValue(nameof(IsRepairScanLoadThumbnail), false);
             IsStrictLivePhotoScanEnabled = AppSettingsService.GetValue(nameof(IsStrictLivePhotoScanEnabled), false);
             IsAppleOnlyScanEnabled = AppSettingsService.GetValue(nameof(IsAppleOnlyScanEnabled), true);

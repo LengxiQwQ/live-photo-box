@@ -604,10 +604,9 @@ namespace LivePhotoBox.Cli.Commands
                 if (verbose && !json)
                     Console.WriteLine($"Starting merge: {Path.GetFileName(imagePath)}...");
 
-                var pause = new ManualResetEventSlim(true); // CLI never pauses
                 var (isSuccess, details) = await LivePhotoMergeRunnerService.ProcessSinglePairAsync(
                     imagePath, videoPath, baseName, taskIndex: 1,
-                    options, tempDir, pause, ct);
+                    options, tempDir, ct);
 
                 if (isSuccess)
                 {
@@ -1065,7 +1064,6 @@ namespace LivePhotoBox.Cli.Commands
 
             int ok = 0, fail = 0, completed = 0;
             var semaphore = new SemaphoreSlim(Math.Max(1, parallel));
-            var pause = new ManualResetEventSlim(true); // CLI never pauses
 
             var tasks = combos.Select(async c =>
             {
@@ -1084,7 +1082,7 @@ namespace LivePhotoBox.Cli.Commands
 
                     var (success, details) = await LivePhotoMergeRunnerService
                         .ProcessSinglePairAsync(imagePath, videoPath, c.BaseName,
-                            taskIndex: 0, options, tempDir, pause, ct);
+                            taskIndex: 0, options, tempDir, ct);
 
                     if (success)
                     {

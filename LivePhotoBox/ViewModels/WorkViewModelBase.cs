@@ -16,6 +16,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,6 +24,17 @@ namespace LivePhotoBox.ViewModels
 {
     public abstract partial class WorkViewModelBase : ViewModelBase
     {
+        // 扫描期间定时刷新扫描用时（500ms 间隔）。
+        // 进度快照并非连续到达（枚举完成前、慢步骤无快照时），
+        // 没有该定时器的话扫描用时会在等待期间停住，直到下一个进度快照才更新。
+        private readonly DispatcherTimer _scanElapsedTimer;
+
+        protected WorkViewModelBase()
+        {
+            _scanElapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            _scanElapsedTimer.Tick += (_, _) => OnPropertyChanged("ElapsedTimeText");
+        }
+
         // 崩溃日志强制使用的语言标签（英语），确保崩溃信息可读。
         private const string CrashLogLanguageTag = "en-US";
 
@@ -56,13 +68,17 @@ namespace LivePhotoBox.ViewModels
         // 是否请求了恢复。
         private bool _resumeRequested = false;
         // 是否正在暂停过渡中（工作线程执行完当前任务后才真正暂停）。
-        private bool _isPausing = false;
+        protected bool _isPausing = false;
         // 是否由用户主动取消（而非自然完成）。
         protected bool _cancelledByUser = false;
         // 页面正在关闭清理中，跳过部分 UI 更新以避免操作已销毁的 XamlRoot。
         protected bool _isCleaningUp = false;
         // 当前活跃的工作线程数，用于判断是否可以安全暂停。
         protected int _activeWorkerCount;
+
+        // 扫描用时秒表：扫描开始 Restart，扫描结束（含取消/异常）Stop 并保留冻结值，
+        // 供子类在底部状态栏显示"扫描用时"；开始处理后会切换到处理用时。
+        protected readonly Stopwatch ScanStopwatch = new();
 
         // 是否由用户手动停止（而非自然完成）。页面可据此决定是否跳过完成时的滚动。
         public bool WasStoppedByUser => _cancelledByUser;
@@ -193,6 +209,9 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(IsProcessingAllowed));
             OnPropertyChanged(nameof(CanEditInputConfiguration));
             OnPropertyChanged(nameof(CanEditOutputConfiguration));
+            OnPropertyChanged("ElapsedTimeText");
+            OnPropertyChanged("FooterStatusText");
+            OnPropertyChanged(nameof(IsScanIndeterminate));
             StatusChanged?.Invoke(this, EventArgs.Empty);
         }
 
@@ -235,6 +254,8 @@ namespace LivePhotoBox.ViewModels
             _scanProcessed = 0;
             _scanTotal = 0;
             _lastScanUiUpdateMs = 0;
+            ScanStopwatch.Restart();
+            _scanElapsedTimer.Start();
             OnBeginScanSession();
         }
 
@@ -407,8 +428,13 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
-        // 扫描结束时的子类钩子（默认空实现）。
-        protected virtual void OnScanningEnded() { }
+        // 扫描结束时的子类钩子。
+        // 默认冻结扫描用时：保持"扫描用时 mm:ss"显示，直到用户开始处理时切换到处理用时。
+        protected virtual void OnScanningEnded()
+        {
+            ScanStopwatch.Stop();
+            _scanElapsedTimer.Stop();
+        }
         // 初始化运行状态时的子类钩子（子类在此设置进度计数等）。
         protected abstract void OnInitializeRunState();
         // 结束运行状态时的子类钩子（子类在此输出完成统计日志等）。
@@ -539,6 +565,10 @@ namespace LivePhotoBox.ViewModels
         // 扫描按钮样式：扫描中切换为取消样式，空闲时恢复默认样式。
         public Style ScanButtonStyle => ResolveScanButtonStyle(IsScanning);
 
+        // 扫描中且尚无进度总数（枚举未完成）时显示不确定动画；
+        // 一旦拿到进度总数（total > 0），进度条切换为确定模式并显示真实扫描进度。
+        public bool IsScanIndeterminate => IsScanning && _scanTotal <= 0;
+
         // 根据扫描状态解析按钮样式。
         private static Style ResolveScanButtonStyle(bool isCancelAppearance)
         {
@@ -639,6 +669,7 @@ namespace LivePhotoBox.ViewModels
             IsPaused = false;
             IsScanning = false;
             _isPausing = false;
+            ScanStopwatch.Reset();
             ProgressBarState = Models.ProgressBarState.Idle;
             Progress = 0;
             ProgressText = "0/0";
@@ -661,6 +692,7 @@ namespace LivePhotoBox.ViewModels
         // 否则后台任务在清理期间仍可能访问已被清空的集合。
         public void Cleanup()
         {
+            _scanElapsedTimer.Stop();
             CleanupTokens();
             OnCleanup();
         }

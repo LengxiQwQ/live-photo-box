@@ -28,6 +28,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.ComponentModel;
 using System.Threading;
@@ -45,7 +46,7 @@ namespace LivePhotoBox
     internal enum TaskbarProgressFlags : int
     {
         NoProgress = 0x00000000,     // 隐藏任务栏进度
-        Indeterminate = 0x00000001,  // 无限循环动画（首个任务完成前显示：激活进度层并保证可见）
+        Indeterminate = 0x00000001,  // 无限循环动画（扫描中 / 首个任务完成前显示）
         Normal = 0x00000002,         // 正常确定进度（绿色）
         Error = 0x00000004,          // 错误（红色）
         Paused = 0x00000008          // 暂停（黄色）
@@ -130,6 +131,9 @@ namespace LivePhotoBox
         // 最近一次处于"处理中"（IsProcessing=true）的页面。
         // 用于区分"处理任务被取消"（任务栏显示红色）与"扫描被取消"（任务栏不显示）。
         private WorkViewModelBase? _lastProcessingVm;
+        // 各扫描源（合并/拆分/修复/编辑页左侧目录）最近一次扫描的开始时间，
+        // 多扫描同时进行时显示"最新开始"的那个。
+        private readonly Dictionary<object, DateTime> _scanStartTimes = new();
 
         // 重置布局后的重启标记：避免重启退出时 Closed 事件把当前（旧）尺寸写回设置
         public bool IsRestartingAfterLayoutReset { get; set; }
@@ -303,6 +307,8 @@ namespace LivePhotoBox
             ViewModel.Settings.PropertyChanged += OnSettingsPropertyChanged;
             ViewModel.Settings.PropertyChanged += OnSettingsHistoryVisibilityChanged;
             ViewModel.RequestNavigateToPage += OnRequestNavigateToPage;
+            // 编辑页左侧目录扫描：IsScanning 变化时刷新任务栏（无处理时显示动画条）
+            ViewModel.Edit.PropertyChanged += OnEditViewModelPropertyChanged;
 
             // 应用初始化配置
             UpdateTheme();
@@ -343,6 +349,15 @@ namespace LivePhotoBox
                 case nameof(AppViewModel.IsAnyWorkPageProcessing):
                     UpdateTaskbarProgress();
                     break;
+            }
+        }
+
+        // 响应 EditViewModel 属性变更：左侧目录扫描开始/结束时刷新任务栏。
+        private void OnEditViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(EditViewModel.IsScanning))
+            {
+                UpdateTaskbarProgress();
             }
         }
 
@@ -691,9 +706,36 @@ namespace LivePhotoBox
 
         // Win32 常量
         private const int SW_MAXIMIZE = 3;
+        private const int SW_RESTORE = 9;
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+        // 通知点击后窗口带到前台（App 回调调用，需 public）。
+        public void ActivateFromNotification()
+        {
+            if (_windowHandle == IntPtr.Zero)
+            {
+                _windowHandle = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            }
+            if (_windowHandle == IntPtr.Zero) return;
+            ShowWindow(_windowHandle, SW_RESTORE);
+            SetForegroundWindow(_windowHandle);
+        }
+
+        // 通知点击导航：根据 toast 激活参数跳到对应页面（App 回调调用，需 public）。
+        public void NavigateFromNotification(string? tag)
+        {
+            switch (tag)
+            {
+                case "Merge": SwitchToPageByTag("Merge"); break;
+                case "Split": SwitchToPageByTag("Split"); break;
+                case "Repair": SwitchToPageByTag("Repair"); break;
+            }
+        }
 
         [DllImport("user32.dll")]
         private static extern bool GetWindowPlacement(IntPtr hWnd, ref WINDOWPLACEMENT lpwndpl);
@@ -762,8 +804,12 @@ namespace LivePhotoBox
             _windowHandle = IntPtr.Zero;
         }
 
-        // 核心更新入口：根据当前实际处理页面的状态刷新任务栏进度条。
-        // 直接读取各页面 ViewModel（Merge/Split/Repair.IsProcessing 和 ProgressBarState），
+        // 核心更新入口：任务栏跟随软件内进度条——
+        //   处理中（IsProcessing）→ 跟随该页面进度条（首个任务完成前动画，之后百分比）；
+        //   无处理但有扫描（三个工作页或编辑页左侧目录）→ 跟随"最新开始"扫描源的扫描进度条：
+        //     枚举阶段（总数未知）→ 不确定动画条；拿到总数后 → 确定型扫描百分比；
+        //   取消 → 红色；完成 → 100% 闪烁后消失。
+        // 直接读取各页面 ViewModel（Merge/Split/Repair），
         // 不依赖 AppViewModel 的全局 FooterProgress* 属性（那个已禁用，且需要 CurrentStatusPageTag）。
         private void UpdateTaskbarProgress()
         {
@@ -772,90 +818,118 @@ namespace LivePhotoBox
 
             try
             {
-                // 找出当前正在处理的页面（三个页面互斥，只能有一个在处理）
+                // 维护各页面扫描开始时间（多页面同时扫描时取"最新开始"者）
+                UpdateScanTracking();
+
+                // 1) 有页面在处理（三个页面互斥，只能有一个）→ 跟随该页面的进度条
                 WorkViewModelBase? activeVm = null;
                 if (ViewModel.Merge.IsProcessing) activeVm = ViewModel.Merge;
                 else if (ViewModel.Split.IsProcessing) activeVm = ViewModel.Split;
                 else if (ViewModel.Repair.IsProcessing) activeVm = ViewModel.Repair;
 
-                if (activeVm == null)
+                if (activeVm != null)
                 {
-                    // 没有页面在处理中：检查是否停留在"成功"或"取消"终态
-                    // （这两个状态在 IsProcessing=false 后仍保留在子 VM 上）。
-                    var successVm = FindTerminalStateVm(ProgressBarState.Success);
-                    if (successVm != null)
+                    // 有页面在处理 → 取消上一次的成功闪烁，立即按最新状态刷新
+                    _lastProcessingVm = activeVm;
+                    CancelSuccessFlash();
+
+                    switch (activeVm.ProgressBarState)
                     {
-                        // 刚完成 → 短暂显示 100% 绿色，1.5 秒后清除
-                        CancelSuccessFlash();
-                        _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Normal);
-                        _taskbarList.SetProgressValue(_windowHandle, 100, 100);
-                        ScheduleSuccessClear();
-                    }
-                    else
-                    {
-                        // 已取消 → 红色（保持到下一次操作开始或状态清除，
-                        // 与页面内进度条语义一致）。但只针对"处理任务被取消"：
-                        // 扫描被取消时 ProgressBarState 同样是 Cancelled，
-                        // 而扫描不进任务栏，因此用 _lastProcessingVm 区分。
-                        var cancelledVm = FindTerminalStateVm(ProgressBarState.Cancelled);
-                        if (cancelledVm != null && cancelledVm == _lastProcessingVm)
-                        {
-                            CancelSuccessFlash();
-                            _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Error);
-                            _taskbarList.SetProgressValue(
+                        case ProgressBarState.Processing:
+                        case ProgressBarState.Pausing:
+                            UpdateProcessingTaskbar(activeVm.Progress);
+                            break;
+
+                        case ProgressBarState.Paused:
+                            _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Paused);
+                            _taskbarList!.SetProgressValue(
                                 _windowHandle,
-                                (ulong)Math.Clamp(cancelledVm.Progress, 0, 100),
+                                (ulong)Math.Clamp(activeVm.Progress, 0, 100),
                                 100);
-                        }
-                        else
-                        {
-                            CancelSuccessFlash();
+                            break;
+
+                        case ProgressBarState.Cancelled:
+                            _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Error);
+                            _taskbarList!.SetProgressValue(
+                                _windowHandle,
+                                (ulong)Math.Clamp(activeVm.Progress, 0, 100),
+                                100);
+                            break;
+
+                        default:
+                            // Idle / 未知状态 → 不显示
                             ClearTaskbarProgress();
-                            // 处理刚结束时会先经过这里（IsProcessing=false 但
-                            // ProgressBarState 仍短暂是 Processing），紧接着才变为
-                            // Cancelled/Success，因此只有确认所有页面都已离开
-                            // "处理类"状态（空闲/扫描等）才清除标记，否则取消红色
-                            // 或成功闪烁会因标记丢失而不显示。
-                            if (!IsAnyProcessingLikeState())
-                            {
-                                _lastProcessingVm = null;
-                            }
-                        }
+                            break;
                     }
                     return;
                 }
 
-                // 有页面在处理 → 取消上一次的成功闪烁，立即按最新状态刷新
-                _lastProcessingVm = activeVm;
-                CancelSuccessFlash();
-
-                switch (activeVm.ProgressBarState)
+                // 2) 没有处理但有页面在扫描 → 跟随"最新开始"扫描页面的扫描进度条：
+                //    枚举阶段（总数未知，IsScanIndeterminate）→ 不确定动画条；
+                //    拿到总数后 → 确定型百分比（FooterProgressValue）。
+                var scanVm = GetNewestScanningVm();
+                if (scanVm != null)
                 {
-                    case ProgressBarState.Processing:
-                    case ProgressBarState.Pausing:
-                        UpdateProcessingTaskbar(activeVm.Progress);
-                        break;
-
-                    case ProgressBarState.Paused:
-                        _taskbarList.SetProgressState(_windowHandle, TaskbarProgressFlags.Paused);
+                    CancelSuccessFlash();
+                    if (scanVm is WorkViewModelBase wvm && !wvm.IsScanIndeterminate)
+                    {
+                        double scanValue = wvm switch
+                        {
+                            MergeViewModel m => m.FooterProgressValue,
+                            SplitViewModel s => s.FooterProgressValue,
+                            RepairViewModel r => r.FooterProgressValue,
+                            _ => 0
+                        };
+                        _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Normal);
                         _taskbarList.SetProgressValue(
                             _windowHandle,
-                            (ulong)Math.Clamp(activeVm.Progress, 0, 100),
+                            (ulong)Math.Clamp(scanValue, 0, 100),
                             100);
-                        break;
+                    }
+                    else
+                    {
+                        // 枚举阶段或编辑页扫描（无确定进度）：不确定动画条
+                        _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Indeterminate);
+                    }
+                    return;
+                }
 
-                    case ProgressBarState.Cancelled:
-                        _taskbarList.SetProgressState(_windowHandle, TaskbarProgressFlags.Error);
-                        _taskbarList.SetProgressValue(
-                            _windowHandle,
-                            (ulong)Math.Clamp(activeVm.Progress, 0, 100),
-                            100);
-                        break;
+                // 3) 无处理无扫描：检查是否停留在"成功"或"取消"终态
+                //    （这两个状态在 IsProcessing=false 后仍保留在子 VM 上）。
+                var successVm = FindTerminalStateVm(ProgressBarState.Success);
+                if (successVm != null)
+                {
+                    // 刚完成 → 短暂显示 100% 绿色，1.5 秒后清除
+                    CancelSuccessFlash();
+                    _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Normal);
+                    _taskbarList.SetProgressValue(_windowHandle, 100, 100);
+                    ScheduleSuccessClear();
+                    return;
+                }
 
-                    default:
-                        // Idle / Scanning / 未知状态 → 不显示（扫描不进任务栏，符合需求）
-                        ClearTaskbarProgress();
-                        break;
+                // 已取消 → 红色（保持到下一次操作开始或状态清除，与页面内进度条语义一致）。
+                // 只针对"处理任务被取消"：扫描被取消时 ProgressBarState 同样是 Cancelled，
+                // 用 _lastProcessingVm 区分。
+                var cancelledVm = FindTerminalStateVm(ProgressBarState.Cancelled);
+                if (cancelledVm != null && cancelledVm == _lastProcessingVm)
+                {
+                    CancelSuccessFlash();
+                    _taskbarList!.SetProgressState(_windowHandle, TaskbarProgressFlags.Error);
+                    _taskbarList.SetProgressValue(
+                        _windowHandle,
+                        (ulong)Math.Clamp(cancelledVm.Progress, 0, 100),
+                        100);
+                    return;
+                }
+
+                CancelSuccessFlash();
+                ClearTaskbarProgress();
+                // 处理刚结束时会先经过这里（IsProcessing=false 但 ProgressBarState 仍短暂是
+                // Processing），紧接着才变为 Cancelled/Success，因此只有确认所有页面都已离开
+                // "处理类"状态（空闲/扫描等）才清除标记，否则取消红色或成功闪烁会因标记丢失而不显示。
+                if (!IsAnyProcessingLikeState())
+                {
+                    _lastProcessingVm = null;
                 }
             }
             catch (Exception ex)
@@ -881,6 +955,55 @@ namespace LivePhotoBox
                     (ulong)Math.Clamp(progress, 0, 100),
                     100);
             }
+        }
+
+        // 维护各扫描源开始时间（合并/拆分/修复 + 编辑页左侧目录）：
+        // 扫描中记录起始时间，扫描结束移除。
+        private void UpdateScanTracking()
+        {
+            foreach (var vm in new WorkViewModelBase[] { ViewModel.Merge, ViewModel.Split, ViewModel.Repair })
+            {
+                if (vm.IsScanning)
+                {
+                    if (!_scanStartTimes.ContainsKey(vm))
+                    {
+                        _scanStartTimes[vm] = DateTime.UtcNow;
+                    }
+                }
+                else
+                {
+                    _scanStartTimes.Remove(vm);
+                }
+            }
+
+            var edit = ViewModel.Edit;
+            if (edit.IsScanning)
+            {
+                if (!_scanStartTimes.ContainsKey(edit))
+                {
+                    _scanStartTimes[edit] = DateTime.UtcNow;
+                }
+            }
+            else
+            {
+                _scanStartTimes.Remove(edit);
+            }
+        }
+
+        // 返回正在扫描且开始时间最新的页面；无扫描时返回 null。
+        private object? GetNewestScanningVm()
+        {
+            object? newest = null;
+            DateTime newestStart = DateTime.MinValue;
+            foreach (var kv in _scanStartTimes)
+            {
+                if (kv.Value > newestStart)
+                {
+                    newest = kv.Key;
+                    newestStart = kv.Value;
+                }
+            }
+            return newest;
         }
 
         // 是否有页面仍停留在"处理类"状态（Processing/Pausing/Paused）。
@@ -924,7 +1047,8 @@ namespace LivePhotoBox
 
                 var type = Type.GetTypeFromCLSID(new Guid("56fdf344-fd6d-11d0-958a-006097c9a090"));
                 if (type == null) return false;
-                _taskbarList = (ITaskbarList3)Activator.CreateInstance(type);
+                _taskbarList = Activator.CreateInstance(type) as ITaskbarList3;
+                if (_taskbarList == null) return false;
                 _taskbarList.HrInit();
                 return true;
             }

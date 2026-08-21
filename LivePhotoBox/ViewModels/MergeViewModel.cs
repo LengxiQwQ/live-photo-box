@@ -122,7 +122,9 @@ namespace LivePhotoBox.ViewModels
         public int ProcessingCount => Tasks.Count(t => t.Status == ProcessStatus.Processing);
         public int SuccessCount => Tasks.Count(t => t.Status == ProcessStatus.Success);
         public int FailedCount => Tasks.Count(t => t.Status == ProcessStatus.Failed);
-        public int CancelledCount => Tasks.Count(t => t.Status == ProcessStatus.Cancelled);
+        // 已取消 = 尚未开始即被取消（Cancelled 状态）+ 处理中被打断被取消（IsCancelled 标记，
+        // 保留 Processing 状态显示、颜色中性）。
+        public int CancelledCount => Tasks.Count(t => t.Status == ProcessStatus.Cancelled || t.IsCancelled);
 
         public string ActiveTaskCountText => IsProcessing
             ? ResourceService.Format("MergePage_StatusProcessing", ProcessingCount)
@@ -135,9 +137,21 @@ namespace LivePhotoBox.ViewModels
             ? $"{ResourceService.Format("MergePage_ScanMatched", TotalPairsCount)}  •  {ResourceService.Format("MergePage_ScanUnmatched", StandaloneImagesCount + StandaloneVideosCount)}"
             : string.Empty;
 
-        public string ElapsedTimeText => _stopwatch.Elapsed.TotalSeconds > 0
-            ? ResourceService.Format("MergePage_StatusElapsed", _stopwatch.Elapsed.ToString(@"mm\:ss"))
-            : ResourceService.GetString("MergePage_StatusElapsedIdle");
+        // 底部状态栏耗时：扫描阶段显示扫描用时（扫描结束后冻结），
+        // 用户点击处理开始后切换为处理用时（重新从 0 计时）。
+        public string ElapsedTimeText
+        {
+            get
+            {
+                // 处理中/处理结束（含取消）后始终显示处理用时
+                if (IsProcessing || _stopwatch.Elapsed.TotalSeconds > 0)
+                    return ResourceService.Format("MergePage_StatusElapsed", _stopwatch.Elapsed.ToString(@"mm\:ss"));
+                // 扫描中或扫描结束但尚未开始处理：显示扫描用时（扫描结束后冻结）
+                if (IsScanning || ScanStopwatch.Elapsed.TotalSeconds > 0)
+                    return ResourceService.Format("MergePage_StatusScanElapsed", ScanStopwatch.Elapsed.ToString(@"mm\:ss"));
+                return ResourceService.GetString("MergePage_StatusElapsedIdle");
+            }
+        }
 
         // ── 底部栏统一属性 ──
 
@@ -166,16 +180,28 @@ namespace LivePhotoBox.ViewModels
             {
                 if (IsScanning)
                 {
+                    // 扫描取消中：优先显示"正在停止扫描..."
+                    if (_scanCancelledByUser)
+                        return ResourceService.GetString("Status_ScanCancelling");
                     return _mergeLocalScanTotal > 0
                         ? ResourceService.Format("StatusBar_Scanning_Merge", _mergeLocalScanProcessed, _mergeLocalScanTotal)
                         : ResourceService.GetString("Status_Scanning");
                 }
                 if (IsProcessing)
+                {
+                    // 停止中（用户点了停止，等待任务中断）
+                    if (_cancelledByUser)
+                        return ResourceService.GetString("Status_Stopping");
+                    // 已暂停（暂停完成，等待用户点击继续）
+                    if (IsPaused)
+                        return ResourceService.GetString("Status_Paused") + " | " +
+                               LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName +
+                               GetHardwareSuffix();
+                    // 暂停中（等待当前任务结束再进入暂停）
+                    if (_isPausing)
+                        return ResourceService.GetString("Status_Pausing");
                     return ProcessingStatusText;
-                if (IsPaused)
-                    return ResourceService.GetString("Status_Paused") + " | " +
-                           LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName +
-                           GetHardwareSuffix();
+                }
                 if (_mergeStoppedByUser)
                     return ResourceService.GetString("Status_StoppedSimple");
                 if (_mergeDone && Progress >= 100)
@@ -628,6 +654,10 @@ namespace LivePhotoBox.ViewModels
         protected override void OnScanStateChanged(bool isScanning)
         {
             OnPropertyChanged(nameof(ScanButtonText));
+            // IsScanning 变化时底部栏状态文字/进度需重新求值：
+            // 扫描结束（true→false）后要从"正在扫描文件 x/y"切换到扫描完成文案。
+            OnPropertyChanged(nameof(FooterStatusText));
+            OnPropertyChanged(nameof(FooterProgressValue));
         }
 
         // <inheritdoc/>
@@ -636,6 +666,7 @@ namespace LivePhotoBox.ViewModels
             _mergeLocalScanTotal = 0;
             _mergeLocalScanProcessed = 0;
             AppViewModel.Instance.BeginMergeScanSession();
+            OnPropertyChanged(nameof(ElapsedTimeText));
             OnPropertyChanged(nameof(FooterProgressValue));
             OnPropertyChanged(nameof(FooterStatusText));
         }
@@ -752,6 +783,10 @@ namespace LivePhotoBox.ViewModels
 
                     SetStatus("Status_MergeCompletedSummary", total, elapsed, succeeded, failed);
                     LogService.Merge($"Merge completed: {succeeded} succeeded, {failed} failed in {elapsed:F1}s");
+
+                    // 批量处理完成 → 弹系统通知（便携/注册失败渠道静默跳过）
+                    NotificationService.ShowBatchCompleted(
+                        ResourceService.GetString("Notif_Feature_Merge"), succeeded, failed, elapsed);
                 }
             }
             OnPropertyChanged(nameof(ActionBtnText));
@@ -1405,6 +1440,7 @@ namespace LivePhotoBox.ViewModels
         {
             InitializeRunState();
             _stopwatch = Stopwatch.StartNew();
+            OnPropertyChanged(nameof(ElapsedTimeText));
 
             var token = GetProcessingToken();
             string outputDir = OutputDirectory;
@@ -1506,21 +1542,40 @@ namespace LivePhotoBox.ViewModels
 
                                 var (ok, details) = await LivePhotoMergeRunnerService.ProcessSinglePairAsync(
                                     task.ImagePath, task.VideoPath, task.BaseName, task.Index,
-                                    mergeOptions, tempDir, PauseEvent, token);
+                                    mergeOptions, tempDir, token);
 
-                                isSuccess = ok;
-                                detailMessage = ok ? details : details;
+                                // 用户取消时第三方工具（ffmpeg/exiftool 等）会以非零退出码返回失败：
+                                // 这是取消造成的，任务应显示"已取消"而不是"错误: ..."。
+                                if (!ok && token.IsCancellationRequested)
+                                {
+                                    isCanceled = true;
+                                    detailMessage = ResourceService.GetString("Task_Cancelled");
+                                }
+                                else
+                                {
+                                    isSuccess = ok;
+                                    detailMessage = details;
+                                }
                             }
                             catch (OperationCanceledException)
                             {
                                 isCanceled = true;
-                                detailMessage = ResourceService.GetString("Status_Aborted") ?? "Aborted";
+                                detailMessage = ResourceService.GetString("Task_Cancelled");
                             }
                             catch (Exception ex)
                             {
-                                isSuccess = false;
-                                detailMessage = ResourceService.Format("Task_Error", ex.Message);
-                                LogService.Merge($"Merge task failed for {task.BaseName}: {ex.Message}", LogLevel.Error, ex);
+                                if (token.IsCancellationRequested)
+                                {
+                                    // 取消引发的第三方工具异常——按取消处理，不展示错误详情。
+                                    isCanceled = true;
+                                    detailMessage = ResourceService.GetString("Task_Cancelled");
+                                }
+                                else
+                                {
+                                    isSuccess = false;
+                                    detailMessage = ResourceService.Format("Task_Error", ex.Message);
+                                    LogService.Merge($"Merge task failed for {task.BaseName}: {ex.Message}", LogLevel.Error, ex);
+                                }
                             }
                             finally
                             {
@@ -1807,11 +1862,13 @@ namespace LivePhotoBox.ViewModels
             TaskStartedForScroll?.Invoke(this, task);
         }
 
-        // 标记任务被用户取消（保留 Processing 状态，颜色中性，只更新详情）。
+        // 标记任务被用户取消：保留 Processing 状态显示（颜色中性），
+        // 通过 IsCancelled 标记计入底部"已取消"统计；不标为 Failed，避免显示错误语义。
         private void UpdateTaskCancelled(MergeTask task, string detailMessage)
         {
-            // 用户取消不标记为"失败"——保留 Processing 状态，颜色中性，只更新详情
+            task.IsCancelled = true;
             task.Details = detailMessage;
+            NotifyStatsChanged();
         }
 
         // 更新任务完成状态（成功/失败），如果所有任务完成则触发 ProcessingCompletedForScroll 事件。

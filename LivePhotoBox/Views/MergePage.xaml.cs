@@ -1209,7 +1209,7 @@ namespace LivePhotoBox.Views
                     LineHeight = 20,
                     LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
                     IsTextSelectionEnabled = true,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                    // Foreground inherited from parent (theme-aware)
                 };
 
                 AppendBoldSegments(tb, para);
@@ -1246,7 +1246,7 @@ namespace LivePhotoBox.Views
                     LineHeight = 20,
                     LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
                     IsTextSelectionEnabled = true,
-                    Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                    // Foreground inherited from parent (theme-aware)
                 };
 
                 AppendBoldSegments(tb, para);
@@ -1413,10 +1413,10 @@ namespace LivePhotoBox.Views
 
         // ── 泡拖拽分隔条（GridSplitter） ──
         private const double _MinLeftWidth = 224;
-        private const double _MaxLeftWidth = 900;
         private const double _DesiredRightWidth = 420;
-        private const string _LeftPanelWidthKey = "MergePage_LeftPanelWidth";
+        private const string _LeftPanelRatioKey = "MergePage_LeftPanelRatio";
 
+        private double _defaultRatio;             // 初始比例 = 320/(总宽-4)，Loaded 时计算
         private bool _isSplitterDragging;
         private double _splitterAnchorX;          // 按下时鼠标在父 Grid 中的 X
         private double _splitterAnchorWidth;      // 按下时左栏的实际宽度
@@ -1440,20 +1440,17 @@ namespace LivePhotoBox.Views
             if (LeftConfigPanel.Parent is not Grid parentGrid) return;
             var point = e.GetCurrentPoint(parentGrid);
             var newWidth = _splitterAnchorWidth + (point.Position.X - _splitterAnchorX);
-            // 左栏最小/最大限制
-            newWidth = Math.Clamp(newWidth, _MinLeftWidth, _MaxLeftWidth);
-            // 右侧面板最小宽度保护（保证按钮/列标题不被挤没）
-            newWidth = Math.Min(newWidth, Math.Max(0, parentGrid.ActualWidth - _DesiredRightWidth));
+            newWidth = Math.Clamp(newWidth, _MinLeftWidth, Math.Max(_MinLeftWidth, parentGrid.ActualWidth - _DesiredRightWidth));
             parentGrid.ColumnDefinitions[0].Width = new GridLength(newWidth);
             e.Handled = true;
         }
 
-        // 分隔条释放：停止拖动
+        // 分隔条释放：停止拖动并记录本次的比例
         private void Splitter_PointerReleased(object sender, PointerRoutedEventArgs e)
         {
             _isSplitterDragging = false;
             GridSplitterBar.ReleasePointerCapture(e.Pointer);
-            SaveLeftPanelWidth();
+            SaveLeftPanelRatio();
             e.Handled = true;
         }
 
@@ -1475,49 +1472,58 @@ namespace LivePhotoBox.Views
             this.ProtectedCursor = null;
         }
 
-        // 双击分隔条：重置为默认宽度
+        // 双击分隔条：重置为默认比例（320/初始容器宽）
         private void Splitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             if (LeftConfigPanel.Parent is Grid parentGrid)
             {
-                parentGrid.ColumnDefinitions[0].Width = new GridLength(DefaultLeftPanelWidth);
-                SaveLeftPanelWidth();
+                ApplyLeftRatio(parentGrid, _defaultRatio);
+                SaveLeftPanelRatio();
             }
             e.Handled = true;
         }
 
-        // 恢复上次保存的左侧面板宽度
+        // 恢复上次保存的左侧面板比例；无保存时按 320/(总宽-4) 计算初始比例
         private void RestoreLeftPanelWidth()
         {
             if (LeftConfigPanel.Parent is not Grid parentGrid) return;
-            double saved = Services.AppSettingsService.GetValue(_LeftPanelWidthKey, DefaultLeftPanelWidth);
-            saved = Math.Clamp(saved, _MinLeftWidth, _MaxLeftWidth);
-            // 不超过可用宽度（保留右侧最小宽度）
-            saved = Math.Min(saved, Math.Max(_MinLeftWidth, parentGrid.ActualWidth - _DesiredRightWidth));
-            parentGrid.ColumnDefinitions[0].Width = new GridLength(saved);
+            _defaultRatio = 320.0 / (parentGrid.ActualWidth - 4);
+            double ratio = Services.AppSettingsService.GetValue(_LeftPanelRatioKey, _defaultRatio);
+            ApplyLeftRatio(parentGrid, ratio);
         }
 
-        // 保存当前左栏宽度
-        private void SaveLeftPanelWidth()
+        // 按比例设置左栏（限制：右栏至少保留 _DesiredRightWidth 像素）
+        private void ApplyLeftRatio(Grid parentGrid, double ratio)
         {
-            double w = LeftConfigPanel.ActualWidth;
-            if (w <= 0) return;
-            Services.AppSettingsService.SetValue(_LeftPanelWidthKey, Math.Round(w));
+            double total = parentGrid.ActualWidth - 4;
+            if (total <= 0) return;
+
+            double px = ratio * total;
+            px = Math.Clamp(px, _MinLeftWidth, Math.Max(_MinLeftWidth, total - _DesiredRightWidth));
+            parentGrid.ColumnDefinitions[0].Width = new GridLength(px);
         }
 
-        // 窗口大小变化时，如果左栏超限则自动回缩
+        // 保存当前左栏宽度对应的比例
+        private void SaveLeftPanelRatio()
+        {
+            if (LeftConfigPanel.Parent is not Grid parentGrid) return;
+            double px = LeftConfigPanel.ActualWidth;
+            double total = parentGrid.ActualWidth - 4;
+            if (px <= 0 || total <= 0) return;
+            double ratio = Math.Clamp(px / total, 0.15, 0.85);
+            Services.AppSettingsService.SetValue(_LeftPanelRatioKey, Math.Round(ratio, 4));
+        }
+
+        // 窗口大小变化：按保存的比例（或默认比例）重算左栏宽度，不覆写保存值
         private void ContentGrid_SizeChanged(object sender, SizeChangedEventArgs e)
         {
             if (sender is not Grid parentGrid) return;
-            var col0 = parentGrid.ColumnDefinitions[0];
-            var currentLeft = LeftConfigPanel.ActualWidth;
-            // 如果左栏 + 右侧最小宽度 > 总宽度，回缩左栏
-            var maxAllowed = Math.Max(_MinLeftWidth, parentGrid.ActualWidth - _DesiredRightWidth);
-            if (currentLeft > maxAllowed && !_isSplitterDragging)
-            {
-                col0.Width = new GridLength(maxAllowed);
-                SaveLeftPanelWidth();
-            }
+            if (_isSplitterDragging) return;
+
+            if (_defaultRatio <= 0)
+                _defaultRatio = 320.0 / (parentGrid.ActualWidth - 4);
+            double ratio = Services.AppSettingsService.GetValue(_LeftPanelRatioKey, _defaultRatio);
+            ApplyLeftRatio(parentGrid, ratio);
         }
         // ── 拖拽分隔条结束 ──
     }

@@ -1420,7 +1420,6 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
     <value>Open Folder</value>
   </data>
-  <!-- Merge page tutorial strings -->
   <data name="MergeTutorial_Btn_Next" xml:space="preserve">
     <value>Next</value>
   </data>
@@ -1442,7 +1441,7 @@ Open the output folder when done — your photos are back to normal ~</value>
 
 **🔍 Scan button:** Scanning starts automatically once you set the input directory. You can also click "Scan" to refresh manually.
 
-**⚙️ Scanning method:** Files in subfolders are not scanned by default. Go to Settings → General to enable recursive subfolder scanning.</value>
+**⚙️ Scanning method:** Sub‑folders are not scanned by default. Go to "Settings" → "General" to enable **Scan Subfolders**.</value>
   </data>
   <data name="MergeTutorial_Step02_Title" xml:space="preserve">
     <value>🖱️ Drag &amp; Drop</value>
@@ -1514,7 +1513,6 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="MergePage_AddFilesBtn_Text.Text" xml:space="preserve">
     <value>Add Files</value>
   </data>
-  <!-- Split page tutorial strings -->
   <data name="SplitTutorial_Btn_Next" xml:space="preserve">
     <value>Next</value>
   </data>
@@ -1536,7 +1534,7 @@ Open the output folder when done — your photos are back to normal ~</value>
 
 **🔍 Scan button:** Scanning starts automatically once you set the input directory. You can also click "Scan" to refresh manually.
 
-**⚙️ Scanning method:** Files in subfolders are not scanned by default. Go to Settings → General to enable recursive subfolder scanning.</value>
+**⚙️ Scanning method:** Sub‑folders are not scanned by default. Go to "Settings" → "General" to enable **Scan Subfolders**.</value>
   </data>
   <data name="SplitTutorial_Step02_Title" xml:space="preserve">
     <value>🖱️ Drag &amp; Drop</value>
@@ -1612,7 +1610,10 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Total: {0} files</value>
   </data>
   <data name="MergePage_StatusElapsed" xml:space="preserve">
-    <value>Elapsed: {0}</value>
+    <value>Processing time: {0}</value>
+  </data>
+  <data name="MergePage_StatusScanElapsed" xml:space="preserve">
+    <value>Scan time: {0}</value>
   </data>
   <data name="MergePage_ScanMatched" xml:space="preserve">
     <value>Matched {0}</value>
@@ -4028,7 +4029,10 @@ Then click "Start Split".</value>
     <value>Total: {0} files</value>
   </data>
   <data name="SplitPage_StatusElapsed" xml:space="preserve">
-    <value>Elapsed: {0}</value>
+    <value>Processing time: {0}</value>
+  </data>
+  <data name="SplitPage_StatusScanElapsed" xml:space="preserve">
+    <value>Scan time: {0}</value>
   </data>
   <data name="SplitPage_StatusElapsedIdle" xml:space="preserve">
     <value>Time --:--</value>
@@ -4152,5 +4156,29 @@ Then click "Start Split".</value>
   </data>
   <data name="RepairPage_FooterCancelled.Text" xml:space="preserve">
     <value>Cancelled </value>
+  </data>
+  <data name="Notif_Feature_Merge" xml:space="preserve">
+    <value>Merge</value>
+  </data>
+  <data name="Notif_Feature_Split" xml:space="preserve">
+    <value>Split</value>
+  </data>
+  <data name="Notif_Feature_Repair" xml:space="preserve">
+    <value>Repair</value>
+  </data>
+  <data name="Notif_BatchDone_Title" xml:space="preserve">
+    <value>Done ✓</value>
+  </data>
+  <data name="Notif_BatchDone_Body" xml:space="preserve">
+    <value>{0} — {1} completed, {2}</value>
+  </data>
+  <data name="Notif_BatchDone_Body_WithFailed" xml:space="preserve">
+    <value>{0} — {1} completed, {2} failed, {3}</value>
+  </data>
+  <data name="Time_Seconds" xml:space="preserve">
+    <value>{0}s</value>
+  </data>
+  <data name="Time_MinutesSeconds" xml:space="preserve">
+    <value>{0}m {1}s</value>
   </data>
 </root>

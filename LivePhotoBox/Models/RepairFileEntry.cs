@@ -27,6 +27,8 @@ namespace LivePhotoBox.Models
         [ObservableProperty] private bool _needsRepair = false;
         // 详细错误信息
         [ObservableProperty] private string _details = string.Empty;
+        // 是否被用户取消（保留 Processing 状态显示、颜色中性，但计入底部"已取消"统计）
+        [ObservableProperty] private bool _isCancelled;
         // true=照片, false=视频（决定图标和缩略图展示）
         [ObservableProperty] private bool _isImage = true;
 

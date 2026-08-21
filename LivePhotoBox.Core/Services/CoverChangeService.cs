@@ -74,7 +74,7 @@ namespace LivePhotoBox.Services
             if (string.IsNullOrWhiteSpace(request.OutputImagePath))
                 throw new ArgumentException("Output image path is required.", nameof(request));
 
-            string outputDir = Path.GetDirectoryName(request.OutputImagePath);
+            string? outputDir = Path.GetDirectoryName(request.OutputImagePath);
             if (!string.IsNullOrEmpty(outputDir))
                 Directory.CreateDirectory(outputDir);
 

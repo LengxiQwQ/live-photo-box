@@ -224,6 +224,10 @@ namespace LivePhotoBox.Cli.Commands
                     long currentCoverTimestampUs = ReadCurrentCoverTimestampUs(
                         imagePath, input.VideoPath, input.Protocol);
 
+                    long originalCoverTimestampUs = input.Protocol == LivePhotoProtocolType.OPPO
+                        ? ReadOriginalCoverTimestampUs(imagePath)
+                        : 0;
+
                     int currentCoverFrame = 0;
                     if (totalFrames > 0 && videoDurationSec > 0 && currentCoverTimestampUs > 0)
                     {
@@ -236,6 +240,16 @@ namespace LivePhotoBox.Cli.Commands
                         currentCoverFrame = Math.Clamp(currentCoverFrame, 0, totalFrames);
                     }
 
+                    int originalCoverFrame = 0;
+                    if (totalFrames > 0 && videoDurationSec > 0 && originalCoverTimestampUs > 0)
+                    {
+                        double fps = totalFrames / videoDurationSec;
+                        originalCoverFrame = (int)Math.Round(originalCoverTimestampUs / 1_000_000.0 * fps);
+                        if (input.Protocol == LivePhotoProtocolType.OPPO)
+                            originalCoverFrame = Math.Min(totalFrames - 1, originalCoverFrame + 1);
+                        originalCoverFrame = Math.Clamp(originalCoverFrame, 0, totalFrames);
+                    }
+
                     string protocolDisplay = GetProtocolDisplayName(input.Protocol);
                     string livePhotoTypeDisplay = input.LivePhotoType == LivePhotoType.DualFile
                         ? "Dual-file"
@@ -245,12 +259,10 @@ namespace LivePhotoBox.Cli.Commands
                     {
                         if (!json)
                         {
-                            CliConsole.WriteLine("┌ Cover Preview", CliConsole.Accent);
-                            CliConsole.WriteFieldRgb("File", Path.GetFileName(imagePath), width: 12, valueColor: CliConsole.PathGreen);
+                            CliConsole.WriteFieldRgb("Photo", Path.GetFileName(imagePath), width: 16, valueColor: CliConsole.PathGreen);
                             if (pairedVideoPath != null)
-                                CliConsole.WriteFieldRgb("Video", Path.GetFileName(pairedVideoPath), width: 12, valueColor: CliConsole.PathGreen);
-                            CliConsole.WriteField("Type", $"{protocolDisplay} ({livePhotoTypeDisplay})", width: 12, valueColor: CliConsole.Highlight);
-                            CliConsole.WriteField("Protocol", protocolDisplay, width: 12, valueColor: CliConsole.Highlight);
+                                CliConsole.WriteFieldRgb("Video", Path.GetFileName(pairedVideoPath), width: 16, valueColor: CliConsole.PathGreen);
+                            CliConsole.WriteField("Protocol", $"{protocolDisplay} ({livePhotoTypeDisplay})", width: 16, valueColor: CliConsole.Highlight);
 
                             var fileInfo = new FileInfo(imagePath);
                             string sizeStr = FormatFileSize(fileInfo.Length);
@@ -259,17 +271,18 @@ namespace LivePhotoBox.Cli.Commands
                                 var videoInfo = new FileInfo(pairedVideoPath);
                                 sizeStr += $" + {FormatFileSize(videoInfo.Length)}";
                             }
-                            CliConsole.WriteField("Size", sizeStr, width: 12, valueColor: CliConsole.Highlight);
+                            CliConsole.WriteField("Size", sizeStr, width: 16, valueColor: CliConsole.Highlight);
 
                             if (videoDurationSec > 0)
-                                CliConsole.WriteField("Duration", $"{videoDurationSec:F1}s / {totalFrames} frames", width: 12, valueColor: CliConsole.Highlight);
+                                CliConsole.WriteField("Duration", $"{videoDurationSec:F1}s / {totalFrames} frames", width: 16, valueColor: CliConsole.Highlight);
+
+                            if (input.Protocol == LivePhotoProtocolType.OPPO && originalCoverTimestampUs > 0)
+                                CliConsole.WriteField("Original cover", $"frame {originalCoverFrame + 1} ({originalCoverTimestampUs / 1_000_000.0:F3}s)", width: 16, valueColor: CliConsole.Highlight);
 
                             if (currentCoverTimestampUs > 0)
-                                CliConsole.WriteField("Current cover", $"frame {currentCoverFrame + 1} ({currentCoverTimestampUs / 1_000_000.0:F3}s)", width: 12, valueColor: CliConsole.Highlight);
+                                CliConsole.WriteField("Current cover", $"frame {currentCoverFrame + 1} ({currentCoverTimestampUs / 1_000_000.0:F3}s)", width: 16, valueColor: CliConsole.Highlight);
                             else
-                                CliConsole.WriteField("Current cover", "frame 1 (still image)", width: 12, valueColor: CliConsole.Highlight);
-
-                            CliConsole.WriteLine("└" + new string('─', 60), CliConsole.Accent);
+                                CliConsole.WriteField("Current cover", "frame 1 (still image)", width: 16, valueColor: CliConsole.Highlight);
                         }
                         else
                         {
@@ -284,7 +297,13 @@ namespace LivePhotoBox.Cli.Commands
                                 durationSec = videoDurationSec,
                                 totalFrames,
                                 currentCoverFrame,
-                                currentCoverTimestampUs
+                                currentCoverTimestampUs,
+                                originalCoverTimestampUs = input.Protocol == LivePhotoProtocolType.OPPO
+                                    ? originalCoverTimestampUs
+                                    : (long?)null,
+                                originalCoverFrame = input.Protocol == LivePhotoProtocolType.OPPO
+                                    ? originalCoverFrame
+                                    : (int?)null
                             });
                         }
 
@@ -342,12 +361,10 @@ namespace LivePhotoBox.Cli.Commands
 
                     if (!json)
                     {
-                        CliConsole.WriteLine("┌ Cover Preview", CliConsole.Accent);
-                        CliConsole.WriteFieldRgb("File", Path.GetFileName(imagePath), width: 12, valueColor: CliConsole.PathGreen);
+                        CliConsole.WriteFieldRgb("Photo", Path.GetFileName(imagePath), width: 16, valueColor: CliConsole.PathGreen);
                         if (pairedVideoPath != null)
-                            CliConsole.WriteFieldRgb("Video", Path.GetFileName(pairedVideoPath), width: 12, valueColor: CliConsole.PathGreen);
-                        CliConsole.WriteField("Type", $"{protocolDisplay} ({livePhotoTypeDisplay})", width: 12, valueColor: CliConsole.Highlight);
-                        CliConsole.WriteField("Protocol", protocolDisplay, width: 12, valueColor: CliConsole.Highlight);
+                            CliConsole.WriteFieldRgb("Video", Path.GetFileName(pairedVideoPath), width: 16, valueColor: CliConsole.PathGreen);
+                        CliConsole.WriteField("Protocol", $"{protocolDisplay} ({livePhotoTypeDisplay})", width: 16, valueColor: CliConsole.Highlight);
 
                         var fileInfo = new FileInfo(imagePath);
                         string sizeStr = FormatFileSize(fileInfo.Length);
@@ -356,23 +373,27 @@ namespace LivePhotoBox.Cli.Commands
                             var videoInfo = new FileInfo(pairedVideoPath);
                             sizeStr += $" + {FormatFileSize(videoInfo.Length)}";
                         }
-                            CliConsole.WriteField("Size", sizeStr, width: 12, valueColor: CliConsole.Highlight);
+                            CliConsole.WriteField("Size", sizeStr, width: 16, valueColor: CliConsole.Highlight);
 
                         if (videoDurationSec > 0)
-                            CliConsole.WriteField("Duration", $"{videoDurationSec:F1}s / {totalFrames} frames", width: 12, valueColor: CliConsole.Highlight);
+                            CliConsole.WriteField("Duration", $"{videoDurationSec:F1}s / {totalFrames} frames", width: 16, valueColor: CliConsole.Highlight);
 
-                        if (currentCoverTimestampUs > 0)
-                            CliConsole.WriteField("Current cover", $"frame {currentCoverFrame + 1} ({currentCoverTimestampUs / 1_000_000.0:F3}s)", width: 12, valueColor: CliConsole.Highlight);
-                        else
-                            CliConsole.WriteField("Current cover", "frame 1 (still image)", width: 12, valueColor: CliConsole.Highlight);
-
-                        if (!viewOnly)
+                        double newTimestampSec = timestampUs.Value / 1_000_000.0;
+                        if (input.Protocol == LivePhotoProtocolType.OPPO)
                         {
-                            double newTimestampSec = timestampUs.Value / 1_000_000.0;
-                            CliConsole.WriteField("New cover", $"frame {coverFrameNumber + 1} ({newTimestampSec:F3}s)", width: 12, valueColor: CliConsole.Highlight);
+                            if (originalCoverTimestampUs > 0)
+                                CliConsole.WriteField("Original cover", $"frame {originalCoverFrame + 1} ({originalCoverTimestampUs / 1_000_000.0:F3}s)", width: 16, valueColor: CliConsole.Highlight);
+                            CliConsole.WriteField("Current cover", $"frame {coverFrameNumber + 1} ({newTimestampSec:F3}s)", width: 16, valueColor: CliConsole.Highlight);
                         }
+                        else
+                        {
+                            if (currentCoverTimestampUs > 0)
+                                CliConsole.WriteField("Current cover", $"frame {currentCoverFrame + 1} ({currentCoverTimestampUs / 1_000_000.0:F3}s)", width: 16, valueColor: CliConsole.Highlight);
+                            else
+                                CliConsole.WriteField("Current cover", "frame 1 (still image)", width: 16, valueColor: CliConsole.Highlight);
 
-                        CliConsole.WriteLine("└" + new string('─', 60), CliConsole.Accent);
+                            CliConsole.WriteField("New cover", $"frame {coverFrameNumber + 1} ({newTimestampSec:F3}s)", width: 16, valueColor: CliConsole.Highlight);
+                        }
                     }
 
                     if (dryRun)
@@ -559,6 +580,18 @@ namespace LivePhotoBox.Cli.Commands
                 : 0;
         }
 
+        private static long ReadOriginalCoverTimestampUs(string imagePath)
+        {
+            string xmpText = LivePhotoSplitService.ReadMetadataTextSync(imagePath);
+            var match = System.Text.RegularExpressions.Regex.Match(
+                xmpText,
+                @"MotionPhotoPrimaryPresentationTimestampUs[""=\s-]+(-?\d+)",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return match.Success && long.TryParse(match.Groups[1].Value, out long primaryTimestamp)
+                ? primaryTimestamp
+                : 0;
+        }
+
         private static string GetOutputImageExtension(CoverInputResolution input)
         {
             return input.Protocol switch
@@ -635,8 +668,8 @@ namespace LivePhotoBox.Cli.Commands
             {
                 LivePhotoProtocolType.Huawei => "HUAWEI Moving Photo",
                 LivePhotoProtocolType.Apple => "Apple Live Photo",
-                LivePhotoProtocolType.GoogleV1 => "Google Micro Video V1",
-                LivePhotoProtocolType.GoogleV2 => "Google Motion Photo V2",
+                LivePhotoProtocolType.GoogleV1 => "Google Micro Video",
+                LivePhotoProtocolType.GoogleV2 => "Google Motion Photo",
                 LivePhotoProtocolType.OPPO => "OPPO Live Photo",
                 LivePhotoProtocolType.Samsung => "Samsung Motion Photo",
                 LivePhotoProtocolType.Fusion => "Motion Photo Fusion",

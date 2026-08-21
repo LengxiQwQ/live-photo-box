@@ -28,6 +28,8 @@ namespace LivePhotoBox.Models
         [ObservableProperty] private ProcessStatus _status = ProcessStatus.Pending;
         // 处理详情/错误信息
         [ObservableProperty] private string _details = string.Empty;
+        // 是否被用户取消（保留 Processing 状态显示、颜色中性，但计入底部"已取消"统计）
+        [ObservableProperty] private bool _isCancelled;
 
         #endregion
 

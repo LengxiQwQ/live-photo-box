@@ -64,7 +64,8 @@ namespace LivePhotoBox.Services
             IReadOnlyList<string> unmatchedImagePaths,
             IReadOnlyList<string> unmatchedVideoPaths,
             string exifToolPath,
-            CancellationToken token)
+            CancellationToken token,
+            Action<int>? onFileProcessed = null)
         {
             if (unmatchedImagePaths.Count == 0 || unmatchedVideoPaths.Count == 0)
             {
@@ -83,9 +84,11 @@ namespace LivePhotoBox.Services
             var contentIdMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             using var exifTool = new PersistentExifTool(exifToolPath);
+            int processed = 0;
             foreach (var filePath in allPaths)
             {
                 token.ThrowIfCancellationRequested();
+                onFileProcessed?.Invoke(++processed);
                 try
                 {
                     string output = await exifTool.SendCommandAsync(token,
@@ -293,7 +296,8 @@ namespace LivePhotoBox.Services
         /// </summary>
         public static MetadataMatchOutput MatchVivo(
             IReadOnlyList<string> unmatchedImagePaths,
-            IReadOnlyList<string> unmatchedVideoPaths)
+            IReadOnlyList<string> unmatchedVideoPaths,
+            Action<int>? onFileProcessed = null)
         {
             var pairs = new List<MetadataPair>();
             var remainingImages = new HashSet<string>(unmatchedImagePaths, StringComparer.OrdinalIgnoreCase);
@@ -311,8 +315,10 @@ namespace LivePhotoBox.Services
 
             // Extract vivo IDs from images (JPEG only — vivo dual-file always uses JPEG+MP4)
             var imgIdToPath = new Dictionary<string, string>(StringComparer.Ordinal);
+            int processed = 0;
             foreach (var imgPath in remainingImages.ToList())
             {
+                onFileProcessed?.Invoke(++processed);
                 string ext = Path.GetExtension(imgPath).ToLowerInvariant();
                 if (ext != ".jpg" && ext != ".jpeg") continue;
 
@@ -337,6 +343,7 @@ namespace LivePhotoBox.Services
             // Match videos by ID
             foreach (var vidPath in remainingVideos.ToList())
             {
+                onFileProcessed?.Invoke(++processed);
                 string ext = Path.GetExtension(vidPath).ToLowerInvariant();
                 if (ext != ".mp4") continue;
 

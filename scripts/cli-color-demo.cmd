@@ -19,6 +19,18 @@ rem    [9]   lpb repair --help             (grouped colored help)
 rem    [10]  repair single --dry-run       (diagnosis summary)
 rem    [11]  repair batch --dry-run        (scan + repair list)
 rem    [12]  repair error path             (red error output)
+rem    [13]  cover --help                  (grouped colored help)
+rem    [14]  cover single view (v1)        (photo/protocol/size/duration/cover)
+rem    [15]  cover single view (v2)        (photo/protocol/size/duration/cover)
+rem    [16]  cover single dry-run          (current + new cover)
+rem    [17]  cover dual view (Apple)       (photo + video)
+rem    [18]  cover dual dry-run            (photo + video + new cover)
+rem    [19]  cover OPPO edited view        (original + current cover)
+rem    [20]  cover OPPO dry-run            (original + new current cover)
+rem    [21]  cover error path              (red error output)
+rem    [22]  split --help                  (grouped colored help)
+rem    [23]  split single dry-run          (scan/summary colors)
+rem    [24]  split error path              (red error output)
 rem
 rem  Usage:
 rem    cli-color-demo.cmd                 use project sample assets
@@ -44,8 +56,8 @@ if not "%~1"=="" (
     set "DEMO_IMG=%TEMP%\lpb-demo\demo.HEIC"
     set "DEMO_VID=%TEMP%\lpb-demo\demo.MOV"
 ) else (
-    set "DEMO_IMG=%ROOT%\sample-assets-backup\Samples\Merge\merge_sample_01.JPG"
-    set "DEMO_VID=%ROOT%\sample-assets-backup\Samples\Merge\merge_sample_01.MOV"
+set "DEMO_IMG=%ROOT%\sample-assets-backup\Samples\Merge\merge_sample_01.JPG"
+set "DEMO_VID=%ROOT%\sample-assets-backup\Samples\Merge\merge_sample_01.MOV"
 )
 set "BATCH_DIR=%ROOT%\sample-assets-backup\Samples\Merge"
 
@@ -137,6 +149,12 @@ echo ============================================================
 echo  [12] repair error path  (should be red)
 echo ============================================================
 "%EXE%" repair "%DEMO_IMG%" --no-rotate --no-thumbnail --no-heic --no-video
+echo.
+
+echo ============================================================
+echo  [13-24] cover + split color demo
+echo ============================================================
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0cli-color-demo-cover.ps1" -Exe "%EXE%"
 echo.
 
 echo.

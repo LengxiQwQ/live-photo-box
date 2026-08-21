@@ -102,6 +102,10 @@ namespace LivePhotoBox.Services
 
             // ── Step 2: 运行各步骤 ──
 
+            // 跨阶段累计的已处理文件数：JPEG 检测 → HEIC 检测 → 匹配步骤依次累加，
+            // 避免多阶段扫描（如 SplitOnly = JPEG+HEIC）时进度条从 0 重新开始而跳变。
+            int scanCompleted = 0;
+
             // ── 检测: JPEG XMP 字节标记 ──
             if (scanMode.HasFlag(DiscoveryScanMode.JpegMarkers))
             {
@@ -113,6 +117,8 @@ namespace LivePhotoBox.Services
                     foreach (var item in jpegs)
                     {
                         ct.ThrowIfCancellationRequested();
+                        scanCompleted++;
+                        progress?.Report(new WorkProgressSnapshot(totalFiles, Math.Min(totalFiles, scanCompleted)));
                         if (LivePhotoSplitScanService.IsLikelyLivePhoto(item.FilePath, item.FileSizeBytes))
                         {
                             // 解析内嵌视频段长度（避免灯箱重复读取）
@@ -152,7 +158,8 @@ namespace LivePhotoBox.Services
                 if (heics.Count > 0)
                 {
                     LogService.Scan($"HEIC track scan: {heics.Count} files");
-                    var found = await DetectHeicLivePhotosAsync(heics, ct);
+                    var found = await DetectHeicLivePhotosAsync(heics, ct, progress, totalFiles, scanCompleted);
+                    scanCompleted += heics.Count;
                     foreach (var item in found)
                     {
                         item.LivePhotoType = LivePhotoType.SingleFileHeic;
@@ -179,6 +186,7 @@ namespace LivePhotoBox.Services
                     item.DetectionMethod = LivePhotoDetectionMethod.FilenamePairing;
                     classifiedPaths.Add(item.FilePath);
                 }
+                scanCompleted += candidates.Count;
                 LogService.Scan($"Filename pairing complete: {result.Count} pairs");
             }
 
@@ -203,8 +211,14 @@ namespace LivePhotoBox.Services
                     try
                     {
                         var vivoOutput = await Task.Run(
-                            () => LivePhotoMetadataMatcher.MatchVivo(vivoImages, vivoVideos),
+                            () => LivePhotoMetadataMatcher.MatchVivo(
+                                vivoImages, vivoVideos,
+                                onFileProcessed: n =>
+                                {
+                                    progress?.Report(new WorkProgressSnapshot(totalFiles, Math.Min(totalFiles, scanCompleted + n)));
+                                }),
                             ct);
+                        scanCompleted += vivoImages.Count + vivoVideos.Count;
 
                         foreach (var pair in vivoOutput.Pairs)
                         {
@@ -269,8 +283,13 @@ namespace LivePhotoBox.Services
                         {
                             var matchOutput = await Task.Run(
                                 () => LivePhotoMetadataMatcher.MatchAsync(
-                                    standaloneImages, standaloneVideos, exifToolPath, ct),
+                                    standaloneImages, standaloneVideos, exifToolPath, ct,
+                                    onFileProcessed: n =>
+                                    {
+                                        progress?.Report(new WorkProgressSnapshot(totalFiles, Math.Min(totalFiles, scanCompleted + n)));
+                                    }),
                                 ct);
+                            scanCompleted += standaloneImages.Count + standaloneVideos.Count;
 
                             foreach (var pair in matchOutput.Pairs)
                             {
@@ -455,7 +474,11 @@ namespace LivePhotoBox.Services
         /// 注意：不改动 Apple ContentIdentifier 检测逻辑，华为仅在 Apple 路径失败时回退。
         /// </summary>
         private static async Task<List<LivePhotoDiscoveryItem>> DetectHeicLivePhotosAsync(
-            List<LivePhotoDiscoveryItem> heicItems, CancellationToken ct)
+            List<LivePhotoDiscoveryItem> heicItems,
+            CancellationToken ct,
+            IProgress<WorkProgressSnapshot>? progress = null,
+            int totalFiles = 0,
+            int baseCompleted = 0)
         {
             var result = new List<LivePhotoDiscoveryItem>();
 
@@ -534,6 +557,9 @@ namespace LivePhotoBox.Services
                             result.Add(item);
                         }
                     }
+
+                    // 每批 HEIC 检测完成即上报进度，避免批量检测期间界面长时间无进度
+                    progress?.Report(new WorkProgressSnapshot(totalFiles, Math.Min(totalFiles, baseCompleted + start + count)));
                 }
             }
             finally

@@ -275,13 +275,27 @@ namespace LivePhotoBox.ViewModels
         public int SuccessCount => Tasks.Count(t => t.Status == ProcessStatus.Success);
         // 失败任务数（Task 维度：格子里有任意 Entry 失败即算失败）。
         public int FailedCount => Tasks.Count(t => t.Status == ProcessStatus.Failed);
-        // 被取消任务数。
-        public int CancelledCount => Tasks.Count(t => t.Status == ProcessStatus.Cancelled);
+        // 已取消任务数 = 格子聚合为 Cancelled 状态 + 有任一 Entry 被取消（IsCancelled 标记，
+        // 保留 Processing 状态显示、颜色中性）。
+        public int CancelledCount => Tasks.Count(t =>
+            t.Status == ProcessStatus.Cancelled || t.Entries.Any(e => e.IsCancelled));
 
         // 底部栏耗时文字（格式 mm:ss）。
-        public string ElapsedTimeText => _stopwatch.Elapsed.TotalSeconds > 0
-            ? ResourceService.Format("MergePage_StatusElapsed", _stopwatch.Elapsed.ToString(@"mm\:ss"))
-            : ResourceService.GetString("MergePage_StatusElapsedIdle");
+        // 底部状态栏耗时：扫描阶段显示扫描用时（扫描结束后冻结），
+        // 用户点击处理开始后切换为处理用时（重新从 0 计时）。
+        public string ElapsedTimeText
+        {
+            get
+            {
+                // 处理中/处理结束（含取消）后始终显示处理用时
+                if (IsProcessing || _stopwatch.Elapsed.TotalSeconds > 0)
+                    return ResourceService.Format("MergePage_StatusElapsed", _stopwatch.Elapsed.ToString(@"mm\:ss"));
+                // 扫描中或扫描结束但尚未开始处理：显示扫描用时（扫描结束后冻结）
+                if (IsScanning || ScanStopwatch.Elapsed.TotalSeconds > 0)
+                    return ResourceService.Format("MergePage_StatusScanElapsed", ScanStopwatch.Elapsed.ToString(@"mm\:ss"));
+                return ResourceService.GetString("MergePage_StatusElapsedIdle");
+            }
+        }
 
         /// <summary>底部栏进度条数值（0~100），综合扫描和处理进度。</summary>
         public double FooterProgressValue
@@ -307,12 +321,26 @@ namespace LivePhotoBox.ViewModels
             {
                 if (IsScanning)
                 {
+                    // 扫描取消中：优先显示"正在停止扫描..."
+                    if (_scanCancelledByUser)
+                        return ResourceService.GetString("Status_ScanCancelling");
                     return _repairLocalScanTotal > 0
                         ? ResourceService.Format("StatusBar_Scanning_Repair", _repairLocalScanProcessed, _repairLocalScanTotal)
                         : ResourceService.GetString("Status_Scanning");
                 }
                 if (IsProcessing)
+                {
+                    // 停止中（用户点了停止，等待任务中断）
+                    if (_cancelledByUser)
+                        return ResourceService.GetString("Status_Stopping");
+                    // 已暂停（暂停完成，等待用户点击继续）
+                    if (IsPaused)
+                        return ResourceService.GetString("Status_Paused") + GetHardwareSuffix();
+                    // 暂停中（等待当前任务结束再进入暂停）
+                    if (_isPausing)
+                        return ResourceService.GetString("Status_Pausing");
                     return ProcessingStatusText;
+                }
                 if (_repairStoppedByUser)
                     return ResourceService.GetString("Status_StoppedSimple");
                 if (_repairDone && Progress >= 100)
@@ -455,6 +483,10 @@ namespace LivePhotoBox.ViewModels
         protected override void OnScanStateChanged(bool isScanning)
         {
             OnPropertyChanged(nameof(ScanButtonText));
+            // IsScanning 变化时底部栏状态文字/进度需重新求值：
+            // 扫描结束（true→false）后要从扫描进度文案切换到扫描完成文案。
+            OnPropertyChanged(nameof(FooterStatusText));
+            OnPropertyChanged(nameof(FooterProgressValue));
             UpdateFilterEnabled();
         }
 
@@ -463,6 +495,7 @@ namespace LivePhotoBox.ViewModels
             _repairLocalScanTotal = 0;
             _repairLocalScanProcessed = 0;
             AppViewModel.Instance.BeginRepairScanSession();
+            OnPropertyChanged(nameof(ElapsedTimeText));
             OnPropertyChanged(nameof(FooterProgressValue));
             OnPropertyChanged(nameof(FooterStatusText));
         }
@@ -535,6 +568,17 @@ namespace LivePhotoBox.ViewModels
             {
                 _repairStoppedByUser = true;
                 _notifyStatsOnFinalize = true;
+
+                // 将尚未处理/处理中被取消的条目标记为"已取消"（保留中性状态显示，计入底部统计）
+                var cancelledText = ResourceService.GetString("Task_Cancelled");
+                foreach (var entry in Tasks.SelectMany(t => t.Entries))
+                {
+                    if (entry.Status is not (ProcessStatus.Success or ProcessStatus.Failed))
+                    {
+                        entry.IsCancelled = true;
+                        entry.Details = cancelledText;
+                    }
+                }
             }
             else
             {
@@ -563,6 +607,10 @@ namespace LivePhotoBox.ViewModels
 
                     SetStatus("Status_RepairCompletedSummary", totalEntries, elapsed, succeeded, skipped, failed);
                     LogService.Repair($"Repair completed: {succeeded} repaired, {skipped} skipped, {failed} failed in {elapsed:F1}s");
+
+                    // 批量处理完成 → 弹系统通知（便携/注册失败渠道静默跳过）
+                    NotificationService.ShowBatchCompleted(
+                        ResourceService.GetString("Notif_Feature_Repair"), succeeded, failed, elapsed);
                 }
             }
 
@@ -591,6 +639,7 @@ namespace LivePhotoBox.ViewModels
             ProgressText = "0/0";
             _repairStoppedByUser = false;
             _repairDone = false;
+            _stopwatch.Reset();
             _scanCancelledByUser = false;
             _taskProcessingStartTimes.Clear();
             SetStatus("RepairPage_Status_Cleared");
@@ -1739,6 +1788,7 @@ namespace LivePhotoBox.ViewModels
             RepairStatusFilter = 0;
             UpdateFilterEnabled();
             _stopwatch = Stopwatch.StartNew();
+            OnPropertyChanged(nameof(ElapsedTimeText));
 
             var token = GetProcessingToken();
 
@@ -1816,9 +1866,18 @@ namespace LivePhotoBox.ViewModels
                                 }
                                 catch (Exception ex)
                                 {
-                                    isSuccess = false;
-                                    detailMessage = ex.Message;
-                                    LogService.Repair($"Copy perfect file failed for {entry.FilePath}: {ex.Message}", LogLevel.Error, ex);
+                                    if (token.IsCancellationRequested)
+                                    {
+                                        // 取消引发的异常——按取消处理，不展示错误详情
+                                        isCanceled = true;
+                                        detailMessage = ResourceService.GetString("Task_Cancelled");
+                                    }
+                                    else
+                                    {
+                                        isSuccess = false;
+                                        detailMessage = ex.Message;
+                                        LogService.Repair($"Copy perfect file failed for {entry.FilePath}: {ex.Message}", LogLevel.Error, ex);
+                                    }
                                 }
                             }
                             else
@@ -1826,19 +1885,38 @@ namespace LivePhotoBox.ViewModels
                                 try
                                 {
                                     var result = await LivePhotoRepairService.RepairAsync(entry.FilePath, targetPath, entry.AnalysisResult!, token, RepairOptions);
-                                    isSuccess = result.Success;
-                                    detailMessage = result.Message;
+                                    // 用户取消时第三方工具（ffmpeg/exiftool 等）会返回失败：
+                                    // 这是取消造成的，任务应显示"已取消"而不是错误详情。
+                                    if (!result.Success && token.IsCancellationRequested)
+                                    {
+                                        isCanceled = true;
+                                        detailMessage = ResourceService.GetString("Task_Cancelled");
+                                    }
+                                    else
+                                    {
+                                        isSuccess = result.Success;
+                                        detailMessage = result.Message;
+                                    }
                                 }
                                 catch (OperationCanceledException)
                                 {
                                     isCanceled = true;
-                                    detailMessage = ResourceService.GetString("Status_Aborted") ?? "???";
+                                    detailMessage = ResourceService.GetString("Task_Cancelled");
                                 }
                                 catch (Exception ex)
                                 {
-                                    isSuccess = false;
-                                    detailMessage = ex.Message;
-                                    LogService.Repair($"Repair failed for {entry.FilePath}: {ex.Message}", LogLevel.Error, ex);
+                                    if (token.IsCancellationRequested)
+                                    {
+                                        // 取消引发的第三方工具异常——按取消处理，不展示错误详情
+                                        isCanceled = true;
+                                        detailMessage = ResourceService.GetString("Task_Cancelled");
+                                    }
+                                    else
+                                    {
+                                        isSuccess = false;
+                                        detailMessage = ex.Message;
+                                        LogService.Repair($"Repair failed for {entry.FilePath}: {ex.Message}", LogLevel.Error, ex);
+                                    }
                                 }
                             }
 
@@ -1976,11 +2054,14 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 更新被取消的 Entry 的状态详情（保持 Processing，不标记失败）。
+        // 更新被取消的 Entry：保留 Processing 状态显示（颜色中性），
+        // 通过 IsCancelled 标记计入底部"已取消"统计；不标为 Failed，避免显示错误语义。
         private void UpdateEntryCancelled(RepairFileEntry entry, string detailMessage)
         {
+            entry.IsCancelled = true;
             entry.Details = detailMessage;
             _taskProcessingStartTimes.Remove(entry);
+            NotifyStatsChanged();
         }
 
         // 确保每个 Entry 至少显示了最短持续时间（100ms），避免进度闪烁。

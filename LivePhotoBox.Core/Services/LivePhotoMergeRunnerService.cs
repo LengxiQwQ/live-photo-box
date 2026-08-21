@@ -100,7 +100,7 @@ namespace LivePhotoBox.Services
 
                         var result = await ProcessSinglePairAsync(
                             task.ImagePath, task.VideoPath, task.BaseName, task.Index, options, tempDir,
-                            pauseEvent, cancellationToken)
+                            cancellationToken)
                             .ConfigureAwait(false);
                         int currentCompleted = Interlocked.Increment(ref completedCount);
                         if (result.IsSuccess) Interlocked.Increment(ref successCount);
@@ -146,7 +146,6 @@ namespace LivePhotoBox.Services
         // baseName: 输出文件名基础部分。
         // options: 运行配置。
         // tempDir: 临时文件目录。
-        // pauseEvent: 暂停信号量。
         // token: 取消令牌。
         // 返回: (是否成功, 结果描述)
         public static async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
@@ -156,7 +155,6 @@ namespace LivePhotoBox.Services
             int taskIndex,
             LivePhotoMergeRunOptions options,
             string tempDir,
-            ManualResetEventSlim pauseEvent,
             CancellationToken token)
         {
             var protocol = LivePhotoProtocol.FromIndex(options.SelectedModeIndex);
@@ -187,7 +185,6 @@ namespace LivePhotoBox.Services
                     // 原生路径仅用于用户明确选择 heic+* 时。
                     workingImagePath = await HeicConverterService.ConvertToJpegAsync(imagePath, taskTempDir, token);
                     tempFiles.Add(workingImagePath);
-                    await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
                     token.ThrowIfCancellationRequested();
                 }
 
@@ -303,7 +300,6 @@ namespace LivePhotoBox.Services
                     }
                 }
 
-                await WaitPauseAsync(pauseEvent, token).ConfigureAwait(false);
                 token.ThrowIfCancellationRequested();
                 await LivePhotoMergeService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token, coverTimestampUs, options.OutputFormatIndex);
 

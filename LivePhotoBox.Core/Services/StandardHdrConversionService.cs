@@ -245,7 +245,7 @@ public static class StandardHdrConversionService
         uint height = gainImage.Height;
         int pixelCount = checked((int)(width * height));
 
-        ushort[] raw = gainImage.GetPixels().ToShortArray(PixelMapping.RGB);
+        ushort[] raw = gainImage.GetPixels()!.ToShortArray(PixelMapping.RGB)!;
         var gray = new byte[pixelCount];
         for (int i = 0; i < pixelCount; i++)
         {
@@ -263,7 +263,7 @@ public static class StandardHdrConversionService
 
     private static float[] ReadRgbFloat(MagickImage image)
     {
-        ushort[] raw = image.GetPixels().ToShortArray(PixelMapping.RGB);
+        ushort[] raw = image.GetPixels()!.ToShortArray(PixelMapping.RGB)!;
         var result = new float[raw.Length];
         for (int i = 0; i < raw.Length; i++)
         {
@@ -275,7 +275,7 @@ public static class StandardHdrConversionService
 
     private static float[] ReadGrayFloat(MagickImage image)
     {
-        ushort[] raw = image.GetPixels().ToShortArray(PixelMapping.RGB);
+        ushort[] raw = image.GetPixels()!.ToShortArray(PixelMapping.RGB)!;
         int pixelCount = raw.Length / 3;
         var result = new float[pixelCount];
         for (int i = 0; i < pixelCount; i++)

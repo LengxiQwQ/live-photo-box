@@ -239,6 +239,17 @@ namespace LivePhotoBox
         {
             LogService.Info("Main window launch started.", LogSource.UI);
             MainWindow = new MainWindow();
+
+            // 注册系统通知服务（商店/MSIX 版依赖 manifest 中的 toast 激活 COM 扩展，Register() 才能注册成功；
+            // Inno 安装版写注册表；便携版静默降级）。必须先挂接事件再 Register，
+            // 且要在 GetActivatedEventArgs 之前完成，否则冷启动点击通知时无法路由。
+            NotificationService.Initialize();
+
+            // 通知点击 → 跳转到对应页面（激活参数在 toast 里，点击时触发激活事件）
+            NotificationService.ActivationRequested += OnNotificationActivationRequested;
+
+            // 先注册再激活窗口：即使由点击通知冷启动，参数也会经 NotificationInvoked 事件路由，
+            // 由 OnNotificationActivationRequested 完成置前与页面跳转；这里始终正常显示主窗口。
             MainWindow.Activate();
             LogService.Info("Main window activated.", LogSource.UI);
 
@@ -248,6 +259,25 @@ namespace LivePhotoBox
             // 非打包模式下，启动时后台静默检查更新（fire-and-forget，不阻塞 UI）
             // 仅在距上次检查 >= 3 天时触发，有新版且未被跳过时弹窗提示
             _ = StartUpdateCheckOnLaunchAsync();
+        }
+
+        // 通知被点击时：把窗口带到前台并导航到对应页面。
+        // 在 DispatcherQueue 上执行，保证 UI 线程安全。
+        private static void OnNotificationActivationRequested(string? tag)
+        {
+            if (MainWindow is not LivePhotoBox.MainWindow win) return;
+            win.DispatcherQueue.TryEnqueue(() =>
+            {
+                try
+                {
+                    win.ActivateFromNotification();
+                    win.NavigateFromNotification(tag);
+                }
+                catch (Exception ex)
+                {
+                    LogService.Debug($"Notification activation navigation failed: {ex.Message}", LogSource.UI);
+                }
+            });
         }
 
         /// <summary>
