@@ -107,7 +107,6 @@ namespace LivePhotoBox
             try
             {
                 CachedBannerImage = new BitmapImage(new Uri(preset.AssetPath));
-                LogService.Debug($"Banner image refreshed to: {preset.Name}", LogSource.Settings);
             }
             catch (Exception ex)
             {
@@ -292,12 +291,10 @@ namespace LivePhotoBox
                 // 仅非打包模式、且距上次检查 >= 3 天
                 if (!UpdateService.IsUpdateEnabled)
                 {
-                    LogService.Debug("Startup update check: DISABLED (packaged/MSIX mode).", LogSource.App);
                     return;
                 }
                 if (!UpdateService.ShouldCheckForUpdate())
                 {
-                    LogService.Debug("Startup update check: SKIPPED (within 3-day interval).", LogSource.App);
                     return;
                 }
 

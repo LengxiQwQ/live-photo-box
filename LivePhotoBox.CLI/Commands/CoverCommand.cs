@@ -192,6 +192,8 @@ namespace LivePhotoBox.Cli.Commands
                     return 1;
                 }
 
+                LogService.Info($"[Cover] Input resolved: image='{input.ImagePath}', video='{input.VideoPath ?? "null"}', protocol={input.Protocol}, type={input.LivePhotoType}", LogSource.System);
+
                 string imagePath = input.ImagePath;
                 string? pairedVideoPath = input.VideoPath;
 
@@ -307,6 +309,8 @@ namespace LivePhotoBox.Cli.Commands
                             });
                         }
 
+                        LogService.Info($"[Cover] View mode: protocol={input.Protocol}, currentCoverTsUs={currentCoverTimestampUs}, frames={totalFrames}", LogSource.System);
+
                         return 0;
                     }
 
@@ -415,6 +419,9 @@ namespace LivePhotoBox.Cli.Commands
                         {
                             Console.WriteLine("[DRY RUN] Would change cover. No files were modified.");
                         }
+
+                        LogService.Info($"[Cover] DRY RUN: would change cover to tsUs={timestampUs.Value}, frame={coverFrameNumber + 1}", LogSource.System);
+
                         return 0;
                     }
 
@@ -455,6 +462,8 @@ namespace LivePhotoBox.Cli.Commands
                             CliConsole.WriteFieldRgb("Output video", outputVideoPath, width: 12, valueColor: CliConsole.PathGreen);
                     }
 
+                    LogService.Info($"[Cover] Changing cover: tsUs={timestampUs.Value}, frame={(resolvedFrameIndex + 1) ?? coverFrameNumber + 1}, output='{outputImagePath}'", LogSource.System);
+
                     var result = await CoverChangeService.ChangeCoverAsync(
                         new CoverChangeRequest
                         {
@@ -491,6 +500,8 @@ namespace LivePhotoBox.Cli.Commands
                         CliConsole.WriteLine("Done", CliConsole.Success);
                     }
 
+                    LogService.Info($"[Cover] Success: output='{result.OutputImagePath}'{(result.OutputVideoPath != null ? $", video='{result.OutputVideoPath}'" : "")}", LogSource.System);
+
                     return 0;
                 }
                 finally
@@ -503,6 +514,8 @@ namespace LivePhotoBox.Cli.Commands
             }
             catch (OperationCanceledException)
             {
+                LogService.Info("[Cover] Cancelled by user", LogSource.System);
+
                 if (json)
                     PrintJson(new { command = "cover", status = "cancelled" });
                 else
@@ -511,6 +524,8 @@ namespace LivePhotoBox.Cli.Commands
             }
             catch (Exception ex)
             {
+                LogService.Error($"[Cover] Failed: {ex.GetType().Name}: {ex.Message}", ex, LogSource.System);
+
                 if (json)
                     PrintJson(new { command = "cover", status = "failed", error = ex.Message });
                 else

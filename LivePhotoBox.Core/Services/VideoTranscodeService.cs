@@ -55,7 +55,6 @@ namespace LivePhotoBox.Services
                 {
                     // 迁移：h264_xxx -> hevc_xxx
                     string migratedHevc = "hevc" + legacyH264.Substring(4);
-                    LogService.Split($"Migrating legacy encoder '{legacyH264}' -> '{migratedHevc}' for HEVC", LogLevel.Info);
                     if (IsEncoderAvailable(migratedHevc))
                     {
                         AppSettingsService.SetValue(newKey, migratedHevc);
@@ -157,8 +156,6 @@ namespace LivePhotoBox.Services
                 LogService.Split("Remux failed: FFmpeg not found", LogLevel.Error);
                 return result;
             }
-
-            LogService.Split($"Starting remux (container only, no re-encoding): {Path.GetFileName(inputPath)}");
 
             try
             {
@@ -348,10 +345,6 @@ namespace LivePhotoBox.Services
                 return result;
             }
 
-            LogService.Split(
-                $"Starting GIF transcode: {Path.GetFileName(inputPath)} -> {fps}fps {width}x{height}",
-                LogLevel.Info);
-
             // 安全创建输出目录
             string? outDir = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrWhiteSpace(outDir))
@@ -377,8 +370,6 @@ namespace LivePhotoBox.Services
                 $"-vf \"{filterGraph}\" " +
                 $"-loop {loopCount} " +
                 $"\"{outputPath}\"";
-
-            LogService.Split($"ffmpeg {arguments}", LogLevel.Debug);
 
             try
             {
@@ -691,8 +682,6 @@ namespace LivePhotoBox.Services
                 return result;
             }
 
-            LogService.Split($"Starting transcode: {Path.GetFileName(inputPath)} -> {targetFormat}");
-
             // 安全创建目录：防止空字符串导致 ArgumentException 崩溃
             string? outDir = Path.GetDirectoryName(outputPath);
             if (!string.IsNullOrWhiteSpace(outDir))
@@ -733,8 +722,6 @@ namespace LivePhotoBox.Services
                     LogService.Split($"  {encoder} not available, skipping", LogLevel.Debug);
                     continue;
                 }
-
-                LogService.Split($"Trying {encoder}...");
 
                 string? arguments = BuildFFmpegArguments(inputPath, outputPath,
                     targetFormat, forceSoftwareEncoder: false, useFaststart,
@@ -829,8 +816,6 @@ namespace LivePhotoBox.Services
             string ffmpegPath, string arguments, string outputPath,
             CancellationToken token, TranscodeResult result, Stopwatch stopwatch)
         {
-            LogService.Split($"ffmpeg {arguments}", LogLevel.Debug);
-
             using var process = new Process();
             process.StartInfo.FileName = ffmpegPath;
             process.StartInfo.Arguments = arguments;

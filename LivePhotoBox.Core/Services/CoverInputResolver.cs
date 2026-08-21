@@ -50,14 +50,22 @@ namespace LivePhotoBox.Services
             string[] files,
             CancellationToken token)
         {
+            LogService.Info($"[Cover] Resolve input: files=['{string.Join("', '", files)}']", LogSource.System);
+
             if (files.Length == 2)
             {
                 var pair = ResolveImageVideo(files[0], files[1]);
                 if (pair == null)
+                {
+                    LogService.Info("[Cover] Resolve failed: input files are not a valid image+video pair", LogSource.System);
                     return null;
+                }
 
                 if (!File.Exists(pair.Value.Image) || !File.Exists(pair.Value.Video))
+                {
+                    LogService.Info($"[Cover] Resolve failed: paired file(s) not found (image='{pair.Value.Image}', video='{pair.Value.Video}')", LogSource.System);
                     return null;
+                }
 
                 string xmpText = LivePhotoSplitService.ReadMetadataTextSync(pair.Value.Image);
                 string? explicitPairContentIdentifier = await CoverChangeService.ReadContentIdentifierAsync(
@@ -70,7 +78,10 @@ namespace LivePhotoBox.Services
                     xmpText);
 
                 if (protocol == LivePhotoProtocolType.Unknown)
+                {
+                    LogService.Info("[Cover] Resolve failed: dual-file protocol detection returned Unknown", LogSource.System);
                     return null;
+                }
 
                 return new CoverInputResolution
                 {
@@ -83,11 +94,17 @@ namespace LivePhotoBox.Services
 
             string imagePath = files[0];
             if (!File.Exists(imagePath))
+            {
+                LogService.Info($"[Cover] Resolve failed: image file not found '{imagePath}'", LogSource.System);
                 return null;
+            }
 
             string ext = Path.GetExtension(imagePath);
             if (!ImageExtensions.Contains(ext))
+            {
+                LogService.Info($"[Cover] Resolve failed: unsupported image extension '{ext}'", LogSource.System);
                 return null;
+            }
 
             string imageXmp = LivePhotoSplitService.ReadMetadataTextSync(imagePath);
 
@@ -114,7 +131,10 @@ namespace LivePhotoBox.Services
             // 2. 单文件检测未命中时，按双文件实况尝试配对。
             string? pairedVideo = await FindPairedVideoAsync(imagePath, imageXmp, token).ConfigureAwait(false);
             if (pairedVideo == null)
+            {
+                LogService.Info($"[Cover] Resolve failed: single-file detection ({singleFileType}) missed, no paired video found for '{imagePath}'", LogSource.System);
                 return null;
+            }
 
             string? contentIdentifier = await CoverChangeService.ReadContentIdentifierAsync(
                 imagePath, token).ConfigureAwait(false);
@@ -126,7 +146,10 @@ namespace LivePhotoBox.Services
                 imageXmp);
 
             if (dualProtocol == LivePhotoProtocolType.Unknown)
+            {
+                LogService.Info($"[Cover] Resolve failed: paired dual-file protocol detection returned Unknown for '{imagePath}'", LogSource.System);
                 return null;
+            }
 
             return new CoverInputResolution
             {

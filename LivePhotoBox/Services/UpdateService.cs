@@ -175,14 +175,12 @@ namespace LivePhotoBox.Services
         {
             if (!IsUpdateEnabled)
             {
-                LogService.Debug("UpdateService: ShouldCheck → false (packaged mode)", LogSource.System);
                 return false;
             }
 
             var lastCheckStr = AppSettingsService.GetValue(LastCheckKey, "");
             if (string.IsNullOrEmpty(lastCheckStr))
             {
-                LogService.Info("UpdateService: ShouldCheck → true (first check ever, no previous record)", LogSource.System);
                 return true;
             }
 
@@ -210,7 +208,6 @@ namespace LivePhotoBox.Services
         {
             var now = DateTime.Now;
             AppSettingsService.SetValue(LastCheckKey, now.ToString("o"));
-            LogService.Debug($"UpdateService: Check time recorded → {now:yyyy-MM-dd HH:mm:ss}", LogSource.System);
         }
 
         // ── 跳过版本管理 ──────────────────────────────────────────────
@@ -221,10 +218,7 @@ namespace LivePhotoBox.Services
         public static bool IsVersionSkipped(string tagName)
         {
             var skipped = AppSettingsService.GetValue(SkippedVersionKey, "");
-            bool isSkipped = string.Equals(skipped, tagName, StringComparison.OrdinalIgnoreCase);
-            if (isSkipped)
-                LogService.Info($"UpdateService: Version '{tagName}' was previously skipped by user.", LogSource.System);
-            return isSkipped;
+            return string.Equals(skipped, tagName, StringComparison.OrdinalIgnoreCase);
         }
 
         /// <summary>
@@ -233,7 +227,6 @@ namespace LivePhotoBox.Services
         public static void SkipVersion(string tagName)
         {
             AppSettingsService.SetValue(SkippedVersionKey, tagName);
-            LogService.Info($"UpdateService: User skipped version '{tagName}'. Will not prompt again.", LogSource.System);
         }
 
         /// <summary>
@@ -241,10 +234,7 @@ namespace LivePhotoBox.Services
         /// </summary>
         public static void ClearSkippedVersion()
         {
-            var was = AppSettingsService.GetValue(SkippedVersionKey, "");
             AppSettingsService.SetValue(SkippedVersionKey, "");
-            if (!string.IsNullOrEmpty(was))
-                LogService.Info($"UpdateService: Cleared skipped version '{was}'.", LogSource.System);
         }
 
         // ── 限流头解析 ──────────────────────────────────────────────
@@ -460,7 +450,6 @@ namespace LivePhotoBox.Services
         {
             if (release == null)
             {
-                LogService.Debug("UpdateService: CompareWithLatest → UpToDate (release is null)", LogSource.System);
                 return UpdateRelation.UpToDate;
             }
 
@@ -582,7 +571,6 @@ namespace LivePhotoBox.Services
                 if (Directory.Exists(tempDir))
                 {
                     Directory.Delete(tempDir, true);
-                    LogService.Debug($"UpdateService: Cleaned up temp dir: {tempDir}", LogSource.System);
                 }
             }
             catch (Exception ex)

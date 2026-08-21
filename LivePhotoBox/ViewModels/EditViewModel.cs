@@ -5078,11 +5078,6 @@ namespace LivePhotoBox.ViewModels
                                 await Task.Delay(800);
                                 dispatcher.TryEnqueue(() => _isInitialTimelineScroll = false);
                             });
-                            LogService.Debug(
-                                $"Timeline select: {(frameToSelect.IsOriginalPhoto ? "🖼" : frameToSelect.IsStillPhoto ? "⭐" : $"vid #{frameToSelect.FrameIndex}")} " +
-                                $"at {frameToSelect.Timestamp.TotalSeconds:F4}s " +
-                                $"(cover={coverTimeSeconds:F4}s, photo={photoTimeSeconds:F4}s, split={split})",
-                                LogSource.UI);
 
                             // 5. 逐帧加载 JPEG 缩略图 → SoftwareBitmap (Bgra8 Premultiplied) + SoftwareBitmapSource
                             //    后台线程解码 + UI 线程创建 Source。

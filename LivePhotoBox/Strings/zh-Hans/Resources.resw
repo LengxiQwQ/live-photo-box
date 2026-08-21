@@ -760,10 +760,10 @@
     <value>Desktop Acrylic</value>
   </data>
   <data name="MergePage_Protocol_V1.Content" xml:space="preserve">
-    <value>Google - Micro Video (v1)</value>
+    <value>Google - Micro Video (V1)</value>
   </data>
   <data name="MergePage_Protocol_V2.Content" xml:space="preserve">
-    <value>Google - Motion Photo (v2)</value>
+    <value>Google - Motion Photo (V2)</value>
   </data>
   <data name="MergePage_Protocol_Oppo.Content" xml:space="preserve">
     <value>OPPO - O-Live Photo</value>
@@ -992,18 +992,6 @@
   <data name="Task_Failed" xml:space="preserve">
     <value>处理失败</value>
   </data>
-  <data name="MergePage_Task_Failed" xml:space="preserve">
-    <value>合成失败</value>
-  </data>
-  <data name="SplitPage_Task_Failed" xml:space="preserve">
-    <value>拆分失败</value>
-  </data>
-  <data name="RepairPage_Task_Failed" xml:space="preserve">
-    <value>修复失败</value>
-  </data>
-  <data name="Task_TapToViewHint" xml:space="preserve">
-    <value>点击查看</value>
-  </data>
   <data name="SettingsPage_Crash_Header.Text" xml:space="preserve">
     <value>应用日志</value>
   </data>
@@ -1088,7 +1076,7 @@
     <value>让你的 Apple 实况照片也可以在 Windows 上直接显示与处理。</value>
   </data>
   <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
-    <value>iPhone 实况照片显示修复配置</value>
+    <value>Apple 实况照片显示修复配置</value>
   </data>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>输入目录：</value>
@@ -1623,6 +1611,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="MergePage_StatusElapsed" xml:space="preserve">
     <value>处理用时 {0}</value>
+  </data>
+  <data name="MergePage_StatusScanElapsed" xml:space="preserve">
+    <value>扫描用时 {0}</value>
   </data>
   <data name="MergePage_ScanMatched" xml:space="preserve">
     <value>匹配 {0}</value>
@@ -3791,63 +3782,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="HomePage_NoSample_GoToSettings" xml:space="preserve">
     <value>前往设置</value>
   </data>
-  <data name="SettingsPage_Notifications_Header.Text" xml:space="preserve">
-    <value>通知与声音</value>
-  </data>
-  <data name="SettingsPage_NotificationFrequency_Label.Text" xml:space="preserve">
-    <value>通知频率</value>
-  </data>
-  <data name="SettingsPage_NotificationFrequency_Desc.Text" xml:space="preserve">
-    <value>选择任务完成多久后发送系统通知</value>
-  </data>
-  <data name="SettingsPage_NotifFreq_Always.Content" xml:space="preserve">
-    <value>每次任务完成都通知</value>
-  </data>
-  <data name="SettingsPage_NotifFreq_Over15.Content" xml:space="preserve">
-    <value>任务时长超过 15 秒时通知</value>
-  </data>
-  <data name="SettingsPage_NotifFreq_Over30.Content" xml:space="preserve">
-    <value>任务时长超过 30 秒时通知</value>
-  </data>
-  <data name="SettingsPage_NotifFreq_Over60.Content" xml:space="preserve">
-    <value>任务时长超过 1 分钟时通知</value>
-  </data>
-  <data name="SettingsPage_NotifFreq_Over120.Content" xml:space="preserve">
-    <value>任务时长超过 2 分钟时通知</value>
-  </data>
-  <data name="SettingsPage_NotifFreq_Over300.Content" xml:space="preserve">
-    <value>任务时长超过 5 分钟时通知</value>
-  </data>
-  <data name="SettingsPage_NotifFreq_Never.Content" xml:space="preserve">
-    <value>永不显示通知</value>
-  </data>
-  <data name="SettingsPage_NotificationSound_Label.Text" xml:space="preserve">
-    <value>通知声音</value>
-  </data>
-  <data name="SettingsPage_NotificationSound_Desc.Text" xml:space="preserve">
-    <value>选择任务完成时播放的系统提示音</value>
-  </data>
-  <data name="SettingsPage_NotifSound_Default.Content" xml:space="preserve">
-    <value>通知铃声</value>
-  </data>
-  <data name="SettingsPage_NotifSound_Reminder.Content" xml:space="preserve">
-    <value>日历</value>
-  </data>
-  <data name="SettingsPage_NotifSound_IM.Content" xml:space="preserve">
-    <value>即时消息</value>
-  </data>
-  <data name="SettingsPage_NotifSound_Mail.Content" xml:space="preserve">
-    <value>邮件（默认）</value>
-  </data>
-  <data name="SettingsPage_NotifSound_SMS.Content" xml:space="preserve">
-    <value>短信</value>
-  </data>
-  <data name="SettingsPage_NotifSound_Alarm.Content" xml:space="preserve">
-    <value>闹钟</value>
-  </data>
-  <data name="SettingsPage_NotifSound_Preview.ToolTipService.ToolTip" xml:space="preserve">
-    <value>试听</value>
-  </data>
   <data name="SettingsPage_SampleContent_Header.Text" xml:space="preserve">
     <value>示例内容</value>
   </data>
@@ -4097,6 +4031,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SplitPage_StatusElapsed" xml:space="preserve">
     <value>处理用时 {0}</value>
   </data>
+  <data name="SplitPage_StatusScanElapsed" xml:space="preserve">
+    <value>扫描用时 {0}</value>
+  </data>
   <data name="SplitPage_StatusElapsedIdle" xml:space="preserve">
     <value>用时 --:--</value>
   </data>
@@ -4149,13 +4086,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>Windows / Pixel / 小米 / OPPO / vivo / 三星 ⚠️ 作者自创融合协议</value>
   </data>
   <data name="SplitPage_Match_V1.Content" xml:space="preserve">
-    <value>Google - Micro Video (v1)</value>
+    <value>Google - Micro Video (V1)</value>
   </data>
   <data name="SplitPage_Match_V1_Hint" xml:space="preserve">
     <value>Windows / 小米（旧版 MIUI）/ Pixel</value>
   </data>
   <data name="SplitPage_Match_V2.Content" xml:space="preserve">
-    <value>Google - Motion Photo (v2)</value>
+    <value>Google - Motion Photo (V2)</value>
   </data>
   <data name="SplitPage_Match_V2_Hint" xml:space="preserve">
     <value>Windows / 小米 / Pixel</value>
@@ -4185,7 +4122,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>华为 / 荣耀</value>
   </data>
   <data name="MergePage_Task_Processing" xml:space="preserve">
-    <value>正在合成...</value>
+    <value>合成中...</value>
   </data>
   <data name="SettingsPage_RememberLayout_Header.Text" xml:space="preserve">
     <value>记住窗口布局</value>
@@ -4220,12 +4157,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="RepairPage_FooterCancelled.Text" xml:space="preserve">
     <value>已取消 </value>
   </data>
-  <data name="MergePage_StatusScanElapsed" xml:space="preserve">
-    <value>扫描用时 {0}</value>
-  </data>
-  <data name="SplitPage_StatusScanElapsed" xml:space="preserve">
-    <value>扫描用时 {0}</value>
-  </data>
   <data name="Notif_Feature_Merge" xml:space="preserve">
     <value>合成</value>
   </data>
@@ -4249,5 +4180,71 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="Time_MinutesSeconds" xml:space="preserve">
     <value>{0} 分 {1} 秒</value>
+  </data>
+  <data name="SettingsPage_Notifications_Header.Text" xml:space="preserve">
+    <value>通知与声音</value>
+  </data>
+  <data name="SettingsPage_NotificationFrequency_Label.Text" xml:space="preserve">
+    <value>通知频率</value>
+  </data>
+  <data name="SettingsPage_NotificationFrequency_Desc.Text" xml:space="preserve">
+    <value>选择任务完成多久后发送系统通知</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Always.Content" xml:space="preserve">
+    <value>每次任务完成都通知</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Over15.Content" xml:space="preserve">
+    <value>任务时长超过 15 秒时通知</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Over30.Content" xml:space="preserve">
+    <value>任务时长超过 30 秒时通知</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Over60.Content" xml:space="preserve">
+    <value>任务时长超过 1 分钟时通知</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Never.Content" xml:space="preserve">
+    <value>永不显示通知</value>
+  </data>
+  <data name="SettingsPage_NotificationSound_Label.Text" xml:space="preserve">
+    <value>通知声音</value>
+  </data>
+  <data name="SettingsPage_NotificationSound_Desc.Text" xml:space="preserve">
+    <value>选择任务完成时播放的系统提示音</value>
+  </data>
+  <data name="SettingsPage_NotifSound_Default.Content" xml:space="preserve">
+    <value>通知铃声</value>
+  </data>
+  <data name="SettingsPage_NotifSound_Reminder.Content" xml:space="preserve">
+    <value>日历</value>
+  </data>
+  <data name="SettingsPage_NotifSound_IM.Content" xml:space="preserve">
+    <value>即时消息</value>
+  </data>
+  <data name="SettingsPage_NotifSound_Mail.Content" xml:space="preserve">
+    <value>邮件（默认）</value>
+  </data>
+  <data name="SettingsPage_NotifSound_SMS.Content" xml:space="preserve">
+    <value>短信</value>
+  </data>
+  <data name="SettingsPage_NotifSound_Alarm.Content" xml:space="preserve">
+    <value>闹钟</value>
+  </data>
+  <data name="SettingsPage_NotifSound_Preview.ToolTipService.ToolTip" xml:space="preserve">
+    <value>试听</value>
+  </data>
+  <data name="MergePage_Task_Failed" xml:space="preserve">
+    <value>合成失败</value>
+  </data>
+  <data name="SplitPage_Task_Failed" xml:space="preserve">
+    <value>拆分失败</value>
+  </data>
+  <data name="RepairPage_Task_Failed" xml:space="preserve">
+    <value>修复失败</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Over120.Content" xml:space="preserve">
+    <value>任务时长超过 2 分钟时通知</value>
+  </data>
+  <data name="SettingsPage_NotifFreq_Over300.Content" xml:space="preserve">
+    <value>任务时长超过 5 分钟时通知</value>
   </data>
 </root>

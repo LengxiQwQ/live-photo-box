@@ -280,9 +280,9 @@
         <!-- ═══════════ Row 1：主内容 ═══════════ -->
         <Grid Grid.Row="1" x:Name="ContentGrid" ColumnSpacing="0" SizeChanged="ContentGrid_SizeChanged">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="320" MinWidth="260"/>
+                <ColumnDefinition Width="4*" MinWidth="260" MaxWidth="520"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*" MinWidth="360"/>
+                <ColumnDefinition Width="21*" MinWidth="420"/>
             </Grid.ColumnDefinitions>
 
             <!-- ▼ 左侧面板 ▼ -->

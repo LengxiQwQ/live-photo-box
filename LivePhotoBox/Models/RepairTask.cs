@@ -189,17 +189,15 @@ namespace LivePhotoBox.Models
             ? AggregateStatus(File1Entry?.Status ?? ProcessStatus.Pending, File2Entry.Status)
             : File1Entry?.Status ?? ProcessStatus.Pending;
 
-        // File1 在队列中显示的状态文字：失败时显示两行"修复失败 / 点击查看"（简短、不截断），
+        // File1 在队列中显示的状态文字：失败时只显示"修复失败"（简短、不截断），
         // 完整错误详情在点击后弹出的 TeachingTip 中查看；其余状态沿用原详情文案。
         public string File1DisplayStatusText => File1Status == ProcessStatus.Failed
-            ? ResourceService.GetString("RepairPage_Task_Failed") + "\n" +
-              ResourceService.GetString("Task_TapToViewHint")
+            ? ResourceService.GetString("RepairPage_Task_Failed")
             : File1Details;
 
         // File2 在队列中显示的状态文字（规则同 File1）。
         public string File2DisplayStatusText => File2Status == ProcessStatus.Failed
-            ? ResourceService.GetString("RepairPage_Task_Failed") + "\n" +
-              ResourceService.GetString("Task_TapToViewHint")
+            ? ResourceService.GetString("RepairPage_Task_Failed")
             : File2Details;
 
         // 汇总两个 Entry 的状态：处理中 > 待处理 > 失败 > 成功 > 已取消。

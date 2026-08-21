@@ -1154,8 +1154,6 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
-            LogService.Split($"ToggleSecondaryAction requested. IsProcessing={IsProcessing}, IsPaused={IsPaused}");
-
             if (!IsProcessing)
             {
                 ClearState();
@@ -1170,8 +1168,6 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleProcessAsync()
         {
-            LogService.Split($"ToggleProcessAsync requested. IsProcessing={IsProcessing}, QueueCount={Tasks.Count}");
-
             if (IsProcessing)
             {
                 SetStatus("Status_Stopping");
@@ -1328,7 +1324,6 @@ namespace LivePhotoBox.ViewModels
                     var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
 
                     int maxParallel = AppSettingsService.GetValue("SplitThreadCount", 4);
-                    LogService.Split($"Parallel: {maxParallel} ({tasksToProcess.Count} tasks)", LogLevel.Debug);
 
                     var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
                     var pendingTasks = new List<Task>();

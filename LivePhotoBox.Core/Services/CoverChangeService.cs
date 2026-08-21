@@ -1,5 +1,6 @@
 using LivePhotoBox.Models;
 using LivePhotoBox.Services.Protocols;
+using LivePhotoBox.Services;
 using System;
 using System.Diagnostics;
 using System.IO;
@@ -69,6 +70,12 @@ namespace LivePhotoBox.Services
         {
             ArgumentNullException.ThrowIfNull(request);
 
+            LogService.Split(
+                $"CoverChange: start protocol={request.Protocol} type={request.LivePhotoType} " +
+                $"image={request.ImagePath} video={request.VideoPath ?? "(none)"} " +
+                $"timestampUs={request.TimestampUs} frameIndex={request.FrameIndex}",
+                LogLevel.Info);
+
             if (string.IsNullOrWhiteSpace(request.ImagePath) || !File.Exists(request.ImagePath))
                 throw new FileNotFoundException("Source live photo image not found.", request.ImagePath);
             if (string.IsNullOrWhiteSpace(request.OutputImagePath))
@@ -84,7 +91,21 @@ namespace LivePhotoBox.Services
                 tempWorkDir = Path.Combine(Path.GetTempPath(), $"lpb_cover_{Guid.NewGuid():N}");
                 Directory.CreateDirectory(tempWorkDir);
 
-                return await ChangeCoverCoreAsync(request, tempWorkDir, token).ConfigureAwait(false);
+                try
+                {
+                    var result = await ChangeCoverCoreAsync(request, tempWorkDir, token).ConfigureAwait(false);
+                    LogService.Split(
+                        $"CoverChange: success — protocol={request.Protocol} image={request.OutputImagePath}",
+                        LogLevel.Info);
+                    return result;
+                }
+                catch (Exception ex)
+                {
+                    LogService.Split(
+                        $"CoverChange: FAILED — protocol={request.Protocol} image={request.ImagePath} error={ex.Message}",
+                        LogLevel.Error);
+                    throw;
+                }
             }
             finally
             {
@@ -102,25 +123,35 @@ namespace LivePhotoBox.Services
         {
             token.ThrowIfCancellationRequested();
 
+            LogService.Split(
+                $"ChangeCoverCore: dispatching protocol={request.Protocol} type={request.LivePhotoType}",
+                LogLevel.Info);
+
             switch (request.Protocol)
             {
                 case LivePhotoProtocolType.Apple:
+                    LogService.Split("CoverChange: protocol branch -> Apple", LogLevel.Info);
                     return await ChangeAppleCoverAsync(request, workDir, token).ConfigureAwait(false);
 
                 case LivePhotoProtocolType.Huawei:
+                    LogService.Split("CoverChange: protocol branch -> Huawei", LogLevel.Info);
                     return await ChangeHuaweiCoverAsync(request, workDir, token).ConfigureAwait(false);
 
                 case LivePhotoProtocolType.Vivo when request.LivePhotoType == LivePhotoType.DualFile:
+                    LogService.Split("CoverChange: protocol branch -> Vivo (old dual-file)", LogLevel.Info);
                     return await ChangeVivoOldCoverAsync(request, workDir, token).ConfigureAwait(false);
 
                 case LivePhotoProtocolType.Samsung:
                 case LivePhotoProtocolType.Fusion:
+                    LogService.Split("CoverChange: protocol branch -> Samsung/Fusion", LogLevel.Info);
                     return await ChangeSamsungFamilyCoverAsync(request, workDir, token).ConfigureAwait(false);
 
                 case LivePhotoProtocolType.GoogleV2 when request.LivePhotoType == LivePhotoType.SingleFileHeic:
+                    LogService.Split("CoverChange: protocol branch -> Google V2 HEIC", LogLevel.Info);
                     return await ChangeGoogleV2HeicCoverAsync(request, workDir, token).ConfigureAwait(false);
 
                 default:
+                    LogService.Split("CoverChange: protocol branch -> XMP single-file", LogLevel.Info);
                     return await ChangeXmpSingleFileCoverAsync(request, workDir, token).ConfigureAwait(false);
             }
         }
@@ -132,6 +163,8 @@ namespace LivePhotoBox.Services
             string workDir,
             CancellationToken token)
         {
+            LogService.Split("AppleCover: start", LogLevel.Info);
+
             string? pairedVideoPath = request.VideoPath;
             if (string.IsNullOrEmpty(pairedVideoPath) || !File.Exists(pairedVideoPath))
                 throw new FileNotFoundException("Apple Live Photo requires a paired video file.");
@@ -142,17 +175,21 @@ namespace LivePhotoBox.Services
             string heifEncPath = FindRequiredHeifEnc();
 
             // 1. 从 MOV 提取目标帧。
+            LogService.Split("AppleCover: extracting frame from MOV", LogLevel.Info);
             string frameJpeg = await ExtractFrameAsync(
                 request, pairedVideoPath, workDir, "apple_frame.jpg", token).ConfigureAwait(false);
 
             // 2. 从原 HEIC 拷贝 EXIF/MakerNote 到帧 JPEG。
+            LogService.Split("AppleCover: copying EXIF from source", LogLevel.Info);
             await CopyExifFromSourceAsync(request.ImagePath, frameJpeg, token).ConfigureAwait(false);
 
             // 3. 提前读取 ContentIdentifier，并在编码前把 Apple MakerNote 注入帧 JPEG，
             //    确保 heif-enc 与后续 exiftool 回写都能保留配对 UUID。
+            LogService.Split("AppleCover: reading ContentIdentifier", LogLevel.Info);
             string? contentIdentifier = await ReadContentIdentifierAsync(request.ImagePath, token).ConfigureAwait(false);
             if (!string.IsNullOrEmpty(contentIdentifier))
             {
+                LogService.Split("AppleCover: injecting MakerNote into JPEG", LogLevel.Info);
                 AppleMakerNoteWriter.TryInjectIntoJpeg(
                     frameJpeg,
                     AppleMakerNoteWriter.BuildMakerNote(contentIdentifier),
@@ -160,6 +197,7 @@ namespace LivePhotoBox.Services
             }
 
             // 4. 帧 JPEG 编码为 HEIC。
+            LogService.Split("AppleCover: encoding JPEG to HEIC", LogLevel.Info);
             string tempHeicPath = await EncodeJpegToHeicAsync(frameJpeg, workDir, token).ConfigureAwait(false);
 
             // 5. heif-enc 不一定保留全部标签，从 enriched JPEG 回写。
@@ -175,11 +213,10 @@ namespace LivePhotoBox.Services
             }
             catch
             {
-                // GUI 中将此步视为 non-fatal。
+                LogService.Split("AppleCover: non-fatal — exiftool tag copy from enriched JPEG to HEIC failed", LogLevel.Warning);
             }
 
             // 6. 写回 ContentIdentifier 到新 HEIC。
-            // exiftool 无法凭空创建 Apple MakerNote；优先用字节级注入，失败时退回 exiftool。
             if (!string.IsNullOrEmpty(contentIdentifier))
             {
                 bool injected = AppleMakerNoteWriter.TryInjectAppleMakerNoteIntoHeic(
@@ -188,11 +225,12 @@ namespace LivePhotoBox.Services
                 {
                     try
                     {
+                        LogService.Split("AppleCover: falling back to exiftool for ContentIdentifier write-back to HEIC", LogLevel.Info);
                         await WriteContentIdentifierAsync(tempHeicPath, contentIdentifier, token).ConfigureAwait(false);
                     }
                     catch
                     {
-                        // GUI 将此步视为 non-fatal。
+                        LogService.Split("AppleCover: non-fatal — ContentIdentifier write-back to HEIC failed", LogLevel.Warning);
                     }
                 }
             }
@@ -200,17 +238,19 @@ namespace LivePhotoBox.Services
             File.Copy(tempHeicPath, request.OutputImagePath, overwrite: true);
 
             // 7. 复制配对 MOV。
+            LogService.Split("AppleCover: copying paired MOV", LogLevel.Info);
             File.Copy(pairedVideoPath, request.OutputVideoPath, overwrite: true);
 
             // 8. 更新 MOV 中 mebx 轨的封面时间。
             try
             {
+                LogService.Split("AppleCover: patching still-image-time in MOV", LogLevel.Info);
                 EditTimingService.PatchAppleStillImageTime(
                     request.OutputVideoPath, request.TimestampUs / 1_000_000.0);
             }
             catch
             {
-                // GUI 将此步视为 non-fatal。
+                LogService.Split("AppleCover: non-fatal — patching still-image-time in MOV failed", LogLevel.Warning);
             }
 
             // 9. 写回 ContentIdentifier 到新 MOV。
@@ -218,16 +258,21 @@ namespace LivePhotoBox.Services
             {
                 try
                 {
+                    LogService.Split("AppleCover: writing ContentIdentifier to MOV", LogLevel.Info);
                     await WriteContentIdentifierAsync(request.OutputVideoPath, contentIdentifier, token).ConfigureAwait(false);
                 }
                 catch
                 {
-                    // GUI 将此步视为 non-fatal。
+                    LogService.Split("AppleCover: non-fatal — ContentIdentifier write-back to MOV failed", LogLevel.Warning);
                 }
             }
 
             TrySetLastWriteTime(request.OutputImagePath);
             TrySetLastWriteTime(request.OutputVideoPath);
+
+            LogService.Split(
+                $"AppleCover: success — image={request.OutputImagePath} video={request.OutputVideoPath}",
+                LogLevel.Info);
 
             return new CoverChangeResult
             {
@@ -243,6 +288,8 @@ namespace LivePhotoBox.Services
             string workDir,
             CancellationToken token)
         {
+            LogService.Split("HuaweiCover: start", LogLevel.Info);
+
             bool isHeicOutput = HeicConverterService.IsHeicFile(request.OutputImagePath);
 
             if (isHeicOutput)
@@ -259,23 +306,30 @@ namespace LivePhotoBox.Services
             }
 
             // 提取嵌入 MP4。
+            LogService.Split("HuaweiCover: extracting embedded MP4", LogLevel.Info);
             string videoPath = await ExtractHuaweiVideoAsync(request.ImagePath, workDir, token).ConfigureAwait(false);
 
             // 提取目标帧。
+            LogService.Split("HuaweiCover: extracting cover frame", LogLevel.Info);
             string frameJpeg = await ExtractFrameAsync(
                 request, videoPath, workDir, "huawei_frame.jpg", token).ConfigureAwait(false);
 
             // 注入原图 EXIF。
+            LogService.Split("HuaweiCover: copying EXIF from source", LogLevel.Info);
             await CopyExifFromSourceAsync(request.ImagePath, frameJpeg, token).ConfigureAwait(false);
 
             // HEIC 输出时把帧 JPEG 转为 HEIC。
             string imagePath = frameJpeg;
             if (isHeicOutput)
             {
+                LogService.Split("HuaweiCover: encoding JPEG to HEIC (heic output)", LogLevel.Info);
                 imagePath = await EncodeJpegToHeicAsync(frameJpeg, workDir, token).ConfigureAwait(false);
             }
 
             // 复用 Core 的华为原生写入器：注入 covertime、patch ftyp/©too、构建尾部。
+            LogService.Split(
+                $"HuaweiCover: writing native Huawei container (isHeic={isHeicOutput})",
+                LogLevel.Info);
             await LivePhotoMergeService.WriteHuaweiNativeAsync(
                 imagePath,
                 videoPath,
@@ -288,6 +342,10 @@ namespace LivePhotoBox.Services
                 "v6_f").ConfigureAwait(false);
 
             TrySetLastWriteTime(request.OutputImagePath);
+
+            LogService.Split(
+                $"HuaweiCover: success — image={request.OutputImagePath}",
+                LogLevel.Info);
 
             return new CoverChangeResult
             {
@@ -302,22 +360,31 @@ namespace LivePhotoBox.Services
             string workDir,
             CancellationToken token)
         {
+            LogService.Split("SamsungCover: start", LogLevel.Info);
+
             // 提取嵌入视频。
+            LogService.Split("SamsungCover: extracting embedded video", LogLevel.Info);
             string videoPath = await ExtractSamsungVideoAsync(request.ImagePath, workDir, token).ConfigureAwait(false);
 
             // 提取目标帧。
+            LogService.Split("SamsungCover: extracting cover frame", LogLevel.Info);
             string frameJpeg = await ExtractFrameAsync(
                 request, videoPath, workDir, "samsung_frame.jpg", token).ConfigureAwait(false);
 
             // 注入原图 EXIF。
+            LogService.Split("SamsungCover: copying EXIF from source", LogLevel.Info);
             string workImagePath = Path.Combine(workDir, $"frame_{Guid.NewGuid():N}.jpg");
             File.Copy(frameJpeg, workImagePath, overwrite: true);
             await CopyExifFromSourceAsync(request.ImagePath, workImagePath, token).ConfigureAwait(false);
 
             int protocolIndex = ToProtocolIndex(request.Protocol);
             var protocol = LivePhotoProtocol.FromIndex(protocolIndex);
+            LogService.Split(
+                $"SamsungCover: preparing image (protocolIndex={protocolIndex})",
+                LogLevel.Info);
             string preparedImagePath = await protocol.PrepareImageAsync(workImagePath, workDir, token).ConfigureAwait(false);
 
+            LogService.Split("SamsungCover: writing live photo container", LogLevel.Info);
             await LivePhotoMergeService.WriteLivePhotoAsync(
                 preparedImagePath,
                 videoPath,
@@ -327,6 +394,10 @@ namespace LivePhotoBox.Services
                 request.TimestampUs).ConfigureAwait(false);
 
             TrySetLastWriteTime(request.OutputImagePath);
+
+            LogService.Split(
+                $"SamsungCover: success — image={request.OutputImagePath}",
+                LogLevel.Info);
 
             return new CoverChangeResult
             {
@@ -341,19 +412,26 @@ namespace LivePhotoBox.Services
             string workDir,
             CancellationToken token)
         {
+            LogService.Split("V2HeicCover: start", LogLevel.Info);
+
+            LogService.Split("V2HeicCover: extracting mpvd video from HEIC", LogLevel.Info);
             string videoPath = await ExtractHeicMpvdVideoAsync(request.ImagePath, workDir, token).ConfigureAwait(false);
 
+            LogService.Split("V2HeicCover: extracting cover frame", LogLevel.Info);
             string frameJpeg = await ExtractFrameAsync(
                 request, videoPath, workDir, "v2heic_frame.jpg", token).ConfigureAwait(false);
 
             string workImagePath = Path.Combine(workDir, $"frame_{Guid.NewGuid():N}.jpg");
             File.Copy(frameJpeg, workImagePath, overwrite: true);
+            LogService.Split("V2HeicCover: copying EXIF from source", LogLevel.Info);
             await CopyExifFromSourceAsync(request.ImagePath, workImagePath, token).ConfigureAwait(false);
 
+            LogService.Split("V2HeicCover: encoding JPEG to HEIC", LogLevel.Info);
             string frameHeicPath = await EncodeJpegToHeicAsync(workImagePath, workDir, token).ConfigureAwait(false);
 
             try
             {
+                LogService.Split("V2HeicCover: copying EXIF tags into HEIC (excl. XMP)", LogLevel.Info);
                 await LivePhotoRepairService.RunExifToolAsync(token,
                     "-TagsFromFile", workImagePath,
                     "-all:all",
@@ -368,9 +446,10 @@ namespace LivePhotoBox.Services
             }
             catch
             {
-                // GUI 中此步属于防御性处理；失败不阻断。
+                LogService.Split("V2HeicCover: non-fatal — exiftool tag copy into HEIC failed", LogLevel.Warning);
             }
 
+            LogService.Split("V2HeicCover: writing V2 HEIC+MP4 container", LogLevel.Info);
             await LivePhotoMergeService.WriteLivePhotoAsync(
                 frameHeicPath,
                 videoPath,
@@ -381,6 +460,10 @@ namespace LivePhotoBox.Services
                 ProtocolFormatMatrix.FormatHeicMp4).ConfigureAwait(false);
 
             TrySetLastWriteTime(request.OutputImagePath);
+
+            LogService.Split(
+                $"V2HeicCover: success — image={request.OutputImagePath}",
+                LogLevel.Info);
 
             return new CoverChangeResult
             {
@@ -395,19 +478,30 @@ namespace LivePhotoBox.Services
             string workDir,
             CancellationToken token)
         {
+            LogService.Split("XmpCover: start", LogLevel.Info);
+
+            LogService.Split(
+                $"XmpCover: extracting appended video (protocol={request.Protocol})",
+                LogLevel.Info);
             string videoPath = await ExtractXmpVideoAsync(request.ImagePath, request.Protocol, workDir, token).ConfigureAwait(false);
 
+            LogService.Split("XmpCover: extracting cover frame", LogLevel.Info);
             string frameJpeg = await ExtractFrameAsync(
                 request, videoPath, workDir, "xmp_frame.jpg", token).ConfigureAwait(false);
 
             string workImagePath = Path.Combine(workDir, $"frame_{Guid.NewGuid():N}.jpg");
             File.Copy(frameJpeg, workImagePath, overwrite: true);
+            LogService.Split("XmpCover: copying EXIF from source", LogLevel.Info);
             await CopyExifFromSourceAsync(request.ImagePath, workImagePath, token).ConfigureAwait(false);
 
             int protocolIndex = ToProtocolIndex(request.Protocol);
             var protocol = LivePhotoProtocol.FromIndex(protocolIndex);
+            LogService.Split(
+                $"XmpCover: preparing image (protocolIndex={protocolIndex})",
+                LogLevel.Info);
             string preparedImagePath = await protocol.PrepareImageAsync(workImagePath, workDir, token).ConfigureAwait(false);
 
+            LogService.Split("XmpCover: writing live photo container", LogLevel.Info);
             await LivePhotoMergeService.WriteLivePhotoAsync(
                 preparedImagePath,
                 videoPath,
@@ -417,6 +511,10 @@ namespace LivePhotoBox.Services
                 request.TimestampUs).ConfigureAwait(false);
 
             TrySetLastWriteTime(request.OutputImagePath);
+
+            LogService.Split(
+                $"XmpCover: success — image={request.OutputImagePath}",
+                LogLevel.Info);
 
             return new CoverChangeResult
             {
@@ -431,6 +529,8 @@ namespace LivePhotoBox.Services
             string workDir,
             CancellationToken token)
         {
+            LogService.Split("VivoOldCover: start", LogLevel.Info);
+
             string? pairedVideoPath = request.VideoPath;
             if (string.IsNullOrEmpty(pairedVideoPath) || !File.Exists(pairedVideoPath))
                 throw new FileNotFoundException("vivo dual-file live photo requires a paired video file.");
@@ -438,17 +538,24 @@ namespace LivePhotoBox.Services
             if (string.IsNullOrEmpty(request.OutputVideoPath))
                 throw new ArgumentException("vivo dual-file live photo requires an output video path.", nameof(request));
 
+            LogService.Split("VivoOldCover: extracting cover frame", LogLevel.Info);
             string frameJpeg = await ExtractFrameAsync(
                 request, pairedVideoPath, workDir, "vivo_frame.jpg", token).ConfigureAwait(false);
 
             byte[]? vivoTail = ReadVivoTail(request.ImagePath);
+            if (vivoTail is not { Length: > 0 })
+            {
+                LogService.Split("VivoOldCover: no vivo tail found in source JPEG — live pairing may be lost", LogLevel.Warning);
+            }
 
             string tempJpgPath = Path.Combine(workDir, $"frame_{Guid.NewGuid():N}.jpg");
             File.Copy(frameJpeg, tempJpgPath, overwrite: true);
+            LogService.Split("VivoOldCover: copying EXIF from source", LogLevel.Info);
             await CopyExifFromSourceAsync(request.ImagePath, tempJpgPath, token).ConfigureAwait(false);
 
             if (vivoTail is { Length: > 0 })
             {
+                LogService.Split("VivoOldCover: appending vivo tail to output JPEG", LogLevel.Info);
                 await using (var dstFs = new FileStream(tempJpgPath, FileMode.Append, FileAccess.Write, FileShare.None))
                 {
                     await dstFs.WriteAsync(vivoTail, 0, vivoTail.Length, token).ConfigureAwait(false);
@@ -456,10 +563,15 @@ namespace LivePhotoBox.Services
             }
 
             File.Copy(tempJpgPath, request.OutputImagePath, overwrite: true);
+            LogService.Split("VivoOldCover: copying paired video", LogLevel.Info);
             File.Copy(pairedVideoPath, request.OutputVideoPath, overwrite: true);
 
             TrySetLastWriteTime(request.OutputImagePath);
             TrySetLastWriteTime(request.OutputVideoPath);
+
+            LogService.Split(
+                $"VivoOldCover: success — image={request.OutputImagePath} video={request.OutputVideoPath}",
+                LogLevel.Info);
 
             return new CoverChangeResult
             {

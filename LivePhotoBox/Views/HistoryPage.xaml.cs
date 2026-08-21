@@ -11,12 +11,14 @@
  *   - SelectFolder_Click 事件触发文件夹选择，更新 ViewModel
  */
 
+using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI.Xaml.Controls;
 using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
+using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.Views
 {
@@ -42,8 +44,13 @@ namespace LivePhotoBox.Views
         private async void SelectFolder_Click(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
         {
             var folder = await FilePickerService.PickFolderAsync();
-            if (folder == null) return;
+            if (folder == null)
+            {
+                LogService.Info("SelectFolder: user cancelled", LogSource.UI);
+                return;
+            }
 
+            LogService.Info($"SelectFolder: {folder.Path}", LogSource.UI);
             ViewModel.SelectedFolder = folder.Path;
             FolderPathText.Text = folder.Path;
         }

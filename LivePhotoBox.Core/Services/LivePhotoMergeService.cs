@@ -1044,9 +1044,6 @@ namespace LivePhotoBox.Services
                 }
 
                 await File.WriteAllBytesAsync(patchedPath, data, token);
-                LogService.Merge(
-                    $"ftyp brand patched → mp42/[iso2,mp42,...]: {Path.GetFileName(patchedPath)}",
-                    LogLevel.Debug);
                 return patchedPath;
             }
             catch (OperationCanceledException) { throw; }
@@ -1103,8 +1100,6 @@ namespace LivePhotoBox.Services
             fs.Seek(lavfPos, SeekOrigin.Begin);
             fs.Write(OpenharmonyTooBytes, 0, 12);
             fs.Flush();
-
-            LogService.Merge("©too patched: Lavf → openharmony6", LogLevel.Debug);
         }
 
         // Write the combined JPEG + XMP + video file.

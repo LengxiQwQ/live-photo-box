@@ -9,8 +9,10 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
+using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.ViewModels
 {
@@ -26,6 +28,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void GoToTutorial(string feature)
         {
+            LogService.Info($"GoToTutorial: {feature}", LogSource.UI);
             RequestNavigateToPage?.Invoke(this, $"Home_{feature}");
         }
     }

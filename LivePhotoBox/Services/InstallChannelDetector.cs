@@ -5,9 +5,11 @@
  * （商店 / Inno Setup / Scoop / 便携版）。
  */
 
+using LivePhotoBox.Models;
 using System;
 using System.Diagnostics;
 using System.IO;
+using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.Services
 {
@@ -43,19 +45,22 @@ namespace LivePhotoBox.Services
         {
             var dir = baseDirectory ?? AppContext.BaseDirectory;
 
+            GuiInstallChannel channel;
+
             // 商店版：MSIX 打包，Package.Current 可用
             if (App.IsPackaged)
-                return GuiInstallChannel.Store;
-
+                channel = GuiInstallChannel.Store;
             // Inno Setup 安装版：应用目录存在 Inno Setup 卸载器（unins000.exe）
-            if (IsInnoSetupUninstaller(dir))
-                return GuiInstallChannel.InnoSetup;
-
+            else if (IsInnoSetupUninstaller(dir))
+                channel = GuiInstallChannel.InnoSetup;
             // Scoop 包管理器安装：无卸载器，按路径识别（~\scoop\apps\ 或 SCOOP 自定义根）
-            if (IsScoopManaged(dir))
-                return GuiInstallChannel.Scoop;
+            else if (IsScoopManaged(dir))
+                channel = GuiInstallChannel.Scoop;
+            else
+                channel = GuiInstallChannel.Portable;
 
-            return GuiInstallChannel.Portable;
+            LogService.Info($"InstallChannel detected: {channel} (dir={dir})", LogSource.System);
+            return channel;
         }
 
         /// <summary>

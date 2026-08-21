@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using LivePhotoBox.Models;
+using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.Services
 {
@@ -53,10 +55,39 @@ namespace LivePhotoBox.Services
             return false;
         }
 
-        private static string? ResolveFFmpegPath() => FindTool("ffmpeg.exe");
-        private static string? ResolveExifToolPath() => FindTool("exiftool.exe");
-        private static string? ResolveJpegTranPath() => FindTool("jpegtran.exe");
-        private static string? ResolveHeifEncPath() => FindTool("heif-enc.exe");
-        private static string? ResolveHeifDecPath() => FindTool("heif-dec.exe");
+        private static string? ResolveFFmpegPath()
+        {
+            var path = FindTool("ffmpeg.exe");
+            LogService.Info($"ExternalToolLocator: ffmpeg → {path ?? "NOT FOUND"}", LogSource.System);
+            return path;
+        }
+
+        private static string? ResolveExifToolPath()
+        {
+            var path = FindTool("exiftool.exe");
+            LogService.Info($"ExternalToolLocator: exiftool → {path ?? "NOT FOUND"}", LogSource.System);
+            return path;
+        }
+
+        private static string? ResolveJpegTranPath()
+        {
+            var path = FindTool("jpegtran.exe");
+            LogService.Info($"ExternalToolLocator: jpegtran → {path ?? "NOT FOUND"}", LogSource.System);
+            return path;
+        }
+
+        private static string? ResolveHeifEncPath()
+        {
+            var path = FindTool("heif-enc.exe");
+            LogService.Info($"ExternalToolLocator: heif-enc → {path ?? "NOT FOUND"}", LogSource.System);
+            return path;
+        }
+
+        private static string? ResolveHeifDecPath()
+        {
+            var path = FindTool("heif-dec.exe");
+            LogService.Info($"ExternalToolLocator: heif-dec → {path ?? "NOT FOUND"}", LogSource.System);
+            return path;
+        }
     }
 }

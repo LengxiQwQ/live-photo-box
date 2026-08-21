@@ -17,10 +17,12 @@
  * 要求：.NET 5+ / C# 9+（本项目 .NET 9 / C# 13）
  */
 
+using LivePhotoBox.Models;
 using System;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.Services
 {
@@ -55,10 +57,12 @@ namespace LivePhotoBox.Services
                 WindowsAppRuntime_EnsureIsLoaded();
 
                 Debug.WriteLine("[LivePhotoBox] UndockedRegFreeWinRT initialized — WinRT ready.");
+                LogService.Info("WindowsAppSdkBootstrap: UndockedRegFreeWinRT initialized", LogSource.System);
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[LivePhotoBox] ERROR: UndockedRegFreeWinRT failed: {ex.Message}");
+                LogService.Error($"WindowsAppSdkBootstrap: UndockedRegFreeWinRT failed: {ex.Message}", ex, LogSource.System);
             }
         }
     }

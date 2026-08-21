@@ -87,18 +87,9 @@ namespace LivePhotoBox.ViewModels
                 IsDirectoryPanelOpen = true;
             }
 
-            if (value)
+            if (value && string.IsNullOrWhiteSpace(OutputDirectory) && !string.IsNullOrWhiteSpace(InputDirectory) && Directory.Exists(InputDirectory))
             {
-                LogService.Repair($"Output to separate directory enabled");
-                if (string.IsNullOrWhiteSpace(OutputDirectory) && !string.IsNullOrWhiteSpace(InputDirectory) && Directory.Exists(InputDirectory))
-                {
-                    OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_RepairedPhotos"));
-                    LogService.Repair($"Output directory auto-set to: {OutputDirectory}");
-                }
-            }
-            else
-            {
-                LogService.Repair("Output to separate directory disabled (repairs in-place)");
+                OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_RepairedPhotos"));
             }
         }
 

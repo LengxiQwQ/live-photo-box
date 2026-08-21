@@ -1,0 +1,36 @@
+v2.2.1 更新内容
+
+新增：
+- 🔔 系统通知 — 批量处理完成后弹窗提醒，点击跳转到对应页面；通知频率与声音可在设置页自定义（始终通知 / 超过指定时长 / 永不通知）
+- 📊 任务栏全局进度条 — 队列处理时任务栏图标实时显示进度，完成时闪烁提醒
+- 💡 交互式引导教程 — 合成页与拆分页新增操作引导气泡，首次使用轻松上手
+
+优化：
+- 🖼️ 窗口宽度高度记忆，窗口始终居中显示
+- 🎨 修复页状态栏统一风格，三页布局一致
+- 📋 队列体验改进 — 多个队列最多同时运行一个，失败任务显示简短提示，点击查看完整错误
+- 🖱️ 合成/拆分页拖拽改为按比例分配，适配不同窗口
+- 🧹 协议下拉框文字靠左、示例内容灰色标识、多余设置项清理
+
+修复：
+- 🛠️ 队列识别跳过、灯箱播放异常、扫描子文件夹失效、添加文件不自动设输出目录
+- 🔧 CLI 安装渠道显示、便携版系统通知激活
+
+
+v2.2.1 What's New
+
+New:
+- 🔔 System notifications — get a Windows notification when batch processing finishes; click to jump to the page. Frequency and sound are customizable in settings (always / after a duration / never)
+- 📊 Taskbar progress — the taskbar icon shows real-time progress while processing, flashing at completion
+- 💡 Interactive guided tutorial — step-by-step tooltips on Merge and Split pages help first-time users get started
+
+Optimized:
+- 🖼️ Window width/height remembered; window always opens centered
+- 🎨 Repair page status bar unified across all three pages
+- 📋 Queue improvements — only one queue runs at a time; failed tasks show a compact hint with full details on tap
+- 🖱️ Merge/Split splitter resizes proportionally to fit any window size
+- 🧹 Protocol ComboBox text left-aligned, sample content grayed out, unused settings cleaned up
+
+Fixed:
+- 🛠️ Queue identification skipping, Lightbox playback, subfolder scanning, output directory not auto-set when adding files
+- 🔧 CLI channel display and portable-mode notification activation

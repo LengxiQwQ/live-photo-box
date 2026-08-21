@@ -19,6 +19,7 @@ using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
 using Microsoft.UI.Text;
+using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -463,6 +464,11 @@ namespace LivePhotoBox.Views
 
             // 恢复上次拖拽的左侧面板宽度
             RestoreLeftPanelWidth();
+
+            // 监听窗口最大化 ⇄ 还原切换，按模式恢复各自保存的比例
+            var appWindow = App.MainWindow?.AppWindow;
+            if (appWindow != null)
+                appWindow.Changed += AppWindow_Changed;
         }
 
         // 页面卸载时分离自动滚动器，解绑 ViewModel 事件
@@ -474,6 +480,10 @@ namespace LivePhotoBox.Views
             _scroller.Detach();
 
             DetachDragEvents();
+
+            var appWindow = App.MainWindow?.AppWindow;
+            if (appWindow != null)
+                appWindow.Changed -= AppWindow_Changed;
 
             if (!_eventsHooked) return;
 
@@ -898,9 +908,19 @@ namespace LivePhotoBox.Views
             if (element.DataContext is not MergeTask task) return;
             if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details)) return;
 
-            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element) { ErrorDetailTip.IsOpen = false; return; }
+            // TeachingTip 箭头指向状态文字前面的状态圆点（横向 StackPanel 的第一个子元素），
+            // 比指向整块文字更贴合"状态"位置。
+            FrameworkElement tipTarget = element;
+            if (element.Parent is Microsoft.UI.Xaml.Controls.StackPanel statusPanel
+                && statusPanel.Children.Count > 0
+                && statusPanel.Children[0] is FrameworkElement dot)
+            {
+                tipTarget = dot;
+            }
+
+            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == tipTarget) { ErrorDetailTip.IsOpen = false; return; }
             ErrorDetailText.Text = task.Details;
-            ErrorDetailTip.Target = element;
+            ErrorDetailTip.Target = tipTarget;
             ErrorDetailTip.IsOpen = true;
         }
 
@@ -1412,18 +1432,42 @@ namespace LivePhotoBox.Views
 
 
         // ── 泡拖拽分隔条（GridSplitter） ──
-        private const double _MinLeftWidth = 224;
+        private const double _MinLeftWidth = 260;
+        private const double _MaxLeftWidth = 520;
         private const double _DesiredRightWidth = 420;
-        private const string _LeftPanelRatioKey = "MergePage_LeftPanelRatio";
+        private const string _RatioKeyWindow = "MergePage_LeftPanelRatio_Window";
+        private const string _RatioKeyFullscreen = "MergePage_LeftPanelRatio_Fullscreen";
 
-        private double _defaultRatio;             // 初始比例 = 320/(总宽-4)，Loaded 时计算
+        private bool _isMaximized;                // 当前是否处于最大化/全屏状态
         private bool _isSplitterDragging;
         private double _splitterAnchorX;          // 按下时鼠标在父 Grid 中的 X
         private double _splitterAnchorWidth;      // 按下时左栏的实际宽度
 
+        // 当前状态对应的比例存储键
+        private string CurrentRatioKey => _isMaximized ? _RatioKeyFullscreen : _RatioKeyWindow;
+
+        // 检测窗口是否处于最大化/全屏状态
+        private void UpdateMaximizedState()
+        {
+            _isMaximized = App.MainWindow?.AppWindow?.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized }
+                           || App.MainWindow?.AppWindow?.Presenter is FullScreenPresenter;
+        }
+
+        // 窗口状态变化时重新检测模式；DidPresenterChange 在最大化/还原时并不可靠，
+        // 因此不依赖该标志，仅在自己所在的模式真正切换时才重设比例
+        private void AppWindow_Changed(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
+        {
+            if (LeftConfigPanel.Parent is not Grid parentGrid) return;
+            bool wasMaximized = _isMaximized;
+            UpdateMaximizedState();
+            if (wasMaximized != _isMaximized)
+                ApplyCurrentRatio(parentGrid);
+        }
+
         // 分隔条按下：记录锚点（鼠标 X + 左栏宽度）
         private void Splitter_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
+            UpdateMaximizedState();
             _isSplitterDragging = true;
             var parentGrid = (Grid)LeftConfigPanel.Parent!;
             var point = e.GetCurrentPoint(parentGrid);
@@ -1440,17 +1484,20 @@ namespace LivePhotoBox.Views
             if (LeftConfigPanel.Parent is not Grid parentGrid) return;
             var point = e.GetCurrentPoint(parentGrid);
             var newWidth = _splitterAnchorWidth + (point.Position.X - _splitterAnchorX);
-            newWidth = Math.Clamp(newWidth, _MinLeftWidth, Math.Max(_MinLeftWidth, parentGrid.ActualWidth - _DesiredRightWidth));
+            newWidth = Math.Clamp(newWidth, _MinLeftWidth,
+                Math.Min(_MaxLeftWidth, Math.Max(_MinLeftWidth, parentGrid.ActualWidth - _DesiredRightWidth)));
             parentGrid.ColumnDefinitions[0].Width = new GridLength(newWidth);
             e.Handled = true;
         }
 
-        // 分隔条释放：停止拖动并记录本次的比例
+        // 分隔条释放：停止拖动，并把当前宽度保存到当前模式的比例
         private void Splitter_PointerReleased(object sender, PointerRoutedEventArgs e)
         {
             _isSplitterDragging = false;
             GridSplitterBar.ReleasePointerCapture(e.Pointer);
-            SaveLeftPanelRatio();
+            SaveCurrentRatio();
+            if (LeftConfigPanel.Parent is Grid parentGrid)
+                ApplyCurrentRatio(parentGrid);
             e.Handled = true;
         }
 
@@ -1472,58 +1519,82 @@ namespace LivePhotoBox.Views
             this.ProtectedCursor = null;
         }
 
-        // 双击分隔条：重置为默认比例（320/初始容器宽）
+        // 双击分隔条：当前模式重置为 320px 对应的默认比例
         private void Splitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             if (LeftConfigPanel.Parent is Grid parentGrid)
             {
-                ApplyLeftRatio(parentGrid, _defaultRatio);
-                SaveLeftPanelRatio();
+                double applied = ApplyLeftRatio(parentGrid, DefaultRatioFor(parentGrid));
+                SaveCurrentRatio(applied);
             }
             e.Handled = true;
         }
 
-        // 恢复上次保存的左侧面板比例；无保存时按 320/(总宽-4) 计算初始比例
+        // 恢复当前模式保存的比例；无保存时按 320/(当前总宽) 计算默认比例
         private void RestoreLeftPanelWidth()
         {
             if (LeftConfigPanel.Parent is not Grid parentGrid) return;
-            _defaultRatio = 320.0 / (parentGrid.ActualWidth - 4);
-            double ratio = Services.AppSettingsService.GetValue(_LeftPanelRatioKey, _defaultRatio);
+            UpdateMaximizedState();
+            ApplyCurrentRatio(parentGrid);
+        }
+
+        // 按当前模式保存的比例设置左栏
+        private void ApplyCurrentRatio(Grid parentGrid)
+        {
+            double ratio = Services.AppSettingsService.GetValue(CurrentRatioKey, DefaultRatioFor(parentGrid));
             ApplyLeftRatio(parentGrid, ratio);
         }
 
-        // 按比例设置左栏（限制：右栏至少保留 _DesiredRightWidth 像素）
-        private void ApplyLeftRatio(Grid parentGrid, double ratio)
+        // 默认比例：左栏 320px 在当前容器宽度下对应的比例
+        private double DefaultRatioFor(Grid parentGrid)
         {
             double total = parentGrid.ActualWidth - 4;
-            if (total <= 0) return;
+            return total > 0 ? 320.0 / total : 0.25;
+        }
+
+        // 按比例设置左栏并返回实际生效的比例；左右两栏都用 star 列，
+        // 窗口缩放时由布局引擎
+        // 在同一帧内同步伸缩，分隔条不会滞后（避免“先固定像素、再事后重算”的两遍布局）
+        private double ApplyLeftRatio(Grid parentGrid, double ratio)
+        {
+            double total = parentGrid.ActualWidth - 4;
+            if (total <= 0) return ratio;
 
             double px = ratio * total;
-            px = Math.Clamp(px, _MinLeftWidth, Math.Max(_MinLeftWidth, total - _DesiredRightWidth));
-            parentGrid.ColumnDefinitions[0].Width = new GridLength(px);
+            px = Math.Clamp(px, _MinLeftWidth,
+                Math.Min(_MaxLeftWidth, Math.Max(_MinLeftWidth, total - _DesiredRightWidth)));
+            double leftRatio = px / total;
+
+            parentGrid.ColumnDefinitions[0].Width = new GridLength(leftRatio, GridUnitType.Star);
+            parentGrid.ColumnDefinitions[2].Width = new GridLength(1 - leftRatio, GridUnitType.Star);
+            return leftRatio;
         }
 
-        // 保存当前左栏宽度对应的比例
-        private void SaveLeftPanelRatio()
+        // 保存比例到当前模式；不传参时按当前实际宽度换算
+        private void SaveCurrentRatio(double? ratio = null)
         {
-            if (LeftConfigPanel.Parent is not Grid parentGrid) return;
-            double px = LeftConfigPanel.ActualWidth;
-            double total = parentGrid.ActualWidth - 4;
-            if (px <= 0 || total <= 0) return;
-            double ratio = Math.Clamp(px / total, 0.15, 0.85);
-            Services.AppSettingsService.SetValue(_LeftPanelRatioKey, Math.Round(ratio, 4));
+            if (ratio is null)
+            {
+                if (LeftConfigPanel.Parent is not Grid parentGrid) return;
+                double px = LeftConfigPanel.ActualWidth;
+                double total = parentGrid.ActualWidth - 4;
+                if (px <= 0 || total <= 0) return;
+                ratio = Math.Clamp(px / total, 0.10, 0.90);
+            }
+            Services.AppSettingsService.SetValue(CurrentRatioKey, Math.Round(ratio.Value, 4));
         }
 
-        // 窗口大小变化：按保存的比例（或默认比例）重算左栏宽度，不覆写保存值
+        // 窗口大小变化：star 列会随窗口自动同步伸缩，这里只需在
+        // 最大化 ⇄ 还原（必然引起尺寸变化）时切换对应模式的比例
         private void ContentGrid_SizeChanged(object sender, SizeChangedEventArgs e)
         {
             if (sender is not Grid parentGrid) return;
             if (_isSplitterDragging) return;
 
-            if (_defaultRatio <= 0)
-                _defaultRatio = 320.0 / (parentGrid.ActualWidth - 4);
-            double ratio = Services.AppSettingsService.GetValue(_LeftPanelRatioKey, _defaultRatio);
-            ApplyLeftRatio(parentGrid, ratio);
+            bool wasMaximized = _isMaximized;
+            UpdateMaximizedState();
+            if (wasMaximized != _isMaximized)
+                ApplyCurrentRatio(parentGrid);
         }
         // ── 拖拽分隔条结束 ──
     }

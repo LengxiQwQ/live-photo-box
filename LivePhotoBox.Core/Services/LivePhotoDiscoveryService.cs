@@ -79,7 +79,6 @@ namespace LivePhotoBox.Services
             // ── Step 1: 文件枚举 ──
             var allItems = EnumerateDirectory(inputDirectory, ct);
             int totalFiles = allItems.Count;
-            LogService.Scan($"Enumeration complete: {totalFiles} files");
             progress?.Report(new WorkProgressSnapshot(totalFiles, 0));
 
             if (totalFiles == 0)
@@ -112,7 +111,6 @@ namespace LivePhotoBox.Services
                 var jpegs = GetUnclassified(i => JpegExtensions.Contains(Path.GetExtension(i.FilePath)));
                 if (jpegs.Count > 0)
                 {
-                    LogService.Scan($"JPEG XMP scan: {jpegs.Count} files");
                     int found = 0;
                     foreach (var item in jpegs)
                     {
@@ -157,7 +155,6 @@ namespace LivePhotoBox.Services
                 var heics = GetUnclassified(i => HeicExtensions.Contains(Path.GetExtension(i.FilePath)));
                 if (heics.Count > 0)
                 {
-                    LogService.Scan($"HEIC track scan: {heics.Count} files");
                     var found = await DetectHeicLivePhotosAsync(heics, ct, progress, totalFiles, scanCompleted);
                     scanCompleted += heics.Count;
                     foreach (var item in found)
@@ -205,9 +202,6 @@ namespace LivePhotoBox.Services
 
                 if (vivoImages.Count > 0 && vivoVideos.Count > 0)
                 {
-                    LogService.Scan(
-                        $"vivo ID match: {vivoImages.Count} images, {vivoVideos.Count} videos");
-
                     try
                     {
                         var vivoOutput = await Task.Run(
@@ -276,9 +270,6 @@ namespace LivePhotoBox.Services
 
                     if (File.Exists(exifToolPath))
                     {
-                        LogService.Scan(
-                            $"CID match: {standaloneImages.Count} images, {standaloneVideos.Count} videos");
-
                         try
                         {
                             var matchOutput = await Task.Run(

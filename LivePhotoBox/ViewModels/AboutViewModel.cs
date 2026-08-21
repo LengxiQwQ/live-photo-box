@@ -10,6 +10,7 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
@@ -21,6 +22,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Windows.System;
+using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.ViewModels
 {
@@ -62,15 +64,16 @@ namespace LivePhotoBox.ViewModels
             {
                 try
                 {
+                    LogService.Info($"OpenLink: {url}", LogSource.UI);
                     Process.Start(new ProcessStartInfo
                     {
                         FileName = url,
                         UseShellExecute = true
                     });
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // 静默——打开链接失败不影响应用功能
+                    LogService.Warn($"OpenLink failed: {url}: {ex.Message}", source: LogSource.UI);
                 }
             }
         }
@@ -81,7 +84,14 @@ namespace LivePhotoBox.ViewModels
         {
             var xamlRoot = App.MainWindow?.Content?.XamlRoot;
             if (xamlRoot != null)
+            {
+                LogService.Info("ShowChangelog", LogSource.UI);
                 await ChangelogDialogService.ShowAsync(xamlRoot);
+            }
+            else
+            {
+                LogService.Warn("ShowChangelog skipped: XamlRoot is null", source: LogSource.UI);
+            }
         }
 
         // 在应用内弹窗展示 CLI 使用手册（优先读本地文件，缺失时从 GitHub 抓取，WebView2 渲染）
@@ -90,7 +100,14 @@ namespace LivePhotoBox.ViewModels
         {
             var xamlRoot = App.MainWindow?.Content?.XamlRoot;
             if (xamlRoot != null)
+            {
+                LogService.Info("ShowCliManual", LogSource.UI);
                 await CliManualDialogService.ShowAsync(xamlRoot);
+            }
+            else
+            {
+                LogService.Warn("ShowCliManual skipped: XamlRoot is null", source: LogSource.UI);
+            }
         }
 
         #endregion
@@ -175,7 +192,12 @@ namespace LivePhotoBox.ViewModels
                 // 下载失败不会留下缓存文件，下次启动条件仍成立 → 自动重试
                 if (cachedVersion != AppVersion || !File.Exists(avatarPath))
                 {
+                    LogService.Info($"LoadAvatar: cache miss (version={cachedVersion ?? "null"}, fileExists={File.Exists(avatarPath)})", LogSource.UI);
                     await DownloadAvatarAsync(avatarPath, versionPath);
+                }
+                else
+                {
+                    LogService.Debug("LoadAvatar: cache hit, loading from disk", LogSource.UI);
                 }
 
                 // 尝试加载缓存头像
@@ -184,6 +206,7 @@ namespace LivePhotoBox.ViewModels
                     // 快速完整性检查：空文件直接删掉走重试
                     if (new FileInfo(avatarPath).Length == 0)
                     {
+                        LogService.Warn("LoadAvatar: cached avatar is empty, clearing cache", source: LogSource.UI);
                         CleanCache(avatarPath, versionPath);
                         return;
                     }
@@ -203,19 +226,25 @@ namespace LivePhotoBox.ViewModels
                                 bitmap.DecodePixelWidth = 160;
                                 await bitmap.SetSourceAsync(randomAccessStream);
                                 AvatarSource = bitmap;
+                                LogService.Debug("LoadAvatar: bitmap loaded successfully", LogSource.UI);
                             }
-                            catch
+                            catch (Exception ex)
                             {
+                                LogService.Warn($"LoadAvatar: bitmap decode failed: {ex.Message}", source: LogSource.UI);
                                 // 解码失败 → 缓存文件损坏，清除缓存让下次启动重新下载
                                 CleanCache(avatarPath, versionPath);
                             }
                         });
                     }
+                    else
+                    {
+                        LogService.Warn("LoadAvatar: no dispatcher available, skipping bitmap load", source: LogSource.UI);
+                    }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // 完全静默——头像加载失败不影响任何功能
+                LogService.Warn($"LoadAvatar failed: {ex.Message}", source: LogSource.UI);
             }
         }
 

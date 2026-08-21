@@ -1117,7 +1117,6 @@ namespace LivePhotoBox.ViewModels
                 TotalPairsCount = Tasks.Count(t => t != null);
                 UpdateIsQueueEmpty(Tasks.Count);
                 NotifyStatsChanged();
-                LogService.Merge($"Added {newTasks.Count} file pairs to queue (total: {TotalPairsCount}, unmatched images: {StandaloneImagesCount}, unmatched videos: {StandaloneVideosCount})");
             }
             else
             {
@@ -1195,7 +1194,6 @@ namespace LivePhotoBox.ViewModels
             TotalPairsCount = Tasks.Count(t => t != null);
             UpdateIsQueueEmpty(Tasks.Count);
             NotifyStatsChanged();
-            LogService.Merge($"Added folder '{folderPath}' to queue (total: {TotalPairsCount}, unmatched images: {StandaloneImagesCount}, unmatched videos: {StandaloneVideosCount})");
         }
 
         // ── 配对验证辅助方法 ──
@@ -1249,8 +1247,6 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
-            LogService.Merge($"ToggleSecondaryAction requested. IsProcessing={IsProcessing}, IsPaused={IsPaused}");
-
             if (!IsProcessing)
             {
                 ClearState();
@@ -1266,8 +1262,6 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleProcessAsync()
         {
-            LogService.Merge($"ToggleProcessAsync requested. IsProcessing={IsProcessing}, QueueCount={Tasks.Count}");
-
             if (IsProcessing)
             {
                 SetStatus("Status_Stopping");

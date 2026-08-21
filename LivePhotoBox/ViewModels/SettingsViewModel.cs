@@ -349,7 +349,6 @@ namespace LivePhotoBox.ViewModels
 
         partial void OnSelectedHardwareChanged(HardwareService.HardwareInfo? value)
         {
-            LogService.Split($"OnSelectedHardwareChanged: _isInitializing={_isInitializing}, value={value?.Name ?? "(null)"}, encoder={value?.FfmpegEncoder ?? "(null)"}", LogLevel.Debug);
             if (_isInitializing || value == null) return;
             int index = AvailableHardware.IndexOf(value);
             if (index >= 0)
@@ -357,7 +356,6 @@ namespace LivePhotoBox.ViewModels
                 AppSettingsService.SetValue("SplitHardwareIndex", index);
                 AppSettingsService.SetValue("SplitHardwareEncoder", value.FfmpegEncoder);
                 EncoderHelper.SaveEncoderForBothCodecs(value.FfmpegEncoder);
-                LogService.Split($"Saved encoder to settings: '{value.FfmpegEncoder}'", LogLevel.Debug);
             }
         }
 
@@ -474,7 +472,6 @@ namespace LivePhotoBox.ViewModels
             string? wavPath = NotificationService.GetSoundEventWavPath(NotificationSoundIndex);
             if (string.IsNullOrEmpty(wavPath) || !File.Exists(wavPath))
             {
-                LogService.Debug($"Notification preview skipped: no sound file for index {NotificationSoundIndex}", LogSource.Settings);
                 return;
             }
 

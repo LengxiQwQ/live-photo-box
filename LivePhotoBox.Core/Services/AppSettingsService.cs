@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using Windows.Storage;
+using LivePhotoBox.Models;
+using LogSource = LivePhotoBox.Models.LogSource;
 
 namespace LivePhotoBox.Services
 {
@@ -38,15 +40,18 @@ namespace LivePhotoBox.Services
                     var json = File.ReadAllText(_jsonFilePath);
                     _jsonStore = JsonSerializer.Deserialize<Dictionary<string, object?>>(json)
                                  ?? new Dictionary<string, object?>();
+                    LogService.Debug($"AppSettings: loaded {_jsonStore.Count} entries from JSON file", LogSource.System);
                 }
                 else
                 {
                     _jsonStore = new Dictionary<string, object?>();
+                    LogService.Debug("AppSettings: initialized empty JSON store (no file found)", LogSource.System);
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 _jsonStore = new Dictionary<string, object?>();
+                LogService.Warn("AppSettings: failed to load JSON file, using empty store", details: ex.Message, source: LogSource.System);
             }
         }
 
@@ -115,8 +120,9 @@ namespace LivePhotoBox.Services
                     {
                         return JsonSerializer.Deserialize<T>(je.GetRawText()) ?? defaultValue;
                     }
-                    catch
+                    catch (Exception ex)
                     {
+                        LogService.Warn($"AppSettings: failed to deserialize key '{key}' as {typeof(T).Name}", details: ex.Message, source: LogSource.System);
                         return defaultValue;
                     }
                 }
@@ -134,11 +140,13 @@ namespace LivePhotoBox.Services
             if (settings != null)
             {
                 settings.Values[key] = value;
+                LogService.Debug($"AppSettings: {key} = {value}", LogSource.System);
                 return;
             }
 
             // 非打包模式：写入 JSON 文件
             _jsonStore[key] = value;
+            LogService.Debug($"AppSettings: {key} = {value}", LogSource.System);
             PersistJsonStore();
         }
 
@@ -151,12 +159,14 @@ namespace LivePhotoBox.Services
             if (settings != null)
             {
                 settings.Values.Remove(key);
+                LogService.Debug($"AppSettings: removed {key}", LogSource.System);
                 return;
             }
 
             // 非打包模式：从 JSON 文件移除
             if (_jsonStore.Remove(key))
             {
+                LogService.Debug($"AppSettings: removed {key}", LogSource.System);
                 PersistJsonStore();
             }
         }
@@ -182,6 +192,7 @@ namespace LivePhotoBox.Services
                 PersistJsonStore();
             }
 
+            LogService.Debug("AppSettings: all settings cleared", LogSource.System);
             SettingsCleared?.Invoke();
         }
 
@@ -197,9 +208,9 @@ namespace LivePhotoBox.Services
                     File.WriteAllText(_jsonFilePath, json);
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // 静默处理写入失败（权限不足等）
+                LogService.Warn("AppSettings: failed to persist JSON file", details: ex.Message, source: LogSource.System);
             }
         }
     }

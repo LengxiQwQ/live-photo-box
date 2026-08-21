@@ -175,8 +175,6 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            LogService.Split($"File={Path.GetFileName(sourcePath)}, TotalSize={sourceStream.Length}, Protocol={protocol}, ProtocolIndex={protocolIndex}, ImageLength={imageLength}, VideoStart={videoStart}, VideoLength={videoLength}, OutputFormatIndex={outputFormatIndex}", LogLevel.Debug);
-
             if (imageLength <= 0 || videoStart <= 0 || videoLength <= 0)
             {
                 throw new InvalidDataException("Unable to determine the image/video region or file is corrupted.");
@@ -312,9 +310,6 @@ namespace LivePhotoBox.Services
                                 tempImagePath, appleContentId, out string? heicDirectError);
                             if (heicDirectOk)
                             {
-                                LogService.Split(
-                                    "Apple[image] HEIC source: injected Apple MakerNote in place (lossless, no re-encode)",
-                                    LogLevel.Debug);
                                 mnOk = true;
                             }
                             else
@@ -437,7 +432,6 @@ namespace LivePhotoBox.Services
                 {
                     if (File.Exists(videoOutputPath))
                         File.Delete(videoOutputPath);
-                    LogService.Split($"Transcoding video -> {targetVideoExtension} (outputFormatIndex={outputFormatIndex})", LogLevel.Debug);
                     var transcodeResult = outputFormatIndex switch
                     {
                         // Apple 协议（protocolIndex==1）：HEVC 转码成全 I 帧（-g 1）。
@@ -574,27 +568,16 @@ namespace LivePhotoBox.Services
             // 检查 XMP header 是否存在
             bool hasXmpHeader = metadataText.Contains("http://ns.adobe.com/xap/1.0/");
 
-            // 截取前 2000 字符，把不可打印字符替换为 .
-            string snippet = metadataText.Length > 2000
-                ? metadataText[..2000]
-                : metadataText;
-            string readable = System.Text.RegularExpressions.Regex.Replace(
-                snippet, @"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]", m => ".");
-
             string diag = $"hasXmpHeader={hasXmpHeader}, " +
                           $"m1(MicroVideoOffset)={m1}, " +
                           $"m2(MotionPhotoLength)={m2}, " +
                           $"m3(OpCamera:VideoLength)={m3}, " +
                           $"m4(MiCamera:VideoLength)={m4}";
 
-            LogService.Split($"GetAppendedVideoLength failed: {diag}", LogLevel.Debug);
-            LogService.Split($"Metadata preview:\n{readable}", LogLevel.Debug);
-
             throw new InvalidDataException(
                 "No motion video length metadata was found in the file.\n" +
                 $"Diagnostics: {diag}\n" +
-                $"XMP header found: {hasXmpHeader}\n" +
-                "See debug log for metadata preview.");
+                $"XMP header found: {hasXmpHeader}");
         }
 
         /// <summary>
@@ -1105,9 +1088,6 @@ namespace LivePhotoBox.Services
                                 {
                                     byte[] rewrittenPayload = BuildXmpPayload(rewrittenXmp!);
                                     await WriteAppSegmentAsync(destinationStream, marker, rewrittenPayload, token);
-                                    LogService.Split(
-                                        $"Rewrote LivePhoto XMP segment (len={segmentLength}) preserving HDR gain map",
-                                        LogLevel.Debug);
                                 }
                                 else
                                 {
@@ -1120,9 +1100,7 @@ namespace LivePhotoBox.Services
                             }
                             else if (hasLivePhoto)
                             {
-                                LogService.Split(
-                                    $"Stripped LivePhoto APP{marker - 0xE0} segment (len={segmentLength})",
-                                    LogLevel.Debug);
+                                // 只含实况照片的 XMP 段：整段丢弃（不写日志，属正常剥离路径）
                             }
                             else
                             {
@@ -1352,10 +1330,6 @@ namespace LivePhotoBox.Services
                     || !currentValue.StartsWith("oplus_", StringComparison.OrdinalIgnoreCase))
                     return;
 
-                LogService.Split(
-                    $"Clearing OPPO EXIF UserComment: '{currentValue}' → (empty)",
-                    LogLevel.Debug);
-
                 await LivePhotoRepairService.RunExifToolAsync(token,
                     "-overwrite_original",
                     "-UserComment=",
@@ -1404,10 +1378,6 @@ namespace LivePhotoBox.Services
                     || !currentValue.Contains("multi-frame", StringComparison.OrdinalIgnoreCase))
                     return;
 
-                LogService.Split(
-                    "Clearing vivo EXIF UserComment (multi-frame signature)",
-                    LogLevel.Debug);
-
                 await LivePhotoRepairService.RunExifToolAsync(token,
                     "-overwrite_original",
                     "-UserComment=",
@@ -1444,11 +1414,6 @@ namespace LivePhotoBox.Services
                 if (hasNativeMakerNote) args.Add("-MakerNote=");
                 args.Add(imagePath);
                 await LivePhotoRepairService.RunExifToolAsync(token, args.ToArray());
-
-                LogService.Split(
-                    $"Cleared HUAWEI/Honor EXIF markers (Make={(isHuaweiMake ? make : "keep")}, " +
-                    $"MakerNote={(hasNativeMakerNote ? "##**N4031" : "keep")})",
-                    LogLevel.Debug);
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -1859,7 +1824,6 @@ namespace LivePhotoBox.Services
                 if (writeArgs.Count > 1) // 有除了 -overwrite_original 之外的参数
                 {
                     writeArgs.Add(videoOutputPath);
-                    LogService.Split($"Writing metadata to split video: CID={(string.IsNullOrWhiteSpace(cid) ? "none" : cid)}, Date={dto}, Make={make}, GPS={gpsLat},{gpsLon}", LogLevel.Debug);
                     await LivePhotoRepairService.RunExifToolAsync(token, writeArgs.ToArray());
                 }
             }
