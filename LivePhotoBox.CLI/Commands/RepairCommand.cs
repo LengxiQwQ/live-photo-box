@@ -185,6 +185,9 @@ namespace LivePhotoBox.Cli.Commands
                             context.ExitCode = 1;
                             return;
                         }
+                        // 外部工具（exiftool/jpegtran）的 WorkingDirectory 不在用户当前目录，
+                        // 相对路径传进去会找不到文件——统一在入口解析成绝对路径。
+                        singlePath = Path.GetFullPath(singlePath);
                     }
                 }
 

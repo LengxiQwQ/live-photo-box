@@ -537,13 +537,16 @@ namespace LivePhotoBox.Cli.Commands
         private static void ValidateInputFiles(string[] files, out string? error)
         {
             error = null;
-            foreach (string file in files)
+            for (int i = 0; i < files.Length; i++)
             {
-                if (!File.Exists(file))
+                if (!File.Exists(files[i]))
                 {
-                    error = $"Error: File not found: {file}";
+                    error = $"Error: File not found: {files[i]}";
                     return;
                 }
+                // 外部工具（exiftool/ffmpeg）的 WorkingDirectory 不在用户当前目录，
+                // 相对路径传进去会找不到文件——统一在入口解析成绝对路径。
+                files[i] = Path.GetFullPath(files[i]);
             }
 
             if (files.Length == 1 && !ImageExtensions.Contains(Path.GetExtension(files[0])))
