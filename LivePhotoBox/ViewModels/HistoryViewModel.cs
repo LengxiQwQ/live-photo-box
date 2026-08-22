@@ -50,6 +50,10 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private bool _hasResults;
 
+        // 是否已完成一次扫描（无论有没有结果，都显示摘要栏给用户反馈）。
+        [ObservableProperty]
+        private bool _showSummary;
+
         // 当前状态文本（扫描中/完成/无结果等）。
         [ObservableProperty]
         private string _statusText = string.Empty;
@@ -98,6 +102,7 @@ namespace LivePhotoBox.ViewModels
 
             IsScanning = true;
             HasResults = false;
+            ShowSummary = false;
             Files.Clear();
             StatusText = ResourceService.GetString("History_Scanning");
             TotalFiles = 0;
@@ -117,11 +122,18 @@ namespace LivePhotoBox.ViewModels
                 if (TotalFiles == 0)
                 {
                     StatusText = ResourceService.GetString("History_NoImages");
+                    ShowSummary = true;
                     return;
                 }
 
                 int processed = 0;
                 var exifToolPath = ExternalToolLocator.FindExifTool();
+                // 并行线程只写入本地集合，最后回到 UI 线程再统一加入绑定集合，
+                // 避免跨线程修改 ObservableCollection 触发 WinUI 线程封送异常
+                // （否则 Files 始终为空，界面"点了没反应"）。
+                var found = new List<FileHistoryInfo>();
+                int liveCount = 0, lpbCount = 0;
+                var scanLock = new object();
 
                 // Process files with limited parallelism (4 at a time)
                 var parallelOptions = new ParallelOptions
@@ -137,11 +149,11 @@ namespace LivePhotoBox.ViewModels
                         var history = await AnalyzeFileAsync(exifToolPath, file, ct);
                         if (history != null)
                         {
-                            lock (Files)
+                            lock (scanLock)
                             {
-                                Files.Add(history);
-                                if (history.IsLivePhoto) LivePhotoCount++;
-                                if (history.IsLivePhotoBoxGenerated) LivePhotoBoxCount++;
+                                found.Add(history);
+                                if (history.IsLivePhoto) liveCount++;
+                                if (history.IsLivePhotoBoxGenerated) lpbCount++;
                             }
                         }
                     }
@@ -162,7 +174,12 @@ namespace LivePhotoBox.ViewModels
                     }
                 });
 
+                // 回到 UI 线程（命令上下文），统一更新绑定集合与统计。
+                foreach (var h in found) Files.Add(h);
+                LivePhotoCount = liveCount;
+                LivePhotoBoxCount = lpbCount;
                 HasResults = Files.Count > 0;
+                ShowSummary = true;
 
                 // Sort files by file name for consistent display
                 var sorted = Files.OrderBy(f => f.FileName).ToList();

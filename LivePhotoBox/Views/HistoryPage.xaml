@@ -248,7 +248,7 @@
 
             <!-- ── 摘要栏（扫描完成后）── -->
             <Border Grid.Row="2" Margin="0,12,0,0"
-                    Visibility="{x:Bind ViewModel.HasResults, Converter={StaticResource VisibilityConverter}}">
+                    Visibility="{x:Bind ViewModel.ShowSummary, Converter={StaticResource VisibilityConverter}}">
                 <StackPanel Orientation="Horizontal" Spacing="16" Margin="4,0">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <FontIcon Glyph="&#xE8B9;" FontSize="14"
