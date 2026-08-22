@@ -563,7 +563,7 @@ namespace LivePhotoBox.Services
                 : string.Empty;
 
             byte[]? huaweiXmp = null;
-            if (embedHistory)
+            if (embedHistory && XmpMarkerService.IsLpbNamespaceWriteEnabled)
             {
                 // Build unified LivePhotoBox XMP (namespace attrs + dc:subject history incl. inherited entries).
                 // JPEG 输出：源图自带 Ultra HDR 增益图时测量其真实字节长度并写入
@@ -663,9 +663,10 @@ namespace LivePhotoBox.Services
                     }
                 }
 
-                if (!embedHistory)
+                if (!embedHistory || huaweiXmp == null)
                 {
                     // 封面重建等场景：不写底层 XMP，由调用方统一写独立动作历史。
+                    // 调试开关关闭时同样不写（保留原图结构）。
                     await File.WriteAllBytesAsync(targetPath, patched, token);
                 }
                 else
@@ -694,7 +695,8 @@ namespace LivePhotoBox.Services
                 // JPEG: 默认写 unified LivePhotoBox XMP 作为第一个 APP1 段，
                 // 再复制源 JPEG（跳过其自身 XMP APP1，保证单 XMP）。
                 // embedHistory=false 时原样复制源图，历史由调用方统一写。
-                if (!embedHistory)
+                // 调试开关关闭时同样原样复制（不注入 XMP 段）。
+                if (!embedHistory || huaweiXmp == null)
                 {
                     await using (var srcFs = new FileStream(
                         sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,

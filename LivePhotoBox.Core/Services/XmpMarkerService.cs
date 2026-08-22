@@ -56,6 +56,15 @@ namespace LivePhotoBox.Services
         /// <summary>当前应用版本（3 段，如 2.2.1）。</summary>
         public static string AppVersion => _appVersion;
 
+        /// <summary>
+        /// 是否允许写入本软件私有命名空间（xmlns:LivePhotoBox + Version/Timestamp +
+        /// dc:subject 历史条目）。调试工具区的"完全关闭 XMP 私有命名空间写入"开关：
+        /// 关闭后所有操作（合并/拆分/修复/封面）都不再写本软件标识，协议自身要求的
+        /// XMP（如 Google Motion Photo 标记）不受影响。
+        /// </summary>
+        public static bool IsLpbNamespaceWriteEnabled =>
+            AppSettingsService.GetValue("IsLpbNamespaceWriteEnabled", true);
+
         private static string GetAppVersion()
         {
             var version = Assembly.GetEntryAssembly()?.GetName().Version
@@ -406,6 +415,11 @@ namespace LivePhotoBox.Services
             string sourcePath, byte[] xmpBytes, string details, CancellationToken token,
             string action = "Merge")
         {
+            // 调试开关：完全关闭本软件私有命名空间写入时，原样返回协议 XMP，
+            // 不嵌入 LivePhotoBox 标识与历史。
+            if (!IsLpbNamespaceWriteEnabled)
+                return xmpBytes;
+
             var inherited = await ReadExistingEntriesAsync(sourcePath, token);
             bool detailed = AppSettingsService.GetValue("IsDetailedHistoryEnabled", true);
             string newEntry = detailed
@@ -527,6 +541,11 @@ namespace LivePhotoBox.Services
             string filePath, string action, string details,
             CancellationToken token, IEnumerable<string>? inheritedEntries = null)
         {
+            // 调试开关：完全关闭本软件私有命名空间写入时，拆分/修复/封面等
+            // 一律跳过标识写入（视为成功，不打扰文件）。
+            if (!IsLpbNamespaceWriteEnabled)
+                return true;
+
             if (string.IsNullOrEmpty(ExternalToolLocator.FindExifTool()))
                 return false;
 

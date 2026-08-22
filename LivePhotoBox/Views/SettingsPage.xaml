@@ -1117,6 +1117,27 @@
                             </StackPanel>
                         </controls:SettingsCard>
 
+                        <!-- 完全关闭本软件 XMP 私有命名空间写入（红色 = 调试工具区警告色，不要跟随主题色） -->
+                        <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                            <controls:SettingsCard.Header>
+                                <TextBlock x:Uid="SettingsPage_Debug_DisableLpbXmpHeader" FontFamily="Microsoft YaHei UI"/>
+                            </controls:SettingsCard.Header>
+                            <controls:SettingsCard.Description>
+                                <TextBlock x:Uid="SettingsPage_Debug_DisableLpbXmpDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </controls:SettingsCard.Description>
+                            <controls:SettingsCard.HeaderIcon>
+                                <FontIcon Glyph="&#xE8F1;" FontSize="16"/>
+                            </controls:SettingsCard.HeaderIcon>
+                            <ToggleSwitch IsOn="{x:Bind ViewModel.IsLpbNamespaceWriteEnabled, Mode=TwoWay}"
+                                          x:Uid="Toggle_EnabledDisabled">
+                                <ToggleSwitch.Resources>
+                                    <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#D32F2F"/>
+                                    <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#EF5350"/>
+                                    <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#C62828"/>
+                                </ToggleSwitch.Resources>
+                            </ToggleSwitch>
+                        </controls:SettingsCard>
+
                     </StackPanel>
                 </StackPanel>
 

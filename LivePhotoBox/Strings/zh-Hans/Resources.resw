@@ -2626,6 +2626,12 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_Debug_GitHubTokenHeader.Text" xml:space="preserve">
     <value>GitHub API Token</value>
   </data>
+  <data name="SettingsPage_Debug_DisableLpbXmpHeader.Text" xml:space="preserve">
+    <value>写入本软件 XMP 命名空间</value>
+  </data>
+  <data name="SettingsPage_Debug_DisableLpbXmpDesc.Text" xml:space="preserve">
+    <value>关闭后完全停止写入本软件私有命名空间（LivePhotoBox 标识、版本、时间戳与操作历史）。跨软件转换更兼容、不再产生相关写入问题，但本软件历史页面无法追溯记录；协议本身要求写入的 XMP（如 Google Motion Photo）不受影响。</value>
+  </data>
   <data name="SettingsPage_Debug_GitHubTokenDesc.Text" xml:space="preserve">
     <value>仅用于更新测试用；绕过未认证 API 限流（60次/小时 → 5000次/小时），Token 仅本地存储。打开页面后无需勾选任何权限，直接点底部「Generate token」生成即可</value>
   </data>

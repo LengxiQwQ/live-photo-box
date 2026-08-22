@@ -576,6 +576,17 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Repair scan load thumbnail: {(value ? "enabled" : "disabled")}", LogSource.Settings);
         }
 
+        // 完全关闭本软件 XMP 私有命名空间写入（默认开 = 写入）
+        [ObservableProperty]
+        private bool _isLpbNamespaceWriteEnabled;
+
+        partial void OnIsLpbNamespaceWriteEnabledChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsLpbNamespaceWriteEnabled), value);
+            LogService.Info($"LivePhotoBox XMP namespace write: {(value ? "enabled" : "disabled")}", LogSource.Settings);
+        }
+
         // 更严格的实况照片扫描 — 通过 ContentIdentifier UUID 匹配（默认关 = 文件名匹配）
         [ObservableProperty]
         private bool _isStrictLivePhotoScanEnabled;
@@ -698,6 +709,7 @@ namespace LivePhotoBox.ViewModels
             IsCopyPerfectToOutput = AppSettingsService.GetValue(nameof(IsCopyPerfectToOutput), false);
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), true);
+            IsLpbNamespaceWriteEnabled = AppSettingsService.GetValue(nameof(IsLpbNamespaceWriteEnabled), true);
             OutputCheckLevel = AppSettingsService.GetValue(nameof(OutputCheckLevel), 1);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), false);
             IsDragDropAutoPairEnabled = AppSettingsService.GetValue(nameof(IsDragDropAutoPairEnabled), false);

@@ -167,6 +167,12 @@ namespace LivePhotoBox.Services
             string filePath, byte[] bytes, string ext, OutputCheckResult result, CancellationToken token)
         {
             string? xmp = await XmpMarkerService.ReadXmpTextAsync(filePath, token);
+            // 调试开关关闭时本软件不写私有命名空间：跳过标识属性与单份 XMP 检查
+            // （华为等协议产物可能完全没有 XMP，这是预期行为），但 XMP 文本仍要
+            // 返回给协议标记检查（如 GCamera:MotionPhoto）使用。
+            if (!XmpMarkerService.IsLpbNamespaceWriteEnabled)
+                return xmp;
+
             if (string.IsNullOrWhiteSpace(xmp))
             {
                 result.Problems.Add("XMP 读不到（exiftool 与字节级均无内容）");

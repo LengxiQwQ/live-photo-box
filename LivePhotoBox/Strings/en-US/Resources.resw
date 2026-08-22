@@ -2626,6 +2626,12 @@ Then click "Start Split".</value>
   <data name="SettingsPage_Debug_GitHubTokenHeader.Text" xml:space="preserve">
     <value>GitHub API Token</value>
   </data>
+  <data name="SettingsPage_Debug_DisableLpbXmpHeader.Text" xml:space="preserve">
+    <value>Write Live Photo Box XMP namespace</value>
+  </data>
+  <data name="SettingsPage_Debug_DisableLpbXmpDesc.Text" xml:space="preserve">
+    <value>Turn off to completely stop writing the app's private XMP namespace (LivePhotoBox identifier, version, timestamp and operation history). Improves compatibility when converting across apps and avoids related write issues, but the app's history page can no longer trace records. Protocol-required XMP (e.g. Google Motion Photo) is unaffected.</value>
+  </data>
   <data name="SettingsPage_Debug_GitHubTokenDesc.Text" xml:space="preserve">
     <value>For update testing only. Bypass unauthenticated API rate limits (60 req/h → 5000 req/h). Token stored locally, never uploaded. No scopes needed — just click "Generate token" at the bottom of the page.</value>
   </data>

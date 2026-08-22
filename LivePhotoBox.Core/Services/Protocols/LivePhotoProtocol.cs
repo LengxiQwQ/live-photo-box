@@ -173,11 +173,16 @@ namespace LivePhotoBox.Services.Protocols
         // 返回: UTF-8 encoded XMP bytes including xpacket wrapper markers.
         protected static byte[] WrapXmp(string rdfDescription)
         {
-            // Build the LivePhotoBox tracking marker: namespace + timestamp + version only.
-            // Action/Protocol live in the dc:subject history entries (structured details).
-            string marker = " xmlns:LivePhotoBox=\"https://github.com/LengxiQwQ/live-photo-box\"" +
-                           $" LivePhotoBox:Timestamp=\"{DateTimeOffset.Now:yyyy-MM-ddTHH:mm:sszzz}\"";
-            marker += $" LivePhotoBox:Version=\"{_appVersion}\"";
+            string marked = rdfDescription;
+            // 调试开关（设置页调试工具区）：完全关闭本软件 XMP 私有命名空间写入时，
+            // 协议 XMP 不再注入 LivePhotoBox 标识（保留协议自身要求的全部内容）。
+            if (XmpMarkerService.IsLpbNamespaceWriteEnabled)
+            {
+                // Build the LivePhotoBox tracking marker: namespace + timestamp + version only.
+                // Action/Protocol live in the dc:subject history entries (structured details).
+                string marker = " xmlns:LivePhotoBox=\"https://github.com/LengxiQwQ/live-photo-box\"" +
+                               $" LivePhotoBox:Timestamp=\"{DateTimeOffset.Now:yyyy-MM-ddTHH:mm:sszzz}\"";
+                marker += $" LivePhotoBox:Version=\"{_appVersion}\"";
 
             // Determine where to inject the marker:
             //   - Self-closing tag (V1):  <rdf:Description ... attr="val"/>  → insert before />
@@ -199,9 +204,10 @@ namespace LivePhotoBox.Services.Protocols
                 // Regular Description opening tag (V2/OPPO) — inject before >
                 tagEnd = firstCloseBracket;
             }
-            string marked = tagEnd >= 0
-                ? rdfDescription.Insert(tagEnd, marker)
-                : rdfDescription;
+                marked = tagEnd >= 0
+                    ? rdfDescription.Insert(tagEnd, marker)
+                    : rdfDescription;
+            }
 
             // Build the complete XMP document with xpacket wrapper markers
             string xml = $"<?xpacket begin=\"\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n" +
