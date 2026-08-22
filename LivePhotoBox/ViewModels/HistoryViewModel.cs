@@ -344,8 +344,9 @@ namespace LivePhotoBox.ViewModels
             {
                 foreach (var li in subjectEl.Descendants(RdfNs + "li"))
                 {
-                    var entry = ParseHistorySubject(li.Value);
-                    if (entry != null) info.Entries.Add(entry);
+                    // 条目解析统一走 Core（XmpMarkerService），保证与写入格式同源。
+                    var record = XmpMarkerService.ParseHistoryEntry(li.Value);
+                    if (record != null) info.Entries.Add(ToHistoryEntry(record));
                 }
             }
 
@@ -436,104 +437,21 @@ namespace LivePhotoBox.ViewModels
             return info;
         }
 
-        // Parse a dc:subject entry like "LivePhotoBox:Split@2026-06-25T14:30:22@v1.2.0@Format=JPEG+MP4"
-        private static HistoryEntry? ParseHistorySubject(string subject)
+        // 把 Core 解析出的 HistoryRecord 映射为历史页展示用的 HistoryEntry。
+        private static HistoryEntry ToHistoryEntry(Models.HistoryRecord record)
         {
-            if (string.IsNullOrWhiteSpace(subject))
-                return null;
-
-            // Expected format:
-            //   LivePhotoBox:Split@{timestamp}@v{version}@{details}
-            //   LivePhotoBox:Repair@{timestamp}@v{version}@{details}
-            const string prefix = "LivePhotoBox:";
-            if (!subject.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                return null;
-
-            string body = subject[prefix.Length..]; // e.g. "Split@2026-06-25T14:30:22@v1.2.0@Format=..."
-
-            var parts = body.Split('@');
-            if (parts.Length < 2) return null;
-
-            string action = parts[0]; // "Split" or "Repair"
-
             var entry = new HistoryEntry
             {
-                Action = action switch
-                {
-                    "Split"  => "Split",
-                    "Repair" => "Repair",
-                    _ => action,
-                },
+                Action = record.Action,
+                Timestamp = record.Timestamp,
+                Version = record.Version,
+                Description = record.Description,
             };
-
-            // Parse timestamp (part[1])
-            if (parts.Length > 1 && DateTime.TryParse(parts[1], out var ts))
-                entry.Timestamp = ts;
-
-            // Parse version (e.g. "v1.2.0" in parts[2])
-            if (parts.Length > 2 && parts[2].StartsWith("v", StringComparison.OrdinalIgnoreCase))
-                entry.Version = parts[2][1..]; // strip "v" prefix
-
-            // Parse details (parts[3], e.g. "Format=JPEG+MP4" or "Fix=Rotation+Thumbnail")
-            // Parse details (parts[3], e.g. "Source=X;Target=Y;Format=JPG+MP4" or "Fix=Rotation+Thumbnail").
-            if (parts.Length > 3)
+            foreach (var (key, value) in record.Details)
             {
-                string details = parts[3];
-                if (!string.IsNullOrEmpty(details))
-                {
-                    foreach (var pair in details.Split(';', StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        int eq = pair.IndexOf('=');
-                        if (eq > 0)
-                        {
-                            string key = pair[..eq].Trim();
-                            string value = pair[(eq + 1)..].Trim();
-                            if (key.Length > 0) entry.Details[key] = value;
-                        }
-                    }
-                }
-                entry.Description = BuildEntryDescription(entry);
+                entry.Details[key] = value;
             }
-
             return entry;
-        }
-
-        /// <summary>
-        /// Build a human-readable Description from the structured Details dictionary.
-        /// Falls back to empty when there is nothing to show.
-        /// </summary>
-        private static string BuildEntryDescription(HistoryEntry entry)
-        {
-            var d = entry.Details;
-            var parts = new List<string>();
-
-            if (d.TryGetValue("Target", out var target) && !string.IsNullOrEmpty(target))
-            {
-                if (entry.Action == "Cover")
-                {
-                    // Cover 不改变协议，显示"协议: X"而不是"从 X 转 Y"。
-                    parts.Add(ResourceService.Format("History_MergeDesc", target));
-                }
-                else
-                {
-                    var source = d.TryGetValue("Source", out var s) && !string.IsNullOrEmpty(s) ? s : "?";
-                    parts.Add(ResourceService.Format("History_ConvertDesc", source, target));
-                }
-            }
-            if (d.TryGetValue("Format", out var format) && !string.IsNullOrEmpty(format))
-                parts.Add(ResourceService.Format("History_FormatDesc", format.Replace("+", " + ")));
-            if (d.TryGetValue("Image", out var image) &&
-                d.TryGetValue("Video", out var video) &&
-                !string.IsNullOrEmpty(image) && !string.IsNullOrEmpty(video))
-            {
-                parts.Add(image + " + " + video);
-            }
-            if (d.TryGetValue("Fix", out var fix) && !string.IsNullOrEmpty(fix))
-                parts.Add(ResourceService.Format("History_FixDesc", fix.Replace("+", " + ")));
-            if (d.TryGetValue("KeyPhoto", out var keyPhoto) && !string.IsNullOrEmpty(keyPhoto))
-                parts.Add(ResourceService.Format("History_KeyPhotoDesc", keyPhoto));
-
-            return parts.Count > 0 ? string.Join("; ", parts) : string.Empty;
         }
 
         // ── Helpers ───────────────────────────────────────────────────────

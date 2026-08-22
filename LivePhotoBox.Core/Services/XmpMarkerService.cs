@@ -78,7 +78,8 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// 构造机器可读的结构化详细信息：Key=Value;Key=Value...
-        /// 空值字段自动跳过；值中不允许出现 ';' 或 '='，避免破坏格式。
+        /// 空值字段自动跳过；值中的 '\' ';' '=' 会被转义（\\ \; \=），
+        /// 由 ParseHistoryEntry 统一还原，保证字段内容不丢失。
         /// 字段顺序按传入顺序固定，新增字段往后追加即可（可扩展）。
         /// </summary>
         public static string BuildDetails(params (string Key, string Value)[] fields)
@@ -87,10 +88,170 @@ namespace LivePhotoBox.Services
             foreach (var (key, value) in fields)
             {
                 if (string.IsNullOrWhiteSpace(key) || string.IsNullOrWhiteSpace(value)) continue;
-                if (value.Contains(';') || value.Contains('=')) continue;
-                parts.Add($"{key}={value}");
+                parts.Add($"{EscapeDetail(key)}={EscapeDetail(value)}");
             }
             return string.Join(";", parts);
+        }
+
+        /// <summary>
+        /// 解析单条历史条目（LivePhotoBox:{action}@{timestamp}@v{version}@{details}）。
+        /// 兼容轻量条目（LivePhotoBox:{action}@@v{version}@）；格式不认识返回 null。
+        /// 详情字段中的转义（\\ \; \=）在此统一还原。
+        /// </summary>
+        public static HistoryRecord? ParseHistoryEntry(string subject)
+        {
+            if (string.IsNullOrWhiteSpace(subject)) return null;
+            if (!subject.StartsWith(EntryPrefix, StringComparison.OrdinalIgnoreCase)) return null;
+
+            string body = subject[EntryPrefix.Length..];
+            var parts = body.Split('@');
+            if (parts.Length < 2) return null;
+
+            var record = new HistoryRecord { Action = parts[0] };
+
+            if (parts.Length > 1 && DateTime.TryParse(
+                parts[1], System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var timestamp))
+            {
+                record.Timestamp = timestamp;
+            }
+
+            if (parts.Length > 2 && parts[2].StartsWith("v", StringComparison.OrdinalIgnoreCase))
+            {
+                record.Version = parts[2][1..];
+            }
+
+            if (parts.Length > 3 && !string.IsNullOrEmpty(parts[3]))
+            {
+                foreach (var pair in SplitEscaped(parts[3], ';'))
+                {
+                    int eq = FindUnescaped(pair, '=');
+                    if (eq <= 0) continue;
+                    string key = UnescapeDetail(pair[..eq].Trim());
+                    string value = UnescapeDetail(pair[(eq + 1)..].Trim());
+                    if (key.Length > 0) record.Details[key] = value;
+                }
+            }
+
+            record.Description = BuildEntryDescription(record);
+            return record;
+        }
+
+        /// <summary>
+        /// 读取文件的全部历史条目并解析为 HistoryRecord（保留顺序、去重）。
+        /// 华为合并型 HEIC 等 exiftool 读不了 XMP 的文件走字节级回退。
+        /// </summary>
+        public static async Task<List<HistoryRecord>> ReadHistoryRecordsAsync(
+            string filePath, CancellationToken token)
+        {
+            var records = new List<HistoryRecord>();
+            foreach (var entry in await ReadExistingEntriesAsync(filePath, token))
+            {
+                var record = ParseHistoryEntry(entry);
+                if (record != null) records.Add(record);
+            }
+            return records;
+        }
+
+        /// <summary>
+        /// 根据结构化详情构造人类可读描述（本地化）。
+        /// GUI 历史页与 CLI 共用，保证展示与格式定义同源。
+        /// </summary>
+        public static string BuildEntryDescription(HistoryRecord record)
+        {
+            var d = record.Details;
+            var parts = new List<string>();
+
+            if (d.TryGetValue("Target", out var target) && !string.IsNullOrEmpty(target))
+            {
+                if (string.Equals(record.Action, "Cover", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Cover 不改变协议，显示"协议: X"而不是"从 X 转 Y"。
+                    parts.Add(ResourceService.Format("History_MergeDesc", target));
+                }
+                else
+                {
+                    var source = d.TryGetValue("Source", out var s) && !string.IsNullOrEmpty(s) ? s : "?";
+                    parts.Add(ResourceService.Format("History_ConvertDesc", source, target));
+                }
+            }
+            if (d.TryGetValue("Format", out var format) && !string.IsNullOrEmpty(format))
+                parts.Add(ResourceService.Format("History_FormatDesc", format.Replace("+", " + ")));
+            if (d.TryGetValue("Image", out var image) &&
+                d.TryGetValue("Video", out var video) &&
+                !string.IsNullOrEmpty(image) && !string.IsNullOrEmpty(video))
+            {
+                parts.Add(image + " + " + video);
+            }
+            if (d.TryGetValue("Fix", out var fix) && !string.IsNullOrEmpty(fix))
+                parts.Add(ResourceService.Format("History_FixDesc", fix.Replace("+", " + ")));
+            if (d.TryGetValue("KeyPhoto", out var keyPhoto) && !string.IsNullOrEmpty(keyPhoto))
+                parts.Add(ResourceService.Format("History_KeyPhotoDesc", keyPhoto));
+
+            return parts.Count > 0 ? string.Join("; ", parts) : string.Empty;
+        }
+
+        /// <summary>转义详情字段中的 '\' ';' '='（先转义反斜杠，再转义分隔符）。</summary>
+        private static string EscapeDetail(string value)
+            => value.Replace("\\", "\\\\").Replace(";", "\\;").Replace("=", "\\=");
+
+        /// <summary>还原转义：\\ \; \= 恢复为原字符；未知转义保留原样。</summary>
+        private static string UnescapeDetail(string value)
+        {
+            if (!value.Contains('\\')) return value;
+            var sb = new StringBuilder(value.Length);
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if (c == '\\' && i + 1 < value.Length)
+                {
+                    char next = value[++i];
+                    if (next is '\\' or ';' or '=')
+                    {
+                        sb.Append(next);
+                        continue;
+                    }
+                    sb.Append(c).Append(next);
+                    continue;
+                }
+                sb.Append(c);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>按分隔符切分详情字符串，跳过转义序列（\\ 与 \分隔符）。</summary>
+        private static IEnumerable<string> SplitEscaped(string value, char separator)
+        {
+            var current = new StringBuilder();
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if (c == '\\' && i + 1 < value.Length)
+                {
+                    current.Append(c).Append(value[++i]); // 保留转义序列，稍后统一还原
+                    continue;
+                }
+                if (c == separator)
+                {
+                    yield return current.ToString();
+                    current.Clear();
+                    continue;
+                }
+                current.Append(c);
+            }
+            yield return current.ToString();
+        }
+
+        /// <summary>查找未转义的目标字符位置；找不到返回 -1。</summary>
+        private static int FindUnescaped(string value, char target)
+        {
+            for (int i = 0; i < value.Length; i++)
+            {
+                char c = value[i];
+                if (c == '\\') { i++; continue; }
+                if (c == target) return i;
+            }
+            return -1;
         }
 
         /// <summary>
