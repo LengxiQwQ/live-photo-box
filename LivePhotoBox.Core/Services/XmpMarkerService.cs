@@ -577,6 +577,14 @@ namespace LivePhotoBox.Services
                             filePath, xmpBytes, token);
                         return injectOk;
                     }
+                    // 华为相机写入的 moov/meta 结构 exiftool 解析不了，MP4/MOV
+                    // 回退到文件末尾追加顶层 Adobe uuid box（标准 MP4 XMP 位置）。
+                    if (IsVideoPath(filePath))
+                    {
+                        var (injectOk, _) = await MediaXmpInjector.TryInjectXmpAsync(
+                            filePath, xmpBytes, token);
+                        return injectOk;
+                    }
                     return false;
                 }
             }
@@ -588,7 +596,8 @@ namespace LivePhotoBox.Services
         /// 读取文件当前完整 XMP 文本（exiftool -xmp:all -b），无 XMP 时返回 null。
         /// HEIC 优先字节级读取（本工具注入的 Adobe XMP uuid box 是最新写入的 XMP；
         /// 华为合并型 HEIC 的 meta 布局 exiftool 读不到，且双 XMP 时 exiftool 会
-        /// 读到旧的 mime 条目），读不到再退回 exiftool。
+        /// 读到旧的 mime 条目），读不到再退回 exiftool；MP4/MOV 在 exiftool
+        /// 读不到时（华为 moov/meta）回退字节级 uuid box 读取。
         /// </summary>
         public static async Task<string?> ReadXmpTextAsync(string filePath, CancellationToken token)
         {
@@ -599,12 +608,20 @@ namespace LivePhotoBox.Services
             }
 
             string? xmp = await RunExifToolCaptureAsync(token, "-xmp", "-b", filePath);
-            return string.IsNullOrWhiteSpace(xmp) ? null : xmp;
+            if (!string.IsNullOrWhiteSpace(xmp)) return xmp;
+            if (IsVideoPath(filePath))
+                return await MediaXmpInjector.TryReadXmpTextAsync(filePath, token);
+            return null;
         }
 
         private static bool IsHeicPath(string filePath)
             => filePath.EndsWith(".heic", StringComparison.OrdinalIgnoreCase)
                || filePath.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
+
+        private static bool IsVideoPath(string filePath)
+            => filePath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase)
+               || filePath.EndsWith(".mov", StringComparison.OrdinalIgnoreCase)
+               || filePath.EndsWith(".m4v", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// 从源图 XMP 中提取 GainMap Container 项与 hdrgm 命名空间属性，嵌入目标 XMP 字节。

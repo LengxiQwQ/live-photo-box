@@ -17,7 +17,7 @@ namespace LivePhotoBox.Services
     public static class HeicXmpInjector
     {
         /// <summary>Adobe XMP 的标准 usertype（uuid box 的 16 字节标识）。</summary>
-        private static readonly byte[] AdobeXmpUsertype =
+        internal static readonly byte[] AdobeXmpUsertype =
         {
             0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8,
             0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC

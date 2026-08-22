@@ -62,6 +62,18 @@ def exiftool_tags(path, tags, exiftool):
     return result
 
 
+def exiftool_subjects(path, exiftool):
+    """Return ALL XMP-dc:Subject values (exiftool prints list items on separate lines)."""
+    rc, out, _ = run([exiftool, "-s", "-s", "-XMP-dc:Subject", path], timeout=60)
+    values = []
+    for line in out.splitlines():
+        if ":" in line:
+            key, _, val = line.partition(":")
+            if key.strip().lower() == "subject":
+                values.append(val.strip())
+    return values
+
+
 def exiftool_warnings(path, exiftool):
     """Return a list of exiftool Warning tag values."""
     rc, out, _ = run([exiftool, "-s", "-s", "-Warning", path], timeout=60)
@@ -117,16 +129,17 @@ def iloc_iinf_counts(blob, meta_pos, meta_size):
     return iloc, iinf
 
 
-def count_uuid_boxes(blob):
-    """Count Adobe XMP uuid boxes (usertype occurrences)."""
+def count_uuid_boxes(blob, start=0, end=None):
+    """Count Adobe XMP uuid boxes (usertype occurrences) within [start, end)."""
     count = 0
-    start = 0
+    end = len(blob) if end is None else end
+    search_start = start
     while True:
-        idx = blob.find(XMP_UUID, start)
+        idx = blob.find(XMP_UUID, search_start, end)
         if idx < 0:
             break
         count += 1
-        start = idx + 1
+        search_start = idx + 1
     return count
 
 
@@ -186,7 +199,9 @@ def check_single_xmp(blob, meta_pos, meta_size):
     one of either means a stale copy survived (dual-XMP regression).
     """
     problems = []
-    uuid_count = count_uuid_boxes(blob)
+    # 只统计 HEIC meta 内的 uuid：嵌入视频自带的顶层 uuid 不算（避免误报）。
+    meta_end = meta_pos + meta_size
+    uuid_count = count_uuid_boxes(blob, meta_pos, meta_end)
     if uuid_count > 1:
         problems.append(f"{uuid_count} XMP uuid boxes (expected 0 or 1)")
     mime_count = count_mime_xmp_items(blob, meta_pos, meta_size)
@@ -308,8 +323,11 @@ def main():
                                 "XMP-dc:Subject"], args.exiftool)
     version = tags.get("Version")
     timestamp = tags.get("Timestamp")
-    subject = tags.get("Subject", "")
-    has_history = "LivePhotoBox:" in subject
+    # dc:subject 是多条目列表，exiftool 每个条目一行；收集全部再检查，
+    # 避免只检查第一条导致多历史条目文件误报。
+    subjects = exiftool_subjects(path, args.exiftool)
+    subject = ", ".join(subjects)
+    has_history = any("LivePhotoBox:" in s for s in subjects)
 
     if ext in (".jpg", ".jpeg", ".mp4", ".mov", ".m4v"):
         if not version or not re.fullmatch(r"\d+\.\d+\.\d+", version):

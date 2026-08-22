@@ -735,14 +735,16 @@ namespace LivePhotoBox.Services
             }
 
             // 4. Append MP4 video
+            // 先剥离视频自带的顶层 Adobe XMP uuid box：拆分产物视频的独立标识
+            // 若直接嵌入华为合并文件，会被 exiftool 当成整个文件的 XMP 而盖过
+            // meta 内 mime 条目的完整历史（读取歧义）；合并产物自身已有完整 XMP。
+            byte[] videoToAppend = MediaXmpInjector.StripTopLevelXmpUuid(
+                await File.ReadAllBytesAsync(sourceVid, token));
             using (var targetFs = new FileStream(
                 targetPath, FileMode.Append, FileAccess.Write, FileShare.None,
                 bufferSize: 8192, useAsync: true))
-            using (var vidFs = new FileStream(
-                sourceVid, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: 8192, useAsync: true))
             {
-                await vidFs.CopyToAsync(targetFs, token);
+                await targetFs.WriteAsync(videoToAppend, 0, videoToAppend.Length, token);
                 await targetFs.WriteAsync(tail, 0, tail.Length, token);
             }
             // Clean up temp MP4s created by covertime injection / ftyp brand patch

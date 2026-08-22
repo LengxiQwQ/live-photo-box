@@ -53,15 +53,21 @@ public sealed class HuaweiHeicHistoryReadTests
             Assert.Contains(entries,
                 e => e.Contains("LivePhotoBox:Merge@", StringComparison.Ordinal));
 
-            // 6. 单 XMP 回归：注入器必须替换旧 XMP（mime 条目/uuid），不能叠加。
+            // 6. 单 XMP 回归：HEIC meta 内只能有一个 uuid（嵌入视频自带一个
+            //    顶层 uuid，不计入 meta 范围）。
             byte[] mergedBytes = await File.ReadAllBytesAsync(
                 mergedPath, CancellationToken.None);
-            int uuidCount = CountBytes(mergedBytes, new byte[]
+            byte[] usertype = new byte[]
             {
                 0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8,
                 0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC
-            });
-            Assert.Equal(1, uuidCount);
+            };
+            int metaPos = FindMetaBox(mergedBytes);
+            Assert.True(metaPos >= 0, "merged HEIC has no meta box");
+            int metaSize = (mergedBytes[metaPos] << 24) | (mergedBytes[metaPos + 1] << 16)
+                | (mergedBytes[metaPos + 2] << 8) | mergedBytes[metaPos + 3];
+            Assert.Equal(1, CountBytesInRange(
+                mergedBytes, usertype, metaPos, metaPos + metaSize));
 
             // 7. exiftool 读到的必须是完整新历史（含 Merge），不是被替换前的旧记录。
             string? exifReadback = await ReadExifXmpAsync(
@@ -84,6 +90,48 @@ public sealed class HuaweiHeicHistoryReadTests
         string? xmp = await HeicXmpInjector.TryReadXmpTextAsync(
             source, CancellationToken.None);
         Assert.Null(xmp);
+    }
+
+    [Fact]
+    public async Task HuaweiSplit_VideoOutput_HasXmpMarker()
+    {
+        // 华为拆分产物的视频带华为 moov/meta（covertime），exiftool 解析不了；
+        // 必须通过字节级顶层 uuid box 写入并读回本软件标识（回归：视频缺 XMP）。
+        string source = ResolveSample("华为.heic");
+        string outputDir = CreateTempDirectory();
+
+        try
+        {
+            LivePhotoSplitResult split = await LivePhotoSplitService.SplitAsync(
+                source, outputDir, protocolIndex: 0, outputFormatIndex: 0,
+                CancellationToken.None);
+            Assert.True(File.Exists(split.VideoOutputPath),
+                "split did not produce a video output");
+
+            // 1. 历史记录读取（统一入口，含字节级回退）必须读到 Split 条目。
+            var records = await XmpMarkerService.ReadHistoryRecordsAsync(
+                split.VideoOutputPath, CancellationToken.None);
+            Assert.Contains(records, r => r.Action == "Split");
+
+            // 2. exiftool 也能读回（文件顶层 uuid box 是标准 MP4 XMP 位置）。
+            string? readback = await ReadExifXmpAsync(
+                split.VideoOutputPath, CancellationToken.None);
+            Assert.False(string.IsNullOrWhiteSpace(readback));
+            Assert.Contains("LivePhotoBox:Split@", readback!);
+
+            // 3. 文件里只追加了一个顶层 uuid box（现有结构不受影响）。
+            byte[] videoBytes = await File.ReadAllBytesAsync(
+                split.VideoOutputPath, CancellationToken.None);
+            Assert.Equal(1, CountBytes(videoBytes, new byte[]
+            {
+                0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8,
+                0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC
+            }));
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
     }
 
     [Fact]
@@ -144,6 +192,40 @@ public sealed class HuaweiHeicHistoryReadTests
         return count;
     }
 
+    private static int CountBytesInRange(byte[] haystack, byte[] needle, int start, int end)
+    {
+        if (needle.Length == 0 || end - start < needle.Length) return 0;
+        int count = 0;
+        for (int i = start; i <= end - needle.Length; i++)
+        {
+            bool match = true;
+            for (int j = 0; j < needle.Length; j++)
+            {
+                if (haystack[i + j] != needle[j]) { match = false; break; }
+            }
+            if (match) count++;
+        }
+        return count;
+    }
+
+    private static int FindMetaBox(byte[] bytes)
+    {
+        int p = 0;
+        while (p + 8 <= bytes.Length)
+        {
+            int size = (bytes[p] << 24) | (bytes[p + 1] << 16)
+                | (bytes[p + 2] << 8) | bytes[p + 3];
+            if (bytes[p + 4] == (byte)'m' && bytes[p + 5] == (byte)'e' &&
+                bytes[p + 6] == (byte)'t' && bytes[p + 7] == (byte)'a')
+            {
+                return p;
+            }
+            if (size < 8 || p + size > bytes.Length) break;
+            p += size;
+        }
+        return -1;
+    }
+
     private static async Task<string?> ReadExifXmpAsync(string filePath, CancellationToken token)
     {
         string? exifToolPath = ExternalToolLocator.FindExifTool();
@@ -160,7 +242,7 @@ public sealed class HuaweiHeicHistoryReadTests
             StandardOutputEncoding = System.Text.Encoding.UTF8,
         };
         psi.ArgumentList.Add("-charset");
-        psi.ArgumentList.Add("filename=utf8");
+        psi.ArgumentList.Add("utf8");
         psi.ArgumentList.Add("-xmp");
         psi.ArgumentList.Add("-b");
         psi.ArgumentList.Add(filePath);

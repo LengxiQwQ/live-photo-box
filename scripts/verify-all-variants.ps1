@@ -291,6 +291,10 @@ if (Test-Path $huaweiDesign) {
         $splitVid = Get-ChildItem -LiteralPath $hwSplitOut -File -Filter "*_split.MP4" -ErrorAction SilentlyContinue |
             Select-Object -First 1
         if ($splitImg -and $splitVid) {
+            # 拆分产物本身也要验证（图片 + 视频都必须带本软件 XMP 标识）。
+            Run-Verify @($splitImg.FullName) "HuaweiMovingPhoto" -SkipVideo
+            Run-Verify @($splitVid.FullName) "HuaweiMovingPhoto" -SkipVideo
+
             $hwMergeOut = Join-Path $OutputDir "huawei-split-merge"
             & $cli merge $splitImg.FullName $splitVid.FullName -p huawei -f heic+mp4 -o $hwMergeOut -y | Out-Null
             if ($LASTEXITCODE -eq 0) {
