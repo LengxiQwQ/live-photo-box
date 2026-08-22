@@ -2341,6 +2341,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="History_KeyPhotoDesc" xml:space="preserve">
     <value>封面 {0}s</value>
   </data>
+  <data name="History_ConvertDesc" xml:space="preserve">
+    <value>从 {0} 转 {1}</value>
+  </data>
   <data name="History_Protocol_MotionPhotoV2" xml:space="preserve">
     <value>Google Motion Photo (v2)</value>
   </data>

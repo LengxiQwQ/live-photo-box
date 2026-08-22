@@ -2341,6 +2341,9 @@ Then click "Start Split".</value>
   <data name="History_KeyPhotoDesc" xml:space="preserve">
     <value>Key photo {0}s</value>
   </data>
+  <data name="History_ConvertDesc" xml:space="preserve">
+    <value>From {0} to {1}</value>
+  </data>
   <data name="History_Protocol_MotionPhotoV2" xml:space="preserve">
     <value>Google Motion Photo (v2)</value>
   </data>

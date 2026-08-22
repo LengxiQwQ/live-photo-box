@@ -327,15 +327,7 @@ namespace LivePhotoBox.ViewModels
             var info = new FileHistoryInfo { FilePath = filePath };
 
             // ── Detect LivePhotoBox generation ─────────────────────────
-            var lpbAction = GetAttributeValue(desc, LivePhotoBoxNs, "Action");
-            if (lpbAction != null)
-            {
-                info.IsLivePhotoBoxGenerated = true;
-                info.MergeProtocol = GetAttributeValue(desc, LivePhotoBoxNs, "Protocol") ?? string.Empty;
-                info.MergeVersion  = GetAttributeValue(desc, LivePhotoBoxNs, "Version")  ?? string.Empty;
-            }
-
-            // Parse dc:subject entries (Split / Repair history)
+            // Parse dc:subject entries first (history is also used for generation detection).
             var subjectEl = desc.Element(DcNs + "subject");
             if (subjectEl != null)
             {
@@ -344,6 +336,22 @@ namespace LivePhotoBox.ViewModels
                     var entry = ParseHistorySubject(li.Value);
                     if (entry != null) info.Entries.Add(entry);
                 }
+            }
+
+            // Detect LivePhotoBox generation: legacy Action/Protocol attributes (old files),
+            // namespace declaration + Version/Timestamp attrs (new files), or history entries.
+            bool hasLpbAttr = GetAttributeValue(desc, LivePhotoBoxNs, "Action") != null
+                || GetAttributeValue(desc, LivePhotoBoxNs, "Version") != null
+                || GetAttributeValue(desc, LivePhotoBoxNs, "Timestamp") != null;
+            bool hasLpbNamespace = desc.Attribute(XNamespace.Xmlns + "LivePhotoBox") != null;
+            if (hasLpbAttr || hasLpbNamespace || info.Entries.Count > 0)
+            {
+                info.IsLivePhotoBoxGenerated = true;
+                info.MergeVersion = GetAttributeValue(desc, LivePhotoBoxNs, "Version") ?? string.Empty;
+                // MergeProtocol: legacy attribute first, else the first Merge entry's Target detail.
+                info.MergeProtocol = GetAttributeValue(desc, LivePhotoBoxNs, "Protocol")
+                    ?? info.Entries.FirstOrDefault(e => e.Action == "Merge")?.Details.GetValueOrDefault("Target")
+                    ?? string.Empty;
             }
 
             // ── Detect protocol type from known XMP tags (priority order) ──
@@ -372,7 +380,7 @@ namespace LivePhotoBox.ViewModels
             // ── Add Merge entry if LivePhotoBox generated ──────────────
             if (info.IsLivePhotoBoxGenerated && info.Entries.All(e => e.Action != "Merge"))
             {
-                var comboEntry = new HistoryEntry
+                var mergeEntry = new HistoryEntry
                 {
                     Action = "Merge",
                     Version = info.MergeVersion,
@@ -381,7 +389,7 @@ namespace LivePhotoBox.ViewModels
 
                 // If no Split/Repair entries have timestamps, Merge has none either
                 // Insert at beginning since Merge happens first
-                info.Entries.Insert(0, comboEntry);
+                info.Entries.Insert(0, mergeEntry);
             }
 
             // ── Sort all entries chronologically ───────────────────────
@@ -445,38 +453,57 @@ namespace LivePhotoBox.ViewModels
                 entry.Version = parts[2][1..]; // strip "v" prefix
 
             // Parse details (parts[3], e.g. "Format=JPEG+MP4" or "Fix=Rotation+Thumbnail")
+            // Parse details (parts[3], e.g. "Source=X;Target=Y;Format=JPG+MP4" or "Fix=Rotation+Thumbnail").
             if (parts.Length > 3)
             {
                 string details = parts[3];
-                int eqIdx = details.IndexOf('=');
-                if (eqIdx >= 0)
+                if (!string.IsNullOrEmpty(details))
                 {
-                    string value = details[(eqIdx + 1)..];
-                    // Humanize the value
-                    if (details.StartsWith("Format=", StringComparison.OrdinalIgnoreCase))
+                    foreach (var pair in details.Split(';', StringSplitOptions.RemoveEmptyEntries))
                     {
-                        entry.Description = ResourceService.Format(
-                            "History_FormatDesc",
-                            value.Replace("+", " + "));
-                    }
-                    else if (details.StartsWith("Fix=", StringComparison.OrdinalIgnoreCase))
-                    {
-                        entry.Description = ResourceService.Format(
-                            "History_FixDesc",
-                            value.Replace("+", " + "));
-                    }
-                    else
-                    {
-                        entry.Description = value.Replace("+", " + ");
+                        int eq = pair.IndexOf('=');
+                        if (eq > 0)
+                        {
+                            string key = pair[..eq].Trim();
+                            string value = pair[(eq + 1)..].Trim();
+                            if (key.Length > 0) entry.Details[key] = value;
+                        }
                     }
                 }
-                else
-                {
-                    entry.Description = details;
-                }
+                entry.Description = BuildEntryDescription(entry);
             }
 
             return entry;
+        }
+
+        /// <summary>
+        /// Build a human-readable Description from the structured Details dictionary.
+        /// Falls back to empty when there is nothing to show.
+        /// </summary>
+        private static string BuildEntryDescription(HistoryEntry entry)
+        {
+            var d = entry.Details;
+            var parts = new List<string>();
+
+            if (d.TryGetValue("Target", out var target) && !string.IsNullOrEmpty(target))
+            {
+                var source = d.TryGetValue("Source", out var s) && !string.IsNullOrEmpty(s) ? s : "?";
+                parts.Add(ResourceService.Format("History_ConvertDesc", source, target));
+            }
+            if (d.TryGetValue("Format", out var format) && !string.IsNullOrEmpty(format))
+                parts.Add(ResourceService.Format("History_FormatDesc", format.Replace("+", " + ")));
+            if (d.TryGetValue("Image", out var image) &&
+                d.TryGetValue("Video", out var video) &&
+                !string.IsNullOrEmpty(image) && !string.IsNullOrEmpty(video))
+            {
+                parts.Add(image + " + " + video);
+            }
+            if (d.TryGetValue("Fix", out var fix) && !string.IsNullOrEmpty(fix))
+                parts.Add(ResourceService.Format("History_FixDesc", fix.Replace("+", " + ")));
+            if (d.TryGetValue("KeyPhoto", out var keyPhoto) && !string.IsNullOrEmpty(keyPhoto))
+                parts.Add(ResourceService.Format("History_KeyPhotoDesc", keyPhoto));
+
+            return parts.Count > 0 ? string.Join("; ", parts) : string.Empty;
         }
 
         // ── Helpers ───────────────────────────────────────────────────────
