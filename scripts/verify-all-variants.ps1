@@ -67,6 +67,7 @@ if (-not $HuaweiVideo) { $HuaweiVideo = "C:\Users\LengxiQwQ\Downloads\实况照�
 $appleImg = $AppleImage
 $appleMov = $AppleVideo
 $oppoJpg  = $OppoSource
+$huaweiMov = $HuaweiVideo
 
 $allOk = $true
 $failList = New-Object System.Collections.Generic.List[string]
