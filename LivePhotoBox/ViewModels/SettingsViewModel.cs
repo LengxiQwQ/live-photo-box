@@ -686,7 +686,7 @@ namespace LivePhotoBox.ViewModels
             IsNonLivePhotoVideoRepairEnabled = AppSettingsService.GetValue(nameof(IsNonLivePhotoVideoRepairEnabled), false);
             IsCopyPerfectToOutput = AppSettingsService.GetValue(nameof(IsCopyPerfectToOutput), false);
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
-            IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
+            IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), true);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), false);
             IsDragDropAutoPairEnabled = AppSettingsService.GetValue(nameof(IsDragDropAutoPairEnabled), false);
             IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), true);

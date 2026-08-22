@@ -1253,7 +1253,21 @@ namespace LivePhotoBox.ViewModels
                 else
                 {
                     // 标准协议（V1, V2, OPPO, Vivo standalone）：SOI + APP1 XMP + JPEG + video
-                    byte[] xmpBytes = protocol.BuildXmpMetadata(actualVideoSize, presentationTimestampUs);
+                    // 与合成页一致：结构化 Merge 历史（Source/Target/Format/KeyPhoto），
+                    // 含源图旧历史迁移，保证封面保存也有完整、机器可读的操作记录。
+                    string coverSourceProtocol = await XmpMarkerService.DetectSourceProtocolAsync(photoPath, CancellationToken.None);
+                    string coverDetails = XmpMarkerService.BuildDetails(
+                        ("Source", coverSourceProtocol),
+                        ("Target", protocol.Key),
+                        ("Format", "JPG+MP4"),
+                        ("KeyPhoto", presentationTimestampUs > 0
+                            ? (presentationTimestampUs / 1_000_000.0).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                            : string.Empty));
+                    byte[] xmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(
+                        processedImagePath,
+                        protocol.BuildXmpMetadata(actualVideoSize, presentationTimestampUs),
+                        coverDetails,
+                        CancellationToken.None);
 
                     tempOutputPath = Path.Combine(tempWorkDir, "output.jpg");
                     await LivePhotoMergeService.WriteNativeAsync(

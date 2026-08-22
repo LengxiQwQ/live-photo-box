@@ -77,6 +77,10 @@ namespace LivePhotoBox.Models
         // 详细描述（协议、格式、修复内容等）
         public string Description { get; set; } = string.Empty;
 
+        // 结构化的详细信息（机器可读，Key=Value; 解析而来）
+        public System.Collections.Generic.Dictionary<string, string> Details { get; set; } =
+            new(System.StringComparer.OrdinalIgnoreCase);
+
         // 操作类型对应的颜色
         public string ActionColor => Action switch
         {
