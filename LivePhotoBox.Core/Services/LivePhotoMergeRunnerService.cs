@@ -339,6 +339,11 @@ namespace LivePhotoBox.Services
                         LogLevel.Warning);
                 }
 
+                // 输出自检（按设置级别：浅查 XMP/结构/实况数据，深查加解码与播放）。
+                await OutputVerifier.VerifyAndLogAsync(
+                    finalOutputPath, token,
+                    expectedProtocol: OutputVerifier.ProtocolTypeFromIndex(options.SelectedModeIndex));
+
                 LogService.Merge($"Merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
                 return (true, ResourceService.GetString("Task_Success"));
             }

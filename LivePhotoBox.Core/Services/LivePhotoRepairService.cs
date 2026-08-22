@@ -976,6 +976,10 @@ public static class LivePhotoRepairService
                 await XmpMarkerService.TryWriteUnifiedMarkerAsync(
                     targetPath, "Repair", repairDetails, token, inheritedHistory);
 
+                await OutputVerifier.VerifyAndLogAsync(
+                    targetPath, token,
+                    OutputVerifier.ProtocolTypeFromKey(repairSourceProtocol));
+
                 WriteDebugLog("INFO", "Repair", ResourceService.Format("Log_RepairSuccess", Path.GetFileName(sourcePath)));
                 return (true, ResourceService.GetString("Status_RepairSuccess"));
             }
@@ -1109,6 +1113,9 @@ public static class LivePhotoRepairService
                         ("Fix", "Rotation"));
                     await XmpMarkerService.TryWriteUnifiedMarkerAsync(
                         targetPath, "Repair", repairDetails, token, inheritedHistory);
+                    await OutputVerifier.VerifyAndLogAsync(
+                        targetPath, token,
+                        OutputVerifier.ProtocolTypeFromKey(repairSourceProtocol));
                     WriteDebugLog("INFO", "RepairVideo", $"Video repair succeeded: {Path.GetFileName(sourcePath)} (in-place={isInPlace})");
                     return (true, ResourceService.GetString("Status_RepairSuccess"));
                 }

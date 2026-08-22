@@ -520,6 +520,13 @@ namespace LivePhotoBox.Services
                     videoOutputPath, "Split", splitDetails, token, inheritedHistory);
                 // ─────────────────────────────────────────────────────────────────────────────
 
+                // 输出自检（拆分产物是图片+视频双文件：图片无内嵌视频；
+                // 实况标记已被有意剥离，不按源协议断言标记存在）。
+                await OutputVerifier.VerifyAndLogAsync(
+                    imageOutputPath, token, expectedProtocol: null, expectEmbeddedVideo: false);
+                await OutputVerifier.VerifyAndLogAsync(
+                    videoOutputPath, token, expectedProtocol: null, expectEmbeddedVideo: false);
+
                 return new LivePhotoSplitResult
                 {
                     ImageOutputPath = imageOutputPath,

@@ -621,6 +621,17 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Detailed history recording: {(value ? "enabled" : "disabled")}", LogSource.Settings);
         }
 
+        // 输出自检级别（0=不检查，1=浅查[默认]，2=深查）
+        [ObservableProperty]
+        private int _outputCheckLevel = 1;
+
+        partial void OnOutputCheckLevelChanged(int value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(OutputCheckLevel), value);
+            LogService.Info($"Output check level: {value}", LogSource.Settings);
+        }
+
         #endregion
 
         public SettingsViewModel()
@@ -687,6 +698,7 @@ namespace LivePhotoBox.ViewModels
             IsCopyPerfectToOutput = AppSettingsService.GetValue(nameof(IsCopyPerfectToOutput), false);
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), true);
+            OutputCheckLevel = AppSettingsService.GetValue(nameof(OutputCheckLevel), 1);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), false);
             IsDragDropAutoPairEnabled = AppSettingsService.GetValue(nameof(IsDragDropAutoPairEnabled), false);
             IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), true);

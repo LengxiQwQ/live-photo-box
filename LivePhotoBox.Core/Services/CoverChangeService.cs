@@ -95,6 +95,17 @@ namespace LivePhotoBox.Services
                 {
                     var result = await ChangeCoverCoreAsync(request, tempWorkDir, token).ConfigureAwait(false);
                     await WriteCoverHistoryAsync(request, result, token).ConfigureAwait(false);
+                    // 输出自检（单文件封面有内嵌视频；双文件封面图片无内嵌视频）。
+                    bool singleFileCover = request.LivePhotoType != LivePhotoType.DualFile;
+                    await OutputVerifier.VerifyAndLogAsync(
+                        result.OutputImagePath, token, request.Protocol,
+                        expectEmbeddedVideo: singleFileCover).ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(result.OutputVideoPath))
+                    {
+                        await OutputVerifier.VerifyAndLogAsync(
+                            result.OutputVideoPath, token, request.Protocol,
+                            expectEmbeddedVideo: false).ConfigureAwait(false);
+                    }
                     LogService.Split(
                         $"CoverChange: success — protocol={request.Protocol} image={request.OutputImagePath}",
                         LogLevel.Info);

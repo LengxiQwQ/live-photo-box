@@ -1306,6 +1306,11 @@ namespace LivePhotoBox.ViewModels
                                 // 修改日期设为当前时间
                     try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
 
+                // 输出自检（封面另存产物：XMP/结构/实况数据，深查加解码与播放）。
+                await OutputVerifier.VerifyAndLogAsync(
+                    targetPath, CancellationToken.None,
+                    OutputVerifier.ProtocolTypeFromIndex(protocolIndex));
+
                 // ── 11. 完成 ──
                 CompleteExportProgress(
                     ResourceService.GetString("EditPage_SaveKeyPhotoComplete"),

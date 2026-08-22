@@ -1096,6 +1096,26 @@
                             </StackPanel>
                         </controls:SettingsCard>
 
+                        <!-- 输出自检（处理完每个文件后检查 XMP/结构/实况数据，默认浅查） -->
+                        <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                            <controls:SettingsCard.Header>
+                                <TextBlock x:Uid="SettingsPage_Debug_OutputCheckHeader" FontFamily="Microsoft YaHei UI"/>
+                            </controls:SettingsCard.Header>
+                            <controls:SettingsCard.Description>
+                                <TextBlock x:Uid="SettingsPage_Debug_OutputCheckDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                            </controls:SettingsCard.Description>
+                            <controls:SettingsCard.HeaderIcon>
+                                <FontIcon Glyph="&#xE9D5;" FontSize="16"/>
+                            </controls:SettingsCard.HeaderIcon>
+                            <ComboBox SelectedIndex="{x:Bind ViewModel.OutputCheckLevel, Mode=TwoWay}"
+                                      MinWidth="180"
+                                      VerticalAlignment="Center">
+                                <ComboBoxItem x:Uid="SettingsPage_Debug_OutputCheck_None"/>
+                                <ComboBoxItem x:Uid="SettingsPage_Debug_OutputCheck_Light"/>
+                                <ComboBoxItem x:Uid="SettingsPage_Debug_OutputCheck_Full"/>
+                            </ComboBox>
+                        </controls:SettingsCard>
+
                     </StackPanel>
                 </StackPanel>
 
