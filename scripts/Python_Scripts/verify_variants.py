@@ -117,6 +117,86 @@ def iloc_iinf_counts(blob, meta_pos, meta_size):
     return iloc, iinf
 
 
+def count_uuid_boxes(blob):
+    """Count Adobe XMP uuid boxes (usertype occurrences)."""
+    count = 0
+    start = 0
+    while True:
+        idx = blob.find(XMP_UUID, start)
+        if idx < 0:
+            break
+        count += 1
+        start = idx + 1
+    return count
+
+
+def count_mime_xmp_items(blob, meta_pos, meta_size):
+    """Count iinf infe items with item_type 'mime' and rdf+xml content type.
+
+    Returns None when iinf cannot be parsed (caller treats as a problem).
+    """
+    end = meta_pos + meta_size
+    q = meta_pos + 12
+    iinf = None
+    while q + 8 <= end:
+        sz = struct.unpack(">I", blob[q:q + 4])[0]
+        if blob[q + 4:q + 8] == b"iinf":
+            iinf = q
+            break
+        if sz < 8 or q + sz > end:
+            break
+        q += sz
+    if iinf is None:
+        return None
+    count = struct.unpack(">H", blob[iinf + 12:iinf + 14])[0]
+    ip = iinf + 14  # 8 header + version/flags(4) + item count(2)
+    xmp_count = 0
+    for _ in range(count):
+        if ip + 24 > end:
+            break
+        infe_size = struct.unpack(">I", blob[ip:ip + 4])[0]
+        if infe_size < 24:
+            if infe_size < 8:
+                break
+            ip += infe_size
+            continue
+        ver = blob[ip + 8]
+        if ver == 2:
+            item_type_pos, name_pos = 16, 20
+        elif ver == 3:
+            item_type_pos, name_pos = 14, 22
+        else:
+            ip += infe_size
+            continue
+        if blob[ip + item_type_pos:ip + item_type_pos + 4] == b"mime":
+            nz = blob.find(b"\x00", ip + name_pos, ip + infe_size)
+            if nz >= 0 and nz + 1 < ip + infe_size:
+                ct = blob[nz + 1:ip + infe_size].decode("utf-8", "replace").lower()
+                if ct.startswith("application/rdf+xml"):
+                    xmp_count += 1
+        ip += infe_size
+    return xmp_count
+
+
+def check_single_xmp(blob, meta_pos, meta_size):
+    """Detect dual-XMP: more than one XMP mime item or more than one uuid box.
+
+    Our outputs store XMP either as one mime item (exiftool path) or as one
+    mime item whose data lives in a uuid box (HUAWEI injector path). More than
+    one of either means a stale copy survived (dual-XMP regression).
+    """
+    problems = []
+    uuid_count = count_uuid_boxes(blob)
+    if uuid_count > 1:
+        problems.append(f"{uuid_count} XMP uuid boxes (expected 0 or 1)")
+    mime_count = count_mime_xmp_items(blob, meta_pos, meta_size)
+    if mime_count is None:
+        problems.append("iinf not found (cannot count XMP mime items)")
+    elif mime_count != 1:
+        problems.append(f"{mime_count} XMP mime items (expected exactly 1)")
+    return problems
+
+
 def check_heic_bytes(path):
     """Byte-level HEIC checks for HUAWEI layouts (exiftool cannot read them)."""
     problems = []
@@ -136,6 +216,9 @@ def check_heic_bytes(path):
     if meta_pos < 0:
         problems.append("meta box not found")
         return problems
+
+    # 单 XMP 检测（无论 exiftool 能否读取都要执行，抓住双 XMP 回归）。
+    problems += check_single_xmp(blob, meta_pos, meta_size)
 
     boxes = meta_box_chain(blob, meta_pos, meta_size)
     if boxes is None:
@@ -200,6 +283,8 @@ def main():
     ap.add_argument("path")
     ap.add_argument("--expected-source", default=None,
                     help="expected Source= key inside the history entry")
+    ap.add_argument("--expected-action", default=None,
+                    help="expected LivePhotoBox:{action}@ history entry")
     ap.add_argument("--exiftool", default="exiftool")
     ap.add_argument("--heif-dec", default="heif-dec")
     ap.add_argument("--ffprobe", default="ffprobe")
@@ -236,12 +321,27 @@ def main():
         if args.expected_source and f"Source={args.expected_source}" not in subject:
             problems.append(
                 f"Source={args.expected_source} not found in: {subject[:160]}")
+        if args.expected_action and f"LivePhotoBox:{args.expected_action}@" not in subject:
+            problems.append(
+                f"expected action {args.expected_action} not found in: {subject[:160]}")
     elif ext in (".heic", ".heif"):
         if version and timestamp and has_history:
             notes.append("XMP read via exiftool")
             if args.expected_source and f"Source={args.expected_source}" not in subject:
                 problems.append(
                     f"Source={args.expected_source} not found in: {subject[:160]}")
+            if args.expected_action and f"LivePhotoBox:{args.expected_action}@" not in subject:
+                problems.append(
+                    f"expected action {args.expected_action} not found in: {subject[:160]}")
+            # exiftool 可读的 HEIC 也要做单 XMP 字节检测。
+            try:
+                with open(path, "rb") as f:
+                    blob = f.read()
+                meta_pos, meta_size = find_meta(blob)
+                if meta_pos >= 0:
+                    problems += check_single_xmp(blob, meta_pos, meta_size)
+            except OSError as exc:
+                problems.append(f"read failed: {exc}")
         else:
             # HUAWEI-style layout: exiftool cannot read it, verify bytes.
             problems += check_heic_bytes(path)

@@ -624,13 +624,6 @@ namespace LivePhotoBox.Services
                 byte[] heicData = await File.ReadAllBytesAsync(sourceImg, token);
                 byte[] patched = InsertTmapBrand(heicData);
 
-                // 华为真机 HEIC 的 meta 结构特殊：iloc 位于 iinf 之前（非标准顺序）。
-                // exiftool 重写此类结构会破坏文件（实测：iinf/iloc item 计数错乱、
-                // meta 尾部残留无效数据、XMP uuid 之后顶层 box 链断裂），因此华为结构
-                // 优先使用专为其设计的字节注入器（20 个真机样本验证）；其它结构
-                // （如 Apple HEIC）保持 exiftool 优先，注入器仅作兜底。
-                bool huaweiLayout = HasHuaweiMetaLayout(heicData);
-
                 // exiftool 写入：临时副本 -> 验证 XMP 读回 -> 移动覆盖 targetPath。
                 async Task<(bool Ok, string? Error)> WriteXmpViaExifToolAsync()
                 {
@@ -675,8 +668,11 @@ namespace LivePhotoBox.Services
                     // 封面重建等场景：不写底层 XMP，由调用方统一写独立动作历史。
                     await File.WriteAllBytesAsync(targetPath, patched, token);
                 }
-                else if (huaweiLayout)
+                else
                 {
+                    // 字节级注入器优先：替换旧 XMP（mime 条目/uuid），兼容华为
+                    // （iloc 在 iinf 前）与标准布局，保证产物只有一份最新 XMP；
+                    // exiftool 在 HEIC 上只会"追加"新 mime 条目、残留旧 XMP。
                     await File.WriteAllBytesAsync(targetPath, patched, token);
                     var (injectOk, injectError) = await HeicXmpInjector.TryInjectXmpAsync(
                         targetPath, huaweiXmp!, token);
@@ -688,23 +684,7 @@ namespace LivePhotoBox.Services
                             await File.WriteAllBytesAsync(targetPath, patched, token);
                             LogService.Merge(
                                 $"HUAWEI HEIC XMP injection failed (injector: {injectError}; exiftool: {exError}); wrote without XMP",
-                                LogLevel.Warning);
-                        }
-                    }
-                }
-                else
-                {
-                    var (exOk, exError) = await WriteXmpViaExifToolAsync();
-                    if (!exOk)
-                    {
-                        await File.WriteAllBytesAsync(targetPath, patched, token);
-                        var (injectOk, injectError) = await HeicXmpInjector.TryInjectXmpAsync(
-                            targetPath, huaweiXmp!, token);
-                        if (!injectOk)
-                        {
-                            LogService.Merge(
-                                $"HUAWEI HEIC XMP injection failed (exiftool: {exError}; injector: {injectError}); wrote without XMP",
-                                LogLevel.Warning);
+                            LogLevel.Warning);
                         }
                     }
                 }
@@ -1509,13 +1489,21 @@ namespace LivePhotoBox.Services
                 string tempXmp = Path.Combine(tempDir, "temp.xmp");
                 await File.WriteAllBytesAsync(tempXmp, xmpBytes, token);
 
-                // 2. Run exiftool: read source HEIC, inject XMP, write temp output
-                //    Using '-o' (not -overwrite_original) avoids copying the source file
+                // 2. 字节级注入器优先：替换源 HEIC 已有 XMP（mime 条目），
+                //    避免 exiftool 在 HEIC 上"追加"新 mime 条目导致双 XMP。
                 string tempHeic = Path.Combine(tempDir, "temp_with_xmp.heic");
-                await LivePhotoRepairService.RunExifToolAsync(token,
-                    $"-xmp<={tempXmp}",
-                    "-o", tempHeic,
-                    sourceHeic);
+                File.Copy(sourceHeic, tempHeic, overwrite: true);
+                var (injectOk, injectError) = await HeicXmpInjector.TryInjectXmpAsync(
+                    tempHeic, xmpBytes, token);
+                if (!injectOk)
+                {
+                    // exiftool 兜底（历史路径；源结构不认识时使用）。
+                    try { File.Delete(tempHeic); } catch { }
+                    await LivePhotoRepairService.RunExifToolAsync(token,
+                        $"-xmp<={tempXmp}",
+                        "-o", tempHeic,
+                        sourceHeic);
+                }
 
                 if (!File.Exists(tempHeic))
                 {
@@ -1703,12 +1691,20 @@ namespace LivePhotoBox.Services
                 string tempXmp = Path.Combine(tempDir, "temp.xmp");
                 await File.WriteAllBytesAsync(tempXmp, xmpBytes, token);
 
-                // 2. Inject XMP into HEIC via exiftool
+                // 2. 字节级注入器优先（替换旧 XMP，避免 exiftool 追加双 XMP）
                 string tempHeic = Path.Combine(tempDir, "temp_with_xmp.heic");
-                await LivePhotoRepairService.RunExifToolAsync(token,
-                    $"-xmp<={tempXmp}",
-                    "-o", tempHeic,
-                    sourceHeic);
+                File.Copy(sourceHeic, tempHeic, overwrite: true);
+                var (injectOk, injectError) = await HeicXmpInjector.TryInjectXmpAsync(
+                    tempHeic, xmpBytes, token);
+                if (!injectOk)
+                {
+                    // exiftool 兜底（历史路径；源结构不认识时使用）。
+                    try { File.Delete(tempHeic); } catch { }
+                    await LivePhotoRepairService.RunExifToolAsync(token,
+                        $"-xmp<={tempXmp}",
+                        "-o", tempHeic,
+                        sourceHeic);
+                }
 
                 if (!File.Exists(tempHeic))
                     throw new InvalidOperationException("exiftool did not produce output HEIC file.");

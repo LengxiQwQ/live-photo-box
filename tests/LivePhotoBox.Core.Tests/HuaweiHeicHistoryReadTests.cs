@@ -52,6 +52,23 @@ public sealed class HuaweiHeicHistoryReadTests
                 mergedPath, CancellationToken.None);
             Assert.Contains(entries,
                 e => e.Contains("LivePhotoBox:Merge@", StringComparison.Ordinal));
+
+            // 6. 单 XMP 回归：注入器必须替换旧 XMP（mime 条目/uuid），不能叠加。
+            byte[] mergedBytes = await File.ReadAllBytesAsync(
+                mergedPath, CancellationToken.None);
+            int uuidCount = CountBytes(mergedBytes, new byte[]
+            {
+                0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8,
+                0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC
+            });
+            Assert.Equal(1, uuidCount);
+
+            // 7. exiftool 读到的必须是完整新历史（含 Merge），不是被替换前的旧记录。
+            string? exifReadback = await ReadExifXmpAsync(
+                mergedPath, CancellationToken.None);
+            Assert.False(string.IsNullOrWhiteSpace(exifReadback));
+            Assert.Contains("LivePhotoBox:Merge@", exifReadback!);
+            Assert.Contains("LivePhotoBox:Split@", exifReadback);
         }
         finally
         {
@@ -109,5 +126,51 @@ public sealed class HuaweiHeicHistoryReadTests
         {
             // Best-effort cleanup; test runners may hold file handles briefly.
         }
+    }
+
+    private static int CountBytes(byte[] haystack, byte[] needle)
+    {
+        if (needle.Length == 0 || needle.Length > haystack.Length) return 0;
+        int count = 0;
+        for (int i = 0; i <= haystack.Length - needle.Length; i++)
+        {
+            bool match = true;
+            for (int j = 0; j < needle.Length; j++)
+            {
+                if (haystack[i + j] != needle[j]) { match = false; break; }
+            }
+            if (match) count++;
+        }
+        return count;
+    }
+
+    private static async Task<string?> ReadExifXmpAsync(string filePath, CancellationToken token)
+    {
+        string? exifToolPath = ExternalToolLocator.FindExifTool();
+        if (string.IsNullOrEmpty(exifToolPath)) return null;
+
+        var psi = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = exifToolPath,
+            WorkingDirectory = Path.GetDirectoryName(exifToolPath) ?? AppContext.BaseDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+        };
+        psi.ArgumentList.Add("-charset");
+        psi.ArgumentList.Add("filename=utf8");
+        psi.ArgumentList.Add("-xmp");
+        psi.ArgumentList.Add("-b");
+        psi.ArgumentList.Add(filePath);
+
+        using var process = System.Diagnostics.Process.Start(psi);
+        if (process == null) return null;
+        string output = await process.StandardOutput.ReadToEndAsync(token);
+        string error = await process.StandardError.ReadToEndAsync(token);
+        try { await process.WaitForExitAsync(token); }
+        catch (OperationCanceledException) { process.Kill(); throw; }
+        return string.IsNullOrWhiteSpace(output) ? null : output;
     }
 }

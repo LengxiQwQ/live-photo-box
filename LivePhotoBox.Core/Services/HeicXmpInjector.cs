@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -235,13 +236,8 @@ namespace LivePhotoBox.Services
                 p += sz;
             }
             if (ilocPos < 0 || iinfPos < 0) { error = "iloc/iinf not found"; return null; }
-            // 布局保护：本注入器只处理华为相机结构（iloc 在 iinf 之前）。
-            // 标准 HEIC（iloc 在 iinf 之后）走 exiftool；强行注入会破坏 item 偏移。
-            if (ilocPos > iinfPos)
-            {
-                error = "unsupported layout: iloc after iinf (standard HEIC, use exiftool)";
-                return null;
-            }
+            // 分段偏移映射与 box 顺序无关：华为结构（iloc 在 iinf 前）和
+            // 标准结构（iinf 在前）都按边界排序处理，均支持。
             if (ilocVersion > 2) { error = $"unsupported iloc version {ilocVersion}"; return null; }
             if (offSize is < 1 or > 8 || lenSize is < 1 or > 8 || baseSize > 8 || idxSize > 8)
             {
@@ -249,8 +245,86 @@ namespace LivePhotoBox.Services
                 return null;
             }
 
+            int ilocEnd = ilocPos + ReadU32(bytes, ilocPos);
+            int iinfEnd = iinfPos + ReadU32(bytes, iinfPos);
+
+            // ── 查找旧 XMP（mime 条目 + 旧 uuid box），新注入前先移除，保证单 XMP ──
+            // 1) iinf 中的 XMP mime item（item_type="mime" 且 content_type="application/rdf+xml"）
+            int oldInfePos = -1, oldInfeLen = 0, oldXmpItemId = -1;
+            int ip = iinfPayload + 4 + 2; // 跳过 version/flags + item count
+            for (int i = 0; i < iinfItems; i++)
+            {
+                if (ip + 20 > metaEnd) break;
+                int infeSize = ReadU32(bytes, ip);
+                if (infeSize < 24) { ip += Math.Max(infeSize, 8); continue; }
+                int infeVersion = bytes[ip + 8];
+                int itemTypePos = infeVersion == 2 ? 16 : infeVersion == 3 ? 14 : -1;
+                int namePos = infeVersion == 2 ? 20 : infeVersion == 3 ? 22 : -1;
+                if (itemTypePos > 0 && namePos > 0 &&
+                    Encoding.ASCII.GetString(bytes, ip + itemTypePos, 4) == "mime")
+                {
+                    int nameStart = ip + namePos;
+                    // item_name 可以为空（第一个字节就是 NUL），nameEnd == nameStart 合法。
+                    int nameEnd = Array.IndexOf(bytes, (byte)0, nameStart, ip + infeSize - nameStart);
+                    if (nameEnd >= nameStart && nameEnd + 1 < ip + infeSize)
+                    {
+                        string contentType = Encoding.ASCII.GetString(
+                            bytes, nameEnd + 1, ip + infeSize - (nameEnd + 1));
+                        if (contentType.StartsWith("application/rdf+xml", StringComparison.OrdinalIgnoreCase))
+                        {
+                            oldInfePos = ip;
+                            oldInfeLen = infeSize;
+                            oldXmpItemId = ReadU16(bytes, ip + 12);
+                        }
+                    }
+                }
+                ip += infeSize;
+            }
+
+            // 2) iloc 中旧 XMP 条目（item_ID 匹配）
+            int oldIlocEntryPos = -1, oldIlocEntryLen = 0;
+            if (oldXmpItemId >= 0)
+            {
+                int ep = ilocPos + 16; // iloc payload 头 8 + version/flags 4 + sizes 2 + count 2
+                for (int i = 0; i < ilocItems; i++)
+                {
+                    int entryStart = ep;
+                    ep += 2; // item_ID
+                    if (ilocVersion == 1 || ilocVersion == 2) ep += 2; // construction_method
+                    ep += 2; // data_reference_index
+                    ep += baseSize;
+                    int extCount = ReadU16(bytes, ep); ep += 2;
+                    ep += extCount * (idxSize + offSize + lenSize);
+                    if (ReadU16(bytes, entryStart) == oldXmpItemId)
+                    {
+                        oldIlocEntryPos = entryStart;
+                        oldIlocEntryLen = ep - entryStart;
+                        break;
+                    }
+                }
+            }
+
+            // 3) meta 内旧的 Adobe XMP uuid box（可能多个，例如重复注入的历史产物）
+            var oldUuidRanges = new List<(int Pos, int Len)>();
+            {
+                int uq = metaPos + 12;
+                while (uq + 8 <= metaEnd)
+                {
+                    int ubox = ReadU32(bytes, uq);
+                    if (ubox < 8) break;
+                    if (bytes[uq + 4] == (byte)'u' && bytes[uq + 5] == (byte)'u' &&
+                        bytes[uq + 6] == (byte)'i' && bytes[uq + 7] == (byte)'d' &&
+                        uq + 24 <= metaEnd &&
+                        bytes.AsSpan(uq + 8, 16).SequenceEqual(AdobeXmpUsertype))
+                    {
+                        oldUuidRanges.Add((uq, ubox));
+                    }
+                    uq += ubox;
+                }
+            }
+
             int newItemId = 27;
-            int ip = iinfPayload + 4 + 2;
+            ip = iinfPayload + 4 + 2;
             for (int i = 0; i < iinfItems; i++)
             {
                 if (ip + 8 > metaEnd) break;
@@ -298,70 +372,106 @@ namespace LivePhotoBox.Services
             WriteN(ilocEntry, q, xmpBytes.Length, lenSize);
 
             int uuidBoxLen = 8 + 16 + xmpBytes.Length;
-            int totalDelta = infeLen + ilocAdd + uuidBoxLen;
-            int ilocEnd = ilocPos + ReadU32(bytes, ilocPos);
-            int iinfEnd = iinfPos + ReadU32(bytes, iinfPos);
+            int removeIloc = oldIlocEntryPos >= 0 ? oldIlocEntryLen : 0;
+            int removeInfe = oldInfePos >= 0 ? oldInfeLen : 0;
+            int removeUuid = 0;
+            foreach (var (_, len) in oldUuidRanges) removeUuid += len;
 
-            // 专用映射：华为相机结构（iloc 在 iinf 之前）。
-            int map(int x) =>
-                x < ilocEnd ? x :
-                x < iinfEnd ? x + ilocAdd :
-                x < metaEnd ? x + ilocAdd + infeLen :
-                x + totalDelta;
+            int deltaBeforeUuid = ilocAdd - removeIloc + infeLen - removeInfe - removeUuid;
+            int totalDelta = deltaBeforeUuid + uuidBoxLen;
 
-            byte[] nb = new byte[bytes.Length + totalDelta];
-            for (int x = 0; x < metaEnd; x++) nb[map(x)] = bytes[x];
+            // 分段偏移映射：每个边界位置起累计一个增量，Map(x) = x + 所有 pos<=x 的增量之和。
+            // 旧 iloc 条目/旧 infe/旧 uuid 是"移除"（负增量），新 iloc 条目/新 infe 是"插入"（正增量），
+            // 新 uuid 单独放在 meta 内容末尾（不参与 Map）。
+            var boundaries = new List<(int Pos, int Delta)>();
+            if (oldIlocEntryPos >= 0) boundaries.Add((oldIlocEntryPos, -removeIloc));
+            boundaries.Add((ilocEnd, ilocAdd));
+            if (oldInfePos >= 0) boundaries.Add((oldInfePos, -removeInfe));
+            boundaries.Add((iinfEnd, infeLen));
+            foreach (var (pos, len) in oldUuidRanges) boundaries.Add((pos, -len));
+            boundaries.Sort((a, b) => a.Pos.CompareTo(b.Pos));
+
+            int DeltaAt(int x)
+            {
+                int d = 0;
+                foreach (var (pos, delta) in boundaries)
+                {
+                    if (pos <= x) d += delta; else break;
+                }
+                return d;
+            }
+            int Map(int x) => x + DeltaAt(x);
+
+            bool InRemovedRange(int x)
+            {
+                if (oldIlocEntryPos >= 0 && x >= oldIlocEntryPos && x < oldIlocEntryPos + removeIloc) return true;
+                if (oldInfePos >= 0 && x >= oldInfePos && x < oldInfePos + removeInfe) return true;
+                foreach (var (pos, len) in oldUuidRanges)
+                {
+                    if (x >= pos && x < pos + len) return true;
+                }
+                return false;
+            }
+
+            long newLength = (long)bytes.Length + totalDelta;
+            if (newLength < 0 || newLength > int.MaxValue)
+            {
+                error = $"output size out of range ({newLength})";
+                return null;
+            }
+            byte[] nb = new byte[newLength];
+            for (int x = 0; x < metaEnd; x++)
+            {
+                if (InRemovedRange(x)) continue;
+                nb[Map(x)] = bytes[x];
+            }
+            // meta 之后的数据整体平移到 uuid box 之后。
             Array.Copy(bytes, metaEnd, nb, metaEnd + totalDelta, bytes.Length - metaEnd);
 
+            // meta 尺寸
             WriteU32(nb, metaPos, metaSize + totalDelta);
-            int newIinfEnd = map(iinfPos) + ReadU32(bytes, iinfPos);
-            // iinf is shifted by ilocAdd (iloc sits before iinf in the HUAWEI
-            // layout), so the entry count must be written at the REMAPPED
-            // position, not the original one.
-            WriteU16(nb, map(iinfPos) + 8 + 4, (ushort)(iinfItems + 1));
+
+            // iinf：计数/尺寸更新，新 infe 追加到映射后 iinf 内容末尾
+            WriteU16(nb, Map(iinfPos) + 8 + 4, (ushort)(iinfItems + 1 - (oldInfePos >= 0 ? 1 : 0)));
+            int newIinfEnd = Map(iinfEnd) - infeLen;
             Array.Copy(infe, 0, nb, newIinfEnd, infeLen);
-            WriteU32(nb, map(iinfPos), ReadU32(bytes, iinfPos) + infeLen);
+            WriteU32(nb, Map(iinfPos), ReadU32(bytes, iinfPos) - removeInfe + infeLen);
 
-            WriteU16(nb, ilocPos + 8 + 6, (ushort)(ilocItems + 1));
-            int newIlocEnd = map(ilocPos) + ReadU32(bytes, ilocPos);
+            // iloc：计数/尺寸更新，新条目追加到映射后 iloc 内容末尾
+            WriteU16(nb, Map(ilocPos) + 8 + 6, (ushort)(ilocItems + 1 - (oldIlocEntryPos >= 0 ? 1 : 0)));
+            int newIlocEnd = Map(ilocEnd) - ilocAdd;
             Array.Copy(ilocEntry, 0, nb, newIlocEnd, ilocAdd);
-            // The uuid box must go at the END of the remapped meta content, i.e.
-            // metaEnd + ilocAdd + infeLen (the x < metaEnd branch of map()).
-            // Using map(metaEnd) here is wrong: metaEnd itself falls into the
-            // x + totalDelta branch, which equals the relocation target of the
-            // post-meta data (metaEnd + totalDelta), so the uuid box would
-            // overlap/corrupt the relocated mdat data and break the top-level
-            // box chain (verified: exiftool reports a truncated box after uuid).
-            int metaContentEnd = metaEnd + ilocAdd + infeLen;
-            int xmpFilePos = metaContentEnd + 8 + 16;
-            WriteN(nb, newIlocEnd + extOffPos, xmpFilePos, offSize);
-            WriteU32(nb, map(ilocPos), ReadU32(bytes, ilocPos) + ilocAdd);
+            WriteU32(nb, Map(ilocPos), ReadU32(bytes, ilocPos) - removeIloc + ilocAdd);
 
-            int uuidPos = metaContentEnd;
+            // uuid box 放在映射后 meta 内容的末尾（不含 uuid 自身增量的位置）。
+            int uuidPos = metaEnd + deltaBeforeUuid;
+            int xmpFilePos = uuidPos + 8 + 16;
+            WriteN(nb, newIlocEnd + extOffPos, xmpFilePos, offSize);
             WriteU32(nb, uuidPos, uuidBoxLen);
             nb[uuidPos + 4] = (byte)'u'; nb[uuidPos + 5] = (byte)'u'; nb[uuidPos + 6] = (byte)'i'; nb[uuidPos + 7] = (byte)'d';
             Array.Copy(AdobeXmpUsertype, 0, nb, uuidPos + 8, 16);
             Array.Copy(xmpBytes, 0, nb, xmpFilePos, xmpBytes.Length);
 
-            int ilocPayloadNew = map(ilocPos) + 8;
-            q = ilocPayloadNew + 8;
-            // Only remap the ORIGINAL entries: our newly inserted XMP entry already
-            // carries an absolute file offset (xmpFilePos) and must NOT be shifted
-            // again by totalDelta (it points inside the meta box, i.e. > metaEnd).
+            // 重新映射原 iloc 条目的外部 extent 偏移（跳过被移除的旧 XMP 条目）。
+            // 新条目已带绝对偏移（xmpFilePos，位于 meta 内），不再二次平移。
+            int eq = ilocPos + 16;
             for (int i = 0; i < ilocItems; i++)
             {
-                q += 2;
-                if (ilocVersion == 1 || ilocVersion == 2) q += 2;
-                q += 2;
-                q += baseSize;
-                int extCount = ReadU16(nb, q); q += 2;
+                int entryStart = eq;
+                eq += 2;
+                if (ilocVersion == 1 || ilocVersion == 2) eq += 2;
+                eq += 2;
+                eq += baseSize;
+                int extCount = ReadU16(bytes, eq); eq += 2;
                 for (int e = 0; e < extCount; e++)
                 {
-                    q += idxSize;
-                    int eo = ReadN(nb, q, offSize);
-                    int el = ReadN(nb, q + offSize, lenSize);
-                    q += offSize + lenSize;
-                    if (eo > metaEnd) WriteN(nb, q - offSize - lenSize, eo + totalDelta, offSize);
+                    eq += idxSize;
+                    int eo = ReadN(bytes, eq, offSize);
+                    int el = ReadN(bytes, eq + offSize, lenSize);
+                    int offFieldPos = eq;
+                    eq += offSize + lenSize;
+                    if (entryStart == oldIlocEntryPos) continue; // 旧 XMP 条目已删除
+                    if (eo > metaEnd) WriteN(nb, Map(offFieldPos), eo + totalDelta, offSize);
                     // extent 越界校验：修正后必须落在新文件范围内，否则不写。
                     int correctedOff = eo > metaEnd ? eo + totalDelta : eo;
                     if ((long)correctedOff + el > nb.Length)
