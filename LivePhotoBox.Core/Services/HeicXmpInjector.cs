@@ -36,9 +36,13 @@ namespace LivePhotoBox.Services
                     File.Move(temp, filePath, overwrite: true);
 
                     // 写后验证：exiftool 必须能读回我们的 XMP，否则回滚成未注入文件。
-                    string? readBack = await XmpMarkerService.ReadXmpTextAsync(filePath, token);
-                    if (string.IsNullOrWhiteSpace(readBack) ||
-                        !readBack.Contains("LivePhotoBox:", StringComparison.Ordinal))
+                    // Post-write verification: confirm the injected XMP bytes are
+                    // physically present inside the uuid box. Must NOT rely on
+                    // exiftool read-back: HUAWEI HEIC meta layout (iloc before iinf)
+                    // makes exiftool itself fail with "Terminator found in Meta", so a
+                    // correct injection would be wrongly rolled back.
+                    byte[] written = File.ReadAllBytes(filePath);
+                    if (!VerifyInjectedXmp(written, xmpBytes))
                     {
                         File.WriteAllBytes(filePath, bytes); // 回滚
                         error = "XMP verification failed after injection; rolled back";
@@ -56,6 +60,40 @@ namespace LivePhotoBox.Services
             {
                 return (false, ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Byte-level verification: the file must contain the written XMP uuid box
+        /// (standard Adobe XMP usertype) and its payload must match xmpBytes exactly.
+        /// Does not depend on exiftool parsing.
+        /// </summary>
+        private static bool VerifyInjectedXmp(byte[] fileBytes, byte[] xmpBytes)
+        {
+            byte[] usertype =
+            {
+                0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8,
+                0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC
+            };
+            int idx = IndexOfBytes(fileBytes, usertype);
+            if (idx < 0) return false;
+            int xmpStart = idx + usertype.Length;
+            if (xmpStart + xmpBytes.Length > fileBytes.Length) return false;
+            return fileBytes.AsSpan(xmpStart, xmpBytes.Length).SequenceEqual(xmpBytes);
+        }
+
+        private static int IndexOfBytes(byte[] haystack, byte[] needle)
+        {
+            if (needle.Length == 0 || needle.Length > haystack.Length) return -1;
+            for (int i = 0; i <= haystack.Length - needle.Length; i++)
+            {
+                bool match = true;
+                for (int j = 0; j < needle.Length; j++)
+                {
+                    if (haystack[i + j] != needle[j]) { match = false; break; }
+                }
+                if (match) return i;
+            }
+            return -1;
         }
 
         private static byte[]? BuildInjected(byte[] bytes, byte[] xmpBytes, out string? error)
@@ -123,7 +161,14 @@ namespace LivePhotoBox.Services
             if (newItemId > ushort.MaxValue) { error = "no free item ID"; return null; }
 
             byte[] content = Encoding.UTF8.GetBytes("application/rdf+xml");
-            int infeLen = 8 + 4 + 2 + 2 + 4 + content.Length + 1;
+            // infe (version 2) layout: item_ID(2) + protection(2) + item_type(4)
+            //   + item_name (null-terminated, may be empty) + content_type (null-terminated).
+            // The HUAWEI camera always emits an item_name before the content type
+            // (e.g. "DfxData" + "application/vnd.huawei"); without it libheif parses
+            // the content type as the item name and leaves content_type empty, so the
+            // item is not recognized as XMP and decoding fails. Match exiftool's
+            // layout: empty item name, then the content type.
+            int infeLen = 8 + 4 + 2 + 2 + 4 + 1 + content.Length + 1;
             byte[] infe = new byte[infeLen];
             WriteU32(infe, 0, infeLen);
             infe[4] = (byte)'i'; infe[5] = (byte)'n'; infe[6] = (byte)'f'; infe[7] = (byte)'e';
@@ -131,14 +176,19 @@ namespace LivePhotoBox.Services
             WriteU16(infe, 12, (ushort)newItemId);
             WriteU16(infe, 14, 0);
             infe[16] = (byte)'m'; infe[17] = (byte)'i'; infe[18] = (byte)'m'; infe[19] = (byte)'e';
-            Array.Copy(content, 0, infe, 20, content.Length);
-            infe[20 + content.Length] = 0;
+            infe[20] = 0; // empty item_name
+            Array.Copy(content, 0, infe, 21, content.Length);
+            infe[21 + content.Length] = 0;
 
             int ilocAdd = 2 + 2 + 2 + baseSize + 2 + offSize + lenSize;
             byte[] ilocEntry = new byte[ilocAdd];
             int q = 0;
             WriteU16(ilocEntry, q, (ushort)newItemId); q += 2;
-            WriteU16(ilocEntry, q, 1); q += 2;
+            // construction_method must be 0 (data lives in the file, extent_offset
+            // is an absolute file offset). The HUAWEI camera uses 0; 1 means the
+            // data lives in idat and libheif would read the XMP from there,
+            // overrunning the small idat box and failing with "Unexpected end of file".
+            WriteU16(ilocEntry, q, 0); q += 2;
             WriteU16(ilocEntry, q, 0); q += 2;
             WriteN(ilocEntry, q, 0, baseSize); q += baseSize;
             WriteU16(ilocEntry, q, 1); q += 2;
@@ -163,19 +213,30 @@ namespace LivePhotoBox.Services
             Array.Copy(bytes, metaEnd, nb, metaEnd + totalDelta, bytes.Length - metaEnd);
 
             WriteU32(nb, metaPos, metaSize + totalDelta);
-            WriteU16(nb, iinfPayload + 4, (ushort)(iinfItems + 1));
             int newIinfEnd = map(iinfPos) + ReadU32(bytes, iinfPos);
+            // iinf is shifted by ilocAdd (iloc sits before iinf in the HUAWEI
+            // layout), so the entry count must be written at the REMAPPED
+            // position, not the original one.
+            WriteU16(nb, map(iinfPos) + 8 + 4, (ushort)(iinfItems + 1));
             Array.Copy(infe, 0, nb, newIinfEnd, infeLen);
             WriteU32(nb, map(iinfPos), ReadU32(bytes, iinfPos) + infeLen);
 
             WriteU16(nb, ilocPos + 8 + 6, (ushort)(ilocItems + 1));
             int newIlocEnd = map(ilocPos) + ReadU32(bytes, ilocPos);
             Array.Copy(ilocEntry, 0, nb, newIlocEnd, ilocAdd);
-            int xmpFilePos = map(metaEnd) + 8 + 16;
+            // The uuid box must go at the END of the remapped meta content, i.e.
+            // metaEnd + ilocAdd + infeLen (the x < metaEnd branch of map()).
+            // Using map(metaEnd) here is wrong: metaEnd itself falls into the
+            // x + totalDelta branch, which equals the relocation target of the
+            // post-meta data (metaEnd + totalDelta), so the uuid box would
+            // overlap/corrupt the relocated mdat data and break the top-level
+            // box chain (verified: exiftool reports a truncated box after uuid).
+            int metaContentEnd = metaEnd + ilocAdd + infeLen;
+            int xmpFilePos = metaContentEnd + 8 + 16;
             WriteN(nb, newIlocEnd + extOffPos, xmpFilePos, offSize);
             WriteU32(nb, map(ilocPos), ReadU32(bytes, ilocPos) + ilocAdd);
 
-            int uuidPos = map(metaEnd);
+            int uuidPos = metaContentEnd;
             WriteU32(nb, uuidPos, uuidBoxLen);
             nb[uuidPos + 4] = (byte)'u'; nb[uuidPos + 5] = (byte)'u'; nb[uuidPos + 6] = (byte)'i'; nb[uuidPos + 7] = (byte)'d';
             Array.Copy(usertype, 0, nb, uuidPos + 8, 16);
@@ -183,7 +244,10 @@ namespace LivePhotoBox.Services
 
             int ilocPayloadNew = map(ilocPos) + 8;
             q = ilocPayloadNew + 8;
-            for (int i = 0; i < ilocItems + 1; i++)
+            // Only remap the ORIGINAL entries: our newly inserted XMP entry already
+            // carries an absolute file offset (xmpFilePos) and must NOT be shifted
+            // again by totalDelta (it points inside the meta box, i.e. > metaEnd).
+            for (int i = 0; i < ilocItems; i++)
             {
                 q += 2;
                 if (ilocVersion == 1 || ilocVersion == 2) q += 2;

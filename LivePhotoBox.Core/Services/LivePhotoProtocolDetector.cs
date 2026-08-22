@@ -145,9 +145,9 @@ namespace LivePhotoBox.Services
         /// <summary>从 XMP 文本按优先级检测协议</summary>
         internal static LivePhotoProtocolType DetectFromXmp(string xmpText)
         {
-            // ── 优先：LivePhotoBox:Protocol 字段（我们 app 生成的，最可靠）──
-            // WrapXmp 在每个文件里写了 LivePhotoBox:Protocol="{Key}"，
-            // 直接读这个值就能知道当初是用哪个协议生成的。
+            // ── 优先：我们 app 自己写的协议标记（最可靠）──
+            // 旧文件：LivePhotoBox:Protocol="{Key}" 属性；新文件（Plan A）：历史条目里的 Target={Key} 字段。
+            // 两条都查，兼容新旧格式。
             if (xmpText.Contains("LivePhotoBox:Protocol=\"MotionPhotoFusion\"", StringComparison.Ordinal)
                 || xmpText.Contains("Target=MotionPhotoFusion", StringComparison.Ordinal))
                 return LivePhotoProtocolType.Fusion;
@@ -189,8 +189,22 @@ namespace LivePhotoBox.Services
                 return LivePhotoProtocolType.GoogleV1;
 
             // Google V2 — Container:Directory 或 MotionPhoto（最通用，兜底）
-            if (hasDirectory || hasMotionPhoto)
+            // Google V2: the Container:Directory must actually contain a MotionPhoto
+            // item. A GainMap-only Ultra HDR container (e.g. Apple HEIC converted to
+            // JPEG) is not a live photo and must not be misdetected as V2.
+            bool hasMotionPhotoItem = xmpText.Contains(
+                "Item:Semantic=\"MotionPhoto\"", StringComparison.Ordinal)
+                || xmpText.Contains("Semantic=\"MotionPhoto\"", StringComparison.Ordinal);
+            if (hasDirectory)
+            {
+                if (hasMotionPhotoItem)
+                    return LivePhotoProtocolType.GoogleV2;
+            }
+            else if (hasMotionPhoto)
+            {
+                // No directory but GCamera:MotionPhoto present (legacy V2 marker).
                 return LivePhotoProtocolType.GoogleV2;
+            }
 
             return LivePhotoProtocolType.Unknown;
         }

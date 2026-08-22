@@ -16,7 +16,7 @@ namespace LivePhotoBox.Services
 {
     /// <summary>
     /// 统一的 LivePhotoBox XMP 标识与历史写入服务。
-    /// 负责：3 段版本号、LivePhotoBox 命名空间属性（Action/Version/Timestamp）、
+    /// 负责：3 段版本号、LivePhotoBox 命名空间属性（Version/Timestamp）、
     /// dc:subject 历史条目（LivePhotoBox:{action}@{timestamp}@v{version}@{details}）的
     /// 读取、合并、去重与写入。JPEG / HEIC / MP4 / MOV 通用；
     /// 华为合并型 HEIC 等 exiftool 无法重写的文件由写入失败自动跳过（返回 false）。
@@ -95,25 +95,87 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// 检测源文件的实况协议（用于历史记录 Source 字段）。
-        /// 返回协议 key（如 MotionPhotoV2 / HuaweiMovingPhoto），无协议返回 None，
+        /// 返回协议 key（如 MotionPhotoV2 / HuaweiMovingPhoto / Apple），无协议返回 None，
         /// 无法识别返回 Unknown。
+        /// companionVideoPath：可选的配对视频路径。传入时按双文件检测——
+        /// 内容标记优先（XMP / 尾标），内容无法识别时用图片+视频的
+        /// ContentIdentifier UUID 配对判断 Apple Live Photo。
         /// </summary>
-        public static async Task<string> DetectSourceProtocolAsync(string filePath, CancellationToken token)
+        public static async Task<string> DetectSourceProtocolAsync(
+            string filePath, CancellationToken token, string? companionVideoPath = null)
         {
             try
             {
-                string? xmp = await ReadXmpTextAsync(filePath, token);
-                bool isHeic = filePath.EndsWith(".heic", StringComparison.OrdinalIgnoreCase) ||
-                              filePath.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
-                var type = LivePhotoProtocolDetector.Detect(
-                    filePath,
-                    isHeic ? LivePhotoType.SingleFileHeic : LivePhotoType.SingleFileJpeg,
-                    null,
-                    xmp);
-                return ProtocolKey(type);
+                // exiftool 的 WorkingDirectory 是工具目录，相对路径会解析失败，
+                // 统一转成绝对路径再检测（文件本身只读，不落盘）。
+                string fullPath = Path.GetFullPath(filePath);
+                string? companion = string.IsNullOrWhiteSpace(companionVideoPath)
+                    ? null
+                    : Path.GetFullPath(companionVideoPath);
+
+                string? xmp = await ReadXmpTextAsync(fullPath, token);
+                if (string.IsNullOrWhiteSpace(xmp) && companion == null)
+                    return "None"; // 无 XMP 且无配对视频：确认普通照片，非实况
+
+                bool isHeic = fullPath.EndsWith(".heic", StringComparison.OrdinalIgnoreCase) ||
+                              fullPath.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
+                var type = companion != null
+                    ? LivePhotoType.DualFile
+                    : isHeic ? LivePhotoType.SingleFileHeic : LivePhotoType.SingleFileJpeg;
+
+                // 先按内容标记检测（XMP / 尾标，如 OPPO/vivo/华为 等有明确签名的协议）。
+                var detected = LivePhotoProtocolDetector.Detect(
+                    fullPath, type, contentIdentifier: null, xmp);
+
+                // 内容无法识别时才尝试 Apple 双文件配对：图片与视频的
+                // ContentIdentifier UUID 必须都存在且一致，避免单文件误判。
+                if (detected == LivePhotoProtocolType.Unknown && companion != null)
+                {
+                    string? imageCid = await ReadContentIdentifierAsync(fullPath, token);
+                    string? videoCid = await ReadContentIdentifierAsync(companion, token);
+                    if (string.Equals(imageCid, videoCid, StringComparison.OrdinalIgnoreCase))
+                    {
+                        detected = LivePhotoProtocolDetector.Detect(
+                            fullPath, type, imageCid, xmp);
+                    }
+                }
+
+                // 无 XMP 且 CID 配对失败：确认是普通照片（有视频也不代表实况）。
+                if (detected == LivePhotoProtocolType.Unknown &&
+                    string.IsNullOrWhiteSpace(xmp))
+                    return "None";
+
+                return ProtocolKey(detected);
             }
             catch (OperationCanceledException) { throw; }
             catch { return "Unknown"; }
+        }
+
+        /// <summary>
+        /// 读取文件的 Apple ContentIdentifier UUID（exiftool -ContentIdentifier）。
+        /// 读取失败或不存在返回 null。
+        /// </summary>
+        private static async Task<string?> ReadContentIdentifierAsync(
+            string filePath, CancellationToken token)
+        {
+            try
+            {
+                string? output = await RunExifToolCaptureAsync(
+                    token, "-j", "-ContentIdentifier", filePath);
+                if (string.IsNullOrWhiteSpace(output)) return null;
+
+                using var doc = JsonDocument.Parse(output);
+                var root = doc.RootElement;
+                if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() == 0)
+                    return null;
+                if (!root[0].TryGetProperty("ContentIdentifier", out var prop))
+                    return null;
+                return prop.ValueKind == JsonValueKind.String
+                    ? prop.GetString()
+                    : null;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { return null; }
         }
 
         /// <summary>
@@ -237,7 +299,8 @@ namespace LivePhotoBox.Services
             var desc = doc.Descendants(RdfNs + "Description").FirstOrDefault()
                 ?? throw new InvalidDataException("XMP has no rdf:Description element.");
 
-            // 保留协议已有的 Action/Protocol/Version，仅补充缺失的 Timestamp。
+            // 命名空间属性只保留 Version，并补充缺失的 Timestamp；
+            // 旧文件的 Action/Protocol 属性在此迁移时删除（信息已进 dc:subject 历史）。
             desc.SetAttributeValue(XNamespace.Xmlns + "LivePhotoBox", NamespaceUri);
             desc.SetAttributeValue(LpbNs + "Version", AppVersion);
             // 旧文件的 Action / Protocol 属性在此迁移时删除（信息已进 dc:subject 历史）。
@@ -281,7 +344,7 @@ namespace LivePhotoBox.Services
                     var desc = doc.Descendants(RdfNs + "Description").FirstOrDefault();
                     if (desc == null) return false;
 
-                    // Action/Version/Timestamp 记录"最近一次操作"；已有 Protocol（如修复实况照片时）保留。
+                    // Version/Timestamp 记录"最近一次操作"；Action/Protocol 已移除，信息存于 dc:subject 历史条目。
                     desc.SetAttributeValue(XNamespace.Xmlns + "LivePhotoBox", NamespaceUri);
                     desc.SetAttributeValue(LpbNs + "Version", AppVersion);
                     desc.SetAttributeValue(LpbNs + "Timestamp", NowString());

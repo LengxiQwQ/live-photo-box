@@ -213,13 +213,17 @@ namespace LivePhotoBox.Services
             int selectedModeIndex,
             CancellationToken token,
             long presentationTimestampUs = 0,
-            int outputFormatIndex = 0)
+            int outputFormatIndex = 0,
+            string? sourceProtocol = null)
         {
             var protocol = LivePhotoProtocol.FromIndex(selectedModeIndex);
             long videoSize = new FileInfo(sourceVid).Length;
 
             // Source protocol detection + structured Merge details (Source/Target/Format/KeyPhoto/VideoCodec).
-            string sourceProtocol = await XmpMarkerService.DetectSourceProtocolAsync(sourceImg, token);
+            // Caller (merge runner) detects on the ORIGINAL image+video pair before any
+            // conversion/cleaning so Apple CID pairing works; other callers fall back to
+            // detecting the working pair here.
+            sourceProtocol ??= await XmpMarkerService.DetectSourceProtocolAsync(sourceImg, token, sourceVid);
             string mergeDetails = BuildMergeDetails(
                 sourceProtocol, protocol.Key, outputFormatIndex, presentationTimestampUs);
 
@@ -268,7 +272,8 @@ namespace LivePhotoBox.Services
                 // Pass raw presentation timestamp (microseconds) — WriteHuaweiNativeAsync
                 // converts it to a frame number using the actual video FPS.
                 await WriteHuaweiNativeAsync(sourceImg, sourceVid, targetPath,
-                    isHeicOutput, presentationTimestampUs, token, outputFormatIndex: outputFormatIndex);
+                    isHeicOutput, presentationTimestampUs, token,
+                    outputFormatIndex: outputFormatIndex, sourceProtocol: sourceProtocol);
                 return;
             }
 
@@ -477,11 +482,12 @@ namespace LivePhotoBox.Services
             int originalCoverMs = 0,
             int originalDurationMs = 0,
             string tailPrefix = "v6_f",
-            int outputFormatIndex = 0)
+            int outputFormatIndex = 0,
+            string? sourceProtocol = null)
         {
             long videoSize = new FileInfo(sourceVid).Length;
 
-            string sourceProtocol = await XmpMarkerService.DetectSourceProtocolAsync(sourceImg, token);
+            sourceProtocol ??= await XmpMarkerService.DetectSourceProtocolAsync(sourceImg, token, sourceVid);
             string mergeDetails = BuildMergeDetails(
                 sourceProtocol, "HuaweiMovingPhoto", outputFormatIndex, presentationTimestampUs);
 
@@ -537,34 +543,74 @@ namespace LivePhotoBox.Services
                 // Read source HEIC, patch ftyp to include "tmap" brand
                 byte[] heicData = await File.ReadAllBytesAsync(sourceImg, token);
                 byte[] patched = InsertTmapBrand(heicData);
-                string tempDir = Path.Combine(Path.GetTempPath(),
-                    "LivePhotoBox_HuaweiHeic_" + Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(tempDir);
-                try
+
+                // 华为真机 HEIC 的 meta 结构特殊：iloc 位于 iinf 之前（非标准顺序）。
+                // exiftool 重写此类结构会破坏文件（实测：iinf/iloc item 计数错乱、
+                // meta 尾部残留无效数据、XMP uuid 之后顶层 box 链断裂），因此华为结构
+                // 优先使用专为其设计的字节注入器（20 个真机样本验证）；其它结构
+                // （如 Apple HEIC）保持 exiftool 优先，注入器仅作兜底。
+                bool huaweiLayout = HasHuaweiMetaLayout(heicData);
+
+                // exiftool 写入：临时副本 -> 验证 XMP 读回 -> 移动覆盖 targetPath。
+                async Task<(bool Ok, string? Error)> WriteXmpViaExifToolAsync()
                 {
-                    string tempHeic = Path.Combine(tempDir, "image.heic");
-                    string tempXmp = Path.Combine(tempDir, "temp.xmp");
-                    string tempOut = Path.Combine(tempDir, "out.heic");
-                    await File.WriteAllBytesAsync(tempHeic, patched, token);
-                    await File.WriteAllBytesAsync(tempXmp, huaweiXmp, token);
+                    string tempDir = Path.Combine(Path.GetTempPath(),
+                        "LivePhotoBox_HuaweiHeic_" + Guid.NewGuid().ToString("N"));
+                    Directory.CreateDirectory(tempDir);
                     try
                     {
+                        string tempHeic = Path.Combine(tempDir, "image.heic");
+                        string tempXmp = Path.Combine(tempDir, "temp.xmp");
+                        string tempOut = Path.Combine(tempDir, "out.heic");
+                        await File.WriteAllBytesAsync(tempHeic, patched, token);
+                        await File.WriteAllBytesAsync(tempXmp, huaweiXmp, token);
                         await LivePhotoRepairService.RunExifToolAsync(token,
                             $"-xmp<={tempXmp}",
                             "-o", tempOut,
                             tempHeic);
                         if (!File.Exists(tempOut))
-                            throw new InvalidOperationException("exiftool produced no output");
+                            return (false, "exiftool produced no output");
                         string? readBack = await XmpMarkerService.ReadXmpTextAsync(tempOut, token);
                         if (string.IsNullOrWhiteSpace(readBack) ||
                             !readBack.Contains("LivePhotoBox:", StringComparison.Ordinal))
                         {
-                            throw new InvalidOperationException("exiftool wrote no usable XMP");
+                            return (false, "exiftool wrote no usable XMP");
                         }
                         File.Move(tempOut, targetPath, overwrite: true);
+                        return (true, null);
                     }
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex)
+                    {
+                        return (false, ex.Message);
+                    }
+                    finally
+                    {
+                        try { Directory.Delete(tempDir, recursive: true); } catch { }
+                    }
+                }
+
+                if (huaweiLayout)
+                {
+                    await File.WriteAllBytesAsync(targetPath, patched, token);
+                    var (injectOk, injectError) = await HeicXmpInjector.TryInjectXmpAsync(
+                        targetPath, huaweiXmp, token);
+                    if (!injectOk)
+                    {
+                        var (exOk, exError) = await WriteXmpViaExifToolAsync();
+                        if (!exOk)
+                        {
+                            await File.WriteAllBytesAsync(targetPath, patched, token);
+                            LogService.Merge(
+                                $"HUAWEI HEIC XMP injection failed (injector: {injectError}; exiftool: {exError}); wrote without XMP",
+                                LogLevel.Warning);
+                        }
+                    }
+                }
+                else
+                {
+                    var (exOk, exError) = await WriteXmpViaExifToolAsync();
+                    if (!exOk)
                     {
                         await File.WriteAllBytesAsync(targetPath, patched, token);
                         var (injectOk, injectError) = await HeicXmpInjector.TryInjectXmpAsync(
@@ -572,14 +618,10 @@ namespace LivePhotoBox.Services
                         if (!injectOk)
                         {
                             LogService.Merge(
-                                $"HUAWEI HEIC XMP injection failed (exiftool: {ex.Message}; injector: {injectError}); wrote without XMP",
+                                $"HUAWEI HEIC XMP injection failed (exiftool: {exError}; injector: {injectError}); wrote without XMP",
                                 LogLevel.Warning);
                         }
                     }
-                }
-                finally
-                {
-                    try { Directory.Delete(tempDir, recursive: true); } catch { }
                 }
             }
             else
@@ -1106,6 +1148,61 @@ namespace LivePhotoBox.Services
             heicData[lastBrandOffset + 3] = (byte)'p';
 
             return heicData;
+        }
+
+        // Detects whether the HEIC meta uses the HUAWEI camera layout: iloc box
+        // BEFORE iinf (non-standard order). HUAWEI device HEICs use this layout;
+        // standard HEICs (e.g. Apple) place iinf first. Determines the XMP write
+        // path: HUAWEI layout uses the purpose-built byte injector, everything
+        // else uses exiftool (exiftool corrupts this non-standard layout).
+        private static bool HasHuaweiMetaLayout(byte[] bytes)
+        {
+            try
+            {
+                int p = 0;
+                int metaPos = -1;
+                while (p + 8 <= bytes.Length)
+                {
+                    uint sz = BinaryPrimitives.ReadUInt32BigEndian(
+                        bytes.AsSpan(p, 4));
+                    if (bytes[p + 4] == (byte)'m' && bytes[p + 5] == (byte)'e' &&
+                        bytes[p + 6] == (byte)'t' && bytes[p + 7] == (byte)'a')
+                    {
+                        metaPos = p;
+                        break;
+                    }
+                    if (sz < 8 || p + (int)sz > bytes.Length) break;
+                    p += (int)sz;
+                }
+                if (metaPos < 0) return false;
+
+                int metaEnd = metaPos + (int)BinaryPrimitives.ReadUInt32BigEndian(
+                    bytes.AsSpan(metaPos, 4));
+                int ilocPos = -1, iinfPos = -1;
+                int q = metaPos + 12; // meta box header 8 + FullBox(version/flags) 4
+                while (q + 8 <= metaEnd)
+                {
+                    uint sz = BinaryPrimitives.ReadUInt32BigEndian(
+                        bytes.AsSpan(q, 4));
+                    if (sz < 8 || q + (int)sz > metaEnd) break;
+                    if (bytes[q + 4] == (byte)'i' && bytes[q + 5] == (byte)'l' &&
+                        bytes[q + 6] == (byte)'o' && bytes[q + 7] == (byte)'c')
+                    {
+                        ilocPos = q;
+                    }
+                    else if (bytes[q + 4] == (byte)'i' && bytes[q + 5] == (byte)'i' &&
+                             bytes[q + 6] == (byte)'n' && bytes[q + 7] == (byte)'f')
+                    {
+                        iinfPos = q;
+                    }
+                    q += (int)sz;
+                }
+                return ilocPos >= 0 && iinfPos >= 0 && ilocPos < iinfPos;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         // 改写嵌入 MP4 的 ftyp 品牌为华为真机结构：major=mp42 / minor=0 /

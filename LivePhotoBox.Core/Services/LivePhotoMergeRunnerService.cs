@@ -175,6 +175,13 @@ namespace LivePhotoBox.Services
                 // HEIC → JPEG conversion: skip when using Motion Photo V2 protocol
                 // (V2 supports native HEIC primary images per Google spec).
                 // Also skip when the user selected HEIC output format (indices 2/3).
+                // Source protocol detection on the ORIGINAL image+video pair BEFORE any
+                // conversion/cleaning. Apple dual-file sources are identified by matching
+                // ContentIdentifier UUIDs; after conversion/cleaning the CID may be gone
+                // (video metadata stripped), so detection must happen here on the inputs.
+                string sourceProtocol = await XmpMarkerService.DetectSourceProtocolAsync(
+                    imagePath, token, videoPath);
+
                 bool keepHeic = (options.OutputFormatIndex == 2 || options.OutputFormatIndex == 3
                     || options.OutputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4H265)
                     && HeicConverterService.IsHeicFile(imagePath);
@@ -301,7 +308,10 @@ namespace LivePhotoBox.Services
                 }
 
                 token.ThrowIfCancellationRequested();
-                await LivePhotoMergeService.WriteLivePhotoAsync(workingImagePath, workingVideoPath, finalOutputPath, options.SelectedModeIndex, token, coverTimestampUs, options.OutputFormatIndex);
+                await LivePhotoMergeService.WriteLivePhotoAsync(
+                    workingImagePath, workingVideoPath, finalOutputPath,
+                    options.SelectedModeIndex, token, coverTimestampUs,
+                    options.OutputFormatIndex, sourceProtocol);
 
                 // WriteNativeAsync may lose EXIF UserComment tags injected by
                 // PrepareImageAsync (e.g. OPPO/Fusion "oplus_10485792").
