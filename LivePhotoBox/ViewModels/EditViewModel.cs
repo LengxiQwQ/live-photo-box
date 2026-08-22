@@ -1507,10 +1507,10 @@ namespace LivePhotoBox.ViewModels
                     }
                 }
 
-                // ── 7.5 注入 covertime 元数据（新版华为相册封面帧定位）───
+                // ── 7.5 重封装视频并注入 covertime 元数据（新版华为相册封面帧定位）───
                 int covertimeMs = (int)frame.Timestamp.TotalMilliseconds;
-                tempVideoPath = await LivePhotoMergeService.WriteMp4CovertimeMetadataAsync(
-                    tempVideoPath, targetPath, covertimeMs, CancellationToken.None);
+                tempVideoPath = await LivePhotoMergeService.RemuxVideoForHuaweiAsync(
+                    tempVideoPath, covertimeMs, CancellationToken.None);
 
                 // ── 8. 获取视频总帧数、计算封面帧 ──────────────────────
                 int totalFrames = await LivePhotoMergeService.DetectVideoFrameCountAsync(

@@ -111,6 +111,68 @@ namespace LivePhotoBox.Services
             return result.ToArray();
         }
 
+        /// <summary>
+        /// 修正视频末尾 mdat 的声明长度：部分手机/工具产出的 MP4（如 vivo）其
+        /// mdat 长度虚高、超出实际文件字节，ffprobe 容忍但 libheif 在把该视频
+        /// 嵌入 HEIC 后会校验 box 边界并报 "Unexpected end of file"。
+        /// 把末尾 mdat 的长度改为实际剩余字节（32 位或 64 位）。
+        /// </summary>
+        public static byte[] FixTrailingMdatSize(byte[] bytes)
+        {
+            try
+            {
+                int p = 0;
+                int lastBoxPos = -1, lastBoxSizeField = -1, lastBoxSize = 0;
+                bool lastIsMdat = false;
+                while (p + 8 <= bytes.Length)
+                {
+                    int size = ReadU32(bytes, p);
+                    if (size == 0)
+                    {
+                        // 延伸到文件尾：视为末尾 box
+                        lastBoxPos = p; lastBoxSizeField = -1; lastBoxSize = 0;
+                        lastIsMdat = bytes[p + 4] == (byte)'m' && bytes[p + 5] == (byte)'d' &&
+                                     bytes[p + 6] == (byte)'a' && bytes[p + 7] == (byte)'t';
+                        break;
+                    }
+                    if (size == 1)
+                    {
+                        if (p + 16 > bytes.Length) break;
+                        long size64 = ((long)ReadU32(bytes, p + 8) << 32) | (uint)ReadU32(bytes, p + 12);
+                        if (size64 < 16) break;
+                        lastBoxPos = p; lastBoxSizeField = p + 8; lastBoxSize = (int)size64;
+                        lastIsMdat = bytes[p + 4] == (byte)'m' && bytes[p + 5] == (byte)'d' &&
+                                     bytes[p + 6] == (byte)'a' && bytes[p + 7] == (byte)'t';
+                        if (p + size64 > bytes.Length) break; // 长度虚高：末尾 box
+                        p += (int)size64;
+                        continue;
+                    }
+                    if (size < 8) break;
+                    lastBoxPos = p; lastBoxSizeField = -1; lastBoxSize = size;
+                    lastIsMdat = bytes[p + 4] == (byte)'m' && bytes[p + 5] == (byte)'d' &&
+                                 bytes[p + 6] == (byte)'a' && bytes[p + 7] == (byte)'t';
+                    if (p + size > bytes.Length) break; // 长度虚高：末尾 box
+                    p += size;
+                }
+
+                if (lastBoxPos >= 0 && lastIsMdat)
+                {
+                    int actual = bytes.Length - lastBoxPos;
+                    if (lastBoxSizeField < 0)
+                    {
+                        if (actual != lastBoxSize)
+                            BinaryPrimitives.WriteInt32BigEndian(bytes.AsSpan(lastBoxPos, 4), actual);
+                    }
+                    else if (actual != lastBoxSize)
+                    {
+                        BinaryPrimitives.WriteInt64BigEndian(bytes.AsSpan(lastBoxSizeField, 8), actual);
+                    }
+                }
+            }
+            catch { /* best-effort */ }
+            return bytes;
+        }
+
         private static byte[] BuildUuidBox(byte[] xmpBytes)
         {
             byte[] box = new byte[8 + 16 + xmpBytes.Length];

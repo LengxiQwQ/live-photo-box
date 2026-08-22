@@ -70,10 +70,10 @@ if (-not $AppleVideo) { $AppleVideo = Join-Path $repo "designs\各个机型测�
 if (-not $OppoSource) { $OppoSource  = Join-Path $repo "designs\各个机型测试\一加.jpg" }
 if (-not $HuaweiHeic) { $HuaweiHeic = "C:\Users\LengxiQwQ\Downloads\实况照片样本\华为测试主图\主图测试-原图.heic" }
 if (-not $HuaweiVideo) { $HuaweiVideo = "C:\Users\LengxiQwQ\Downloads\实况照片样本\华为实况照片样本\输出_拆分照片\heic原始p80 max.MOV" }
-if (-not $RepairSource) { $RepairSource = Join-Path $repo "designs\各个机型测试\红米老款.JPG" }
+if (-not $RepairSource) { $RepairSource = Join-Path $repo "designs\各个机型测试\红米老款-GV1.JPG" }
 if (-not $VivoImage) { $VivoImage = Join-Path $repo "designs\各个机型测试\vivo双文件.jpg" }
 if (-not $VivoVideo) { $VivoVideo = Join-Path $repo "designs\各个机型测试\vivo双文件.mp4" }
-if (-not $HuaweiDesignHeic) { $HuaweiDesignHeic = Join-Path $repo "designs\各个机型测试\华为.heic" }
+if (-not $HuaweiDesignHeic) { $HuaweiDesignHeic = Join-Path $repo "designs\各个机型测试\华为Mate80.heic" }
 
 $appleImg = $AppleImage
 $appleMov = $AppleVideo

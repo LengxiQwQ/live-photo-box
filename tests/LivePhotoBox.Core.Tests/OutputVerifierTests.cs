@@ -47,7 +47,7 @@ public sealed class OutputVerifierTests
         try
         {
             LivePhotoSplitResult split = await LivePhotoSplitService.SplitAsync(
-                ResolveSample("华为.heic"), outputDir, 0, 0, CancellationToken.None);
+                ResolveSample("华为Mate80.heic"), outputDir, 0, 0, CancellationToken.None);
             string merged = Path.Combine(outputDir, "merged_huawei.heic");
             await LivePhotoMergeService.WriteLivePhotoAsync(
                 split.ImageOutputPath, split.VideoOutputPath, merged,
@@ -74,7 +74,7 @@ public sealed class OutputVerifierTests
         try
         {
             LivePhotoSplitResult split = await LivePhotoSplitService.SplitAsync(
-                ResolveSample("华为.heic"), outputDir, 0, 0, CancellationToken.None);
+                ResolveSample("华为Mate80.heic"), outputDir, 0, 0, CancellationToken.None);
 
             SetLevel((int)OutputCheckLevel.Light);
             try
@@ -130,7 +130,7 @@ public sealed class OutputVerifierTests
         try
         {
             LivePhotoSplitResult split = await LivePhotoSplitService.SplitAsync(
-                ResolveSample("华为.heic"), outputDir, 0, 0, CancellationToken.None);
+                ResolveSample("华为Mate80.heic"), outputDir, 0, 0, CancellationToken.None);
             string merged = Path.Combine(outputDir, "merged_full_huawei.heic");
             await LivePhotoMergeService.WriteLivePhotoAsync(
                 split.ImageOutputPath, split.VideoOutputPath, merged,

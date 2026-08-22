@@ -33,4 +33,14 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>
+
+  <Target Name="CopyTools" AfterTargets="Build">
+    <PropertyGroup>
+      <_Tools>..\..\LivePhotoBox\Tools</_Tools>
+    </PropertyGroup>
+    <ItemGroup>
+      <_Files Include="$(_Tools)\**\*" Condition="Exists('$(_Tools)')" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_Files)" DestinationFolder="$(OutDir)Tools\%(RecursiveDir)" SkipUnchangedFiles="true" Condition="Exists('$(_Tools)')" />
+  </Target>
 </Project>

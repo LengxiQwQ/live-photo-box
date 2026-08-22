@@ -591,17 +591,17 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            // 1.6 Write com.openharmony.covertime to MP4 metadata.
-            // Huawei Gallery reads this tag (in milliseconds) to position the cover frame.
-            // Without it, the cover defaults to the first frame regardless of the tail values.
-            string? covertimeMp4ToCleanup = null;
-            if (presentationTimestampUs > 0)
-            {
-                int covertimeMs = (int)(presentationTimestampUs / 1000);
-                sourceVid = await WriteMp4CovertimeMetadataAsync(sourceVid, targetPath, covertimeMs, token);
-                covertimeMp4ToCleanup = sourceVid;
-                videoSize = new FileInfo(sourceVid).Length; // remux may change MP4 size
-            }
+            // 1.6 无条件 ffmpeg -c copy 重封装（华为嵌入前必需）。
+            //     部分源视频（如 vivo）的 moov 用 co64 64 位块偏移，libheif 1.23
+            //     在 HEIC 里识别不了，heif-dec 解码报 Unexpected end of file；
+            //     重封装后变成标准 stco 32 位偏移 + 标准 track 结构，产物可解码。
+            //     有封面时间戳时顺带写入 com.openharmony.covertime 标签，
+            //     Huawei Gallery 据此定位封面帧（毫秒）。
+            string? remuxedMp4ToCleanup = null;
+            int covertimeMs = presentationTimestampUs > 0 ? (int)(presentationTimestampUs / 1000) : 0;
+            sourceVid = await RemuxVideoForHuaweiAsync(sourceVid, covertimeMs, token);
+            remuxedMp4ToCleanup = sourceVid;
+            videoSize = new FileInfo(sourceVid).Length; // remux may change MP4 size
 
             // 1.7 嵌入视频 ftyp 品牌修正（P2-8）：真机华为 HEIC 实况的嵌入 MP4 为
             //     major=mp42 / compat=[iso2, mp42]，而 ffmpeg 默认写 isom/[isom,iso2,avc1,mp41]。
@@ -740,6 +740,9 @@ namespace LivePhotoBox.Services
             // meta 内 mime 条目的完整历史（读取歧义）；合并产物自身已有完整 XMP。
             byte[] videoToAppend = MediaXmpInjector.StripTopLevelXmpUuid(
                 await File.ReadAllBytesAsync(sourceVid, token));
+            // 部分源视频（如 vivo）mdat 长度虚高，libheif 嵌入后校验 box 边界会
+            // 报 Unexpected end of file；按实际字节修正末尾 mdat 长度。
+            videoToAppend = MediaXmpInjector.FixTrailingMdatSize(videoToAppend);
             using (var targetFs = new FileStream(
                 targetPath, FileMode.Append, FileAccess.Write, FileShare.None,
                 bufferSize: 8192, useAsync: true))
@@ -748,9 +751,9 @@ namespace LivePhotoBox.Services
                 await targetFs.WriteAsync(tail, 0, tail.Length, token);
             }
             // Clean up temp MP4s created by covertime injection / ftyp brand patch
-            if (covertimeMp4ToCleanup != null)
+            if (remuxedMp4ToCleanup != null)
             {
-                try { if (File.Exists(covertimeMp4ToCleanup)) File.Delete(covertimeMp4ToCleanup); } catch { }
+                try { if (File.Exists(remuxedMp4ToCleanup)) File.Delete(remuxedMp4ToCleanup); } catch { }
             }
             if (patchedMp4ToCleanup != null)
             {
@@ -948,32 +951,44 @@ namespace LivePhotoBox.Services
             return 30.0; // fallback: assume 30fps
         }
 
-        // Write com.openharmony.covertime (milliseconds) to MP4 udta metadata.
-        // Uses ffmpeg -c copy remux to inject the tag without re-encoding.
-        // Returns the path to the tagged MP4 (temp file — caller should clean up after use).
-        public static async Task<string> WriteMp4CovertimeMetadataAsync(
-            string mp4Path, string targetPath, int covertimeMs, CancellationToken token)
+        // Remux the video with ffmpeg -c copy before embedding it into a HUAWEI
+        // live photo. Three things happen in one pass:
+        //  1. The container is rewritten so the moov uses 32-bit stco chunk
+        //     offsets and the standard track structure. Some phone videos
+        //     (e.g. vivo) carry 64-bit co64 offsets, which libheif 1.23 cannot
+        //     read when the MP4 is embedded in a HEIC ("Unexpected end of file").
+        //  2. The HUAWEI ftyp brand (mp42) and ©too metadata are written.
+        //  3. When covertimeMs > 0, com.openharmony.covertime (milliseconds) is
+        //     injected into udta — Huawei Gallery reads it to position the cover frame.
+        // Returns the path to the remuxed MP4 (temp file — caller cleans up after use),
+        // or the original path when ffmpeg is missing or the remux fails.
+        public static async Task<string> RemuxVideoForHuaweiAsync(
+            string mp4Path, int covertimeMs, CancellationToken token)
         {
             string taggedPath = Path.Combine(Path.GetTempPath(),
-                $"lpb_ct_{Guid.NewGuid():N}.mp4");
+                $"lpb_hm_{Guid.NewGuid():N}.mp4");
 
             try
             {
                 string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
                 if (string.IsNullOrEmpty(ffmpegPath))
                 {
-                    LogService.Merge("covertime: ffmpeg not found, keeping original MP4", LogLevel.Warning);
+                    LogService.Merge("huawei remux: ffmpeg not found, keeping original MP4", LogLevel.Warning);
                     return mp4Path;
                 }
 
-                // Remux with -c copy, injecting the covertime metadata tag into udta.
-                // -movflags use_metadata_tags is required for custom tag names to be written.
+                // Remux with -c copy (no re-encode). -movflags use_metadata_tags is
+                // required for the custom covertime tag name to be written into udta.
+                string covertimeArg = covertimeMs > 0
+                    ? $"-metadata com.openharmony.covertime=\"{covertimeMs}.000000\" "
+                    : "";
                 var psi = new ProcessStartInfo
                 {
                     FileName = ffmpegPath,
                     Arguments = $"-y -v error -i \"{mp4Path}\" -c copy " +
                                 $"-movflags use_metadata_tags " +
-                                $"-metadata com.openharmony.covertime=\"{covertimeMs}.000000\" " +
+                                $"-brand mp42 -metadata too=\"Openharmony6.1\" " +
+                                covertimeArg +
                                 $"\"{taggedPath}\"",
                     UseShellExecute = false,
                     CreateNoWindow = true,
@@ -988,21 +1003,22 @@ namespace LivePhotoBox.Services
 
                 if (proc.ExitCode == 0 && File.Exists(taggedPath) && new FileInfo(taggedPath).Length > 0)
                 {
+                    string detail = covertimeMs > 0 ? $", covertime={covertimeMs}ms" : "";
                     LogService.Merge(
-                        $"covertime: wrote {covertimeMs}ms → {Path.GetFileName(taggedPath)}",
+                        $"huawei remux: wrote {Path.GetFileName(taggedPath)}{detail}",
                         LogLevel.Info);
                     return taggedPath;
                 }
 
                 LogService.Merge(
-                    $"covertime: ffmpeg failed (exit {proc.ExitCode}): {stderr.Trim()}",
+                    $"huawei remux: ffmpeg failed (exit {proc.ExitCode}): {stderr.Trim()}",
                     LogLevel.Warning);
                 return mp4Path;
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
-                LogService.Merge($"covertime: error: {ex.Message}", LogLevel.Warning);
+                LogService.Merge($"huawei remux: error: {ex.Message}", LogLevel.Warning);
                 return mp4Path;
             }
         }

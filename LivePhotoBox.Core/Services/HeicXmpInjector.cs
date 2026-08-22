@@ -126,7 +126,11 @@ namespace LivePhotoBox.Services
             try
             {
                 byte[] bytes = File.ReadAllBytes(filePath);
-                byte[]? result = BuildInjected(bytes, xmpBytes, out error);
+                // heif-enc 产物（JPEG→HEIC 转换）的 iloc 是 v0 且 extent 偏移全为 0，
+                // libheif 按"上一个条目末尾"累计解读；注入绝对偏移的新条目后链条断裂，
+                // 解码报 Unexpected end of file。先规范化为 v1 + 绝对偏移再注入。
+                byte[] normalized = NormalizeIlocV0ToV1(bytes);
+                byte[]? result = BuildInjected(normalized, xmpBytes, out error);
                 if (result == null) return (false, error);
 
                 string dir = Path.GetDirectoryName(filePath) ?? AppContext.BaseDirectory;
@@ -190,6 +194,133 @@ namespace LivePhotoBox.Services
                 if (match) return i;
             }
             return -1;
+        }
+
+        /// <summary>
+        /// 把 heif-enc 产物（JPEG→HEIC 转换）的 iloc v0 累计偏移布局规范化为
+        /// v1 + 绝对偏移。v0 且所有 extent 偏移为 0 时，libheif 按"上一个条目
+        /// 数据末尾"累计定位数据；注入器加入绝对偏移的 XMP 条目后链条断裂，
+        /// 解码报 Unexpected end of file。其它布局原样返回。
+        /// </summary>
+        private static byte[] NormalizeIlocV0ToV1(byte[] bytes)
+        {
+            try
+            {
+                // 顶层找 meta
+                int metaPos = -1, metaSize = 0;
+                int p = 0;
+                while (p + 8 <= bytes.Length)
+                {
+                    int sz = ReadU32(bytes, p);
+                    if (bytes[p + 4] == (byte)'m' && bytes[p + 5] == (byte)'e' &&
+                        bytes[p + 6] == (byte)'t' && bytes[p + 7] == (byte)'a')
+                    {
+                        metaPos = p; metaSize = sz; break;
+                    }
+                    if (sz < 8 || p + sz > bytes.Length) break;
+                    p += sz;
+                }
+                if (metaPos < 0) return bytes;
+                int metaEnd = metaPos + metaSize;
+
+                // meta 内找 iloc
+                int ilocPos = -1, ilocSize = 0, ilocVersion = -1;
+                int offSize = 0, lenSize = 0, baseSize = 0, idxSize = 0, ilocItems = 0;
+                int q = metaPos + 12;
+                while (q + 8 <= metaEnd)
+                {
+                    int sz = ReadU32(bytes, q);
+                    string type = Encoding.ASCII.GetString(bytes, q + 4, 4);
+                    if (type == "iloc")
+                    {
+                        ilocPos = q; ilocSize = sz;
+                        ilocVersion = bytes[q + 8];
+                        byte b1 = bytes[q + 12], b2 = bytes[q + 13];
+                        offSize = b1 >> 4; lenSize = b1 & 0x0F;
+                        baseSize = b2 >> 4; idxSize = b2 & 0x0F;
+                        ilocItems = ReadU16(bytes, q + 14);
+                    }
+                    if (sz < 8) break;
+                    q += sz;
+                }
+                if (ilocPos < 0 || ilocVersion != 0 || ilocItems < 2) return bytes;
+                if (offSize is < 1 or > 8 || lenSize is < 1 or > 8) return bytes;
+
+                // 读取原条目（v0：id(2)+data_ref(2)+base+extent_count(2)+extents）
+                var items = new List<(ushort Id, List<(long Off, long Len)> Extents)>();
+                bool allZero = true;
+                int ep = ilocPos + 16;
+                for (int i = 0; i < ilocItems && ep + 8 <= metaEnd; i++)
+                {
+                    ushort itemId = ReadU16(bytes, ep);
+                    ep += 2;
+                    ep += 2; // data_reference_index
+                    ep += baseSize;
+                    int extCount = ReadU16(bytes, ep); ep += 2;
+                    var extents = new List<(long, long)>();
+                    for (int e = 0; e < extCount; e++)
+                    {
+                        ep += idxSize;
+                        long eo = ReadN(bytes, ep, offSize);
+                        long el = ReadN(bytes, ep + offSize, lenSize);
+                        ep += offSize + lenSize;
+                        extents.Add((eo, el));
+                        if (eo != 0) allZero = false;
+                    }
+                    items.Add((itemId, extents));
+                }
+                if (!allZero) return bytes; // 不是 heif-enc 累计布局，保持原样
+
+                // 构建 v1 iloc（尺寸确定，delta 固定）
+                int newIlocTotal = 16; // size+type+ver/flags+sizes+count
+                foreach (var (_, extents) in items)
+                {
+                    newIlocTotal += 2 + 2 + 2 + baseSize + 2
+                        + extents.Count * (idxSize + offSize + lenSize);
+                }
+                int delta = newIlocTotal - ilocSize;
+                long newMdatData = metaEnd + delta + 8; // 新文件里 mdat 数据起始
+
+                byte[] newIlocBox = new byte[newIlocTotal];
+                int w = 0;
+                WriteU32(newIlocBox, 0, newIlocTotal); w = 4;
+                newIlocBox[w++] = (byte)'i'; newIlocBox[w++] = (byte)'l';
+                newIlocBox[w++] = (byte)'o'; newIlocBox[w++] = (byte)'c';
+                newIlocBox[w++] = 1; newIlocBox[w++] = 0; newIlocBox[w++] = 0; newIlocBox[w++] = 0;
+                newIlocBox[w++] = (byte)((offSize << 4) | lenSize);
+                newIlocBox[w++] = (byte)((baseSize << 4) | idxSize);
+                WriteU16(newIlocBox, w, (ushort)items.Count); w += 2;
+                long cum = 0;
+                foreach (var (id, extents) in items)
+                {
+                    WriteU16(newIlocBox, w, id); w += 2;
+                    WriteU16(newIlocBox, w, 0); w += 2; // construction_method
+                    WriteU16(newIlocBox, w, 0); w += 2; // data_reference_index
+                    WriteN(newIlocBox, w, 0, baseSize); w += baseSize;
+                    WriteU16(newIlocBox, w, (ushort)extents.Count); w += 2;
+                    foreach (var (eo, el) in extents)
+                    {
+                        WriteN(newIlocBox, w, 0, idxSize); w += idxSize;
+                        WriteN(newIlocBox, w, (int)(newMdatData + cum + eo), offSize); w += offSize;
+                        WriteN(newIlocBox, w, (int)el, lenSize); w += lenSize;
+                        cum += el;
+                    }
+                }
+
+                // 重建文件：替换 iloc，平移 meta 后续内容与 mdat
+                byte[] result = new byte[bytes.Length + delta];
+                Array.Copy(bytes, 0, result, 0, ilocPos);
+                Array.Copy(newIlocBox, 0, result, ilocPos, newIlocBox.Length);
+                Array.Copy(bytes, ilocPos + ilocSize, result,
+                    ilocPos + newIlocBox.Length, metaEnd - (ilocPos + ilocSize));
+                Array.Copy(bytes, metaEnd, result, metaEnd + delta, bytes.Length - metaEnd);
+                WriteU32(result, metaPos, metaSize + delta);
+                return result;
+            }
+            catch
+            {
+                return bytes; // 规范化失败保持原样，交给后续逻辑/回滚
+            }
         }
 
         private static byte[]? BuildInjected(byte[] bytes, byte[] xmpBytes, out string? error)
@@ -281,8 +412,12 @@ namespace LivePhotoBox.Services
                 ip += infeSize;
             }
 
-            // 2) iloc 中旧 XMP 条目（item_ID 匹配）
+            // 2) iloc 中旧 XMP 条目（item_ID 匹配），并记录其首个 extent：
+            //    该条目被移除后，mdat 里的 XMP 数据会变成无人引用的孤儿字节，
+            //    注入后需要清零，否则产物里出现两份 XMP（xpacket 计数为 2）。
             int oldIlocEntryPos = -1, oldIlocEntryLen = 0;
+            int oldXmpExtentOff = -1, oldXmpExtentLen = 0;
+            bool oldXmpInIdat = false;
             if (oldXmpItemId >= 0)
             {
                 int ep = ilocPos + 16; // iloc payload 头 8 + version/flags 4 + sizes 2 + count 2
@@ -290,15 +425,31 @@ namespace LivePhotoBox.Services
                 {
                     int entryStart = ep;
                     ep += 2; // item_ID
-                    if (ilocVersion == 1 || ilocVersion == 2) ep += 2; // construction_method
+                    int constructionMethod = 0;
+                    if (ilocVersion == 1 || ilocVersion == 2)
+                    {
+                        constructionMethod = ReadU16(bytes, ep);
+                        ep += 2;
+                    }
                     ep += 2; // data_reference_index
                     ep += baseSize;
                     int extCount = ReadU16(bytes, ep); ep += 2;
-                    ep += extCount * (idxSize + offSize + lenSize);
+                    int firstExtOff = -1, firstExtLen = 0;
+                    for (int e = 0; e < extCount; e++)
+                    {
+                        ep += idxSize;
+                        int eo = ReadN(bytes, ep, offSize);
+                        int el = ReadN(bytes, ep + offSize, lenSize);
+                        ep += offSize + lenSize;
+                        if (e == 0) { firstExtOff = eo; firstExtLen = el; }
+                    }
                     if (ReadU16(bytes, entryStart) == oldXmpItemId)
                     {
                         oldIlocEntryPos = entryStart;
                         oldIlocEntryLen = ep - entryStart;
+                        oldXmpExtentOff = firstExtOff;
+                        oldXmpExtentLen = firstExtLen;
+                        oldXmpInIdat = constructionMethod == 1;
                         break;
                     }
                 }
@@ -356,15 +507,24 @@ namespace LivePhotoBox.Services
             Array.Copy(content, 0, infe, 21, content.Length);
             infe[21 + content.Length] = 0;
 
-            int ilocAdd = 2 + 2 + 2 + baseSize + 2 + offSize + lenSize;
+            // iloc 条目布局随版本变化：
+            //   v0       ：item_ID(2) + data_reference_index(2) + base_offset + extent_count(2) + extents
+            //   v1/v2    ：item_ID(2) + construction_method(2) + data_reference_index(2) + base_offset + extent_count(2) + extents
+            // 之前一律按 v1/v2 布局多写 2 字节，heif-enc 产物（iloc v0）的
+            // 新条目错位导致 XMP extent 为空、libheif 解码报 Unexpected end of file。
+            bool hasConstructionMethod = ilocVersion is 1 or 2;
+            int ilocAdd = 2 + (hasConstructionMethod ? 2 : 0) + 2 + baseSize + 2 + offSize + lenSize;
             byte[] ilocEntry = new byte[ilocAdd];
             int q = 0;
             WriteU16(ilocEntry, q, (ushort)newItemId); q += 2;
-            // construction_method must be 0 (data lives in the file, extent_offset
-            // is an absolute file offset). The HUAWEI camera uses 0; 1 means the
-            // data lives in idat and libheif would read the XMP from there,
-            // overrunning the small idat box and failing with "Unexpected end of file".
-            WriteU16(ilocEntry, q, 0); q += 2;
+            if (hasConstructionMethod)
+            {
+                // construction_method must be 0 (data lives in the file, extent_offset
+                // is an absolute file offset). The HUAWEI camera uses 0; 1 means the
+                // data lives in idat and libheif would read the XMP from there,
+                // overrunning the small idat box and failing with "Unexpected end of file".
+                WriteU16(ilocEntry, q, 0); q += 2;
+            }
             WriteU16(ilocEntry, q, 0); q += 2;
             WriteN(ilocEntry, q, 0, baseSize); q += baseSize;
             WriteU16(ilocEntry, q, 1); q += 2;
@@ -516,6 +676,55 @@ namespace LivePhotoBox.Services
                             if (chunkOff > metaEnd) BinaryPrimitives.WriteInt64BigEndian(nb.AsSpan(off, 8), chunkOff + totalDelta);
                         }
                         i = boxStart + boxSize - 1;
+                    }
+                }
+            }
+
+            // 旧 XMP 数据残留在 mdat 中成为孤儿字节（只删了引用、没删数据），
+            // 清零以避免产物里出现两份 XMP（xpacket 计数为 2）。
+            // 仅处理 cm=0 且 extent 位于 meta 之后（mdat）的情况；
+            // idat 内或与其它保留条目重叠的区域跳过，避免破坏有效数据。
+            if (!oldXmpInIdat && oldXmpExtentOff > metaEnd && oldXmpExtentLen > 0)
+            {
+                int orphanPos = oldXmpExtentOff + totalDelta;
+                if ((long)orphanPos + oldXmpExtentLen <= nb.Length)
+                {
+                    bool overlaps = false;
+                    int oq = ilocPos + 16;
+                    for (int i = 0; i < ilocItems && !overlaps; i++)
+                    {
+                        int entryStart = oq;
+                        oq += 2;
+                        if (ilocVersion == 1 || ilocVersion == 2) oq += 2;
+                        oq += 2;
+                        oq += baseSize;
+                        int extCount = ReadU16(bytes, oq); oq += 2;
+                        if (entryStart != oldIlocEntryPos)
+                        {
+                            for (int e = 0; e < extCount; e++)
+                            {
+                                oq += idxSize;
+                                int eo = ReadN(bytes, oq, offSize);
+                                int el = ReadN(bytes, oq + offSize, lenSize);
+                                oq += offSize + lenSize;
+                                if (eo <= metaEnd) continue;
+                                int mappedOff = eo + totalDelta;
+                                if (mappedOff < (long)orphanPos + oldXmpExtentLen &&
+                                    (long)mappedOff + el > orphanPos)
+                                {
+                                    overlaps = true;
+                                    break;
+                                }
+                            }
+                        }
+                        else
+                        {
+                            oq += extCount * (idxSize + offSize + lenSize);
+                        }
+                    }
+                    if (!overlaps)
+                    {
+                        Array.Clear(nb, orphanPos, oldXmpExtentLen);
                     }
                 }
             }

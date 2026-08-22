@@ -14,7 +14,7 @@ public sealed class HuaweiHeicHistoryReadTests
     [Fact]
     public async Task HuaweiHeic_ByteLevelReader_ReadsInjectedMergeHistory()
     {
-        string source = ResolveSample("华为.heic");
+        string source = ResolveSample("华为Mate80.heic");
         string outputDir = CreateTempDirectory();
 
         try
@@ -86,7 +86,7 @@ public sealed class HuaweiHeicHistoryReadTests
     public async Task HuaweiRealPhoneSource_ByteLevelReader_ReturnsNullWhenNoXmp()
     {
         // 真机华为源没有 Adobe XMP uuid box（用 LIVE_ 尾标），不应误读。
-        string source = ResolveSample("华为.heic");
+        string source = ResolveSample("华为Mate80.heic");
         string? xmp = await HeicXmpInjector.TryReadXmpTextAsync(
             source, CancellationToken.None);
         Assert.Null(xmp);
@@ -97,7 +97,7 @@ public sealed class HuaweiHeicHistoryReadTests
     {
         // 华为拆分产物的视频带华为 moov/meta（covertime），exiftool 解析不了；
         // 必须通过字节级顶层 uuid box 写入并读回本软件标识（回归：视频缺 XMP）。
-        string source = ResolveSample("华为.heic");
+        string source = ResolveSample("华为Mate80.heic");
         string outputDir = CreateTempDirectory();
 
         try
