@@ -8,13 +8,113 @@ using System.Threading.Tasks;
 namespace LivePhotoBox.Services
 {
     /// <summary>
-    /// 华为合并型 HEIC 的字节级 XMP 注入器（exiftool 无法重写此类结构时的回退）。
+    /// 华为合并型 HEIC 的字节级 XMP 注入器与读取器（exiftool 无法读写此类结构时的回退）。
     /// 针对华为相机生成的标准结构（iloc 在 iinf 之前）实现，已在 20 个真机样本上验证：
     /// iinf 注册 application/rdf+xml item、iloc 登记位置、XMP 数据放 meta 末尾 uuid box，
     /// 同步修正 iloc 外部 extent 与内嵌 MP4 stco/co64 偏移。结构不认识时返回 false。
     /// </summary>
     public static class HeicXmpInjector
     {
+        /// <summary>Adobe XMP 的标准 usertype（uuid box 的 16 字节标识）。</summary>
+        private static readonly byte[] AdobeXmpUsertype =
+        {
+            0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8,
+            0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC
+        };
+
+        /// <summary>
+        /// 字节级读取 HEIC meta 内 uuid box 的 XMP 文本（注入器的反向操作）。
+        /// 返回原始 xpacket 包装文本；文件无 Adobe XMP uuid box 或结构不认识时返回 null。
+        /// 华为合并型 HEIC 的 XMP 只有字节级保证（exiftool 读不到），历史页与
+        /// 历史继承读取都依赖本方法作为回退。
+        /// </summary>
+        public static async Task<string?> TryReadXmpTextAsync(
+            string filePath, CancellationToken token)
+        {
+            try
+            {
+                byte[] bytes = await File.ReadAllBytesAsync(filePath, token);
+                byte[]? payload = ExtractXmpPayload(bytes);
+                if (payload == null || payload.Length == 0) return null;
+
+                // 去掉尾部 NUL 填充（某些工具会按 4 字节对齐补齐）。
+                int end = payload.Length;
+                while (end > 0 && payload[end - 1] == 0) end--;
+                if (end == 0) return null;
+
+                return Encoding.UTF8.GetString(payload, 0, end);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// 在 HEIC 字节中定位 meta box，查找 usertype 为 Adobe XMP 的 uuid box，
+        /// 返回其 payload（完整 xpacket 包装的 XMP）。找不到返回 null。
+        /// </summary>
+        private static byte[]? ExtractXmpPayload(byte[] bytes)
+        {
+            int p = 0;
+            while (p + 8 <= bytes.Length)
+            {
+                var (size, next) = ReadBoxHeader(bytes, p, bytes.Length);
+                string type = Encoding.ASCII.GetString(bytes, p + 4, 4);
+                if (type == "meta")
+                {
+                    long metaEnd = size == 0 ? bytes.Length : next;
+                    // meta 是 FullBox：跳过 version/flags（4 字节），子 box 从这里开始。
+                    int q = p + 12;
+                    while (q + 8 <= metaEnd)
+                    {
+                        var (boxSize, boxNext) = ReadBoxHeader(bytes, q, metaEnd);
+                        string childType = Encoding.ASCII.GetString(bytes, q + 4, 4);
+                        if (childType == "uuid")
+                        {
+                            int usertypeStart = q + 8;
+                            if (usertypeStart + 16 > metaEnd) break;
+                            if (bytes.AsSpan(usertypeStart, 16).SequenceEqual(AdobeXmpUsertype))
+                            {
+                                long payloadEnd = boxSize == 0 ? metaEnd : boxNext;
+                                int payloadStart = usertypeStart + 16;
+                                int payloadLen = (int)(payloadEnd - payloadStart);
+                                if (payloadLen <= 0) return null;
+                                var payload = new byte[payloadLen];
+                                Array.Copy(bytes, payloadStart, payload, 0, payloadLen);
+                                return payload;
+                            }
+                        }
+                        if (boxSize <= 0) break;
+                        q = (int)boxNext;
+                    }
+                    return null;
+                }
+                if (size <= 0) break;
+                p = (int)next;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 读取 box 头：(size, 下一个 box 的偏移)。size==0 表示延伸到容器末尾；
+        /// size==1 表示 64 位长度。超大或不认识的长度返回 (0, off) 由调用方终止。
+        /// </summary>
+        private static (int Size, long Next) ReadBoxHeader(byte[] a, int off, long limit)
+        {
+            if (off + 8 > limit) return (0, off);
+            int size = ReadU32(a, off);
+            long next = off + size;
+            if (size == 1)
+            {
+                if (off + 16 > limit) return (0, off);
+                long size64 = BinaryPrimitives.ReadInt64BigEndian(a.AsSpan(off + 8, 8));
+                if (size64 < 16 || size64 > int.MaxValue) return (0, off);
+                next = off + size64;
+                return ((int)size64, next);
+            }
+            if (size == 0) return (0, limit); // 延伸到父容器末尾
+            return (size, next);
+        }
+
         /// <summary>
         /// 尝试向 HEIC 注入 XMP（原子替换：先写临时文件，成功后覆盖）。
         /// </summary>
@@ -69,14 +169,9 @@ namespace LivePhotoBox.Services
         /// </summary>
         private static bool VerifyInjectedXmp(byte[] fileBytes, byte[] xmpBytes)
         {
-            byte[] usertype =
-            {
-                0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8,
-                0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC
-            };
-            int idx = IndexOfBytes(fileBytes, usertype);
+            int idx = IndexOfBytes(fileBytes, AdobeXmpUsertype);
             if (idx < 0) return false;
-            int xmpStart = idx + usertype.Length;
+            int xmpStart = idx + AdobeXmpUsertype.Length;
             if (xmpStart + xmpBytes.Length > fileBytes.Length) return false;
             return fileBytes.AsSpan(xmpStart, xmpBytes.Length).SequenceEqual(xmpBytes);
         }
@@ -195,7 +290,6 @@ namespace LivePhotoBox.Services
             int extOffPos = q; q += offSize;
             WriteN(ilocEntry, q, xmpBytes.Length, lenSize);
 
-            byte[] usertype = { 0xBE, 0x7A, 0xCF, 0xCB, 0x97, 0xA9, 0x42, 0xE8, 0x9C, 0x71, 0x99, 0x94, 0x91, 0xE3, 0xAF, 0xAC };
             int uuidBoxLen = 8 + 16 + xmpBytes.Length;
             int totalDelta = infeLen + ilocAdd + uuidBoxLen;
             int ilocEnd = ilocPos + ReadU32(bytes, ilocPos);
@@ -239,7 +333,7 @@ namespace LivePhotoBox.Services
             int uuidPos = metaContentEnd;
             WriteU32(nb, uuidPos, uuidBoxLen);
             nb[uuidPos + 4] = (byte)'u'; nb[uuidPos + 5] = (byte)'u'; nb[uuidPos + 6] = (byte)'i'; nb[uuidPos + 7] = (byte)'d';
-            Array.Copy(usertype, 0, nb, uuidPos + 8, 16);
+            Array.Copy(AdobeXmpUsertype, 0, nb, uuidPos + 8, 16);
             Array.Copy(xmpBytes, 0, nb, xmpFilePos, xmpBytes.Length);
 
             int ilocPayloadNew = map(ilocPos) + 8;

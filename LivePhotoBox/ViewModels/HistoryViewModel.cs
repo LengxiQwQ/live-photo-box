@@ -198,8 +198,19 @@ namespace LivePhotoBox.ViewModels
                 return null;
             }
 
-            // 1. Get raw XMP XML via exiftool
-            string xmpXml = await ReadRawXmpAsync(exifToolPath, filePath, ct);
+            // 1. Get raw XMP XML: HEIC 优先字节级读取（本工具注入的 Adobe XMP uuid box
+            //    是最新写入的 XMP；华为合并型 HEIC exiftool 读不到，双 XMP 时还会
+            //    读到旧的 mime 条目），读不到再退回 exiftool。
+            string xmpXml = string.Empty;
+            if (IsHeicFile(filePath))
+            {
+                xmpXml = await HeicXmpInjector.TryReadXmpTextAsync(filePath, ct)
+                    ?? string.Empty;
+            }
+            if (string.IsNullOrWhiteSpace(xmpXml))
+            {
+                xmpXml = await ReadRawXmpAsync(exifToolPath, filePath, ct);
+            }
             if (string.IsNullOrWhiteSpace(xmpXml))
             {
                 // No XMP at all — not a Live Photo
@@ -520,6 +531,13 @@ namespace LivePhotoBox.ViewModels
         {
             var ext = Path.GetExtension(path).ToLowerInvariant();
             return ext is ".jpg" or ".jpeg" or ".heic" or ".heif" or ".png";
+        }
+
+        // 判断文件是否为 HEIC/HEIF（华为合并型 HEIC 需要字节级 XMP 读取回退）。
+        private static bool IsHeicFile(string path)
+        {
+            var ext = Path.GetExtension(path).ToLowerInvariant();
+            return ext is ".heic" or ".heif";
         }
     }
 }

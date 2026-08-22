@@ -211,40 +211,22 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// 读取文件 XMP dc:subject 中本软件的历史条目（LivePhotoBox: 前缀），保留顺序并去重。
-        /// 读取失败或 exiftool 不可用时返回空列表（不抛异常）。
+        /// 华为合并型 HEIC 等 exiftool 读不了 XMP 的文件走字节级回退。
+        /// 读取失败或工具不可用时返回空列表（不抛异常）。
         /// </summary>
         public static async Task<List<string>> ReadExistingEntriesAsync(string filePath, CancellationToken token)
         {
             var entries = new List<string>();
             try
             {
-                string? output = await RunExifToolCaptureAsync(token, "-j", "-XMP-dc:Subject", filePath);
-                if (string.IsNullOrWhiteSpace(output)) return entries;
+                string? xmp = await ReadXmpTextAsync(filePath, token);
+                if (string.IsNullOrWhiteSpace(xmp)) return entries;
 
-                using var doc = JsonDocument.Parse(output);
-                var root = doc.RootElement;
-                if (root.ValueKind != JsonValueKind.Array || root.GetArrayLength() == 0) return entries;
-                if (!root[0].TryGetProperty("Subject", out var subject)) return entries;
+                XDocument doc = ParseXmp(xmp);
+                var desc = doc.Descendants(RdfNs + "Description").FirstOrDefault();
+                if (desc == null) return entries;
 
-                void Collect(string value)
-                {
-                    if (value.StartsWith(EntryPrefix, StringComparison.OrdinalIgnoreCase))
-                        entries.Add(value);
-                }
-
-                switch (subject.ValueKind)
-                {
-                    case JsonValueKind.String:
-                        Collect(subject.GetString() ?? string.Empty);
-                        break;
-                    case JsonValueKind.Array:
-                        foreach (var item in subject.EnumerateArray())
-                        {
-                            if (item.ValueKind == JsonValueKind.String)
-                                Collect(item.GetString() ?? string.Empty);
-                        }
-                        break;
-                }
+                entries.AddRange(ExtractSubjectEntries(desc));
             }
             catch (OperationCanceledException) { throw; }
             catch { /* best-effort */ }
@@ -416,9 +398,25 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// 读取文件当前完整 XMP 文本（exiftool -xmp:all -b），无 XMP 时返回 null。
+        /// HEIC 优先字节级读取（本工具注入的 Adobe XMP uuid box 是最新写入的 XMP；
+        /// 华为合并型 HEIC 的 meta 布局 exiftool 读不到，且双 XMP 时 exiftool 会
+        /// 读到旧的 mime 条目），读不到再退回 exiftool。
         /// </summary>
         public static async Task<string?> ReadXmpTextAsync(string filePath, CancellationToken token)
-            => await RunExifToolCaptureAsync(token, "-xmp", "-b", filePath);
+        {
+            if (IsHeicPath(filePath))
+            {
+                string? injected = await HeicXmpInjector.TryReadXmpTextAsync(filePath, token);
+                if (!string.IsNullOrWhiteSpace(injected)) return injected;
+            }
+
+            string? xmp = await RunExifToolCaptureAsync(token, "-xmp", "-b", filePath);
+            return string.IsNullOrWhiteSpace(xmp) ? null : xmp;
+        }
+
+        private static bool IsHeicPath(string filePath)
+            => filePath.EndsWith(".heic", StringComparison.OrdinalIgnoreCase)
+               || filePath.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// 从源图 XMP 中提取 GainMap Container 项与 hdrgm 命名空间属性，嵌入目标 XMP 字节。
