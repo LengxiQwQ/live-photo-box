@@ -214,7 +214,8 @@ namespace LivePhotoBox.Services
             CancellationToken token,
             long presentationTimestampUs = 0,
             int outputFormatIndex = 0,
-            string? sourceProtocol = null)
+            string? sourceProtocol = null,
+            bool embedHistory = true)
         {
             var protocol = LivePhotoProtocol.FromIndex(selectedModeIndex);
             long videoSize = new FileInfo(sourceVid).Length;
@@ -223,9 +224,14 @@ namespace LivePhotoBox.Services
             // Caller (merge runner) detects on the ORIGINAL image+video pair before any
             // conversion/cleaning so Apple CID pairing works; other callers fall back to
             // detecting the working pair here.
-            sourceProtocol ??= await XmpMarkerService.DetectSourceProtocolAsync(sourceImg, token, sourceVid);
-            string mergeDetails = BuildMergeDetails(
-                sourceProtocol, protocol.Key, outputFormatIndex, presentationTimestampUs);
+            // embedHistory=false（封面重建等场景）：不写底层 Merge 历史，由调用方
+            // 统一写 Cover 等独立动作记录，避免同一操作产生两条历史。
+            sourceProtocol ??= embedHistory
+                ? await XmpMarkerService.DetectSourceProtocolAsync(sourceImg, token, sourceVid)
+                : null;
+            string mergeDetails = embedHistory
+                ? BuildMergeDetails(sourceProtocol ?? "Unknown", protocol.Key, outputFormatIndex, presentationTimestampUs)
+                : string.Empty;
 
             // ── Samsung HEIC path (mpvd + sefd box with Samsung Trailer) ──
             // 仅在用户明确选择 HEIC 输出（格式 2）时走 HEIC；请求 jpg+* 时源图
@@ -235,7 +241,7 @@ namespace LivePhotoBox.Services
                 && outputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4)
             {
                 string videoMime = DetectVideoMime(sourceVid);
-                await WriteSamsungHeicAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samHeic, mergeDetails, token, presentationTimestampUs);
+                await WriteSamsungHeicAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samHeic, mergeDetails, token, presentationTimestampUs, embedHistory);
                 return;
             }
 
@@ -243,7 +249,7 @@ namespace LivePhotoBox.Services
             if (protocol is SamsungMotionPhotoProtocol samJpeg)
             {
                 string videoMime = DetectVideoMime(sourceVid);
-                await WriteSamsungJpegAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samJpeg, mergeDetails, token, presentationTimestampUs);
+                await WriteSamsungJpegAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samJpeg, mergeDetails, token, presentationTimestampUs, embedHistory);
                 return;
             }
 
@@ -255,7 +261,11 @@ namespace LivePhotoBox.Services
             {
                 string videoMime = DetectVideoMime(sourceVid);
                 byte[] xmpBytes = v2.BuildXmpMetadata(videoSize, presentationTimestampUs, "image/heic", "8", videoMime);
-                xmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(sourceImg, xmpBytes, mergeDetails, token);
+                if (embedHistory)
+                {
+                    xmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(
+                        sourceImg, xmpBytes, mergeDetails, token);
+                }
                 await WriteHeicNativeAsync(sourceImg, sourceVid, targetPath, xmpBytes, token);
                 return;
             }
@@ -302,7 +312,11 @@ namespace LivePhotoBox.Services
             {
                 jpegXmpBytes = protocol.BuildXmpMetadata(videoSize, presentationTimestampUs);
             }
-            jpegXmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(sourceImg, jpegXmpBytes, mergeDetails, token);
+            if (embedHistory)
+            {
+                jpegXmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(
+                    sourceImg, jpegXmpBytes, mergeDetails, token);
+            }
             await WriteNativeAsync(sourceImg, sourceVid, targetPath, jpegXmpBytes, token);
         }
 
@@ -533,22 +547,33 @@ namespace LivePhotoBox.Services
             int originalDurationMs = 0,
             string tailPrefix = "v6_f",
             int outputFormatIndex = 0,
-            string? sourceProtocol = null)
+            string? sourceProtocol = null,
+            bool embedHistory = true)
         {
             long videoSize = new FileInfo(sourceVid).Length;
 
-            sourceProtocol ??= await XmpMarkerService.DetectSourceProtocolAsync(sourceImg, token, sourceVid);
-            string mergeDetails = BuildMergeDetails(
-                sourceProtocol, "HuaweiMovingPhoto", outputFormatIndex, presentationTimestampUs);
+            // embedHistory=false（封面重建等场景）：不写底层 Merge XMP，
+            // 由调用方统一写 Cover 等独立动作记录，避免同一操作产生两条历史。
+            sourceProtocol ??= embedHistory
+                ? await XmpMarkerService.DetectSourceProtocolAsync(sourceImg, token, sourceVid)
+                : null;
+            string mergeDetails = embedHistory
+                ? BuildMergeDetails(sourceProtocol ?? "Unknown", "HuaweiMovingPhoto",
+                    outputFormatIndex, presentationTimestampUs)
+                : string.Empty;
 
-            // Build unified LivePhotoBox XMP (namespace attrs + dc:subject history incl. inherited entries).
-            // JPEG 输出：源图自带 Ultra HDR 增益图时测量其真实字节长度并写入
-            // GainMap Container 项（HDR 例外）；HEIC 输出的增益图是 aux 图像，
-            // 不进 XMP，无需容器项。
-            long huaweiGainMapLength = isHeicOutput ? 0 : MeasureGainMapLength(sourceImg);
-            byte[] huaweiXmp = await XmpMarkerService.BuildHuaweiMergeXmpAsync(
-                sourceImg, mergeDetails, token,
-                huaweiGainMapLength, isHeicOutput ? "image/heic" : "image/jpeg");
+            byte[]? huaweiXmp = null;
+            if (embedHistory)
+            {
+                // Build unified LivePhotoBox XMP (namespace attrs + dc:subject history incl. inherited entries).
+                // JPEG 输出：源图自带 Ultra HDR 增益图时测量其真实字节长度并写入
+                // GainMap Container 项（HDR 例外）；HEIC 输出的增益图是 aux 图像，
+                // 不进 XMP，无需容器项。
+                long huaweiGainMapLength = isHeicOutput ? 0 : MeasureGainMapLength(sourceImg);
+                huaweiXmp = await XmpMarkerService.BuildHuaweiMergeXmpAsync(
+                    sourceImg, mergeDetails, token,
+                    huaweiGainMapLength, isHeicOutput ? "image/heic" : "image/jpeg");
+            }
 
             // 1. Get total video frame count (ffprobe nb_frames preferred, exiftool fallback)
             int totalFrames = await DetectVideoFrameCountAsync(sourceVid, token);
@@ -618,7 +643,7 @@ namespace LivePhotoBox.Services
                         string tempXmp = Path.Combine(tempDir, "temp.xmp");
                         string tempOut = Path.Combine(tempDir, "out.heic");
                         await File.WriteAllBytesAsync(tempHeic, patched, token);
-                        await File.WriteAllBytesAsync(tempXmp, huaweiXmp, token);
+                        await File.WriteAllBytesAsync(tempXmp, huaweiXmp!, token);
                         await LivePhotoRepairService.RunExifToolAsync(token,
                             $"-xmp<={tempXmp}",
                             "-o", tempOut,
@@ -645,11 +670,16 @@ namespace LivePhotoBox.Services
                     }
                 }
 
-                if (huaweiLayout)
+                if (!embedHistory)
+                {
+                    // 封面重建等场景：不写底层 XMP，由调用方统一写独立动作历史。
+                    await File.WriteAllBytesAsync(targetPath, patched, token);
+                }
+                else if (huaweiLayout)
                 {
                     await File.WriteAllBytesAsync(targetPath, patched, token);
                     var (injectOk, injectError) = await HeicXmpInjector.TryInjectXmpAsync(
-                        targetPath, huaweiXmp, token);
+                        targetPath, huaweiXmp!, token);
                     if (!injectOk)
                     {
                         var (exOk, exError) = await WriteXmpViaExifToolAsync();
@@ -669,7 +699,7 @@ namespace LivePhotoBox.Services
                     {
                         await File.WriteAllBytesAsync(targetPath, patched, token);
                         var (injectOk, injectError) = await HeicXmpInjector.TryInjectXmpAsync(
-                            targetPath, huaweiXmp, token);
+                            targetPath, huaweiXmp!, token);
                         if (!injectOk)
                         {
                             LogService.Merge(
@@ -681,31 +711,47 @@ namespace LivePhotoBox.Services
             }
             else
             {
-                // JPEG: write unified LivePhotoBox XMP as the first APP1 segment,
-                // then copy the source JPEG skipping its own XMP APP1 (single XMP).
-                int segmentLength = 2 + XmpHeader.Length + huaweiXmp.Length;
-                if (segmentLength > ushort.MaxValue)
+                // JPEG: 默认写 unified LivePhotoBox XMP 作为第一个 APP1 段，
+                // 再复制源 JPEG（跳过其自身 XMP APP1，保证单 XMP）。
+                // embedHistory=false 时原样复制源图，历史由调用方统一写。
+                if (!embedHistory)
                 {
-                    throw new InvalidOperationException(
-                        ResourceService.Format("Error_XmpMetadataTooLarge", segmentLength));
+                    await using (var srcFs = new FileStream(
+                        sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
+                        bufferSize: 8192, useAsync: true))
+                    await using (var dstFs = new FileStream(
+                        targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
+                        bufferSize: 8192, useAsync: true))
+                    {
+                        await srcFs.CopyToAsync(dstFs, token);
+                    }
                 }
-                byte[] prefix = new byte[4 + 2 + XmpHeader.Length];
-                prefix[0] = 0xFF; prefix[1] = 0xD8;
-                prefix[2] = 0xFF; prefix[3] = 0xE1;
-                prefix[4] = (byte)(segmentLength >> 8);
-                prefix[5] = (byte)(segmentLength & 0xFF);
-                Array.Copy(XmpHeader, 0, prefix, 6, XmpHeader.Length);
+                else
+                {
+                    int segmentLength = 2 + XmpHeader.Length + huaweiXmp!.Length;
+                    if (segmentLength > ushort.MaxValue)
+                    {
+                        throw new InvalidOperationException(
+                            ResourceService.Format("Error_XmpMetadataTooLarge", segmentLength));
+                    }
+                    byte[] prefix = new byte[4 + 2 + XmpHeader.Length];
+                    prefix[0] = 0xFF; prefix[1] = 0xD8;
+                    prefix[2] = 0xFF; prefix[3] = 0xE1;
+                    prefix[4] = (byte)(segmentLength >> 8);
+                    prefix[5] = (byte)(segmentLength & 0xFF);
+                    Array.Copy(XmpHeader, 0, prefix, 6, XmpHeader.Length);
 
-                using var imgFs = new FileStream(
-                    sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
-                    bufferSize: 8192, useAsync: true);
-                using var targetFs = new FileStream(
-                    targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                    bufferSize: 8192, useAsync: true);
-                await targetFs.WriteAsync(prefix, 0, prefix.Length, token);
-                await targetFs.WriteAsync(huaweiXmp, 0, huaweiXmp.Length, token);
-                imgFs.Position = 2;
-                await CopyJpegSkippingXmpApp1Async(imgFs, targetFs, token);
+                    using var imgFs = new FileStream(
+                        sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
+                        bufferSize: 8192, useAsync: true);
+                    using var targetFs = new FileStream(
+                        targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
+                        bufferSize: 8192, useAsync: true);
+                    await targetFs.WriteAsync(prefix, 0, prefix.Length, token);
+                    await targetFs.WriteAsync(huaweiXmp!, 0, huaweiXmp.Length, token);
+                    imgFs.Position = 2;
+                    await CopyJpegSkippingXmpApp1Async(imgFs, targetFs, token);
+                }
             }
 
             // 4. Append MP4 video
@@ -1524,7 +1570,8 @@ namespace LivePhotoBox.Services
             MotionPhotoV2Protocol protocol,
             string mergeDetails,
             CancellationToken token,
-            long presentationTimestampUs)
+            long presentationTimestampUs,
+            bool embedHistory = true)
         {
             // Read MP4 video bytes
             byte[] videoData = await File.ReadAllBytesAsync(sourceVid, token);
@@ -1553,7 +1600,11 @@ namespace LivePhotoBox.Services
                 xmpBytes = protocol.BuildXmpMetadata(xmpVideoLength, presentationTimestampUs,
                     "image/jpeg", tagHeaderPadding.ToString(), videoMime);
             }
-            xmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(sourceImg, xmpBytes, mergeDetails, token);
+            if (embedHistory)
+            {
+                xmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(
+                    sourceImg, xmpBytes, mergeDetails, token);
+            }
 
             // Inject XMP into JPEG — write directly (same pattern as WriteNativeAsync),
             // NOT via exiftool which parses and strips unknown XMP namespaces
@@ -1615,7 +1666,8 @@ namespace LivePhotoBox.Services
             MotionPhotoV2Protocol protocol,
             string mergeDetails,
             CancellationToken token,
-            long presentationTimestampUs)
+            long presentationTimestampUs,
+            bool embedHistory = true)
         {
             if (string.IsNullOrEmpty(ExternalToolLocator.FindExifTool()))
             {
@@ -1636,7 +1688,11 @@ namespace LivePhotoBox.Services
             {
                 xmpBytes = protocol.BuildXmpMetadata(videoSize, presentationTimestampUs, "image/heic", "8", videoMime);
             }
-            xmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(sourceHeic, xmpBytes, mergeDetails, token);
+            if (embedHistory)
+            {
+                xmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(
+                    sourceHeic, xmpBytes, mergeDetails, token);
+            }
 
             string tempDir = Path.Combine(Path.GetTempPath(),
                 "LivePhotoBox_SamsungHeic_" + Guid.NewGuid().ToString("N"));

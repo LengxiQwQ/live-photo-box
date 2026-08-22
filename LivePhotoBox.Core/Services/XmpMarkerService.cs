@@ -237,12 +237,14 @@ namespace LivePhotoBox.Services
         /// <summary>
         /// 合成页专用：读取源图片已有历史，合并一条新的 Merge 条目（Protocol=...），
         /// 嵌入到协议生成的 XMP 字节中（保留协议原有全部 XMP 内容）。
+        /// action 默认 Merge；封面另存等同类操作可传入 "Cover" 写独立动作记录。
         /// </summary>
         public static async Task<byte[]> EmbedMergeHistoryAsync(
-            string sourcePath, byte[] xmpBytes, string details, CancellationToken token)
+            string sourcePath, byte[] xmpBytes, string details, CancellationToken token,
+            string action = "Merge")
         {
             var inherited = await ReadExistingEntriesAsync(sourcePath, token);
-            var newEntry = BuildEntry("Merge", DateTimeOffset.Now, details);
+            var newEntry = BuildEntry(action, DateTimeOffset.Now, details);
             byte[] result = EmbedEntries(xmpBytes, MergeEntries(inherited, new[] { newEntry }));
 
             // Ultra HDR：源图 XMP 若带 GainMap Container 项（Google Ultra HDR / ISO 21496-1），
@@ -389,8 +391,23 @@ namespace LivePhotoBox.Services
                     xmpBytes = BuildXmpBytes(doc);
                 }
 
-                await WriteXmpViaExifToolAsync(filePath, xmpBytes, token);
-                return true;
+                try
+                {
+                    await WriteXmpViaExifToolAsync(filePath, xmpBytes, token);
+                    return true;
+                }
+                catch
+                {
+                    // 华为合并型 HEIC（iloc 在 iinf 前）exiftool 重写不了，
+                    // 回退字节级注入（布局保护保证只处理华为结构，不损坏标准 HEIC）。
+                    if (IsHeicPath(filePath))
+                    {
+                        var (injectOk, _) = await HeicXmpInjector.TryInjectXmpAsync(
+                            filePath, xmpBytes, token);
+                        return injectOk;
+                    }
+                    return false;
+                }
             }
             catch (OperationCanceledException) { throw; }
             catch { return false; }

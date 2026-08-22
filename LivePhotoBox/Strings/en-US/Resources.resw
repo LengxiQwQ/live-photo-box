@@ -2329,6 +2329,9 @@ Then click "Start Split".</value>
   <data name="History_Action_Repair" xml:space="preserve">
     <value>Repair</value>
   </data>
+  <data name="History_Action_Cover" xml:space="preserve">
+    <value>Cover</value>
+  </data>
   <data name="History_MergeDesc" xml:space="preserve">
     <value>Protocol: {0}</value>
   </data>

@@ -84,6 +84,7 @@ namespace LivePhotoBox.Models
         // 操作类型对应的颜色
         public string ActionColor => Action switch
         {
+            "Cover" => "#E91E63",    // 粉色
             "Merge" => "#4CAF50",    // 绿色
             "Split" => "#2196F3",    // 蓝色
             "Repair" => "#FF9800",   // 橙色
@@ -93,6 +94,7 @@ namespace LivePhotoBox.Models
         // 操作类型对应的 Segoe MDL2 图标
         public string ActionIcon => Action switch
         {
+            "Cover" => "\uE8B9",     // Picture
             "Merge" => "",     // Merge/Combine
             "Split" => "",     // Split
             "Repair" => "",    // Repair
@@ -102,6 +104,7 @@ namespace LivePhotoBox.Models
         // 操作类型对应的本地化名称
         public string ActionDisplayName => Action switch
         {
+            "Cover" => ResourceService.GetString("History_Action_Cover"),
             "Merge" => ResourceService.GetString("History_Action_Merge"),
             "Split" => ResourceService.GetString("History_Action_Split"),
             "Repair" => ResourceService.GetString("History_Action_Repair"),

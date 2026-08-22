@@ -235,6 +235,13 @@ namespace LivePhotoBox.Services
                 p += sz;
             }
             if (ilocPos < 0 || iinfPos < 0) { error = "iloc/iinf not found"; return null; }
+            // 布局保护：本注入器只处理华为相机结构（iloc 在 iinf 之前）。
+            // 标准 HEIC（iloc 在 iinf 之后）走 exiftool；强行注入会破坏 item 偏移。
+            if (ilocPos > iinfPos)
+            {
+                error = "unsupported layout: iloc after iinf (standard HEIC, use exiftool)";
+                return null;
+            }
             if (ilocVersion > 2) { error = $"unsupported iloc version {ilocVersion}"; return null; }
             if (offSize is < 1 or > 8 || lenSize is < 1 or > 8 || baseSize > 8 || idxSize > 8)
             {

@@ -388,8 +388,15 @@ namespace LivePhotoBox.ViewModels
             else if (hasMotionPhoto)
                 info.DetectedProtocol = ResourceService.GetString("History_Protocol_MotionPhotoV2");
 
-            // ── Add Merge entry if LivePhotoBox generated ──────────────
-            if (info.IsLivePhotoBoxGenerated && info.Entries.All(e => e.Action != "Merge"))
+            // ── 旧版文件补 Merge 条目（仅属性、无历史条目的情况）──────
+            // v2.1.x 及更早只写 LivePhotoBox:Action="Merge" / Protocol / Version 属性，
+            // 没有 dc:subject 历史条目，此时补一条 Merge 展示；
+            // 新版文件（有 Split/Repair/Cover 等条目）绝不补，避免凭空多算一次"合并"。
+            string? legacyAction = GetAttributeValue(desc, LivePhotoBoxNs, "Action");
+            bool hasLegacyProtocol = GetAttributeValue(desc, LivePhotoBoxNs, "Protocol") != null;
+            bool isLegacyMerge = (legacyAction == null && hasLegacyProtocol)
+                || string.Equals(legacyAction, "Merge", StringComparison.OrdinalIgnoreCase);
+            if (info.IsLivePhotoBoxGenerated && info.Entries.Count == 0 && isLegacyMerge)
             {
                 var mergeEntry = new HistoryEntry
                 {
@@ -398,8 +405,7 @@ namespace LivePhotoBox.ViewModels
                     Description = ResourceService.Format("History_MergeDesc", info.MergeProtocol),
                 };
 
-                // If no Split/Repair entries have timestamps, Merge has none either
-                // Insert at beginning since Merge happens first
+                // Merge 最先发生，插到开头。
                 info.Entries.Insert(0, mergeEntry);
             }
 
@@ -416,9 +422,14 @@ namespace LivePhotoBox.ViewModels
                 return null; // Not a live photo at all — skip
 
             if (info.IsLivePhotoBoxGenerated)
-                info.Summary = info.Entries.Count > 1
-                    ? ResourceService.Format("History_Summary_Generated", info.Entries.Count)
-                    : ResourceService.GetString("History_Summary_MergeOnly");
+            {
+                info.Summary = info.Entries.Count switch
+                {
+                    > 1 => ResourceService.Format("History_Summary_Generated", info.Entries.Count),
+                    1 => info.Entries[0].ActionDisplayName, // 合成/拆分/修复/封面
+                    _ => ResourceService.GetString("History_Summary_MergeOnly"),
+                };
+            }
             else if (info.IsLivePhoto)
                 info.Summary = ResourceService.GetString("History_Summary_LivePhoto");
 
@@ -498,8 +509,16 @@ namespace LivePhotoBox.ViewModels
 
             if (d.TryGetValue("Target", out var target) && !string.IsNullOrEmpty(target))
             {
-                var source = d.TryGetValue("Source", out var s) && !string.IsNullOrEmpty(s) ? s : "?";
-                parts.Add(ResourceService.Format("History_ConvertDesc", source, target));
+                if (entry.Action == "Cover")
+                {
+                    // Cover 不改变协议，显示"协议: X"而不是"从 X 转 Y"。
+                    parts.Add(ResourceService.Format("History_MergeDesc", target));
+                }
+                else
+                {
+                    var source = d.TryGetValue("Source", out var s) && !string.IsNullOrEmpty(s) ? s : "?";
+                    parts.Add(ResourceService.Format("History_ConvertDesc", source, target));
+                }
             }
             if (d.TryGetValue("Format", out var format) && !string.IsNullOrEmpty(format))
                 parts.Add(ResourceService.Format("History_FormatDesc", format.Replace("+", " + ")));

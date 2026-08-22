@@ -2329,6 +2329,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="History_Action_Repair" xml:space="preserve">
     <value>修复</value>
   </data>
+  <data name="History_Action_Cover" xml:space="preserve">
+    <value>封面</value>
+  </data>
   <data name="History_MergeDesc" xml:space="preserve">
     <value>协议: {0}</value>
   </data>

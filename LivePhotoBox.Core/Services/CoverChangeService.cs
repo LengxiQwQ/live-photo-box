@@ -94,6 +94,7 @@ namespace LivePhotoBox.Services
                 try
                 {
                     var result = await ChangeCoverCoreAsync(request, tempWorkDir, token).ConfigureAwait(false);
+                    await WriteCoverHistoryAsync(request, result, token).ConfigureAwait(false);
                     LogService.Split(
                         $"CoverChange: success — protocol={request.Protocol} image={request.OutputImagePath}",
                         LogLevel.Info);
@@ -114,6 +115,73 @@ namespace LivePhotoBox.Services
                     try { Directory.Delete(tempWorkDir, recursive: true); } catch { /* best effort */ }
                 }
             }
+        }
+
+        /// <summary>
+        /// 封面更换成功后写入独立的 Cover 历史条目（Source/Target/Format/KeyPhoto），
+        /// 图片与配对视频都写，源图旧历史迁移到输出。
+        /// 与 GUI 封面另存一致：动作名 Cover，不再伪装成 Merge。
+        /// 写入失败只记日志，不打断封面操作。
+        /// </summary>
+        private static async Task WriteCoverHistoryAsync(
+            CoverChangeRequest request, CoverChangeResult result, CancellationToken token)
+        {
+            try
+            {
+                string protocolKey = XmpMarkerService.ProtocolKey(request.Protocol);
+                string keyPhoto = request.TimestampUs > 0
+                    ? (request.TimestampUs / 1_000_000.0).ToString(
+                        "0.##", System.Globalization.CultureInfo.InvariantCulture)
+                    : string.Empty;
+                string coverDetails = XmpMarkerService.BuildDetails(
+                    ("Source", protocolKey),
+                    ("Target", protocolKey),
+                    ("Format", BuildCoverFormat(result.OutputImagePath, result.OutputVideoPath)),
+                    ("KeyPhoto", keyPhoto));
+
+                var inherited = await XmpMarkerService.ReadExistingEntriesAsync(
+                    request.ImagePath, token);
+
+                bool imageOk = await XmpMarkerService.TryWriteUnifiedMarkerAsync(
+                    result.OutputImagePath, "Cover", coverDetails, token, inherited);
+                if (!imageOk)
+                {
+                    LogService.Split(
+                        $"CoverChange: history write skipped/failed for {result.OutputImagePath}",
+                        LogLevel.Warning);
+                }
+
+                if (!string.IsNullOrWhiteSpace(result.OutputVideoPath))
+                {
+                    bool videoOk = await XmpMarkerService.TryWriteUnifiedMarkerAsync(
+                        result.OutputVideoPath, "Cover", coverDetails, token, inherited);
+                    if (!videoOk)
+                    {
+                        LogService.Split(
+                            $"CoverChange: history write skipped/failed for {result.OutputVideoPath}",
+                            LogLevel.Warning);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Split(
+                    $"CoverChange: history write failed — {ex.Message}", LogLevel.Warning);
+            }
+        }
+
+        /// <summary>按输出扩展名构造 Cover 条目的 Format 字段（JPG+MP4 / HEIC+MP4 / JPG 等）。</summary>
+        private static string BuildCoverFormat(string imagePath, string? videoPath)
+        {
+            string ext = Path.GetExtension(imagePath);
+            string imageFormat = ext.Equals(".heic", StringComparison.OrdinalIgnoreCase)
+                || ext.Equals(".heif", StringComparison.OrdinalIgnoreCase)
+                ? "HEIC" : "JPG";
+            if (string.IsNullOrWhiteSpace(videoPath)) return imageFormat;
+            string videoFormat = Path.GetExtension(videoPath)
+                .Equals(".mov", StringComparison.OrdinalIgnoreCase) ? "MOV" : "MP4";
+            return $"{imageFormat}+{videoFormat}";
         }
 
         private static async Task<CoverChangeResult> ChangeCoverCoreAsync(
@@ -339,7 +407,8 @@ namespace LivePhotoBox.Services
                 token,
                 originalCoverMs,
                 originalDurationMs,
-                "v6_f").ConfigureAwait(false);
+                "v6_f",
+                embedHistory: false).ConfigureAwait(false);
 
             TrySetLastWriteTime(request.OutputImagePath);
 
@@ -391,7 +460,8 @@ namespace LivePhotoBox.Services
                 request.OutputImagePath,
                 protocolIndex,
                 token,
-                request.TimestampUs).ConfigureAwait(false);
+                request.TimestampUs,
+                embedHistory: false).ConfigureAwait(false);
 
             TrySetLastWriteTime(request.OutputImagePath);
 
@@ -508,7 +578,8 @@ namespace LivePhotoBox.Services
                 request.OutputImagePath,
                 protocolIndex,
                 token,
-                request.TimestampUs).ConfigureAwait(false);
+                request.TimestampUs,
+                embedHistory: false).ConfigureAwait(false);
 
             TrySetLastWriteTime(request.OutputImagePath);
 

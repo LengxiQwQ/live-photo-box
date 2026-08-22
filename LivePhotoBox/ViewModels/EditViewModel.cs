@@ -1248,7 +1248,22 @@ namespace LivePhotoBox.ViewModels
                         processedImagePath, tempVideoPath, tempOutputPath,
                         selectedModeIndex: protocolIndex,
                         CancellationToken.None,
-                        presentationTimestampUs);
+                        presentationTimestampUs,
+                        embedHistory: false);
+
+                    // Samsung 家族走完整管线，WriteLivePhotoAsync 不写底层 Merge；
+                    // 封面另存统一写独立 Cover 记录（Source/Target/Format/KeyPhoto）。
+                    string samsungCoverSource = await XmpMarkerService.DetectSourceProtocolAsync(
+                        photoPath, CancellationToken.None);
+                    string samsungCoverDetails = XmpMarkerService.BuildDetails(
+                        ("Source", samsungCoverSource),
+                        ("Target", protocol.Key),
+                        ("Format", "JPG+MP4"),
+                        ("KeyPhoto", presentationTimestampUs > 0
+                            ? (presentationTimestampUs / 1_000_000.0).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                            : string.Empty));
+                    await XmpMarkerService.TryWriteUnifiedMarkerAsync(
+                        tempOutputPath, "Cover", samsungCoverDetails, CancellationToken.None);
                 }
                 else
                 {
@@ -1267,7 +1282,8 @@ namespace LivePhotoBox.ViewModels
                         processedImagePath,
                         protocol.BuildXmpMetadata(actualVideoSize, presentationTimestampUs),
                         coverDetails,
-                        CancellationToken.None);
+                        CancellationToken.None,
+                        action: "Cover");
 
                     tempOutputPath = Path.Combine(tempWorkDir, "output.jpg");
                     await LivePhotoMergeService.WriteNativeAsync(
