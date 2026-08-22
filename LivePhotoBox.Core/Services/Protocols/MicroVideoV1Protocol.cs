@@ -56,6 +56,6 @@ namespace LivePhotoBox.Services.Protocols
         // presentationTimestampUs: Timestamp in microseconds of the selected frame.
         // 返回: UTF-8 encoded XMP bytes wrapped in xpacket markers.
         public override byte[] BuildXmpMetadata(long videoSize, long presentationTimestampUs)
-            => WrapXmp(string.Format(RdfTemplate, videoSize, presentationTimestampUs), Key);
+            => WrapXmp(string.Format(RdfTemplate, videoSize, presentationTimestampUs));
     }
 }

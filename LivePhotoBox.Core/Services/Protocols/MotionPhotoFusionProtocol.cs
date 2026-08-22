@@ -114,8 +114,7 @@ namespace LivePhotoBox.Services.Protocols
             long pureVideoSize)
             => WrapXmp(
                 string.Format(RdfTemplate, xmpVideoLength, presentationTimestampUs,
-                    primaryMime, primaryPadding, videoMime, pureVideoSize),
-                Key);
+                    primaryMime, primaryPadding, videoMime, pureVideoSize));
 
         // ── Image pre-processing ──────────────────────────────────────────
 

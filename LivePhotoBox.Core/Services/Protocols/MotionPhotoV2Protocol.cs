@@ -98,7 +98,6 @@ namespace LivePhotoBox.Services.Protocols
         public virtual byte[] BuildXmpMetadata(long videoSize, long presentationTimestampUs,
             string primaryMime, string primaryPadding, string videoMime = "video/mp4")
             => WrapXmp(
-                string.Format(RdfTemplate, videoSize, presentationTimestampUs, primaryMime, primaryPadding, videoMime),
-                Key);
+                string.Format(RdfTemplate, videoSize, presentationTimestampUs, primaryMime, primaryPadding, videoMime));
     }
 }

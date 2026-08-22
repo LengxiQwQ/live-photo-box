@@ -829,6 +829,8 @@ public static class LivePhotoRepairService
             }
 
             bool isHeic = IsHeicFile(sourcePath);
+            var inheritedHistory = await XmpMarkerService.ReadExistingEntriesAsync(sourcePath, token);
+            string repairSourceProtocol = await XmpMarkerService.DetectSourceProtocolAsync(sourcePath, token);
 
             // 根据选项和文件分析结果，判断实际要执行哪些操作
             bool doJpegRotation = !isHeic && options.FixImageRotation && analysis.IssueType == RepairIssueType.NeedsRebuild;
@@ -967,8 +969,12 @@ public static class LivePhotoRepairService
                 var fixes = new System.Collections.Generic.List<string>();
                 if (doJpegRotation || doHeicOrientFix) fixes.Add("Rotation");
                 if (doThumbnailStrip) fixes.Add("Thumbnail");
-                await TryWriteLivePhotoBoxMarkerAsync(targetPath, "Repair",
-                    fixes.Count > 0 ? $"Fix={string.Join("+", fixes)}" : "", token);
+                string repairDetails = XmpMarkerService.BuildDetails(
+                    ("Source", repairSourceProtocol),
+                    ("Target", repairSourceProtocol),
+                    ("Fix", string.Join("+", fixes)));
+                await XmpMarkerService.TryWriteUnifiedMarkerAsync(
+                    targetPath, "Repair", repairDetails, token, inheritedHistory);
 
                 WriteDebugLog("INFO", "Repair", ResourceService.Format("Log_RepairSuccess", Path.GetFileName(sourcePath)));
                 return (true, ResourceService.GetString("Status_RepairSuccess"));
@@ -1001,6 +1007,9 @@ public static class LivePhotoRepairService
         private static async Task<(bool Success, string Message)> RepairVideoAsync(
             string sourcePath, string targetPath, RepairAnalysisResult analysis, CancellationToken token)
         {
+            var inheritedHistory = await XmpMarkerService.ReadExistingEntriesAsync(sourcePath, token);
+            string repairSourceProtocol = await XmpMarkerService.DetectSourceProtocolAsync(sourcePath, token);
+
             if (!File.Exists(FFmpegPath))
             {
                 WriteDebugLog("ERROR", "RepairVideo", "ffmpeg.exe not found", $"Expected at: {FFmpegPath}");
@@ -1094,8 +1103,12 @@ public static class LivePhotoRepairService
                         File.Delete(targetPath);
                     }
                     File.Move(tempOutput, targetPath);
-                    await TryWriteLivePhotoBoxMarkerAsync(
-                        targetPath, "Repair", "Fix=Rotation", token);
+                    string repairDetails = XmpMarkerService.BuildDetails(
+                        ("Source", repairSourceProtocol),
+                        ("Target", repairSourceProtocol),
+                        ("Fix", "Rotation"));
+                    await XmpMarkerService.TryWriteUnifiedMarkerAsync(
+                        targetPath, "Repair", repairDetails, token, inheritedHistory);
                     WriteDebugLog("INFO", "RepairVideo", $"Video repair succeeded: {Path.GetFileName(sourcePath)} (in-place={isInPlace})");
                     return (true, ResourceService.GetString("Status_RepairSuccess"));
                 }

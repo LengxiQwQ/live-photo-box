@@ -94,7 +94,7 @@ namespace LivePhotoBox.Services.Protocols
         // presentationTimestampUs: Timestamp in microseconds of the selected frame.
         // 返回: UTF-8 encoded XMP bytes wrapped in xpacket markers.
         public override byte[] BuildXmpMetadata(long videoSize, long presentationTimestampUs)
-            => WrapXmp(RdfTemplate(videoSize, presentationTimestampUs), Key);
+            => WrapXmp(RdfTemplate(videoSize, presentationTimestampUs));
 
         // Pre-process: inject <c>oplus_10485792</c> into the EXIF UserComment
         // so OPPO Gallery recognises the output as a valid O-Live Photo.

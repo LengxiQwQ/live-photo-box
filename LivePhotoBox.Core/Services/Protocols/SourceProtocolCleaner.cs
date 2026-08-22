@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -50,7 +51,8 @@ namespace LivePhotoBox.Services.Protocols
         {
             token.ThrowIfCancellationRequested();
             if (!FileContainsAny(videoPath,
-                    "content.identifier", "live-photo", "vitality", "vivoMediaExtInfo"))
+                    "content.identifier", "live-photo", "vitality", "vivoMediaExtInfo",
+                    "openharmony"))
                 return videoPath;
 
             string ext = Path.GetExtension(videoPath).TrimStart('.');
@@ -75,13 +77,28 @@ namespace LivePhotoBox.Services.Protocols
         /// </summary>
         public static async Task CleanImageMarkersInPlaceAsync(string path, CancellationToken token)
         {
-            // vivo ≤X200 JPEG 尾部：vivo{...}cameralbum!（二进制截断）
+            bool isHeic = path.EndsWith(".heic", StringComparison.OrdinalIgnoreCase) ||
+                          path.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
+            if (isHeic)
+            {
+                // HEIC: no vivo JPEG tail; exiftool rewrite would break Huawei merged structure
+                // and prevent later XMP writes. Strip Apple live-photo entries byte-level instead
+                // (container untouched); safe no-op for Huawei HEIC without Apple MakerNote.
+                AppleMakerNoteWriter.TryStripAppleLivePhotoEntries(path, out _);
+                return;
+            }
+
+            // vivo X200 JPEG tail: vivo{...}cameralbum! (binary truncate)
             StripVivoJpegTail(path);
 
-            // Apple ContentIdentifier（MakerNote 里的配对 UUID → 清空）
+            // OPPO / vivo X300 EXIF UserComment signatures (oplus_ / multi-frame)
+            await ClearOppoVivoUserCommentAsync(path, token);
+
+            // Apple ContentIdentifier (pairing UUID in MakerNote -> clear)
             await LivePhotoRepairService.RunExifToolAsync(
                 token, "-overwrite_original", "-ContentIdentifier=", path);
         }
+
 
         /// <summary>
         /// 就地清洗视频中的双文件协议标记：Apple 实况配对键 + 实况时序元数据轨 +
@@ -95,12 +112,63 @@ namespace LivePhotoBox.Services.Protocols
             Mp4MdtaKeyStripper.TryStripMebxTracks(path, out _);
             // vivo ≤X200 uuid box
             Mp4MdtaKeyStripper.TryStripUuidBox(path, "vivoMediaExtInfo", out _);
+            // Huawei single-file keys (com.openharmony.*, incl. 漏too=openharmony6 patch)
+            Mp4MdtaKeyStripper.TryStripHuaweiKeys(path, out _);
+            // Huawei live-photo timed metadata track
+            Mp4MdtaKeyStripper.TryStripTracks(path, ["com.openharmony.timed_metadata.movingphoto"], out _);
         }
 
         private static bool ShouldStripAppleKey(string name, string value)
             => name.StartsWith("com.apple.quicktime.content.identifier", StringComparison.OrdinalIgnoreCase)
             || name.Contains("live-photo", StringComparison.OrdinalIgnoreCase)
             || name.Contains("vitality", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// 清空 OPPO（oplus_ 前缀）与 vivo X300+（multi-frame 签名）的 EXIF UserComment，
+        /// 避免源实况照片的厂商识别签名残留到合成输出。先做字节扫描，命中才读/清。
+        /// </summary>
+        private static async Task ClearOppoVivoUserCommentAsync(string path, CancellationToken token)
+        {
+            try
+            {
+                if (!FileContainsAny(path, "oplus_", "multi-frame"))
+                    return;
+
+                string? exifToolPath = ExternalToolLocator.FindExifTool();
+                if (string.IsNullOrEmpty(exifToolPath)) return;
+
+                string? currentValue = null;
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                psi.ArgumentList.Add("-UserComment");
+                psi.ArgumentList.Add("-s");
+                psi.ArgumentList.Add("-s");
+                psi.ArgumentList.Add("-S");
+                psi.ArgumentList.Add(path);
+                using (var process = Process.Start(psi))
+                {
+                    if (process == null) return;
+                    currentValue = process.StandardOutput.ReadToEnd().Trim();
+                    process.WaitForExit(5000);
+                }
+
+                if (string.IsNullOrEmpty(currentValue)) return;
+                bool isOppo = currentValue.StartsWith("oplus_", StringComparison.OrdinalIgnoreCase);
+                bool isVivo = currentValue.Contains("multi-frame", StringComparison.OrdinalIgnoreCase);
+                if (!isOppo && !isVivo) return;
+
+                await LivePhotoRepairService.RunExifToolAsync(
+                    token, "-overwrite_original", "-UserComment=", path);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { /* best-effort */ }
+        }
 
         // vivo ≤X200 JPEG 尾部：从最后一个 vivo{ 到文件末尾整体截断。
         // 新版样本的 cameralbum! 之后还有 ID、FF FF FF FF 与 11 字节签名，

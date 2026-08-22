@@ -142,8 +142,7 @@ namespace LivePhotoBox.Services.Protocols
         {
             string template = gainMapLength > 0 ? RdfTemplateWithGainMap : RdfTemplateNoGainMap;
             return WrapXmp(
-                string.Format(template, videoSize, presentationTimestampUs, primaryMime, gainMapLength, videoMime),
-                Key);
+                string.Format(template, videoSize, presentationTimestampUs, primaryMime, gainMapLength, videoMime));
         }
 
         // ── EXIF UserComment ────────────────────────────────────────────

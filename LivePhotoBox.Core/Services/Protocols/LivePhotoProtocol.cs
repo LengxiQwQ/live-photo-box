@@ -27,11 +27,9 @@ namespace LivePhotoBox.Services.Protocols
     // how the source image is pre-processed before the JPEG+video concatenation.
     public abstract class LivePhotoProtocol
     {
-        // Cached app version string read from the entry assembly (or Core itself as fallback).
-        private static readonly string _appVersion =
-            System.Reflection.Assembly.GetEntryAssembly()?.GetName()?.Version?.ToString()
-            ?? System.Reflection.Assembly.GetExecutingAssembly().GetName().Version?.ToString()
-            ?? "0.0.0";
+        // Cached app version string (3-part, e.g. "2.2.1") read from the entry
+        // assembly (or Core itself as fallback). Single source: XmpMarkerService.
+        private static readonly string _appVersion = XmpMarkerService.AppVersion;
 
         // Stable numeric id matching the ComboBox SelectedIndex in the UI.
         public abstract int Id { get; }
@@ -173,14 +171,12 @@ namespace LivePhotoBox.Services.Protocols
         // rdfDescription: The rdf:Description XML element.
         // protocolKey: Identifier of the protocol that generated this XMP (e.g. "MotionPhotoV2").If null or empty, the Protocol attribute is omitted.
         // 返回: UTF-8 encoded XMP bytes including xpacket wrapper markers.
-        protected static byte[] WrapXmp(string rdfDescription, string? protocolKey = null)
+        protected static byte[] WrapXmp(string rdfDescription)
         {
-            // Build the LivePhotoBox tracking marker with app version and optional protocol key
+            // Build the LivePhotoBox tracking marker: namespace + timestamp + version only.
+            // Action/Protocol live in the dc:subject history entries (structured details).
             string marker = " xmlns:LivePhotoBox=\"https://github.com/LengxiQwQ/live-photo-box\"" +
-                           $" LivePhotoBox:Action=\"Merge\"";
-            if (!string.IsNullOrEmpty(protocolKey))
-                marker += $" LivePhotoBox:Protocol=\"{protocolKey}\"";
-            // Only add version on the first call to avoid the reflection cost each time
+                           $" LivePhotoBox:Timestamp=\"{DateTimeOffset.Now:yyyy-MM-ddTHH:mm:sszzz}\"";
             marker += $" LivePhotoBox:Version=\"{_appVersion}\"";
 
             // Determine where to inject the marker:

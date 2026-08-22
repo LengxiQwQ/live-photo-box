@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -217,6 +218,11 @@ namespace LivePhotoBox.Services
             var protocol = LivePhotoProtocol.FromIndex(selectedModeIndex);
             long videoSize = new FileInfo(sourceVid).Length;
 
+            // Source protocol detection + structured Merge details (Source/Target/Format/KeyPhoto/VideoCodec).
+            string sourceProtocol = await XmpMarkerService.DetectSourceProtocolAsync(sourceImg, token);
+            string mergeDetails = BuildMergeDetails(
+                sourceProtocol, protocol.Key, outputFormatIndex, presentationTimestampUs);
+
             // ── Samsung HEIC path (mpvd + sefd box with Samsung Trailer) ──
             // 仅在用户明确选择 HEIC 输出（格式 2）时走 HEIC；请求 jpg+* 时源图
             // 已被 runner 转成 JPEG，这里加格式门控作为防御（P1-2）。
@@ -225,7 +231,7 @@ namespace LivePhotoBox.Services
                 && outputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4)
             {
                 string videoMime = DetectVideoMime(sourceVid);
-                await WriteSamsungHeicAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samHeic, token, presentationTimestampUs);
+                await WriteSamsungHeicAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samHeic, mergeDetails, token, presentationTimestampUs);
                 return;
             }
 
@@ -233,7 +239,7 @@ namespace LivePhotoBox.Services
             if (protocol is SamsungMotionPhotoProtocol samJpeg)
             {
                 string videoMime = DetectVideoMime(sourceVid);
-                await WriteSamsungJpegAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samJpeg, token, presentationTimestampUs);
+                await WriteSamsungJpegAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samJpeg, mergeDetails, token, presentationTimestampUs);
                 return;
             }
 
@@ -245,6 +251,7 @@ namespace LivePhotoBox.Services
             {
                 string videoMime = DetectVideoMime(sourceVid);
                 byte[] xmpBytes = v2.BuildXmpMetadata(videoSize, presentationTimestampUs, "image/heic", "8", videoMime);
+                xmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(sourceImg, xmpBytes, mergeDetails, token);
                 await WriteHeicNativeAsync(sourceImg, sourceVid, targetPath, xmpBytes, token);
                 return;
             }
@@ -261,7 +268,7 @@ namespace LivePhotoBox.Services
                 // Pass raw presentation timestamp (microseconds) — WriteHuaweiNativeAsync
                 // converts it to a frame number using the actual video FPS.
                 await WriteHuaweiNativeAsync(sourceImg, sourceVid, targetPath,
-                    isHeicOutput, presentationTimestampUs, token);
+                    isHeicOutput, presentationTimestampUs, token, outputFormatIndex: outputFormatIndex);
                 return;
             }
 
@@ -290,12 +297,36 @@ namespace LivePhotoBox.Services
             {
                 jpegXmpBytes = protocol.BuildXmpMetadata(videoSize, presentationTimestampUs);
             }
+            jpegXmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(sourceImg, jpegXmpBytes, mergeDetails, token);
             await WriteNativeAsync(sourceImg, sourceVid, targetPath, jpegXmpBytes, token);
         }
 
         // Detect the MIME type for a video file based on its container format.
         // Checks the file extension first, then falls back to the ISOBMFF ftyp box.
         // Returns "video/quicktime" for MOV, "video/mp4" for MP4 and unknown formats.
+        private static string BuildMergeDetails(
+            string sourceProtocol, string targetProtocol, int outputFormatIndex, long presentationTimestampUs)
+        {
+            string format = outputFormatIndex switch
+            {
+                0 => "JPG+MP4",
+                1 => "JPG+MOV",
+                2 => "HEIC+MP4",
+                3 => "HEIC+MOV",
+                ProtocolFormatMatrix.FormatHeicMp4H265 => "HEIC+MP4(H.265)",
+                _ => "Unknown",
+            };
+            string videoCodec = format is "JPG+MOV" or "HEIC+MOV" or "HEIC+MP4(H.265)" ? "H.265" : "H.264";
+            string keyPhoto = presentationTimestampUs > 0
+                ? (presentationTimestampUs / 1_000_000.0).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)
+                : string.Empty;
+            return XmpMarkerService.BuildDetails(
+                ("Source", sourceProtocol),
+                ("Target", targetProtocol),
+                ("Format", format),
+                ("KeyPhoto", keyPhoto),
+                ("VideoCodec", videoCodec));
+        }
         private static string DetectVideoMime(string videoPath)
         {
             // Fast path: extension-based detection (caller already ensured correct container)
@@ -445,9 +476,18 @@ namespace LivePhotoBox.Services
             CancellationToken token,
             int originalCoverMs = 0,
             int originalDurationMs = 0,
-            string tailPrefix = "v6_f")
+            string tailPrefix = "v6_f",
+            int outputFormatIndex = 0)
         {
             long videoSize = new FileInfo(sourceVid).Length;
+
+            string sourceProtocol = await XmpMarkerService.DetectSourceProtocolAsync(sourceImg, token);
+            string mergeDetails = BuildMergeDetails(
+                sourceProtocol, "HuaweiMovingPhoto", outputFormatIndex, presentationTimestampUs);
+
+            // Build unified LivePhotoBox XMP (namespace attrs + dc:subject history incl. inherited entries).
+            byte[] huaweiXmp = await XmpMarkerService.BuildHuaweiMergeXmpAsync(
+                sourceImg, mergeDetails, token);
 
             // 1. Get total video frame count (ffprobe nb_frames preferred, exiftool fallback)
             int totalFrames = await DetectVideoFrameCountAsync(sourceVid, token);
@@ -497,18 +537,78 @@ namespace LivePhotoBox.Services
                 // Read source HEIC, patch ftyp to include "tmap" brand
                 byte[] heicData = await File.ReadAllBytesAsync(sourceImg, token);
                 byte[] patched = InsertTmapBrand(heicData);
-                await File.WriteAllBytesAsync(targetPath, patched, token);
+                string tempDir = Path.Combine(Path.GetTempPath(),
+                    "LivePhotoBox_HuaweiHeic_" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(tempDir);
+                try
+                {
+                    string tempHeic = Path.Combine(tempDir, "image.heic");
+                    string tempXmp = Path.Combine(tempDir, "temp.xmp");
+                    string tempOut = Path.Combine(tempDir, "out.heic");
+                    await File.WriteAllBytesAsync(tempHeic, patched, token);
+                    await File.WriteAllBytesAsync(tempXmp, huaweiXmp, token);
+                    try
+                    {
+                        await LivePhotoRepairService.RunExifToolAsync(token,
+                            $"-xmp<={tempXmp}",
+                            "-o", tempOut,
+                            tempHeic);
+                        if (!File.Exists(tempOut))
+                            throw new InvalidOperationException("exiftool produced no output");
+                        string? readBack = await XmpMarkerService.ReadXmpTextAsync(tempOut, token);
+                        if (string.IsNullOrWhiteSpace(readBack) ||
+                            !readBack.Contains("LivePhotoBox:", StringComparison.Ordinal))
+                        {
+                            throw new InvalidOperationException("exiftool wrote no usable XMP");
+                        }
+                        File.Move(tempOut, targetPath, overwrite: true);
+                    }
+                    catch (OperationCanceledException) { throw; }
+                    catch (Exception ex)
+                    {
+                        await File.WriteAllBytesAsync(targetPath, patched, token);
+                        var (injectOk, injectError) = await HeicXmpInjector.TryInjectXmpAsync(
+                            targetPath, huaweiXmp, token);
+                        if (!injectOk)
+                        {
+                            LogService.Merge(
+                                $"HUAWEI HEIC XMP injection failed (exiftool: {ex.Message}; injector: {injectError}); wrote without XMP",
+                                LogLevel.Warning);
+                        }
+                    }
+                }
+                finally
+                {
+                    try { Directory.Delete(tempDir, recursive: true); } catch { }
+                }
             }
             else
             {
-                // JPEG: copy directly
+                // JPEG: write unified LivePhotoBox XMP as the first APP1 segment,
+                // then copy the source JPEG skipping its own XMP APP1 (single XMP).
+                int segmentLength = 2 + XmpHeader.Length + huaweiXmp.Length;
+                if (segmentLength > ushort.MaxValue)
+                {
+                    throw new InvalidOperationException(
+                        ResourceService.Format("Error_XmpMetadataTooLarge", segmentLength));
+                }
+                byte[] prefix = new byte[4 + 2 + XmpHeader.Length];
+                prefix[0] = 0xFF; prefix[1] = 0xD8;
+                prefix[2] = 0xFF; prefix[3] = 0xE1;
+                prefix[4] = (byte)(segmentLength >> 8);
+                prefix[5] = (byte)(segmentLength & 0xFF);
+                Array.Copy(XmpHeader, 0, prefix, 6, XmpHeader.Length);
+
                 using var imgFs = new FileStream(
                     sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
                     bufferSize: 8192, useAsync: true);
                 using var targetFs = new FileStream(
                     targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
                     bufferSize: 8192, useAsync: true);
-                await imgFs.CopyToAsync(targetFs, token);
+                await targetFs.WriteAsync(prefix, 0, prefix.Length, token);
+                await targetFs.WriteAsync(huaweiXmp, 0, huaweiXmp.Length, token);
+                imgFs.Position = 2;
+                await CopyJpegSkippingXmpApp1Async(imgFs, targetFs, token);
             }
 
             // 4. Append MP4 video
@@ -1163,7 +1263,7 @@ namespace LivePhotoBox.Services
                 sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
                 bufferSize: 8192, useAsync: true);
             imgFs.Position = 2;  // skip source JPEG's SOI
-            await imgFs.CopyToAsync(targetFs, token);
+            await CopyJpegSkippingXmpApp1Async(imgFs, targetFs, token);
 
             // Append video
             using var vidFs = new FileStream(
@@ -1266,6 +1366,7 @@ namespace LivePhotoBox.Services
             long videoSize,
             string videoMime,
             MotionPhotoV2Protocol protocol,
+            string mergeDetails,
             CancellationToken token,
             long presentationTimestampUs)
         {
@@ -1296,6 +1397,7 @@ namespace LivePhotoBox.Services
                 xmpBytes = protocol.BuildXmpMetadata(xmpVideoLength, presentationTimestampUs,
                     "image/jpeg", tagHeaderPadding.ToString(), videoMime);
             }
+            xmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(sourceImg, xmpBytes, mergeDetails, token);
 
             // Inject XMP into JPEG — write directly (same pattern as WriteNativeAsync),
             // NOT via exiftool which parses and strips unknown XMP namespaces
@@ -1325,7 +1427,7 @@ namespace LivePhotoBox.Services
                 using var ms = new MemoryStream();
                 await ms.WriteAsync(prefix, 0, prefix.Length, token);
                 await ms.WriteAsync(xmpBytes, 0, xmpBytes.Length, token);
-                await imgFs.CopyToAsync(ms, token);
+                await CopyJpegSkippingXmpApp1Async(imgFs, ms, token);
                 jpegData = ms.ToArray();
             }
 
@@ -1355,6 +1457,7 @@ namespace LivePhotoBox.Services
             long videoSize,
             string videoMime,
             MotionPhotoV2Protocol protocol,
+            string mergeDetails,
             CancellationToken token,
             long presentationTimestampUs)
         {
@@ -1377,6 +1480,7 @@ namespace LivePhotoBox.Services
             {
                 xmpBytes = protocol.BuildXmpMetadata(videoSize, presentationTimestampUs, "image/heic", "8", videoMime);
             }
+            xmpBytes = await XmpMarkerService.EmbedMergeHistoryAsync(sourceHeic, xmpBytes, mergeDetails, token);
 
             string tempDir = Path.Combine(Path.GetTempPath(),
                 "LivePhotoBox_SamsungHeic_" + Guid.NewGuid().ToString("N"));
@@ -1445,6 +1549,141 @@ namespace LivePhotoBox.Services
         // Adobe XMP APP1 segment header (29 bytes including NUL).
         private static readonly byte[] XmpHeader =
             Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0");
+        // Copy a JPEG stream to the destination, skipping its existing XMP APP1
+        // segment (the caller already wrote a fresh XMP prefix).
+        private static async Task CopyJpegSkippingXmpApp1Async(
+            Stream sourceStream, Stream destinationStream, CancellationToken token)
+        {
+            byte[] header = new byte[4];
+            byte[] two = new byte[2];
+            byte[] one = new byte[1];
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(64 * 1024);
+            try
+            {
+                while (true)
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (await ReadExactlyAsync(sourceStream, two, 2, token) != 2) break;
+                    while (two[0] == 0xFF && two[1] == 0xFF)
+                    {
+                        await destinationStream.WriteAsync(two.AsMemory(0, 1), token);
+                        two[0] = two[1];
+                        if (await ReadExactlyAsync(sourceStream, one, 1, token) != 1) break;
+                        two[1] = one[0];
+                    }
+                    header[0] = two[0];
+                    header[1] = two[1];
+                    byte marker = header[1];
+                    if (marker == 0xDA)
+                    {
+                        await destinationStream.WriteAsync(header.AsMemory(0, 2), token);
+                        await sourceStream.CopyToAsync(destinationStream, token);
+                        break;
+                    }
+                    if (marker == 0xD8 || marker == 0xD9 ||
+                        (marker >= 0xD0 && marker <= 0xD7) ||
+                        marker == 0x01 || marker == 0x00)
+                    {
+                        await destinationStream.WriteAsync(header.AsMemory(0, 2), token);
+                        if (marker == 0xD9) break; // EOI: end of JPEG
+                        continue;
+                    }
+                    if (await ReadExactlyAsync(sourceStream, two, 2, token) != 2)
+                        throw new EndOfStreamException("Unexpected EOF while reading JPEG segment length.");
+                    int segmentLength = (two[0] << 8) | two[1];
+                    if (segmentLength < 2)
+                        throw new InvalidDataException($"Invalid JPEG segment length: {segmentLength}");
+                    int payloadLength = segmentLength - 2;
+                    int sniff = Math.Min(payloadLength, XmpHeader.Length);
+                    if (sniff > 0 &&
+                        await ReadExactlyAsync(sourceStream, buffer, sniff, token) != sniff)
+                    {
+                        throw new EndOfStreamException("Unexpected EOF while reading JPEG segment payload.");
+                    }
+                    bool isXmp = sniff >= XmpHeader.Length
+                        && buffer.AsSpan(0, XmpHeader.Length).SequenceEqual(XmpHeader);
+                    if (isXmp)
+                    {
+                        int remaining = payloadLength - sniff;
+                        if (remaining > 0) await SkipExactlyAsync(sourceStream, remaining, token);
+                    }
+                    else
+                    {
+                        await destinationStream.WriteAsync(header.AsMemory(0, 2), token);
+                        await destinationStream.WriteAsync(two.AsMemory(0, 2), token);
+                        if (sniff > 0)
+                            await destinationStream.WriteAsync(buffer.AsMemory(0, sniff), token);
+                        int remaining = payloadLength - sniff;
+                        if (remaining > 0)
+                            await CopyExactlyAsync(sourceStream, destinationStream, remaining, token);
+                    }
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        private static async Task<int> ReadExactlyAsync(
+            Stream stream, byte[] buffer, int count, CancellationToken token)
+        {
+            int offset = 0;
+            while (offset < count)
+            {
+                token.ThrowIfCancellationRequested();
+                int read = await stream.ReadAsync(buffer.AsMemory(offset, count - offset), token);
+                if (read <= 0) break;
+                offset += read;
+            }
+            return offset;
+        }
+
+        private static async Task SkipExactlyAsync(Stream stream, int count, CancellationToken token)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(8192);
+            try
+            {
+                int remaining = count;
+                while (remaining > 0)
+                {
+                    token.ThrowIfCancellationRequested();
+                    int read = await stream.ReadAsync(
+                        buffer.AsMemory(0, Math.Min(buffer.Length, remaining)), token);
+                    if (read <= 0)
+                        throw new EndOfStreamException("Unexpected EOF while skipping JPEG segment payload.");
+                    remaining -= read;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+
+        private static async Task CopyExactlyAsync(
+            Stream source, Stream destination, int count, CancellationToken token)
+        {
+            byte[] buffer = ArrayPool<byte>.Shared.Rent(8192);
+            try
+            {
+                int remaining = count;
+                while (remaining > 0)
+                {
+                    token.ThrowIfCancellationRequested();
+                    int read = await source.ReadAsync(
+                        buffer.AsMemory(0, Math.Min(buffer.Length, remaining)), token);
+                    if (read <= 0)
+                        throw new EndOfStreamException("Unexpected EOF while copying JPEG segment payload.");
+                    await destination.WriteAsync(buffer.AsMemory(0, read), token);
+                    remaining -= read;
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
 
         // ── mpvd box helpers ─────────────────────────────────────────────
 

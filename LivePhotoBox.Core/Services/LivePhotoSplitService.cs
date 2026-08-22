@@ -226,7 +226,8 @@ namespace LivePhotoBox.Services
                 // 华为 HEIC 无 XMP，此步为空操作（best-effort）。
                 // 注意：Apple 目标走字节级无损注入，exiftool 整文件重写会破坏「原样保留」并多塞空 XMP，
                 // 故 Apple 目标跳过此步（配对靠 MakerNote，不依赖此处 XMP 剥离）。
-                if (sourceImageIsHeic && protocolIndex != 1)
+                if (sourceImageIsHeic && protocolIndex != 1 &&
+                    protocol != LivePhotoProtocolType.Huawei)
                 {
                     await StripHeicXmpAsync(tempImagePath, token);
                 }
@@ -259,7 +260,8 @@ namespace LivePhotoBox.Services
                 // 0x0025，见协议文档 Apple 章节）：exiftool 只能清空 CID 值、删不掉 type=16 条目
                 // （-LivePhotoVideoIndex= 等四种写法实测无效），且 HEIC 源此前被 sourceImageIsJpeg
                 // 门控整体跳过。此步骤对 JPEG 与 HEIC 源统一执行，保持 MN 长度不变不破坏结构。
-                if (protocolIndex == 0 || protocolIndex == 2)
+                if ((protocolIndex == 0 || protocolIndex == 2) &&
+                    !(sourceImageIsHeic && protocol == LivePhotoProtocolType.Huawei))
                 {
                     Protocols.AppleMakerNoteWriter.TryStripAppleLivePhotoEntries(
                         tempImagePath, out string? stripMnError);
@@ -391,6 +393,32 @@ namespace LivePhotoBox.Services
                     && targetImageIsHeic
                     && string.Equals(workingImagePath, tempImagePath, StringComparison.Ordinal);
 
+                // Apple 目标 + HEIC 输出：heif-enc 转码会丢 Apple MakerNote（含 ContentIdentifier），
+                // 对转换后的 HEIC 用字节级工具重新注入，保证图片端配对信息完整。
+                // 无损 HEIC→HEIC 路径已在转换前直注过，跳过避免重复。
+                if (protocolIndex == 1 && targetImageIsHeic && !imageIsLosslessHeic && appleContentId != null)
+                {
+                    if (!Protocols.AppleMakerNoteWriter.TryInjectAppleMakerNoteIntoHeic(
+                            workingImagePath, appleContentId, out string? heicMnError))
+                    {
+                        // 字节级注入可能因 Exif item 容量不足失败，回退从已注入 CID 的源图复制完整 EXIF。
+                        LogService.Split(
+                            $"Apple[image] HEIC MakerNote re-injection failed ({heicMnError}); copying EXIF from source",
+                            LogLevel.Warning);
+                        string? exifSource = appleBridgeJpeg ?? tempImagePath;
+                        try
+                        {
+                            await LivePhotoRepairService.RunExifToolAsync(token,
+                                "-overwrite_original", "-TagsFromFile", exifSource, "-EXIF:All", workingImagePath);
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            LogService.Split($"Apple[image] HEIC EXIF copy fallback failed: {ex.Message}", LogLevel.Warning);
+                        }
+                    }
+                }
+
                 // 图片落位到最终输出路径（BuildOutputPaths 已预留 0 字节占位文件，需先删除）
                 if (File.Exists(imageOutputPath))
                     File.Delete(imageOutputPath);
@@ -455,14 +483,6 @@ namespace LivePhotoBox.Services
 
                 // 5. 给图片和视频打上 LivePhotoBox 标记（标识经本软件拆分过）
                 // 无损 HEIC 图片跳过：exiftool 会重写容器并加 XMP，破坏原样保留。
-                if (!imageIsLosslessHeic)
-                {
-                    await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
-                        imageOutputPath, "Split", "", token);
-                }
-                await LivePhotoRepairService.TryWriteLivePhotoBoxMarkerAsync(
-                    videoOutputPath, "Split", "", token);
-
                 // ── 按 protocolIndex 写入双文件配对元数据 ───────────────────────────────
                 // protocolIndex == 1（Apple）：给图片与视频两端写入配对元数据，
                 //   使 Apple Photos 将两者识别为一对实况照片。
@@ -478,6 +498,26 @@ namespace LivePhotoBox.Services
                     await Protocols.VivoDualFileMetadataWriter.WritePairMetadataAsync(
                         imageOutputPath, videoOutputPath, token);
                 }
+
+                // 6. LivePhotoBox unified marker (namespace attrs + dc:subject history).
+                //    Written after pairing metadata so Apple ffmpeg/MOV rebuild cannot
+                //    overwrite XMP. Structured details: Source/Target/Image/Video/KeyPhoto.
+                string sourceProtocolKey = XmpMarkerService.ProtocolKey(protocol);
+                string targetProtocolKey = protocolIndex switch { 1 => "Apple", 2 => "Vivo", _ => "None" };
+                string imageFormat = Path.GetExtension(imageOutputPath).TrimStart('.').ToUpperInvariant();
+                string videoFormat = Path.GetExtension(videoOutputPath).TrimStart('.').ToUpperInvariant();
+                string keyPhoto = ResolveSplitKeyPhotoSeconds(metadataText, keyTimestampUs);
+                string splitDetails = XmpMarkerService.BuildDetails(
+                    ("Source", sourceProtocolKey),
+                    ("Target", targetProtocolKey),
+                    ("Image", imageFormat),
+                    ("Video", videoFormat),
+                    ("KeyPhoto", keyPhoto));
+                var inheritedHistory = await XmpMarkerService.ReadExistingEntriesAsync(sourcePath, token);
+                await XmpMarkerService.TryWriteUnifiedMarkerAsync(
+                    imageOutputPath, "Split", splitDetails, token, inheritedHistory);
+                await XmpMarkerService.TryWriteUnifiedMarkerAsync(
+                    videoOutputPath, "Split", splitDetails, token, inheritedHistory);
                 // ─────────────────────────────────────────────────────────────────────────────
 
                 return new LivePhotoSplitResult
@@ -1199,6 +1239,23 @@ namespace LivePhotoBox.Services
                 || xmpText.Contains("xmlns:VCamera=", StringComparison.Ordinal)
                 || xmpText.Contains("xmlns:LivePhotoBox=", StringComparison.Ordinal)
                 || xmpText.Contains("Item:Semantic=\"MotionPhoto\"", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // 解析拆分的封面时间（秒）：优先用户指定 keyTimestampUs，否则从源 XMP 提取。
+        // 解析不到返回空字符串（BuildDetails 会跳过该字段）。
+        private static string ResolveSplitKeyPhotoSeconds(string metadataText, long? keyTimestampUs)
+        {
+            if (keyTimestampUs is > 0)
+                return (keyTimestampUs.Value / 1_000_000.0).ToString(
+                    "0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+            var m = Regex.Match(metadataText,
+                @"(?:MotionPhotoPresentationTimestampUs|MicroVideoPresentationTimestampUs|MotionPhotoPrimaryPresentationTimestampUs)[""=\s]+(-?\d+)",
+                RegexOptions.IgnoreCase | RegexOptions.CultureInvariant, TimeSpan.FromSeconds(2));
+            if (m.Success && long.TryParse(m.Groups[1].Value, out long us) && us > 0)
+                return (us / 1_000_000.0).ToString(
+                    "0.##", System.Globalization.CultureInfo.InvariantCulture);
+            return string.Empty;
         }
 
         private static bool TryRewriteXmpPreservingHdr(string xmpText, out string? rewritten)

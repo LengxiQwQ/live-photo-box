@@ -148,17 +148,23 @@ namespace LivePhotoBox.Services
             // ── 优先：LivePhotoBox:Protocol 字段（我们 app 生成的，最可靠）──
             // WrapXmp 在每个文件里写了 LivePhotoBox:Protocol="{Key}"，
             // 直接读这个值就能知道当初是用哪个协议生成的。
-            if (xmpText.Contains("LivePhotoBox:Protocol=\"MotionPhotoFusion\"", StringComparison.Ordinal))
+            if (xmpText.Contains("LivePhotoBox:Protocol=\"MotionPhotoFusion\"", StringComparison.Ordinal)
+                || xmpText.Contains("Target=MotionPhotoFusion", StringComparison.Ordinal))
                 return LivePhotoProtocolType.Fusion;
-            if (xmpText.Contains("LivePhotoBox:Protocol=\"OppoLivePhoto\"", StringComparison.Ordinal))
+            if (xmpText.Contains("LivePhotoBox:Protocol=\"OppoLivePhoto\"", StringComparison.Ordinal)
+                || xmpText.Contains("Target=OppoLivePhoto", StringComparison.Ordinal))
                 return LivePhotoProtocolType.OPPO;
-            if (xmpText.Contains("LivePhotoBox:Protocol=\"VivoLivePhoto\"", StringComparison.Ordinal))
+            if (xmpText.Contains("LivePhotoBox:Protocol=\"VivoLivePhoto\"", StringComparison.Ordinal)
+                || xmpText.Contains("Target=VivoLivePhoto", StringComparison.Ordinal))
                 return LivePhotoProtocolType.Vivo;
-            if (xmpText.Contains("LivePhotoBox:Protocol=\"SamsungMotionPhoto\"", StringComparison.Ordinal))
+            if (xmpText.Contains("LivePhotoBox:Protocol=\"SamsungMotionPhoto\"", StringComparison.Ordinal)
+                || xmpText.Contains("Target=SamsungMotionPhoto", StringComparison.Ordinal))
                 return LivePhotoProtocolType.Samsung;
-            if (xmpText.Contains("LivePhotoBox:Protocol=\"MicroVideoV1\"", StringComparison.Ordinal))
+            if (xmpText.Contains("LivePhotoBox:Protocol=\"MicroVideoV1\"", StringComparison.Ordinal)
+                || xmpText.Contains("Target=MicroVideoV1", StringComparison.Ordinal))
                 return LivePhotoProtocolType.GoogleV1;
-            if (xmpText.Contains("LivePhotoBox:Protocol=\"MotionPhotoV2\"", StringComparison.Ordinal))
+            if (xmpText.Contains("LivePhotoBox:Protocol=\"MotionPhotoV2\"", StringComparison.Ordinal)
+                || xmpText.Contains("Target=MotionPhotoV2", StringComparison.Ordinal))
                 return LivePhotoProtocolType.GoogleV2;
 
             // ── 兜底：厂商 XMP 标记（原厂文件 / exiftool 处理过的文件）──

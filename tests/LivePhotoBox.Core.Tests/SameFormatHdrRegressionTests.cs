@@ -35,7 +35,7 @@ public sealed class SameFormatHdrRegressionTests
     }
 
     [Theory]
-    [InlineData("ONEPLUS_test.jpg")]
+    [InlineData("一加.jpg")]
     [InlineData("vivo.jpg")]
     public async Task SplitJpeg_HdrPlusMotionPhoto_RemovesMotionPhotoButKeepsGainMap(string sampleName)
     {
