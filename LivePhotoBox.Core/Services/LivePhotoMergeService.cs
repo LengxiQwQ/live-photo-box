@@ -363,6 +363,50 @@ namespace LivePhotoBox.Services
         // (no embedded gain map) or when the trailing bytes are not another JPEG
         // (e.g. re-merging an existing live photo whose trailing bytes are video).
         // Used by the vivo protocol to populate the GainMap Container:Item.
+        // Scan JPEG markers from the current stream position (just after SOI) to the
+        // image's EOI. Returns the absolute offset of the EOI marker's first byte
+        // (0xFF), or null when the stream ends without a valid EOI.
+        private static long? FindJpegEoi(FileStream fs)
+        {
+            var buf = new byte[2];
+            while (true)
+            {
+                // Find the next marker (0xFF)
+                int b;
+                while ((b = fs.ReadByte()) != 0xFF)
+                {
+                    if (b < 0) return null;
+                }
+
+                // Skip padding 0xFF bytes
+                while ((b = fs.ReadByte()) == 0xFF) { }
+                if (b < 0) return null;
+
+                // EOI — end of this JPEG
+                if (b == 0xD9)
+                    return fs.Position - 2;
+
+                // Escaped 0xFF (0xFF 0x00) inside entropy data
+                if (b == 0x00)
+                    continue;
+
+                // Restart markers (0xFF 0xD0–0xD7) — no length segment
+                if (b >= 0xD0 && b <= 0xD7)
+                    continue;
+
+                // TEM / SOI inside a stream carry no length either
+                if (b == 0x01 || b == 0xD8)
+                    continue;
+
+                // All other markers: read 2-byte length and skip the segment
+                int n = fs.Read(buf, 0, 2);
+                if (n < 2) return null;
+                int segLen = (buf[0] << 8) | buf[1];
+                if (segLen < 2) return null;
+                fs.Seek(segLen - 2, SeekOrigin.Current);
+            }
+        }
+
         private static long MeasureGainMapLength(string imagePath)
         {
             try
@@ -392,18 +436,24 @@ namespace LivePhotoBox.Services
                     // EOI — primary image end
                     if (b == 0xD9)
                     {
-                        long trailing = fs.Length - fs.Position;
                         // Only report a gain map when the trailing bytes are another
                         // JPEG (Ultra HDR gain map). A trailing MP4 (from re-merging an
                         // existing live photo) is not a gain map.
-                        if (trailing >= 2)
-                        {
-                            int peek0 = fs.ReadByte();
-                            int peek1 = fs.ReadByte();
-                            if (peek0 != 0xFF || peek1 != 0xD8)
-                                return 0;
-                        }
-                        return trailing;
+                        long trailing = fs.Length - fs.Position;
+                        if (trailing < 4)
+                            return 0;
+                        if (fs.ReadByte() != 0xFF || fs.ReadByte() != 0xD8)
+                            return 0;
+
+                        // Walk the gain map JPEG to its own EOI and return its exact
+                        // byte length. Any bytes after the gain map's EOI (padding or
+                        // extra segments) do not belong to the gain map, so measuring
+                        // everything to EOF would over-report.
+                        long gainMapStart = fs.Position - 2; // includes the FF D8 SOI
+                        long? gainMapEoi = FindJpegEoi(fs);
+                        return gainMapEoi.HasValue
+                            ? gainMapEoi.Value - gainMapStart + 2
+                            : 0;
                     }
 
                     // Escaped 0xFF (0xFF 0x00) inside entropy data
@@ -492,8 +542,13 @@ namespace LivePhotoBox.Services
                 sourceProtocol, "HuaweiMovingPhoto", outputFormatIndex, presentationTimestampUs);
 
             // Build unified LivePhotoBox XMP (namespace attrs + dc:subject history incl. inherited entries).
+            // JPEG 输出：源图自带 Ultra HDR 增益图时测量其真实字节长度并写入
+            // GainMap Container 项（HDR 例外）；HEIC 输出的增益图是 aux 图像，
+            // 不进 XMP，无需容器项。
+            long huaweiGainMapLength = isHeicOutput ? 0 : MeasureGainMapLength(sourceImg);
             byte[] huaweiXmp = await XmpMarkerService.BuildHuaweiMergeXmpAsync(
-                sourceImg, mergeDetails, token);
+                sourceImg, mergeDetails, token,
+                huaweiGainMapLength, isHeicOutput ? "image/heic" : "image/jpeg");
 
             // 1. Get total video frame count (ffprobe nb_frames preferred, exiftool fallback)
             int totalFrames = await DetectVideoFrameCountAsync(sourceVid, token);
@@ -1288,7 +1343,11 @@ namespace LivePhotoBox.Services
                     }
                 }
                 if (lavfPos >= 0) break;
-                pos += actual - 3; // overlap to catch cross-chunk match
+                // Overlap by 3 bytes to catch cross-chunk matches, but always make
+                // forward progress: when the remaining bytes are 3 or fewer, the
+                // original formula (actual - 3) would advance by 0 and loop forever
+                // on files that contain no "Lavf" marker (e.g. camera-encoded MP4).
+                pos += Math.Max(1, actual - 3);
             }
 
             if (lavfPos < 0) return; // No "Lavf" — nothing to patch

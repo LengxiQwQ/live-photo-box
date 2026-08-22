@@ -281,11 +281,61 @@ namespace LivePhotoBox.Services
         /// 由 HeicXmpInjector 或 JPEG 前置段使用。
         /// </summary>
         public static async Task<byte[]> BuildHuaweiMergeXmpAsync(
-            string sourcePath, string details, CancellationToken token)
+            string sourcePath, string details, CancellationToken token,
+            long gainMapLength = 0, string? primaryMime = null)
         {
             var inherited = await ReadExistingEntriesAsync(sourcePath, token);
             var newEntry = BuildEntry("Merge", DateTimeOffset.Now, details);
-            return BuildFreshXmp(MergeEntries(inherited, new[] { newEntry }));
+            byte[] result = BuildFreshXmp(MergeEntries(inherited, new[] { newEntry }));
+
+            // HDR 例外：源图自带 Ultra HDR 增益图（Google/ISO 21496-1）时，把
+            // hdrgm 命名空间属性与 GainMap Container 项一并写入，保证 JPEG 输出
+            // 仍是可识别的 Ultra HDR；无增益图则不写（与规则一致）。
+            string? sourceXmp = await ReadXmpTextAsync(sourcePath, token);
+            if (gainMapLength > 0 && !string.IsNullOrWhiteSpace(sourceXmp)
+                && sourceXmp.Contains("GainMap", StringComparison.Ordinal))
+            {
+                result = AddGainMapContainer(result, gainMapLength, primaryMime ?? "image/jpeg");
+                // 目标已带 GainMap 项，EmbedGainMapFromSource 只补 hdrgm 属性、不再克隆。
+                result = EmbedGainMapFromSource(sourceXmp, result);
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 在目标 XMP 的 rdf:Description 上追加 Ultra HDR 的 Container:Directory
+        /// （Primary + GainMap），并声明 hdrgm 命名空间。增益图长度由调用方
+        /// 按输出文件的实际字节测量后传入。
+        /// </summary>
+        private static byte[] AddGainMapContainer(
+            byte[] xmpBytes, long gainMapLength, string primaryMime)
+        {
+            XDocument doc = ParseXmp(Encoding.UTF8.GetString(xmpBytes));
+            var desc = doc.Descendants(RdfNs + "Description").FirstOrDefault()
+                ?? throw new InvalidDataException("XMP has no rdf:Description element.");
+
+            desc.SetAttributeValue(XNamespace.Xmlns + "hdrgm", HdrgmNs);
+            desc.SetAttributeValue(HdrgmNs + "Version", "1.0");
+            desc.SetAttributeValue(XNamespace.Xmlns + "Container", ContainerNs);
+            desc.SetAttributeValue(XNamespace.Xmlns + "Item", ItemNs);
+
+            desc.Add(new XElement(ContainerNs + "Directory",
+                new XElement(RdfNs + "Seq",
+                    new XElement(RdfNs + "li",
+                        new XAttribute(RdfNs + "parseType", "Resource"),
+                        new XElement(ContainerNs + "Item",
+                            new XAttribute(ItemNs + "Semantic", "Primary"),
+                            new XAttribute(ItemNs + "Mime", primaryMime))),
+                    new XElement(RdfNs + "li",
+                        new XAttribute(RdfNs + "parseType", "Resource"),
+                        new XElement(ContainerNs + "Item",
+                            new XAttribute(ItemNs + "Semantic", "GainMap"),
+                            new XAttribute(ItemNs + "Mime", "image/jpeg"),
+                            new XAttribute(ItemNs + "Length",
+                                gainMapLength.ToString(
+                                    "D8", System.Globalization.CultureInfo.InvariantCulture)))))));
+
+            return BuildXmpBytes(doc);
         }
 
         /// <summary>
@@ -414,7 +464,9 @@ namespace LivePhotoBox.Services
                 var targetSeq = targetDesc.Descendants(ContainerNs + "Directory")
                     .Elements(RdfNs + "Seq")
                     .FirstOrDefault();
-                if (targetSeq != null)
+                // 目标 XMP 已带 GainMap 项（如 vivo 的 3 项模板）时不再克隆，
+                // 避免同一个 Container:Directory 里出现两份 GainMap。
+                if (targetSeq != null && !targetSeq.Elements(RdfNs + "li").Any(IsGainMapItem))
                 {
                     var motionLi = targetSeq.Elements(RdfNs + "li").FirstOrDefault(IsMotionPhotoItem);
                     var clone = new XElement(sourceGainMap);

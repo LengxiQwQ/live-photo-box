@@ -181,6 +181,76 @@ public sealed class SameFormatHdrRegressionTests
     }
 
     [Fact]
+    public async Task MergeJpeg_Vivo_SingleGainMapItem()
+    {
+        string source = ResolveSample("荣耀.jpg");
+        string outputDir = CreateTempDirectory();
+
+        LivePhotoSplitResult split = await LivePhotoSplitService.SplitAsync(
+            source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None);
+
+        try
+        {
+            string mergedPath = Path.Combine(outputDir, "merged_vivo_hdr.jpg");
+            await LivePhotoMergeService.WriteLivePhotoAsync(
+                split.ImageOutputPath,
+                split.VideoOutputPath,
+                mergedPath,
+                selectedModeIndex: 4, // vivo Live Photo
+                CancellationToken.None,
+                outputFormatIndex: ProtocolFormatMatrix.FormatJpgMp4);
+
+            string tags = await ReadExifTagsAsync(
+                mergedPath,
+                "-s", "-DirectoryItemSemantic");
+
+            // vivo 的 3 项模板（Primary/GainMap/MotionPhoto）与源 XMP 的 GainMap
+            // 合并后只允许一份 GainMap，不能出现重复项。
+            Assert.Contains("Primary, GainMap, MotionPhoto", tags);
+            Assert.DoesNotContain("GainMap, GainMap", tags);
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
+    [Fact]
+    public async Task MergeJpeg_Huawei_PreservesGoogleGainMap()
+    {
+        string source = ResolveSample("荣耀.jpg");
+        string outputDir = CreateTempDirectory();
+
+        LivePhotoSplitResult split = await LivePhotoSplitService.SplitAsync(
+            source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None);
+
+        try
+        {
+            string mergedPath = Path.Combine(outputDir, "merged_huawei_hdr.jpg");
+            await LivePhotoMergeService.WriteLivePhotoAsync(
+                split.ImageOutputPath,
+                split.VideoOutputPath,
+                mergedPath,
+                selectedModeIndex: 6, // HUAWEI Moving Photo
+                CancellationToken.None,
+                outputFormatIndex: ProtocolFormatMatrix.FormatJpgMp4);
+
+            string tags = await ReadExifTagsAsync(
+                mergedPath,
+                "-s", "-GainMapImage", "-DirectoryItemSemantic", "-DirectoryItemMime");
+
+            // 华为 JPEG 输出必须保留源图的 Ultra HDR 增益图（hdrgm + GainMap 容器项）。
+            Assert.Contains("GainMapImage", tags);
+            Assert.Contains("Primary, GainMap", tags);
+            Assert.Contains("image/jpeg", tags);
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
+    [Fact]
     public async Task StandardConversion_JpegUltraHdrToHeic_WritesAppleHdrGainMap()
     {
         string source = ResolveSample("荣耀.jpg");
