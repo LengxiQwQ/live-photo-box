@@ -21,7 +21,12 @@ Usage:
 param(
     [string]$OutputDir = "",
     [switch]$SkipBuild,
-    [switch]$SkipHuawei
+    [switch]$SkipHuawei,
+    [string]$AppleImage = "",
+    [string]$AppleVideo = "",
+    [string]$OppoSource = "",
+    [string]$HuaweiHeic = "",
+    [string]$HuaweiVideo = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -52,13 +57,16 @@ if (-not $OutputDir) {
 }
 New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 
-# ---------- default samples ----------
-$appleImg = Join-Path $repo "designs\各个机型测试\苹果双文件.HEIC"
-$appleMov = Join-Path $repo "designs\各个机型测试\苹果双文件.MOV"
-$oppoJpg  = Join-Path $repo "designs\各个机型测试\一加.jpg"
+# ---------- samples (overridable via params, defaults to local test set) ----------
+if (-not $AppleImage) { $AppleImage = Join-Path $repo "designs\各个机型测试\苹果双文件.HEIC" }
+if (-not $AppleVideo) { $AppleVideo = Join-Path $repo "designs\各个机型测试\苹果双文件.MOV" }
+if (-not $OppoSource) { $OppoSource  = Join-Path $repo "designs\各个机型测试\一加.jpg" }
+if (-not $HuaweiHeic) { $HuaweiHeic = "C:\Users\LengxiQwQ\Downloads\实况照片样本\华为测试主图\主图测试-原图.heic" }
+if (-not $HuaweiVideo) { $HuaweiVideo = "C:\Users\LengxiQwQ\Downloads\实况照片样本\华为实况照片样本\输出_拆分照片\heic原始p80 max.MOV" }
 
-$huaweiHeic = "C:\Users\LengxiQwQ\Downloads\实况照片样本\华为测试主图\主图测试-原图.heic"
-$huaweiMov  = "C:\Users\LengxiQwQ\Downloads\实况照片样本\华为实况照片样本\输出_拆分照片\heic原始p80 max.MOV"
+$appleImg = $AppleImage
+$appleMov = $AppleVideo
+$oppoJpg  = $OppoSource
 
 $allOk = $true
 $failList = New-Object System.Collections.Generic.List[string]
