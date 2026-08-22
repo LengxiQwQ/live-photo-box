@@ -238,13 +238,18 @@ namespace LivePhotoBox.Services
         /// 合成页专用：读取源图片已有历史，合并一条新的 Merge 条目（Protocol=...），
         /// 嵌入到协议生成的 XMP 字节中（保留协议原有全部 XMP 内容）。
         /// action 默认 Merge；封面另存等同类操作可传入 "Cover" 写独立动作记录。
+        /// 受"写入操作历史记录"开关控制：开启写完整条目（时间+详情），
+        /// 关闭只写简略标记；命名空间属性（xmlns/Version/Timestamp）始终写入。
         /// </summary>
         public static async Task<byte[]> EmbedMergeHistoryAsync(
             string sourcePath, byte[] xmpBytes, string details, CancellationToken token,
             string action = "Merge")
         {
             var inherited = await ReadExistingEntriesAsync(sourcePath, token);
-            var newEntry = BuildEntry(action, DateTimeOffset.Now, details);
+            bool detailed = AppSettingsService.GetValue("IsDetailedHistoryEnabled", true);
+            string newEntry = detailed
+                ? BuildEntry(action, DateTimeOffset.Now, details)
+                : BuildLightweightEntry(action);
             byte[] result = EmbedEntries(xmpBytes, MergeEntries(inherited, new[] { newEntry }));
 
             // Ultra HDR：源图 XMP 若带 GainMap Container 项（Google Ultra HDR / ISO 21496-1），
@@ -263,13 +268,18 @@ namespace LivePhotoBox.Services
         /// 华为合成专用：生成完整 XMP 字节（命名空间属性 Action/Protocol/Version/Timestamp +
         /// dc:subject 历史，含源图旧历史迁移与新的 Merge 条目）。华为协议本身不生成协议 XMP，
         /// 由 HeicXmpInjector 或 JPEG 前置段使用。
+        /// 受"写入操作历史记录"开关控制：开启写完整条目，关闭只写简略标记；
+        /// 命名空间属性始终写入。
         /// </summary>
         public static async Task<byte[]> BuildHuaweiMergeXmpAsync(
             string sourcePath, string details, CancellationToken token,
             long gainMapLength = 0, string? primaryMime = null)
         {
             var inherited = await ReadExistingEntriesAsync(sourcePath, token);
-            var newEntry = BuildEntry("Merge", DateTimeOffset.Now, details);
+            bool detailed = AppSettingsService.GetValue("IsDetailedHistoryEnabled", true);
+            string newEntry = detailed
+                ? BuildEntry("Merge", DateTimeOffset.Now, details)
+                : BuildLightweightEntry("Merge");
             byte[] result = BuildFreshXmp(MergeEntries(inherited, new[] { newEntry }));
 
             // HDR 例外：源图自带 Ultra HDR 增益图（Google/ISO 21496-1）时，把

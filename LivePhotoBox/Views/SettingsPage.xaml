@@ -362,6 +362,22 @@
                     </ComboBox>
                 </controls:SettingsCard>
 
+                <!-- 写入操作历史记录：只控制详细程度，本软件标识始终写入 -->
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_General_WriteHistoryHeader" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_General_WriteHistoryDesc" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE8A5;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.IsDetailedHistoryEnabled, Mode=TwoWay}"
+                                  x:Uid="Toggle_OnOff"/>
+                </controls:SettingsCard>
+
             </StackPanel>
 
             <!-- ====================================================================== -->
@@ -1013,29 +1029,6 @@
                                     </ToggleSwitch.Resources>
                                 </ToggleSwitch>
                             </StackPanel>
-                        </controls:SettingsCard>
-
-                        <!-- 写入照片操作记录（红色 = 调试工具区警告色，不要跟随主题色）
-                             打开后会记录本软件对照片所做的合成、拆分、修复等操作历史，
-                             可在照片历史页面中查看完整的处理记录。 -->
-                        <controls:SettingsCard FontFamily="Microsoft YaHei UI">
-                            <controls:SettingsCard.Header>
-                                <TextBlock x:Uid="SettingsPage_Debug_WriteHistoryHeader" FontFamily="Microsoft YaHei UI"/>
-                            </controls:SettingsCard.Header>
-                            <controls:SettingsCard.Description>
-                                <TextBlock x:Uid="SettingsPage_Debug_WriteHistoryDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                            </controls:SettingsCard.Description>
-                            <controls:SettingsCard.HeaderIcon>
-                                <ic:SymbolIcon Symbol="DocumentImage" />
-                            </controls:SettingsCard.HeaderIcon>
-                            <ToggleSwitch IsOn="{x:Bind ViewModel.IsDetailedHistoryEnabled, Mode=TwoWay}"
-                                          x:Uid="Toggle_EnabledDisabled">
-                                <ToggleSwitch.Resources>
-                                    <SolidColorBrush x:Key="ToggleSwitchFillOn" Color="#D32F2F"/>
-                                    <SolidColorBrush x:Key="ToggleSwitchFillOnPointerOver" Color="#EF5350"/>
-                                    <SolidColorBrush x:Key="ToggleSwitchFillOnPressed" Color="#C62828"/>
-                                </ToggleSwitch.Resources>
-                            </ToggleSwitch>
                         </controls:SettingsCard>
 
                         <!-- 扫描缩略图开关（红色 = 调试工具区警告色，不要跟随主题色） -->

@@ -2401,11 +2401,11 @@ Then click "Start Split".</value>
   <data name="SettingsPage_Debug_OpenHistoryBtn.Text" xml:space="preserve">
     <value>Open</value>
   </data>
-  <data name="SettingsPage_Debug_WriteHistoryHeader.Text" xml:space="preserve">
-    <value>Write Photo Operation Records</value>
+  <data name="SettingsPage_General_WriteHistoryHeader.Text" xml:space="preserve">
+    <value>Write Operation History</value>
   </data>
-  <data name="SettingsPage_Debug_WriteHistoryDesc.Text" xml:space="preserve">
-    <value>When enabled, records all combo, split, and repair operations (e.g. rotation fix, thumbnail fix) performed by LivePhotoBox. View the complete timeline in the Photo History page</value>
+  <data name="SettingsPage_General_WriteHistoryDesc.Text" xml:space="preserve">
+    <value>When on, full operation history (timestamp and details such as merge source, repair fixes, cover time) is written to photos. When off, only a brief marker is written. This switch only controls the detail level; the app identifier and version are always written, so the history page can still recognize photos processed by this app</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_HeifLinkText.Text" xml:space="preserve">
     <value>Install HEIF Image Extensions</value>
