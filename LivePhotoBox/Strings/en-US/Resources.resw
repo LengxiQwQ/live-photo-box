@@ -2097,19 +2097,19 @@ Then click "Start Split".</value>
   <data name="SettingsPage_HeicConcurrencyDesc.Text" xml:space="preserve">
     <value>Maximum number of HEIC thumbnails decoded in parallel during lightbox preview. Set to 1 for sequential decoding, higher values leverage GPU for faster browsing.</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheckHeader.Text" xml:space="preserve">
+  <data name="SettingsPage_General_OutputCheckHeader.Text" xml:space="preserve">
     <value>Output Self-Check</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheckDesc.Text" xml:space="preserve">
+  <data name="SettingsPage_General_OutputCheckDesc.Text" xml:space="preserve">
     <value>After every merge/split/repair/cover operation, verify the output: XMP written correctly (readable, single copy, marker attributes present), file structure intact, live-photo data present. Light runs quick checks; Full additionally verifies decoding and video playback</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheck_None.Content" xml:space="preserve">
+  <data name="SettingsPage_General_OutputCheck_None.Content" xml:space="preserve">
     <value>None</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheck_Light.Content" xml:space="preserve">
+  <data name="SettingsPage_General_OutputCheck_Light.Content" xml:space="preserve">
     <value>Light</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheck_Full.Content" xml:space="preserve">
+  <data name="SettingsPage_General_OutputCheck_Full.Content" xml:space="preserve">
     <value>Full</value>
   </data>
   <data name="RepairPage_GroupHeaderPairs" xml:space="preserve">

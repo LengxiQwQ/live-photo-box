@@ -326,6 +326,27 @@
                                   x:Uid="Toggle_OnOff"/>
                 </controls:SettingsCard>
 
+                    <!-- 输出自检（处理完每个文件后检查 XMP/结构/实况数据，默认浅查） -->
+                    <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                        <controls:SettingsCard.Header>
+                            <TextBlock x:Uid="SettingsPage_General_OutputCheckHeader" FontFamily="Microsoft YaHei UI"/>
+                        </controls:SettingsCard.Header>
+                        <controls:SettingsCard.Description>
+                            <TextBlock x:Uid="SettingsPage_General_OutputCheckDesc" FontSize="12"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                        </controls:SettingsCard.Description>
+                        <controls:SettingsCard.HeaderIcon>
+                            <FontIcon Glyph="&#xE9D5;" FontSize="16"/>
+                        </controls:SettingsCard.HeaderIcon>
+                        <ComboBox SelectedIndex="{x:Bind ViewModel.OutputCheckLevel, Mode=TwoWay}"
+                                  MinWidth="180"
+                                  VerticalAlignment="Center">
+                            <ComboBoxItem x:Uid="SettingsPage_General_OutputCheck_None"/>
+                            <ComboBoxItem x:Uid="SettingsPage_General_OutputCheck_Light"/>
+                            <ComboBoxItem x:Uid="SettingsPage_General_OutputCheck_Full"/>
+                        </ComboBox>
+                    </controls:SettingsCard>
+
                     <!-- 拖拽自动配对双文件实况照片 -->
                     <controls:SettingsCard FontFamily="Microsoft YaHei UI">
                         <controls:SettingsCard.Header>
@@ -372,7 +393,7 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
                     </controls:SettingsCard.Description>
                     <controls:SettingsCard.HeaderIcon>
-                        <FontIcon Glyph="&#xE8A5;" FontSize="16"/>
+                        <FontIcon Glyph="&#xE81C;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
                     <ToggleSwitch IsOn="{x:Bind ViewModel.IsDetailedHistoryEnabled, Mode=TwoWay}"
                                   x:Uid="Toggle_OnOff"/>
@@ -1094,26 +1115,6 @@
                                                Margin="8,0"/>
                                 </Border>
                             </StackPanel>
-                        </controls:SettingsCard>
-
-                        <!-- 输出自检（处理完每个文件后检查 XMP/结构/实况数据，默认浅查） -->
-                        <controls:SettingsCard FontFamily="Microsoft YaHei UI">
-                            <controls:SettingsCard.Header>
-                                <TextBlock x:Uid="SettingsPage_Debug_OutputCheckHeader" FontFamily="Microsoft YaHei UI"/>
-                            </controls:SettingsCard.Header>
-                            <controls:SettingsCard.Description>
-                                <TextBlock x:Uid="SettingsPage_Debug_OutputCheckDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                            </controls:SettingsCard.Description>
-                            <controls:SettingsCard.HeaderIcon>
-                                <FontIcon Glyph="&#xE9D5;" FontSize="16"/>
-                            </controls:SettingsCard.HeaderIcon>
-                            <ComboBox SelectedIndex="{x:Bind ViewModel.OutputCheckLevel, Mode=TwoWay}"
-                                      MinWidth="180"
-                                      VerticalAlignment="Center">
-                                <ComboBoxItem x:Uid="SettingsPage_Debug_OutputCheck_None"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Debug_OutputCheck_Light"/>
-                                <ComboBoxItem x:Uid="SettingsPage_Debug_OutputCheck_Full"/>
-                            </ComboBox>
                         </controls:SettingsCard>
 
                     </StackPanel>
