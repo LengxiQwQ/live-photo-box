@@ -2420,7 +2420,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>写入操作历史记录</value>
   </data>
   <data name="SettingsPage_General_WriteHistoryDesc.Text" xml:space="preserve">
-    <value>开启后写入完整操作记录（含时间与详情，如合成来源、修复内容、封面时间）；关闭后仅写入简略标记。此开关只控制记录的详细程度，本软件标识与版本信息始终写入，历史页面仍可识别本软件处理的照片</value>
+    <value>开启后写入完整操作记录（含时间与详情，如合成来源、修复内容、封面时间）；关闭后仅写入简略标记。此开关只控制记录的详细程度，标识符和版本号始终写入，历史页面仍可识别处理过的照片</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_HeifLinkText.Text" xml:space="preserve">
     <value>安装 HEIF 图像扩展</value>

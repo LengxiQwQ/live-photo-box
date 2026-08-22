@@ -2420,7 +2420,7 @@ Then click "Start Split".</value>
     <value>Write Operation History</value>
   </data>
   <data name="SettingsPage_General_WriteHistoryDesc.Text" xml:space="preserve">
-    <value>When on, full operation history (timestamp and details such as merge source, repair fixes, cover time) is written to photos. When off, only a brief marker is written. This switch only controls the detail level; the app identifier and version are always written, so the history page can still recognize photos processed by this app</value>
+    <value>When on, full operation history (timestamp and details such as merge source, repair fixes, cover time) is written to photos. When off, only a brief marker is written. This switch only controls the detail level; the identifier and version number are always written, so the history page can still recognize processed photos</value>
   </data>
   <data name="SettingsPage_Merge_HeicDecoder_HeifLinkText.Text" xml:space="preserve">
     <value>Install HEIF Image Extensions</value>
