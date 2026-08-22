@@ -1307,9 +1307,13 @@ namespace LivePhotoBox.ViewModels
                     try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
 
                 // 输出自检（封面另存产物：XMP/结构/实况数据，深查加解码与播放）。
-                await OutputVerifier.VerifyAndLogAsync(
+                var selfCheckProblems = await OutputVerifier.VerifyAndLogAsync(
                     targetPath, CancellationToken.None,
                     OutputVerifier.ProtocolTypeFromIndex(protocolIndex));
+                if (selfCheckProblems.Count > 0)
+                {
+                    await ShowSelfCheckWarningAsync(selfCheckProblems);
+                }
 
                 // ── 11. 完成 ──
                 CompleteExportProgress(
@@ -3508,6 +3512,37 @@ namespace LivePhotoBox.ViewModels
                 CleanupExportTempVideo();
                 FinalizeExportProgress();
             }
+        }
+
+        // 输出自检未通过时的警告弹窗：每行一个问题（段落式展示）。
+        private async Task ShowSelfCheckWarningAsync(List<string> problems)
+        {
+            if (App.MainWindow?.Content?.XamlRoot is not XamlRoot xamlRoot) return;
+            if (problems.Count == 0) return;
+
+            var text = new TextBlock
+            {
+                Text = string.Join("\n", problems),
+                TextWrapping = TextWrapping.Wrap,
+                IsTextSelectionEnabled = true,
+            };
+            var scroll = new ScrollViewer
+            {
+                Content = text,
+                MaxHeight = 360,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollMode = ScrollMode.Auto,
+            };
+
+            var dialog = new ContentDialog
+            {
+                Title = ResourceService.GetString("SelfCheckFailed_Title"),
+                Content = scroll,
+                CloseButtonText = ResourceService.GetString("SelfCheckFailed_CloseButton"),
+                XamlRoot = xamlRoot,
+            };
+            dialog.Resources["ContentDialogMaxWidth"] = 520.0;
+            await dialog.ShowAsync();
         }
 
         /// <summary>GIF 参数设置弹窗（尺寸、帧率、循环、输出路径）</summary>

@@ -189,23 +189,33 @@ namespace LivePhotoBox.Models
             ? AggregateStatus(File1Entry?.Status ?? ProcessStatus.Pending, File2Entry.Status)
             : File1Entry?.Status ?? ProcessStatus.Pending;
 
-        // File1 在队列中显示的状态文字：失败时只显示"修复失败"（简短、不截断），
+        // File1 在队列中显示的状态文字：失败/自检失败时只显示简短状态（不截断），
         // 完整错误详情在点击后弹出的 TeachingTip 中查看；其余状态沿用原详情文案。
-        public string File1DisplayStatusText => File1Status == ProcessStatus.Failed
-            ? ResourceService.GetString("RepairPage_Task_Failed")
-            : File1Details;
+        public string File1DisplayStatusText => File1Status switch
+        {
+            ProcessStatus.Failed => ResourceService.GetString("RepairPage_Task_Failed"),
+            ProcessStatus.SelfCheckFailed => ResourceService.GetString("RepairPage_Task_SelfCheckFailed"),
+            _ => File1Details,
+        };
 
         // File2 在队列中显示的状态文字（规则同 File1）。
-        public string File2DisplayStatusText => File2Status == ProcessStatus.Failed
-            ? ResourceService.GetString("RepairPage_Task_Failed")
-            : File2Details;
+        public string File2DisplayStatusText => File2Status switch
+        {
+            ProcessStatus.Failed => ResourceService.GetString("RepairPage_Task_Failed"),
+            ProcessStatus.SelfCheckFailed => ResourceService.GetString("RepairPage_Task_SelfCheckFailed"),
+            _ => File2Details,
+        };
 
         // 汇总两个 Entry 的状态：处理中 > 待处理 > 失败 > 成功 > 已取消。
         private static ProcessStatus AggregateStatus(ProcessStatus a, ProcessStatus b)
         {
             if (a == ProcessStatus.Processing || b == ProcessStatus.Processing) return ProcessStatus.Processing;
             if (a == ProcessStatus.Pending || b == ProcessStatus.Pending) return ProcessStatus.Pending;
-            if (a == ProcessStatus.Failed || b == ProcessStatus.Failed) return ProcessStatus.Failed;
+            if (a is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed ||
+                b is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed)
+            {
+                return ProcessStatus.Failed;
+            }
             if (a == ProcessStatus.Cancelled || b == ProcessStatus.Cancelled) return ProcessStatus.Cancelled;
             return ProcessStatus.Success;
         }

@@ -11,6 +11,8 @@ namespace LivePhotoBox.Models
         Success,
         // 任务处理失败
         Failed,
+        // 任务处理成功但输出自检未通过（橙色，可点击查看具体问题）
+        SelfCheckFailed,
         // 任务被用户取消
         Cancelled
     }

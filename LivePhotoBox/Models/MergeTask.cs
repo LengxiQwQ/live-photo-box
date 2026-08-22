@@ -40,14 +40,20 @@ namespace LivePhotoBox.Models
 
         #region Computed Properties
 
-        // 任务失败且有错误详情时返回 true（用于 UI 显示错误图标）
-        public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
+        // 任务失败/自检失败且有错误详情时返回 true（用于 UI 显示错误图标）
+        public bool HasErrorDetails =>
+            (Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed)
+            && !string.IsNullOrWhiteSpace(Details);
 
-        // 队列中显示的状态文字：失败时只显示"合成失败"（简短、不截断），
+        // 队列中显示的状态文字：失败时只显示"合成失败"、自检失败显示"自检失败"
+        // （简短、不截断），
         // 完整错误详情在点击后弹出的 TeachingTip 中查看；其余状态沿用原详情文案。
-        public string DisplayStatusText => Status == ProcessStatus.Failed
-            ? ResourceService.GetString("MergePage_Task_Failed")
-            : Details;
+        public string DisplayStatusText => Status switch
+        {
+            ProcessStatus.Failed => ResourceService.GetString("MergePage_Task_Failed"),
+            ProcessStatus.SelfCheckFailed => ResourceService.GetString("MergePage_Task_SelfCheckFailed"),
+            _ => Details,
+        };
 
         // 图片原始大小（字节），用于排序
         public long ImageSizeBytes { get; set; }

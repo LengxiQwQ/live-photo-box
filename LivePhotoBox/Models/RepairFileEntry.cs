@@ -149,8 +149,10 @@ namespace LivePhotoBox.Models
             }
         }
 
-        // 任务失败且有错误详情时返回 true（用于 UI 显示错误图标）
-        public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
+        // 任务失败/自检失败且有错误详情时返回 true（用于 UI 显示错误图标）
+        public bool HasErrorDetails =>
+            (Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed)
+            && !string.IsNullOrWhiteSpace(Details);
 
         // 诊断阶段报错 → 诊断结果文字标红 + 可点击查看详情
         public bool IsDiagnosisError => AnalysisResult?.IssueType == RepairIssueType.Error;

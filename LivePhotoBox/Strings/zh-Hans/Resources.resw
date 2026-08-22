@@ -4259,11 +4259,26 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="MergePage_Task_Failed" xml:space="preserve">
     <value>合成失败</value>
   </data>
+  <data name="MergePage_Task_SelfCheckFailed" xml:space="preserve">
+    <value>自检失败</value>
+  </data>
   <data name="SplitPage_Task_Failed" xml:space="preserve">
     <value>拆分失败</value>
   </data>
+  <data name="SplitPage_Task_SelfCheckFailed" xml:space="preserve">
+    <value>自检失败</value>
+  </data>
   <data name="RepairPage_Task_Failed" xml:space="preserve">
     <value>修复失败</value>
+  </data>
+  <data name="RepairPage_Task_SelfCheckFailed" xml:space="preserve">
+    <value>自检失败</value>
+  </data>
+  <data name="SelfCheckFailed_Title" xml:space="preserve">
+    <value>自检失败</value>
+  </data>
+  <data name="SelfCheckFailed_CloseButton" xml:space="preserve">
+    <value>确定</value>
   </data>
   <data name="SettingsPage_NotifFreq_Over120.Content" xml:space="preserve">
     <value>任务时长超过 2 分钟时通知</value>

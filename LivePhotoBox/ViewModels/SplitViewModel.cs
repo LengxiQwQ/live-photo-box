@@ -116,7 +116,8 @@ namespace LivePhotoBox.ViewModels
         public int PendingCount => Tasks.Count(t => t.Status == ProcessStatus.Pending);
         public int ProcessingCount => Tasks.Count(t => t.Status == ProcessStatus.Processing);
         public int SuccessCount => Tasks.Count(t => t.Status == ProcessStatus.Success);
-        public int FailedCount => Tasks.Count(t => t.Status == ProcessStatus.Failed);
+        public int FailedCount => Tasks.Count(t =>
+            t.Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed);
         // 已取消 = 尚未开始即被取消（Cancelled 状态）+ 处理中被打断被取消（IsCancelled 标记，
         // 保留 Processing 状态显示、颜色中性）。
         public int CancelledCount => Tasks.Count(t => t.Status == ProcessStatus.Cancelled || t.IsCancelled);
@@ -752,7 +753,8 @@ namespace LivePhotoBox.ViewModels
 
                     int total = Tasks.Count;
                     int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
-                    int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                    int failed = Tasks.Count(t =>
+                        t.Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed);
                     double elapsed = _stopwatch.Elapsed.TotalSeconds;
 
                     SetStatus("Status_SplitCompletedSummary", total, elapsed, succeeded, failed);
@@ -1232,7 +1234,8 @@ namespace LivePhotoBox.ViewModels
             {
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
-                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                int failed = Tasks.Count(t =>
+                    t.Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed);
 
                 var stack = new StackPanel { Spacing = 12 };
                 stack.Children.Add(new TextBlock
@@ -1268,7 +1271,8 @@ namespace LivePhotoBox.ViewModels
             {
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
-                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                int failed = Tasks.Count(t =>
+                    t.Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed);
                 int unprocessed = total - succeeded - failed;
 
                 var stack = new StackPanel { Spacing = 12 };
@@ -1354,11 +1358,20 @@ namespace LivePhotoBox.ViewModels
                             try
                             {
                                 string outputBaseName = ComputeOutputBaseName(task);
-                                await LivePhotoSplitService.SplitAsync(
+                                var splitResult = await LivePhotoSplitService.SplitAsync(
                                     task.SourcePath, outputDir, protocolIndex, outputFormatIndex, token,
                                     inputDirectory, outputBaseName, overwriteExisting);
-                                isSuccess = true;
-                                detailMessage = ResourceService.GetString("SplitPage_Task_Success") ?? "Success";
+                                if (splitResult.SelfCheckProblems.Count > 0)
+                                {
+                                    // 输出自检未通过：以标记携带问题，队列显示"自检失败"。
+                                    detailMessage = OutputVerifier.SelfCheckMarker
+                                        + string.Join("\n", splitResult.SelfCheckProblems);
+                                }
+                                else
+                                {
+                                    isSuccess = true;
+                                    detailMessage = ResourceService.GetString("SplitPage_Task_Success") ?? "Success";
+                                }
                             }
                             catch (OperationCanceledException)
                             {
@@ -1478,7 +1491,8 @@ namespace LivePhotoBox.ViewModels
             {
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
-                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                int failed = Tasks.Count(t =>
+                    t.Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed);
                 int unprocessed = total - succeeded - failed;
                 double elapsed = _stopwatch.Elapsed.TotalSeconds;
                 LogService.Split($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalCount}");
@@ -1657,9 +1671,19 @@ namespace LivePhotoBox.ViewModels
         // 更新任务完成状态（成功/失败），如果所有任务完成则触发 ProcessingCompletedForScroll 事件。
         private void UpdateTaskCompleted(SplitTask task, bool isSuccess, string detailMessage, int completedCount)
         {
-            task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
-            task.ProgressText = isSuccess ? "100%" : "0%";
-            task.Details = detailMessage;
+            if (OutputVerifier.TryStripSelfCheckMarker(detailMessage, out var selfCheckProblems))
+            {
+                // 输出自检未通过：显示"自检失败"（橙色），问题在点击弹窗中逐段展示。
+                task.Status = ProcessStatus.SelfCheckFailed;
+                task.ProgressText = "100%";
+                task.Details = selfCheckProblems;
+            }
+            else
+            {
+                task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
+                task.ProgressText = isSuccess ? "100%" : "0%";
+                task.Details = detailMessage;
+            }
             NotifyStatsChanged();
 
             if (completedCount >= Tasks.Count && Tasks.Count > 0)

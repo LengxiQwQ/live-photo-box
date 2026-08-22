@@ -635,6 +635,8 @@ namespace LivePhotoBox.Cli.Commands
                     inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite,
                     keyTimestampUs: keyTimestampUs);
 
+                WarnSelfCheck(sourcePath, result);
+
                 if (json)
                 {
                     PrintSingleJson(sourcePath, result.ImageOutputPath, result.VideoOutputPath, "split");
@@ -761,6 +763,8 @@ namespace LivePhotoBox.Cli.Commands
                             inputDirectory: null,
                             outputBaseName: v.BaseName,
                             overwriteExisting: true);
+
+                        WarnSelfCheck(sourcePath, result);
 
                         Interlocked.Increment(ref ok);
                         // 完成顺序编号：谁先跑完谁就是 [1/N]，打印自上而下单调递增。
@@ -965,6 +969,8 @@ namespace LivePhotoBox.Cli.Commands
                             inputDirectory: preserveSubdirs ? inputDir : null,
                             outputBaseName: outputBaseName,
                             overwriteExisting: overwrite);
+
+                        WarnSelfCheck(task.SourcePath, result);
 
                         task.Status = ProcessStatus.Success;
                         if (task.Json != null) task.Json.Status = "split";
@@ -1203,6 +1209,16 @@ namespace LivePhotoBox.Cli.Commands
             int result = SHFileOperationW(ref shf);
             if (result != 0)
                 throw new IOException($"SHFileOperationW failed with code {result}");
+        }
+
+        // 输出自检未通过时打印警告（不改变成功状态，问题逐条展示）。
+        private static void WarnSelfCheck(string sourcePath, LivePhotoSplitResult splitResult)
+        {
+            if (splitResult.SelfCheckProblems.Count == 0) return;
+            CliConsole.WriteErrorLine(
+                $"WARN  {Path.GetFileName(sourcePath)}  " +
+                $"{ResourceService.GetString("SplitPage_Task_SelfCheckFailed")}: " +
+                string.Join("; ", splitResult.SelfCheckProblems));
         }
     }
 }

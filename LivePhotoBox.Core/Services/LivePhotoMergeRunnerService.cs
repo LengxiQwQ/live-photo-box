@@ -340,9 +340,15 @@ namespace LivePhotoBox.Services
                 }
 
                 // 输出自检（按设置级别：浅查 XMP/结构/实况数据，深查加解码与播放）。
-                await OutputVerifier.VerifyAndLogAsync(
+                // 发现问题时以失败返回并携带问题列表，GUI 队列显示"自检失败"。
+                var selfCheckProblems = await OutputVerifier.VerifyAndLogAsync(
                     finalOutputPath, token,
                     expectedProtocol: OutputVerifier.ProtocolTypeFromIndex(options.SelectedModeIndex));
+                if (selfCheckProblems.Count > 0)
+                {
+                    return (false,
+                        OutputVerifier.SelfCheckMarker + string.Join("\n", selfCheckProblems));
+                }
 
                 LogService.Merge($"Merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
                 return (true, ResourceService.GetString("Task_Success"));

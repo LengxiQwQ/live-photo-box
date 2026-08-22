@@ -285,9 +285,13 @@ namespace LivePhotoBox.Views
             string details = isFile2 ? task.File2Details : task.File1Details;
             bool hasError = isFile2 ? task.File2HasErrorDetails : task.File1HasErrorDetails;
 
-            if (status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(details)) return;
+            if (status is not (ProcessStatus.Failed or ProcessStatus.SelfCheckFailed)
+                || string.IsNullOrWhiteSpace(details)) return;
             if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element) { ErrorDetailTip.IsOpen = false; return; }
             ErrorDetailText.Text = details;
+            ErrorDetailTip.Title = status == ProcessStatus.SelfCheckFailed
+                ? ResourceService.GetString("SelfCheckFailed_Title")
+                : null;
             ErrorDetailTip.Target = element;
             ErrorDetailTip.IsOpen = true;
         }

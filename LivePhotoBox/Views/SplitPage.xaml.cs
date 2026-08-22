@@ -873,7 +873,8 @@ namespace LivePhotoBox.Views
         {
             if (sender is not FrameworkElement element) return;
             if (element.DataContext is not SplitTask task) return;
-            if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details)) return;
+            if (task.Status is not (ProcessStatus.Failed or ProcessStatus.SelfCheckFailed)
+                || string.IsNullOrWhiteSpace(task.Details)) return;
 
             // TeachingTip 箭头指向状态文字前面的状态圆点（横向 StackPanel 的第一个子元素），
             // 比指向整块文字更贴合"状态"位置。
@@ -887,6 +888,9 @@ namespace LivePhotoBox.Views
 
             if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == tipTarget) { ErrorDetailTip.IsOpen = false; return; }
             ErrorDetailText.Text = task.Details;
+            ErrorDetailTip.Title = task.Status == ProcessStatus.SelfCheckFailed
+                ? ResourceService.GetString("SelfCheckFailed_Title")
+                : null;
             ErrorDetailTip.Target = tipTarget;
             ErrorDetailTip.IsOpen = true;
         }

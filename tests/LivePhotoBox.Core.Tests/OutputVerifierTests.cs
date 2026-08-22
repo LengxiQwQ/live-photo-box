@@ -192,6 +192,18 @@ public sealed class OutputVerifierTests
         finally { SetLevel((int)OutputCheckLevel.Light); }
     }
 
+    [Fact]
+    public void SelfCheckMarker_StripAndClean()
+    {
+        string marked = OutputVerifier.SelfCheckMarker + "问题一\n问题二";
+        Assert.True(OutputVerifier.TryStripSelfCheckMarker(marked, out var problems));
+        Assert.Equal("问题一\n问题二", problems);
+        Assert.Equal("问题一\n问题二", OutputVerifier.CleanMessage(marked));
+
+        Assert.False(OutputVerifier.TryStripSelfCheckMarker("普通错误", out _));
+        Assert.Equal("普通错误", OutputVerifier.CleanMessage("普通错误"));
+    }
+
     private static void SetLevel(int level)
         => AppSettingsService.SetValue(LevelKey, level);
 

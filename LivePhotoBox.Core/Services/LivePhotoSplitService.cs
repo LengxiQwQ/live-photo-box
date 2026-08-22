@@ -522,16 +522,19 @@ namespace LivePhotoBox.Services
 
                 // 输出自检（拆分产物是图片+视频双文件：图片无内嵌视频；
                 // 实况标记已被有意剥离，不按源协议断言标记存在）。
-                await OutputVerifier.VerifyAndLogAsync(
-                    imageOutputPath, token, expectedProtocol: null, expectEmbeddedVideo: false);
-                await OutputVerifier.VerifyAndLogAsync(
-                    videoOutputPath, token, expectedProtocol: null, expectEmbeddedVideo: false);
-
-                return new LivePhotoSplitResult
+                // 问题列表随结果返回，GUI 队列据此显示"自检失败"。
+                var splitResult = new LivePhotoSplitResult
                 {
                     ImageOutputPath = imageOutputPath,
                     VideoOutputPath = videoOutputPath
                 };
+                var imageCheck = await OutputVerifier.VerifyAndLogAsync(
+                    imageOutputPath, token, expectedProtocol: null, expectEmbeddedVideo: false);
+                var videoCheck = await OutputVerifier.VerifyAndLogAsync(
+                    videoOutputPath, token, expectedProtocol: null, expectEmbeddedVideo: false);
+                splitResult.SelfCheckProblems.AddRange(imageCheck);
+                splitResult.SelfCheckProblems.AddRange(videoCheck);
+                return splitResult;
             }
             catch
             {

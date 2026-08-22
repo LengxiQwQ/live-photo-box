@@ -501,7 +501,8 @@ namespace LivePhotoBox.Services
         // Display P3→sRGB 自动转换；EXIF 方向自动应用。
         private static void ConvertWithMagickNET(string heicPath, string outputPath, int quality)
         {
-            using var image = new MagickImage(heicPath);
+            // 字节数组读取：避免 Magick.NET 不走长路径 API，深目录（≥260 字符）打不开文件。
+            using var image = new MagickImage(File.ReadAllBytes(heicPath));
 
             // 自动应用 EXIF 方向并移除标签
             image.AutoOrient();

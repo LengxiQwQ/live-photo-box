@@ -418,8 +418,9 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 else
                 {
-                    if (json) PrintSingleJson(sourcePath, actualPath, "failed", reason: result.Message);
-                    else CliConsole.WriteErrorLine($"FAIL  {Path.GetFileName(sourcePath)}  {result.Message}");
+                    string clean = OutputVerifier.CleanMessage(result.Message);
+                    if (json) PrintSingleJson(sourcePath, actualPath, "failed", reason: clean);
+                    else CliConsole.WriteErrorLine($"FAIL  {Path.GetFileName(sourcePath)}  {clean}");
                     return 1;
                 }
             }
@@ -698,12 +699,13 @@ namespace LivePhotoBox.Cli.Commands
                                 }
                                 else
                                 {
+                                    string clean = OutputVerifier.CleanMessage(result.Message);
                                     task.Status = ProcessStatus.Failed;
-                                    task.Details = result.Message;
-                                    if (task.Json != null) { task.Json.Status = "failed"; task.Json.Reason = result.Message; }
+                                    task.Details = clean;
+                                    if (task.Json != null) { task.Json.Status = "failed"; task.Json.Reason = clean; }
                                     Interlocked.Increment(ref fail);
                                     int c = Interlocked.Increment(ref completed);
-                                    if (!json) PrintLine(c, total, "FAIL", Path.GetFileName(task.SourcePath), verbose, targetPath, CliConsole.Error, result.Message);
+                                    if (!json) PrintLine(c, total, "FAIL", Path.GetFileName(task.SourcePath), verbose, targetPath, CliConsole.Error, clean);
                                 }
                             }
                             else

@@ -265,7 +265,8 @@ namespace LivePhotoBox.ViewModels
         // 已完成任务（Task 维度：格子里两个 Entry 都完成即算完成）。
         public int SuccessCount => Tasks.Count(t => t.Status == ProcessStatus.Success);
         // 失败任务数（Task 维度：格子里有任意 Entry 失败即算失败）。
-        public int FailedCount => Tasks.Count(t => t.Status == ProcessStatus.Failed);
+        public int FailedCount => Tasks.Count(t =>
+            t.Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed);
         // 已取消任务数 = 格子聚合为 Cancelled 状态 + 有任一 Entry 被取消（IsCancelled 标记，
         // 保留 Processing 状态显示、颜色中性）。
         public int CancelledCount => Tasks.Count(t =>
@@ -593,7 +594,7 @@ namespace LivePhotoBox.ViewModels
                     int skipped = Tasks.SelectMany(t => t.Entries)
                         .Count(e => e.AnalysisResult != null && e.AnalysisResult.IssueType == RepairIssueType.Perfect);
                     int failed = Tasks.SelectMany(t => t.Entries)
-                        .Count(e => e.Status == ProcessStatus.Failed);
+                        .Count(e => e.Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed);
                     double elapsed = _stopwatch.Elapsed.TotalSeconds;
 
                     SetStatus("Status_RepairCompletedSummary", totalEntries, elapsed, succeeded, skipped, failed);
@@ -721,7 +722,7 @@ namespace LivePhotoBox.ViewModels
                 int skipped = Tasks.SelectMany(t => t.Entries)
                     .Count(e => e.AnalysisResult != null && e.AnalysisResult.IssueType == RepairIssueType.Perfect);
                 int failed = Tasks.SelectMany(t => t.Entries)
-                    .Count(e => e.Status == ProcessStatus.Failed);
+                    .Count(e => e.Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed);
                 int unprocessed = total - succeeded - skipped - failed;
 
                 var stack = new StackPanel { Spacing = 12 };
@@ -762,7 +763,7 @@ namespace LivePhotoBox.ViewModels
                 int skipped = Tasks.SelectMany(t => t.Entries)
                     .Count(e => e.AnalysisResult != null && e.AnalysisResult.IssueType == RepairIssueType.Perfect);
                 int failed = Tasks.SelectMany(t => t.Entries)
-                    .Count(e => e.Status == ProcessStatus.Failed);
+                    .Count(e => e.Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed);
 
                 var stack = new StackPanel { Spacing = 12 };
                 stack.Children.Add(new TextBlock
@@ -1986,7 +1987,7 @@ namespace LivePhotoBox.ViewModels
                     int skipped = Tasks.SelectMany(t => t.Entries)
                         .Count(e => e.AnalysisResult != null && e.AnalysisResult.IssueType == RepairIssueType.Perfect);
                     int failed = Tasks.SelectMany(t => t.Entries)
-                        .Count(e => e.Status == ProcessStatus.Failed);
+                        .Count(e => e.Status is ProcessStatus.Failed or ProcessStatus.SelfCheckFailed);
                     int unprocessed = total - succeeded - skipped - failed;
                     double elapsed = _stopwatch.Elapsed.TotalSeconds;
                     LogService.Repair($"Repair cancelled by user after {elapsed:F1}s, completed {_completedEntriesCount}/{_totalRepairEntries}");
@@ -2035,8 +2036,17 @@ namespace LivePhotoBox.ViewModels
         // 更新 Entry 为"已完成/失败"状态，触发完成滚动事件（若全部完成）。
         private void UpdateEntryCompleted(RepairFileEntry entry, bool isSuccess, string detailMessage)
         {
-            entry.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
-            entry.Details = detailMessage;
+            if (OutputVerifier.TryStripSelfCheckMarker(detailMessage, out var selfCheckProblems))
+            {
+                // 输出自检未通过：显示"自检失败"（橙色），问题在点击弹窗中逐段展示。
+                entry.Status = ProcessStatus.SelfCheckFailed;
+                entry.Details = selfCheckProblems;
+            }
+            else
+            {
+                entry.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
+                entry.Details = detailMessage;
+            }
             _taskProcessingStartTimes.Remove(entry);
 
             if (_completedEntriesCount >= _totalRepairEntries && _totalRepairEntries > 0)

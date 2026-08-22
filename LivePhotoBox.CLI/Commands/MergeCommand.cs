@@ -619,8 +619,9 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 else
                 {
-                    if (json) PrintSingleJson(imagePath, videoPath, outputPath, "failed", reason: details);
-                    else CliConsole.WriteErrorLine($"FAIL  {Path.GetFileName(imagePath)}  {details}");
+                    string clean = OutputVerifier.CleanMessage(details);
+                    if (json) PrintSingleJson(imagePath, videoPath, outputPath, "failed", reason: clean);
+                    else CliConsole.WriteErrorLine($"FAIL  {Path.GetFileName(imagePath)}  {clean}");
                     return 1;
                 }
             }
@@ -853,7 +854,7 @@ namespace LivePhotoBox.Cli.Commands
                 onTaskCompleted: (task, success, details, completed) =>
                 {
                     task.Status = success ? ProcessStatus.Success : ProcessStatus.Failed;
-                    task.Details = details;
+                    task.Details = OutputVerifier.CleanMessage(details);
                     var entry = json ? jsonFiles[task.Index - 1] : null;
                     if (success)
                     {

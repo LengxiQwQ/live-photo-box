@@ -162,14 +162,17 @@ public static class StandardHdrConversionService
         const double offsetSdr = 1e-6;
         const double offsetHdr = 1e-6;
 
-        using var primary = new MagickImage(primaryPath);
+        // 字节数组读取：避免 Magick.NET 不走长路径 API，深目录（≥260 字符）打不开文件。
+        using var primary = new MagickImage(File.ReadAllBytes(primaryPath));
         uint width = primary.Width;
         uint height = primary.Height;
         int pixelCount = checked((int)(width * height));
 
         float[] sdrEncoded = ReadRgbFloat(primary);
 
-        using var appleGain = new MagickImage(appleGainMapPath);
+        // 用字节数组读取，避免 Magick.NET 不走长路径 API 导致
+        // 输出目录较深（路径 ≥260 字符）时 OpenBlob 报 "Not enough space"。
+        using var appleGain = new MagickImage(File.ReadAllBytes(appleGainMapPath));
         appleGain.FilterType = FilterType.Lanczos;
         appleGain.Resize(new MagickGeometry(width, height) { IgnoreAspectRatio = true });
         float[] gainEncoded = ReadGrayFloat(appleGain);
@@ -240,7 +243,8 @@ public static class StandardHdrConversionService
     private static (byte[] Gray, uint Width, uint Height) ComputeAppleGainMap(
         string isoGainMapPath, IsoGainMapMetadata iso, double headroom)
     {
-        using var gainImage = new MagickImage(isoGainMapPath);
+        // 字节数组读取：避免 Magick.NET 不走长路径 API，深目录（≥260 字符）打不开文件。
+        using var gainImage = new MagickImage(File.ReadAllBytes(isoGainMapPath));
         uint width = gainImage.Width;
         uint height = gainImage.Height;
         int pixelCount = checked((int)(width * height));

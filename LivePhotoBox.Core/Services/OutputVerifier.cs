@@ -49,17 +49,26 @@ namespace LivePhotoBox.Services
         private const string SettingKey = "OutputCheckLevel";
         private const int DefaultLevel = (int)OutputCheckLevel.Light;
 
+        /// <summary>
+        /// 自检失败标记：操作返回详情/消息时以此前缀携带问题列表，
+        /// GUI 队列据此显示"自检失败"状态（橙色 + 可点击查看）。
+        /// </summary>
+        public const string SelfCheckMarker = "SELFCHECK_FAIL:";
+
         /// <summary>当前自检级别（读设置，默认浅查）。</summary>
         public static OutputCheckLevel CurrentLevel
             => (OutputCheckLevel)AppSettingsService.GetValue(SettingKey, DefaultLevel);
 
-        /// <summary>按设置级别对输出文件做自检，并记录日志（不抛异常）。</summary>
-        public static async Task VerifyAndLogAsync(
+        /// <summary>
+        /// 按设置级别对输出文件做自检，记录日志，并返回发现的问题列表（空 = 通过）。
+        /// 不抛异常。
+        /// </summary>
+        public static async Task<List<string>> VerifyAndLogAsync(
             string filePath, CancellationToken token,
             LivePhotoProtocolType? expectedProtocol = null,
             bool expectEmbeddedVideo = true)
         {
-            if (CurrentLevel == OutputCheckLevel.None) return;
+            if (CurrentLevel == OutputCheckLevel.None) return new List<string>();
             try
             {
                 var result = await VerifyAsync(
@@ -78,6 +87,7 @@ namespace LivePhotoBox.Services
                         string.Join("; ", result.Notes),
                         LogSource.System);
                 }
+                return result.Problems;
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
@@ -85,8 +95,25 @@ namespace LivePhotoBox.Services
                 LogService.Warn(
                     $"输出自检执行异常 [{Path.GetFileName(filePath)}]: {ex.Message}",
                     source: LogSource.System);
+                return new List<string>();
             }
         }
+
+        /// <summary>从操作详情/消息中剥离自检失败标记；返回 true 表示是自检失败。</summary>
+        public static bool TryStripSelfCheckMarker(string details, out string problems)
+        {
+            if (details.StartsWith(SelfCheckMarker, StringComparison.Ordinal))
+            {
+                problems = details[SelfCheckMarker.Length..];
+                return true;
+            }
+            problems = details;
+            return false;
+        }
+
+        /// <summary>用于终端/日志显示的清洗文本（剥离自检失败标记）。</summary>
+        public static string CleanMessage(string details)
+            => TryStripSelfCheckMarker(details, out var problems) ? problems : details;
 
         /// <summary>对输出文件做自检，返回详细结果（不抛异常）。</summary>
         public static async Task<OutputCheckResult> VerifyAsync(
@@ -458,12 +485,12 @@ namespace LivePhotoBox.Services
             int p = 0;
             while (p + 8 <= bytes.Length)
             {
-                int size = ReadU32(bytes, p);
-                if (size < 8 || p + size > bytes.Length) break; // 可能是尾标等非 box 数据
+                var (size, next) = ReadBoxHeader(bytes, p, bytes.Length);
+                if (size < 8 || next > bytes.Length) break; // 可能是尾标等非 box 数据
                 string type = Encoding.ASCII.GetString(bytes, p + 4, 4);
                 if (type.Any(c => c < 32 || c > 126)) return null;
                 boxes.Add((type, p, size));
-                p += size;
+                p = next;
             }
             return boxes;
         }
@@ -481,13 +508,13 @@ namespace LivePhotoBox.Services
             int ilocCount = -1, iinfCount = -1;
             while (q + 8 <= metaEnd)
             {
-                int size = ReadU32(bytes, q);
-                if (size < 8 || q + size > metaEnd) return (false, ilocCount, iinfCount);
+                var (size, next) = ReadBoxHeader(bytes, q, metaEnd);
+                if (size < 8 || next > metaEnd) return (false, ilocCount, iinfCount);
                 string type = Encoding.ASCII.GetString(bytes, q + 4, 4);
                 if (type.Any(c => c < 32 || c > 126)) return (false, ilocCount, iinfCount);
                 if (type == "iloc") ilocCount = ReadU16(bytes, q + 14);
                 else if (type == "iinf") iinfCount = ReadU16(bytes, q + 12);
-                q += size;
+                q = next;
             }
             return (true, ilocCount, iinfCount);
         }
@@ -509,8 +536,8 @@ namespace LivePhotoBox.Services
             int iinfPos = -1, iinfEnd = -1;
             while (q + 8 <= metaEnd)
             {
-                int size = ReadU32(bytes, q);
-                if (size < 8 || q + size > metaEnd) break;
+                var (size, next) = ReadBoxHeader(bytes, q, metaEnd);
+                if (size < 8 || next > metaEnd) break;
                 string type = Encoding.ASCII.GetString(bytes, q + 4, 4);
                 if (type == "uuid" && size >= 24 &&
                     bytes.AsSpan(q + 8, 16).SequenceEqual(AdobeUsertype))
@@ -522,7 +549,7 @@ namespace LivePhotoBox.Services
                     iinfPos = q;
                     iinfEnd = q + size;
                 }
-                q += size;
+                q = next;
             }
 
             if (iinfPos >= 0)
@@ -561,8 +588,8 @@ namespace LivePhotoBox.Services
             int p = 0;
             while (p + 8 <= bytes.Length)
             {
-                int size = ReadU32(bytes, p);
-                if (size < 8 || p + size > bytes.Length) break;
+                var (size, next) = ReadBoxHeader(bytes, p, bytes.Length);
+                if (size < 8 || next > bytes.Length) break;
                 if (size >= 24 &&
                     bytes[p + 4] == (byte)'u' && bytes[p + 5] == (byte)'u' &&
                     bytes[p + 6] == (byte)'i' && bytes[p + 7] == (byte)'d' &&
@@ -570,9 +597,28 @@ namespace LivePhotoBox.Services
                 {
                     count++;
                 }
-                p += size;
+                p = next;
             }
             return count;
+        }
+
+        /// <summary>
+        /// 读取 box 头：(size, 下一个 box 偏移)。size==1 表示 64 位扩展长度
+        /// （ISO/IEC 14496-12），size==0 表示延伸到容器末尾。非法返回 (0, off)。
+        /// </summary>
+        private static (int Size, int Next) ReadBoxHeader(byte[] a, int off, int limit)
+        {
+            if (off + 8 > limit) return (0, off);
+            int size = ReadU32(a, off);
+            if (size == 1)
+            {
+                if (off + 16 > limit) return (0, off);
+                long size64 = ((long)ReadU32(a, off + 8) << 32) | (uint)ReadU32(a, off + 12);
+                if (size64 < 16 || size64 > int.MaxValue) return (0, off);
+                return ((int)size64, off + (int)size64);
+            }
+            if (size == 0) return (0, limit);
+            return (size, off + size);
         }
 
         /// <summary>

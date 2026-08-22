@@ -4,6 +4,7 @@ using LivePhotoBox.Services;
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -51,6 +52,9 @@ namespace LivePhotoBox.Services
 
         /// <summary>输出视频路径；单文件协议为 null。</summary>
         public string? OutputVideoPath { get; init; }
+
+        /// <summary>输出自检发现的问题（空 = 通过）。</summary>
+        public List<string> SelfCheckProblems { get; } = new();
     }
 
     /// <summary>
@@ -97,15 +101,17 @@ namespace LivePhotoBox.Services
                     await WriteCoverHistoryAsync(request, result, token).ConfigureAwait(false);
                     // 输出自检（单文件封面有内嵌视频；双文件封面图片无内嵌视频）。
                     bool singleFileCover = request.LivePhotoType != LivePhotoType.DualFile;
-                    await OutputVerifier.VerifyAndLogAsync(
+                    var imageCheck = await OutputVerifier.VerifyAndLogAsync(
                         result.OutputImagePath, token, request.Protocol,
                         expectEmbeddedVideo: singleFileCover).ConfigureAwait(false);
                     if (!string.IsNullOrWhiteSpace(result.OutputVideoPath))
                     {
-                        await OutputVerifier.VerifyAndLogAsync(
+                        var videoCheck = await OutputVerifier.VerifyAndLogAsync(
                             result.OutputVideoPath, token, request.Protocol,
                             expectEmbeddedVideo: false).ConfigureAwait(false);
+                        result.SelfCheckProblems.AddRange(videoCheck);
                     }
+                    result.SelfCheckProblems.AddRange(imageCheck);
                     LogService.Split(
                         $"CoverChange: success — protocol={request.Protocol} image={request.OutputImagePath}",
                         LogLevel.Info);

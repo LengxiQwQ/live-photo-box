@@ -4259,11 +4259,26 @@ Then click "Start Split".</value>
   <data name="MergePage_Task_Failed" xml:space="preserve">
     <value>Merge failed</value>
   </data>
+  <data name="MergePage_Task_SelfCheckFailed" xml:space="preserve">
+    <value>Self-check failed</value>
+  </data>
   <data name="SplitPage_Task_Failed" xml:space="preserve">
     <value>Split failed</value>
   </data>
+  <data name="SplitPage_Task_SelfCheckFailed" xml:space="preserve">
+    <value>Self-check failed</value>
+  </data>
   <data name="RepairPage_Task_Failed" xml:space="preserve">
     <value>Repair failed</value>
+  </data>
+  <data name="RepairPage_Task_SelfCheckFailed" xml:space="preserve">
+    <value>Self-check failed</value>
+  </data>
+  <data name="SelfCheckFailed_Title" xml:space="preserve">
+    <value>Self-Check Failed</value>
+  </data>
+  <data name="SelfCheckFailed_CloseButton" xml:space="preserve">
+    <value>OK</value>
   </data>
   <data name="SettingsPage_NotifFreq_Over120.Content" xml:space="preserve">
     <value>Notify when task duration exceeds 2 minutes</value>
