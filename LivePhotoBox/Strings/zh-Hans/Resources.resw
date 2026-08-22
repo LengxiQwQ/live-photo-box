@@ -2103,13 +2103,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_Debug_OutputCheckDesc.Text" xml:space="preserve">
     <value>每次合成/拆分/修复/封面处理完后检查输出文件：XMP 是否正确写入（可读、单份、标识齐全）、文件结构是否完整、实况照片数据是否写入。浅查做快速检查；深查额外验证解码和视频播放</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheck_None" xml:space="preserve">
+  <data name="SettingsPage_Debug_OutputCheck_None.Content" xml:space="preserve">
     <value>不检查</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheck_Light" xml:space="preserve">
+  <data name="SettingsPage_Debug_OutputCheck_Light.Content" xml:space="preserve">
     <value>浅查</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheck_Full" xml:space="preserve">
+  <data name="SettingsPage_Debug_OutputCheck_Full.Content" xml:space="preserve">
     <value>深查</value>
   </data>
   <data name="RepairPage_GroupHeaderPairs" xml:space="preserve">

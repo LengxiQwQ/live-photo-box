@@ -2103,13 +2103,13 @@ Then click "Start Split".</value>
   <data name="SettingsPage_Debug_OutputCheckDesc.Text" xml:space="preserve">
     <value>After every merge/split/repair/cover operation, verify the output: XMP written correctly (readable, single copy, marker attributes present), file structure intact, live-photo data present. Light runs quick checks; Full additionally verifies decoding and video playback</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheck_None" xml:space="preserve">
+  <data name="SettingsPage_Debug_OutputCheck_None.Content" xml:space="preserve">
     <value>None</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheck_Light" xml:space="preserve">
+  <data name="SettingsPage_Debug_OutputCheck_Light.Content" xml:space="preserve">
     <value>Light</value>
   </data>
-  <data name="SettingsPage_Debug_OutputCheck_Full" xml:space="preserve">
+  <data name="SettingsPage_Debug_OutputCheck_Full.Content" xml:space="preserve">
     <value>Full</value>
   </data>
   <data name="RepairPage_GroupHeaderPairs" xml:space="preserve">
