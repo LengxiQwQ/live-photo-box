@@ -1302,6 +1302,18 @@ namespace LivePhotoBox.Services
                         changed = true;
                     }
 
+                    // Remove the namespace DECLARATIONS (xmlns:GCamera= etc.) too:
+                    // after all attributes/elements are gone, a dangling declaration
+                    // still makes ContainsLivePhotoXmp treat the file as a live photo.
+                    foreach (var nsDecl in element.Attributes()
+                                 .Where(a => a.IsNamespaceDeclaration &&
+                                             livePhotoNamespaces.Contains(a.Value))
+                                 .ToList())
+                    {
+                        nsDecl.Remove();
+                        changed = true;
+                    }
+
                     if (livePhotoNamespaces.Contains(element.Name.NamespaceName))
                     {
                         element.Remove();
