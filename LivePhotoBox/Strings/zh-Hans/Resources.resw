@@ -2392,12 +2392,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_Debug_OpenHistoryBtn.Text" xml:space="preserve">
     <value>打开</value>
   </data>
-  <data name="SettingsPage_Debug_WriteHistoryHeader.Text" xml:space="preserve">
-    <value>写入照片操作记录</value>
-  </data>
-  <data name="SettingsPage_Debug_WriteHistoryDesc.Text" xml:space="preserve">
-    <value>打开后会记录本软件对照片所做的合成、拆分、修复等操作历史（如修复旋转、缩略图等），可在照片历史页面中查看完整处理内容</value>
-  </data>
   <data name="SettingsPage_Merge_HeicDecoder_HeifLinkText.Text" xml:space="preserve">
     <value>安装 HEIF 图像扩展</value>
   </data>
@@ -4175,9 +4169,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="Notif_BatchDone_Body_WithFailed" xml:space="preserve">
     <value>{0} — {1} 个完成，{2} 个失败，用时 {3}</value>
   </data>
-  <data name="Notif_OpenOutputFolder" xml:space="preserve">
-    <value>打开输出文件夹</value>
-  </data>
   <data name="Time_Seconds" xml:space="preserve">
     <value>{0} 秒</value>
   </data>
@@ -4249,5 +4240,20 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="SettingsPage_NotifFreq_Over300.Content" xml:space="preserve">
     <value>任务时长超过 5 分钟时通知</value>
+  </data>
+  <data name="SettingsPage_Debug_WriteHistoryHeader.Text" xml:space="preserve">
+    <value>写入照片操作记录</value>
+  </data>
+  <data name="SettingsPage_Debug_WriteHistoryDesc.Text" xml:space="preserve">
+    <value>打开后会记录本软件对照片所做的合成、拆分、修复等操作历史（如修复旋转、缩略图等），可在照片历史页面中查看完整处理内容</value>
+  </data>
+  <data name="Notif_OpenOutputFolder" xml:space="preserve">
+    <value>打开输出文件夹</value>
+  </data>
+  <data name="SettingsPage_BackgroundOnlyNotif_Label.Text" xml:space="preserve">
+    <value>仅后台通知</value>
+  </data>
+  <data name="SettingsPage_BackgroundOnlyNotif_Desc.Text" xml:space="preserve">
+    <value>开启后，应用在前台时不弹出通知</value>
   </data>
 </root>

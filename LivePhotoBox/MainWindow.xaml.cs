@@ -293,6 +293,9 @@ namespace LivePhotoBox
             _windowHandle = hWnd;
             EnsureTaskbarList();
 
+            // 注册主窗口句柄到通知服务，供"仅后台通知"前台检测使用
+            NotificationService.SetWindowHandle(hWnd);
+
             // NavigationView 加载完成后本地化设置项标签
             NavView.Loaded += (_, _) =>
             {

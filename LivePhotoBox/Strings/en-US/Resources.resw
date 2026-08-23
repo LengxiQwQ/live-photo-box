@@ -2392,12 +2392,6 @@ Then click "Start Split".</value>
   <data name="SettingsPage_Debug_OpenHistoryBtn.Text" xml:space="preserve">
     <value>Open</value>
   </data>
-  <data name="SettingsPage_Debug_WriteHistoryHeader.Text" xml:space="preserve">
-    <value>Write Photo Operation Records</value>
-  </data>
-  <data name="SettingsPage_Debug_WriteHistoryDesc.Text" xml:space="preserve">
-    <value>When enabled, records all combo, split, and repair operations (e.g. rotation fix, thumbnail fix) performed by LivePhotoBox. View the complete timeline in the Photo History page</value>
-  </data>
   <data name="SettingsPage_Merge_HeicDecoder_HeifLinkText.Text" xml:space="preserve">
     <value>Install HEIF Image Extensions</value>
   </data>
@@ -4175,9 +4169,6 @@ Then click "Start Split".</value>
   <data name="Notif_BatchDone_Body_WithFailed" xml:space="preserve">
     <value>{0} — {1} completed, {2} failed, {3}</value>
   </data>
-  <data name="Notif_OpenOutputFolder" xml:space="preserve">
-    <value>Open output folder</value>
-  </data>
   <data name="Time_Seconds" xml:space="preserve">
     <value>{0}s</value>
   </data>
@@ -4249,5 +4240,20 @@ Then click "Start Split".</value>
   </data>
   <data name="SettingsPage_NotifFreq_Over300.Content" xml:space="preserve">
     <value>Notify when task duration exceeds 5 minutes</value>
+  </data>
+  <data name="SettingsPage_Debug_WriteHistoryHeader.Text" xml:space="preserve">
+    <value>Write Photo Operation Records</value>
+  </data>
+  <data name="SettingsPage_Debug_WriteHistoryDesc.Text" xml:space="preserve">
+    <value>When enabled, records all combo, split, and repair operations (e.g. rotation fix, thumbnail fix) performed by LivePhotoBox. View the complete timeline in the Photo History page</value>
+  </data>
+  <data name="Notif_OpenOutputFolder" xml:space="preserve">
+    <value>Open output folder</value>
+  </data>
+  <data name="SettingsPage_BackgroundOnlyNotif_Label.Text" xml:space="preserve">
+    <value>Background-only notification</value>
+  </data>
+  <data name="SettingsPage_BackgroundOnlyNotif_Desc.Text" xml:space="preserve">
+    <value>Only show notifications when the app is in the background.</value>
   </data>
 </root>

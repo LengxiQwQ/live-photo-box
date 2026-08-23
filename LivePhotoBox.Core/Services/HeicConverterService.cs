@@ -146,6 +146,31 @@ namespace LivePhotoBox.Services
                     LogLevel.Warning);
             }
 
+            // heif-enc 对部分 JPEG 源（华为等 EXIF ColorSpace 未校准且带 ICC）只写 ICC 不写
+            // nclx；iOS 导入实况照片时可能因缺少色彩属性无法解析。无 nclx 时补 sRGB nclx。
+            if (HeifAuxImageWriter.TryHasNclxColr(resultPath, out bool hasNclx, out string? nclxCheckError))
+            {
+                string? nclxAddError = null;
+                if (!hasNclx && HeifAuxImageWriter.TryAddNclxColr(resultPath, out nclxAddError))
+                {
+                    LogService.Merge(
+                        $"HEIC nclx colr added for {Path.GetFileName(resultPath)}",
+                        LogLevel.Debug);
+                }
+                else if (!hasNclx)
+                {
+                    LogService.Merge(
+                        $"HEIC nclx colr add failed for {Path.GetFileName(resultPath)}: {nclxAddError}",
+                        LogLevel.Warning);
+                }
+            }
+            else
+            {
+                LogService.Merge(
+                    $"HEIC nclx check failed for {Path.GetFileName(resultPath)}: {nclxCheckError}",
+                    LogLevel.Warning);
+            }
+
             return resultPath;
         }
 

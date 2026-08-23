@@ -42,6 +42,133 @@ internal static class HeifAuxImageWriter
         }
     }
 
+    /// <summary>
+    /// 检查 HEIC 主图是否已带 nclx 色彩属性（colr/nclx）。
+    /// heif-enc 对部分 JPEG 源（如华为，EXIF ColorSpace 未校准且带 ICC）只写 ICC
+    /// 不写 nclx；iOS 导入实况照片时可能因此无法解析，需补 nclx。
+    /// </summary>
+    public static bool TryHasNclxColr(string heicPath, out bool hasNclx, out string? error)
+    {
+        hasNclx = false;
+        error = null;
+        try
+        {
+            byte[] data = File.ReadAllBytes(heicPath);
+            if (!HeifBoxParser.TryFindBox(data, 0, data.Length, "meta", out int metaStart, out int metaSize, out int metaBodyStart))
+            {
+                error = "No meta box found.";
+                return false;
+            }
+
+            int metaChildStart = metaBodyStart + 4;
+            int metaChildEnd = metaStart + metaSize;
+            int iprpStart = -1, iprpSize = 0, iprpBodyStart = -1;
+            if (!HeifBoxParser.TryWalkBoxes(data, metaChildStart, metaChildEnd, (type, bodyStart, bodyLen) =>
+            {
+                if (type == "iprp")
+                {
+                    iprpStart = bodyStart - 8;
+                    iprpSize = bodyLen + 8;
+                    iprpBodyStart = bodyStart;
+                }
+            }))
+            {
+                error = "Meta box is malformed.";
+                return false;
+            }
+
+            if (iprpStart < 0)
+            {
+                return true; // 无 iprp 视为无 nclx
+            }
+
+            int ipcoStart = -1, ipcoSize = 0;
+            if (!HeifBoxParser.TryWalkBoxes(data, iprpBodyStart, iprpBodyStart + (iprpSize - 8), (type, bodyStart, bodyLen) =>
+            {
+                if (type == "ipco")
+                {
+                    ipcoStart = bodyStart - 8;
+                    ipcoSize = bodyLen + 8;
+                }
+            }))
+            {
+                error = "iprp box is malformed.";
+                return false;
+            }
+
+            if (ipcoStart < 0)
+            {
+                return true; // 无 ipco 视为无 nclx
+            }
+
+            int p = ipcoStart + 8;
+            int ipcoEnd = ipcoStart + ipcoSize;
+            while (p + 8 <= ipcoEnd)
+            {
+                long size = HeifBoxParser.Read32(data, p);
+                int header = 8;
+                if (size == 1)
+                {
+                    if (p + 16 > ipcoEnd) break;
+                    size = (long)HeifBoxParser.Read64(data, p + 8);
+                    header = 16;
+                }
+                else if (size == 0)
+                {
+                    size = ipcoEnd - p;
+                }
+                if (size < header || p + size > ipcoEnd) break;
+
+                if (HeifBoxParser.ReadFourCc(data, p + 4).Equals("colr", StringComparison.Ordinal)
+                    && size >= header + 8
+                    && HeifBoxParser.ReadFourCc(data, p + header).Equals("nclx", StringComparison.Ordinal))
+                {
+                    hasNclx = true;
+                    return true;
+                }
+                p += (int)size;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// 给 HEIC 主图补充 colr/nclx 色彩属性（sRGB，full range）并建立 ipma 关联。
+    /// 仅当主图缺少 nclx 时调用；重复注入会被上层通过 TryHasNclxColr 拦截。
+    /// </summary>
+    public static bool TryAddNclxColr(string heicPath, out string? error)
+    {
+        return TryAddNclxColr(heicPath, primaries: 1, transfer: 13, matrix: 6, fullRange: 1, out error);
+    }
+
+    public static bool TryAddNclxColr(
+        string heicPath, int primaries, int transfer, int matrix, int fullRange, out string? error)
+    {
+        error = null;
+        try
+        {
+            byte[] data = File.ReadAllBytes(heicPath);
+            if (!TryPatchNclx(data, primaries, transfer, matrix, fullRange, out byte[] patched, out error))
+            {
+                return false;
+            }
+
+            File.WriteAllBytes(heicPath, patched);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
     private static bool TryPatch(byte[] data, out byte[] patched, out string? error)
     {
         patched = Array.Empty<byte>();
@@ -183,6 +310,143 @@ internal static class HeifAuxImageWriter
         Array.Copy(newMeta, 0, patched, metaStart, newMeta.Length);
         Array.Copy(data, metaStart + metaSize, patched, metaStart + newMeta.Length, data.Length - (metaStart + metaSize));
         return true;
+    }
+
+    // 与 TryPatch 同构，但追加的是 colr/nclx 属性并关联主图（pitm），不新增 aux 引用。
+    private static bool TryPatchNclx(
+        byte[] data, int primaries, int transfer, int matrix, int fullRange,
+        out byte[] patched, out string? error)
+    {
+        patched = Array.Empty<byte>();
+        error = null;
+
+        if (!HeifBoxParser.TryFindBox(data, 0, data.Length, "meta", out int metaStart, out int metaSize, out int metaBodyStart))
+        {
+            error = "No meta box found.";
+            return false;
+        }
+
+        int metaChildStart = metaBodyStart + 4; // meta FullBox body
+        int metaChildEnd = metaStart + metaSize;
+
+        int ilocStart = -1, ilocSize = 0;
+        int iinfBodyStart = -1, iinfBodyLen = 0;
+        int pitmBodyStart = -1, pitmBodyLen = 0;
+        int iprpStart = -1, iprpSize = 0, iprpBodyStart = -1;
+        int irefStart = -1, irefSize = 0;
+
+        if (!HeifBoxParser.TryWalkBoxes(data, metaChildStart, metaChildEnd, (type, bodyStart, bodyLen) =>
+        {
+            switch (type)
+            {
+                case "iloc":
+                    ilocStart = bodyStart - 8;
+                    ilocSize = bodyLen + 8;
+                    break;
+                case "iinf":
+                    iinfBodyStart = bodyStart;
+                    iinfBodyLen = bodyLen;
+                    break;
+                case "pitm":
+                    pitmBodyStart = bodyStart;
+                    pitmBodyLen = bodyLen;
+                    break;
+                case "iprp":
+                    iprpStart = bodyStart - 8;
+                    iprpSize = bodyLen + 8;
+                    iprpBodyStart = bodyStart;
+                    break;
+                case "iref":
+                    irefStart = bodyStart - 8;
+                    irefSize = bodyLen + 8;
+                    break;
+            }
+        }))
+        {
+            error = "Meta box is malformed.";
+            return false;
+        }
+
+        if (ilocStart < 0 || iinfBodyStart < 0 || pitmBodyStart < 0 || iprpStart < 0)
+        {
+            error = "Required HEIF boxes are missing.";
+            return false;
+        }
+
+        uint primaryItemId = ReadPrimaryItemId(data, pitmBodyStart, pitmBodyLen);
+
+        int ipcoStart = -1, ipcoSize = 0;
+        int ipmaBodyStart = -1, ipmaBodyLen = 0;
+        if (!HeifBoxParser.TryWalkBoxes(data, iprpBodyStart, iprpBodyStart + (iprpSize - 8), (type, bodyStart, bodyLen) =>
+        {
+            if (type == "ipco")
+            {
+                ipcoStart = bodyStart - 8;
+                ipcoSize = bodyLen + 8;
+            }
+            else if (type == "ipma")
+            {
+                ipmaBodyStart = bodyStart;
+                ipmaBodyLen = bodyLen;
+            }
+        }))
+        {
+            error = "iprp box is malformed.";
+            return false;
+        }
+
+        if (ipcoStart < 0 || ipmaBodyStart < 0)
+        {
+            error = "ipco or ipma box is missing.";
+            return false;
+        }
+
+        int propertyCount = CountChildBoxes(data, ipcoStart + 8, ipcoStart + ipcoSize);
+        int newPropertyIndex = propertyCount + 1;
+
+        byte[] colrBox = BuildColrNclxBox(primaries, transfer, matrix, fullRange);
+        byte[] newIpco = AppendChildBox(data, ipcoStart, ipcoSize, colrBox);
+
+        List<IpmaEntry> ipmaEntries = ParseIpma(data, ipmaBodyStart, ipmaBodyLen, out error);
+        if (error != null) return false;
+
+        AddPropertyAssociation(ipmaEntries, primaryItemId, newPropertyIndex);
+        int ipmaFlags = Read24(data, ipmaBodyStart + 1);
+        byte[] newIpma = BuildIpma(ipmaEntries, ipmaFlags);
+
+        int delta = (newIpco.Length - ipcoSize) + (newIpma.Length - (ipmaBodyLen + 8));
+
+        byte[] newIloc = ShiftIlocBaseOffsets(data, ilocStart, ilocSize, metaStart + metaSize, delta, out error);
+        if (error != null) return false;
+
+        byte[] newIprp = RebuildIpcoAndIpmaBox(data, iprpStart, iprpSize, newIpco, newIpma);
+        byte[] newIref = irefStart >= 0
+            ? data.AsSpan(irefStart, irefSize).ToArray()
+            : Array.Empty<byte>();
+        byte[] newMeta = RebuildMetaBox(
+            data, metaStart, metaSize, metaBodyStart,
+            newIloc, newIprp, newIref,
+            ilocSize, iprpSize, irefSize);
+
+        patched = new byte[metaStart + newMeta.Length + (data.Length - (metaStart + metaSize))];
+        Array.Copy(data, 0, patched, 0, metaStart);
+        Array.Copy(newMeta, 0, patched, metaStart, newMeta.Length);
+        Array.Copy(data, metaStart + metaSize, patched, metaStart + newMeta.Length, data.Length - (metaStart + metaSize));
+        return true;
+    }
+
+    // colr/nclx：8 头 + 'nclx'(4) + primaries(2) + transfer(2) + matrix(2) + full_range(1) + reserved(3)
+    private static byte[] BuildColrNclxBox(int primaries, int transfer, int matrix, int fullRange)
+    {
+        byte[] box = new byte[22];
+        WriteU32(box, 0, 22);
+        WriteFourCc(box, 4, "colr");
+        WriteFourCc(box, 8, "nclx");
+        WriteU16(box, 12, (ushort)primaries);
+        WriteU16(box, 14, (ushort)transfer);
+        WriteU16(box, 16, (ushort)matrix);
+        box[18] = (byte)(fullRange != 0 ? 0x80 : 0x00);
+        return box;
     }
 
     private static List<ItemInfo> ParseIinf(byte[] data, int bodyStart, int bodyLen, out string? error)

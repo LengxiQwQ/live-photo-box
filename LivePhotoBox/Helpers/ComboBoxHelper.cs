@@ -10,6 +10,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml;
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Reflection;
 
@@ -20,6 +21,35 @@ namespace LivePhotoBox.Helpers
     public static class ComboBoxHelper
     {
         private const double ChromeWidth = 57; // padding(11*2) + 边框(2) + 下拉箭头(~32) + 余量(1)
+
+        // 将一组 ComboBox 的宽度对齐到其中最长（最大测量宽度）的那个：
+        // 先逐个测量各 ComboBox 最宽选项，取所有测量宽度中的最大值，再统一设置为该宽度，
+        // 使同一组下拉框左右平齐，视觉上更整齐。
+        public static void AlignWidths(params ComboBox?[] comboBoxes)
+        {
+            var combos = new List<ComboBox>(comboBoxes.Length);
+            double maxWidth = 0;
+
+            foreach (var comboBox in comboBoxes)
+            {
+                if (comboBox == null) continue;
+
+                combos.Add(comboBox);
+
+                // 先按各自最宽选项测量，得到该下拉内容需要的宽度（含箭头等 chrome）
+                AutoFitWidth(comboBox);
+                double measured = comboBox.Width;
+                if (measured > 0)
+                    maxWidth = Math.Max(maxWidth, measured);
+            }
+
+            // 把同组所有下拉统一为最宽测量值（若任一下拉还没数据则为 0，跳过）
+            foreach (var comboBox in combos)
+            {
+                if (maxWidth > 0 && comboBox.Width < maxWidth)
+                    comboBox.Width = maxWidth;
+            }
+        }
 
         // 同步测量 ComboBox 的所有选项文本宽度，并设置固定 Width。
         // 适用于直接 XAML 声明的 ComboBoxItem，或 ItemsSource 已填充的数据绑定 ComboBox。

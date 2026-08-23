@@ -211,11 +211,16 @@ namespace LivePhotoBox.Views
             }
         }
 
-        // 所有外观面板 ComboBox 共用：自动按最宽选项定宽
+        // 所有外观面板 ComboBox 共用：自动按最宽选项定宽，并同组对齐
         private void AppearanceComboBox_Loaded(object sender, RoutedEventArgs e)
         {
-            if (sender is ComboBox comboBox)
-                ComboBoxHelper.AutoFitWidth(comboBox);
+            if (sender is not ComboBox comboBox) return;
+
+            ComboBoxHelper.AutoFitWidth(comboBox);
+
+            // 外观与个性化下的三个 ComboBox（语言/主题/背景）对齐到最宽那个
+            if (comboBox == LanguageComboBox || comboBox == ThemeComboBox || comboBox == BackdropComboBox)
+                ComboBoxHelper.AlignWidths(LanguageComboBox, ThemeComboBox, BackdropComboBox);
         }
 
         // 硬件 ComboBox 异步加载完成后再测量

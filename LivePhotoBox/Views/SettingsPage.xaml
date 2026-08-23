@@ -66,7 +66,8 @@
                     <controls:SettingsCard.HeaderIcon>
                         <FontIcon Glyph="&#xF2B7;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
-                    <ComboBox SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}"
+                    <ComboBox x:Name="LanguageComboBox"
+                              SelectedIndex="{x:Bind ViewModel.LanguageIndex, Mode=TwoWay}"
                               Loaded="AppearanceComboBox_Loaded"
                               MinWidth="200">
                         <ComboBoxItem x:Uid="SettingsPage_Language_System"/>
@@ -85,7 +86,8 @@
     <controls:SettingsCard.HeaderIcon>
         <FontIcon Glyph="&#xE790;" FontSize="16"/>
     </controls:SettingsCard.HeaderIcon>
-    <ComboBox SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}"
+    <ComboBox x:Name="ThemeComboBox"
+              SelectedIndex="{x:Bind ViewModel.ElementTheme, Mode=TwoWay}"
               Loaded="AppearanceComboBox_Loaded"
               MinWidth="200">
         <ComboBoxItem x:Uid="SettingsPage_Theme_System"/>
@@ -104,7 +106,8 @@
                     <controls:SettingsCard.HeaderIcon>
                         <FontIcon Glyph="&#xEB91;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
-                    <ComboBox SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}"
+                    <ComboBox x:Name="BackdropComboBox"
+                              SelectedIndex="{x:Bind ViewModel.BackdropIndex, Mode=TwoWay}"
                               Loaded="AppearanceComboBox_Loaded"
                               MinWidth="200">
                         <ComboBoxItem x:Uid="SettingsPage_Backdrop_Mica"/>
@@ -354,7 +357,8 @@
                     <controls:SettingsCard.HeaderIcon>
                         <FontIcon Glyph="&#xE8B9;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
-                    <ComboBox SelectedIndex="{x:Bind ViewModel.ThumbnailProviderIndex, Mode=TwoWay}"
+                    <ComboBox x:Name="ThumbnailProviderComboBox"
+                              SelectedIndex="{x:Bind ViewModel.ThumbnailProviderIndex, Mode=TwoWay}"
                               Loaded="AppearanceComboBox_Loaded"
                               MinWidth="200">
                         <ComboBoxItem x:Uid="SettingsPage_General_ThumbnailProvider_MagickNET"/>
@@ -453,8 +457,10 @@
                     <controls:SettingsCard.HeaderIcon>
                         <FontIcon Glyph="&#xE8B2;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
-                    <ComboBox SelectedIndex="{x:Bind ViewModel.TimelineModeIndex, Mode=TwoWay}"
+                    <ComboBox x:Name="TimelineModeComboBox"
+                              SelectedIndex="{x:Bind ViewModel.TimelineModeIndex, Mode=TwoWay}"
                               MinWidth="200"
+                              Loaded="AppearanceComboBox_Loaded"
                               SelectionChanged="TimelineMode_SelectionChanged">
                         <ComboBoxItem x:Uid="SettingsPage_TimelineMode_Classic"/>
                         <ComboBoxItem x:Uid="SettingsPage_TimelineMode_Filmstrip"/>
@@ -518,7 +524,8 @@
                     <controls:SettingsCard.HeaderIcon>
                         <ic:SymbolIcon Symbol="DeveloperBoardSearch" />
                     </controls:SettingsCard.HeaderIcon>
-                    <ComboBox SelectedIndex="{x:Bind ViewModel.HeicDecoderIndex, Mode=TwoWay}"
+                    <ComboBox x:Name="HeicDecoderComboBox"
+                              SelectedIndex="{x:Bind ViewModel.HeicDecoderIndex, Mode=TwoWay}"
                               Loaded="AppearanceComboBox_Loaded"
                               MinWidth="200">
                         <ComboBoxItem x:Uid="SettingsPage_Merge_HeicDecoder_MagickNET"/>
@@ -666,7 +673,10 @@
                     <controls:SettingsCard.HeaderIcon>
                         <FontIcon Glyph="&#xE9E9;" FontSize="16"/>
                     </controls:SettingsCard.HeaderIcon>
-                    <ComboBox SelectedIndex="{x:Bind ViewModel.NotificationFrequencyIndex, Mode=TwoWay}" MinWidth="220">
+                    <ComboBox x:Name="NotificationFrequencyComboBox"
+                              SelectedIndex="{x:Bind ViewModel.NotificationFrequencyIndex, Mode=TwoWay}"
+                              MinWidth="220"
+                              Loaded="AppearanceComboBox_Loaded">
                         <ComboBoxItem x:Uid="SettingsPage_NotifFreq_Always"/>
                         <ComboBoxItem x:Uid="SettingsPage_NotifFreq_Over15"/>
                         <ComboBoxItem x:Uid="SettingsPage_NotifFreq_Over30"/>
@@ -694,7 +704,10 @@
                                 x:Uid="SettingsPage_NotifSound_Preview">
                             <FontIcon Glyph="&#xE767;" FontSize="16"/>
                         </Button>
-                        <ComboBox SelectedIndex="{x:Bind ViewModel.NotificationSoundIndex, Mode=TwoWay}" MinWidth="220">
+                        <ComboBox x:Name="NotificationSoundComboBox"
+                              SelectedIndex="{x:Bind ViewModel.NotificationSoundIndex, Mode=TwoWay}"
+                              MinWidth="220"
+                              Loaded="AppearanceComboBox_Loaded">
                             <ComboBoxItem x:Uid="SettingsPage_NotifSound_Mail"/>
                             <ComboBoxItem x:Uid="SettingsPage_NotifSound_Default"/>
                             <ComboBoxItem x:Uid="SettingsPage_NotifSound_Reminder"/>
@@ -703,6 +716,20 @@
                             <ComboBoxItem x:Uid="SettingsPage_NotifSound_Alarm"/>
                         </ComboBox>
                     </StackPanel>
+                </controls:SettingsCard>
+
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_BackgroundOnlyNotif_Label" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_BackgroundOnlyNotif_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xEC42;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.IsBackgroundOnlyNotification, Mode=TwoWay}"
+                                  x:Uid="Toggle_OnOff"/>
                 </controls:SettingsCard>
             </StackPanel>
 

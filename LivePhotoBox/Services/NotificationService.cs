@@ -15,6 +15,7 @@ using Microsoft.Win32;
 using Microsoft.Windows.AppNotifications;
 using Microsoft.Windows.AppNotifications.Builder;
 using System;
+using System.Runtime.InteropServices;
 
 namespace LivePhotoBox.Services
 {
@@ -28,6 +29,13 @@ namespace LivePhotoBox.Services
 
         private static bool _initialized;
         private static bool _registerFailed;
+        private static IntPtr _windowHandle = IntPtr.Zero;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        // 设置应用主窗口句柄，用于前台检测。
+        public static void SetWindowHandle(IntPtr handle) => _windowHandle = handle;
 
         // 初始化通知服务 — 注册 AUMID 并挂载激活事件。
         // 商店版自动注册；非打包版调用 Register() 写注册表；
@@ -106,6 +114,15 @@ namespace LivePhotoBox.Services
             // 阈值判断：短任务不弹通知（用户还在原地等）
             if (elapsedSeconds < thresholdSeconds)
                 return;
+
+            // "仅后台通知"开关（设置页"通知与声音"）：开启后，应用在前台时不弹通知。
+            // 默认关闭（false）= 不管在前台后台都通知。
+            if (AppSettingsService.GetValue("IsBackgroundOnlyNotification", false)
+                && IsAppInForeground())
+            {
+                LogService.Debug("Notification suppressed: app is in foreground (background-only mode)", LogSource.App);
+                return;
+            }
 
             try
             {
@@ -196,6 +213,15 @@ namespace LivePhotoBox.Services
                 LogService.Debug($"Failed to read sound event path: {ex.Message}", LogSource.App);
                 return null;
             }
+        }
+
+        // 检查应用窗口当前是否在前台（拥有焦点）。
+        // 比较当前前台窗口句柄与已注册的主窗口句柄。
+        private static bool IsAppInForeground()
+        {
+            if (_windowHandle == IntPtr.Zero) return false;
+            IntPtr foreground = GetForegroundWindow();
+            return foreground == _windowHandle;
         }
 
         // 格式化用时显示（秒 → 友好可读）
