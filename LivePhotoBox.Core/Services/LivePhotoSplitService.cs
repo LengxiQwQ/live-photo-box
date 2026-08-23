@@ -291,37 +291,81 @@ namespace LivePhotoBox.Services
                 if (protocolIndex == 1)
                 {
                     appleContentId = Guid.NewGuid().ToString("D").ToUpperInvariant();
-                    bool mnOk = Protocols.AppleMakerNoteWriter.TryWriteContentIdentifier(
-                        tempImagePath, appleContentId, out string? mnError);
-                    if (!mnOk)
+                    string? mnError = null;
+
+                    // HEIC 源先做结构判定：grid 瓦片 / tmap / it35 / 多图像 item
+                    // （华为、三星、苹果原片等）不能原位注入后直接交付给 iOS，必须重编码桥接。
+                    // 判定失败一律按非标准处理（保守桥接）。标准单图（单 hvc1/av1，可带 1 个
+                    // 增益图 aux）才允许无损原位写入。
+                    bool heicNonStandard = false;
+                    if (!sourceImageIsJpeg)
                     {
-                        if (sourceImageIsJpeg)
+                        if (Protocols.HeifBoxParser.TryInspectImageItems(
+                            File.ReadAllBytes(tempImagePath), out List<string> itemTypes, out string? inspectError))
                         {
-                            byte[] makerNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
-                            mnOk = Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(
-                                tempImagePath, makerNote, out mnError);
+                            heicNonStandard = itemTypes.Contains("grid", StringComparer.Ordinal)
+                                || itemTypes.Contains("tmap", StringComparer.Ordinal)
+                                || itemTypes.Contains("it35", StringComparer.Ordinal)
+                                || itemTypes.Count(t => t is "hvc1" or "av1") > 2;
                         }
                         else
                         {
-                            // 无损优先：直接在 HEIC 容器的 Exif item 里原位写入 Apple MakerNote，
-                            // 不重编码像素，保留 10-bit 子图 / 增益图 / 辅助图 / 厂商私有数据。
-                            // 结构不认识或容量不足时回退 JPEG 桥接（老套路）。
-                            bool heicDirectOk = Protocols.AppleMakerNoteWriter.TryInjectAppleMakerNoteIntoHeic(
-                                tempImagePath, appleContentId, out string? heicDirectError);
-                            if (heicDirectOk)
+                            heicNonStandard = true; // 结构无法判定 → 保守走桥接
+                            LogService.Split(
+                                $"Apple[image] HEIC item inspection failed ({inspectError}), falling back to JPEG bridge",
+                                LogLevel.Warning);
+                        }
+                    }
+
+                    bool mnOk;
+                    if (heicNonStandard)
+                    {
+                        // 非标准 HEIC：跳过一切原位写入，直接 JPEG 桥接注入后重编码。
+                        appleBridgeJpeg = await HeicConverterService.ConvertToJpegAsync(
+                            tempImagePath, tempDir, token);
+                        byte[] bridgeNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
+                        mnOk = Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(
+                            appleBridgeJpeg, bridgeNote, out mnError);
+                        if (!mnOk)
+                        {
+                            LogService.Split(
+                                $"Apple[image] bridge MakerNote injection failed: {mnError}",
+                                LogLevel.Warning);
+                        }
+                    }
+                    else
+                    {
+                        mnOk = Protocols.AppleMakerNoteWriter.TryWriteContentIdentifier(
+                            tempImagePath, appleContentId, out mnError);
+                        if (!mnOk)
+                        {
+                            if (sourceImageIsJpeg)
                             {
-                                mnOk = true;
+                                byte[] makerNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
+                                mnOk = Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(
+                                    tempImagePath, makerNote, out mnError);
                             }
                             else
                             {
-                                LogService.Split(
-                                    $"Apple[image] lossless HEIC injection failed ({heicDirectError}), falling back to JPEG bridge",
-                                    LogLevel.Warning);
-                                appleBridgeJpeg = await HeicConverterService.ConvertToJpegAsync(
-                                    tempImagePath, tempDir, token);
-                                byte[] makerNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
-                                mnOk = Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(
-                                    appleBridgeJpeg, makerNote, out mnError);
+                                // 标准单图 HEIC：原位注入 Exif item（保留 10-bit 子图 / 增益图 /
+                                // 厂商私有数据）；容量不足或结构异常时回退 JPEG 桥接。
+                                bool heicDirectOk = Protocols.AppleMakerNoteWriter.TryInjectAppleMakerNoteIntoHeic(
+                                    tempImagePath, appleContentId, out string? heicDirectError);
+                                if (heicDirectOk)
+                                {
+                                    mnOk = true;
+                                }
+                                else
+                                {
+                                    LogService.Split(
+                                        $"Apple[image] lossless HEIC injection failed ({heicDirectError}), falling back to JPEG bridge",
+                                        LogLevel.Warning);
+                                    appleBridgeJpeg = await HeicConverterService.ConvertToJpegAsync(
+                                        tempImagePath, tempDir, token);
+                                    byte[] makerNote = Protocols.AppleMakerNoteWriter.BuildMakerNote(appleContentId);
+                                    mnOk = Protocols.AppleMakerNoteWriter.TryInjectIntoJpeg(
+                                        appleBridgeJpeg, makerNote, out mnError);
+                                }
                             }
                         }
                     }
@@ -343,23 +387,58 @@ namespace LivePhotoBox.Services
                     {
                         if (sourceImageIsHeic)
                         {
-                            // HDR 保留：HEIC 源像素走 16-bit PNG（heif-dec -> heif-enc -b 10 + nclx/CLLI），
-                            // EXIF（含 Apple MakerNote）整体取自 JPEG 桥接（先清后拷，保证唯一 0x927C）。
+                            // HEIC 源桥接后：桥接 JPEG 若带标准增益图（HDR 源），走 Apple HDR 编码
+                            // （重挂 hdrgainmap aux + HDR MakerNote，并保留桥接 JPEG 里的 ContentIdentifier）；
+                            // 否则普通 heif-enc 编码。编码后统一规范化 Exif item（[6]["Exif\0\0"][TIFF]）。
                             try
                             {
-                                convertedImagePath = await HeicConverterService.ConvertHeicToHeicPreservingAsync(
-                                    tempImagePath, tempDir, token,
-                                    exifSourcePath: appleBridgeJpeg, metadataSourcePath: sourcePath);
+                                if (StandardHdrConversionService.HasStandardJpegGainMap(appleBridgeJpeg, token))
+                                {
+                                    convertedImagePath = await StandardHdrConversionService.ConvertJpegToHeicAsync(
+                                        appleBridgeJpeg, tempDir, token);
+                                }
+                                else
+                                {
+                                    convertedImagePath = await HeicConverterService.ConvertToHeicAsync(
+                                        appleBridgeJpeg, tempDir, token);
+                                }
                                 workingImagePath = convertedImagePath;
                             }
                             catch (Exception ex)
                             {
                                 LogService.Split(
-                                    $"Apple[image] HDR-preserving HEIC encode failed ({ex.Message}), falling back to JPEG bridge",
+                                    $"Apple[image] bridged HEIC encode failed ({ex.Message}), falling back to 16-bit PNG preserving encode",
                                     LogLevel.Warning);
-                                convertedImagePath = await HeicConverterService.ConvertToHeicAsync(
-                                    appleBridgeJpeg, tempDir, token);
-                                workingImagePath = convertedImagePath;
+                                try
+                                {
+                                    convertedImagePath = await HeicConverterService.ConvertHeicToHeicPreservingAsync(
+                                        tempImagePath, tempDir, token,
+                                        exifSourcePath: appleBridgeJpeg, metadataSourcePath: sourcePath);
+                                    workingImagePath = convertedImagePath;
+                                }
+                                catch (Exception ex2)
+                                {
+                                    LogService.Split(
+                                        $"Apple[image] HDR-preserving HEIC encode failed ({ex2.Message}), falling back to plain JPEG bridge",
+                                        LogLevel.Warning);
+                                    convertedImagePath = await HeicConverterService.ConvertToHeicAsync(
+                                        appleBridgeJpeg, tempDir, token);
+                                    workingImagePath = convertedImagePath;
+                                }
+                            }
+
+                            // 确保最终 HEIC 的 Exif item 是 iOS 可读的标准布局。
+                            if (Protocols.AppleMakerNoteWriter.TryNormalizeExifItem(convertedImagePath, out string? normalizeError))
+                            {
+                                LogService.Split(
+                                    $"Apple[image] Exif item normalized: {Path.GetFileName(convertedImagePath)}",
+                                    LogLevel.Debug);
+                            }
+                            else if (normalizeError != null)
+                            {
+                                LogService.Split(
+                                    $"Apple[image] Exif item normalization skipped: {normalizeError}",
+                                    LogLevel.Warning);
                             }
                         }
                         else

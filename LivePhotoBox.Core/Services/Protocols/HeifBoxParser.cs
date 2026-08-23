@@ -127,6 +127,56 @@ internal static class HeifBoxParser
         return false;
     }
 
+    /// <summary>
+    /// 枚举 HEIC/HEIF 容器内全部 item 的 item_type（不解析像素数据）。
+    /// 用于判断源 HEIC 是否属于「非标准单图」结构（grid 瓦片 / tmap / it35 / 多图像 item），
+    /// 这类文件不能原位注入 Exif 后直接交付给 iOS，必须走重编码桥接。
+    /// </summary>
+    public static bool TryInspectImageItems(byte[] data, out List<string> itemTypes, out string? error)
+    {
+        itemTypes = new List<string>();
+        error = null;
+
+        if (!TryFindBox(data, 0, data.Length, "meta", out int metaStart, out int metaLen, out int metaBodyStart))
+        {
+            error = "No meta box found.";
+            return false;
+        }
+
+        int childStart = metaBodyStart + 4; // meta 是 FullBox
+        int childEnd = metaStart + metaLen;
+        int iinfBody = -1, iinfLen = 0;
+        if (!TryWalkBoxes(data, childStart, childEnd, (type, body, len) =>
+        {
+            if (type == "iinf")
+            {
+                iinfBody = body;
+                iinfLen = len;
+            }
+        }))
+        {
+            error = "Meta box is malformed.";
+            return false;
+        }
+
+        if (iinfBody < 0)
+        {
+            error = "Missing iinf box.";
+            return false;
+        }
+
+        if (!TryParseIinf(data, iinfBody, iinfLen, out var items, out error))
+        {
+            return false;
+        }
+
+        foreach (var item in items)
+        {
+            itemTypes.Add(item.Type);
+        }
+        return true;
+    }
+
     private static bool TryParseIinf(byte[] data, int body, int len, out List<ItemInfo> items, out string? error)
     {
         items = new List<ItemInfo>();

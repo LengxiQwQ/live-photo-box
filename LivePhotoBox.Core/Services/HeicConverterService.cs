@@ -1,4 +1,5 @@
 using ImageMagick;
+using LivePhotoBox.Services.Protocols;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -41,7 +42,8 @@ namespace LivePhotoBox.Services
             if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
             {
                 string dir = Path.GetDirectoryName(heicPath) ?? string.Empty;
-                return await StandardHdrConversionService.ConvertHeicToJpegAsync(heicPath, dir, token);
+                string? hdrPath = await TryConvertHdrToJpegAsync(heicPath, dir, token);
+                if (hdrPath != null) return hdrPath;
             }
 
             string jpegPath = Path.Combine(
@@ -57,7 +59,8 @@ namespace LivePhotoBox.Services
 
             if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
             {
-                return await StandardHdrConversionService.ConvertHeicToJpegAsync(heicPath, outputDirectory, token);
+                string? hdrPath = await TryConvertHdrToJpegAsync(heicPath, outputDirectory, token);
+                if (hdrPath != null) return hdrPath;
             }
 
             // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
@@ -76,7 +79,8 @@ namespace LivePhotoBox.Services
 
             if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
             {
-                return await StandardHdrConversionService.ConvertHeicToJpegAsync(heicPath, outputDirectory, token);
+                string? hdrPath = await TryConvertHdrToJpegAsync(heicPath, outputDirectory, token);
+                if (hdrPath != null) return hdrPath;
             }
 
             // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
@@ -98,11 +102,57 @@ namespace LivePhotoBox.Services
         {
             if (IsHeicFile(sourcePath)) return sourcePath;
 
+            string resultPath;
             if (StandardHdrConversionService.HasStandardJpegGainMap(sourcePath, token))
             {
-                return await StandardHdrConversionService.ConvertJpegToHeicAsync(sourcePath, outputDirectory, token);
+                try
+                {
+                    resultPath = await StandardHdrConversionService.ConvertJpegToHeicAsync(
+                        sourcePath, outputDirectory, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // HDR 转换失败不应让整个合成/拆分任务失败：记录警告并回退
+                    // 普通 HEIC 转换（无增益图，仍可正常导入/显示 SDR 画面）。
+                    LogService.Merge(
+                        $"HDR conversion failed for {Path.GetFileName(sourcePath)}: {ex.Message}; "
+                        + "falling back to plain HEIC conversion (gain map dropped)",
+                        LogLevel.Warning, ex);
+                    resultPath = await ConvertPlainHeicAsync(sourcePath, outputDirectory, token);
+                }
+            }
+            else
+            {
+                resultPath = await ConvertPlainHeicAsync(sourcePath, outputDirectory, token);
             }
 
+            // heif-enc（libheif 定制版）对大端源 TIFF 会把 Exif item 写成
+            // [offset=0][TIFF]（缺 "Exif\0\0" 前缀），iOS 等严格解析器会读不到
+            // EXIF/MakerNote 导致实况照片无法配对导入。统一规范化为标准布局。
+            if (AppleMakerNoteWriter.TryNormalizeExifItem(resultPath, out string? normalizeError))
+            {
+                LogService.Merge(
+                    $"HEIC Exif item normalized for {Path.GetFileName(resultPath)}",
+                    LogLevel.Debug);
+            }
+            else if (normalizeError != null)
+            {
+                LogService.Merge(
+                    $"HEIC Exif item normalization skipped for {Path.GetFileName(resultPath)}: {normalizeError}",
+                    LogLevel.Warning);
+            }
+
+            return resultPath;
+        }
+
+        // 普通（无增益图）HEIC 编码：heif-enc 单图转换。
+        private static async Task<string> ConvertPlainHeicAsync(
+            string sourcePath, string outputDirectory, CancellationToken token)
+        {
             // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
             string heicPath = TempFileService.AllocateTempPath(outputDirectory, "heic", "heic");
 
@@ -158,6 +208,30 @@ namespace LivePhotoBox.Services
                 TryDelete(heicPath);
                 throw new InvalidOperationException(
                     $"HEIC encoding failed for {Path.GetFileName(sourcePath)}: {ex.Message}", ex);
+            }
+        }
+
+        // HDR 保真的 HEIC→JPEG 转换；失败时记录警告并返回 null，
+        // 由调用方回退普通转换（HDR 失败不应拖垮整个合成/拆分任务）。
+        private static async Task<string?> TryConvertHdrToJpegAsync(
+            string heicPath, string outputDirectory, CancellationToken token)
+        {
+            try
+            {
+                return await StandardHdrConversionService.ConvertHeicToJpegAsync(
+                    heicPath, outputDirectory, token);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogService.Merge(
+                    $"Apple HDR gain map conversion failed for {Path.GetFileName(heicPath)}: {ex.Message}; "
+                    + "falling back to plain JPEG conversion (gain map dropped)",
+                    LogLevel.Warning, ex);
+                return null;
             }
         }
 

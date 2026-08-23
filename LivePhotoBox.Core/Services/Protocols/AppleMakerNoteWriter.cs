@@ -44,12 +44,55 @@ namespace LivePhotoBox.Services.Protocols
             return ms.ToArray();
         }
 
-        // 构造仅含 HDRHeadroom(0x21) 与 HDRGain(0x30) 的 Apple MakerNote。
-        // 两条目均为 SRATIONAL（type 10，8 字节 = 分子 int32 + 分母 int32）。
-        // 布局与最小样本一致：头 10 + 版本 2 + "MM" 2 + 条目数 2 + 2×12 + next-IFD 4 = 44，
+        // 构造含 HDRHeadroom(0x21) 与 HDRGain(0x30) 的 Apple MakerNote；
+        // 传入 contentId 时额外携带 ContentIdentifier(0x0011)（顺序与真样本一致：0x0011 < 0x0021 < 0x0030）。
+        // HDR 条目均为 SRATIONAL（type 10，8 字节 = 分子 int32 + 分母 int32）。
+        // 无 CID 布局与最小样本一致：头 10 + 版本 2 + "MM" 2 + 条目数 2 + 2×12 + next-IFD 4 = 44，
         // 数据区自偏移 44 开始，每条 8 字节，总长 60。
-        internal static byte[] BuildHdrMakerNote(HdrSignedRational hdrHeadroom, HdrSignedRational hdrGain)
+        // 带 CID 布局：头 10 + 版本 2 + "MM" 2 + 条目数 2 + 3×12 + next-IFD 4 = 56，
+        // 数据区自偏移 56 开始：CID（37 字节，按偶数对齐）→ HDRHeadroom 8 → HDRGain 8，总长 110。
+        internal static byte[] BuildHdrMakerNote(
+            HdrSignedRational hdrHeadroom, HdrSignedRational hdrGain, string? contentId = null)
         {
+            if (!string.IsNullOrEmpty(contentId))
+            {
+                byte[] cidBytes = Encoding.ASCII.GetBytes(contentId + "\0"); // 37 bytes（UUID 36 + \0）
+                const int entryCount = 3;
+                const int ifdBytes = 2 + entryCount * 12 + 4; // count + 3×12 + next-IFD = 42
+                const int dataStart = 10 + 2 + 2 + ifdBytes;  // 56
+                int cidOffset = dataStart;
+                int headroomOffset = (cidOffset + cidBytes.Length + 1) & ~1; // 偶数对齐
+                int gainOffset = headroomOffset + 8;
+                int totalWithCid = gainOffset + 8; // 110
+
+                var msWithCid = new MemoryStream(totalWithCid);
+                msWithCid.Write(Encoding.ASCII.GetBytes("Apple iOS\0"));
+                msWithCid.WriteByte(0x00);
+                msWithCid.WriteByte(0x01);
+                msWithCid.Write(Encoding.ASCII.GetBytes("MM"));
+
+                WriteU16Be(msWithCid, entryCount);
+                WriteEntry(msWithCid, 0x0011, 2, (uint)cidBytes.Length, (uint)cidOffset);  // ContentIdentifier
+                WriteEntry(msWithCid, 0x0021, 10, 1, (uint)headroomOffset);                // HDRHeadroom
+                WriteEntry(msWithCid, 0x0030, 10, 1, (uint)gainOffset);                    // HDRGain
+                WriteU32Be(msWithCid, 0);                                                  // next IFD = 0
+
+                while (msWithCid.Position < cidOffset)
+                {
+                    msWithCid.WriteByte(0);
+                }
+                msWithCid.Write(cidBytes);
+                while (msWithCid.Position < headroomOffset)
+                {
+                    msWithCid.WriteByte(0);
+                }
+                WriteU32Be(msWithCid, (uint)hdrHeadroom.Numerator);
+                WriteU32Be(msWithCid, (uint)hdrHeadroom.Denominator);
+                WriteU32Be(msWithCid, (uint)hdrGain.Numerator);
+                WriteU32Be(msWithCid, (uint)hdrGain.Denominator);
+                return msWithCid.ToArray();
+            }
+
             const int headroomDataOffset = 10 + 2 + 2 + 2 + 2 * 12 + 4; // 44
             const int gainDataOffset = headroomDataOffset + 8;           // 52
             const int total = gainDataOffset + 8;                        // 60
@@ -71,6 +114,79 @@ namespace LivePhotoBox.Services.Protocols
             WriteU32Be(ms, (uint)hdrGain.Denominator);
 
             return ms.ToArray();
+        }
+
+        /// <summary>
+        /// 从图片（JPEG 或 HEIC）的 Apple MakerNote 中读取 ContentIdentifier（tag 0x0011，ASCII）。
+        /// 供 HDR 转换在替换 MakerNote 前保留配对 UUID，避免 HDR 条目覆盖 CID。
+        /// </summary>
+        public static bool TryReadContentIdentifierFromImage(string imagePath, out string? contentId, out string? error)
+        {
+            contentId = null;
+            error = null;
+            try
+            {
+                byte[] data = File.ReadAllBytes(imagePath);
+                // 扫描文件内全部 Apple MakerNote 签名：JPEG 注入路径会把新 MN 追加在旧 MN
+                // （CID 已被剥离的空壳）之后，只读第一个会拿到空壳导致 CID 误判为缺失。
+                // 取第一个带 0x0011 ContentIdentifier 条目的 MN。
+                int searchFrom = 0;
+                bool foundAny = false;
+                while (true)
+                {
+                    int mnStart = FindAppleMakerNote(data, searchFrom);
+                    if (mnStart < 0)
+                    {
+                        break;
+                    }
+                    foundAny = true;
+
+                    if (mnStart + 16 > data.Length)
+                    {
+                        searchFrom = mnStart + 1;
+                        continue;
+                    }
+
+                    // 布局：magic(12) + "MM"(2) + 条目数(2) + 条目(12×n) + next-IFD(4)，
+                    // 值与偏移均按大端；值偏移相对 MakerNote 起点。
+                    int count = Read16(data, mnStart + 14, bigEndian: true);
+                    if (count > 4096)
+                    {
+                        searchFrom = mnStart + 1;
+                        continue;
+                    }
+                    int p = mnStart + 16;
+                    for (int i = 0; i < count && p + 12 <= data.Length; i++)
+                    {
+                        ushort tag = Read16(data, p, bigEndian: true);
+                        ushort type = Read16(data, p + 2, bigEndian: true);
+                        uint fcnt = (uint)Read32(data, p + 4, bigEndian: true);
+                        if (tag == 0x0011 && type == 2 && fcnt > 0)
+                        {
+                            long valueOffset = Read32(data, p + 8, bigEndian: true);
+                            int start = checked((int)(mnStart + valueOffset));
+                            int len = checked((int)fcnt - 1);
+                            if (start >= 0 && len > 0 && start + len <= data.Length)
+                            {
+                                contentId = Encoding.ASCII.GetString(data, start, len);
+                                return true;
+                            }
+                        }
+                        p += 12;
+                    }
+                    searchFrom = mnStart + 1;
+                }
+
+                error = foundAny
+                    ? "ContentIdentifier (0x0011) entry not found in any Apple MakerNote."
+                    : "No Apple MakerNote found.";
+                return false;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
         }
 
         // 将 MakerNote 块注入 JPEG 的 APP1 Exif 段。
@@ -239,7 +355,24 @@ namespace LivePhotoBox.Services.Protocols
                 }
                 if (newTiff.Length > tiffLen)
                 {
-                    error = $"New TIFF ({newTiff.Length} bytes) exceeds Exif item capacity ({tiffLen} bytes).";
+                    // 容量不足：把完整 Exif item payload（[offset=6]["Exif\0\0"][TIFF]）
+                    // 追加到 mdat 末尾并重指 Exif item 的 iloc。追加的必须是完整 payload
+                    // （含 4 字节 offset 头），否则后续解析器会把 TIFF 头当 offset 读错。
+                    // 保留源 EXIF 全部数据（含缩略图 / UserComment / 厂商私有字段），
+                    // 不移动其它 item 的数据。mdat 必须是最后一个顶层 box。
+                    byte[] fullPayload = new byte[4 + 6 + newTiff.Length];
+                    BinaryPrimitives.WriteInt32BigEndian(fullPayload.AsSpan(0, 4), 6);
+                    "Exif\0\0"u8.CopyTo(fullPayload.AsSpan(4, 6));
+                    newTiff.CopyTo(fullPayload.AsSpan(10));
+                    if (TryRelocateExifToMdatEnd(
+                        data, itemStart, itemLen, fullPayload, out byte[] relocated, out string? relocateError))
+                    {
+                        File.WriteAllBytes(heicPath, relocated);
+                        return true;
+                    }
+
+                    error = $"New TIFF ({newTiff.Length} bytes) exceeds Exif item capacity ({tiffLen} bytes)"
+                        + $" and relocation failed: {relocateError}";
                     return false;
                 }
 
@@ -263,8 +396,13 @@ namespace LivePhotoBox.Services.Protocols
         // 在整文件中定位 Apple MakerNote：签名 "Apple iOS\0" + 0x00 0x01 + "MM"。
         private static int FindAppleMakerNote(byte[] data)
         {
+            return FindAppleMakerNote(data, 0);
+        }
+
+        private static int FindAppleMakerNote(byte[] data, int start)
+        {
             byte[] sig = "Apple iOS\0"u8.ToArray();
-            for (int i = 0; i + sig.Length + 4 <= data.Length; i++)
+            for (int i = start; i + sig.Length + 4 <= data.Length; i++)
             {
                 if (data[i] == (byte)'A' && data[i + 1] == (byte)'p')
                 {
@@ -1066,6 +1204,415 @@ namespace LivePhotoBox.Services.Protocols
         {
             if (bigEndian) BinaryPrimitives.WriteUInt16BigEndian(d.AsSpan(off), (ushort)v);
             else BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(off), (ushort)v);
+        }
+
+        // ── Exif item 扩容（mdat 末尾追加 + 重指 iloc）──────────────────────
+
+        // 新 TIFF 超过原 Exif item 容量时，把新 TIFF 追加到 mdat 末尾（mdat 必须是
+        // 最后一个顶层 box），再把 Exif item 的 iloc base_offset/extent length 指向
+        // 追加的数据。其余 item 的数据与偏移完全不动；追加发生在 mdat 内部，
+        // 顶层 box 链保持合法。旧 Exif 数据留在 mdat 内成为无害孤儿字节。
+        private static bool TryRelocateExifToMdatEnd(
+            byte[] data,
+            long exifOffset,
+            long exifLength,
+            byte[] newTiff,
+            out byte[] patched,
+            out string? error)
+        {
+            patched = Array.Empty<byte>();
+            error = null;
+            try
+            {
+                // 1) 找 mdat 并确认它是最后一个顶层 box。
+                int p = 0;
+                int mdatStart = -1;
+                long mdatSize = 0;
+                int mdatHeader = 8;
+                while (p + 8 <= data.Length)
+                {
+                    long size = HeifBoxParser.Read32(data, p);
+                    string type = HeifBoxParser.ReadFourCc(data, p + 4);
+                    int header = 8;
+                    if (size == 1)
+                    {
+                        if (p + 16 > data.Length)
+                        {
+                            error = "Top-level 64-bit box header truncated.";
+                            return false;
+                        }
+                        size = (long)HeifBoxParser.Read64(data, p + 8);
+                        header = 16;
+                    }
+                    else if (size == 0)
+                    {
+                        size = data.Length - p;
+                    }
+
+                    if (size < header || p + size > data.Length)
+                    {
+                        error = "Top-level box malformed.";
+                        return false;
+                    }
+
+                    if (type == "mdat")
+                    {
+                        mdatStart = p;
+                        mdatSize = size;
+                        mdatHeader = header;
+                        if (p + size != data.Length)
+                        {
+                            error = "mdat is not the last top-level box; cannot relocate Exif item.";
+                            return false;
+                        }
+                        break;
+                    }
+                    p += (int)size;
+                }
+                if (mdatStart < 0)
+                {
+                    error = "No mdat box found.";
+                    return false;
+                }
+
+                // 2) 定位 meta -> iloc 里 Exif item 的 base_offset / extent length 字段。
+                if (!HeifBoxParser.TryFindBox(
+                    data, 0, data.Length, "meta", out int metaStart, out int metaLen, out int metaBodyStart))
+                {
+                    error = "No meta box found.";
+                    return false;
+                }
+
+                int ilocBody = -1, ilocLen = 0;
+                HeifBoxParser.TryWalkBoxes(
+                    data, metaBodyStart + 4, metaStart + metaLen,
+                    (type, body, len) =>
+                    {
+                        if (type == "iloc")
+                        {
+                            ilocBody = body;
+                            ilocLen = len;
+                        }
+                    });
+                if (ilocBody < 0)
+                {
+                    error = "No iloc box found.";
+                    return false;
+                }
+
+                if (!TryFindExifIlocFields(
+                    data, ilocBody, ilocLen, exifOffset, exifLength,
+                    out int baseFieldPos, out int lengthFieldPos,
+                    out int baseSize, out int lengthSize, out error))
+                {
+                    return false;
+                }
+
+                if (baseSize < 4)
+                {
+                    error = $"iloc base_offset size ({baseSize}) too small for relocated Exif item.";
+                    return false;
+                }
+                if (lengthSize < 4)
+                {
+                    error = $"iloc extent length size ({lengthSize}) too small for new Exif item.";
+                    return false;
+                }
+
+                // 3) 组装：原数据 + 新 TIFF 追加在 mdat 末尾。
+                long newBase = mdatStart + mdatSize; // 原 mdat 末尾 = 追加位置
+                patched = new byte[data.Length + newTiff.Length];
+                Array.Copy(data, 0, patched, 0, data.Length);
+                Array.Copy(newTiff, 0, patched, data.Length, newTiff.Length);
+
+                // 4) 更新 mdat 长度字段（32-bit 或 64-bit）。
+                if (mdatHeader == 8)
+                {
+                    long oldSize = HeifBoxParser.Read32(patched, mdatStart);
+                    if (oldSize == 0)
+                    {
+                        // 原 size=0（延伸到 EOF）：改为显式 32-bit 长度。
+                        long explicitSize = data.Length - mdatStart + newTiff.Length;
+                        if (explicitSize > uint.MaxValue)
+                        {
+                            error = "mdat too large for 32-bit size field.";
+                            return false;
+                        }
+                        WriteU32(patched, mdatStart, (uint)explicitSize);
+                    }
+                    else if (oldSize == 1)
+                    {
+                        error = "Unexpected 32-bit mdat size field.";
+                        return false;
+                    }
+                    else
+                    {
+                        WriteU32(patched, mdatStart, (uint)(oldSize + newTiff.Length));
+                    }
+                }
+                else
+                {
+                    long oldSize = (long)HeifBoxParser.Read64(patched, mdatStart + 8);
+                    WriteU64(patched, mdatStart + 8, (ulong)(oldSize + newTiff.Length));
+                }
+
+                // 5) 重指 Exif item。
+                WriteUInt(patched, baseFieldPos, newBase, baseSize);
+                WriteUInt(patched, lengthFieldPos, newTiff.Length, lengthSize);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        // 把 HEIC 的 Exif item 规范化为标准布局：
+        //   [32-bit exif_tiff_header_offset=6]["Exif\0\0"][TIFF]
+        // heif-enc（libheif 定制版）对大端（MM）源 TIFF 会写成
+        //   [32-bit offset=0][TIFF]（缺 "Exif\0\0" 前缀），部分解析器（iOS ImageIO
+        // 等）按规范找不到前缀会放弃解析 EXIF，导致 MakerNote/ContentIdentifier
+        // 无法读取、实况照片无法配对。此函数把非标准布局统一转为标准布局。
+        // 已在标准布局时原样返回 true；需要改写时复用 mdat 末尾追加方案
+        // （TryRelocateExifToMdatEnd），不移动其它 item 数据。
+        public static bool TryNormalizeExifItem(string heicPath, out string? error)
+        {
+            error = null;
+            try
+            {
+                if (!HeifBoxParser.TryLocateExifItem(heicPath, out long exifOffset, out long exifLength, out string? locateError))
+                {
+                    error = $"Exif item locate failed: {locateError}";
+                    return false;
+                }
+
+                byte[] data = File.ReadAllBytes(heicPath);
+                int itemStart = checked((int)exifOffset);
+                int itemLen = checked((int)exifLength);
+                if (itemStart + itemLen > data.Length)
+                {
+                    error = "Exif extent out of range.";
+                    return false;
+                }
+                if (itemLen < 10)
+                {
+                    error = "Exif item too short.";
+                    return false;
+                }
+
+                // 已带 "Exif\0\0" 前缀（标准）→ 无需处理。
+                if (itemLen >= 10 && data.AsSpan(itemStart + 4, 6).SequenceEqual("Exif\0\0"u8))
+                {
+                    return true;
+                }
+
+                // 定位 TIFF 魔数（MM\0* / II*\0）。兼容三种 payload：
+                //   [offset][TIFF]（heif-enc 原始输出）
+                //   [offset]["Exif\0\0"][TIFF]（标准布局）
+                //   [TIFF]（历史重定位产物——裸 TIFF，无 offset 头）
+                // 一律从魔数起取 TIFF，重建标准布局，避免把 TIFF 头剥坏。
+                int tiffStart = -1;
+                for (int i = 0; i + 4 <= itemLen; i++)
+                {
+                    if (data[itemStart + i] == (byte)'M' && data[itemStart + i + 1] == (byte)'M'
+                        && data[itemStart + i + 2] == 0 && data[itemStart + i + 3] == 0x2A)
+                    {
+                        tiffStart = i;
+                        break;
+                    }
+                    if (data[itemStart + i] == (byte)'I' && data[itemStart + i + 1] == (byte)'I'
+                        && data[itemStart + i + 2] == 0x2A && data[itemStart + i + 3] == 0)
+                    {
+                        tiffStart = i;
+                        break;
+                    }
+                }
+                if (tiffStart < 0)
+                {
+                    error = "Exif item contains no TIFF header.";
+                    return false;
+                }
+
+                byte[] payload = data.AsSpan(itemStart + tiffStart, itemLen - tiffStart).ToArray();
+                byte[] normalized = new byte[4 + 6 + payload.Length];
+                BinaryPrimitives.WriteInt32BigEndian(normalized.AsSpan(0, 4), 6);
+                "Exif\0\0"u8.CopyTo(normalized.AsSpan(4, 6));
+                payload.CopyTo(normalized.AsSpan(10));
+
+                if (!TryRelocateExifToMdatEnd(
+                    data, itemStart, itemLen, normalized, out byte[] patched, out string? relocateError))
+                {
+                    error = $"Exif normalization failed: {relocateError}";
+                    return false;
+                }
+
+                File.WriteAllBytes(heicPath, patched);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        // 在 iloc 里找绝对偏移与长度匹配 Exif item 的条目，返回其 base_offset
+        // 字段与 extent length 字段的字节位置（供重写）。
+        private static bool TryFindExifIlocFields(
+            byte[] data,
+            int body,
+            int len,
+            long wantOffset,
+            long wantLength,
+            out int baseFieldPos,
+            out int lengthFieldPos,
+            out int baseSize,
+            out int lengthSize,
+            out string? error)
+        {
+            baseFieldPos = -1;
+            lengthFieldPos = -1;
+            baseSize = 0;
+            lengthSize = 0;
+            error = null;
+
+            int end = body + len;
+            if (body + 6 > end)
+            {
+                error = "iloc too short.";
+                return false;
+            }
+
+            int version = data[body] & 0xFF;
+            int p = body + 4;
+            int b0 = data[p] & 0xFF;
+            int b1 = data[p + 1] & 0xFF;
+            p += 2;
+            int offsetSize = (b0 >> 4) & 0x0F;
+            int lengthSizeX = b0 & 0x0F;
+            int baseOffsetSize = (b1 >> 4) & 0x0F;
+            int indexSize = b1 & 0x0F;
+
+            int count;
+            if (version < 2)
+            {
+                if (p + 2 > end)
+                {
+                    error = "iloc truncated.";
+                    return false;
+                }
+                count = HeifBoxParser.Read16(data, p);
+                p += 2;
+            }
+            else
+            {
+                if (p + 4 > end)
+                {
+                    error = "iloc truncated.";
+                    return false;
+                }
+                count = checked((int)HeifBoxParser.Read32(data, p));
+                p += 4;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                if (version < 2)
+                {
+                    if (p + 2 > end)
+                    {
+                        error = "iloc item truncated.";
+                        return false;
+                    }
+                    p += 2;
+                }
+                else
+                {
+                    if (p + 4 > end)
+                    {
+                        error = "iloc item truncated.";
+                        return false;
+                    }
+                    p += 4;
+                }
+
+                if (version == 1 || version == 2)
+                {
+                    if (p + 2 > end)
+                    {
+                        error = "iloc item truncated.";
+                        return false;
+                    }
+                    p += 2; // construction_method
+                }
+
+                if (p + 2 > end)
+                {
+                    error = "iloc item truncated.";
+                    return false;
+                }
+                p += 2; // data_reference_index
+
+                int baseField = p;
+                long baseOffset = baseOffsetSize > 0 ? HeifBoxParser.ReadUInt(data, p, baseOffsetSize) : 0;
+                p += baseOffsetSize;
+
+                if (p + 2 > end)
+                {
+                    error = "iloc item truncated.";
+                    return false;
+                }
+                int extentCount = HeifBoxParser.Read16(data, p);
+                p += 2;
+
+                for (int e = 0; e < extentCount; e++)
+                {
+                    if ((version == 1 || version == 2) && indexSize > 0)
+                    {
+                        if (p + indexSize > end)
+                        {
+                            error = "iloc extent truncated.";
+                            return false;
+                        }
+                        p += indexSize;
+                    }
+
+                    long extentOffset = offsetSize > 0 ? HeifBoxParser.ReadUInt(data, p, offsetSize) : 0;
+                    p += offsetSize;
+
+                    int lengthField = p;
+                    long extentLength = lengthSizeX > 0 ? HeifBoxParser.ReadUInt(data, p, lengthSizeX) : 0;
+                    p += lengthSizeX;
+
+                    if (e == 0 && baseOffset + extentOffset == wantOffset && extentLength == wantLength)
+                    {
+                        baseFieldPos = baseField;
+                        lengthFieldPos = lengthField;
+                        baseSize = baseOffsetSize;
+                        lengthSize = lengthSizeX;
+                        return true;
+                    }
+                }
+            }
+
+            error = "Exif item not found in iloc.";
+            return false;
+        }
+
+        private static void WriteU64(byte[] d, int off, ulong v)
+            => BinaryPrimitives.WriteUInt64BigEndian(d.AsSpan(off), v);
+
+        private static void WriteU32(byte[] d, int off, uint v)
+            => BinaryPrimitives.WriteUInt32BigEndian(d.AsSpan(off), v);
+
+        private static void WriteUInt(byte[] d, int off, long v, int size)
+        {
+            for (int i = size - 1; i >= 0; i--)
+            {
+                d[off + i] = (byte)(v & 0xFF);
+                v >>= 8;
+            }
         }
     }
 }

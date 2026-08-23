@@ -1,6 +1,9 @@
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System.Diagnostics;
+using System.Globalization;
+using System.Text;
+using System.Text.RegularExpressions;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests;
@@ -35,7 +38,7 @@ public sealed class SameFormatHdrRegressionTests
     }
 
     [Theory]
-    [InlineData("ONEPLUS_test.jpg")]
+    [InlineData("一加.jpg")]
     [InlineData("vivo.jpg")]
     public async Task SplitJpeg_HdrPlusMotionPhoto_RemovesMotionPhotoButKeepsGainMap(string sampleName)
     {
@@ -236,6 +239,51 @@ public sealed class SameFormatHdrRegressionTests
         }
     }
 
+    // 回归：vivo/一加/小米/三星 的增益图藏在 XMP 容器清单里（Item:Length），
+    // exiftool -GainMapImage 会错取成追加的视频；这里直接对原始多段文件转换，
+    // 必须成功且 MakerNote 读回的 headroom 与源 hdrgm:HDRCapacityMax 一致。
+    [Theory]
+    [InlineData("vivo.jpg")]
+    [InlineData("一加.jpg")]
+    [InlineData("小米.jpg")]
+    [InlineData("三星.jpg")]
+    [InlineData("荣耀.jpg")]
+    public async Task StandardConversion_BrandJpegToHeic_ExtractsGainMapAndWritesMatchingHeadroom(string sampleName)
+    {
+        string source = ResolveSample(sampleName);
+        string outputDir = CreateTempDirectory();
+
+        try
+        {
+            double? sourceHeadroom = ReadSourceHdrCapacityHeadroom(source);
+            Assert.NotNull(sourceHeadroom);
+
+            string converted = await StandardHdrConversionService.ConvertJpegToHeicAsync(
+                source, outputDir, CancellationToken.None);
+
+            string tags = await ReadExifTagsAsync(
+                converted,
+                "-s", "-n", "-AuxiliaryImageType", "-HDRHeadroom", "-HDRGain");
+
+            Assert.Contains("urn:com:apple:photo:2020:aux:hdrgainmap", tags);
+
+            double? maker33 = ParseTagDouble(tags, "HDRHeadroom");
+            double? maker48 = ParseTagDouble(tags, "HDRGain");
+            Assert.NotNull(maker33);
+            Assert.NotNull(maker48);
+
+            double readback = ComputeAppleHeadroom(maker33!.Value, maker48!.Value);
+            Assert.True(
+                Math.Abs(readback - sourceHeadroom!.Value) < 0.05,
+                $"MakerNote headroom readback {readback:F3} does not match source headroom "
+                + $"{sourceHeadroom.Value:F3} for {sampleName}.");
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
     private static string ResolveSample(string fileName)
     {
         string path = Path.Combine(AppContext.BaseDirectory, "samples", fileName);
@@ -252,6 +300,61 @@ public sealed class SameFormatHdrRegressionTests
         string path = Path.Combine(Path.GetTempPath(), $"lpb_hdr_tests_{Guid.NewGuid():N}");
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    private static double? ReadSourceHdrCapacityHeadroom(string path)
+    {
+        // hdrgm 属性可能在主 XMP 或增益图 JPEG 自带 XMP 里，全文件字节扫描。
+        byte[] data = File.ReadAllBytes(path);
+        string text = Encoding.Latin1.GetString(data);
+        Match m = Regex.Match(text, @"hdrgm:HDRCapacityMax\s*=\s*""([^""]+)""");
+        if (!m.Success
+            || !double.TryParse(
+                m.Groups[1].Value,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out double capMax))
+        {
+            return null;
+        }
+
+        return Math.Pow(2.0, capMax);
+    }
+
+    private static double? ParseTagDouble(string tags, string tagName)
+    {
+        foreach (string line in tags.Split('\n'))
+        {
+            int sep = line.IndexOf(':');
+            if (sep < 0)
+            {
+                continue;
+            }
+
+            if (!line[..sep].Trim().Equals(tagName, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (double.TryParse(
+                line[(sep + 1)..].Trim(),
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out double value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static double ComputeAppleHeadroom(double maker33, double maker48)
+    {
+        double stops = maker33 < 1.0
+            ? (maker48 <= 0.01 ? -20.0 * maker48 + 1.8 : -0.101 * maker48 + 1.601)
+            : (maker48 <= 0.01 ? -70.0 * maker48 + 3.0 : -0.303 * maker48 + 2.303);
+        return Math.Pow(2.0, Math.Max(stops, 0.0));
     }
 
     private static async Task<string> ReadExifTagsAsync(string filePath, params string[] args)

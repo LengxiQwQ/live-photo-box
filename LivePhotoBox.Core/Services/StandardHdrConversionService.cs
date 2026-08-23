@@ -1,4 +1,5 @@
 using LivePhotoBox.Services.Protocols;
+using LivePhotoBox.Models;
 using ImageMagick;
 using System;
 using System.Collections.Generic;
@@ -6,6 +7,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -23,6 +25,14 @@ public static class StandardHdrConversionService
 
     public static bool HasStandardJpegGainMap(string sourcePath, CancellationToken token = default)
     {
+        // 优先按 XMP 容器语义检测。vivo/一加/小米等文件里 exiftool 的
+        // -GainMapImage 会错取成追加的视频（MPF 第二张图），只有 XMP 容器
+        // 清单（Item:Semantic="GainMap"）才是权威来源。
+        if (TryGetGainMapItemLength(sourcePath, out _))
+        {
+            return true;
+        }
+
         string tags = ReadExifTags(sourcePath, token, "-s", "-GainMapImage");
         return tags.Contains("GainMapImage", StringComparison.Ordinal);
     }
@@ -49,8 +59,14 @@ public static class StandardHdrConversionService
                 throw new InvalidDataException("Source JPEG does not contain a standard Ultra HDR gain map.");
             }
 
-            IsoGainMapMetadata iso = ReadIsoGainMapMetadata(isoGainMapPath, token);
+            // 元数据优先从源文件主 XMP 读（hdrgm 命名空间属主容器所有），
+            // 增益图 JPEG 自带的 XMP 作回退；两者都没有时 ReadIsoGainMapMetadata
+            // 内部使用默认值。
+            IsoGainMapMetadata iso = TryReadIsoGainMapMetadataFromXmp(sourcePath, out IsoGainMapMetadata parsed)
+                ? parsed
+                : ReadIsoGainMapMetadata(isoGainMapPath, token);
             double headroom = Math.Pow(2.0, iso.HDRCapacityMax);
+            WarnIfHeadroomUnrepresentable(headroom);
 
             (byte[] appleGain, uint width, uint height) = ComputeAppleGainMap(
                 isoGainMapPath, iso, headroom);
@@ -309,6 +325,14 @@ public static class StandardHdrConversionService
     private static async Task<bool> TryExtractJpegGainMapAsync(
         string sourcePath, string outputPath, CancellationToken token)
     {
+        // 1) 优先按 XMP 容器语义定位增益图字节（vivo/一加/小米等文件
+        //    exiftool -GainMapImage 会错取成追加的视频，必须按 Item:Length 切片）。
+        if (TrySliceGainMapFromContainer(sourcePath, outputPath))
+        {
+            return File.Exists(outputPath) && new FileInfo(outputPath).Length > 0;
+        }
+
+        // 2) 回退：exiftool 直接提取（对荣耀等 exiftool 解析正确的文件有效）。
         string? exifToolPath = ExternalToolLocator.FindExifTool();
         if (string.IsNullOrEmpty(exifToolPath))
         {
@@ -345,6 +369,335 @@ public static class StandardHdrConversionService
         }
 
         return File.Exists(outputPath) && new FileInfo(outputPath).Length > 0;
+    }
+
+    // ── XMP 容器语义定位增益图 ──────────────────────────────────────────
+
+    // 从源 JPEG 的 XMP 里找 Container:Directory 中 Semantic=GainMap 的
+    // Item:Length（增益图字节数）。XMP 是主容器的权威描述，不依赖 exiftool
+    // 对 MPF 的解析。返回 false 表示源文件没有可用的 GainMap 容器项。
+    private static bool TryGetGainMapItemLength(string sourcePath, out long length)
+    {
+        length = 0;
+        try
+        {
+            byte[] data = File.ReadAllBytes(sourcePath);
+            string xmp = ExtractXmpText(data);
+            if (string.IsNullOrEmpty(xmp))
+            {
+                return false;
+            }
+
+            foreach (Match li in Regex.Matches(
+                xmp,
+                @"<rdf:li\b[^>]*>(?<inner>.*?)</rdf:li>",
+                RegexOptions.Singleline | RegexOptions.CultureInvariant))
+            {
+                string inner = li.Groups["inner"].Value;
+                Match semantic = Regex.Match(
+                    inner,
+                    @"Item:Semantic\s*=\s*""(?<v>[^""]+)""",
+                    RegexOptions.CultureInvariant);
+                if (!semantic.Success
+                    || !semantic.Groups["v"].Value.Equals("GainMap", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                Match itemLength = Regex.Match(
+                    inner,
+                    @"Item:Length\s*=\s*""(?<v>\d+)""",
+                    RegexOptions.CultureInvariant);
+                if (itemLength.Success
+                    && long.TryParse(
+                        itemLength.Groups["v"].Value,
+                        NumberStyles.Integer,
+                        CultureInfo.InvariantCulture,
+                        out length)
+                    && length > 0)
+                {
+                    return true;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogService.Warn(
+                $"Failed to read GainMap item length from XMP of {Path.GetFileName(sourcePath)}: {ex.Message}",
+                source: LogSource.Merge);
+        }
+
+        return false;
+    }
+
+    // 按「主 JPEG 的 EOI 之后紧接增益图 JPEG，长度取 XMP Item:Length」切片。
+    // 该布局是 Google Ultra HDR / ISO 21496-1 的标准三段式（主图 + 增益图 + 视频）。
+    private static bool TrySliceGainMapFromContainer(string sourcePath, string outputPath)
+    {
+        try
+        {
+            if (!TryGetGainMapItemLength(sourcePath, out long gainMapLength))
+            {
+                return false;
+            }
+
+            byte[] data = File.ReadAllBytes(sourcePath);
+            if (!TryFindPrimaryJpegEoi(data, out int eoiPos))
+            {
+                return false;
+            }
+
+            int gainMapStart = eoiPos + 1;
+            if (gainMapStart + 2 > data.Length
+                || data[gainMapStart] != 0xFF
+                || data[gainMapStart + 1] != 0xD8)
+            {
+                // 主图 EOI 后不是 JPEG（例如重封装的实况照片视频紧跟在主图后），
+                // 交给 exiftool 回退路径。
+                return false;
+            }
+
+            if (gainMapLength > int.MaxValue || gainMapStart + gainMapLength > data.Length)
+            {
+                return false;
+            }
+
+            // 增益图应以 EOI 结束；若 XMP 长度包含尾部 padding，截到最后一个 EOI。
+            int sliceEnd = gainMapStart + (int)gainMapLength;
+            int lastEoi = -1;
+            for (int i = sliceEnd - 2; i >= gainMapStart; i--)
+            {
+                if (data[i] == 0xFF && data[i + 1] == 0xD9)
+                {
+                    lastEoi = i;
+                    break;
+                }
+            }
+
+            if (lastEoi < 0)
+            {
+                // 切片内没有 EOI，说明 XMP 长度与字节不吻合，放弃切片。
+                return false;
+            }
+
+            File.WriteAllBytes(outputPath, data.AsSpan(gainMapStart, lastEoi + 2 - gainMapStart).ToArray());
+            return true;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogService.Warn(
+                $"Gain map container slicing failed for {Path.GetFileName(sourcePath)}: {ex.Message}",
+                source: LogSource.Merge);
+            return false;
+        }
+    }
+
+    // 提取 JPEG 所有 APP1 XMP 段（以 "http://ns.adobe.com/xap/1.0/\0" 开头的段）并拼接文本。
+    private static string ExtractXmpText(byte[] data)
+    {
+        var sb = new StringBuilder();
+        int p = 2; // 跳过 SOI
+        while (p + 4 <= data.Length)
+        {
+            if (data[p] != 0xFF)
+            {
+                p++;
+                continue;
+            }
+
+            byte marker = data[p + 1];
+            if (marker == 0x00 || marker == 0xFF)
+            {
+                p += 2;
+                continue;
+            }
+
+            if (marker == 0xD8)
+            {
+                p += 2;
+                continue;
+            }
+
+            if (marker == 0xD9)
+            {
+                break;
+            }
+
+            if (marker >= 0xD0 && marker <= 0xD7 || marker == 0x01)
+            {
+                p += 2;
+                continue;
+            }
+
+            int segmentLength = (data[p + 2] << 8) | data[p + 3];
+            if (segmentLength < 2 || p + 2 + segmentLength > data.Length)
+            {
+                break;
+            }
+
+            if (marker == 0xE1)
+            {
+                int payloadLength = segmentLength - 2;
+                int payloadStart = p + 4;
+                byte[] xmpHeader = Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0");
+                if (payloadLength >= xmpHeader.Length
+                    && data.AsSpan(payloadStart, xmpHeader.Length).SequenceEqual(xmpHeader))
+                {
+                    sb.Append(Encoding.UTF8.GetString(
+                        data,
+                        payloadStart + xmpHeader.Length,
+                        payloadLength - xmpHeader.Length));
+                }
+            }
+
+            p += 2 + segmentLength;
+            if (marker == 0xDA)
+            {
+                // XMP 只存在于图像数据之前的 APP 段，进入 SOS 后停止扫描。
+                break;
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    // 从文件头开始走 JPEG 标记直到主图 EOI（0xFF 0xD9），返回 EOI 第二个字节的下标。
+    // 与 LivePhotoMergeService.MeasureGainMapLength 的遍历逻辑一致。
+    private static bool TryFindPrimaryJpegEoi(byte[] data, out int eoiPos)
+    {
+        eoiPos = -1;
+        int p = 2; // 跳过 SOI
+        while (p + 4 <= data.Length)
+        {
+            if (data[p] != 0xFF)
+            {
+                p++;
+                continue;
+            }
+
+            byte marker = data[p + 1];
+            if (marker == 0x00 || marker == 0xFF)
+            {
+                p += 2;
+                continue;
+            }
+
+            if (marker == 0xD8)
+            {
+                p += 2;
+                continue;
+            }
+
+            if (marker == 0xD9)
+            {
+                eoiPos = p + 1;
+                return true;
+            }
+
+            if (marker >= 0xD0 && marker <= 0xD7 || marker == 0x01)
+            {
+                p += 2;
+                continue;
+            }
+
+            int segmentLength = (data[p + 2] << 8) | data[p + 3];
+            if (segmentLength < 2 || p + 2 + segmentLength > data.Length)
+            {
+                return false;
+            }
+
+            p += 2 + segmentLength;
+        }
+
+        return false;
+    }
+
+    // 从文件的 XMP 文本解析 hdrgm 属性（GainMapMin/Max、Gamma、OffsetSDR/HDR、
+    // HDRCapacityMin/Max）。XMP 是主容器的权威描述，优先于增益图 JPEG 自带的 XMP。
+    private static bool TryReadIsoGainMapMetadataFromXmp(string sourcePath, out IsoGainMapMetadata metadata)
+    {
+        metadata = new IsoGainMapMetadata(0, 1, 1, 1e-6, 1e-6, 0, 1);
+        try
+        {
+            byte[] data = File.ReadAllBytes(sourcePath);
+            string xmp = ExtractXmpText(data);
+            if (string.IsNullOrEmpty(xmp) || !xmp.Contains("hdrgm:", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            double? gainMapMin = TryParseHdrgmDouble(xmp, "GainMapMin");
+            double? gainMapMax = TryParseHdrgmDouble(xmp, "GainMapMax");
+            double? gamma = TryParseHdrgmDouble(xmp, "Gamma");
+            double? offsetSdr = TryParseHdrgmDouble(xmp, "OffsetSDR");
+            double? offsetHdr = TryParseHdrgmDouble(xmp, "OffsetHDR");
+            double? capacityMin = TryParseHdrgmDouble(xmp, "HDRCapacityMin");
+            double? capacityMax = TryParseHdrgmDouble(xmp, "HDRCapacityMax");
+
+            metadata = new IsoGainMapMetadata(
+                GainMapMin: gainMapMin ?? 0.0,
+                GainMapMax: gainMapMax ?? 1.0,
+                Gamma: gamma ?? 1.0,
+                OffsetSDR: offsetSdr ?? 1e-6,
+                OffsetHDR: offsetHdr ?? 1e-6,
+                HDRCapacityMin: capacityMin ?? 0.0,
+                HDRCapacityMax: capacityMax ?? (gainMapMax ?? 1.0));
+
+            // 只有真正读到 GainMapMax / HDRCapacityMax 才算成功；
+            // 仅含 hdrgm:Version 的主 XMP（vivo/一加等）会让调用方回退到增益图自带 XMP。
+            return gainMapMax.HasValue || capacityMax.HasValue;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogService.Warn(
+                $"Failed to parse hdrgm XMP from {Path.GetFileName(sourcePath)}: {ex.Message}",
+                source: LogSource.Merge);
+            return false;
+        }
+    }
+
+    private static double? TryParseHdrgmDouble(string xmp, string name)
+    {
+        Match m = Regex.Match(
+            xmp,
+            $@"hdrgm:{Regex.Escape(name)}\s*=\s*""(?<v>[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?)""",
+            RegexOptions.CultureInvariant);
+        if (m.Success
+            && double.TryParse(
+                m.Groups["v"].Value,
+                NumberStyles.Float,
+                CultureInfo.InvariantCulture,
+                out double value))
+        {
+            return value;
+        }
+
+        return null;
+    }
+
+    // Apple MakerNote 可表达的 headroom 区间为 [2^1.5, 2^3]；低于下限会被
+    // ComputeAppleMakerValues 钳制。这里比较读回值并记录警告，便于真机排查。
+    private static void WarnIfHeadroomUnrepresentable(double headroom)
+    {
+        const double minStops = 1.5;
+        const double maxStops = 3.0;
+        double stops = Math.Log2(Math.Max(headroom, 1.0));
+        if (stops < minStops)
+        {
+            LogService.Warn(
+                $"Source HDR headroom {headroom:F3}x ({stops:F3} stops) is below the Apple MakerNote "
+                + $"representable range ({minStops:F1}–{maxStops:F1} stops); it will be clamped to "
+                + $"{Math.Pow(2, minStops):F3}x. HDR boost may differ from the source.",
+                source: LogSource.Merge);
+        }
+        else if (stops > maxStops)
+        {
+            LogService.Warn(
+                $"Source HDR headroom {headroom:F3}x ({stops:F3} stops) exceeds the Apple MakerNote "
+                + $"representable range ({minStops:F1}–{maxStops:F1} stops); it will be clamped to "
+                + $"{Math.Pow(2, maxStops):F3}x. HDR boost may differ from the source.",
+                source: LogSource.Merge);
+        }
     }
 
     private static async Task RunHeifEncTwoImagesAsync(
@@ -458,7 +811,21 @@ public static class StandardHdrConversionService
     private static void InjectAppleHdrMakerNote(string heicPath, double headroom)
     {
         (HdrSignedRational maker33, HdrSignedRational maker48) = HdrGainMapCodec.ComputeAppleMakerValues(headroom);
-        byte[] makerNote = AppleMakerNoteWriter.BuildHdrMakerNote(maker33, maker48);
+        // heif-enc 会把源 JPEG/HEIC 的 EXIF（含已注入的 Apple ContentIdentifier）带到输出；
+        // 替换为 HDR MakerNote 前先读回 CID，合并写入，避免照片端丢失配对 UUID。
+        string? contentId = null;
+        if (AppleMakerNoteWriter.TryReadContentIdentifierFromImage(heicPath, out string? cid, out string? readError))
+        {
+            contentId = cid;
+        }
+        else
+        {
+            LogService.Warn(
+                $"Apple[HDR] ContentIdentifier not preserved ({readError}); HDR MakerNote written without CID",
+                source: LogSource.Merge);
+        }
+
+        byte[] makerNote = AppleMakerNoteWriter.BuildHdrMakerNote(maker33, maker48, contentId);
         if (!AppleMakerNoteWriter.TryInjectMakerNoteIntoHeic(heicPath, makerNote, out string? error))
         {
             throw new InvalidOperationException($"Failed to inject Apple HDR MakerNote: {error}");

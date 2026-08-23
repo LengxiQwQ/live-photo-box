@@ -23,6 +23,12 @@ internal static class HdrGainMapCodec
     private const long AppleMaker33Numerator = 46219;
     private const long AppleMaker33Denominator = 29460;
 
+    // maker33 < 1.0 分支的代表值。Apple 官方解码只看「maker33 是否 < 1.0」来选分段，
+    // 该分支的 stops 结果与 maker33 具体数值无关（见 ComputeAppleHeadroom），
+    // 因此用 0.99 表达 headroom < 4.0（stops < 2.0）的源。真机样本里该分支的
+    // 具体取值尚未采集到，若 iOS 有额外校验需按真机样本校准。
+    private const double AppleMaker33LowHeadroom = 0.99;
+
     // Apple 官方 headroom 分段函数里 maker48 的分支分界（stops）。
     private const double AppleHeadroomStopsBoundary = 2.3;
 
@@ -167,27 +173,45 @@ internal static class HdrGainMapCodec
     /// <summary>
     /// 由目标 headroom 计算要写入 Apple MakerNote 的 HDRHeadroom(0x21) 与
     /// HDRGain(0x30) 有理数值。依据 Apple 官方文档分段函数的反函数。
-    /// maker33 固定使用 Apple 真机样本的 46219/29460（1.568873048）。
     /// </summary>
     public static (HdrSignedRational Maker33, HdrSignedRational Maker48) ComputeAppleMakerValues(double targetHeadroom)
     {
-        var maker33 = new HdrSignedRational(AppleMaker33Numerator, AppleMaker33Denominator);
         double stops = Math.Log2(Math.Max(targetHeadroom, 1.0));
 
+        // Apple 官方分段函数（ComputeAppleHeadroom）的可表达区间：
+        //   [2.3, 3.0]  maker33 >= 1.0, maker48 <= 0.01 -> stops = -70*m48 + 3.0
+        //   [2.0, 2.3)  maker33 >= 1.0, maker48  > 0.01 -> stops = -0.303*m48 + 2.303
+        //   [1.6, 1.8]  maker33 <  1.0, maker48 <= 0.01 -> stops = -20*m48 + 1.8
+        //   [1.5, 1.6)  maker33 <  1.0, maker48  > 0.01 -> stops = -0.101*m48 + 1.601
+        // 旧实现只覆盖前两段（maker33 固定为真机样本值），headroom < 4.0 的源
+        // 会被钳成 4.0；这里补全后两段。
+        double maker33;
         double maker48;
         if (stops >= AppleHeadroomStopsBoundary)
         {
-            // maker48 <= 0.01 分支：stops = -70 * maker48 + 3.0
+            maker33 = (double)AppleMaker33Numerator / AppleMaker33Denominator;
             maker48 = (3.0 - stops) / 70.0;
+        }
+        else if (stops >= 2.0)
+        {
+            maker33 = (double)AppleMaker33Numerator / AppleMaker33Denominator;
+            maker48 = (2.303 - stops) / 0.303;
+        }
+        else if (stops >= 1.6)
+        {
+            maker33 = AppleMaker33LowHeadroom;
+            maker48 = (1.8 - stops) / 20.0;
         }
         else
         {
-            // maker48 > 0.01 分支：stops = -0.303 * maker48 + 2.303
-            maker48 = (2.303 - stops) / 0.303;
+            maker33 = AppleMaker33LowHeadroom;
+            maker48 = (1.601 - stops) / 0.101;
         }
 
+        // 低于 1.5 stops（headroom < 2.83x）在 Apple MakerNote 中无法表达，
+        // 钳到下限；调用方会比较读回值并记录警告。
         maker48 = Math.Clamp(maker48, 0.0, 1.0);
-        return (maker33, ToSignedRational(maker48));
+        return (ToSignedRational(maker33), ToSignedRational(maker48));
     }
 
     private static HdrSignedRational ToSignedRational(double value)
