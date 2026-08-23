@@ -415,6 +415,16 @@ namespace LivePhotoBox.Services
             ReadHeicHdrMetadataAsync(string heicPath, CancellationToken token)
         {
             string? exifToolPath = ExternalToolLocator.FindExifTool();
+
+            // 字节级解析 nclx：华为等机型 HEIC 常带多组 colr（ICC + sRGB + HLG），
+            // exiftool 的 VideoFullRangeFlag 会取到非 HDR 组的 full range（full=1），
+            // 导致 HLG 源被错误标成全范围、HDR 显示异常。优先取 HLG(18)/PQ(16) 组。
+            if (TryReadNclxFromFile(heicPath, out int bytePrim, out int byteTransfer, out int byteMatrix, out int byteFull))
+            {
+                (int? clliValue, int? fallValue) = ReadClliWithExifTool(exifToolPath, heicPath);
+                return (bytePrim, byteTransfer, byteMatrix, byteFull, clliValue, fallValue);
+            }
+
             if (string.IsNullOrEmpty(exifToolPath))
                 return (null, null, null, null, null, null);
 
@@ -473,6 +483,150 @@ namespace LivePhotoBox.Services
             }
 
             return (primaries, transfer, matrix, fullRange, maxCll, maxFall);
+        }
+
+        // 从 HEIC 容器字节解析 nclx（colr/nclx），优先返回 HDR 传输特性（HLG=18 / PQ=16）组。
+        private static bool TryReadNclxFromFile(
+            string path, out int primaries, out int transfer, out int matrix, out int fullRange)
+        {
+            primaries = transfer = matrix = fullRange = 0;
+            try
+            {
+                byte[] data = File.ReadAllBytes(path);
+                var nclxList = new List<(int P, int T, int M, int F)>();
+                WalkHeifBoxes(data, 0, data.Length, (type, body, len) =>
+                {
+                    if (type != "colr" || len < 11 || body + 11 > data.Length)
+                    {
+                        return;
+                    }
+                    if (!HeifBoxParser.ReadFourCc(data, body).Equals("nclx", StringComparison.Ordinal))
+                    {
+                        return;
+                    }
+
+                    int p = HeifBoxParser.Read16(data, body + 4);
+                    int t = HeifBoxParser.Read16(data, body + 6);
+                    int m = HeifBoxParser.Read16(data, body + 8);
+                    int f = (data[body + 10] >> 7) & 1;
+                    nclxList.Add((p, t, m, f));
+                });
+
+                if (nclxList.Count == 0)
+                {
+                    return false;
+                }
+
+                var hdrGroup = nclxList.FirstOrDefault(x => x.T == 18 || x.T == 16);
+                var selected = hdrGroup != default ? hdrGroup : nclxList[0];
+                primaries = selected.P;
+                transfer = selected.T;
+                matrix = selected.M;
+                fullRange = selected.F;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static void WalkHeifBoxes(byte[] data, int start, int end, Action<string, int, int> visit)
+        {
+            int p = start;
+            while (p + 8 <= end)
+            {
+                long size = HeifBoxParser.Read32(data, p);
+                string type = HeifBoxParser.ReadFourCc(data, p + 4);
+                int header = 8;
+                if (size == 1)
+                {
+                    if (p + 16 > end)
+                    {
+                        break;
+                    }
+                    size = (long)HeifBoxParser.Read64(data, p + 8);
+                    header = 16;
+                }
+                else if (size == 0)
+                {
+                    size = end - p;
+                }
+
+                if (size < header || p + size > end)
+                {
+                    break;
+                }
+
+                visit(type, p + header, (int)(size - header));
+                if (type is "meta" or "iprp" or "ipco")
+                {
+                    int childStart = p + header;
+                    if (type == "meta")
+                    {
+                        childStart += 4; // meta 是 FullBox
+                    }
+                    WalkHeifBoxes(data, childStart, p + (int)size, visit);
+                }
+                p += (int)size;
+            }
+        }
+
+        private static (int? MaxCll, int? MaxFall) ReadClliWithExifTool(string? exifToolPath, string heicPath)
+        {
+            if (string.IsNullOrEmpty(exifToolPath))
+            {
+                return (null, null);
+            }
+
+            try
+            {
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true
+                };
+                psi.ArgumentList.Add("-s");
+                psi.ArgumentList.Add("-MaxContentLightLevel");
+                psi.ArgumentList.Add("-MaxPicAverageLightLevel");
+                psi.ArgumentList.Add(heicPath);
+
+                using var process = new Process { StartInfo = psi };
+                process.Start();
+                string stdout = process.StandardOutput.ReadToEnd();
+                process.WaitForExit();
+
+                int? maxCll = null;
+                int? maxFall = null;
+                foreach (string line in stdout.Split('\n'))
+                {
+                    int idx = line.IndexOf(':');
+                    if (idx <= 0)
+                    {
+                        continue;
+                    }
+                    string key = line[..idx].Trim();
+                    string value = line[(idx + 1)..].Trim();
+                    if (key.Equals("MaxContentLightLevel", StringComparison.OrdinalIgnoreCase)
+                        && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int cll))
+                    {
+                        maxCll = cll;
+                    }
+                    else if (key.Equals("MaxPicAverageLightLevel", StringComparison.OrdinalIgnoreCase)
+                        && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int fall))
+                    {
+                        maxFall = fall;
+                    }
+                }
+                return (maxCll, maxFall);
+            }
+            catch
+            {
+                return (null, null);
+            }
         }
 
         private static int? MapPrimaries(string value)

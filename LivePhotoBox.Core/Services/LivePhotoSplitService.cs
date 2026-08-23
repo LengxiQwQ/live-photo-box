@@ -387,9 +387,13 @@ namespace LivePhotoBox.Services
                     {
                         if (sourceImageIsHeic)
                         {
-                            // HEIC 源桥接后：桥接 JPEG 若带标准增益图（HDR 源），走 Apple HDR 编码
-                            // （重挂 hdrgainmap aux + HDR MakerNote，并保留桥接 JPEG 里的 ContentIdentifier）；
-                            // 否则普通 heif-enc 编码。编码后统一规范化 Exif item（[6]["Exif\0\0"][TIFF]）。
+                            // HEIC 源桥接后：
+                            //   - 桥接 JPEG 带标准增益图（荣耀/小米等 Ultra HDR JPEG）→ Apple HDR 编码
+                            //     （重挂 hdrgainmap aux + HDR MakerNote，保留 ContentIdentifier）；
+                            //   - 无增益图但源带 HLG/PQ nclx（华为等原生 HDR HEIC）→ 16-bit PNG 保真
+                            //     路径，保留位深与 nclx/CLLI，避免 JPEG 桥接把 HDR 像素降成 SDR；
+                            //   - 普通 JPEG 编码仅作最终兜底。
+                            // 编码后统一规范化 Exif item（[6]["Exif\0\0"][TIFF]）。
                             try
                             {
                                 if (StandardHdrConversionService.HasStandardJpegGainMap(appleBridgeJpeg, token))
@@ -399,32 +403,20 @@ namespace LivePhotoBox.Services
                                 }
                                 else
                                 {
-                                    convertedImagePath = await HeicConverterService.ConvertToHeicAsync(
-                                        appleBridgeJpeg, tempDir, token);
+                                    convertedImagePath = await HeicConverterService.ConvertHeicToHeicPreservingAsync(
+                                        tempImagePath, tempDir, token,
+                                        exifSourcePath: appleBridgeJpeg, metadataSourcePath: sourcePath);
                                 }
                                 workingImagePath = convertedImagePath;
                             }
                             catch (Exception ex)
                             {
                                 LogService.Split(
-                                    $"Apple[image] bridged HEIC encode failed ({ex.Message}), falling back to 16-bit PNG preserving encode",
+                                    $"Apple[image] preserving HEIC encode failed ({ex.Message}), falling back to plain JPEG bridge",
                                     LogLevel.Warning);
-                                try
-                                {
-                                    convertedImagePath = await HeicConverterService.ConvertHeicToHeicPreservingAsync(
-                                        tempImagePath, tempDir, token,
-                                        exifSourcePath: appleBridgeJpeg, metadataSourcePath: sourcePath);
-                                    workingImagePath = convertedImagePath;
-                                }
-                                catch (Exception ex2)
-                                {
-                                    LogService.Split(
-                                        $"Apple[image] HDR-preserving HEIC encode failed ({ex2.Message}), falling back to plain JPEG bridge",
-                                        LogLevel.Warning);
-                                    convertedImagePath = await HeicConverterService.ConvertToHeicAsync(
-                                        appleBridgeJpeg, tempDir, token);
-                                    workingImagePath = convertedImagePath;
-                                }
+                                convertedImagePath = await HeicConverterService.ConvertToHeicAsync(
+                                    appleBridgeJpeg, tempDir, token);
+                                workingImagePath = convertedImagePath;
                             }
 
                             // 确保最终 HEIC 的 Exif item 是 iOS 可读的标准布局。
