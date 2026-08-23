@@ -4175,6 +4175,9 @@ Then click "Start Split".</value>
   <data name="Notif_BatchDone_Body_WithFailed" xml:space="preserve">
     <value>{0} — {1} completed, {2} failed, {3}</value>
   </data>
+  <data name="Notif_OpenOutputFolder" xml:space="preserve">
+    <value>Open output folder</value>
+  </data>
   <data name="Time_Seconds" xml:space="preserve">
     <value>{0}s</value>
   </data>

@@ -4175,6 +4175,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="Notif_BatchDone_Body_WithFailed" xml:space="preserve">
     <value>{0} — {1} 个完成，{2} 个失败，用时 {3}</value>
   </data>
+  <data name="Notif_OpenOutputFolder" xml:space="preserve">
+    <value>打开输出文件夹</value>
+  </data>
   <data name="Time_Seconds" xml:space="preserve">
     <value>{0} 秒</value>
   </data>

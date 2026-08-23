@@ -760,7 +760,7 @@ namespace LivePhotoBox.ViewModels
 
                     // 批量处理完成 → 弹系统通知（便携/注册失败渠道静默跳过）
                     NotificationService.ShowBatchCompleted(
-                        ResourceService.GetString("Notif_Feature_Split"), succeeded, failed, elapsed);
+                        ResourceService.GetString("Notif_Feature_Split"), succeeded, failed, elapsed, OutputDirectory);
                 }
             }
             OnPropertyChanged(nameof(ActionBtnText));

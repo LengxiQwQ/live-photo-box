@@ -247,6 +247,9 @@ namespace LivePhotoBox
             // 通知点击 → 跳转到对应页面（激活参数在 toast 里，点击时触发激活事件）
             NotificationService.ActivationRequested += OnNotificationActivationRequested;
 
+            // 通知"打开输出文件夹"按钮 → 激活窗口并在资源管理器中打开输出目录
+            NotificationService.OpenOutputRequested += OnNotificationOpenOutputRequested;
+
             // 先注册再激活窗口：即使由点击通知冷启动，参数也会经 NotificationInvoked 事件路由，
             // 由 OnNotificationActivationRequested 完成置前与页面跳转；这里始终正常显示主窗口。
             MainWindow.Activate();
@@ -277,6 +280,20 @@ namespace LivePhotoBox
                     LogService.Debug($"Notification activation navigation failed: {ex.Message}", LogSource.UI);
                 }
             });
+        }
+
+        // 通知"打开输出文件夹"按钮被点击时：直接打开资源管理器，不激活窗口。
+        private static void OnNotificationOpenOutputRequested(string? outputDir)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(outputDir))
+                    FilePickerService.OpenFolderInExplorer(outputDir);
+            }
+            catch (Exception ex)
+            {
+                LogService.Debug($"Notification open output folder failed: {ex.Message}", LogSource.UI);
+            }
         }
 
         /// <summary>

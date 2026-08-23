@@ -23,6 +23,9 @@ namespace LivePhotoBox.Services
         // 通知激活事件 — 点击通知时触发，参数为页面标签 (Merge/Split/Repair)
         public static event Action<string?>? ActivationRequested;
 
+        // 通知"打开输出文件夹"按钮事件 — 点击按钮时触发，参数为输出目录路径
+        public static event Action<string?>? OpenOutputRequested;
+
         private static bool _initialized;
         private static bool _registerFailed;
 
@@ -54,10 +57,22 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                // 从通知参数中提取页面标签
+                // 从通知参数中提取操作类型和页面标签
                 string? tag = null;
                 if (args.Arguments.TryGetValue("action", out string? value))
                     tag = value;
+
+                // 如果用户点击的是"打开输出文件夹"按钮，触发目录打开事件
+                if (tag == "open_output")
+                {
+                    string? outputDir = null;
+                    if (args.Arguments.TryGetValue("outputDir", out string? dir))
+                        outputDir = dir;
+
+                    LogService.Debug($"Notification open output folder: {outputDir}", LogSource.App);
+                    OpenOutputRequested?.Invoke(outputDir);
+                    return;
+                }
 
                 LogService.Debug($"Notification activated: {tag}", LogSource.App);
                 ActivationRequested?.Invoke(tag);
@@ -70,7 +85,7 @@ namespace LivePhotoBox.Services
 
         // 显示批量处理完成的系统通知。
         // 仅当任务持续时间超过阈值时触发。
-        public static void ShowBatchCompleted(string feature, int succeeded, int failed, double elapsedSeconds)
+        public static void ShowBatchCompleted(string feature, int succeeded, int failed, double elapsedSeconds, string? outputDir = null)
         {
             if (_registerFailed) return;
             if (!_initialized) return;
@@ -131,6 +146,14 @@ namespace LivePhotoBox.Services
                     _ => AppNotificationSoundEvent.Mail,
                 };
                 builder.SetAudioEvent(soundEvent);
+
+                // 添加"打开输出文件夹"按钮（如果提供了输出目录）
+                if (!string.IsNullOrWhiteSpace(outputDir))
+                {
+                    builder.AddButton(new AppNotificationButton(ResourceService.GetString("Notif_OpenOutputFolder"))
+                        .AddArgument("action", "open_output")
+                        .AddArgument("outputDir", outputDir));
+                }
 
                 // 设置激活参数（点击通知时传递页面标签）
                 if (pageTag != null)
