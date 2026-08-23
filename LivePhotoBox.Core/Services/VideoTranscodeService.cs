@@ -1356,13 +1356,12 @@ namespace LivePhotoBox.Services
             };
         }
 
-        // 获取像素格式参数。MP4 始终强制 yuv420p（保证兼容性），
-        // HEVC/H.265 编码器自动优选，不强制。
+        // 获取像素格式参数。MOV/MP4 统一强制 yuv420p（8-bit 4:2:0）。
+        // 华为等 10-bit HLG 源视频若按 10-bit 输出，iOS 导入实况照片时无法解码视频轨，
+        // 导致整对 HEIC+MOV 导入失败；所有能正常导入的机型视频轨均为 8-bit。
         private static string GetPixelFormatParams(string encoder, VideoFormat targetFormat)
         {
-            if (targetFormat == VideoFormat.MP4) return "-pix_fmt yuv420p";
-            if (encoder.ToLowerInvariant().Contains("hevc") || encoder.ToLowerInvariant().Contains("h265")) return "";
-            return "";
+            return "-pix_fmt yuv420p";
         }
 
         private static string GetHardwareEncoderParams(string encoder, VideoFormat targetFormat)
