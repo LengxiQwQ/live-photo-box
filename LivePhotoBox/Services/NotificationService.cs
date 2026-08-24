@@ -149,8 +149,7 @@ namespace LivePhotoBox.Services
                 // 设置场景为"提醒"：弹窗更持久、优先级更高，确保用户能感知到
                 builder.SetScenario(AppNotificationScenario.Reminder);
 
-                // 按用户选择指定系统声音事件（按事件名引用，不硬编码文件路径，用户更换声音方案时自动跟随）：
-                // 0=邮件（默认），1=通知铃声，2=日历，3=即时消息，4=短信，5=闹钟
+                // 0=邮件（默认），1=通知铃声，2=日历，3=即时消息，4=闹钟
                 int soundIndex = AppSettingsService.GetValue("NotificationSoundIndex", 0);
                 var soundEvent = soundIndex switch
                 {
@@ -158,8 +157,7 @@ namespace LivePhotoBox.Services
                     1 => AppNotificationSoundEvent.Default,
                     2 => AppNotificationSoundEvent.Reminder,
                     3 => AppNotificationSoundEvent.IM,
-                    4 => AppNotificationSoundEvent.SMS,
-                    5 => AppNotificationSoundEvent.Alarm,
+                    4 => AppNotificationSoundEvent.Alarm,
                     _ => AppNotificationSoundEvent.Mail,
                 };
                 builder.SetAudioEvent(soundEvent);
@@ -192,8 +190,7 @@ namespace LivePhotoBox.Services
             1 => "Notification.Default",
             2 => "Notification.Reminder",
             3 => "Notification.IM",
-            4 => "Notification.SMS",
-            5 => "Notification.Looping.Alarm",
+            4 => "Notification.Looping.Alarm",
             _ => "Notification.Mail",
         };
 

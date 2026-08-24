@@ -14,6 +14,7 @@
  *   - 用户操作（浏览文件夹、打开文件、预览等）通过事件处理
  */
 
+using LivePhotoBox.Controls;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
@@ -27,6 +28,8 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Documents;
 using System;
 using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -36,9 +39,6 @@ namespace LivePhotoBox.Views
 {
     public sealed partial class MergePage : Page
     {
-        // ── 面板拖拽分隔条宽度常量 ──
-        private const double DefaultLeftPanelWidth = 320;
-
         // 任务列表自动滚动器，在处理/扫描过程中保持当前任务可见
         private readonly TaskListAutoScroller _scroller;
 
@@ -48,6 +48,22 @@ namespace LivePhotoBox.Views
         // 是否已绑定 ViewModel 事件，防止重复绑定
         private bool _eventsHooked;
 
+        // 页面激活期间接管窗口级快捷键，避免外层 NavigationView 抢走方向键。
+        private UIElement? _mergeShortcutHost;
+        private readonly List<KeyboardAccelerator> _mergeKeyboardAccelerators = [];
+
+        // 停止不可恢复，必须在一秒内连续按两次 Esc。
+        private long _lastStopEscapeTick;
+
+        // 队列列宽的内容测量缓存。数据变化时重新测量，拖动时只做数值分配。
+        private readonly HashSet<MergeTask> _observedQueueTasks = [];
+        private bool _taskQueueMinimumRefreshPending;
+        private bool _taskQueueAllowMinimumShrink;
+        private bool _taskQueueFinalLayoutRefreshPending;
+        private double _taskQueueSizeMinimum = 76;
+        private double _taskQueueStatusMinimum = 92;
+        private double _taskQueueActionsMinimum = 72;
+
         // ── 拖拽状态 ──
         private bool _isDropAllFolders;
         private bool _dropHasFiles;
@@ -55,6 +71,227 @@ namespace LivePhotoBox.Views
 
         // 关联的 MergeViewModel
         public MergeViewModel ViewModel => AppViewModel.Instance.Merge;
+
+        // 队列表面变化时统一更新表头和所有虚拟化行的比例列宽。
+        private void TaskListSurface_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            UpdateTaskQueueColumnsForSurfaceWidth(e.NewSize.Width);
+            ScheduleFinalTaskQueueLayoutRefresh();
+        }
+
+        private void UpdateTaskQueueColumnsForSurfaceWidth(double surfaceWidth)
+        {
+            if (Resources["TaskQueueColumns"] is TaskQueueColumnLayout layout)
+            {
+                double borderWidth = MergeTaskListSurface.BorderThickness.Left
+                    + MergeTaskListSurface.BorderThickness.Right;
+                layout.UpdateProportional(
+                    Math.Max(0, surfaceWidth - borderWidth),
+                    _taskQueueSizeMinimum,
+                    _taskQueueStatusMinimum,
+                    _taskQueueActionsMinimum);
+            }
+        }
+
+        // 等当前布局周期结束后，以最终宽度刷新可见文件名；启动、最大化和还原都走这里。
+        private void ScheduleFinalTaskQueueLayoutRefresh()
+        {
+            if (_taskQueueFinalLayoutRefreshPending || !IsLoaded) return;
+            _taskQueueFinalLayoutRefreshPending = true;
+            MergeTaskListSurface.LayoutUpdated += TaskListSurface_FinalLayoutUpdated;
+        }
+
+        private void TaskListSurface_FinalLayoutUpdated(object? sender, object e)
+        {
+            MergeTaskListSurface.LayoutUpdated -= TaskListSurface_FinalLayoutUpdated;
+            _taskQueueFinalLayoutRefreshPending = false;
+            if (!IsLoaded) return;
+
+            UpdateTaskQueueColumnsForSurfaceWidth(MergeTaskListSurface.ActualWidth);
+            AdaptiveFileName.RefreshDescendants(MergeTaskListView);
+        }
+
+        // 订阅当前队列项的内容变化；只在数据变化时重新测量，绝不在分隔条逐像素移动时测量。
+        private void AttachTaskQueueMeasurements()
+        {
+            ViewModel.Tasks.CollectionChanged += OnTaskQueueCollectionChanged;
+            foreach (MergeTask task in ViewModel.Tasks)
+                ObserveTaskQueueItem(task);
+            ScheduleTaskQueueMinimumRefresh(allowShrink: true);
+        }
+
+        private void DetachTaskQueueMeasurements()
+        {
+            ViewModel.Tasks.CollectionChanged -= OnTaskQueueCollectionChanged;
+            foreach (MergeTask task in _observedQueueTasks)
+                task.PropertyChanged -= OnTaskQueueItemPropertyChanged;
+            _observedQueueTasks.Clear();
+            _taskQueueMinimumRefreshPending = false;
+            _taskQueueAllowMinimumShrink = false;
+            if (_taskQueueFinalLayoutRefreshPending)
+            {
+                MergeTaskListSurface.LayoutUpdated -= TaskListSurface_FinalLayoutUpdated;
+                _taskQueueFinalLayoutRefreshPending = false;
+            }
+        }
+
+        private void OnTaskQueueCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.OldItems != null)
+            {
+                foreach (MergeTask task in e.OldItems.OfType<MergeTask>())
+                    StopObservingTaskQueueItem(task);
+            }
+
+            if (e.NewItems != null)
+            {
+                foreach (MergeTask task in e.NewItems.OfType<MergeTask>())
+                    ObserveTaskQueueItem(task);
+            }
+
+            if (e.Action == NotifyCollectionChangedAction.Reset)
+            {
+                foreach (MergeTask task in _observedQueueTasks.ToList())
+                    StopObservingTaskQueueItem(task);
+                foreach (MergeTask task in ViewModel.Tasks)
+                    ObserveTaskQueueItem(task);
+            }
+
+            ScheduleTaskQueueMinimumRefresh(allowShrink: true);
+        }
+
+        private void ObserveTaskQueueItem(MergeTask task)
+        {
+            if (_observedQueueTasks.Add(task))
+                task.PropertyChanged += OnTaskQueueItemPropertyChanged;
+        }
+
+        private void StopObservingTaskQueueItem(MergeTask task)
+        {
+            if (_observedQueueTasks.Remove(task))
+                task.PropertyChanged -= OnTaskQueueItemPropertyChanged;
+        }
+
+        private void OnTaskQueueItemPropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(MergeTask.ImageSize)
+                or nameof(MergeTask.VideoSize)
+                or nameof(MergeTask.Status)
+                or nameof(MergeTask.Details)
+                or nameof(MergeTask.DisplayStatusText))
+            {
+                // 状态进度文案可能频繁变化，只允许最小宽度增长；删除/重置时才允许缩回。
+                ScheduleTaskQueueMinimumRefresh(allowShrink: false);
+            }
+        }
+
+        private void ScheduleTaskQueueMinimumRefresh(bool allowShrink)
+        {
+            _taskQueueAllowMinimumShrink |= allowShrink;
+            if (_taskQueueMinimumRefreshPending) return;
+
+            _taskQueueMinimumRefreshPending = true;
+            if (!DispatcherQueue.TryEnqueue(() =>
+            {
+                bool canShrink = _taskQueueAllowMinimumShrink;
+                _taskQueueMinimumRefreshPending = false;
+                _taskQueueAllowMinimumShrink = false;
+                if (!IsLoaded) return;
+                RefreshTaskQueueMinimums(canShrink);
+            }))
+            {
+                _taskQueueMinimumRefreshPending = false;
+                _taskQueueAllowMinimumShrink = false;
+            }
+        }
+
+        private void RefreshTaskQueueMinimums(bool allowShrink)
+        {
+            if (Resources["TaskQueueColumns"] is not TaskQueueColumnLayout layout)
+                return;
+
+            const double textSafety = 4;
+            double sizeMinimum = MeasureText(QueueSizeHeader) + textSafety;
+            double statusMinimum = MeasureText(QueueStatusHeader) + textSafety;
+
+            var measuredSizeTexts = new HashSet<string>(StringComparer.Ordinal);
+            var measuredStatusTexts = new HashSet<string>(StringComparer.Ordinal);
+            foreach (MergeTask task in ViewModel.Tasks)
+            {
+                if (measuredSizeTexts.Add(task.ImageSize))
+                    sizeMinimum = Math.Max(sizeMinimum, MeasureText(task.ImageSize, 11, semiBold: false) + textSafety);
+                if (measuredSizeTexts.Add(task.VideoSize))
+                    sizeMinimum = Math.Max(sizeMinimum, MeasureText(task.VideoSize, 11, semiBold: false) + textSafety);
+                if (measuredStatusTexts.Add(task.DisplayStatusText))
+                {
+                    double statusTextWidth = MeasureText(task.DisplayStatusText, 11, semiBold: true);
+                    statusMinimum = Math.Max(statusMinimum, 8 + 6 + statusTextWidth + textSafety);
+                }
+            }
+
+            double actionsMinimum = Math.Max(72, MeasureText(QueueActionsHeader) + textSafety);
+            if (allowShrink)
+            {
+                _taskQueueSizeMinimum = sizeMinimum;
+                _taskQueueStatusMinimum = statusMinimum;
+                _taskQueueActionsMinimum = actionsMinimum;
+            }
+            else
+            {
+                _taskQueueSizeMinimum = Math.Max(_taskQueueSizeMinimum, sizeMinimum);
+                _taskQueueStatusMinimum = Math.Max(_taskQueueStatusMinimum, statusMinimum);
+                _taskQueueActionsMinimum = Math.Max(_taskQueueActionsMinimum, actionsMinimum);
+            }
+
+            double borderWidth = MergeTaskListSurface.BorderThickness.Left
+                + MergeTaskListSurface.BorderThickness.Right;
+            UpdateTaskQueueColumnsForSurfaceWidth(MergeTaskListSurface.ActualWidth);
+
+            if (MergeTaskListSurface.Parent is Grid parentGrid && parentGrid.ColumnDefinitions.Count > 2)
+            {
+                parentGrid.ColumnDefinitions[2].MinWidth = Math.Ceiling(Math.Max(
+                    _DesiredRightWidth,
+                    layout.MinimumSurfaceWidth + borderWidth));
+
+                // 内容最小值变大时，只在必要时把左栏收回到新的合法范围，不重放保存比例。
+                if (!_isSplitterDragging && LeftConfigPanel.ActualWidth > MaxLeftWidthFor(parentGrid))
+                    parentGrid.ColumnDefinitions[0].Width = new GridLength(MaxLeftWidthFor(parentGrid));
+            }
+        }
+
+        private static double MeasureText(TextBlock textBlock)
+        {
+            if (string.IsNullOrEmpty(textBlock.Text)) return 0;
+            var probe = new TextBlock
+            {
+                Text = textBlock.Text,
+                FontSize = textBlock.FontSize > 0 && double.IsFinite(textBlock.FontSize)
+                    ? textBlock.FontSize
+                    : 14,
+                FontWeight = textBlock.FontWeight,
+                FontFamily = textBlock.FontFamily,
+                TextWrapping = TextWrapping.NoWrap
+            };
+            probe.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+            return probe.DesiredSize.Width;
+        }
+
+        private static double MeasureText(
+            string? text,
+            double fontSize,
+            bool semiBold)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            var probe = new TextBlock
+            {
+                Text = text,
+                FontSize = fontSize > 0 && double.IsFinite(fontSize) ? fontSize : 14,
+                FontWeight = semiBold ? FontWeights.SemiBold : FontWeights.Normal,
+                TextWrapping = TextWrapping.NoWrap
+            };
+            probe.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+            return probe.DesiredSize.Width;
+        }
 
         // 构造函数：初始化组件、创建自动滚动器、注册加载/卸载事件
         public MergePage()
@@ -429,6 +666,7 @@ namespace LivePhotoBox.Views
         // 页面加载完成后附加自动滚动器，绑定 ViewModel 事件
         private void MergePage_Loaded(object sender, RoutedEventArgs e)
         {
+            AttachMergeShortcuts();
             _scroller.Attach(MergeTaskListView);
 
             // 回到顶部悬浮按钮
@@ -457,6 +695,7 @@ namespace LivePhotoBox.Views
             ViewModel.TaskStartedForScroll += OnTaskStarted;
             ViewModel.ProcessingCompletedForScroll += OnAllCompleted;
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+            AttachTaskQueueMeasurements();
             _eventsHooked = true;
 
             // 恢复上次的自定义命名片段
@@ -474,6 +713,7 @@ namespace LivePhotoBox.Views
         // 页面卸载时分离自动滚动器，解绑 ViewModel 事件
         private void MergePage_Unloaded(object sender, RoutedEventArgs e)
         {
+            DetachMergeShortcuts();
             _scrollToTopHelper?.Detach();
 
             _scroller.NotifyPageUnloading();
@@ -490,6 +730,7 @@ namespace LivePhotoBox.Views
             ViewModel.TaskStartedForScroll -= OnTaskStarted;
             ViewModel.ProcessingCompletedForScroll -= OnAllCompleted;
             ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            DetachTaskQueueMeasurements();
             _eventsHooked = false;
         }
 
@@ -742,6 +983,9 @@ namespace LivePhotoBox.Views
                 if (folder != null && !string.IsNullOrEmpty(folder.Path) && Directory.Exists(folder.Path))
                 {
                     ViewModel.InputDirectory = folder.Path;
+                    ViewModel.OutputDirectory = Path.Combine(
+                        folder.Path,
+                        ResourceService.GetString("OutputDir_LivePhotos"));
                 }
             }
             catch (Exception ex)
@@ -817,6 +1061,7 @@ namespace LivePhotoBox.Views
                 // 分离文件夹和文件
                 var folders = items.OfType<StorageFolder>().ToList();
                 var files = items.OfType<StorageFile>().ToList();
+                bool wasEmpty = ViewModel.Tasks.Count == 0;
 
                 // 文件夹 → 追加到队列（逐个扫描添加）
                 if (folders.Count > 0)
@@ -831,20 +1076,21 @@ namespace LivePhotoBox.Views
                 // 文件 → 追加到队列
                 if (files.Count > 0)
                 {
-                    var wasEmpty = ViewModel.Tasks.Count == 0;
                     var paths = files.Select(f => f.Path).ToList();
                     await ViewModel.AddFilesToQueueAsync(paths);
+                }
 
-                    // 队列从空变为有内容时，自动设置输出目录为第一个文件所在目录下的子文件夹
-                    if (wasEmpty && ViewModel.Tasks.Count > 0)
+                // 队列从空变为有内容时，文件夹和文件使用同一套默认输出目录规则。
+                if (wasEmpty && ViewModel.Tasks.Count > 0)
+                {
+                    string? sourceDirectory = folders.FirstOrDefault()?.Path;
+                    if (string.IsNullOrEmpty(sourceDirectory) && files.Count > 0)
+                        sourceDirectory = Path.GetDirectoryName(files[0].Path);
+                    if (!string.IsNullOrEmpty(sourceDirectory))
                     {
-                        var firstFileDir = Path.GetDirectoryName(paths[0]);
-                        if (!string.IsNullOrEmpty(firstFileDir))
-                        {
-                            ViewModel.OutputDirectory = Path.Combine(
-                                firstFileDir,
-                                ResourceService.GetString("OutputDir_LivePhotos"));
-                        }
+                        ViewModel.OutputDirectory = Path.Combine(
+                            sourceDirectory,
+                            ResourceService.GetString("OutputDir_LivePhotos"));
                     }
                 }
             }
@@ -857,31 +1103,340 @@ namespace LivePhotoBox.Views
         // 删除按钮：从队列移除当前任务
         private void DeleteTask_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button { Tag: MergeTask task }) return;
-            ViewModel.RemoveTask(task);
+            if (sender is Button { Tag: MergeTask task })
+            {
+                ViewModel.RemoveTask(task);
+                return;
+            }
+            // "⋮" 菜单里的删除项：菜单继承所在行任务的数据上下文
+            if (sender is MenuFlyoutItem { DataContext: MergeTask menuTask })
+                ViewModel.RemoveTask(menuTask);
         }
 
-        // Flyout: 在文件夹中查看
-        private void Flyout_ShowInFolder_Click(object sender, RoutedEventArgs e)
+        // Flyout: 打开输出文件夹（仅任务成功完成后可用，等待/处理中/失败为灰色不可点）
+        private void Flyout_OpenOutputFolder_Click(object sender, RoutedEventArgs e)
         {
-            string? path = (sender as MenuFlyoutItem)?.DataContext is MergeTask task
-                ? task.ImagePath : null;
-            if (string.IsNullOrWhiteSpace(path)) return;
-            try { FilePickerService.RevealInExplorer(path); }
-            catch (Exception ex) { LogService.Debug($"MergePage reveal failed: {ex.Message}", LogSource.UI); }
+            if (sender is not MenuFlyoutItem { DataContext: MergeTask task }) return;
+            if (task.Status != ProcessStatus.Success) return;
+            if (!string.IsNullOrWhiteSpace(task.OutputPath) && File.Exists(task.OutputPath))
+            {
+                FilePickerService.RevealInExplorer(task.OutputPath);
+                return;
+            }
+            if (ViewModel.OpenMergeOutputFolderCommand.CanExecute(null))
+                ViewModel.OpenMergeOutputFolderCommand.Execute(null);
+        }
+
+        // Flyout: 定位输入图片（图片 + 视频成对时优先选择图片）。
+        private void Flyout_OpenInputFolder_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is MenuFlyoutItem { DataContext: MergeTask task }
+                && !string.IsNullOrWhiteSpace(task.ImagePath)
+                && File.Exists(task.ImagePath))
+            {
+                FilePickerService.RevealInExplorer(task.ImagePath);
+                return;
+            }
+            if (ViewModel.OpenMergeInputFolderCommand.CanExecute(null))
+                ViewModel.OpenMergeInputFolderCommand.Execute(null);
         }
 
         // Flyout: 全屏预览
         private void Flyout_Preview_Click(object sender, RoutedEventArgs e)
         {
-            string? path = (sender as MenuFlyoutItem)?.DataContext is MergeTask task
-                ? task.ImagePath : null;
+            var task = (sender as MenuFlyoutItem)?.DataContext as MergeTask;
+            string? path = task?.ImagePath;
+            if (string.IsNullOrWhiteSpace(path)) return;
+            PreviewTask(task!);
+        }
+
+        private void PreviewTask(MergeTask task)
+        {
+            string? path = task.ImagePath;
             if (string.IsNullOrWhiteSpace(path)) return;
             var items = LightboxItemSource.FromMergeTasks(ViewModel.Tasks);
             var paths = items.Select(i => i.ImagePath).ToList();
             int idx = paths.IndexOf(path);
             if (idx < 0) return;
             _ = ((MainWindow)App.MainWindow!).Lightbox.ShowAsync(items, idx);
+        }
+
+        private void AttachMergeShortcuts()
+        {
+            if (_mergeShortcutHost != null || App.MainWindow?.Content is not UIElement host)
+                return;
+
+            host.PreviewKeyDown += MergeShortcutHost_PreviewKeyDown;
+            _mergeShortcutHost = host;
+            RegisterMergeKeyboardAccelerators(host);
+        }
+
+        private void RegisterMergeKeyboardAccelerators(UIElement host)
+        {
+            RegisterMergeKeyboardAccelerator(Windows.System.VirtualKey.O,
+                Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift, () =>
+                {
+                    if (!ViewModel.CanEditInputConfiguration) return false;
+                    BrowseInput_Click(BrowseInputButton, new RoutedEventArgs());
+                    return true;
+                });
+
+            RegisterMergeKeyboardAccelerator(Windows.System.VirtualKey.O,
+                Windows.System.VirtualKeyModifiers.Control, () =>
+                {
+                    if (!ViewModel.CanEditInputConfiguration) return false;
+                    AddFiles_Click(AddFilesButton, new RoutedEventArgs());
+                    return true;
+                });
+
+            RegisterMergeKeyboardAccelerator(Windows.System.VirtualKey.O,
+                Windows.System.VirtualKeyModifiers.Menu, () =>
+                {
+                    if (!ViewModel.CanEditOutputConfiguration) return false;
+                    BrowseOutput_Click(BrowseOutputButton, new RoutedEventArgs());
+                    return true;
+                });
+
+            RegisterMergeKeyboardAccelerator(Windows.System.VirtualKey.I,
+                Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift,
+                () => TryExecuteMergeCommand(ViewModel.OpenMergeInputFolderCommand));
+
+            RegisterMergeKeyboardAccelerator(Windows.System.VirtualKey.E,
+                Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift,
+                () => TryExecuteMergeCommand(ViewModel.OpenMergeOutputFolderCommand));
+
+            RegisterMergeKeyboardAccelerator(Windows.System.VirtualKey.Enter,
+                Windows.System.VirtualKeyModifiers.Control, () =>
+                {
+                    if (ViewModel.IsScanning || ViewModel.IsProcessing) return false;
+                    return TryExecuteMergeCommand(ViewModel.ToggleProcessCommand);
+                });
+
+            RegisterMergeKeyboardAccelerator(Windows.System.VirtualKey.F,
+                Windows.System.VirtualKeyModifiers.Control, () =>
+                {
+                    QueueSearchBox.Focus(FocusState.Programmatic);
+                    return true;
+                });
+
+        }
+
+        private void RegisterMergeKeyboardAccelerator(Windows.System.VirtualKey key,
+            Windows.System.VirtualKeyModifiers modifiers, Func<bool> execute)
+        {
+            var accelerator = new KeyboardAccelerator { Key = key, Modifiers = modifiers };
+            accelerator.Invoked += (_, args) => args.Handled = execute();
+            _mergeShortcutHost!.KeyboardAccelerators.Add(accelerator);
+            _mergeKeyboardAccelerators.Add(accelerator);
+        }
+
+        private static bool TryExecuteMergeCommand(System.Windows.Input.ICommand command)
+        {
+            if (!command.CanExecute(null)) return false;
+            command.Execute(null);
+            return true;
+        }
+
+        private void DetachMergeShortcuts()
+        {
+            if (_mergeShortcutHost == null)
+                return;
+
+            _mergeShortcutHost.PreviewKeyDown -= MergeShortcutHost_PreviewKeyDown;
+            foreach (var accelerator in _mergeKeyboardAccelerators)
+                _mergeShortcutHost.KeyboardAccelerators.Remove(accelerator);
+            _mergeKeyboardAccelerators.Clear();
+            _mergeShortcutHost = null;
+        }
+
+        private void MergeShortcutHost_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (App.MainWindow is MainWindow { Lightbox.IsOpen: true })
+                return;
+
+            bool controlDown = IsMergeModifierDown(Windows.System.VirtualKey.Control);
+            bool shiftDown = IsMergeModifierDown(Windows.System.VirtualKey.Shift);
+            bool altDown = IsMergeModifierDown(Windows.System.VirtualKey.Menu);
+
+            bool isGlobalShortcut = e.Key is Windows.System.VirtualKey.F1
+                    or Windows.System.VirtualKey.F5
+                    or Windows.System.VirtualKey.Escape
+                || (controlDown && e.Key is Windows.System.VirtualKey.O
+                    or Windows.System.VirtualKey.I
+                    or Windows.System.VirtualKey.E
+                    or Windows.System.VirtualKey.F
+                    or Windows.System.VirtualKey.Enter)
+                || (altDown && e.Key == Windows.System.VirtualKey.O);
+
+            DependencyObject? focused = _mergeShortcutHost?.XamlRoot != null
+                ? FocusManager.GetFocusedElement(_mergeShortcutHost.XamlRoot) as DependencyObject
+                : null;
+            if (ShouldPreserveMergeShortcut(focused) && !isGlobalShortcut)
+                return;
+
+            bool noModifiers = !controlDown && !shiftDown && !altDown;
+            bool onlyControl = controlDown && !shiftDown && !altDown;
+            bool controlShift = controlDown && shiftDown && !altDown;
+            bool focusQueue = false;
+
+            if (onlyControl && e.Key == Windows.System.VirtualKey.O && ViewModel.CanEditInputConfiguration)
+            {
+                AddFiles_Click(AddFilesButton, e);
+                e.Handled = true;
+            }
+            else if (controlShift && e.Key == Windows.System.VirtualKey.O && ViewModel.CanEditInputConfiguration)
+            {
+                BrowseInput_Click(BrowseInputButton, e);
+                e.Handled = true;
+            }
+            else if (altDown && !controlDown && !shiftDown
+                && e.Key == Windows.System.VirtualKey.O && ViewModel.CanEditOutputConfiguration)
+            {
+                BrowseOutput_Click(BrowseOutputButton, e);
+                e.Handled = true;
+            }
+            else if (controlShift && e.Key == Windows.System.VirtualKey.I
+                && ViewModel.OpenMergeInputFolderCommand.CanExecute(null))
+            {
+                ViewModel.OpenMergeInputFolderCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (controlShift && e.Key == Windows.System.VirtualKey.E
+                && ViewModel.OpenMergeOutputFolderCommand.CanExecute(null))
+            {
+                ViewModel.OpenMergeOutputFolderCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.F5
+                && !ViewModel.IsScanning && !ViewModel.IsProcessing
+                && ViewModel.ScanDirectoryCommand.CanExecute(null))
+            {
+                ViewModel.ScanDirectoryCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (onlyControl && e.Key == Windows.System.VirtualKey.Enter
+                && !ViewModel.IsScanning && !ViewModel.IsProcessing
+                && ViewModel.ToggleProcessCommand.CanExecute(null))
+            {
+                ViewModel.ToggleProcessCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.Escape
+                && (ViewModel.IsScanning || ViewModel.IsProcessing))
+            {
+                long now = Environment.TickCount64;
+                bool confirmed = now - _lastStopEscapeTick <= 1000;
+                _lastStopEscapeTick = confirmed ? 0 : now;
+
+                if (confirmed && ViewModel.IsScanning && ViewModel.ScanDirectoryCommand.CanExecute(null))
+                {
+                    ViewModel.ScanDirectoryCommand.Execute(null);
+                }
+                else if (confirmed && ViewModel.IsProcessing && ViewModel.ToggleProcessCommand.CanExecute(null))
+                {
+                    ViewModel.ToggleProcessCommand.Execute(null);
+                }
+                e.Handled = true;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.C
+                && !ViewModel.IsScanning && !ViewModel.IsProcessing && ViewModel.Tasks.Count > 0)
+            {
+                ViewModel.ToggleSecondaryActionCommand.Execute(null);
+                e.Handled = true;
+                focusQueue = true;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.P && ViewModel.IsProcessing)
+            {
+                ViewModel.ToggleSecondaryActionCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (onlyControl && e.Key == Windows.System.VirtualKey.F)
+            {
+                QueueSearchBox.Focus(FocusState.Programmatic);
+                e.Handled = true;
+                return;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.F1)
+            {
+                HelpBtn_Click(this, e);
+                e.Handled = true;
+            }
+            else if (noModifiers && e.Key is Windows.System.VirtualKey.Up or Windows.System.VirtualKey.Down)
+            {
+                e.Handled = TryNavigateMergeTask(e.Key);
+                focusQueue = e.Handled;
+            }
+            else if (noModifiers && e.Key is Windows.System.VirtualKey.Enter or Windows.System.VirtualKey.Space
+                && MergeTaskListView.SelectedItem is MergeTask previewTask)
+            {
+                PreviewTask(previewTask);
+                e.Handled = true;
+                focusQueue = true;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.Delete
+                && !ViewModel.IsScanning && !ViewModel.IsProcessing
+                && MergeTaskListView.SelectedItem is MergeTask deleteTask)
+            {
+                ViewModel.RemoveTask(deleteTask);
+                e.Handled = true;
+                focusQueue = true;
+            }
+            if (focusQueue)
+                MergeTaskListView.Focus(FocusState.Programmatic);
+        }
+
+        private bool TryNavigateMergeTask(Windows.System.VirtualKey key)
+        {
+            if (ViewModel.DisplayTasks.Count == 0)
+                return false;
+
+            int currentIndex = MergeTaskListView.SelectedIndex;
+            int nextIndex = currentIndex < 0
+                ? 0
+                : key == Windows.System.VirtualKey.Up
+                    ? Math.Max(0, currentIndex - 1)
+                    : Math.Min(ViewModel.DisplayTasks.Count - 1, currentIndex + 1);
+
+            MergeTaskListView.SelectedIndex = nextIndex;
+            MergeTaskListView.ScrollIntoView(ViewModel.DisplayTasks[nextIndex]);
+            return true;
+        }
+
+        private static bool IsMergeModifierDown(Windows.System.VirtualKey key)
+        {
+            if (IsMergeKeyDown(key)) return true;
+            return key switch
+            {
+                Windows.System.VirtualKey.Control =>
+                    IsMergeKeyDown(Windows.System.VirtualKey.LeftControl)
+                    || IsMergeKeyDown(Windows.System.VirtualKey.RightControl),
+                Windows.System.VirtualKey.Shift =>
+                    IsMergeKeyDown(Windows.System.VirtualKey.LeftShift)
+                    || IsMergeKeyDown(Windows.System.VirtualKey.RightShift),
+                Windows.System.VirtualKey.Menu =>
+                    IsMergeKeyDown(Windows.System.VirtualKey.LeftMenu)
+                    || IsMergeKeyDown(Windows.System.VirtualKey.RightMenu),
+                _ => false
+            };
+        }
+
+        private static bool IsMergeKeyDown(Windows.System.VirtualKey key) =>
+            (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key)
+                & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+
+        private static bool ShouldPreserveMergeShortcut(DependencyObject? source)
+        {
+            for (DependencyObject? current = source; current != null; current = VisualTreeHelper.GetParent(current))
+            {
+                if (current is TextBox
+                    or RichEditBox
+                    or PasswordBox
+                    or NumberBox
+                    or ComboBox
+                    or Slider)
+                    return true;
+            }
+            return false;
         }
 
         private void MergeTaskListView_ContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args) { }
@@ -942,6 +1497,7 @@ namespace LivePhotoBox.Views
             {
                 comboBox.Loaded -= QueueSortCombo_Loaded;
                 ComboBoxHelper.AutoFitWidth(comboBox);
+                ScheduleTaskQueueMinimumRefresh(allowShrink: true);
             }
         }
 
@@ -1434,7 +1990,8 @@ namespace LivePhotoBox.Views
         // ── 泡拖拽分隔条（GridSplitter） ──
         private const double _MinLeftWidth = 260;
         private const double _MaxLeftWidth = 520;
-        private const double _DesiredRightWidth = 420;
+        private const double _DesiredRightWidth = 440;
+        private const double _MaxLeftWidthFullscreen = 960;
         private const string _RatioKeyWindow = "MergePage_LeftPanelRatio_Window";
         private const string _RatioKeyFullscreen = "MergePage_LeftPanelRatio_Fullscreen";
 
@@ -1449,24 +2006,51 @@ namespace LivePhotoBox.Views
         // 检测窗口是否处于最大化/全屏状态
         private void UpdateMaximizedState()
         {
-            _isMaximized = App.MainWindow?.AppWindow?.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Maximized }
-                           || App.MainWindow?.AppWindow?.Presenter is FullScreenPresenter;
+            bool maximized = false;
+            var window = App.MainWindow;
+            if (window != null)
+                maximized = IsZoomed(WinRT.Interop.WindowNative.GetWindowHandle(window));
+            _isMaximized = maximized
+                || App.MainWindow?.AppWindow?.Presenter is FullScreenPresenter;
         }
 
-        // 窗口状态变化时重新检测模式；DidPresenterChange 在最大化/还原时并不可靠，
-        // 因此不依赖该标志，仅在自己所在的模式真正切换时才重设比例
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool IsZoomed(IntPtr hWnd);
+
+        // 左栏最大宽度：普通窗口维持 520px 上限；最大化/全屏时按内容区宽度放大
+        // （约 50%，绝对上限 960px）。否则宽窗口下分隔条只有 260-520px 可拖，
+        // 队列宽度几乎无法调整。
+        private double MaxLeftWidthFor(Grid parentGrid)
+        {
+            double total = parentGrid.ActualWidth - 4;
+            if (total <= 0) return _MaxLeftWidth;
+            double desiredRightWidth = parentGrid.ColumnDefinitions.Count > 2
+                ? Math.Max(_DesiredRightWidth, parentGrid.ColumnDefinitions[2].MinWidth)
+                : _DesiredRightWidth;
+            double rightLimit = Math.Max(_MinLeftWidth, total - desiredRightWidth);
+            if (!_isMaximized)
+                return Math.Min(_MaxLeftWidth, rightLimit);
+            return Math.Clamp(total * 0.5, _MinLeftWidth, Math.Min(_MaxLeftWidthFullscreen, rightLimit));
+        }
+
+        // 窗口状态变化时重新检测模式：DidPresenterChange 与状态比对都作为触发条件
+        // （任一生效即重设比例），配合 IsZoomed 的实时检测，最大化 ⇄ 还原时
+        // 各自恢复对应模式保存的比例，互不影响。
         private void AppWindow_Changed(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
         {
             if (LeftConfigPanel.Parent is not Grid parentGrid) return;
             bool wasMaximized = _isMaximized;
             UpdateMaximizedState();
-            if (wasMaximized != _isMaximized)
+            if (args.DidPresenterChange || wasMaximized != _isMaximized)
                 ApplyCurrentRatio(parentGrid);
         }
 
         // 分隔条按下：记录锚点（鼠标 X + 左栏宽度）
         private void Splitter_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
+            // 拖动开始前只测量一次真实内容；PointerMoved 中仅做比例数值计算。
+            RefreshTaskQueueMinimums(allowShrink: true);
             UpdateMaximizedState();
             _isSplitterDragging = true;
             var parentGrid = (Grid)LeftConfigPanel.Parent!;
@@ -1484,8 +2068,8 @@ namespace LivePhotoBox.Views
             if (LeftConfigPanel.Parent is not Grid parentGrid) return;
             var point = e.GetCurrentPoint(parentGrid);
             var newWidth = _splitterAnchorWidth + (point.Position.X - _splitterAnchorX);
-            newWidth = Math.Clamp(newWidth, _MinLeftWidth,
-                Math.Min(_MaxLeftWidth, Math.Max(_MinLeftWidth, parentGrid.ActualWidth - _DesiredRightWidth)));
+            newWidth = Math.Clamp(newWidth, _MinLeftWidth, MaxLeftWidthFor(parentGrid));
+
             parentGrid.ColumnDefinitions[0].Width = new GridLength(newWidth);
             e.Handled = true;
         }
@@ -1504,6 +2088,7 @@ namespace LivePhotoBox.Views
         private void Splitter_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
         {
             _isSplitterDragging = false;
+            ScheduleFinalTaskQueueLayoutRefresh();
         }
 
         // 鼠标进入分隔条 → 显示左右拖拽光标
@@ -1519,18 +2104,19 @@ namespace LivePhotoBox.Views
             this.ProtectedCursor = null;
         }
 
-        // 双击分隔条：当前模式重置为 320px 对应的默认比例
+        // 双击分隔条：当前模式重置为默认的 1:2 比例
         private void Splitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
         {
             if (LeftConfigPanel.Parent is Grid parentGrid)
             {
-                double applied = ApplyLeftRatio(parentGrid, DefaultRatioFor(parentGrid));
+                double applied = ApplyLeftRatio(parentGrid, DefaultRatioFor());
                 SaveCurrentRatio(applied);
+                ScheduleFinalTaskQueueLayoutRefresh();
             }
             e.Handled = true;
         }
 
-        // 恢复当前模式保存的比例；无保存时按 320/(当前总宽) 计算默认比例
+        // 恢复当前模式保存的比例；无保存时按默认 1:2 比例
         private void RestoreLeftPanelWidth()
         {
             if (LeftConfigPanel.Parent is not Grid parentGrid) return;
@@ -1541,16 +2127,14 @@ namespace LivePhotoBox.Views
         // 按当前模式保存的比例设置左栏
         private void ApplyCurrentRatio(Grid parentGrid)
         {
-            double ratio = Services.AppSettingsService.GetValue(CurrentRatioKey, DefaultRatioFor(parentGrid));
+            UpdateMaximizedState();
+            double ratio = Services.AppSettingsService.GetValue(CurrentRatioKey, DefaultRatioFor());
             ApplyLeftRatio(parentGrid, ratio);
+            ScheduleFinalTaskQueueLayoutRefresh();
         }
 
-        // 默认比例：左栏 320px 在当前容器宽度下对应的比例
-        private double DefaultRatioFor(Grid parentGrid)
-        {
-            double total = parentGrid.ActualWidth - 4;
-            return total > 0 ? 320.0 / total : 0.25;
-        }
+        // 默认比例：左栏 1 份 : 右栏 2 份（1:2，左栏占 1/3），与窗口宽度无关
+        private static double DefaultRatioFor() => 1.0 / 3.0;
 
         // 按比例设置左栏并返回实际生效的比例；左右两栏都用 star 列，
         // 窗口缩放时由布局引擎
@@ -1561,8 +2145,7 @@ namespace LivePhotoBox.Views
             if (total <= 0) return ratio;
 
             double px = ratio * total;
-            px = Math.Clamp(px, _MinLeftWidth,
-                Math.Min(_MaxLeftWidth, Math.Max(_MinLeftWidth, total - _DesiredRightWidth)));
+            px = Math.Clamp(px, _MinLeftWidth, MaxLeftWidthFor(parentGrid));
             double leftRatio = px / total;
 
             parentGrid.ColumnDefinitions[0].Width = new GridLength(leftRatio, GridUnitType.Star);
@@ -1573,6 +2156,7 @@ namespace LivePhotoBox.Views
         // 保存比例到当前模式；不传参时按当前实际宽度换算
         private void SaveCurrentRatio(double? ratio = null)
         {
+            UpdateMaximizedState();
             if (ratio is null)
             {
                 if (LeftConfigPanel.Parent is not Grid parentGrid) return;
@@ -1584,18 +2168,18 @@ namespace LivePhotoBox.Views
             Services.AppSettingsService.SetValue(CurrentRatioKey, Math.Round(ratio.Value, 4));
         }
 
-        // 窗口大小变化：star 列会随窗口自动同步伸缩，这里只需在
-        // 最大化 ⇄ 还原（必然引起尺寸变化）时切换对应模式的比例
+        // 窗口大小变化：始终按当前模式重设比例（star 列重设后仍保持同一比例，
+        // 无副作用）。关键点是最后一次尺寸变化必然发生在最终宽度上，像素钳制
+        // 不会再用过渡中的宽度把比例算歪——否则最大化 ⇄ 还原后左栏会变成
+        // 一个既非用户拖动值、也非默认值的奇怪宽度。
         private void ContentGrid_SizeChanged(object sender, SizeChangedEventArgs e)
         {
             if (sender is not Grid parentGrid) return;
             if (_isSplitterDragging) return;
 
-            bool wasMaximized = _isMaximized;
-            UpdateMaximizedState();
-            if (wasMaximized != _isMaximized)
-                ApplyCurrentRatio(parentGrid);
+            ApplyCurrentRatio(parentGrid);
         }
+
         // ── 拖拽分隔条结束 ──
     }
 }

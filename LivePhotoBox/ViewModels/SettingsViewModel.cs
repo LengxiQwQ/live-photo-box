@@ -181,8 +181,11 @@ namespace LivePhotoBox.ViewModels
                 AppSettingsService.RemoveValue("MainWindow_Width");
                 AppSettingsService.RemoveValue("MainWindow_Height");
                 AppSettingsService.RemoveValue("MainWindow_Maximized");
+                AppSettingsService.RemoveValue("MainWindow_NavPaneOpen");
                 AppSettingsService.RemoveValue("MergePage_LeftPanelWidth");
                 AppSettingsService.RemoveValue("SplitPage_LeftPanelWidth");
+                AppSettingsService.RemoveValue("EditPage_InfoRatio_Window");
+                AppSettingsService.RemoveValue("EditPage_InfoRatio_Fullscreen");
 
                 LogService.Info("Window layout reset to defaults. Restarting...", LogSource.Settings);
 
@@ -450,7 +453,7 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Notification frequency index changed to: {value}", LogSource.Settings);
         }
 
-        // 通知声音索引：0=邮件（默认），1=通知铃声，2=日历，3=即时消息，4=短信，5=闹钟。
+        // 通知声音索引：0=邮件（默认），1=通知铃声，2=日历，3=即时消息，4=闹钟。
         // 默认 0 = Notification.Mail（声音方案里的"邮件"音）。
         [ObservableProperty]
         private int _notificationSoundIndex = 0;

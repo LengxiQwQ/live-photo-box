@@ -318,6 +318,7 @@ namespace LivePhotoBox.ViewModels
         // ══════════════════════════════════════════════════════════════
 
         [ObservableProperty] private string _photoFileName = string.Empty;
+        [ObservableProperty] private string _fullPhotoFileName = string.Empty;
         [ObservableProperty] private string _photoInfoLine = string.Empty;
         [ObservableProperty] private string _videoInfoLine = string.Empty;
         [ObservableProperty] private string _protocolLine = string.Empty;
@@ -4003,6 +4004,8 @@ namespace LivePhotoBox.ViewModels
                 IsSelectedLivePhoto = item.HasConfirmedProtocol;
                 PhotoFileName = EditFileItem.FormatDisplayFileName(
                     item.FileName, item.IsDualFileLivePhoto, item.VideoExtension);
+                FullPhotoFileName = EditFileItem.FormatFullDisplayFileName(
+                    item.FileName, item.IsDualFileLivePhoto, item.VideoExtension);
                 SelectedFileThumbnail = item.Thumbnail;
 
                 // 缩略图为懒加载（TryGetOrLoad 首次返回 null，异步回填）。
@@ -4118,6 +4121,7 @@ namespace LivePhotoBox.ViewModels
             IsSelectedFileVideo = false;
             IsSelectedLivePhoto = false;
             PhotoFileName = string.Empty;
+            FullPhotoFileName = string.Empty;
             PhotoInfoLine = string.Empty;
             VideoInfoLine = string.Empty;
             ProtocolLine = string.Empty;

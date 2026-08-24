@@ -75,6 +75,7 @@ namespace LivePhotoBox.Models
                     OnPropertyChanged(nameof(LivePhotoBadgeVisibility));
                     OnPropertyChanged(nameof(LiveBadgeBackground));
                     OnPropertyChanged(nameof(DisplayFileName));
+                    OnPropertyChanged(nameof(FullDisplayFileName));
                 }
             }
         }
@@ -159,6 +160,29 @@ namespace LivePhotoBox.Models
             }
         }
 
+        /// <summary>
+        /// 与 <see cref="FormatDisplayFileName"/> 相同但**不截断**，返回完整显示名；
+        /// 供 <see cref="LivePhotoBox.Controls.AdaptiveFileName"/> 按实际宽度自适应省略。
+        /// </summary>
+        public static string FormatFullDisplayFileName(string fileName, bool isDualFileLivePhoto, string? videoExtension = null)
+        {
+            if (string.IsNullOrEmpty(fileName)) return string.Empty;
+
+            string nameWithoutExt = Path.GetFileNameWithoutExtension(fileName);
+            string imageExt = Path.GetExtension(fileName).ToUpperInvariant(); // 含点，如 ".JPG"
+
+            if (isDualFileLivePhoto && !string.IsNullOrEmpty(videoExtension))
+            {
+                // 双文件实况照片：括号括起双后缀，不截断
+                string imgNoDot = imageExt.TrimStart('.');
+                string vidNoDot = videoExtension.TrimStart('.').ToUpperInvariant();
+                return $"{nameWithoutExt} ({imgNoDot}+{vidNoDot})";
+            }
+
+            // 普通照片 / 单文件实况：正常 .后缀，不截断
+            return nameWithoutExt + imageExt;
+        }
+
         /// <summary>是否为双文件实况照片（DualFile 且已确认协议）</summary>
         public bool IsDualFileLivePhoto => HasConfirmedProtocol && LivePhotoType == LivePhotoType.DualFile;
 
@@ -175,6 +199,9 @@ namespace LivePhotoBox.Models
 
         /// <summary>列表显示用文件名，绑定到 ListView</summary>
         public string DisplayFileName => FormatDisplayFileName(FileName, IsDualFileLivePhoto, VideoExtension);
+
+        /// <summary>未截断的完整显示名，供宽度自适应控件使用（够宽显示完整，不够时控件自己中间省略）</summary>
+        public string FullDisplayFileName => FormatFullDisplayFileName(FileName, IsDualFileLivePhoto, VideoExtension);
 
         /// <summary>ListView 子行：分辨率 │ 大小（合成属性，避免 Run 元素 x:Bind 不支持 OneWay 的问题）</summary>
         public string FileInfoSubLine

@@ -4,10 +4,6 @@
   
   > System toast notifications — adapted to Windows notifications, popping up after batch processing with one-click navigation to the page; frequency and sound customizable in Settings.
   
-- **💻 CLI `cover` 命令** — 支持查看和自定义当前封面帧时间位置与信息；与 GUI 编辑页完全同步。
-  
-  > New `cover` command — view and customize the current key photo timestamp and information; fully in sync with the GUI editor page.
-  
 - **📊 任务栏全局进度条** — 适配系统任务栏图标实时显示，在扫描和队列任务生效，后台任务处理更直观。
   
   > Taskbar progress indicator — the system taskbar icon shows real-time progress, making background jobs easier to follow.
@@ -15,6 +11,10 @@
 - **💡 交互式引导教程** — 合成页与拆分页新增操作引导气泡，可跟随提示逐步操作。
   
   > Interactive guided tutorial — new step-by-step tooltips on Merge and Split pages guide users.
+  > 
+- **💻 CLI `cover` 命令** — 支持查看和自定义当前封面帧时间位置与信息；与 GUI 编辑页完全同步。
+  
+  > New `cover` command — view and customize the current key photo timestamp and information; fully in sync with the GUI editor page.
 
 ## ⚡ 优化 / Optimizations
 
@@ -22,13 +22,13 @@
   
   > Window layout memory improved — restarting the app restores the previous width and height instead of resetting; adjustable in Settings.
   
-- **🎨 修复页状态栏统一风格** — 修复页底部状态栏重新设计，对齐合成/拆分页的配色与布局，三页风格一致。
-  > Repair page status bar unified — the footer status bar redesigned to match the color scheme and layout of the Merge and Split pages, achieving a consistent look across all three.
-
 - **🖱️ 合成/拆分中间拖拽** — 左右面板分隔线拖拽按比例分配空间，适应不同窗口尺寸。
   
   > Center splitter now uses proportional resizing — dragging the divider between left and right panels allocates space proportionally, adapting to different window sizes.
   
+  - **🎨 修复页状态栏统一风格** — 修复页底部状态栏重新设计，对齐合成/拆分页的配色与布局，三页风格一致。
+  > Repair page status bar unified — the footer status bar redesigned to match the color scheme and layout of the Merge and Split pages, achieving a consistent look across all three.
+
 - **📝 其他细节优化** — 多余设置项清理；软件标识写入历史记录；GUI 与 CLI 日志补全。
   
   > Other refinements — cleaned up unused settings; Live Photo Box marker written to history records; log coverage improved for both GUI and CLI.

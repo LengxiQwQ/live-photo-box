@@ -712,7 +712,6 @@
                             <ComboBoxItem x:Uid="SettingsPage_NotifSound_Default"/>
                             <ComboBoxItem x:Uid="SettingsPage_NotifSound_Reminder"/>
                             <ComboBoxItem x:Uid="SettingsPage_NotifSound_IM"/>
-                            <ComboBoxItem x:Uid="SettingsPage_NotifSound_SMS"/>
                             <ComboBoxItem x:Uid="SettingsPage_NotifSound_Alarm"/>
                         </ComboBox>
                     </StackPanel>

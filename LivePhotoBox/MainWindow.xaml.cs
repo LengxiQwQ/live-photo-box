@@ -92,6 +92,8 @@ namespace LivePhotoBox
         private const string WndKeyW = "MainWindow_Width";
         private const string WndKeyH = "MainWindow_Height";
         private const string WndKeyMax = "MainWindow_Maximized";
+        // 导航栏展开/收起状态记忆键
+        private const string NavPaneKey = "MainWindow_NavPaneOpen";
 
         [DllImport("user32.dll")]
         private static extern uint GetDpiForWindow(IntPtr hwnd);
@@ -109,9 +111,32 @@ namespace LivePhotoBox
         [DllImport("user32.dll", CharSet = CharSet.Unicode)]
         private static extern bool SetWindowTextW(IntPtr hWnd, string lpString);
 
+        [DllImport("user32.dll")]
+        private static extern short GetKeyState(int nVirtKey);
+
+        [UnmanagedFunctionPointer(CallingConvention.Winapi)]
+        private delegate IntPtr WindowSubclassProc(IntPtr hWnd, uint uMsg, UIntPtr wParam,
+            IntPtr lParam, UIntPtr uIdSubclass, UIntPtr dwRefData);
+
+        [DllImport("comctl32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetWindowSubclass(IntPtr hWnd, WindowSubclassProc pfnSubclass,
+            UIntPtr uIdSubclass, UIntPtr dwRefData);
+
+        [DllImport("comctl32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool RemoveWindowSubclass(IntPtr hWnd, WindowSubclassProc pfnSubclass,
+            UIntPtr uIdSubclass);
+
+        [DllImport("comctl32.dll")]
+        private static extern IntPtr DefSubclassProc(IntPtr hWnd, uint uMsg, UIntPtr wParam, IntPtr lParam);
+
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_LAYERED = 0x80000;
         private const uint LWA_ALPHA = 0x2;
+        private const uint WM_KEYDOWN = 0x0100;
+        private const int VK_OEM_COMMA = 0xBC;
+        private static readonly UIntPtr SettingsShortcutSubclassId = new(0x4C504253);
 
         private DesktopAcrylicController? _acrylicController;
         private SystemBackdropConfiguration? _acrylicConfig;
@@ -126,6 +151,7 @@ namespace LivePhotoBox
         private static ITaskbarList3? _taskbarList;
         // 缓存窗口句柄，避免重复调用 WindowNative.GetWindowHandle。
         private IntPtr _windowHandle;
+        private WindowSubclassProc? _windowSubclassProc;
         // 成功闪烁的 CancellationTokenSource：处理完成时短暂显示 100% 后清除。
         private CancellationTokenSource? _successFlashCts;
         // 最近一次处于"处理中"（IsProcessing=true）的页面。
@@ -154,6 +180,10 @@ namespace LivePhotoBox
             // 这里先设一个初始值；AppTitleBar.Loaded 中会从已解析的 XAML 文字再次设置。
             Title = ResourceService.GetString("MainWindow_Title.Text");
 
+            // 恢复上次导航栏展开/收起状态（默认展开）。在构造函数中设置，
+            // 窗口显示前即生效，避免启动时先展开再收起造成闪烁。
+            NavView.IsPaneOpen = AppSettingsService.GetValue(NavPaneKey, true);
+
             // AppTitleBar 加载完成后（XAML x:Uid 已解析），从标题栏文字读取正确值，
             // 确保 Alt+Tab、任务栏、Win32 窗口标题全部正确
             AppTitleBar.Loaded += (_, _) =>
@@ -178,6 +208,8 @@ namespace LivePhotoBox
             // 除此之外的"资源释放"都是替 OS 干它本来就会干的事。
             Closed += (_, _) =>
             {
+                RemoveSettingsShortcutHook();
+
                 // 0. 记住窗口位置/大小/最大化状态（用户可在设置里关闭）
                 SaveWindowLayout();
 
@@ -291,6 +323,7 @@ namespace LivePhotoBox
             // 工作线程触发时才初始化（COM 对象公寓模型与句柄获取时机的不确定性）。
             // 初始化失败不阻塞主功能，仅记录 Warn。
             _windowHandle = hWnd;
+            InstallSettingsShortcutHook(hWnd);
             EnsureTaskbarList();
 
             // 注册主窗口句柄到通知服务，供"仅后台通知"前台检测使用
@@ -328,6 +361,53 @@ namespace LivePhotoBox
 
             // 默认导航到首页（抑制动画，NavigationView 首次选中也会被 _isFirstNavigation 抑制）
             NavigateToPage(typeof(Views.HomePage), null, new SuppressNavigationTransitionInfo());
+        }
+
+        private void InstallSettingsShortcutHook(IntPtr hWnd)
+        {
+            _windowSubclassProc = MainWindowSubclassProc;
+            if (SetWindowSubclass(hWnd, _windowSubclassProc, SettingsShortcutSubclassId, UIntPtr.Zero))
+                return;
+
+            _windowSubclassProc = null;
+            LogService.Warn("Failed to install settings shortcut window hook.", source: LogSource.UI);
+        }
+
+        private void RemoveSettingsShortcutHook()
+        {
+            if (_windowHandle == IntPtr.Zero || _windowSubclassProc == null)
+                return;
+
+            RemoveWindowSubclass(_windowHandle, _windowSubclassProc, SettingsShortcutSubclassId);
+            _windowSubclassProc = null;
+        }
+
+        private IntPtr MainWindowSubclassProc(IntPtr hWnd, uint uMsg, UIntPtr wParam,
+            IntPtr lParam, UIntPtr uIdSubclass, UIntPtr dwRefData)
+        {
+            if (uMsg == WM_KEYDOWN)
+            {
+                const int vkControl = 0x11;
+                const int vkShift = 0x10;
+                const int vkMenu = 0x12;
+                const int commaScanCode = 0x33;
+
+                long keyData = lParam.ToInt64();
+                int scanCode = (int)((keyData >> 16) & 0xFF);
+                bool isFirstPress = (keyData & (1L << 30)) == 0;
+                bool isComma = wParam.ToUInt64() == VK_OEM_COMMA || scanCode == commaScanCode;
+                bool onlyControl = (GetKeyState(vkControl) & 0x8000) != 0
+                    && (GetKeyState(vkShift) & 0x8000) == 0
+                    && (GetKeyState(vkMenu) & 0x8000) == 0;
+
+                if (isFirstPress && isComma && onlyControl)
+                {
+                    DispatcherQueue.TryEnqueue(() => NavigateToSettings(null));
+                    return IntPtr.Zero;
+                }
+            }
+
+            return DefSubclassProc(hWnd, uMsg, wParam, lParam);
         }
 
         // 响应 AppViewModel 属性变更：状态栏可见性、任务栏进度条
@@ -575,6 +655,14 @@ namespace LivePhotoBox
             var backgroundColor = settings.GetColorValue(Windows.UI.ViewManagement.UIColorType.Background);
             return backgroundColor.R < 128 ? ElementTheme.Dark : ElementTheme.Light;
         }
+
+        // 导航栏展开/收起状态记忆：用户点击汉堡按钮切换时保存，供下次启动恢复。
+        // 程序化恢复（构造函数设 IsPaneOpen）也会触发事件，重复保存相同值无害。
+        private void NavView_PaneOpened(NavigationView sender, object args) =>
+            AppSettingsService.SetValue(NavPaneKey, true);
+
+        private void NavView_PaneClosed(NavigationView sender, object args) =>
+            AppSettingsService.SetValue(NavPaneKey, false);
 
         // NavigationView 选中项变更时，根据 Tag 或 Settings 项导航到对应页面
         private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)

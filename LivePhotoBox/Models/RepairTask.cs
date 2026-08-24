@@ -273,7 +273,7 @@ namespace LivePhotoBox.Models
             {
                 case nameof(RepairFileEntry.DisplayFileName):
                 case nameof(RepairFileEntry.FileName):
-                    File1Name = File1Entry?.DisplayFileName ?? string.Empty;
+                    File1Name = File1Entry?.FileName ?? string.Empty;
                     break;
                 case nameof(RepairFileEntry.FilePath):
                     File1Path = File1Entry?.FilePath ?? string.Empty;
@@ -318,7 +318,7 @@ namespace LivePhotoBox.Models
             {
                 case nameof(RepairFileEntry.DisplayFileName):
                 case nameof(RepairFileEntry.FileName):
-                    File2Name = File2Entry?.DisplayFileName ?? string.Empty;
+                    File2Name = File2Entry?.FileName ?? string.Empty;
                     break;
                 case nameof(RepairFileEntry.FilePath):
                     File2Path = File2Entry?.FilePath ?? string.Empty;
@@ -363,7 +363,7 @@ namespace LivePhotoBox.Models
         {
             if (File1Entry != null)
             {
-                File1Name = File1Entry.DisplayFileName;
+                File1Name = File1Entry.FileName;
                 File1Path = File1Entry.FilePath;
                 File1IsImage = File1Entry.IsImage;
                 File1IssueDescription = File1Entry.IssueDescription;
@@ -376,7 +376,7 @@ namespace LivePhotoBox.Models
 
             if (File2Entry != null)
             {
-                File2Name = File2Entry.DisplayFileName;
+                File2Name = File2Entry.FileName;
                 File2Path = File2Entry.FilePath;
                 File2IsImage = File2Entry.IsImage;
                 File2IssueDescription = File2Entry.IssueDescription;

@@ -1350,13 +1350,17 @@ namespace LivePhotoBox.ViewModels
                             bool isSuccess = false;
                             string detailMessage = string.Empty;
                             bool isCanceled = false;
+                            string outputImagePath = string.Empty;
+                            string outputVideoPath = string.Empty;
 
                             try
                             {
                                 string outputBaseName = ComputeOutputBaseName(task);
-                                await LivePhotoSplitService.SplitAsync(
+                                var result = await LivePhotoSplitService.SplitAsync(
                                     task.SourcePath, outputDir, protocolIndex, outputFormatIndex, token,
                                     inputDirectory, outputBaseName, overwriteExisting);
+                                outputImagePath = result.ImageOutputPath;
+                                outputVideoPath = result.VideoOutputPath;
                                 isSuccess = true;
                                 detailMessage = ResourceService.GetString("SplitPage_Task_Success") ?? "Success";
                             }
@@ -1401,7 +1405,11 @@ namespace LivePhotoBox.ViewModels
                                     if (isCanceled)
                                         UpdateTaskCancelled(task, detailMessage);
                                     else
+                                    {
+                                        task.OutputImagePath = isSuccess ? outputImagePath : string.Empty;
+                                        task.OutputVideoPath = isSuccess ? outputVideoPath : string.Empty;
                                         UpdateTaskCompleted(task, isSuccess, detailMessage, currentCompleted);
+                                    }
                                 }
                                 finally
                                 {
@@ -1637,6 +1645,8 @@ namespace LivePhotoBox.ViewModels
         // 标记任务开始处理（设置为 Processing 状态）。
         private void UpdateTaskStarted(SplitTask task)
         {
+            task.OutputImagePath = string.Empty;
+            task.OutputVideoPath = string.Empty;
             task.Status = ProcessStatus.Processing;
             task.ProgressText = "0%";
             task.Details = ResourceService.GetString("SplitPage_Task_Processing");

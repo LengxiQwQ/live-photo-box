@@ -360,6 +360,9 @@
   <data name="MergePage_BrowseBtn1.Content" xml:space="preserve">
     <value>浏览...</value>
   </data>
+  <data name="MergePage_BrowseBtn1.ToolTipService.ToolTip" xml:space="preserve">
+    <value>选择输入目录（Ctrl+Shift+O）</value>
+  </data>
   <data name="MergePage_OutputLabel.Text" xml:space="preserve">
     <value>输出目录:</value>
   </data>
@@ -368,6 +371,9 @@
   </data>
   <data name="MergePage_BrowseBtn2.Content" xml:space="preserve">
     <value>浏览...</value>
+  </data>
+  <data name="MergePage_BrowseBtn2.ToolTipService.ToolTip" xml:space="preserve">
+    <value>选择输出目录（Alt+O）</value>
   </data>
   <data name="MergePage_StatPaired.Text" xml:space="preserve">
     <value>配对成功 :</value>
@@ -1142,7 +1148,7 @@
     <value>加载中...</value>
   </data>
   <data name="RepairPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>打开文件</value>
+    <value>灯箱预览（Enter 或 Space）</value>
   </data>
   <data name="RepairPage_OutputModeLabel.Text" xml:space="preserve">
     <value>输出模式：</value>
@@ -1378,13 +1384,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>帮助 &amp; 教程</value>
   </data>
   <data name="MergePage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>操作引导教程</value>
+    <value>操作引导教程（F1）</value>
   </data>
   <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>操作引导教程</value>
+    <value>操作引导教程（F1）</value>
   </data>
   <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>前往主页查看教程</value>
+    <value>操作引导教程（F1）</value>
   </data>
   <data name="MergePage_Msg_NoInputDirectoryTitle" xml:space="preserve">
     <value>尚未选择输入文件夹</value>
@@ -1418,6 +1424,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
     <value>打开目录</value>
+  </data>
+  <data name="MergePage_OpenInputBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>打开输入目录（Ctrl+Shift+I）</value>
   </data>
   <data name="MergeTutorial_Btn_Next" xml:space="preserve">
     <value>下一步</value>
@@ -1502,6 +1511,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="MergePage_OpenOutputBtn.Content" xml:space="preserve">
     <value>打开目录</value>
+  </data>
+  <data name="MergePage_OpenOutputBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>打开输出目录（Ctrl+Shift+E）</value>
   </data>
   <data name="MergePage_PageTitle.Text" xml:space="preserve">
     <value>实况照片批量合成 &amp; 转换协议</value>
@@ -1742,10 +1754,16 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>失败 </value>
   </data>
   <data name="MergePage_Menu_ShowInFolder.Text" xml:space="preserve">
-    <value>在文件夹中查看</value>
+    <value>打开输入位置</value>
   </data>
   <data name="MergePage_Menu_Preview.Text" xml:space="preserve">
     <value>全屏预览</value>
+  </data>
+  <data name="MergePage_Menu_Delete.Text" xml:space="preserve">
+    <value>删除任务</value>
+  </data>
+  <data name="MergePage_Menu_OpenOutput.Text" xml:space="preserve">
+    <value>打开输出位置</value>
   </data>
   <data name="SplitPage_OpenInputBtn.Content" xml:space="preserve">
     <value>打开目录</value>
@@ -2399,13 +2417,37 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>安装 HEVC 视频扩展</value>
   </data>
   <data name="MergePage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>前往设置查看高级选项</value>
+    <value>前往设置查看高级选项（Ctrl+,）</value>
+  </data>
+  <data name="MergePage_AddFilesBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>添加文件（Ctrl+O）</value>
+  </data>
+  <data name="MergePage_ClearBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>清空列表（C）/ 暂停或继续（P）</value>
+  </data>
+  <data name="MergePage_ScanButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>扫描目录（F5）/ 停止（双击 Esc）</value>
+  </data>
+  <data name="MergePage_StartButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>开始合成（Ctrl+Enter）/ 停止（双击 Esc）</value>
+  </data>
+  <data name="MergePage_SearchBox.ToolTipService.ToolTip" xml:space="preserve">
+    <value>搜索任务（Ctrl+F）</value>
+  </data>
+  <data name="MergePage_TaskDeleteButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>移除任务（Delete）</value>
+  </data>
+  <data name="MergePage_TaskMoreButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>更多操作</value>
+  </data>
+  <data name="MergePage_TaskPreviewButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>灯箱预览（Enter 或 Space）</value>
   </data>
   <data name="SplitPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>前往设置查看高级选项</value>
   </data>
   <data name="RepairPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>前往设置查看高级选项</value>
+    <value>前往设置查看高级选项（Ctrl+,）</value>
   </data>
   <data name="SettingsPage_General_Header.Text" xml:space="preserve">
     <value>通用</value>
@@ -2680,26 +2722,41 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="EditPage_Save.Label" xml:space="preserve">
     <value>设为封面并保存为副本</value>
   </data>
+  <data name="EditPage_Save.KeyboardAcceleratorTextOverride" xml:space="preserve">
+    <value>Ctrl+S</value>
+  </data>
   <data name="EditPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>设为封片并另存为</value>
+    <value>设为封面并保存为副本（Ctrl+S）</value>
   </data>
   <data name="EditPage_SaveAs.Label" xml:space="preserve">
     <value>另存为</value>
   </data>
+  <data name="EditPage_SaveAs.KeyboardAcceleratorTextOverride" xml:space="preserve">
+    <value>Ctrl+Shift+S</value>
+  </data>
   <data name="EditPage_SaveAs.ToolTipService.ToolTip" xml:space="preserve">
-    <value>另存为新文件</value>
+    <value>另存为新文件（Ctrl+Shift+S）</value>
   </data>
   <data name="EditPage_ExportFrame.Text" xml:space="preserve">
     <value>导出当前帧</value>
   </data>
+  <data name="EditPage_ExportFrame.KeyboardAcceleratorTextOverride" xml:space="preserve">
+    <value>Ctrl+E</value>
+  </data>
   <data name="EditPage_ExportAllFrames.Text" xml:space="preserve">
     <value>导出所有帧</value>
   </data>
+  <data name="EditPage_ExportAllFrames.KeyboardAcceleratorTextOverride" xml:space="preserve">
+    <value>Ctrl+Shift+E</value>
+  </data>
   <data name="EditPage_Export.ToolTipService.ToolTip" xml:space="preserve">
-    <value>导出帧、视频或 GIF</value>
+    <value>导出帧、视频或 GIF（Alt+E）</value>
   </data>
   <data name="EditPage_Export.Label" xml:space="preserve">
     <value>导出…</value>
+  </data>
+  <data name="EditPage_Export.KeyboardAcceleratorTextOverride" xml:space="preserve">
+    <value>Alt+E</value>
   </data>
   <data name="EditPage_ExportVideo.Text" xml:space="preserve">
     <value>导出为视频</value>
@@ -2729,13 +2786,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>下一帧</value>
   </data>
   <data name="EditPage_PlayLivePhoto.ToolTipService.ToolTip" xml:space="preserve">
-    <value>播放实况照片</value>
+    <value>播放实况照片（空格）</value>
   </data>
   <data name="EditPage_MuteToggle.ToolTipService.ToolTip" xml:space="preserve">
-    <value>切换静音</value>
+    <value>切换静音（M）</value>
   </data>
   <data name="EditPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>浏览文件夹</value>
+    <value>浏览文件夹（Ctrl+O）</value>
   </data>
   <data name="EditPage_SearchBox.PlaceholderText" xml:space="preserve">
     <value>搜索文件...</value>
@@ -2758,14 +2815,14 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="EditPage_FilterBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>筛选文件</value>
   </data>
-  <data name="EditPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>缩小</value>
-  </data>
   <data name="EditPage_ZoomResetBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>100%</value>
+    <value>切换适应窗口与 100%（按 0 恢复适应窗口）</value>
+  </data>
+  <data name="EditPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>缩小预览（-）</value>
   </data>
   <data name="EditPage_ZoomInBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>放大</value>
+    <value>放大预览（+ 或 =）</value>
   </data>
   <data name="EditPage_FitWindowBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>适应窗口</value>
@@ -2977,16 +3034,25 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>前置摄像头</value>
   </data>
   <data name="EditPage_MaximizeButton.ToolTipService.ToolTip" xml:space="preserve">
-    <value>最大化预览</value>
+    <value>最大化预览（F11）</value>
+  </data>
+  <data name="EditPage_MaximizePreviewTooltip" xml:space="preserve">
+    <value>最大化预览（F11）</value>
+  </data>
+  <data name="EditPage_RestorePreviewTooltip" xml:space="preserve">
+    <value>还原预览（F11 或 Esc）</value>
   </data>
   <data name="EditPage_GoToKeyPhoto.Content" xml:space="preserve">
     <value>前往封面</value>
   </data>
   <data name="EditPage_GoToKeyPhoto.ToolTipService.ToolTip" xml:space="preserve">
-    <value>跳转到当前封面照片对应的帧</value>
+    <value>跳转到当前封面照片对应的帧（K）</value>
   </data>
   <data name="EditPage_GoToOriginalPhoto.Content" xml:space="preserve">
     <value>前往原始封面</value>
+  </data>
+  <data name="EditPage_GoToOriginalPhoto.ToolTipService.ToolTip" xml:space="preserve">
+    <value>跳转到原始封面照片对应的帧（O）</value>
   </data>
   <data name="EditPage_UnknownDevice" xml:space="preserve">
     <value>未知拍摄设备</value>
@@ -3286,10 +3352,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>原始</value>
   </data>
   <data name="EditPage_RefreshDirTooltip" xml:space="preserve">
-    <value>重新扫描当前目录</value>
+    <value>重新扫描当前目录（F5）</value>
   </data>
   <data name="EditPage_ClearDirTooltip" xml:space="preserve">
-    <value>清空当前列表</value>
+    <value>清除目录（C）</value>
   </data>
   <data name="AboutPage_VersionLabel.Text" xml:space="preserve">
     <value>版本</value>
@@ -4011,10 +4077,16 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>操作</value>
   </data>
   <data name="SplitPage_Menu_ShowInFolder.Text" xml:space="preserve">
-    <value>在文件夹中查看</value>
+    <value>打开输入位置</value>
   </data>
   <data name="SplitPage_Menu_Preview.Text" xml:space="preserve">
     <value>全屏预览</value>
+  </data>
+  <data name="SplitPage_Menu_Delete.Text" xml:space="preserve">
+    <value>删除任务</value>
+  </data>
+  <data name="SplitPage_Menu_OpenOutput.Text" xml:space="preserve">
+    <value>打开输出位置</value>
   </data>
   <data name="SplitPage_StatusProcessing" xml:space="preserve">
     <value>处理中：{0} 个文件</value>
@@ -4217,9 +4289,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_NotifSound_Mail.Content" xml:space="preserve">
     <value>邮件（默认）</value>
   </data>
-  <data name="SettingsPage_NotifSound_SMS.Content" xml:space="preserve">
-    <value>短信</value>
-  </data>
   <data name="SettingsPage_NotifSound_Alarm.Content" xml:space="preserve">
     <value>闹钟</value>
   </data>
@@ -4256,4 +4325,25 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_BackgroundOnlyNotif_Desc.Text" xml:space="preserve">
     <value>开启后，应用在前台时不弹出通知</value>
   </data>
+  <data name="SplitPage_BrowseBtn1.ToolTipService.ToolTip" xml:space="preserve"><value>选择输入目录（Ctrl+Shift+O）</value></data>
+  <data name="SplitPage_BrowseBtn2.ToolTipService.ToolTip" xml:space="preserve"><value>选择输出目录（Alt+O）</value></data>
+  <data name="SplitPage_OpenInputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>打开输入目录（Ctrl+Shift+I）</value></data>
+  <data name="SplitPage_OpenOutputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>打开输出目录（Ctrl+Shift+E）</value></data>
+  <data name="SplitPage_AddFilesBtn.ToolTipService.ToolTip" xml:space="preserve"><value>添加文件（Ctrl+O）</value></data>
+  <data name="SplitPage_ClearBtn.ToolTipService.ToolTip" xml:space="preserve"><value>清空列表（C）/ 暂停或继续（P）</value></data>
+  <data name="SplitPage_ScanButton.ToolTipService.ToolTip" xml:space="preserve"><value>扫描目录（F5）/ 停止（双击 Esc）</value></data>
+  <data name="SplitPage_StartButton.ToolTipService.ToolTip" xml:space="preserve"><value>开始拆分（Ctrl+Enter）/ 停止（双击 Esc）</value></data>
+  <data name="SplitPage_SearchBox.ToolTipService.ToolTip" xml:space="preserve"><value>搜索任务（Ctrl+F）</value></data>
+  <data name="SplitPage_TaskDeleteButton.ToolTipService.ToolTip" xml:space="preserve"><value>移除任务（Delete）</value></data>
+  <data name="SplitPage_TaskMoreButton.ToolTipService.ToolTip" xml:space="preserve"><value>更多操作</value></data>
+  <data name="SplitPage_TaskPreviewButton.ToolTipService.ToolTip" xml:space="preserve"><value>灯箱预览（Enter 或 Space）</value></data>
+  <data name="RepairPage_BrowseBtn1.ToolTipService.ToolTip" xml:space="preserve"><value>选择输入目录（Ctrl+O）</value></data>
+  <data name="RepairPage_BrowseBtn2.ToolTipService.ToolTip" xml:space="preserve"><value>选择输出目录（Alt+O）</value></data>
+  <data name="RepairPage_OpenInputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>打开输入目录（Ctrl+Shift+I）</value></data>
+  <data name="RepairPage_OpenInputOutputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>打开输入目录（Ctrl+Shift+I）</value></data>
+  <data name="RepairPage_OpenOutputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>打开输出目录（Ctrl+Shift+E）</value></data>
+  <data name="RepairPage_ScanButton.ToolTipService.ToolTip" xml:space="preserve"><value>扫描目录（F5）/ 停止（双击 Esc）</value></data>
+  <data name="RepairPage_FilterButton.ToolTipService.ToolTip" xml:space="preserve"><value>筛选任务（Ctrl+F）</value></data>
+  <data name="RepairPage_ClearButton.ToolTipService.ToolTip" xml:space="preserve"><value>清空列表（C）/ 暂停或继续（P）</value></data>
+  <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve"><value>开始修复（Ctrl+Enter）/ 停止（双击 Esc）</value></data>
 </root>

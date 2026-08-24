@@ -24,6 +24,10 @@ namespace LivePhotoBox.Models
         [ObservableProperty] private string _fileSize = string.Empty;
         // 进度文本（如 "50%"）
         [ObservableProperty] private string _progressText = "0%";
+        // 成功拆分后的图片输出路径（定位输出时优先选择图片）。
+        [ObservableProperty] private string _outputImagePath = string.Empty;
+        // 成功拆分后的视频输出路径。
+        [ObservableProperty] private string _outputVideoPath = string.Empty;
         // 处理状态
         [ObservableProperty] private ProcessStatus _status = ProcessStatus.Pending;
         // 处理详情/错误信息
@@ -37,6 +41,9 @@ namespace LivePhotoBox.Models
 
         // 任务失败且有错误详情时返回 true
         public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
+
+        // 任务是否已成功完成（"打开输出位置"等仅完成态可用的操作以此判断）
+        public bool IsSuccess => Status == ProcessStatus.Success;
 
         // 队列中显示的状态文字：失败时只显示"拆分失败"（简短、不截断），
         // 完整错误详情在点击后弹出的 TeachingTip 中查看；其余状态沿用原详情文案。
@@ -109,6 +116,7 @@ namespace LivePhotoBox.Models
         {
             OnPropertyChanged(nameof(DisplayStatus));
             OnPropertyChanged(nameof(HasErrorDetails));
+            OnPropertyChanged(nameof(IsSuccess));
             OnPropertyChanged(nameof(DisplayStatusText));
         }
 

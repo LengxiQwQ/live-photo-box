@@ -300,7 +300,7 @@
                     <AppBarButton.Icon><ic:SymbolIcon Symbol="ArrowSwap" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
                 <AppBarSeparator/>
-                <AppBarButton x:Uid="EditPage_Export"
+                <AppBarButton x:Name="ExportButton" x:Uid="EditPage_Export"
                               IsEnabled="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay}">
                     <AppBarButton.Icon><ic:SymbolIcon Symbol="ImageArrowForward" FontSize="14"/></AppBarButton.Icon>
                     <AppBarButton.Flyout>
@@ -438,11 +438,11 @@
         <!-- ============================================================ -->
         <!-- Row 1：主内容                                                   -->
         <!-- ============================================================ -->
-        <Grid x:Name="MainContentGrid" Grid.Row="1" Padding="8,0,8,6">
+        <Grid x:Name="MainContentGrid" Grid.Row="1" Padding="8,0,8,6" SizeChanged="ContentGrid_SizeChanged">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="LeftPanelColumn" Width="320"/>
-                <ColumnDefinition x:Name="PanelSpacerColumn" Width="2"/>
-                <ColumnDefinition Width="*"/>
+                <ColumnDefinition x:Name="LeftPanelColumn" Width="4*"/>
+                <ColumnDefinition x:Name="PanelSpacerColumn" Width="Auto"/>
+                <ColumnDefinition Width="21*" MinWidth="420"/>
             </Grid.ColumnDefinitions>
 
             <!-- ························································ -->
@@ -652,10 +652,13 @@
                                 <Setter Property="Height" Value="76"/>
                                 <Setter Property="MinHeight" Value="0"/>
                                 <Setter Property="IsTabStop" Value="False"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                                 <Setter Property="Template">
                                     <Setter.Value>
                                         <ControlTemplate TargetType="ListViewItem">
-                                            <ContentPresenter x:Name="ContentPresenter"/>
+                                            <ContentPresenter x:Name="ContentPresenter"
+                                                              HorizontalContentAlignment="Stretch"
+                                                              HorizontalAlignment="Stretch"/>
                                         </ControlTemplate>
                                     </Setter.Value>
                                 </Setter>
@@ -692,10 +695,9 @@
                                             </Grid>
                                         </Border>
                                         <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock Text="{x:Bind DisplayFileName, Mode=OneWay}"
+                                            <TextBlock controls:AdaptiveFileName.FileName="{x:Bind FullDisplayFileName, Mode=OneWay}"
                                                        FontSize="12" FontWeight="Bold"
-                                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                                       TextTrimming="CharacterEllipsis" MaxLines="1"/>
+                                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
                                             <TextBlock Text="{x:Bind FileInfoSubLine, Mode=OneWay}"
                                                        FontSize="11"
                                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
@@ -787,6 +789,25 @@
             </Grid>
             </Grid>   <!-- 关闭外层 Grid（Border 的子元素） -->
             </Border>
+
+            <!-- ── 拖拽分隔条 ── -->
+            <Grid Grid.Column="1" Width="4">
+                <Grid x:Name="GridSplitterColumn" Width="4" VerticalAlignment="Stretch">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="20*"/>
+                        <RowDefinition Height="80*"/>
+                    </Grid.RowDefinitions>
+                    <Border x:Name="GridSplitterBar" Grid.RowSpan="2" Width="4"
+                            Background="Transparent" VerticalAlignment="Stretch"
+                            PointerPressed="Splitter_PointerPressed"
+                            PointerMoved="Splitter_PointerMoved"
+                            PointerReleased="Splitter_PointerReleased"
+                            PointerCaptureLost="Splitter_PointerCaptureLost"
+                            PointerEntered="Splitter_PointerEntered"
+                            PointerExited="Splitter_PointerExited"
+                            DoubleTapped="Splitter_DoubleTapped" />
+                </Grid>
+            </Grid>
 
             <!-- ························································ -->
             <!-- 右侧：Border 包裹作为拖拽目标                              -->
@@ -1345,83 +1366,100 @@
                             <!-- ──────────────────────────────────────────────── -->
                             <!--  文件基础信息面板（缩略图 + 照片/视频信息行 + EXIF） -->
                             <!-- ──────────────────────────────────────────────── -->
-                            <Grid Visibility="{x:Bind ViewModel.IsBasicInfoPanelVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                  ColumnSpacing="22" Height="84">
+                            <Grid x:Name="InfoPanelGrid"
+                                  Visibility="{x:Bind ViewModel.IsBasicInfoPanelVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                  ColumnSpacing="6" Height="84" SizeChanged="InfoPanel_SizeChanged">
                                 <Grid.ColumnDefinitions>
+                                    <ColumnDefinition x:Name="InfoLeftColumn" Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition x:Name="InfoRightColumn" Width="*"/>
                                 </Grid.ColumnDefinitions>
 
-                                <!-- Col 0：缩略图 80×80（1:1 方形，复用列表已加载的缩略图） -->
-                                <Border Grid.Column="0" x:Name="InfoThumbBorder"
-                                        Width="80" Height="80" CornerRadius="10" VerticalAlignment="Center"
-                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                        Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
-                                    <Grid>
-                                        <FontIcon Glyph="&#xE722;" FontSize="28"
-                                                  Visibility="{x:Bind ViewModel.SelectedFileThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        <Image Source="{x:Bind ViewModel.SelectedFileThumbnail, Mode=OneWay}"
-                                               Stretch="UniformToFill"/>
-                                    </Grid>
-                                </Border>
+                                <!-- Col 0：左侧整体 = 缩略图 + 照片/视频信息（一起参与比例分配） -->
+                                <Grid Grid.Column="0" ColumnSpacing="22">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
 
-                                <!-- Col 1：照片 + Live Photo 信息行 -->
-                                <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Top">
-                                    <TextBlock Text="{x:Bind ViewModel.PhotoFileName, Mode=OneWay}"
-                                               FontSize="12" FontWeight="SemiBold"
-                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                               TextTrimming="CharacterEllipsis"/>
-                                    <Button Style="{StaticResource InfoRowButtonStyle}"
-                                            x:Uid="EditPage_LocatePhoto"
-                                            Click="LocatePhotoFile_Click"
-                                            Visibility="{x:Bind ViewModel.IsPhotoRowVisible, Mode=OneWay}">
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <FontIcon Glyph="&#xE722;" FontSize="11"
-                                                      Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                                      VerticalAlignment="Center" Margin="0,1,0,0"
-                                                      Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
-                                            <TextBlock Text="{x:Bind ViewModel.PhotoInfoLine, Mode=OneWay}"
+                                    <!-- 缩略图 80×80（1:1 方形，复用列表已加载的缩略图） -->
+                                    <Border Grid.Column="0" x:Name="InfoThumbBorder"
+                                            Width="80" Height="80" CornerRadius="10" VerticalAlignment="Center"
+                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                                            Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                        <Grid>
+                                            <FontIcon Glyph="&#xE722;" FontSize="28"
+                                                      Visibility="{x:Bind ViewModel.SelectedFileThumbnailPlaceholderVisibility, Mode=OneWay}"
+                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            <Image Source="{x:Bind ViewModel.SelectedFileThumbnail, Mode=OneWay}"
+                                                   Stretch="UniformToFill"/>
+                                        </Grid>
+                                    </Border>
+
+                                    <!-- 照片 + Live Photo 信息行 -->
+                                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Top">
+                                        <TextBlock controls:AdaptiveFileName.FileName="{x:Bind ViewModel.FullPhotoFileName, Mode=OneWay}"
+                                                   FontSize="12" FontWeight="SemiBold"
+                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                        <Button Style="{StaticResource InfoRowButtonStyle}"
+                                                x:Uid="EditPage_LocatePhoto"
+                                                Click="LocatePhotoFile_Click"
+                                                Visibility="{x:Bind ViewModel.IsPhotoRowVisible, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <FontIcon Glyph="&#xE722;" FontSize="11"
+                                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                                          VerticalAlignment="Center" Margin="0,1,0,0"
+                                                          Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
+                                                <TextBlock Text="{x:Bind ViewModel.PhotoInfoLine, Mode=OneWay}"
+                                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Style="{StaticResource InfoRowButtonStyle}"
+                                                x:Uid="EditPage_LocateVideo"
+                                                Click="LocateVideoFile_Click"
+                                                Visibility="{x:Bind ViewModel.IsVideoRowVisible, Mode=OneWay}">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <FontIcon Glyph="&#xE714;" FontSize="11"
+                                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                                          VerticalAlignment="Center" Margin="0,1,0,0"
+                                                          Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
+                                                <TextBlock Text="{x:Bind ViewModel.VideoInfoLine, Mode=OneWay}"
+                                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <StackPanel Orientation="Horizontal" Spacing="4"
+                                                    Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}">
+                                            <Path Data="M21 32 A11 11 0 1 1 43 32 A11 11 0 1 1 21 32 M26 32 A6 6 0 1 1 38 32 A6 6 0 1 1 26 32 M29.4 13 A2.6 2.6 0 1 1 34.6 13 A2.6 2.6 0 1 1 29.4 13 M40.57 16.63 A2.6 2.6 0 1 1 45.77 16.63 A2.6 2.6 0 1 1 40.57 16.63 M47.47 26.13 A2.6 2.6 0 1 1 52.67 26.13 A2.6 2.6 0 1 1 47.47 26.13 M47.47 37.87 A2.6 2.6 0 1 1 52.67 37.87 A2.6 2.6 0 1 1 47.47 37.87 M40.57 47.37 A2.6 2.6 0 1 1 45.77 47.37 A2.6 2.6 0 1 1 40.57 47.37 M29.4 51 A2.6 2.6 0 1 1 34.6 51 A2.6 2.6 0 1 1 29.4 51 M18.23 47.37 A2.6 2.6 0 1 1 23.43 47.37 A2.6 2.6 0 1 1 18.23 47.37 M11.33 37.87 A2.6 2.6 0 1 1 16.53 37.87 A2.6 2.6 0 1 1 11.33 37.87 M11.33 26.13 A2.6 2.6 0 1 1 16.53 26.13 A2.6 2.6 0 1 1 11.33 26.13 M18.23 16.63 A2.6 2.6 0 1 1 23.43 16.63 A2.6 2.6 0 1 1 18.23 16.63"
+                                                           Width="12" Height="12" Stretch="Uniform"
+                                                           Fill="{x:Bind ViewModel.ProtocolIconBrush, Mode=OneWay}"
+                                                           VerticalAlignment="Center" Margin="-0.25,1,0,0"/>
+                                            <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
                                                        Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
                                         </StackPanel>
-                                    </Button>
-                                    <Button Style="{StaticResource InfoRowButtonStyle}"
-                                            x:Uid="EditPage_LocateVideo"
-                                            Click="LocateVideoFile_Click"
-                                            Visibility="{x:Bind ViewModel.IsVideoRowVisible, Mode=OneWay}">
-                                        <StackPanel Orientation="Horizontal" Spacing="4">
-                                            <FontIcon Glyph="&#xE714;" FontSize="11"
-                                                      Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                                      VerticalAlignment="Center" Margin="0,1,0,0"
-                                                      Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
-                                            <TextBlock Text="{x:Bind ViewModel.VideoInfoLine, Mode=OneWay}"
-                                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
-                                        </StackPanel>
-                                    </Button>
-                                    <StackPanel Orientation="Horizontal" Spacing="4"
-                                                Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}">
-                                        <Path Data="M21 32 A11 11 0 1 1 43 32 A11 11 0 1 1 21 32 M26 32 A6 6 0 1 1 38 32 A6 6 0 1 1 26 32 M29.4 13 A2.6 2.6 0 1 1 34.6 13 A2.6 2.6 0 1 1 29.4 13 M40.57 16.63 A2.6 2.6 0 1 1 45.77 16.63 A2.6 2.6 0 1 1 40.57 16.63 M47.47 26.13 A2.6 2.6 0 1 1 52.67 26.13 A2.6 2.6 0 1 1 47.47 26.13 M47.47 37.87 A2.6 2.6 0 1 1 52.67 37.87 A2.6 2.6 0 1 1 47.47 37.87 M40.57 47.37 A2.6 2.6 0 1 1 45.77 47.37 A2.6 2.6 0 1 1 40.57 47.37 M29.4 51 A2.6 2.6 0 1 1 34.6 51 A2.6 2.6 0 1 1 29.4 51 M18.23 47.37 A2.6 2.6 0 1 1 23.43 47.37 A2.6 2.6 0 1 1 18.23 47.37 M11.33 37.87 A2.6 2.6 0 1 1 16.53 37.87 A2.6 2.6 0 1 1 11.33 37.87 M11.33 26.13 A2.6 2.6 0 1 1 16.53 26.13 A2.6 2.6 0 1 1 11.33 26.13 M18.23 16.63 A2.6 2.6 0 1 1 23.43 16.63 A2.6 2.6 0 1 1 18.23 16.63"
-                                              Width="12" Height="12" Stretch="Uniform"
-                                              Fill="{x:Bind ViewModel.ProtocolIconBrush, Mode=OneWay}"
-                                              VerticalAlignment="Center" Margin="-0.25,1,0,0"/>
-                                        <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
-                                                   Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
                                     </StackPanel>
-                                </StackPanel>
+                                </Grid>
 
-                                <!-- Col 2：竖线分割 -->
-                                <Border Grid.Column="2" Width="1"
-                                        Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                        VerticalAlignment="Stretch" Margin="0,2"
-                                        Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
+                                <!-- Col 1：可拖拽分割手柄（调整左右信息比例，默认 1:1） -->
+                                <Grid Grid.Column="1" Width="10" VerticalAlignment="Stretch">
+                                    <Border Width="1" HorizontalAlignment="Center"
+                                            Background="{ThemeResource DividerStrokeColorDefaultBrush}"
+                                            VerticalAlignment="Stretch" Margin="0,2"
+                                            Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
+                                    <Border x:Name="InfoSplitterBar" Width="10" Background="Transparent"
+                                            PointerPressed="InfoSplitter_PointerPressed"
+                                            PointerMoved="InfoSplitter_PointerMoved"
+                                            PointerReleased="InfoSplitter_PointerReleased"
+                                            PointerCaptureLost="InfoSplitter_PointerCaptureLost"
+                                            PointerEntered="InfoSplitter_PointerEntered"
+                                            PointerExited="InfoSplitter_PointerExited"
+                                            DoubleTapped="InfoSplitter_DoubleTapped"/>
+                                </Grid>
 
-                                <!-- Col 3：EXIF 信息栈（空行自动折叠） -->
-                                <StackPanel Grid.Column="3" Spacing="4" VerticalAlignment="Top">
+                                <!-- Col 2：EXIF 信息栈（空行自动折叠） -->
+                                <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Top">
                                     <TextBlock Visibility="{x:Bind ViewModel.ExifCamera, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                               TextWrapping="Wrap" IsTextSelectionEnabled="True">
+                                               TextWrapping="NoWrap" IsTextSelectionEnabled="True">
                                         <Run Text="{x:Bind ViewModel.ExifCamera, Mode=OneWay}"
                                              FontWeight="SemiBold" FontSize="12"
                                              Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
@@ -1431,11 +1469,11 @@
                                     </TextBlock>
                                     <TextBlock Text="{x:Bind ViewModel.ExifLensParams, Mode=OneWay}"
                                                Visibility="{x:Bind ViewModel.ExifLensParams, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="NoWrap"
                                                IsTextSelectionEnabled="True"/>
                                     <TextBlock Text="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay}"
                                                Visibility="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="NoWrap"
                                                IsTextSelectionEnabled="True"/>
                                     <TextBlock Text="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay}"
                                                Visibility="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
@@ -1444,7 +1482,7 @@
                                 </StackPanel>
 
                                 <!-- 空状态覆盖层（无文件选中时，覆盖缩略图/信息/EXIF 区域，竖线居中） -->
-                                <Grid Grid.ColumnSpan="4"
+                                <Grid Grid.ColumnSpan="3"
                                       Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"
                                       IsHitTestVisible="False">
                                     <Grid.ColumnDefinitions>

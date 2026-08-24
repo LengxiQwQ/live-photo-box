@@ -1597,7 +1597,10 @@ namespace LivePhotoBox.ViewModels
                                     if (isCanceled)
                                         UpdateTaskCancelled(task, detailMessage);
                                     else
+                                    {
+                                        task.OutputPath = isSuccess ? finalPath : string.Empty;
                                         UpdateTaskCompleted(task, isSuccess, detailMessage, currentCompleted);
+                                    }
                                 }
                                 finally
                                 {
@@ -1850,6 +1853,7 @@ namespace LivePhotoBox.ViewModels
         // 标记任务开始处理（设置为 Processing 状态）。
         private void UpdateTaskStarted(MergeTask task)
         {
+            task.OutputPath = string.Empty;
             task.Status = ProcessStatus.Processing;
             task.Details = ResourceService.GetString("MergePage_Task_Processing");
             NotifyStatsChanged();

@@ -25,6 +25,8 @@
                         IsBackButtonVisible="Collapsed"
                         IsSettingsVisible="True"
                         OpenPaneLength="200"
+                        PaneOpened="NavView_PaneOpened"
+                        PaneClosed="NavView_PaneClosed"
                         SelectionChanged="NavView_SelectionChanged">
 
             <!-- 主导航菜单 -->

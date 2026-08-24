@@ -44,6 +44,13 @@ namespace LivePhotoBox.Views
         // 是否已绑定 ViewModel 事件
         private bool _eventsHooked;
 
+        // 页面激活期间接管窗口级快捷键，避免外层 NavigationView 抢占队列方向键。
+        private UIElement? _repairShortcutHost;
+        private readonly List<KeyboardAccelerator> _repairKeyboardAccelerators = [];
+
+        // 停止不可恢复，必须在一秒内连续按两次 Esc。
+        private long _lastStopEscapeTick;
+
         // ── 拖拽文件夹状态 ──
         /// <summary>拖入的 StorageItems 是否全是文件夹</summary>
         private bool _isDropAllFolders;
@@ -78,6 +85,7 @@ namespace LivePhotoBox.Views
         // 页面加载完成后附加自动滚动器、挂载滚动事件、启动缩略图定时器、绑定 ViewModel 事件
         private void RepairPage_Loaded(object sender, RoutedEventArgs e)
         {
+            AttachRepairShortcuts();
             _scroller.Attach(RepairTaskListView);
 
             // 回到顶部悬浮按钮
@@ -122,6 +130,7 @@ namespace LivePhotoBox.Views
         // 页面卸载时分离自动滚动器、移除滚动事件、停止定时器、解绑 ViewModel 事件
         private void RepairPage_Unloaded(object sender, RoutedEventArgs e)
         {
+            DetachRepairShortcuts();
             _scrollToTopHelper?.Detach();
 
             _scroller.NotifyPageUnloading();
@@ -263,13 +272,292 @@ namespace LivePhotoBox.Views
         // ── 全屏预览 ──────────────────────────────────
 
         // 缩略图按钮点击：在 Lightbox 中全屏预览文件（复用扫描配对信息，零 I/O）
+        private void PreviewTask(RepairTask task)
+        {
+            var previewTasks = ViewModel.FilteredTasks.Where(t => !t.IsGroupHeader).ToList();
+            int idx = previewTasks.IndexOf(task);
+            if (idx < 0) return;
+            var items = LightboxItemSource.FromRepairTasks(previewTasks);
+            _ = ((MainWindow)App.MainWindow!).Lightbox.ShowAsync(items, idx);
+        }
+
+        private void AttachRepairShortcuts()
+        {
+            if (_repairShortcutHost != null || App.MainWindow?.Content is not UIElement host)
+                return;
+
+            host.PreviewKeyDown += RepairShortcutHost_PreviewKeyDown;
+            _repairShortcutHost = host;
+            RegisterRepairKeyboardAccelerators();
+        }
+
+        private void RegisterRepairKeyboardAccelerators()
+        {
+            RegisterRepairKeyboardAccelerator(Windows.System.VirtualKey.O,
+                Windows.System.VirtualKeyModifiers.Control,
+                () => TryExecuteRepairCommand(ViewModel.PickInputDirectoryCommand));
+
+            RegisterRepairKeyboardAccelerator(Windows.System.VirtualKey.O,
+                Windows.System.VirtualKeyModifiers.Menu,
+                () => TryExecuteRepairCommand(ViewModel.PickOutputDirectoryCommand));
+
+            RegisterRepairKeyboardAccelerator(Windows.System.VirtualKey.I,
+                Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift,
+                () => TryExecuteRepairCommand(ViewModel.OpenRepairInputFolderCommand));
+
+            RegisterRepairKeyboardAccelerator(Windows.System.VirtualKey.E,
+                Windows.System.VirtualKeyModifiers.Control | Windows.System.VirtualKeyModifiers.Shift,
+                () => TryExecuteRepairCommand(ViewModel.OpenRepairOutputFolderCommand));
+
+            RegisterRepairKeyboardAccelerator(Windows.System.VirtualKey.Enter,
+                Windows.System.VirtualKeyModifiers.Control, () =>
+                {
+                    if (ViewModel.IsScanning || ViewModel.IsProcessing) return false;
+                    return TryExecuteRepairCommand(ViewModel.ToggleProcessCommand);
+                });
+
+            RegisterRepairKeyboardAccelerator(Windows.System.VirtualKey.F,
+                Windows.System.VirtualKeyModifiers.Control, OpenRepairFilter);
+
+            RegisterRepairKeyboardAccelerator((Windows.System.VirtualKey)188,
+                Windows.System.VirtualKeyModifiers.Control, () =>
+                {
+                    GoToRepairSettings_Click(this, new RoutedEventArgs());
+                    return true;
+                });
+        }
+
+        private void RegisterRepairKeyboardAccelerator(Windows.System.VirtualKey key,
+            Windows.System.VirtualKeyModifiers modifiers, Func<bool> execute)
+        {
+            var accelerator = new KeyboardAccelerator { Key = key, Modifiers = modifiers };
+            accelerator.Invoked += (_, args) => args.Handled = execute();
+            _repairShortcutHost!.KeyboardAccelerators.Add(accelerator);
+            _repairKeyboardAccelerators.Add(accelerator);
+        }
+
+        private static bool TryExecuteRepairCommand(System.Windows.Input.ICommand command, object? parameter = null)
+        {
+            if (!command.CanExecute(parameter)) return false;
+            command.Execute(parameter);
+            return true;
+        }
+
+        private bool OpenRepairFilter()
+        {
+            if (FilterDropDown.Visibility != Visibility.Visible || !FilterDropDown.IsEnabled)
+                return false;
+
+            FilterDropDown.Focus(FocusState.Programmatic);
+            FilterDropDown.Flyout?.ShowAt(FilterDropDown);
+            return true;
+        }
+
+        private void DetachRepairShortcuts()
+        {
+            if (_repairShortcutHost == null)
+                return;
+
+            _repairShortcutHost.PreviewKeyDown -= RepairShortcutHost_PreviewKeyDown;
+            foreach (var accelerator in _repairKeyboardAccelerators)
+                _repairShortcutHost.KeyboardAccelerators.Remove(accelerator);
+            _repairKeyboardAccelerators.Clear();
+            _repairShortcutHost = null;
+        }
+
+        private void RepairShortcutHost_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (App.MainWindow is MainWindow { Lightbox.IsOpen: true })
+                return;
+
+            const Windows.System.VirtualKey oemComma = (Windows.System.VirtualKey)188;
+            const ushort commaScanCode = 0x33;
+            bool controlDown = IsRepairModifierDown(Windows.System.VirtualKey.Control);
+            bool shiftDown = IsRepairModifierDown(Windows.System.VirtualKey.Shift);
+            bool altDown = IsRepairModifierDown(Windows.System.VirtualKey.Menu);
+            bool isCommaKey = e.Key == oemComma
+                || e.OriginalKey == oemComma
+                || e.KeyStatus.ScanCode == commaScanCode;
+
+            bool isGlobalShortcut = e.Key is Windows.System.VirtualKey.F1
+                    or Windows.System.VirtualKey.F5
+                    or Windows.System.VirtualKey.Escape
+                || (controlDown && e.Key is Windows.System.VirtualKey.O
+                    or Windows.System.VirtualKey.I
+                    or Windows.System.VirtualKey.E
+                    or Windows.System.VirtualKey.F
+                    or Windows.System.VirtualKey.Enter)
+                || (altDown && e.Key == Windows.System.VirtualKey.O)
+                || (controlDown && isCommaKey);
+
+            DependencyObject? focused = _repairShortcutHost?.XamlRoot != null
+                ? FocusManager.GetFocusedElement(_repairShortcutHost.XamlRoot) as DependencyObject
+                : null;
+            if (ShouldPreserveRepairShortcut(focused) && !isGlobalShortcut)
+                return;
+
+            bool noModifiers = !controlDown && !shiftDown && !altDown;
+            bool onlyControl = controlDown && !shiftDown && !altDown;
+            bool controlShift = controlDown && shiftDown && !altDown;
+            bool focusQueue = false;
+
+            if (onlyControl && e.Key == Windows.System.VirtualKey.O
+                && ViewModel.PickInputDirectoryCommand.CanExecute(null))
+            {
+                ViewModel.PickInputDirectoryCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (altDown && !controlDown && !shiftDown
+                && e.Key == Windows.System.VirtualKey.O
+                && ViewModel.PickOutputDirectoryCommand.CanExecute(null))
+            {
+                ViewModel.PickOutputDirectoryCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (controlShift && e.Key == Windows.System.VirtualKey.I
+                && ViewModel.OpenRepairInputFolderCommand.CanExecute(null))
+            {
+                ViewModel.OpenRepairInputFolderCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (controlShift && e.Key == Windows.System.VirtualKey.E
+                && ViewModel.OpenRepairOutputFolderCommand.CanExecute(null))
+            {
+                ViewModel.OpenRepairOutputFolderCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.F5
+                && !ViewModel.IsScanning && !ViewModel.IsProcessing
+                && ViewModel.ScanDirectoryCommand.CanExecute(null))
+            {
+                ViewModel.ScanDirectoryCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (onlyControl && e.Key == Windows.System.VirtualKey.Enter
+                && !ViewModel.IsScanning && !ViewModel.IsProcessing
+                && ViewModel.ToggleProcessCommand.CanExecute(null))
+            {
+                ViewModel.ToggleProcessCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.Escape
+                && (ViewModel.IsScanning || ViewModel.IsProcessing))
+            {
+                long now = Environment.TickCount64;
+                bool confirmed = now - _lastStopEscapeTick <= 1000;
+                _lastStopEscapeTick = confirmed ? 0 : now;
+
+                if (confirmed && ViewModel.IsScanning && ViewModel.ScanDirectoryCommand.CanExecute(null))
+                {
+                    ViewModel.ScanDirectoryCommand.Execute(null);
+                }
+                else if (confirmed && ViewModel.IsProcessing && ViewModel.ToggleProcessCommand.CanExecute(null))
+                {
+                    ViewModel.ToggleProcessCommand.Execute(null);
+                }
+                e.Handled = true;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.C
+                && !ViewModel.IsScanning && !ViewModel.IsProcessing && ViewModel.Tasks.Count > 0)
+            {
+                ViewModel.ToggleSecondaryActionCommand.Execute(null);
+                e.Handled = true;
+                focusQueue = true;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.P && ViewModel.IsProcessing)
+            {
+                ViewModel.ToggleSecondaryActionCommand.Execute(null);
+                e.Handled = true;
+            }
+            else if (onlyControl && e.Key == Windows.System.VirtualKey.F)
+            {
+                e.Handled = OpenRepairFilter();
+                return;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.F1)
+            {
+                e.Handled = TryExecuteRepairCommand(ViewModel.GoToTutorialCommand, "Repair");
+            }
+            else if (onlyControl && isCommaKey)
+            {
+                GoToRepairSettings_Click(this, e);
+                e.Handled = true;
+            }
+            else if (noModifiers && e.Key is Windows.System.VirtualKey.Up or Windows.System.VirtualKey.Down)
+            {
+                e.Handled = TryNavigateRepairTask(e.Key);
+                focusQueue = e.Handled;
+            }
+            else if (noModifiers && e.Key is Windows.System.VirtualKey.Enter or Windows.System.VirtualKey.Space
+                && RepairTaskListView.SelectedItem is RepairTask previewTask)
+            {
+                PreviewTask(previewTask);
+                e.Handled = true;
+                focusQueue = true;
+            }
+
+            if (focusQueue)
+                RepairTaskListView.Focus(FocusState.Programmatic);
+        }
+
+        private bool TryNavigateRepairTask(Windows.System.VirtualKey key)
+        {
+            if (ViewModel.FilteredTasks.Count == 0)
+                return false;
+
+            int currentIndex = RepairTaskListView.SelectedIndex;
+            int nextIndex = currentIndex < 0
+                ? 0
+                : key == Windows.System.VirtualKey.Up
+                    ? Math.Max(0, currentIndex - 1)
+                    : Math.Min(ViewModel.FilteredTasks.Count - 1, currentIndex + 1);
+
+            RepairTaskListView.SelectedIndex = nextIndex;
+            RepairTaskListView.ScrollIntoView(ViewModel.FilteredTasks[nextIndex]);
+            return true;
+        }
+
+        private static bool IsRepairModifierDown(Windows.System.VirtualKey key)
+        {
+            if (IsRepairKeyDown(key)) return true;
+            return key switch
+            {
+                Windows.System.VirtualKey.Control =>
+                    IsRepairKeyDown(Windows.System.VirtualKey.LeftControl)
+                    || IsRepairKeyDown(Windows.System.VirtualKey.RightControl),
+                Windows.System.VirtualKey.Shift =>
+                    IsRepairKeyDown(Windows.System.VirtualKey.LeftShift)
+                    || IsRepairKeyDown(Windows.System.VirtualKey.RightShift),
+                Windows.System.VirtualKey.Menu =>
+                    IsRepairKeyDown(Windows.System.VirtualKey.LeftMenu)
+                    || IsRepairKeyDown(Windows.System.VirtualKey.RightMenu),
+                _ => false
+            };
+        }
+
+        private static bool IsRepairKeyDown(Windows.System.VirtualKey key) =>
+            (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key)
+                & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+
+        private static bool ShouldPreserveRepairShortcut(DependencyObject? source)
+        {
+            for (DependencyObject? current = source; current != null; current = VisualTreeHelper.GetParent(current))
+            {
+                if (current is TextBox
+                    or RichEditBox
+                    or PasswordBox
+                    or NumberBox
+                    or ComboBox
+                    or Slider)
+                    return true;
+            }
+            return false;
+        }
+
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
-            var items = LightboxItemSource.FromRepairTasks(ViewModel.FilteredTasks);
-            int idx = items.FindIndex(i => i.ImagePath == path);
-            if (idx < 0) return;
-            _ = ((MainWindow)App.MainWindow!).Lightbox.ShowAsync(items, idx);
+            if (sender is not Button { DataContext: RepairTask task }) return;
+            PreviewTask(task);
         }
 
         // ── 错误详情提示 ──────────────────────────────────

@@ -29,6 +29,8 @@ namespace LivePhotoBox.Models
         [ObservableProperty] private string _imagePath = string.Empty;
         // 视频文件完整路径
         [ObservableProperty] private string _videoPath = string.Empty;
+        // 成功合成后的输出文件完整路径，用于在资源管理器中定位当前任务。
+        [ObservableProperty] private string _outputPath = string.Empty;
         // 任务处理状态
         [ObservableProperty] private ProcessStatus _status = ProcessStatus.Pending;
         // 处理详情/错误信息
@@ -42,6 +44,9 @@ namespace LivePhotoBox.Models
 
         // 任务失败且有错误详情时返回 true（用于 UI 显示错误图标）
         public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
+
+        // 任务是否已成功完成（"打开输出位置"等仅完成态可用的操作以此判断）
+        public bool IsSuccess => Status == ProcessStatus.Success;
 
         // 队列中显示的状态文字：失败时只显示"合成失败"（简短、不截断），
         // 完整错误详情在点击后弹出的 TeachingTip 中查看；其余状态沿用原详情文案。
@@ -107,6 +112,7 @@ namespace LivePhotoBox.Models
         partial void OnStatusChanged(ProcessStatus value)
         {
             OnPropertyChanged(nameof(HasErrorDetails));
+            OnPropertyChanged(nameof(IsSuccess));
             OnPropertyChanged(nameof(DisplayStatusText));
         }
 

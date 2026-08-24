@@ -57,6 +57,7 @@ namespace LivePhotoBox.Controls
         private int _activeVideoSlot = -1;
         private Microsoft.UI.Dispatching.DispatcherQueueTimer? _transportUpdateTimer;
         private KeyEventHandler? _pageKeyDownHandler;
+        private UIElement? _windowKeyHost;
         private bool _isLiveVideoPlaying;
         private string? _extractedVideoPath;
         private bool _isUserSeeking;
@@ -117,11 +118,17 @@ namespace LivePhotoBox.Controls
 
             LightboxOverlay.Visibility = Visibility.Visible;
             LightboxSpinner.Visibility = Visibility.Visible;
+            AttachWindowKeyInput();
 
             // 🔴 修复 3：打开灯箱的瞬间，强行把键盘焦点从主页面抢夺过来！
             this.Focus(FocusState.Programmatic);
 
             await ShowItemAsync(startIndex, 1);
+
+            // 图片异步加载和过渡可能把焦点交还给调用页面；完成后再次夺回，
+            // 确保 Space / Enter / 方向键始终由灯箱处理。
+            this.Focus(FocusState.Programmatic);
+            DispatcherQueue.TryEnqueue(() => this.Focus(FocusState.Programmatic));
         }
 
         // ── 视频槽位 ──────────────────────────────────
@@ -341,6 +348,7 @@ namespace LivePhotoBox.Controls
             LightboxImage.Visibility = Visibility.Collapsed;
             LightboxSpinner.Visibility = Visibility.Collapsed;
             LightboxOverlay.Visibility = Visibility.Collapsed;
+            DetachWindowKeyInput();
 
             _currentIndex = -1;
             _currentVisual = null;
@@ -906,28 +914,18 @@ namespace LivePhotoBox.Controls
 
         private void OnKeyDown(object sender, KeyRoutedEventArgs e)
         {
-            if (!IsOpen) return;
+            if (!IsOpen || e.Handled) return;
             switch (e.Key)
             {
                 case VirtualKey.Left:
+                case VirtualKey.Up:
                 case VirtualKey.GamepadDPadLeft:
                     Navigate(-1); e.Handled = true; break;
                 case VirtualKey.Right:
+                case VirtualKey.Down:
                 case VirtualKey.GamepadDPadRight:
                     Navigate(1); e.Handled = true; break;
                 case VirtualKey.Space:
-                    // 🔴 智能焦点判断机制，解决各种键盘冲突！
-                    var focusedElement = FocusManager.GetFocusedElement(this.XamlRoot) as FrameworkElement;
-
-                    // 如果焦点现在正巧停留在某个原生按钮上（比如你刚点过的“关闭”键或者“实况”键）
-                    // 那么原生的空格操作会自动去触发这个按钮，我们此时绝对不能介入，否则会引发严重冲突！
-                    if (focusedElement is ButtonBase)
-                    {
-                        return; // 默默退下，让原生的按钮逻辑去执行
-                    }
-
-                    // 如果焦点没在任何按钮上，我们就把空格键当做全局强行播放/暂停！
-                    // 不用管底层的 ScrollViewer 有没有把按键事件吞掉（屏蔽掉 e.Handled 拦截逻辑）
                     if (_activeVideoSlot >= 0)
                     {
                         var player = ActiveVideo.MediaPlayer;
@@ -950,9 +948,27 @@ namespace LivePhotoBox.Controls
 
                     e.Handled = true; // 我们处理完了，阻止画面往下滚
                     break;
+                case VirtualKey.Enter:
+                    Close(); e.Handled = true; break;
                 case VirtualKey.Escape:
                     Close(); e.Handled = true; break;
             }
+        }
+
+        private void AttachWindowKeyInput()
+        {
+            if (_windowKeyHost != null || App.MainWindow?.Content is not UIElement host)
+                return;
+
+            host.PreviewKeyDown += OnKeyDown;
+            _windowKeyHost = host;
+        }
+
+        private void DetachWindowKeyInput()
+        {
+            if (_windowKeyHost == null) return;
+            _windowKeyHost.PreviewKeyDown -= OnKeyDown;
+            _windowKeyHost = null;
         }
     }
 }

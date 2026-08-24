@@ -6,6 +6,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoBox.Models"
+    xmlns:controls="using:LivePhotoBox.Controls"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
@@ -168,7 +169,8 @@
                                           Foreground="{ThemeResource AccentFillColorDefaultBrush}"
                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Button>
-                            <Button Command="{x:Bind ViewModel.ScanDirectoryCommand}"
+                            <Button x:Name="RepairScanButton" x:Uid="RepairPage_ScanButton"
+                                    Command="{x:Bind ViewModel.ScanDirectoryCommand}"
                                     Content="{x:Bind ViewModel.ScanButtonText, Mode=OneWay}"
                                     Style="{x:Bind ViewModel.ScanButtonStyle, Mode=OneWay}"
                                     IsEnabled="{x:Bind ViewModel.IsNotProcessing, Mode=OneWay}"
@@ -194,7 +196,7 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Visibility="{x:Bind ViewModel.FilterBarVisibility, Mode=OneWay}"/>
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <DropDownButton x:Name="FilterDropDown"
+                            <DropDownButton x:Name="FilterDropDown" x:Uid="RepairPage_FilterButton"
                                             Content="{x:Bind ViewModel.CombinedFilterText, Mode=OneWay}"
                                             Height="34" FontSize="14"
                                             Visibility="{x:Bind ViewModel.FilterBarVisibility, Mode=OneWay}"
@@ -238,12 +240,14 @@
                                 VerticalAlignment="Center" HorizontalAlignment="Right">
 
 
-                        <Button Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}"
+                        <Button x:Uid="RepairPage_ClearButton"
+                                Content="{x:Bind ViewModel.SecondaryBtnText, Mode=OneWay}"
                                 Command="{x:Bind ViewModel.ToggleSecondaryActionCommand}"
                                 IsEnabled="{x:Bind ViewModel.IsNotScanning, Mode=OneWay}"
                                 MinWidth="80" Height="34" FontSize="14"/>
 
-                        <Button Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}"
+                        <Button x:Uid="RepairPage_StartButton"
+                                Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}"
                                 Command="{x:Bind ViewModel.ToggleProcessCommand}"
                                 Style="{StaticResource AccentButtonStyle}"
                                 IsEnabled="{x:Bind ViewModel.IsProcessingAllowed, Mode=OneWay}"
@@ -277,7 +281,7 @@
                         <TextBlock x:Uid="RepairPage_ColStatus" Grid.Column="4" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                     </Grid>
 
-                    <ListView x:Name="RepairTaskListView" Grid.Row="1" ItemsSource="{x:Bind ViewModel.FilteredTasks}" SelectionMode="None" ShowsScrollingPlaceholders="False" ContainerContentChanging="RepairTaskListView_ContainerContentChanging">
+                    <ListView x:Name="RepairTaskListView" Grid.Row="1" ItemsSource="{x:Bind ViewModel.FilteredTasks}" SelectionMode="Single" ShowsScrollingPlaceholders="False" ContainerContentChanging="RepairTaskListView_ContainerContentChanging">
                     <ListView.ItemsPanel>
                         <ItemsPanelTemplate>
                             <ItemsStackPanel AreStickyGroupHeadersEnabled="False" CacheLength="4" />
@@ -291,14 +295,77 @@
                             <Setter Property="Margin" Value="0,0,0,6"/>
                             <Setter Property="Padding" Value="0"/>
                             <Setter Property="MinHeight" Value="0"/>
+                            <Setter Property="UseSystemFocusVisuals" Value="False"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListViewItem">
+                                        <Grid>
+                                            <VisualStateManager.VisualStateGroups>
+                                                <VisualStateGroup x:Name="CommonStates">
+                                                    <VisualState x:Name="Normal"/>
+                                                    <VisualState x:Name="PointerOver">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="SelectionBorder.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}"/>
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                    <VisualState x:Name="Pressed">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="SelectionBorder.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}"/>
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                    <VisualState x:Name="Selected">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="SelectionBorder.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}"/>
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                    <VisualState x:Name="SelectedPointerOver">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="SelectionBorder.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}"/>
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                    <VisualState x:Name="SelectedPressed">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="SelectionBorder.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}"/>
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                    <VisualState x:Name="Disabled">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="SelectionBorder.Opacity" Value="0.55"/>
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                </VisualStateGroup>
+                                                <VisualStateGroup x:Name="FocusStates">
+                                                    <VisualState x:Name="Unfocused"/>
+                                                    <VisualState x:Name="PointerFocused"/>
+                                                    <VisualState x:Name="Focused">
+                                                        <VisualState.Setters>
+                                                            <Setter Target="KeyboardFocusBorder.Opacity" Value="1"/>
+                                                        </VisualState.Setters>
+                                                    </VisualState>
+                                                </VisualStateGroup>
+                                            </VisualStateManager.VisualStateGroups>
+                                            <Border x:Name="SelectionBorder"
+                                                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                    BorderThickness="1" CornerRadius="6"/>
+                                            <ContentPresenter Content="{TemplateBinding Content}"
+                                                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                                                              HorizontalContentAlignment="Stretch"
+                                                              VerticalContentAlignment="Stretch"/>
+                                            <Border x:Name="KeyboardFocusBorder"
+                                                    BorderBrush="{ThemeResource FocusStrokeColorOuterBrush}"
+                                                    BorderThickness="2" CornerRadius="6"
+                                                    IsHitTestVisible="False" Opacity="0"/>
+                                        </Grid>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
                         </Style>
                     </ListView.ItemContainerStyle>
 
                     <ListView.ItemTemplate>
                         <DataTemplate x:DataType="models:RepairTask">
-                            <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    BorderThickness="1" CornerRadius="6"
+                            <Border Background="Transparent" CornerRadius="6"
                                     Padding="{x:Bind GridPadding, Mode=OneWay}">
                                 <Grid ColumnSpacing="0">
                                         <Grid.ColumnDefinitions>
@@ -339,12 +406,19 @@
                                         </Button>
 
                                         <!-- Row 0 File1 -->
-                                        <Button x:Uid="RepairPage_TipFolder" Grid.Row="0" Grid.Column="2" Click="FileButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
-                                            <StackPanel Orientation="Horizontal" Spacing="5" Height="22">
-                                                <FontIcon Glyph="{x:Bind File1IconGlyph, Mode=OneWay}" Foreground="{x:Bind File1IconForeground, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
-                                                <TextBlock FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center" Text="{x:Bind File1Name, Mode=OneWay}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                                            </StackPanel>
-                                        </Button>
+                                        <Grid Grid.Row="0" Grid.Column="2" ColumnSpacing="5" Height="22">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon Glyph="{x:Bind File1IconGlyph, Mode=OneWay}" Foreground="{x:Bind File1IconForeground, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                       controls:AdaptiveFileName.FileName="{x:Bind File1Name, Mode=OneWay}"/>
+                                            <Button Grid.ColumnSpan="2" x:Uid="RepairPage_TipFolder" Click="FileButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}"
+                                                    Background="Transparent" BorderThickness="0" Padding="0"
+                                                    MinWidth="0" MinHeight="0" CornerRadius="4"
+                                                    HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+                                        </Grid>
 
                                         <TextBlock Grid.Row="0" Grid.Column="3" Margin="8,0,0,0" Text="{x:Bind File1IssueDescription, Mode=OneWay}" Foreground="{x:Bind File1IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File1IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="1"/>
 
@@ -359,12 +433,19 @@
                                         <!-- Row 2: 序号2 + File2 + Issue2 + Status2 — 仅配对时显示 -->
                                         <TextBlock Grid.Row="2" Grid.Column="0" Text="{x:Bind File2Index, Mode=OneWay}" Visibility="{x:Bind File2Visibility, Mode=OneWay}" VerticalAlignment="Center" FontWeight="Bold" FontSize="14" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
-                                        <Button x:Uid="RepairPage_TipFolder" Grid.Row="2" Grid.Column="2" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Click="FileButton_Click" Tag="{x:Bind File2Path, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="3" HorizontalAlignment="Left" HorizontalContentAlignment="Left" CornerRadius="4">
-                                            <StackPanel Orientation="Horizontal" Spacing="5" Height="22">
-                                                <FontIcon Glyph="{x:Bind File2IconGlyph, Mode=OneWay}" Foreground="{x:Bind File2IconForeground, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
-                                                <TextBlock FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center" Text="{x:Bind File2Name, Mode=OneWay}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
-                                            </StackPanel>
-                                        </Button>
+                                        <Grid Grid.Row="2" Grid.Column="2" ColumnSpacing="5" Height="22" Visibility="{x:Bind File2Visibility, Mode=OneWay}">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+                                            <FontIcon Glyph="{x:Bind File2IconGlyph, Mode=OneWay}" Foreground="{x:Bind File2IconForeground, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="1" FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center"
+                                                       controls:AdaptiveFileName.FileName="{x:Bind File2Name, Mode=OneWay}"/>
+                                            <Button Grid.ColumnSpan="2" x:Uid="RepairPage_TipFolder" Click="FileButton_Click" Tag="{x:Bind File2Path, Mode=OneWay}"
+                                                    Background="Transparent" BorderThickness="0" Padding="0"
+                                                    MinWidth="0" MinHeight="0" CornerRadius="4"
+                                                    HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+                                        </Grid>
 
                                         <TextBlock Grid.Row="2" Grid.Column="3" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2IssueDescription, Mode=OneWay}" Foreground="{x:Bind File2IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File2IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="2"/>
 

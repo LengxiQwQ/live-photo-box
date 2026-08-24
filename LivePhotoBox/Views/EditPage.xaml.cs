@@ -25,6 +25,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Windowing;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -39,6 +40,10 @@ namespace LivePhotoBox.Views
     public sealed partial class EditPage : Page
     {
         public EditViewModel ViewModel => AppViewModel.Instance.Edit;
+
+        // 注册在窗口根元素上的预览键盘输入；EditPage 激活时挂接，离开时卸载。
+        // PreviewKeyDown 在 NavigationView 的焦点导航之前触发，避免方向键被外层导航栏抢走。
+        private UIElement? _editNavigationInputHost;
 
         // ── 文件列表卡片交互状态 ──
         private Border? _hoveredCard;
@@ -85,6 +90,31 @@ namespace LivePhotoBox.Views
         private double _sharedZoomScale = 1.0;
         private double _sharedPanX = 0.5;
         private double _sharedPanY = 0.5;
+
+        // ── 拖拽分隔条（GridSplitter）──
+        private const double _MinLeftWidth = 260;
+        private const double _MaxLeftWidth = 520;
+        private const double _DesiredRightWidth = 420;
+        private const double _MaxLeftWidthFullscreen = 960;
+        private const string _RatioKeyWindow = "EditPage_LeftPanelRatio_Window";
+        private const string _RatioKeyFullscreen = "EditPage_LeftPanelRatio_Fullscreen";
+
+        private bool _isMaximized;
+        private bool _isSplitterDragging;
+        private double _splitterAnchorX;
+        private double _splitterAnchorWidth;
+
+        // ── 文件基础信息左右比例（组合查看/基础信息页签内的竖线手柄）──
+        private const double _InfoMinLeftWidth = 140;      // 左侧信息最小宽度
+        private const double _InfoMinRightWidth = 160;     // 右侧 EXIF 最小宽度
+        private const double DefaultInfoRatio = 0.5;       // 默认 1:1
+        private const double InfoFixedWidth = 22;          // 手柄 10 + 2×6 列间距
+        private const string _InfoRatioKeyWindow = "EditPage_InfoRatio_Window";
+        private const string _InfoRatioKeyFullscreen = "EditPage_InfoRatio_Fullscreen";
+
+        private bool _isInfoSplitterDragging;
+        private double _infoSplitterAnchorX;
+        private double _infoSplitterAnchorWidth;
 
         // ════════════════════════════════════════════════════════════
         //  底部选项卡单选状态（带记忆 + 非实况自动切"文件基础信息"）
@@ -243,6 +273,7 @@ namespace LivePhotoBox.Views
             ExportFlyout.Opening += (_, _) => Bindings.Update();
 
             Loaded += EditPage_Loaded;
+            Unloaded += EditPage_Unloaded;
             PhotoViewer.ScaleChanged += PhotoViewer_ScaleChanged;
             PureMediaViewer.ScaleChanged += s =>
             {
@@ -296,16 +327,12 @@ namespace LivePhotoBox.Views
         }
 
         // ════════════════════════════════════════════════════════════
-        //  左侧面板折叠 / 展开
+        //  左侧面板折叠 / 展开（与分隔条比例联动）
         // ════════════════════════════════════════════════════════════
 
         private void CollapsePanelButton_Click(object sender, RoutedEventArgs e)
         {
             _isLeftPanelCollapsed = !_isLeftPanelCollapsed;
-
-            // 切换列宽
-            LeftPanelColumn.Width = new GridLength(
-                _isLeftPanelCollapsed ? LeftPanelCollapsedWidth : LeftPanelExpandedWidth);
 
             // 隐藏/显示控件区
             var collapsed = _isLeftPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
@@ -332,6 +359,18 @@ namespace LivePhotoBox.Views
                         SetTextPanelVisible(card, textVis);
                 }
             }
+
+            // 折叠 → 分隔条降级为固定 2px 纯间距；展开 → 恢复 star 比例
+            if (_isLeftPanelCollapsed)
+            {
+                LeftPanelColumn.Width = new GridLength(LeftPanelCollapsedWidth);
+                PanelSpacerColumn.Width = new GridLength(2);
+                GridSplitterBar.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                RestoreLeftPanelWidth();
+            }
         }
 
         // ════════════════════════════════════════════════════════════
@@ -347,27 +386,330 @@ namespace LivePhotoBox.Views
                 TopBarGrid.Visibility = Visibility.Collapsed;
                 LeftPanelColumn.Width = new GridLength(0);
                 PanelSpacerColumn.Width = new GridLength(0);
+                GridSplitterBar.Visibility = Visibility.Collapsed;
                 UnifiedInfoPanel.Visibility = Visibility.Collapsed;
                 MainContentGrid.Padding = new Thickness(0);
                 PreviewBorder.CornerRadius = new CornerRadius(0);
                 PreviewBorder.Margin = new Thickness(0);
                 MaximizeButtonIcon.Glyph = "";
-                ToolTipService.SetToolTip(MaximizeButton, "还原");
+                ToolTipService.SetToolTip(MaximizeButton,
+                    ResourceService.GetString("EditPage_RestorePreviewTooltip"));
             }
             else
             {
                 TopBarGrid.Visibility = Visibility.Visible;
-                LeftPanelColumn.Width = new GridLength(
-                    _isLeftPanelCollapsed ? LeftPanelCollapsedWidth : LeftPanelExpandedWidth);
                 PanelSpacerColumn.Width = new GridLength(2);
+                GridSplitterBar.Visibility =
+                    _isLeftPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
                 UnifiedInfoPanel.Visibility = Visibility.Visible;
                 MainContentGrid.Padding = new Thickness(8, 0, 8, 6);
                 PreviewBorder.CornerRadius = ViewModel.IsSelectedFileVideo
                     ? new CornerRadius(0) : new CornerRadius(4);
                 PreviewBorder.Margin = new Thickness(0, 0, 0, 2);
                 MaximizeButtonIcon.Glyph = "";
-                ToolTipService.SetToolTip(MaximizeButton, "最大化预览");
+                ToolTipService.SetToolTip(MaximizeButton,
+                    ResourceService.GetString("EditPage_MaximizePreviewTooltip"));
+
+                // 恢复左侧面板宽度（折叠态固定像素，展开态恢复保存比例）
+                if (_isLeftPanelCollapsed)
+                    LeftPanelColumn.Width = new GridLength(LeftPanelCollapsedWidth);
+                else
+                    RestoreLeftPanelWidth();
             }
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  拖拽分隔条（GridSplitter）
+        // ════════════════════════════════════════════════════════════
+
+        // 当前状态对应的比例存储键
+        private string CurrentRatioKey =>
+            _isMaximized ? _RatioKeyFullscreen : _RatioKeyWindow;
+
+        // 检测窗口是否处于最大化/全屏状态
+        private void UpdateMaximizedState()
+        {
+            bool maximized = false;
+            var window = App.MainWindow;
+            if (window != null)
+                maximized = IsZoomed(WinRT.Interop.WindowNative.GetWindowHandle(window));
+            _isMaximized = maximized
+                || App.MainWindow?.AppWindow?.Presenter is FullScreenPresenter;
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        private static extern bool IsZoomed(IntPtr hWnd);
+
+        // 左栏最大宽度：普通窗口维持 520px 上限；最大化/全屏时按内容区宽度放大
+        // （约 50%，绝对上限 960px）。否则宽窗口下分隔条只有 260-520px 可拖，
+        // 右栏宽度几乎无法调整。
+        private double MaxLeftWidthFor(Grid parentGrid)
+        {
+            double total = parentGrid.ActualWidth - 4;
+            if (total <= 0) return _MaxLeftWidth;
+            double rightLimit = Math.Max(_MinLeftWidth, total - _DesiredRightWidth);
+            if (!_isMaximized)
+                return Math.Min(_MaxLeftWidth, rightLimit);
+            return Math.Clamp(total * 0.5, _MinLeftWidth, Math.Min(_MaxLeftWidthFullscreen, rightLimit));
+        }
+
+        // 窗口状态变化时重新检测模式：DidPresenterChange 与状态比对都作为触发条件，
+        // 配合 IsZoomed 的实时检测，最大化 ⇄ 还原时各自恢复对应模式保存的比例。
+        private void AppWindow_Changed(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
+        {
+            bool wasMaximized = _isMaximized;
+            UpdateMaximizedState();
+            if (args.DidPresenterChange || wasMaximized != _isMaximized)
+            {
+                if (!_isLeftPanelCollapsed)
+                    RestoreLeftPanelWidth();
+                RestoreInfoRatio();
+            }
+        }
+
+        // 分隔条按下：记录锚点（鼠标 X + 左栏宽度）
+        private void Splitter_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (_isLeftPanelCollapsed) return;
+            UpdateMaximizedState();
+            _isSplitterDragging = true;
+            var parentGrid = (Grid)LeftPanelBorder.Parent!;
+            var point = e.GetCurrentPoint(parentGrid);
+            _splitterAnchorX = point.Position.X;
+            _splitterAnchorWidth = LeftPanelBorder.ActualWidth;
+            GridSplitterBar.CapturePointer(e.Pointer);
+            e.Handled = true;
+        }
+
+        // 分隔条拖动：鼠标的移动量原样加到左栏宽度上（不直接以鼠标 X 为准，避免像素错位）
+        private void Splitter_PointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_isSplitterDragging || _isLeftPanelCollapsed) return;
+            if (LeftPanelBorder.Parent is not Grid parentGrid) return;
+            var point = e.GetCurrentPoint(parentGrid);
+            var newWidth = _splitterAnchorWidth + (point.Position.X - _splitterAnchorX);
+            newWidth = Math.Clamp(newWidth, _MinLeftWidth, MaxLeftWidthFor(parentGrid));
+            parentGrid.ColumnDefinitions[0].Width = new GridLength(newWidth);
+            e.Handled = true;
+        }
+
+        // 分隔条释放：停止拖动，并把当前宽度保存到当前模式的比例
+        private void Splitter_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            _isSplitterDragging = false;
+            GridSplitterBar.ReleasePointerCapture(e.Pointer);
+            SaveCurrentRatio();
+            if (LeftPanelBorder.Parent is Grid parentGrid)
+                ApplyCurrentRatio(parentGrid);
+            e.Handled = true;
+        }
+
+        private void Splitter_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+        {
+            _isSplitterDragging = false;
+        }
+
+        // 鼠标进入分隔条 → 显示左右拖拽光标
+        private void Splitter_PointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            if (_isLeftPanelCollapsed) return;
+            this.ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(
+                Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
+        }
+
+        // 鼠标离开分隔条 → 恢复默认光标
+        private void Splitter_PointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            this.ProtectedCursor = null;
+        }
+
+        // 双击分隔条：当前模式重置为默认的 1:2 比例
+        private void Splitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            if (_isLeftPanelCollapsed) return;
+            if (LeftPanelBorder.Parent is Grid parentGrid)
+            {
+                double applied = ApplyLeftRatio(parentGrid, DefaultRatioFor());
+                SaveCurrentRatio(applied);
+            }
+            e.Handled = true;
+        }
+
+        // 恢复当前模式保存的比例；无保存时按默认 1:2 比例
+        private void RestoreLeftPanelWidth()
+        {
+            if (LeftPanelBorder.Parent is not Grid parentGrid) return;
+            UpdateMaximizedState();
+            ApplyCurrentRatio(parentGrid);
+        }
+
+        // 按当前模式保存的比例设置左栏
+        private void ApplyCurrentRatio(Grid parentGrid)
+        {
+            UpdateMaximizedState();
+            double ratio = Services.AppSettingsService.GetValue(CurrentRatioKey, DefaultRatioFor());
+            ApplyLeftRatio(parentGrid, ratio);
+        }
+
+        // 默认比例：左栏 1 份 : 右栏 2 份（1:2，左栏占 1/3），与窗口宽度无关
+        private static double DefaultRatioFor() => 1.0 / 3.0;
+
+        // 按比例设置左栏并返回实际生效的比例；左右两栏都用 star 列，窗口缩放时由布局引擎
+        // 在同一帧内同步伸缩，分隔条不会滞后（避免"先固定像素、再事后重算"的两遍布局）
+        private double ApplyLeftRatio(Grid parentGrid, double ratio)
+        {
+            double total = parentGrid.ActualWidth - 4;
+            if (total <= 0) return ratio;
+
+            double px = ratio * total;
+            px = Math.Clamp(px, _MinLeftWidth, MaxLeftWidthFor(parentGrid));
+            double leftRatio = px / total;
+
+            parentGrid.ColumnDefinitions[0].Width = new GridLength(leftRatio, GridUnitType.Star);
+            parentGrid.ColumnDefinitions[2].Width = new GridLength(1 - leftRatio, GridUnitType.Star);
+            return leftRatio;
+        }
+
+        // 保存比例到当前模式；不传参时按当前实际宽度换算
+        private void SaveCurrentRatio(double? ratio = null)
+        {
+            UpdateMaximizedState();
+            if (ratio is null)
+            {
+                if (LeftPanelBorder.Parent is not Grid parentGrid) return;
+                double px = LeftPanelBorder.ActualWidth;
+                double total = parentGrid.ActualWidth - 4;
+                if (px <= 0 || total <= 0) return;
+                ratio = Math.Clamp(px / total, 0.10, 0.90);
+            }
+            Services.AppSettingsService.SetValue(CurrentRatioKey, Math.Round(ratio.Value, 4));
+        }
+
+        // 窗口大小变化：始终按当前模式重设比例（star 列重设后仍保持同一比例，
+        // 无副作用）。关键点是最后一次尺寸变化必然发生在最终宽度上，像素钳制
+        // 不会再用过渡中的宽度把比例算歪——否则最大化 ⇄ 还原后左栏会变成
+        // 一个既非用户拖动值、也非默认值的奇怪宽度。
+        private void ContentGrid_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (sender is not Grid parentGrid) return;
+            if (_isSplitterDragging) return;
+            if (_isLeftPanelCollapsed) return;
+
+            ApplyCurrentRatio(parentGrid);
+        }
+
+        // ════════════════════════════════════════════════════════════
+        //  文件基础信息左右比例（InfoPanel 内竖线拖拽手柄）
+        // ════════════════════════════════════════════════════════════
+
+        // 当前状态对应的比例存储键（与主分隔条共用 IsZoomed 检测）
+        private string CurrentInfoRatioKey => _isMaximized ? _InfoRatioKeyFullscreen : _InfoRatioKeyWindow;
+
+        // 恢复当前模式保存的左右比例；无保存时按默认 1:1
+        private void RestoreInfoRatio()
+        {
+            UpdateMaximizedState();
+            double ratio = Services.AppSettingsService.GetValue(CurrentInfoRatioKey, DefaultInfoRatio);
+            ApplyInfoRatio(ratio);
+        }
+
+        // 按比例设置左右两列（InfoLeftColumn=左信息，InfoRightColumn=右 EXIF），返回实际生效的比例
+        private double ApplyInfoRatio(double ratio)
+        {
+            double total = InfoPanelGrid.ActualWidth - InfoFixedWidth;
+            if (total <= 0) return ratio;
+
+            double maxLeft = Math.Max(_InfoMinLeftWidth, total - _InfoMinRightWidth);
+            double px = Math.Clamp(ratio * total, _InfoMinLeftWidth, maxLeft);
+            double leftRatio = px / total;
+
+            InfoLeftColumn.Width = new GridLength(leftRatio, GridUnitType.Star);
+            InfoRightColumn.Width = new GridLength(1 - leftRatio, GridUnitType.Star);
+            return leftRatio;
+        }
+
+        // 保存比例到当前模式；不传参时按当前实际宽度换算
+        private void SaveInfoRatio(double? ratio = null)
+        {
+            UpdateMaximizedState();
+            if (ratio is null)
+            {
+                double px = InfoLeftColumn.ActualWidth;
+                double total = InfoPanelGrid.ActualWidth - InfoFixedWidth;
+                if (px <= 0 || total <= 0) return;
+                ratio = Math.Clamp(px / total, 0.10, 0.90);
+            }
+            Services.AppSettingsService.SetValue(CurrentInfoRatioKey, Math.Round(ratio.Value, 4));
+        }
+
+        // 基础信息面板宽度变化（窗口缩放、主分隔条拖动、导航栏开合）时保持当前模式比例
+        private void InfoPanel_SizeChanged(object sender, SizeChangedEventArgs e)
+        {
+            if (_isInfoSplitterDragging) return;
+            RestoreInfoRatio();
+        }
+
+        // 手柄按下：记录锚点
+        private void InfoSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
+        {
+            if (!ViewModel.HasSelectedFile) return;
+            UpdateMaximizedState();
+            _isInfoSplitterDragging = true;
+            var point = e.GetCurrentPoint(InfoPanelGrid);
+            _infoSplitterAnchorX = point.Position.X;
+            _infoSplitterAnchorWidth = InfoLeftColumn.ActualWidth;
+            InfoSplitterBar.CapturePointer(e.Pointer);
+            e.Handled = true;
+        }
+
+        // 手柄拖动：鼠标移动量原样加到左栏宽度上
+        private void InfoSplitter_PointerMoved(object sender, PointerRoutedEventArgs e)
+        {
+            if (!_isInfoSplitterDragging) return;
+            var point = e.GetCurrentPoint(InfoPanelGrid);
+            double newWidth = _infoSplitterAnchorWidth + (point.Position.X - _infoSplitterAnchorX);
+            double total = InfoPanelGrid.ActualWidth - InfoFixedWidth;
+            if (total > 0)
+                ApplyInfoRatio(newWidth / total);
+            e.Handled = true;
+        }
+
+        // 手柄释放：保存当前模式比例并重设 star 列
+        private void InfoSplitter_PointerReleased(object sender, PointerRoutedEventArgs e)
+        {
+            _isInfoSplitterDragging = false;
+            InfoSplitterBar.ReleasePointerCapture(e.Pointer);
+            SaveInfoRatio();
+            RestoreInfoRatio();
+            e.Handled = true;
+        }
+
+        private void InfoSplitter_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
+        {
+            _isInfoSplitterDragging = false;
+        }
+
+        // 悬停显示左右拖拽光标
+        private void InfoSplitter_PointerEntered(object sender, PointerRoutedEventArgs e)
+        {
+            if (!ViewModel.HasSelectedFile) return;
+            this.ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(
+                Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
+        }
+
+        private void InfoSplitter_PointerExited(object sender, PointerRoutedEventArgs e)
+        {
+            this.ProtectedCursor = null;
+        }
+
+        // 双击手柄：当前模式重置为默认 1:1
+        private void InfoSplitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+        {
+            if (!ViewModel.HasSelectedFile) return;
+            double applied = ApplyInfoRatio(DefaultInfoRatio);
+            SaveInfoRatio(applied);
+            e.Handled = true;
         }
 
         // ════════════════════════════════════════════════════════════
@@ -747,6 +1089,17 @@ namespace LivePhotoBox.Views
 
             DispatcherQueue.TryEnqueue(() => ForceScrollBarsAlwaysThick());
 
+            // 恢复上次保存的左栏比例
+            RestoreLeftPanelWidth();
+
+            // 恢复上次保存的基础信息左右比例
+            RestoreInfoRatio();
+
+            // 监听窗口最大化 ⇄ 还原切换，按模式恢复各自保存的比例
+            var appWindow = App.MainWindow?.AppWindow;
+            if (appWindow != null)
+                appWindow.Changed += AppWindow_Changed;
+
             // 根据模式初始化对应的时间轴
             if (ViewModel.IsClassicTimelineMode)
                 InitializeClassicTimeline();
@@ -758,6 +1111,14 @@ namespace LivePhotoBox.Views
 
             // 初始化刷新/清除按钮图标（空目录时显示清除 ✕）
             UpdateRefreshButtonIcon();
+        }
+
+        private void EditPage_Unloaded(object sender, RoutedEventArgs e)
+        {
+            // 卸载窗口事件
+            var appWindow = App.MainWindow?.AppWindow;
+            if (appWindow != null)
+                appWindow.Changed -= AppWindow_Changed;
         }
 
         // ═════════════════════════════════════════════════════════════════
@@ -1442,6 +1803,11 @@ namespace LivePhotoBox.Views
         {
             base.OnNavigatedTo(e);
 
+            AttachEditNavigationInput();
+
+            // 页面缓存后 Loaded 不会再次初始化；每次进入编辑页都把初始键盘焦点交给资源浏览列表。
+            DispatcherQueue.TryEnqueue(() => FileItemListView.Focus(FocusState.Programmatic));
+
             if (!ViewModel.NeedsModeSwitchFixup) return;
             ViewModel.NeedsModeSwitchFixup = false;
 
@@ -1488,6 +1854,12 @@ namespace LivePhotoBox.Views
                     }
                 }
             });
+        }
+
+        protected override void OnNavigatedFrom(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+        {
+            DetachEditNavigationInput();
+            base.OnNavigatedFrom(e);
         }
 
         // ════════════════════════════════════════════════════════════
@@ -2087,6 +2459,271 @@ namespace LivePhotoBox.Views
         }
 
         // ── 选中变更（ListView 内置选择驱动，我们只管视觉同步） ──
+
+        private void AttachEditNavigationInput()
+        {
+            if (_editNavigationInputHost != null || App.MainWindow?.Content is not UIElement host)
+                return;
+
+            host.PreviewKeyDown += EditNavigationHost_PreviewKeyDown;
+            _editNavigationInputHost = host;
+        }
+
+        private void DetachEditNavigationInput()
+        {
+            if (_editNavigationInputHost == null)
+                return;
+
+            _editNavigationInputHost.PreviewKeyDown -= EditNavigationHost_PreviewKeyDown;
+            _editNavigationInputHost = null;
+        }
+
+        private void EditNavigationHost_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            if (App.MainWindow is MainWindow { Lightbox.IsOpen: true })
+                return;
+
+            const Windows.System.VirtualKey oemPlus = (Windows.System.VirtualKey)187;
+            const Windows.System.VirtualKey oemMinus = (Windows.System.VirtualKey)189;
+            bool controlDown = IsModifierDown(Windows.System.VirtualKey.Control);
+            bool shiftDown = IsModifierDown(Windows.System.VirtualKey.Shift);
+            bool altDown = IsModifierDown(Windows.System.VirtualKey.Menu);
+            // 主键盘的 + 与 = 共用 OEM 键；部分键盘布局在 PreviewKeyDown
+            // 阶段无法稳定报告 Shift 状态，因此两者都视为放大快捷键。
+            bool isZoomIn = e.Key == Windows.System.VirtualKey.Add
+                || e.Key == oemPlus;
+            bool isZoomOut = e.Key is Windows.System.VirtualKey.Subtract
+                || e.Key == oemMinus && !shiftDown;
+            bool isArrow = e.Key is Windows.System.VirtualKey.Up
+                or Windows.System.VirtualKey.Down
+                or Windows.System.VirtualKey.Left
+                or Windows.System.VirtualKey.Right;
+
+            DependencyObject? focused = _editNavigationInputHost?.XamlRoot != null
+                ? FocusManager.GetFocusedElement(_editNavigationInputHost.XamlRoot) as DependencyObject
+                : null;
+            if (ShouldPreserveEditShortcut(focused))
+                return;
+
+            bool noModifiers = !controlDown && !shiftDown && !altDown;
+            bool onlyControl = controlDown && !shiftDown && !altDown;
+            bool controlShift = controlDown && shiftDown && !altDown;
+            bool onlyAlt = altDown && !controlDown && !shiftDown;
+
+            if ((noModifiers || (shiftDown && !controlDown && !altDown)) && isZoomIn)
+            {
+                if (ViewModel.HasSelectedFile)
+                {
+                    ZoomInButton_Click(this, e);
+                    e.Handled = true;
+                }
+            }
+            else if (noModifiers && isZoomOut)
+            {
+                if (ViewModel.HasSelectedFile)
+                {
+                    ZoomOutButton_Click(this, e);
+                    e.Handled = true;
+                }
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.Space)
+            {
+                if (ViewModel.CanPlayLivePhoto)
+                {
+                    LivePhotoBadgeButton_Click(LivePhotoBadgeButton, e);
+                    e.Handled = true;
+                }
+            }
+            else if (noModifiers && isArrow)
+            {
+                e.Handled = e.Key is Windows.System.VirtualKey.Up or Windows.System.VirtualKey.Down
+                    ? TryNavigateResourceFile(e.Key)
+                    : TryNavigateTimelineFrame(e.Key);
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.K)
+            {
+                e.Handled = TryExecuteEditCommand(ViewModel.GoToKeyPhotoCommand);
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.O)
+            {
+                e.Handled = TryExecuteEditCommand(ViewModel.GoToOriginalPhotoCommand);
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.M)
+            {
+                if (ViewModel.CanPlayLivePhoto)
+                {
+                    MuteButton_Click(MuteButton, e);
+                    e.Handled = true;
+                }
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.Number0)
+            {
+                if (ViewModel.HasSelectedFile)
+                {
+                    if (IsVideoActive())
+                        PureMediaViewer.ResetToFit();
+                    else
+                        PhotoViewer.ResetToFit();
+                    UpdateZoomPercentDisplay();
+                    e.Handled = true;
+                }
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.F11)
+            {
+                if (ViewModel.HasSelectedFile)
+                {
+                    MaximizeButton_Click(MaximizeButton, e);
+                    e.Handled = true;
+                }
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.Escape)
+            {
+                if (ViewModel.CanPlayLivePhoto && IsVideoActive())
+                {
+                    PureMediaViewer.Close();
+                    e.Handled = true;
+                }
+                else if (_isPreviewMaximized)
+                {
+                    MaximizeButton_Click(MaximizeButton, e);
+                    e.Handled = true;
+                }
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.C)
+            {
+                if (!string.IsNullOrEmpty(ViewModel.CurrentDirectory) || ViewModel.FileItems.Count > 0)
+                {
+                    ViewModel.ClearAll();
+                    _lastScannedPath = null;
+                    UpdateRefreshButtonIcon();
+                    e.Handled = true;
+                }
+            }
+            else if (onlyControl && e.Key == Windows.System.VirtualKey.S)
+            {
+                e.Handled = TryExecuteEditCommand(ViewModel.SaveCommand);
+            }
+            else if (controlShift && e.Key == Windows.System.VirtualKey.S)
+            {
+                e.Handled = TryExecuteEditCommand(ViewModel.SaveAsCommand);
+            }
+            else if (onlyControl && e.Key == Windows.System.VirtualKey.E)
+            {
+                e.Handled = TryExecuteEditCommand(ViewModel.ExportCurrentFrameCommand);
+            }
+            else if (controlShift && e.Key == Windows.System.VirtualKey.E)
+            {
+                e.Handled = TryExecuteEditCommand(ViewModel.ExportAllFramesCommand);
+            }
+            else if (onlyControl && e.Key == Windows.System.VirtualKey.O)
+            {
+                BrowseFolder_Click(this, e);
+                e.Handled = true;
+            }
+            else if (noModifiers && e.Key == Windows.System.VirtualKey.F5)
+            {
+                var path = ViewModel.CurrentDirectory;
+                if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+                {
+                    RefreshOrClearDir_Click(this, e);
+                    e.Handled = true;
+                }
+            }
+            else if (onlyAlt && e.Key == Windows.System.VirtualKey.E && ExportButton.IsEnabled)
+            {
+                ExportFlyout.ShowAt(ExportButton);
+                e.Handled = true;
+                return;
+            }
+
+            if (e.Handled)
+                FileItemListView.Focus(FocusState.Programmatic);
+        }
+
+        private static bool TryExecuteEditCommand(System.Windows.Input.ICommand command)
+        {
+            if (!command.CanExecute(null))
+                return false;
+
+            command.Execute(null);
+            return true;
+        }
+
+        private static bool IsModifierDown(Windows.System.VirtualKey key)
+        {
+            if (IsKeyDown(key)) return true;
+            return key switch
+            {
+                Windows.System.VirtualKey.Control =>
+                    IsKeyDown(Windows.System.VirtualKey.LeftControl)
+                    || IsKeyDown(Windows.System.VirtualKey.RightControl),
+                Windows.System.VirtualKey.Shift =>
+                    IsKeyDown(Windows.System.VirtualKey.LeftShift)
+                    || IsKeyDown(Windows.System.VirtualKey.RightShift),
+                Windows.System.VirtualKey.Menu =>
+                    IsKeyDown(Windows.System.VirtualKey.LeftMenu)
+                    || IsKeyDown(Windows.System.VirtualKey.RightMenu),
+                _ => false
+            };
+        }
+
+        private static bool IsKeyDown(Windows.System.VirtualKey key) =>
+            (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key)
+                & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+
+        private bool TryNavigateResourceFile(Windows.System.VirtualKey key)
+        {
+            if (ViewModel.FileItems.Count == 0)
+                return false;
+
+            int currentIndex = FileItemListView.SelectedIndex;
+            int nextIndex = currentIndex < 0
+                ? 0
+                : key == Windows.System.VirtualKey.Up
+                    ? Math.Max(0, currentIndex - 1)
+                    : Math.Min(ViewModel.FileItems.Count - 1, currentIndex + 1);
+
+            FileItemListView.SelectedIndex = nextIndex;
+            FileItemListView.ScrollIntoView(ViewModel.FileItems[nextIndex]);
+            return true;
+        }
+
+        private bool TryNavigateTimelineFrame(Windows.System.VirtualKey key)
+        {
+            if (ViewModel.TimelineFrames.Count == 0)
+                return false;
+
+            int currentIndex = ViewModel.SelectedTimelineFrame != null
+                ? ViewModel.TimelineFrames.IndexOf(ViewModel.SelectedTimelineFrame)
+                : -1;
+            int nextIndex = currentIndex < 0
+                ? 0
+                : key == Windows.System.VirtualKey.Left
+                    ? Math.Max(0, currentIndex - 1)
+                    : Math.Min(ViewModel.TimelineFrames.Count - 1, currentIndex + 1);
+
+            ViewModel.SelectTimelineFrameProgrammatically(ViewModel.TimelineFrames[nextIndex]);
+            return true;
+        }
+
+        // 输入类控件需要保留光标移动、选项切换和数值调节，不接管它们的左右键。
+        private static bool ShouldPreserveEditShortcut(DependencyObject? source)
+        {
+            for (DependencyObject? current = source; current != null; current = VisualTreeHelper.GetParent(current))
+            {
+                if (current is TextBox
+                    or RichEditBox
+                    or PasswordBox
+                    or NumberBox
+                    or ComboBox
+                    or Slider)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
 
         private void FileItemListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {

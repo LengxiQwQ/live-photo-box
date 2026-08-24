@@ -361,6 +361,9 @@ Do you want to restart now?</value>
   <data name="MergePage_BrowseBtn1.Content" xml:space="preserve">
     <value>Browse...</value>
   </data>
+  <data name="MergePage_BrowseBtn1.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Choose input folder (Ctrl+Shift+O)</value>
+  </data>
   <data name="MergePage_OutputLabel.Text" xml:space="preserve">
     <value>Output Dir:</value>
   </data>
@@ -369,6 +372,9 @@ Do you want to restart now?</value>
   </data>
   <data name="MergePage_BrowseBtn2.Content" xml:space="preserve">
     <value>Browse...</value>
+  </data>
+  <data name="MergePage_BrowseBtn2.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Choose output folder (Alt+O)</value>
   </data>
   <data name="MergePage_StatPaired.Text" xml:space="preserve">
     <value>Paired :</value>
@@ -1143,7 +1149,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Loading...</value>
   </data>
   <data name="RepairPage_TipApp.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Open File</value>
+    <value>Open lightbox (Enter or Space)</value>
   </data>
   <data name="RepairPage_OutputModeLabel.Text" xml:space="preserve">
     <value>Output Mode:</value>
@@ -1379,13 +1385,13 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Help &amp; Tutorials</value>
   </data>
   <data name="MergePage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>View interactive tutorial</value>
+    <value>View interactive tutorial (F1)</value>
   </data>
   <data name="SplitPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>View interactive tutorial</value>
+    <value>View interactive tutorial (F1)</value>
   </data>
   <data name="RepairPage_HelpBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Go to Home for tutorials</value>
+    <value>View operation guide (F1)</value>
   </data>
   <data name="MergePage_Msg_NoInputDirectoryTitle" xml:space="preserve">
     <value>Input Folder Not Selected</value>
@@ -1419,6 +1425,9 @@ Open the output folder when done — your photos are back to normal ~</value>
   </data>
   <data name="MergePage_OpenInputBtn.Content" xml:space="preserve">
     <value>Open Folder</value>
+  </data>
+  <data name="MergePage_OpenInputBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Open input folder (Ctrl+Shift+I)</value>
   </data>
   <data name="MergeTutorial_Btn_Next" xml:space="preserve">
     <value>Next</value>
@@ -1503,6 +1512,9 @@ Open the output folder when done — your photos are back to normal ~</value>
   </data>
   <data name="MergePage_OpenOutputBtn.Content" xml:space="preserve">
     <value>Open Folder</value>
+  </data>
+  <data name="MergePage_OpenOutputBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Open output folder (Ctrl+Shift+E)</value>
   </data>
   <data name="MergePage_PageTitle.Text" xml:space="preserve">
     <value>Batch Live Photo Merge &amp; Protocol Conversion</value>
@@ -1742,10 +1754,16 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Failed </value>
   </data>
   <data name="MergePage_Menu_ShowInFolder.Text" xml:space="preserve">
-    <value>Show in Folder</value>
+    <value>Open Input Location</value>
   </data>
   <data name="MergePage_Menu_Preview.Text" xml:space="preserve">
     <value>Fullscreen Preview</value>
+  </data>
+  <data name="MergePage_Menu_Delete.Text" xml:space="preserve">
+    <value>Delete Task</value>
+  </data>
+  <data name="MergePage_Menu_OpenOutput.Text" xml:space="preserve">
+    <value>Open Output Location</value>
   </data>
   <data name="SplitPage_OpenInputBtn.Content" xml:space="preserve">
     <value>Open Folder</value>
@@ -2399,13 +2417,37 @@ Then click "Start Split".</value>
     <value>Install HEVC Video Extensions</value>
   </data>
   <data name="MergePage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Go to Settings for advanced options</value>
+    <value>Go to Settings for advanced options (Ctrl+,)</value>
+  </data>
+  <data name="MergePage_AddFilesBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Add files (Ctrl+O)</value>
+  </data>
+  <data name="MergePage_ClearBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Clear list (C) / Pause or resume (P)</value>
+  </data>
+  <data name="MergePage_ScanButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Scan folder (F5) / Stop (double-press Esc)</value>
+  </data>
+  <data name="MergePage_StartButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Start merge (Ctrl+Enter) / Stop (double-press Esc)</value>
+  </data>
+  <data name="MergePage_SearchBox.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Search tasks (Ctrl+F)</value>
+  </data>
+  <data name="MergePage_TaskDeleteButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Remove task (Delete)</value>
+  </data>
+  <data name="MergePage_TaskMoreButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>More actions</value>
+  </data>
+  <data name="MergePage_TaskPreviewButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Lightbox preview (Enter or Space)</value>
   </data>
   <data name="SplitPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Go to Settings for advanced options</value>
   </data>
   <data name="RepairPage_SettingsBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Go to Settings for advanced options</value>
+    <value>Go to Settings for advanced options (Ctrl+,)</value>
   </data>
   <data name="SettingsPage_General_Header.Text" xml:space="preserve">
     <value>General</value>
@@ -2680,26 +2722,41 @@ Then click "Start Split".</value>
   <data name="EditPage_Save.Label" xml:space="preserve">
     <value>Set as Key Photo &amp; Save Copy</value>
   </data>
+  <data name="EditPage_Save.KeyboardAcceleratorTextOverride" xml:space="preserve">
+    <value>Ctrl+S</value>
+  </data>
   <data name="EditPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Set Key Photo &amp; Save As</value>
+    <value>Set as Key Photo and save a copy (Ctrl+S)</value>
   </data>
   <data name="EditPage_SaveAs.Label" xml:space="preserve">
     <value>Save As</value>
   </data>
+  <data name="EditPage_SaveAs.KeyboardAcceleratorTextOverride" xml:space="preserve">
+    <value>Ctrl+Shift+S</value>
+  </data>
   <data name="EditPage_SaveAs.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Save as a new file</value>
+    <value>Save as a new file (Ctrl+Shift+S)</value>
   </data>
   <data name="EditPage_ExportFrame.Text" xml:space="preserve">
     <value>Export Current Frame</value>
   </data>
+  <data name="EditPage_ExportFrame.KeyboardAcceleratorTextOverride" xml:space="preserve">
+    <value>Ctrl+E</value>
+  </data>
   <data name="EditPage_ExportAllFrames.Text" xml:space="preserve">
     <value>Export All Frames</value>
   </data>
+  <data name="EditPage_ExportAllFrames.KeyboardAcceleratorTextOverride" xml:space="preserve">
+    <value>Ctrl+Shift+E</value>
+  </data>
   <data name="EditPage_Export.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Export frames, video, or GIF</value>
+    <value>Export frames, video, or GIF (Alt+E)</value>
   </data>
   <data name="EditPage_Export.Label" xml:space="preserve">
     <value>Export…</value>
+  </data>
+  <data name="EditPage_Export.KeyboardAcceleratorTextOverride" xml:space="preserve">
+    <value>Alt+E</value>
   </data>
   <data name="EditPage_ExportVideo.Text" xml:space="preserve">
     <value>Export as Video</value>
@@ -2729,13 +2786,13 @@ Then click "Start Split".</value>
     <value>Next Frame</value>
   </data>
   <data name="EditPage_PlayLivePhoto.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Play Live Photo</value>
+    <value>Play Live Photo (Space)</value>
   </data>
   <data name="EditPage_MuteToggle.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Toggle Mute</value>
+    <value>Toggle Mute (M)</value>
   </data>
   <data name="EditPage_BrowseFolderBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Browse folder</value>
+    <value>Browse folder (Ctrl+O)</value>
   </data>
   <data name="EditPage_SearchBox.PlaceholderText" xml:space="preserve">
     <value>Search files...</value>
@@ -2758,14 +2815,14 @@ Then click "Start Split".</value>
   <data name="EditPage_FilterBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Filter files</value>
   </data>
-  <data name="EditPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Zoom out</value>
-  </data>
   <data name="EditPage_ZoomResetBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>100%</value>
+    <value>Toggle Fit and 100% (press 0 to fit)</value>
+  </data>
+  <data name="EditPage_ZoomOutBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Zoom out (-)</value>
   </data>
   <data name="EditPage_ZoomInBtn.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Zoom in</value>
+    <value>Zoom in (+ or =)</value>
   </data>
   <data name="EditPage_FitWindowBtn.ToolTipService.ToolTip" xml:space="preserve">
     <value>Fit to window</value>
@@ -2977,16 +3034,25 @@ Then click "Start Split".</value>
     <value>Front Camera</value>
   </data>
   <data name="EditPage_MaximizeButton.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Maximize Preview</value>
+    <value>Maximize Preview (F11)</value>
+  </data>
+  <data name="EditPage_MaximizePreviewTooltip" xml:space="preserve">
+    <value>Maximize Preview (F11)</value>
+  </data>
+  <data name="EditPage_RestorePreviewTooltip" xml:space="preserve">
+    <value>Restore Preview (F11 or Esc)</value>
   </data>
   <data name="EditPage_GoToKeyPhoto.Content" xml:space="preserve">
     <value>Go to Key Photo</value>
   </data>
   <data name="EditPage_GoToKeyPhoto.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Jump to the key photo frame</value>
+    <value>Jump to the key photo frame (K)</value>
   </data>
   <data name="EditPage_GoToOriginalPhoto.Content" xml:space="preserve">
     <value>Go to Original</value>
+  </data>
+  <data name="EditPage_GoToOriginalPhoto.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Jump to the original photo frame (O)</value>
   </data>
   <data name="EditPage_UnknownDevice" xml:space="preserve">
     <value>Unknown Device</value>
@@ -3286,10 +3352,10 @@ Then click "Start Split".</value>
     <value>Original</value>
   </data>
   <data name="EditPage_RefreshDirTooltip" xml:space="preserve">
-    <value>Rescan current directory</value>
+    <value>Rescan current directory (F5)</value>
   </data>
   <data name="EditPage_ClearDirTooltip" xml:space="preserve">
-    <value>Clear current list</value>
+    <value>Clear directory (C)</value>
   </data>
   <data name="AboutPage_VersionLabel.Text" xml:space="preserve">
     <value>Version </value>
@@ -4011,10 +4077,16 @@ Then click "Start Split".</value>
     <value>Actions</value>
   </data>
   <data name="SplitPage_Menu_ShowInFolder.Text" xml:space="preserve">
-    <value>Show in Folder</value>
+    <value>Open Input Location</value>
   </data>
   <data name="SplitPage_Menu_Preview.Text" xml:space="preserve">
     <value>Fullscreen Preview</value>
+  </data>
+  <data name="SplitPage_Menu_Delete.Text" xml:space="preserve">
+    <value>Delete Task</value>
+  </data>
+  <data name="SplitPage_Menu_OpenOutput.Text" xml:space="preserve">
+    <value>Open Output Location</value>
   </data>
   <data name="SplitPage_StatusProcessing" xml:space="preserve">
     <value>Processing: {0} files</value>
@@ -4217,9 +4289,6 @@ Then click "Start Split".</value>
   <data name="SettingsPage_NotifSound_Mail.Content" xml:space="preserve">
     <value>Mail (default)</value>
   </data>
-  <data name="SettingsPage_NotifSound_SMS.Content" xml:space="preserve">
-    <value>SMS</value>
-  </data>
   <data name="SettingsPage_NotifSound_Alarm.Content" xml:space="preserve">
     <value>Alarm</value>
   </data>
@@ -4256,4 +4325,25 @@ Then click "Start Split".</value>
   <data name="SettingsPage_BackgroundOnlyNotif_Desc.Text" xml:space="preserve">
     <value>Only show notifications when the app is in the background.</value>
   </data>
+  <data name="SplitPage_BrowseBtn1.ToolTipService.ToolTip" xml:space="preserve"><value>Select input folder (Ctrl+Shift+O)</value></data>
+  <data name="SplitPage_BrowseBtn2.ToolTipService.ToolTip" xml:space="preserve"><value>Select output folder (Alt+O)</value></data>
+  <data name="SplitPage_OpenInputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>Open input folder (Ctrl+Shift+I)</value></data>
+  <data name="SplitPage_OpenOutputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>Open output folder (Ctrl+Shift+E)</value></data>
+  <data name="SplitPage_AddFilesBtn.ToolTipService.ToolTip" xml:space="preserve"><value>Add files (Ctrl+O)</value></data>
+  <data name="SplitPage_ClearBtn.ToolTipService.ToolTip" xml:space="preserve"><value>Clear list (C) / Pause or resume (P)</value></data>
+  <data name="SplitPage_ScanButton.ToolTipService.ToolTip" xml:space="preserve"><value>Scan folder (F5) / Stop (press Esc twice)</value></data>
+  <data name="SplitPage_StartButton.ToolTipService.ToolTip" xml:space="preserve"><value>Start splitting (Ctrl+Enter) / Stop (press Esc twice)</value></data>
+  <data name="SplitPage_SearchBox.ToolTipService.ToolTip" xml:space="preserve"><value>Search tasks (Ctrl+F)</value></data>
+  <data name="SplitPage_TaskDeleteButton.ToolTipService.ToolTip" xml:space="preserve"><value>Remove task (Delete)</value></data>
+  <data name="SplitPage_TaskMoreButton.ToolTipService.ToolTip" xml:space="preserve"><value>More actions</value></data>
+  <data name="SplitPage_TaskPreviewButton.ToolTipService.ToolTip" xml:space="preserve"><value>Open lightbox (Enter or Space)</value></data>
+  <data name="RepairPage_BrowseBtn1.ToolTipService.ToolTip" xml:space="preserve"><value>Select input folder (Ctrl+O)</value></data>
+  <data name="RepairPage_BrowseBtn2.ToolTipService.ToolTip" xml:space="preserve"><value>Select output folder (Alt+O)</value></data>
+  <data name="RepairPage_OpenInputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>Open input folder (Ctrl+Shift+I)</value></data>
+  <data name="RepairPage_OpenInputOutputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>Open input folder (Ctrl+Shift+I)</value></data>
+  <data name="RepairPage_OpenOutputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>Open output folder (Ctrl+Shift+E)</value></data>
+  <data name="RepairPage_ScanButton.ToolTipService.ToolTip" xml:space="preserve"><value>Scan folder (F5) / Stop (press Esc twice)</value></data>
+  <data name="RepairPage_FilterButton.ToolTipService.ToolTip" xml:space="preserve"><value>Filter tasks (Ctrl+F)</value></data>
+  <data name="RepairPage_ClearButton.ToolTipService.ToolTip" xml:space="preserve"><value>Clear list (C) / Pause or resume (P)</value></data>
+  <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve"><value>Start repairing (Ctrl+Enter) / Stop (press Esc twice)</value></data>
 </root>
