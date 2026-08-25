@@ -83,6 +83,10 @@
     "2026-08-22": {
       "count": 31,
       "uniques": 6
+    },
+    "2026-08-23": {
+      "count": 65,
+      "uniques": 18
     }
   },
   "clones": {
@@ -169,6 +173,10 @@
     "2026-08-22": {
       "count": 88,
       "uniques": 17
+    },
+    "2026-08-23": {
+      "count": 19,
+      "uniques": 9
     }
   },
   "referrer_snapshots": [
@@ -1748,6 +1756,61 @@
         {
           "referrer": "doubao.com",
           "count": 18,
+          "uniques": 8
+        },
+        {
+          "referrer": "developer.huawei.com",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "referrer": "developer.huawei.com.cn",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "referrer": "link.wtturl.cn",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "referrer": "DuckDuckGo",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "referrer": "reporank.net",
+          "count": 1,
+          "uniques": 1
+        }
+      ]
+    },
+    {
+      "fetched_at": "2026-08-25T03:12:50Z",
+      "referrers": [
+        {
+          "referrer": "github.com",
+          "count": 521,
+          "uniques": 36
+        },
+        {
+          "referrer": "Google",
+          "count": 56,
+          "uniques": 18
+        },
+        {
+          "referrer": "Bing",
+          "count": 48,
+          "uniques": 25
+        },
+        {
+          "referrer": "chatgpt.com",
+          "count": 38,
+          "uniques": 18
+        },
+        {
+          "referrer": "doubao.com",
+          "count": 19,
           "uniques": 8
         },
         {
@@ -4053,6 +4116,71 @@
           "uniques": 1
         }
       ]
+    },
+    {
+      "fetched_at": "2026-08-25T03:12:50Z",
+      "paths": [
+        {
+          "path": "/LengxiQwQ/live-photo-box",
+          "title": "Overview",
+          "count": 474,
+          "uniques": 97
+        },
+        {
+          "path": "/lengxiqwq/live-photo-box/releases",
+          "title": "/releases",
+          "count": 132,
+          "uniques": 33
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases",
+          "title": "/releases",
+          "count": 61,
+          "uniques": 23
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/README.zh-CN.md",
+          "title": "/blob/master/README.zh-CN.md",
+          "count": 50,
+          "uniques": 18
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases/tag/v2.2.0",
+          "title": "/releases/tag/v2.2.0",
+          "count": 40,
+          "uniques": 8
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases/tag/v2.1.5",
+          "title": "/releases/tag/v2.1.5",
+          "count": 34,
+          "uniques": 10
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/tree/master",
+          "title": "/tree/master",
+          "count": 20,
+          "uniques": 5
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/tags",
+          "title": "/tags",
+          "count": 16,
+          "uniques": 1
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/pulse",
+          "title": "/pulse",
+          "count": 15,
+          "uniques": 2
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/graphs/traffic",
+          "title": "/graphs/traffic",
+          "count": 15,
+          "uniques": 1
+        }
+      ]
     }
   ],
   "repo_meta_snapshots": [
@@ -4370,7 +4498,16 @@
       "open_issues": 0,
       "network": 1,
       "pushed_at": "2026-08-23T16:43:59Z"
+    },
+    {
+      "fetched_at": "2026-08-25T03:12:50Z",
+      "stars": 23,
+      "forks": 1,
+      "watchers": 0,
+      "open_issues": 0,
+      "network": 1,
+      "pushed_at": "2026-08-24T20:58:41Z"
     }
   ],
-  "updated_at": "2026-08-24T03:16:34Z"
+  "updated_at": "2026-08-25T03:12:50Z"
 }
