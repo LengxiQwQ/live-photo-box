@@ -34,6 +34,14 @@
 
 ---
 
+> 🎨 **Live Photo Box could use a new icon**
+>
+> Now that Live Photo Box's main features are gradually stabilizing, the author would like to give the app a more fitting icon and refresh the homepage banner as well.
+>
+> If you have a design direction you like or would like to try creating something, feel free to [share it in GitHub Discussions →](https://github.com/LengxiQwQ/live-photo-box/discussions/new?category=ideas). PNG, PSD, SVG, Figma files, and links to other design websites are all welcome. Simple sketches and ideas are welcome too. Thank you!
+
+---
+
 ## 💡 Cross-Device Live Photos
 
 Although Live Photos from different brands all combine a still image with a short video, they use different file structures and data formats. When moving across devices or platforms, this can lead to playback issues, incorrect orientation, lost motion, or missing metadata.

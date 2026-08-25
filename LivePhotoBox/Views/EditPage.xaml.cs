@@ -32,8 +32,11 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Windows.Media;
 using Windows.Media.Core;
+using Windows.Media.Playback;
 using Windows.Storage;
+using Windows.Storage.Streams;
 
 namespace LivePhotoBox.Views
 {
@@ -247,6 +250,10 @@ namespace LivePhotoBox.Views
         private bool _isScrollQueued;
         /// <summary>胶片模式滚动重试取消令牌（布局未就绪时延迟重试）</summary>
         private CancellationTokenSource? _filmstripScrollRetryCts;
+
+        // 纯视频在 Windows 系统媒体控件中显示的缩略图及异步加载生命周期。
+        private CancellationTokenSource? _systemMediaMetadataCts;
+        private InMemoryRandomAccessStream? _systemMediaThumbnailStream;
 
         public EditPage()
         {
@@ -2530,7 +2537,12 @@ namespace LivePhotoBox.Views
             }
             else if (noModifiers && e.Key == Windows.System.VirtualKey.Space)
             {
-                if (ViewModel.CanPlayLivePhoto)
+                if (ViewModel.IsSelectedFileVideo)
+                {
+                    PureMediaViewer.TogglePlayback();
+                    e.Handled = true;
+                }
+                else if (ViewModel.CanPlayLivePhoto)
                 {
                     LivePhotoBadgeButton_Click(LivePhotoBadgeButton, e);
                     e.Handled = true;
@@ -2538,9 +2550,19 @@ namespace LivePhotoBox.Views
             }
             else if (noModifiers && isArrow)
             {
-                e.Handled = e.Key is Windows.System.VirtualKey.Up or Windows.System.VirtualKey.Down
-                    ? TryNavigateResourceFile(e.Key)
-                    : TryNavigateTimelineFrame(e.Key);
+                if (ViewModel.IsSelectedFileVideo
+                    && e.Key is Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right)
+                {
+                    PureMediaViewer.SeekBy(TimeSpan.FromSeconds(
+                        e.Key == Windows.System.VirtualKey.Left ? -5 : 5));
+                    e.Handled = true;
+                }
+                else
+                {
+                    e.Handled = e.Key is Windows.System.VirtualKey.Up or Windows.System.VirtualKey.Down
+                        ? TryNavigateResourceFile(e.Key)
+                        : TryNavigateTimelineFrame(e.Key);
+                }
             }
             else if (noModifiers && isTimelineBoundary)
             {
@@ -2556,7 +2578,12 @@ namespace LivePhotoBox.Views
             }
             else if (noModifiers && e.Key == Windows.System.VirtualKey.M)
             {
-                if (ViewModel.CanPlayLivePhoto)
+                if (ViewModel.IsSelectedFileVideo)
+                {
+                    PureMediaViewer.ToggleMute();
+                    e.Handled = true;
+                }
+                else if (ViewModel.CanPlayLivePhoto)
                 {
                     MuteButton_Click(MuteButton, e);
                     e.Handled = true;
@@ -2776,6 +2803,8 @@ namespace LivePhotoBox.Views
                 if (PureMediaViewer.Visibility == Visibility.Visible)
                     PureMediaViewer.Close();
 
+                ResetSystemMediaMetadata();
+
                 if (ViewModel.IsSelectedFileVideo)
                 {
                     var videoPath = ViewModel.SelectedFilePath;
@@ -2785,6 +2814,14 @@ namespace LivePhotoBox.Views
                         {
                             var storageFile = await StorageFile.GetFileFromPathAsync(videoPath);
                             var mediaSource = MediaSource.CreateFromStorageFile(storageFile);
+                            var playbackItem = new MediaPlaybackItem(mediaSource)
+                            {
+                                AutoLoadedDisplayProperties = AutoLoadedDisplayPropertyKind.None
+                            };
+                            var displayProperties = playbackItem.GetDisplayProperties();
+                            displayProperties.Type = MediaPlaybackType.Video;
+                            displayProperties.VideoProperties.Title = Path.GetFileNameWithoutExtension(videoPath);
+                            playbackItem.ApplyDisplayProperties(displayProperties);
 
                             PureMediaViewer.AutoCloseOnEnd = false;
                             PureMediaViewer.ShowCloseButton = false;
@@ -2795,8 +2832,13 @@ namespace LivePhotoBox.Views
                             PreviewBorder.CornerRadius = new CornerRadius(0);
 
                             // 先透明加载（用户仍看到底层控件）
-                            PureMediaViewer.VideoSource = mediaSource;
+                            PureMediaViewer.SetPlaybackSource(playbackItem);
                             PureMediaViewer.Play();
+
+                            // 系统媒体封面异步提取，不阻塞视频开始播放。
+                            _systemMediaMetadataCts = new CancellationTokenSource();
+                            _ = UpdateSystemMediaThumbnailAsync(
+                                playbackItem, videoPath, _systemMediaMetadataCts.Token);
 
                             // 等第一帧就绪
                             await Task.Delay(100);
@@ -2829,6 +2871,62 @@ namespace LivePhotoBox.Views
             finally
             {
                 _isApplyingPreviewMode = false;
+            }
+        }
+
+        private void ResetSystemMediaMetadata()
+        {
+            _systemMediaMetadataCts?.Cancel();
+            _systemMediaMetadataCts?.Dispose();
+            _systemMediaMetadataCts = null;
+
+            _systemMediaThumbnailStream?.Dispose();
+            _systemMediaThumbnailStream = null;
+        }
+
+        private async Task UpdateSystemMediaThumbnailAsync(
+            MediaPlaybackItem playbackItem,
+            string videoPath,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var (data, _, _) = await ThumbnailService.LoadVideoThumbnailDataAsync(
+                    videoPath, 320, cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (data.Length == 0) return;
+
+                var stream = new InMemoryRandomAccessStream();
+                using (var writer = new DataWriter(stream))
+                {
+                    writer.WriteBytes(data);
+                    await writer.StoreAsync();
+                    await writer.FlushAsync();
+                    writer.DetachStream();
+                }
+                stream.Seek(0);
+
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    stream.Dispose();
+                    return;
+                }
+
+                var displayProperties = playbackItem.GetDisplayProperties();
+                displayProperties.Thumbnail = RandomAccessStreamReference.CreateFromStream(stream);
+                playbackItem.ApplyDisplayProperties(displayProperties);
+
+                _systemMediaThumbnailStream?.Dispose();
+                _systemMediaThumbnailStream = stream;
+            }
+            catch (OperationCanceledException)
+            {
+                // 切换文件或退出纯视频模式时的正常取消。
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[EditPage] 系统媒体缩略图更新失败: {ex.Message}");
             }
         }
 

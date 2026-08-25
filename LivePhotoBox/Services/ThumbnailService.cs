@@ -492,31 +492,24 @@ namespace LivePhotoBox.Services
                     ? $"-i \"{videoPath}\" -vframes 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error"
                     : $"{hwaccel} -i \"{videoPath}\" -vframes 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
 
-                var psi = new ProcessStartInfo
-                {
-                    FileName = ffmpegPath,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true
-                };
+                var run = await ExternalToolProcessGuard.RunAsync(
+                    () => new ProcessStartInfo
+                    {
+                        FileName = ffmpegPath,
+                        Arguments = args,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    },
+                    timeout: TimeSpan.FromSeconds(20),
+                    operation: $"legacy video thumbnail: {Path.GetFileName(videoPath)}",
+                    prepareAttempt: _ =>
+                    {
+                        try { File.Delete(tempJpeg); } catch { }
+                    }).ConfigureAwait(false);
 
-                using var process = new Process { StartInfo = psi };
-                process.Start();
-
-                // 等待 FFmpeg 完成，带超时保护（大视频/慢速解码放宽到 30 秒）
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                try
-                {
-                    await process.WaitForExitAsync(cts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    try { process.Kill(); } catch { }
-                    return null;
-                }
-
-                if (process.ExitCode != 0 || !File.Exists(tempJpeg) || new FileInfo(tempJpeg).Length == 0)
+                if (!run.IsSuccess || !File.Exists(tempJpeg) || new FileInfo(tempJpeg).Length == 0)
                     return null;
 
                 var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -925,7 +918,10 @@ namespace LivePhotoBox.Services
         }
 
         // 视频缩略图数据提取（用于 x:Bind 路径）：使用 FFmpeg 抽取第一帧。
-        internal static async Task<(byte[] data, int width, int height)> LoadVideoThumbnailDataAsync(string videoPath, uint targetSize = 80)
+        internal static async Task<(byte[] data, int width, int height)> LoadVideoThumbnailDataAsync(
+            string videoPath,
+            uint targetSize = 80,
+            CancellationToken cancellationToken = default)
         {
             string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
@@ -938,31 +934,26 @@ namespace LivePhotoBox.Services
                 // 缩略图只抽一帧，CPU 解码快且稳定；GPU hwaccel 可能触发 nvcuda64.dll 访问冲突
                 string args = $"-i \"{videoPath}\" -vframes 1 -vf \"scale={targetSize}:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
 
-                var psi = new ProcessStartInfo
-                {
-                    FileName = ffmpegPath,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true,
-                    ErrorDialog = false
-                };
+                var run = await ExternalToolProcessGuard.RunAsync(
+                    () => new ProcessStartInfo
+                    {
+                        FileName = ffmpegPath,
+                        Arguments = args,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        ErrorDialog = false
+                    },
+                    timeout: TimeSpan.FromSeconds(20),
+                    operation: $"video thumbnail: {Path.GetFileName(videoPath)}",
+                    cancellationToken,
+                    prepareAttempt: _ =>
+                    {
+                        try { File.Delete(tempJpeg); } catch { }
+                    }).ConfigureAwait(false);
 
-                using var process = new Process { StartInfo = psi };
-                process.Start();
-
-                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                try
-                {
-                    await process.WaitForExitAsync(cts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    try { process.Kill(); } catch { }
-                    return (Array.Empty<byte>(), 0, 0);
-                }
-
-                if (process.ExitCode != 0 || !File.Exists(tempJpeg))
+                if (!run.IsSuccess || !File.Exists(tempJpeg))
                     return (Array.Empty<byte>(), 0, 0);
 
                 var fileInfo = new FileInfo(tempJpeg);
@@ -971,6 +962,10 @@ namespace LivePhotoBox.Services
 
                 byte[] imageData = await File.ReadAllBytesAsync(tempJpeg);
                 return (imageData, 80, 80);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch
             {

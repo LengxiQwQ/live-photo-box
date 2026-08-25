@@ -405,7 +405,7 @@ namespace LivePhotoBox.Services
 
                 var errorReadTask = ReadFFmpegOutputAsync(process);
 
-                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
                 using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
 
                 try
@@ -816,6 +816,32 @@ namespace LivePhotoBox.Services
             string ffmpegPath, string arguments, string outputPath,
             CancellationToken token, TranscodeResult result, Stopwatch stopwatch)
         {
+            for (int attempt = 1; attempt <= ExternalToolProcessGuard.MaxAttempts; attempt++)
+            {
+                token.ThrowIfCancellationRequested();
+                if (attempt > 1)
+                {
+                    try { File.Delete(outputPath); } catch { }
+                    stopwatch.Restart();
+                }
+
+                bool succeeded = await TryRunFfmpegOnce(
+                    ffmpegPath, arguments, outputPath, token, result, stopwatch).ConfigureAwait(false);
+                if (succeeded || attempt == ExternalToolProcessGuard.MaxAttempts)
+                    return succeeded;
+
+                LogService.Split(
+                    $"FFmpeg task failed; retrying once (attempt {attempt}/{ExternalToolProcessGuard.MaxAttempts})",
+                    LogLevel.Warning);
+            }
+
+            return false;
+        }
+
+        private static async Task<bool> TryRunFfmpegOnce(
+            string ffmpegPath, string arguments, string outputPath,
+            CancellationToken token, TranscodeResult result, Stopwatch stopwatch)
+        {
             using var process = new Process();
             process.StartInfo.FileName = ffmpegPath;
             process.StartInfo.Arguments = arguments;
@@ -841,13 +867,13 @@ namespace LivePhotoBox.Services
 
             using var registration = token.Register(() =>
             {
-                try { if (!process.HasExited) process.Kill(); } catch { }
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
                 tcs.TrySetCanceled();
             });
 
             var errorReadTask = ReadFFmpegOutputAsync(process);
 
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
 
             try
@@ -859,7 +885,7 @@ namespace LivePhotoBox.Services
                 string cancelError = await errorReadTask.ConfigureAwait(false);
                 if (timeoutCts.Token.IsCancellationRequested)
                 {
-                    if (!process.HasExited) { process.Kill(); }
+                    await ExternalToolProcessGuard.KillProcessTreeAsync(process).ConfigureAwait(false);
                     result.Success = false;
                     result.ErrorMessage = $"Transcode timeout (>5 minutes). FFmpeg output: {cancelError}";
                     return false;

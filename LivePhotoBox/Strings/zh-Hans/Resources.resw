@@ -3507,6 +3507,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="AboutPage_CliManualDialog_OpenExternal" xml:space="preserve">
     <value>用系统默认应用打开</value>
   </data>
+  <data name="AboutPage_CliManualDialog_OpenBrowser" xml:space="preserve">
+    <value>在浏览器中打开</value>
+  </data>
   <data name="Update_CheckDialog_Title" xml:space="preserve">
     <value>检查更新</value>
   </data>

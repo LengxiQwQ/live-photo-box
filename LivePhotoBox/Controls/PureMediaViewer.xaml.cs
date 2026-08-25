@@ -121,13 +121,7 @@ namespace LivePhotoBox.Controls
         {
             var viewer = (PureMediaViewer)d;
             if (e.NewValue is MediaSource source)
-            {
-                var player = viewer.VideoPlayer.MediaPlayer;
-                if (player != null)
-                    player.Source = source;
-                else
-                    viewer._pendingSource = source;
-            }
+                viewer.SetPlaybackSource(source);
         }
 
         private static void OnShowCloseButtonChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -191,7 +185,7 @@ namespace LivePhotoBox.Controls
 
         private bool _isClosing;
         private readonly DispatcherQueue _dispatcherQueue;
-        private MediaSource? _pendingSource;
+        private IMediaPlaybackSource? _pendingSource;
 
         // ══════════════════════════════════════════════════════════════
         //  构造
@@ -208,8 +202,54 @@ namespace LivePhotoBox.Controls
                 new PointerEventHandler(Viewport_PointerWheelChanged),
                 handledEventsToo: true);
 
+            // MediaPlayerElement 及播控栏中的 Slider 会接管键盘焦点，导致页面级
+            // 快捷键保护逻辑主动让行。在播放器控件内部再接一层 PreviewKeyDown，
+            // 保证纯视频快捷键不依赖子控件是否继续冒泡按键事件。
+            PreviewKeyDown += PureMediaViewer_PreviewKeyDown;
+
             VideoPlayer.Loaded += OnVideoPlayerLoaded;
         }
+
+        private void PureMediaViewer_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+        {
+            // ShowTransportControls 只在纯视频模式开启；实况照片叠加播放继续由页面处理。
+            if (!ShowTransportControls || HasKeyboardModifier()) return;
+
+            switch (e.Key)
+            {
+                case Windows.System.VirtualKey.Space:
+                    TogglePlayback();
+                    e.Handled = true;
+                    break;
+                case Windows.System.VirtualKey.M:
+                    ToggleMute();
+                    e.Handled = true;
+                    break;
+                case Windows.System.VirtualKey.Left:
+                    SeekBy(TimeSpan.FromSeconds(-5));
+                    e.Handled = true;
+                    break;
+                case Windows.System.VirtualKey.Right:
+                    SeekBy(TimeSpan.FromSeconds(5));
+                    e.Handled = true;
+                    break;
+            }
+        }
+
+        private static bool HasKeyboardModifier() =>
+            IsKeyDown(Windows.System.VirtualKey.Control)
+            || IsKeyDown(Windows.System.VirtualKey.LeftControl)
+            || IsKeyDown(Windows.System.VirtualKey.RightControl)
+            || IsKeyDown(Windows.System.VirtualKey.Shift)
+            || IsKeyDown(Windows.System.VirtualKey.LeftShift)
+            || IsKeyDown(Windows.System.VirtualKey.RightShift)
+            || IsKeyDown(Windows.System.VirtualKey.Menu)
+            || IsKeyDown(Windows.System.VirtualKey.LeftMenu)
+            || IsKeyDown(Windows.System.VirtualKey.RightMenu);
+
+        private static bool IsKeyDown(Windows.System.VirtualKey key) =>
+            (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key)
+                & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
 
         private void OnVideoPlayerLoaded(object sender, RoutedEventArgs e)
         {
@@ -306,6 +346,69 @@ namespace LivePhotoBox.Controls
         // ══════════════════════════════════════════════════════════════
         //  公共 API — 播放控制
         // ══════════════════════════════════════════════════════════════
+
+        /// <summary>
+        /// 设置底层播放器的数据源。支持 MediaSource 和带系统媒体元数据的 MediaPlaybackItem。
+        /// </summary>
+        public void SetPlaybackSource(IMediaPlaybackSource source)
+        {
+            var player = VideoPlayer.MediaPlayer;
+            if (player != null)
+                player.Source = source;
+            else
+                _pendingSource = source;
+        }
+
+        /// <summary>切换播放或暂停状态。</summary>
+        public bool TogglePlayback()
+        {
+            var player = VideoPlayer.MediaPlayer;
+            if (player == null) return false;
+
+            bool isPlaying = player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+            if (isPlaying)
+                player.Pause();
+            else
+                player.Play();
+
+            PlayPauseIcon.Glyph = isPlaying ? "" : "";
+            return true;
+        }
+
+        /// <summary>切换静音状态。</summary>
+        public bool ToggleMute()
+        {
+            if (VideoPlayer.MediaPlayer == null) return false;
+
+            IsMuted = !IsMuted;
+            VolumeIcon.Glyph = IsMuted ? "" : "";
+            return true;
+        }
+
+        /// <summary>按指定时间偏移量快退或快进，并限制在视频有效时长内。</summary>
+        public bool SeekBy(TimeSpan offset)
+        {
+            var player = VideoPlayer.MediaPlayer;
+            if (player == null) return false;
+
+            var session = player.PlaybackSession;
+            double duration = session.NaturalDuration.TotalSeconds;
+            if (duration <= 0) return false;
+
+            double seconds = Math.Clamp(
+                session.Position.TotalSeconds + offset.TotalSeconds,
+                0,
+                duration);
+            session.Position = TimeSpan.FromSeconds(seconds);
+
+            _lastUserSeekTime = DateTime.Now;
+            SeekSlider.Value = seconds;
+            TimeText.Text = FormatTime(seconds);
+            SeekTimeBubbleText.Text = FormatTime(seconds);
+            SeekTimeBubble.Visibility = Visibility.Visible;
+            StartBubbleHideTimer();
+            return true;
+        }
 
         /// <summary>立刻显示并播放视频（先透明加载，第一帧就绪后变不透明）</summary>
         public async void Play()
@@ -766,12 +869,7 @@ namespace LivePhotoBox.Controls
 
         private void PlayPauseBtn_Click(object sender, RoutedEventArgs e)
         {
-            var player = VideoPlayer.MediaPlayer;
-            if (player == null) return;
-            if (player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing)
-                player.Pause();
-            else
-                player.Play();
+            TogglePlayback();
         }
 
         /// <summary>
@@ -822,8 +920,7 @@ namespace LivePhotoBox.Controls
 
         private void VolumeBtn_Click(object sender, RoutedEventArgs e)
         {
-            IsMuted = !IsMuted;
-            VolumeIcon.Glyph = IsMuted ? "" : "";
+            ToggleMute();
         }
 
         private static readonly string[] StretchResKeys =

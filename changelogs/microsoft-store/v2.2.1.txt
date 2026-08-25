@@ -11,9 +11,11 @@ v2.2.1 更新内容
 - 📋 队列体验改进 — 多个队列最多同时运行一个，失败任务显示简短提示，点击查看完整错误
 - 🖱️ 合成/拆分页拖拽改为按比例分配，适配不同窗口
 - 🧹 协议下拉框文字靠左、示例内容灰色标识、多余设置项清理
+- 🛡️ 后台工具卡住时自动恢复，并为老旧设备放宽等待时间
 
 修复：
 - 🛠️ 队列识别跳过、灯箱播放异常、扫描子文件夹失效、添加文件不自动设输出目录
+- 📂 快速浏览图片和视频时，缩略图加载不再卡住编辑页面
 - 🔧 CLI 安装渠道显示、便携版系统通知激活
 
 
@@ -30,7 +32,9 @@ Optimized:
 - 📋 Queue improvements — only one queue runs at a time; failed tasks show a compact hint with full details on tap
 - 🖱️ Merge/Split splitter resizes proportionally to fit any window size
 - 🧹 Protocol ComboBox text left-aligned, sample content grayed out, unused settings cleaned up
+- 🛡️ Stalled background tools now recover automatically, with longer timeouts for older devices
 
 Fixed:
 - 🛠️ Queue identification skipping, Lightbox playback, subfolder scanning, output directory not auto-set when adding files
+- 📂 Thumbnail loading no longer freezes the editor while rapidly browsing images and videos
 - 🔧 CLI channel display and portable-mode notification activation

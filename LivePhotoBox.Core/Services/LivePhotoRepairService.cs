@@ -1284,65 +1284,46 @@ public static class LivePhotoRepairService
             return (true, string.Empty);
         }
 
-        // 带重试的 jpegtran 调用：处理 Windows Defender 等安全软件在文件创建后短暂锁定的偶发问题。
-        // "Could not open file" / "Access is denied" 时最多重试 3 次，每次间隔 200ms。
-        private static async Task RunJpegTranWithRetryAsync(string[] args, CancellationToken token, int maxRetries = 3)
+        // 带守卫的 jpegtran 调用：超时、启动失败或非零退出时总执行次数最多两次。
+        private static async Task RunJpegTranWithRetryAsync(string[] args, CancellationToken token)
         {
-            for (int attempt = 0; attempt < maxRetries; attempt++)
-            {
-                try
-                {
-                    await RunJpegTranAsync(args);
-                    return; // 成功
-                }
-                catch (Exception ex) when (
-                    ex.Message.Contains("Could not open file", StringComparison.OrdinalIgnoreCase) ||
-                    ex.Message.Contains("Access is denied", StringComparison.OrdinalIgnoreCase))
-                {
-                    if (attempt == maxRetries - 1) throw; // 最后一次仍失败，抛出
-                    await Task.Delay(200, token);
-                }
-            }
+            await RunJpegTranAsync(args, token).ConfigureAwait(false);
         }
 
         // 运行 jpegtran（自包含 DCT 域无损变换工具，无子进程依赖）。
         // jpegtran 直接由 .NET Process.Start 调用，一跳直达，避免 jhead 的孙子进程
         // 在 MSIX AppContainer 沙箱中被拦截的问题。
-        private static async Task RunJpegTranAsync(params string[] args)
+        private static async Task RunJpegTranAsync(string[] args, CancellationToken token)
         {
-            var psi = new ProcessStartInfo
+            ProcessStartInfo CreateStartInfo()
             {
-                FileName = JpegTranPath,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-            foreach (var arg in args) psi.ArgumentList.Add(arg);
-
-            using var process = Process.Start(psi);
-            if (process == null)
-            {
-                WriteDebugLog("ERROR", "JpegTran", ResourceService.GetString("Log_JpegTranStartFailed") ?? "jpegtran process failed to start", $"Path: {JpegTranPath}");
-                throw new Exception(ResourceService.GetString("Error_CannotStartJpegTran") ?? "Cannot start jpegtran.exe");
+                var psi = new ProcessStartInfo
+                {
+                    FileName = JpegTranPath,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true
+                };
+                foreach (var arg in args) psi.ArgumentList.Add(arg);
+                return psi;
             }
 
-            // 并行读取 stdout/stderr 避免缓冲区死锁
-            var outputTask = process.StandardOutput.ReadToEndAsync();
-            var errorTask = process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-            string output = await outputTask;
-            string error = await errorTask;
+            var run = await ExternalToolProcessGuard.RunAsync(
+                CreateStartInfo,
+                timeout: TimeSpan.FromSeconds(30),
+                operation: "jpegtran image transform",
+                cancellationToken: token).ConfigureAwait(false);
 
-            if (process.ExitCode != 0)
+            if (!run.IsSuccess)
             {
-                WriteDebugLog("ERROR", "JpegTran", $"jpegtran failed (ExitCode: {process.ExitCode})", $"Args: jpegtran {string.Join(" ", args)}\n\nOutput:\n{output}\n\nError:\n{error}");
-                throw new Exception($"jpegtran: {error.TrimEnd()}".TrimEnd());
+                WriteDebugLog("ERROR", "JpegTran", $"jpegtran failed (ExitCode: {run.ExitCode})", $"Args: jpegtran {string.Join(" ", args)}\n\nOutput:\n{run.StandardOutput}\n\nError:\n{run.StandardError}");
+                throw new Exception($"jpegtran: {run.StandardError.TrimEnd()}".TrimEnd());
             }
 
-            if (!string.IsNullOrWhiteSpace(error))
+            if (!string.IsNullOrWhiteSpace(run.StandardError))
             {
-                WriteDebugLog("WARN", "JpegTran", "jpegtran warning", $"Args: jpegtran {string.Join(" ", args)}\n\nOutput:\n{error}");
+                WriteDebugLog("WARN", "JpegTran", "jpegtran warning", $"Args: jpegtran {string.Join(" ", args)}\n\nOutput:\n{run.StandardError}");
             }
         }
 
@@ -1355,6 +1336,38 @@ public static class LivePhotoRepairService
         // 彻底避开 Windows GetCommandLineA 的 ANSI 编码问题，
         // 任何语言（中日韩阿…）的文件名都能正确处理。
         public static async Task RunExifToolAsync(CancellationToken token, params string[] args)
+        {
+            Exception? lastException = null;
+            for (int attempt = 1; attempt <= ExternalToolProcessGuard.MaxAttempts; attempt++)
+            {
+                token.ThrowIfCancellationRequested();
+                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+                try
+                {
+                    await RunExifToolOnceAsync(linkedCts.Token, args).ConfigureAwait(false);
+                    return;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+                    LogService.Warn(
+                        $"ExifTool one-shot failed (attempt {attempt}/{ExternalToolProcessGuard.MaxAttempts}): {ex.Message}",
+                        ex.ToString(),
+                        LogSource.System);
+                }
+            }
+
+            throw new TimeoutException(
+                $"ExifTool failed after {ExternalToolProcessGuard.MaxAttempts} attempts.",
+                lastException);
+        }
+
+        private static async Task RunExifToolOnceAsync(CancellationToken token, string[] args)
         {
             string tempDir = Path.GetTempPath();
             string toolDir = Path.GetDirectoryName(ExifToolPath) ?? AppContext.BaseDirectory;
@@ -1394,7 +1407,7 @@ public static class LivePhotoRepairService
             // 取消时杀掉进程
             using var ctr = token.Register(() =>
             {
-                try { if (!process.HasExited) process.Kill(); } catch { }
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
             });
 
             try
@@ -1437,7 +1450,7 @@ public static class LivePhotoRepairService
             }
             catch (Exception)
             {
-                try { process.Kill(); } catch { }
+                try { if (!process.HasExited) process.Kill(entireProcessTree: true); } catch { }
                 throw;
             }
         }

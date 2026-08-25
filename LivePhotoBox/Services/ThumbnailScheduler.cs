@@ -28,6 +28,8 @@ namespace LivePhotoBox.Services
         private const int WorkerCount = 4;
         private const int MaxFlushBatch = 20;
         private const int IdlePollMs = 50;
+        private const int MaxThumbnailAttempts = 2;
+        private static readonly TimeSpan ThumbnailAttemptTimeout = TimeSpan.FromSeconds(55);
         // 视频 FFmpeg 抽帧更重，限制 2 并发防止 I/O 争抢
         private static readonly SemaphoreSlim _videoSem = new(2, 2);
 
@@ -37,13 +39,17 @@ namespace LivePhotoBox.Services
             public string Path = null!;
             public int Priority;
             public int Generation; // Enqueue 时的代际
+            public int Attempt = 1;
         }
+
+        private sealed record BackgroundItem(int Index, string Path, Models.EditFileItem Item);
 
         private static readonly List<ThumbnailRequest> _queue = new();
         private static readonly object _queueLock = new();
         private static readonly HashSet<string> _inFlight = new(StringComparer.OrdinalIgnoreCase);
         private static readonly HashSet<string> _failedPaths = new(StringComparer.OrdinalIgnoreCase);
         private static CancellationTokenSource? _workerCts;
+        private static readonly Task?[] _workerTasks = new Task?[WorkerCount];
         private static int _aliveWorkers;
         private static volatile int _currentGeneration;
 
@@ -54,8 +60,9 @@ namespace LivePhotoBox.Services
             new(StringComparer.OrdinalIgnoreCase);
 
         // 后台预热：可见区加载完后，从 index 0 开始逐步预热全列表
-        private static System.Collections.IList? _bgItems;
+        private static IReadOnlyList<BackgroundItem>? _bgItems;
         private static int _bgNextIndex;
+        private static readonly object _backgroundLock = new();
 
         private static bool _started;
 
@@ -78,7 +85,7 @@ namespace LivePhotoBox.Services
                 for (int i = 0; i < WorkerCount; i++)
                 {
                     var workerId = i;
-                    _ = Task.Run(() => WorkerLoop(workerId, _workerCts.Token));
+                    _workerTasks[i] = Task.Run(() => SuperviseWorkerAsync(workerId, _workerCts.Token));
                 }
             }
         }
@@ -123,6 +130,7 @@ namespace LivePhotoBox.Services
                 if (_failedPaths.Contains(path)) return;
                 if (_queue.Any(r => r.Path == path)) return;
 
+                _callbacks[path] = callback;
                 _queue.Add(new ThumbnailRequest { Index = index, Path = path, Priority = priority, Generation = gen });
                 _inFlight.Add(path);
                 _queue.Sort((a, b) =>
@@ -134,9 +142,6 @@ namespace LivePhotoBox.Services
                     return cmp != 0 ? cmp : a.Index.CompareTo(b.Index);
                 });
             }
-
-            _callbacks[path] = callback;
-
             int qCount = 0; lock (_queueLock) { qCount = _queue.Count; }
             if (qCount % 50 == 0 && qCount > 0)
                 LogService.Info($"[Scheduler] Enqueue gen={gen} q={qCount} inFlight={_inFlight.Count} alive={_aliveWorkers}", LogSource.System);
@@ -167,15 +172,32 @@ namespace LivePhotoBox.Services
         /// <summary>注册全量列表，用于可见区加载完后后台逐张预热剩余缩略图</summary>
         public static void StartBackgroundFill(System.Collections.IList allItems)
         {
-            _bgItems = allItems;
-            _bgNextIndex = 0;
+            var snapshot = new List<BackgroundItem>(allItems.Count);
+            for (int i = 0; i < allItems.Count; i++)
+            {
+                if (allItems[i] is Models.EditFileItem item
+                    && item.NeedsThumbnail
+                    && !string.IsNullOrWhiteSpace(item.FilePath))
+                {
+                    snapshot.Add(new BackgroundItem(i, item.FilePath, item));
+                }
+            }
+
+            lock (_backgroundLock)
+            {
+                _bgItems = snapshot;
+                _bgNextIndex = 0;
+            }
         }
 
         public static void Reset()
         {
             Interlocked.Increment(ref _currentGeneration);
-            _bgItems = null;
-            _bgNextIndex = 0;
+            lock (_backgroundLock)
+            {
+                _bgItems = null;
+                _bgNextIndex = 0;
+            }
             lock (_queueLock)
             {
                 LogService.Info($"[Scheduler] Reset (q={_queue.Count} inFlight={_inFlight.Count})", LogSource.System);
@@ -194,19 +216,21 @@ namespace LivePhotoBox.Services
 
         private static void TryFillBackground()
         {
-            var bgItems = _bgItems;
-            if (bgItems == null) return;
-
             int gen = _currentGeneration; // volatile field — direct read has full acquire semantics
             int added = 0;
-            while (added < 5 && _bgNextIndex < bgItems.Count)
+            while (added < 5)
             {
-                int i = _bgNextIndex++;
-                if (bgItems[i] is not Models.EditFileItem item) continue;
+                BackgroundItem backgroundItem;
+                lock (_backgroundLock)
+                {
+                    if (_bgItems == null || _bgNextIndex >= _bgItems.Count)
+                        return;
+                    backgroundItem = _bgItems[_bgNextIndex++];
+                }
 
-                if (item.Thumbnail != null) continue; // 已有缩略图则跳过
-                string path = item.FilePath;
-                if (string.IsNullOrWhiteSpace(path)) continue;
+                int i = backgroundItem.Index;
+                string path = backgroundItem.Path;
+                Models.EditFileItem item = backgroundItem.Item;
 
                 lock (_queueLock)
                 {
@@ -215,6 +239,7 @@ namespace LivePhotoBox.Services
                     if (_queue.Any(r => r.Path == path)) continue;
                     if (ThumbnailService.GetCached(path) != null) continue;
 
+                    _callbacks[path] = source => item.Thumbnail = source;
                     _queue.Add(new ThumbnailRequest { Index = i, Path = path, Priority = 3, Generation = gen });
                     _inFlight.Add(path);
                     _queue.Sort((a, b) =>
@@ -225,49 +250,82 @@ namespace LivePhotoBox.Services
                         return cmp != 0 ? cmp : a.Index.CompareTo(b.Index);
                     });
                 }
-                _callbacks[path] = source => item.Thumbnail = source;
                 added++;
             }
         }
 
         // ── Worker ──
 
+        private static async Task SuperviseWorkerAsync(int workerId, CancellationToken token)
+        {
+            for (int attempt = 1; attempt <= ExternalToolProcessGuard.MaxAttempts && !token.IsCancellationRequested; attempt++)
+            {
+                try
+                {
+                    await WorkerLoop(workerId, token).ConfigureAwait(false);
+                    return;
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    LogService.Merge(
+                        $"[Scheduler] Worker#{workerId} crashed (attempt {attempt}/{ExternalToolProcessGuard.MaxAttempts}): {ex.Message}",
+                        LogLevel.Error,
+                        ex);
+                    if (attempt < ExternalToolProcessGuard.MaxAttempts)
+                        await Task.Delay(250, token).ConfigureAwait(false);
+                }
+            }
+
+            LogService.Merge(
+                $"[Scheduler] Worker#{workerId} disabled after {ExternalToolProcessGuard.MaxAttempts} crashes; remaining workers continue",
+                LogLevel.Error);
+        }
+
         private static async Task WorkerLoop(int workerId, CancellationToken token)
         {
             Interlocked.Increment(ref _aliveWorkers);
             LogService.Info($"[Scheduler] Worker#{workerId} started", LogSource.System);
-
-            while (!token.IsCancellationRequested)
+            try
             {
-                ThumbnailRequest? request = null;
-                lock (_queueLock)
+                while (!token.IsCancellationRequested)
                 {
-                    if (_queue.Count > 0)
+                    ThumbnailRequest? request = null;
+                    lock (_queueLock)
                     {
-                        request = _queue[0];
-                        _queue.RemoveAt(0);
+                        if (_queue.Count > 0)
+                        {
+                            request = _queue[0];
+                            _queue.RemoveAt(0);
+                        }
                     }
-                }
 
-                if (request == null)
-                {
-                    // 空闲 → 从全量列表取下一批未缓存的 item 后台预热（优先度=3，低于可见区）
-                    TryFillBackground();
-                    try { await Task.Delay(IdlePollMs, token); } catch (OperationCanceledException) { break; }
-                    continue;
-                }
+                    if (request == null)
+                    {
+                        // 空闲 → 从不可变快照领取下一批后台预热任务。
+                        TryFillBackground();
+                        await Task.Delay(IdlePollMs, token).ConfigureAwait(false);
+                        continue;
+                    }
 
                 // 检查代际：已被淘汰的旧 item 直接丢弃
-                int currentGen = _currentGeneration; // volatile field — direct read has full acquire semantics
-                if (request.Generation < currentGen)
-                {
-                    lock (_queueLock) { _inFlight.Remove(request.Path); }
-                    _callbacks.TryRemove(request.Path, out _);
-                    continue;
-                }
+                    int currentGen = _currentGeneration; // volatile field — direct read has full acquire semantics
+                    if (request.Generation < currentGen)
+                    {
+                        lock (_queueLock) { _inFlight.Remove(request.Path); }
+                        _callbacks.TryRemove(request.Path, out _);
+                        continue;
+                    }
 
-                try
-                {
+                    bool retainedForRetry = false;
+                    try
+                    {
+                    using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                    attemptCts.CancelAfter(ThumbnailAttemptTimeout);
+                    CancellationToken attemptToken = attemptCts.Token;
                     byte[]? data = null;
                     int width, height;
                     var sw = Stopwatch.StartNew();
@@ -275,16 +333,18 @@ namespace LivePhotoBox.Services
                     if (HeicConverterService.IsHeicFile(request.Path))
                     {
                         (data, width, height) = await ThumbnailProviderFactory.Current
-                            .LoadHeicThumbnailAsync(request.Path, 112);
+                            .LoadHeicThumbnailAsync(request.Path, 112)
+                            .WaitAsync(attemptToken);
                     }
                     else if (!ThumbnailService.IsVideoFilePath(request.Path))
                     {
-                        (data, width, height) = await LoadPhotoDataAsync(request.Path, 112);
+                        (data, width, height) = await LoadPhotoDataAsync(request.Path, 112)
+                            .WaitAsync(attemptToken);
                     }
                     else if (ThumbnailService.IsVideoFilePath(request.Path))
                     {
-                        await _videoSem.WaitAsync(token);
-                        try { (data, width, height) = await ThumbnailService.LoadVideoThumbnailDataAsync(request.Path, 168); }
+                            await _videoSem.WaitAsync(attemptToken);
+                            try { (data, width, height) = await ThumbnailService.LoadVideoThumbnailDataAsync(request.Path, 168, attemptToken); }
                         finally { _videoSem.Release(); }
                     }
                     else
@@ -301,27 +361,59 @@ namespace LivePhotoBox.Services
                         if (sw.ElapsedMilliseconds > 200)
                             LogService.Info($"[Scheduler] Worker#{workerId} slow: {request.Path} ({sw.ElapsedMilliseconds}ms)", LogSource.System);
                     }
-                }
-                catch (Exception ex)
-                {
-                    LogService.Merge($"[Scheduler] Worker#{workerId} FAIL: {request.Path} — {ex.GetType().Name}: {ex.Message}",
-                        LogLevel.Warning, ex);
-                    lock (_queueLock) { _failedPaths.Add(request.Path); }
-                    _callbacks.TryRemove(request.Path, out _);
-                }
-                finally
-                {
-                    lock (_queueLock) { _inFlight.Remove(request.Path); }
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        _callbacks.TryRemove(request.Path, out _);
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        lock (_queueLock)
+                        {
+                            _inFlight.Remove(request.Path);
+                            if (request.Attempt < MaxThumbnailAttempts
+                                && request.Generation >= _currentGeneration)
+                            {
+                                request.Attempt++;
+                                _queue.Add(request);
+                                _inFlight.Add(request.Path);
+                                _queue.Sort((a, b) =>
+                                {
+                                    int cmp = b.Generation.CompareTo(a.Generation);
+                                    if (cmp != 0) return cmp;
+                                    cmp = a.Priority.CompareTo(b.Priority);
+                                    return cmp != 0 ? cmp : a.Index.CompareTo(b.Index);
+                                });
+                                retainedForRetry = true;
+                            }
+                            else
+                            {
+                                _failedPaths.Add(request.Path);
+                            }
+                        }
+
+                        LogService.Merge(
+                            $"[Scheduler] Worker#{workerId} FAIL: {request.Path} — {ex.GetType().Name}: {ex.Message} " +
+                            $"(attempt {request.Attempt}/{MaxThumbnailAttempts}, retry={retainedForRetry})",
+                            LogLevel.Warning,
+                            ex);
+                        if (!retainedForRetry)
+                            _callbacks.TryRemove(request.Path, out _);
+                    }
+                    finally
+                    {
+                        if (!retainedForRetry)
+                        {
+                            lock (_queueLock) { _inFlight.Remove(request.Path); }
+                        }
+                    }
                 }
             }
-
-            Interlocked.Decrement(ref _aliveWorkers);
-            LogService.Merge($"[Scheduler] Worker#{workerId} EXITED (alive={_aliveWorkers})", LogLevel.Warning);
-            if (!token.IsCancellationRequested && _started)
+            finally
             {
-                await Task.Delay(500);
-                if (!token.IsCancellationRequested && _started)
-                    _ = Task.Run(() => WorkerLoop(workerId, token));
+                Interlocked.Decrement(ref _aliveWorkers);
+                LogService.Merge($"[Scheduler] Worker#{workerId} EXITED (alive={_aliveWorkers})", LogLevel.Warning);
             }
         }
 

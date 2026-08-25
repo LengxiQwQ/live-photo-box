@@ -258,14 +258,18 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 右上角"用系统默认应用打开"入口：本地有手册文件 → 系统默认程序打开该文件；
+        /// 右上角"在浏览器中打开"入口：本地有手册文件 → 系统默认程序打开该文件；
         /// 本地缺失（开发/商店版）→ 改为默认浏览器打开 GitHub 上的手册。
+        /// 按钮文案随场景切换：本地存在显示"用系统默认应用打开"，缺失显示"在浏览器中打开"。
         /// </summary>
         private static HyperlinkButton BuildOpenExternalLink()
         {
             var button = new HyperlinkButton
             {
-                Content = ResourceService.GetString("AboutPage_CliManualDialog_OpenExternal"),
+                Content = ResourceService.GetString(
+                    TryGetLocalPath() != null
+                        ? "AboutPage_CliManualDialog_OpenExternal"
+                        : "AboutPage_CliManualDialog_OpenBrowser"),
                 FontSize = 14,
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Right

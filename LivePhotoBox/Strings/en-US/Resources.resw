@@ -3507,6 +3507,9 @@ Then click "Start Split".</value>
   <data name="AboutPage_CliManualDialog_OpenExternal" xml:space="preserve">
     <value>Open with default app</value>
   </data>
+  <data name="AboutPage_CliManualDialog_OpenBrowser" xml:space="preserve">
+    <value>View in browser</value>
+  </data>
   <data name="Update_CheckDialog_Title" xml:space="preserve">
     <value>Check for Updates</value>
   </data>

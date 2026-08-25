@@ -72,40 +72,41 @@ namespace LivePhotoBox.Services
                 string args = $"-i \"{videoPath}\" -vsync 0 " +
                               $"-q:v 3 -f image2 \"{outputPattern}\" -y -loglevel error";
 
-                var psi = new ProcessStartInfo
-                {
-                    FileName = ffmpegPath,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true
-                };
-
-                using var process = new Process { StartInfo = psi };
-                process.Start();
-
-                // 等待 ffmpeg 完成，30 秒超时保护
-                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-
-                try
-                {
-                    await process.WaitForExitAsync(linkedCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    try { process.Kill(); } catch { }
-                    CleanupTempDir(tempDir);
-                    return null;
-                }
+                var run = await ExternalToolProcessGuard.RunAsync(
+                    () => new ProcessStartInfo
+                    {
+                        FileName = ffmpegPath,
+                        Arguments = args,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    },
+                    timeout: TimeSpan.FromSeconds(90),
+                    operation: $"timeline frame extraction: {Path.GetFileName(videoPath)}",
+                    cancellationToken: ct,
+                    prepareAttempt: _ =>
+                    {
+                        try
+                        {
+                            foreach (string oldFrame in Directory.GetFiles(tempDir, "frame_*.jpg"))
+                                File.Delete(oldFrame);
+                        }
+                        catch { }
+                    }).ConfigureAwait(false);
 
                 // 检查 ffmpeg 是否成功
-                string stderr = await process.StandardError.ReadToEndAsync();
-                if (process.ExitCode != 0 && !string.IsNullOrWhiteSpace(stderr))
+                if (!run.IsSuccess && !string.IsNullOrWhiteSpace(run.StandardError))
                 {
                     LogService.FileOp(
-                        $"VideoFrameExtraction ffmpeg error (exit {process.ExitCode}): {stderr.Trim()}",
+                        $"VideoFrameExtraction ffmpeg error (exit {run.ExitCode}, attempts={run.Attempts}, timeout={run.TimedOut}): {run.StandardError.Trim()}",
                         Models.LogLevel.Warning);
+                }
+
+                if (!run.IsSuccess)
+                {
+                    CleanupTempDir(tempDir);
+                    return null;
                 }
 
                 // 收集输出文件（按路径排序，frame_000001 在前）

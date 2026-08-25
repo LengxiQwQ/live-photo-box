@@ -31,9 +31,11 @@ using System.Numerics;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Foundation;
+using Windows.Media;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Storage;
+using Windows.Storage.Streams;
 using Windows.System;
 
 namespace LivePhotoBox.Controls
@@ -67,6 +69,9 @@ namespace LivePhotoBox.Controls
         private FrameworkElement? _currentVisual;
         private int _transitionId = 0;
         private CancellationTokenSource? _loadCts;
+        private readonly MediaPlaybackItem?[] _systemMediaItems = new MediaPlaybackItem?[2];
+        private readonly InMemoryRandomAccessStream?[] _systemMediaThumbnailStreams =
+            new InMemoryRandomAccessStream?[2];
 
         public bool IsOpen => LightboxOverlay.Visibility == Visibility.Visible;
         public ObservableCollection<ThumbnailStripItem> ThumbnailItems { get; } = new();
@@ -145,6 +150,10 @@ namespace LivePhotoBox.Controls
         {
             LightboxVideo0.MediaPlayer.Pause();
             LightboxVideo1.MediaPlayer.Pause();
+            LightboxVideo0.MediaPlayer.Source = null;
+            LightboxVideo1.MediaPlayer.Source = null;
+            ClearSystemMediaSlot(0);
+            ClearSystemMediaSlot(1);
             LightboxVideo0.Visibility = Visibility.Collapsed;
             LightboxVideo1.Visibility = Visibility.Collapsed;
             _activeVideoSlot = -1;
@@ -268,12 +277,24 @@ namespace LivePhotoBox.Controls
                 source = MediaSource.CreateFromUri(new Uri(path));
             }
 
-            bool opened = await WaitForMediaOpenedAsync(nextPlayer, source, token);
+            var playbackItem = CreateSystemMediaPlaybackItem(source, path);
+            PrepareSystemMediaSlot(nextSlot, playbackItem);
+            bool opened = await WaitForMediaOpenedAsync(nextPlayer, playbackItem, token);
 
-            if (token.IsCancellationRequested) return;
+            if (token.IsCancellationRequested)
+            {
+                if (ReferenceEquals(_systemMediaItems[nextSlot], playbackItem))
+                {
+                    nextPlayer.MediaPlayer.Source = null;
+                    ClearSystemMediaSlot(nextSlot);
+                }
+                return;
+            }
 
             if (!opened)
             {
+                nextPlayer.MediaPlayer.Source = null;
+                ClearSystemMediaSlot(nextSlot);
                 LightboxSpinner.Visibility = Visibility.Collapsed;
                 return;
             }
@@ -285,9 +306,14 @@ namespace LivePhotoBox.Controls
 
             ShowVideoTransport();
             StartTransportTimer();
+            _ = UpdateSystemMediaThumbnailAsync(
+                playbackItem, nextSlot, path, isVideo: true, token);
         }
 
-        private async Task PlayLiveVideoAsync(string videoPath)
+        private async Task PlayLiveVideoAsync(
+            string videoPath,
+            string imagePath,
+            CancellationToken cancellationToken)
         {
             _isLiveVideoPlaying = true;
             ResetLiveButtonState();
@@ -309,14 +335,26 @@ namespace LivePhotoBox.Controls
             player.MediaPlayer.MediaEnded += OnEnded;
 
             var source = MediaSource.CreateFromUri(new Uri(videoPath));
-            bool opened = await WaitForMediaOpenedAsync(player, source, CancellationToken.None);
-            if (!opened || !_isLiveVideoPlaying) return;
+            var playbackItem = CreateSystemMediaPlaybackItem(source, imagePath);
+            PrepareSystemMediaSlot(slot, playbackItem);
+            bool opened = await WaitForMediaOpenedAsync(player, playbackItem, cancellationToken);
+            if (!opened || !_isLiveVideoPlaying)
+            {
+                if (ReferenceEquals(_systemMediaItems[slot], playbackItem))
+                {
+                    player.MediaPlayer.Source = null;
+                    ClearSystemMediaSlot(slot);
+                }
+                return;
+            }
 
             _activeVideoSlot = slot;
             await TransitionToVisualAsync(player);
 
             ShowVideoTransport();
             StartTransportTimer();
+            _ = UpdateSystemMediaThumbnailAsync(
+                playbackItem, slot, imagePath, isVideo: false, cancellationToken);
         }
 
         private void RestorePhotoAfterLiveVideo()
@@ -373,7 +411,7 @@ namespace LivePhotoBox.Controls
         }
 
         private static async Task<bool> WaitForMediaOpenedAsync(MediaPlayerElement player,
-            MediaSource source, CancellationToken token, int timeoutMs = 5000)
+            IMediaPlaybackSource source, CancellationToken token, int timeoutMs = 5000)
         {
             var tcs = new TaskCompletionSource<bool>();
             using var registration = token.Register(() => tcs.TrySetResult(false));
@@ -696,7 +734,10 @@ namespace LivePhotoBox.Controls
                 return;
             }
 
-            await PlayLiveVideoAsync(videoSource);
+            await PlayLiveVideoAsync(
+                videoSource,
+                item.ImagePath,
+                _loadCts?.Token ?? CancellationToken.None);
         }
 
         private static async Task<string?> ExtractAppendedVideoAsync(string filePath, long videoLength)
@@ -901,11 +942,15 @@ namespace LivePhotoBox.Controls
             {
                 LightboxVideo0.Visibility = Visibility.Collapsed;
                 LightboxVideo0.MediaPlayer.Pause();
+                LightboxVideo0.MediaPlayer.Source = null;
+                ClearSystemMediaSlot(0);
             }
             if (newVisual != LightboxVideo1)
             {
                 LightboxVideo1.Visibility = Visibility.Collapsed;
                 LightboxVideo1.MediaPlayer.Pause();
+                LightboxVideo1.MediaPlayer.Source = null;
+                ClearSystemMediaSlot(1);
             }
 
             Canvas.SetZIndex(newVisual, 0);
@@ -952,6 +997,85 @@ namespace LivePhotoBox.Controls
                     Close(); e.Handled = true; break;
                 case VirtualKey.Escape:
                     Close(); e.Handled = true; break;
+            }
+        }
+
+        private static MediaPlaybackItem CreateSystemMediaPlaybackItem(
+            MediaSource source,
+            string titlePath)
+        {
+            var playbackItem = new MediaPlaybackItem(source)
+            {
+                AutoLoadedDisplayProperties = AutoLoadedDisplayPropertyKind.None
+            };
+            var displayProperties = playbackItem.GetDisplayProperties();
+            displayProperties.Type = MediaPlaybackType.Video;
+            displayProperties.VideoProperties.Title = Path.GetFileNameWithoutExtension(titlePath);
+            playbackItem.ApplyDisplayProperties(displayProperties);
+            return playbackItem;
+        }
+
+        private void PrepareSystemMediaSlot(int slot, MediaPlaybackItem playbackItem)
+        {
+            ClearSystemMediaSlot(slot);
+            _systemMediaItems[slot] = playbackItem;
+        }
+
+        private void ClearSystemMediaSlot(int slot)
+        {
+            _systemMediaItems[slot] = null;
+            _systemMediaThumbnailStreams[slot]?.Dispose();
+            _systemMediaThumbnailStreams[slot] = null;
+        }
+
+        private async Task UpdateSystemMediaThumbnailAsync(
+            MediaPlaybackItem playbackItem,
+            int slot,
+            string artworkPath,
+            bool isVideo,
+            CancellationToken cancellationToken)
+        {
+            try
+            {
+                var (data, _, _) = isVideo
+                    ? await ThumbnailService.LoadVideoThumbnailDataAsync(
+                        artworkPath, 320, cancellationToken)
+                    : await ThumbnailService.LoadSystemThumbnailDataAsync(artworkPath, 320);
+                cancellationToken.ThrowIfCancellationRequested();
+                if (data.Length == 0) return;
+
+                var stream = new InMemoryRandomAccessStream();
+                using (var writer = new DataWriter(stream))
+                {
+                    writer.WriteBytes(data);
+                    await writer.StoreAsync();
+                    await writer.FlushAsync();
+                    writer.DetachStream();
+                }
+                stream.Seek(0);
+
+                if (cancellationToken.IsCancellationRequested
+                    || !ReferenceEquals(_systemMediaItems[slot], playbackItem))
+                {
+                    stream.Dispose();
+                    return;
+                }
+
+                var displayProperties = playbackItem.GetDisplayProperties();
+                displayProperties.Thumbnail = RandomAccessStreamReference.CreateFromStream(stream);
+                playbackItem.ApplyDisplayProperties(displayProperties);
+
+                _systemMediaThumbnailStreams[slot]?.Dispose();
+                _systemMediaThumbnailStreams[slot] = stream;
+            }
+            catch (OperationCanceledException)
+            {
+                // 切换灯箱项目或关闭灯箱时的正常取消。
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[LightboxPreview] 系统媒体缩略图更新失败: {ex.Message}");
             }
         }
 

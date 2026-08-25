@@ -23,15 +23,20 @@
   > Window layout memory improved — restarting the app restores the previous width and height instead of resetting; adjustable in Settings.
   
 - **🖱️ 合成/拆分中间拖拽** — 左右面板分隔线拖拽按比例分配空间，适应不同窗口尺寸。
-  
+
   > Center splitter now uses proportional resizing — dragging the divider between left and right panels allocates space proportionally, adapting to different window sizes.
-  
-  - **🎨 修复页状态栏统一风格** — 修复页底部状态栏重新设计，对齐合成/拆分页的配色与布局，三页风格一致。
+
+- **🎨 修复页状态栏统一风格** — 修复页底部状态栏重新设计，对齐合成/拆分页的配色与布局，三页风格一致。
+
   > Repair page status bar unified — the footer status bar redesigned to match the color scheme and layout of the Merge and Split pages, achieving a consistent look across all three.
 
 - **📝 其他细节优化** — 多余设置项清理；软件标识写入历史记录；GUI 与 CLI 日志补全。
-  
+
   > Other refinements — cleaned up unused settings; Live Photo Box marker written to history records; log coverage improved for both GUI and CLI.
+
+- **🛡️ 后台任务稳定性优化** — FFmpeg、ExifTool、HEIF 等工具异常卡住时会自动结束相关进程并重试一次，同时放宽慢速设备的等待时间，减少误判失败。
+
+  > Background task stability improved — stalled FFmpeg, ExifTool, HEIF, and related tools are now stopped and retried once, with more generous timeouts for slower devices.
 
 ## 🐛 修复 / Bug Fixes
 
@@ -42,6 +47,24 @@
 - **🖼️ 灯箱播放修复** — 修复灯箱播放问题，各个协议实况照片预览更稳定。
   
   > Lightbox playback fixed — playback issues resolved for more reliable live photo previews across protocols.
+
+- **📂 资源浏览卡死修复** — 修复快速浏览图片和视频时缩略图加载可能卡住编辑页面的问题；失败任务可自动恢复，不再拖死整个软件。
+
+  > Resource browser freeze fixed — rapid image and video browsing no longer leaves the editor stuck during thumbnail loading; failed background tasks now recover automatically.
+
+## 🎨 软件图标与主页 Banner 设计建议 / Icon & Homepage Banner Suggestions
+
+Live Photo Box 的功能正在慢慢稳定下来，想做的主要功能也差不多快完成了。作者想给软件换一个更合适的图标和主页 Banner。作者自己不太擅长设计，如果你刚好有兴趣，也愿意分享一个想法或方案，欢迎发来看看。
+
+> With the core features gradually stabilizing and nearing completion, the author is considering a more fitting visual identity for Live Photo Box. Design is not the author's specialty, so if you happen to be interested and would like to share an idea for the app icon or homepage banner, it would be very welcome.
+
+- **投稿方式**：前往 [GitHub Discussions · Ideas](https://github.com/LengxiQwQ/live-photo-box/discussions/new?category=ideas) 发帖，标题建议以 `[图标提案]` 或 `[主页 Banner 提案]` 开头；图片和文件可直接拖入编辑框上传。
+- **提交内容**：PNG、PSD、SVG、Figma 或其他设计网站链接都可以。图标建议提供 1024×1024 预览，主页 Banner 建议提供高清横版预览；源文件无法直接上传时，也可以打包为 ZIP。
+- **版权说明**：请提交原创或已获得授权的设计，并说明是否允许 Live Photo Box 项目使用和修改。
+
+是否采用会结合软件整体风格和实际适配效果决定。不管是完整设计，还是一个小想法，都非常感谢。也谢谢大家一直以来对 Live Photo Box 的关注和支持！
+
+> **How to submit:** Start a post in [GitHub Discussions · Ideas](https://github.com/LengxiQwQ/live-photo-box/discussions/new?category=ideas) with `[Icon Proposal]` or `[Homepage Banner Proposal]` in the title. PNG, PSD, SVG, Figma, and other design website links are all welcome; source files may also be uploaded as a ZIP. Adoption will depend on the overall style and practical fit of the app, but every complete design or small idea is sincerely appreciated. Thank you for supporting Live Photo Box!
 
 ---
 

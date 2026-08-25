@@ -14,6 +14,7 @@ namespace LivePhotoBox.Services
     // 自动重启进程并重试当前命令一次。若二次崩溃则放弃本条命令、抛出异常。
     public sealed class PersistentExifTool : IDisposable
     {
+        private static readonly TimeSpan CommandTimeout = TimeSpan.FromSeconds(45);
         private Process _process;
         private readonly SemaphoreSlim _ioLock = new(1, 1);
         private readonly StringBuilder _stderrCollector = new();
@@ -83,7 +84,12 @@ namespace LivePhotoBox.Services
             string stderr = FlushStderr();
 
             // 清理旧进程
-            try { if (!_process.HasExited) _process.Kill(); } catch { }
+            try
+            {
+                if (!_process.HasExited)
+                    _process.Kill(entireProcessTree: true);
+            }
+            catch { try { if (!_process.HasExited) _process.Kill(); } catch { } }
             _process.Dispose();
 
             // 取消旧 stderr 循环
@@ -115,7 +121,7 @@ namespace LivePhotoBox.Services
         }
 
         // 发送一条命令并等待 JSON 响应。线程安全。
-        // 如 exiftool 在命令执行期间崩溃，自动重启并重试一次。
+        // 如 exiftool 卡住或在命令执行期间崩溃，精准终止并自动重启；总执行次数最多两次。
         public async Task<string> SendCommandAsync(CancellationToken token, params string[] args)
         {
             if (_disposed)
@@ -124,17 +130,52 @@ namespace LivePhotoBox.Services
             await _ioLock.WaitAsync(token).ConfigureAwait(false);
             try
             {
-                return await SendCommandInternalAsync(token, args, isRetry: false)
-                    .ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                // ⚠️ 命令被取消时，我们可能已经往 exiftool stdin 写入了 -execute，
-                // 但还没来得及读完 stdout 的 JSON 响应。残留的响应数据会污染下一次命令的
-                // 输出，导致 JSON 解析失败 → 所有文件被误判为非实况照片。
-                // 重启进程是最安全的清理方式：stdin/stdout 管道全部重置。
-                try { RestartProcess("cancelled command"); } catch { }
-                throw;
+                string? context = args.Length > 0 ? args[^1] : null;
+                Exception? lastException = null;
+
+                for (int attempt = 1; attempt <= ExternalToolProcessGuard.MaxAttempts; attempt++)
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (_process.HasExited)
+                        RestartProcess(context);
+
+                    using var timeoutCts = new CancellationTokenSource(CommandTimeout);
+                    using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
+                    try
+                    {
+                        return await SendCommandInternalAsync(linkedCts.Token, args).ConfigureAwait(false);
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
+                    {
+                        // 命令已写入 stdin 后被取消时，必须重启以丢弃残留 stdout。
+                        try { RestartProcess("cancelled command"); } catch { }
+                        throw;
+                    }
+                    catch (OperationCanceledException ex)
+                    {
+                        lastException = ex;
+                        LogService.Warn(
+                            $"exiftool command timed out (attempt {attempt}/{ExternalToolProcessGuard.MaxAttempts}): {context}",
+                            source: Models.LogSource.System);
+                        try { RestartProcess($"timeout: {context}"); } catch { }
+                    }
+                    catch (Exception ex)
+                    {
+                        lastException = ex;
+                        LogService.Warn(
+                            $"exiftool command failed (attempt {attempt}/{ExternalToolProcessGuard.MaxAttempts}): {context}: {ex.Message}",
+                            ex.ToString(),
+                            Models.LogSource.System);
+                        try { RestartProcess(context); } catch { }
+                    }
+
+                    if (attempt == ExternalToolProcessGuard.MaxAttempts)
+                        throw new TimeoutException(
+                            $"exiftool failed after {ExternalToolProcessGuard.MaxAttempts} attempts: {context}",
+                            lastException);
+                }
+
+                throw new InvalidOperationException("Unreachable exiftool retry state.");
             }
             finally
             {
@@ -142,10 +183,9 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // 实际执行命令。isRetry=true 表示这是一次崩溃后的重试，
-        // 如再次崩溃则不再重试，直接抛出异常。
+        // 实际执行一次命令；重启和有限重试由 SendCommandAsync 统一管理。
         private async Task<string> SendCommandInternalAsync(
-            CancellationToken token, string[] args, bool isRetry)
+            CancellationToken token, string[] args)
         {
             _lastCommandArgs = args;
 
@@ -153,17 +193,8 @@ namespace LivePhotoBox.Services
             // args 格式如: -j -Rotation -Orientation -ThumbnailImage -ContentIdentifier <filePath>
             string? context = args.Length > 0 ? args[^1] : null;
 
-            // 如果进程在上一次命令中崩了，先重启
             if (_process.HasExited)
-            {
-                if (isRetry)
-                {
-                    throw new InvalidOperationException(
-                        $"Persistent exiftool crashed again after restart on file '{context}'. " +
-                        "The file likely contains malformed data that exiftool cannot parse.");
-                }
-                RestartProcess(context);
-            }
+                throw new InvalidOperationException($"Persistent exiftool exited before command: {context}");
 
             // 写入参数
             foreach (var arg in args)
@@ -180,7 +211,7 @@ namespace LivePhotoBox.Services
                 string? line;
                 try
                 {
-                    line = await _process.StandardOutput.ReadLineAsync().ConfigureAwait(false);
+                    line = await _process.StandardOutput.ReadLineAsync(token).ConfigureAwait(false);
                 }
                 catch (IOException)
                 {
@@ -188,16 +219,7 @@ namespace LivePhotoBox.Services
                 }
 
                 if (line == null)
-                {
-                    if (!isRetry)
-                    {
-                        RestartProcess(context);
-                        return await SendCommandInternalAsync(token, args, isRetry: true)
-                            .ConfigureAwait(false);
-                    }
-                    throw new InvalidOperationException(
-                        $"Persistent exiftool stdout closed unexpectedly on file '{context}' and restart also failed.");
-                }
+                    throw new IOException($"Persistent exiftool stdout closed unexpectedly: {context}");
 
                 if (line.TrimEnd() == "{ready}")
                     break;
@@ -269,12 +291,12 @@ namespace LivePhotoBox.Services
                     _process.StandardInput.WriteLine("False");
                     _process.StandardInput.Flush();
                     if (!_process.WaitForExit(3000))
-                        _process.Kill();
+                        _process.Kill(entireProcessTree: true);
                 }
             }
             catch
             {
-                try { _process.Kill(); } catch { }
+                try { _process.Kill(entireProcessTree: true); } catch { }
             }
 
             // 3. 等待 stderr 循环完全退出

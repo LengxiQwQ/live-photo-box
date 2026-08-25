@@ -203,25 +203,21 @@ namespace LivePhotoBox.Services
                 psi.ArgumentList.Add("90");
                 psi.ArgumentList.Add(sourcePath);
 
-                using var process = new Process { StartInfo = psi };
-                process.Start();
+                psi.RedirectStandardOutput = true;
+                var run = await ExternalToolProcessGuard.RunAsync(
+                    () => psi,
+                    timeout: TimeSpan.FromSeconds(120),
+                    operation: $"heif-enc: {Path.GetFileName(sourcePath)}",
+                    cancellationToken: token,
+                    prepareAttempt: _ =>
+                    {
+                        try { File.Delete(heicPath); } catch { }
+                    }).ConfigureAwait(false);
 
-                try
-                {
-                    await process.WaitForExitAsync(token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException)
-                {
-                    process.Kill();
-                    throw;
-                }
-
-                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-
-                if (process.ExitCode != 0 || !File.Exists(heicPath) || new FileInfo(heicPath).Length == 0)
+                if (!run.IsSuccess || !File.Exists(heicPath) || new FileInfo(heicPath).Length == 0)
                 {
                     throw new InvalidOperationException(
-                        $"heif-enc failed (exit {process.ExitCode}): {stderr.Trim()}");
+                        $"heif-enc failed (exit {run.ExitCode}, attempts={run.Attempts}, timeout={run.TimedOut}): {run.StandardError.Trim()}");
                 }
 
                 LogService.Merge($"HEIC conversion successful: {Path.GetFileName(heicPath)}");
@@ -791,24 +787,21 @@ namespace LivePhotoBox.Services
             psi.ArgumentList.Add("-q");
             psi.ArgumentList.Add(quality.ToString());
 
-            using var process = new Process { StartInfo = psi };
-            process.Start();
+            psi.RedirectStandardOutput = true;
+            var run = await ExternalToolProcessGuard.RunAsync(
+                () => psi,
+                timeout: TimeSpan.FromSeconds(120),
+                operation: $"heif-dec: {Path.GetFileName(heicPath)}",
+                cancellationToken: token,
+                prepareAttempt: _ =>
+                {
+                    try { File.Delete(outputPath); } catch { }
+                }).ConfigureAwait(false);
 
-            try
+            if (!run.IsSuccess)
             {
-                await process.WaitForExitAsync(token).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                process.Kill();
-                throw;
-            }
-
-            if (process.ExitCode != 0)
-            {
-                string stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
                 throw new InvalidOperationException(
-                    $"heif-dec failed (exit {process.ExitCode}): {stderr.Trim()}");
+                    $"heif-dec failed (exit {run.ExitCode}, attempts={run.Attempts}, timeout={run.TimedOut}): {run.StandardError.Trim()}");
             }
         }
 
