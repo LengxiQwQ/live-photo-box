@@ -51,6 +51,42 @@ namespace LivePhotoBox.Services
     //   - MatchVivo: Merge 页面，纯文件 I/O 解析 vivo JSON 尾部
     public static partial class LivePhotoMetadataMatcher
     {
+        /// <summary>
+        /// Validates one dual-file candidate from metadata stored in both files.
+        /// A matching filename is never protocol evidence: vivo requires identical
+        /// com.android.camera.livephoto IDs, and Apple requires identical non-empty
+        /// ContentIdentifier values.
+        /// </summary>
+        public static async Task<LivePhotoProtocolType> DetectDualFileProtocolAsync(
+            string imagePath,
+            string videoPath,
+            string? exifToolPath,
+            CancellationToken token)
+        {
+            if (!File.Exists(imagePath) || !File.Exists(videoPath))
+                return LivePhotoProtocolType.Unknown;
+
+            string imageBaseName = Path.GetFileNameWithoutExtension(imagePath);
+            string videoBaseName = Path.GetFileNameWithoutExtension(videoPath);
+            if (!imageBaseName.Equals(videoBaseName, StringComparison.OrdinalIgnoreCase))
+                return LivePhotoProtocolType.Unknown;
+
+            token.ThrowIfCancellationRequested();
+
+            MetadataMatchOutput vivoMatch = MatchVivo([imagePath], [videoPath]);
+            if (vivoMatch.Pairs.Count > 0)
+                return LivePhotoProtocolType.Vivo;
+
+            if (string.IsNullOrWhiteSpace(exifToolPath) || !File.Exists(exifToolPath))
+                return LivePhotoProtocolType.Unknown;
+
+            MetadataMatchOutput appleMatch = await MatchAsync(
+                [imagePath], [videoPath], exifToolPath, token);
+            return appleMatch.Pairs.Count > 0
+                ? LivePhotoProtocolType.Apple
+                : LivePhotoProtocolType.Unknown;
+        }
+
         // ── CID 匹配（Apple Live Photo）──
         // 内部启动 PersistentExifTool 批量查询 ContentIdentifier 和 CreateDate。
         // unmatchedImagePaths: 文件名匹配后未配对的照片路径

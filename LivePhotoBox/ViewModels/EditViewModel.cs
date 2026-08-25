@@ -65,22 +65,6 @@ namespace LivePhotoBox.ViewModels
         /// <summary>exiftool 并发数。磁盘 I/O 密集操作，上限 8 避免 HDD 颠簸或 SSD 带宽饱和。</summary>
         private static readonly int ExifToolPoolSize = Math.Min(Environment.ProcessorCount, 8);
 
-        /// <summary>目录 CID 索引缓存：拖拽扫描一次后缓存，后续同目录拖拽直接复用，O(1) 查找。</summary>
-        private readonly Dictionary<string, CidDirectoryIndex> _cidIndexCache = new(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>目录级 ContentIdentifier 索引：图片 CID 映射 + 视频 CID → 路径反向索引。</summary>
-        private sealed class CidDirectoryIndex
-        {
-            /// <summary>建索引时的文件路径快照，用于检测目录变动（增删文件 → 重建索引）。</summary>
-            public HashSet<string> FilePaths { get; } = new(StringComparer.OrdinalIgnoreCase);
-            /// <summary>图片路径 → ContentIdentifier</summary>
-            public Dictionary<string, string?> ImageCids { get; } = new(StringComparer.OrdinalIgnoreCase);
-            /// <summary>视频路径 → ContentIdentifier</summary>
-            public Dictionary<string, string?> VideoCids { get; } = new(StringComparer.OrdinalIgnoreCase);
-            /// <summary>CID → 视频路径（反向索引，供快速匹配）</summary>
-            public Dictionary<string, string> CidToVideo { get; } = new(StringComparer.OrdinalIgnoreCase);
-        }
-
         // ══════════════════════════════════════════════════════════════
         //  构造函数 & 生命周期
         // ══════════════════════════════════════════════════════════════
@@ -5817,9 +5801,6 @@ namespace LivePhotoBox.ViewModels
         //  扫描入口（由 View 层调用）
         // ══════════════════════════════════════════════════════════════
 
-        /// <summary>上次扫描时缓存的 CID 索引目录，用于判断目录是否切换</summary>
-        private string? _lastCachedDirectory;
-
         public void TriggerScan()
         {
             var path = CurrentDirectory;
@@ -5827,21 +5808,12 @@ namespace LivePhotoBox.ViewModels
                 return;
             if (IsScanning) return;
 
-            // 仅当目录真正切换时才清除 CID 索引缓存，同目录刷新保留缓存加速拖拽
-            if (_lastCachedDirectory != null
-                && !string.Equals(_lastCachedDirectory, path, StringComparison.OrdinalIgnoreCase))
-            {
-                _cidIndexCache.Clear();
-            }
-            _lastCachedDirectory = path;
             _ = ScanDirectoryAsync(path);
         }
 
-        /// <summary>清空当前浏览的全部内容：目录、文件列表、索引缓存、预览。</summary>
+        /// <summary>清空当前浏览的全部内容：目录、文件列表和预览。</summary>
         public void ClearAll()
         {
-            _cidIndexCache.Clear();
-            _lastCachedDirectory = null;
             CurrentDirectory = string.Empty;
             _allFileItems.Clear();
             FileItems.Clear();
@@ -5950,7 +5922,9 @@ namespace LivePhotoBox.ViewModels
                     $"SingleFileJpeg={singleJpegCount}, SingleFileHeic={singleHeicCount}, " +
                     $"Confirmed={confirmedCount}, Unclassified={files.Count - confirmedCount}");
 
-                // ── 阶段 1.5: 同名配对（VIVO 旧格式 / Apple 双文件未在 Phase 1 命中）──
+                // ── 阶段 1.5: 同名快速定位 vivo 双文件 ──
+                // 文件名只用于缩小查找范围；必须由图片与视频内部的 vivo ID 匹配确认。
+                // Apple 留到 Phase 2，通过两边 ContentIdentifier 严格匹配。
                 if (videoPaths.Count > 0)
                 {
                     var vidByBase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -5966,14 +5940,15 @@ namespace LivePhotoBox.ViewModels
                         string baseName = Path.GetFileNameWithoutExtension(file.FilePath);
                         if (vidByBase.TryGetValue(baseName, out var vidPath))
                         {
+                            var vivoMatch = LivePhotoMetadataMatcher.MatchVivo(
+                                [file.FilePath], [vidPath]);
+                            if (vivoMatch.Pairs.Count == 0)
+                                continue;
+
                             file.LivePhotoType = LivePhotoType.DualFile;
                             file.PairedVideoPath = vidPath;
-                            file.DetectionMethod = LivePhotoDetectionMethod.FilenamePairing;
-                            var detected = LivePhotoProtocolDetector.Detect(
-                                file.FilePath, LivePhotoType.DualFile, null);
-                            // 双文件无标记 → 兜底 Apple（最常见双文件格式）
-                            file.DetectedProtocol = detected != LivePhotoProtocolType.Unknown
-                                ? detected : LivePhotoProtocolType.Apple;
+                            file.DetectionMethod = LivePhotoDetectionMethod.VivoLivePhoto;
+                            file.DetectedProtocol = LivePhotoProtocolType.Vivo;
                             videoPaths.Remove(vidPath);
                             vidByBase.Remove(baseName);
                             pairedCount++;
@@ -5981,7 +5956,7 @@ namespace LivePhotoBox.ViewModels
                     }
                     if (pairedCount > 0)
                         LogService.FileOp(
-                            $"KeyPhoto scan: basename-paired {pairedCount} dual-file photo(s)",
+                            $"KeyPhoto scan: metadata-confirmed {pairedCount} same-name vivo pair(s)",
                             LogLevel.Info);
                 }
 
@@ -6021,8 +5996,8 @@ namespace LivePhotoBox.ViewModels
         /// <summary>
         /// 混合模式读取元数据 + ContentIdentifier 严格配对。
         ///   Phase 1 — C# 读文件头二进制取宽高+日期（失败文件记录，Phase 2 exiftool 兜底）。
-        ///   Phase 2 — exiftool 批量查所有未分类图片和所有视频的 ContentIdentifier + 宽高+日期，
-        ///             按 UUID 严格匹配，未匹配视频也加入列表显示。
+        ///   Phase 2 — exiftool 为读取失败项补宽高+日期；仅对同名图片/视频候选读取
+        ///             ContentIdentifier，并要求文件名与 UUID 同时匹配。
         /// </summary>
         private async Task ReadResolutionsAsync(List<EditFileItem> files, List<string> videoPaths, CancellationToken token)
         {
@@ -6081,7 +6056,7 @@ namespace LivePhotoBox.ViewModels
             if (token.IsCancellationRequested) return;
 
             // ═══════════════════════════════════════════════════════════
-            //  Phase 2: exiftool 批量查 ContentIdentifier + 宽高日期兜底
+            //  Phase 2: exiftool 补宽高日期，并只查询同名双文件候选的 ContentIdentifier
             // ═══════════════════════════════════════════════════════════
             // 未分类图片（LivePhotoType == None）—— Phase 2 CID 匹配候选
             var unclassifiedImgs = new List<(int Index, string Path)>();
@@ -6096,10 +6071,29 @@ namespace LivePhotoBox.ViewModels
                     heicToPair.Add((i, files[i].FilePath));
             }
 
-            bool needImgQuery = unclassifiedImgs.Count > 0 || fallbackFiles.Count > 0 || heicToPair.Count > 0;
+            // 文件名是双文件协议的第一道必要条件。先 O(n) 建同名索引，后续只为这些
+            // 候选读取 CID，避免为目录内所有普通文件读取协议标识。
+            var videoByBaseName = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (string videoPath in videoPaths)
+                videoByBaseName.TryAdd(Path.GetFileNameWithoutExtension(videoPath), videoPath);
+
+            var cidCandidateImages = unclassifiedImgs
+                .Concat(heicToPair)
+                .Where(entry => videoByBaseName.ContainsKey(
+                    Path.GetFileNameWithoutExtension(entry.Path)))
+                .GroupBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .ToList();
+            var cidCandidateVideos = cidCandidateImages
+                .Select(entry => videoByBaseName[Path.GetFileNameWithoutExtension(entry.Path)])
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Select((path, index) => (Index: index, Path: path))
+                .ToList();
+
+            bool needImgQuery = fallbackFiles.Count > 0 || cidCandidateImages.Count > 0;
             bool needVidQuery = videoPaths.Count > 0;
 
-            if (needImgQuery)
+            if (needImgQuery || needVidQuery)
             {
                 string? exifToolPath = ExternalToolLocator.FindExifTool()
                     ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
@@ -6125,13 +6119,11 @@ namespace LivePhotoBox.ViewModels
                         pool.Add(tool);
                     }
 
-                    // ── 查询图片：ContentIdentifier + 宽高日期（兜底 Phase 1 失败 + CID 匹配）──
+                    // ── 查询图片：仅为 Phase 1 失败项补宽高日期 ──
                     var imgResults = new Dictionary<string, (int W, int H, string? Date, string? Cid)>(StringComparer.OrdinalIgnoreCase);
                     {
-                        // 合并：未分类图片 + SingleFileHeic 待配对 + Phase 1 失败文件（去重）
+                        // CID 在后面只针对同名候选单独查询，这里不读取普通图片的协议标识。
                         var toQuery = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-                        foreach (var (idx, path) in unclassifiedImgs) toQuery[path] = idx;
-                        foreach (var (idx, path) in heicToPair) toQuery.TryAdd(path, idx);
                         foreach (var (idx, path) in fallbackFiles) toQuery.TryAdd(path, idx);
                         var queryList = toQuery.Select(kv => (kv.Value, kv.Key)).ToList();
 
@@ -6154,8 +6146,8 @@ namespace LivePhotoBox.ViewModels
                             {
                                 try
                                 {
-                                    var args = new List<string>(batch.Count + 7)
-                                        { "-j", "-ImageWidth", "-ImageHeight", "-DateTimeOriginal", "-ContentIdentifier" };
+                                    var args = new List<string>(batch.Count + 6)
+                                        { "-j", "-ImageWidth", "-ImageHeight", "-DateTimeOriginal" };
                                     foreach (var f in batch) args.Add(f.Path);
                                     string json = await tool.SendCommandAsync(token, args.ToArray());
                                     var results = ParseExifInfoBatch(json);
@@ -6204,7 +6196,7 @@ namespace LivePhotoBox.ViewModels
                     if (fallbackOk > 0)
                         LogService.FileOp($"KeyPhoto fallback (exiftool): {fallbackOk} resolved");
 
-                    // ── 查询视频：ContentIdentifier + 宽高 ──
+                    // ── 查询视频宽高（CID 仅对同名候选另查）──
                     var vidResults = new Dictionary<string, (int W, int H, string? Cid)>(StringComparer.OrdinalIgnoreCase);
                     if (needVidQuery)
                     {
@@ -6228,8 +6220,8 @@ namespace LivePhotoBox.ViewModels
                             {
                                 try
                                 {
-                                    var args = new List<string>(batch.Count + 5)
-                                        { "-j", "-ImageWidth", "-ImageHeight", "-ContentIdentifier" };
+                                    var args = new List<string>(batch.Count + 4)
+                                        { "-j", "-ImageWidth", "-ImageHeight" };
                                     foreach (var f in batch) args.Add(f.Path);
                                     string json = await tool.SendCommandAsync(token, args.ToArray());
                                     var results = ParseExifInfoBatch(json);
@@ -6258,35 +6250,57 @@ namespace LivePhotoBox.ViewModels
 
                     if (token.IsCancellationRequested) return;
 
-                    // ── 按 ContentIdentifier UUID 匹配 ──
-                    var cidToVideo = new Dictionary<string, (string Path, int W, int H)>(StringComparer.OrdinalIgnoreCase);
-                    var matchedVideoPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var (vPath, vInfo) in vidResults)
+                    // ── 仅查询同名候选的 ContentIdentifier ──
+                    var candidateImageCids = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                    var candidateVideoCids = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+                    if (cidCandidateImages.Count > 0)
                     {
-                        if (!string.IsNullOrWhiteSpace(vInfo.Cid) && !cidToVideo.ContainsKey(vInfo.Cid))
-                            cidToVideo[vInfo.Cid] = (vPath, vInfo.W, vInfo.H);
+                        await RunCidBatchAsync(
+                            pool, cidCandidateImages, batchSize, candidateImageCids,
+                            "KeyPhoto CID candidate img", token);
+                        await RunCidBatchAsync(
+                            pool, cidCandidateVideos, batchSize, candidateVideoCids,
+                            "KeyPhoto CID candidate vid", token);
+                    }
+
+                    var matchedVideoPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                    bool TryGetSameNameAppleVideo(string imagePath, out string videoPath)
+                    {
+                        videoPath = string.Empty;
+                        string baseName = Path.GetFileNameWithoutExtension(imagePath);
+                        if (!videoByBaseName.TryGetValue(baseName, out string? candidateVideo)
+                            || !candidateImageCids.TryGetValue(imagePath, out string? imageCid)
+                            || !candidateVideoCids.TryGetValue(candidateVideo, out string? videoCid)
+                            || string.IsNullOrWhiteSpace(imageCid)
+                            || string.IsNullOrWhiteSpace(videoCid)
+                            || !imageCid.Equals(videoCid, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return false;
+                        }
+
+                        videoPath = candidateVideo;
+                        return true;
                     }
 
                     int liveConfirmed = 0;
                     foreach (var (index, imgPath) in unclassifiedImgs)
                     {
-                        if (imgResults.TryGetValue(imgPath, out var imgInfo) &&
-                            !string.IsNullOrWhiteSpace(imgInfo.Cid) &&
-                            cidToVideo.TryGetValue(imgInfo.Cid, out var matched))
+                        if (TryGetSameNameAppleVideo(imgPath, out string matchedVideoPath))
                         {
-                            // CID 匹配成功 → 完整的 Apple 实况照片对
+                            // 文件名 + CID 同时匹配 → 完整的 Apple 实况照片对
                             files[index].LivePhotoType = LivePhotoType.DualFile;
-                            files[index].PairedVideoPath = matched.Path;
+                            files[index].PairedVideoPath = matchedVideoPath;
                             files[index].HasConfirmedProtocol = true;
                             files[index].DetectedProtocol = LivePhotoProtocolType.Apple;
                             files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
                             // 更新文件大小为图片+视频合并值
                             files[index].FileSize = FileSizeFormatter.Format(
-                                new FileInfo(files[index].FilePath).Length + new FileInfo(matched.Path).Length);
-                            matchedVideoPaths.Add(matched.Path);
+                                new FileInfo(files[index].FilePath).Length + new FileInfo(matchedVideoPath).Length);
+                            matchedVideoPaths.Add(matchedVideoPath);
                             liveConfirmed++;
                         }
-                        // 有 CID 但未找到配对视频 → 不认定为实况照片（损坏的 Apple 对）
+                        // 仅 CID 相同或仅文件名相同都不认定为实况照片。
                     }
 
                     // ── SingleFileHeic 补 CID 配对 ──
@@ -6302,19 +6316,17 @@ namespace LivePhotoBox.ViewModels
                             && files[index].DetectedProtocol != LivePhotoProtocolType.Apple)
                             continue;
 
-                        if (imgResults.TryGetValue(imgPath, out var imgInfo) &&
-                            !string.IsNullOrWhiteSpace(imgInfo.Cid) &&
-                            cidToVideo.TryGetValue(imgInfo.Cid, out var matched))
+                        if (TryGetSameNameAppleVideo(imgPath, out string matchedVideoPath))
                         {
                             files[index].LivePhotoType = LivePhotoType.DualFile;
-                            files[index].PairedVideoPath = matched.Path;
+                            files[index].PairedVideoPath = matchedVideoPath;
                             files[index].DetectedProtocol = LivePhotoProtocolType.Apple;
                             files[index].DetectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
                             // 更新文件大小为图片+视频合并值
                             files[index].FileSize = FileSizeFormatter.Format(
-                                new FileInfo(files[index].FilePath).Length + new FileInfo(matched.Path).Length);
+                                new FileInfo(files[index].FilePath).Length + new FileInfo(matchedVideoPath).Length);
                             // HasConfirmedProtocol 已在 Phase 1 设为 true，不重复计数
-                            matchedVideoPaths.Add(matched.Path);
+                            matchedVideoPaths.Add(matchedVideoPath);
                             heicPaired++;
                         }
                     }
@@ -6349,19 +6361,6 @@ namespace LivePhotoBox.ViewModels
                         {
                             RefreshCounts();
                         });
-                    }
-
-                    // 扫描结果顺手建 CID 索引，后续拖拽直接 O(1) 查表，不用重复扫描
-                    if (!string.IsNullOrWhiteSpace(CurrentDirectory) && Directory.Exists(CurrentDirectory))
-                    {
-                        var index = new CidDirectoryIndex();
-                        foreach (var (p, info) in imgResults) index.ImageCids[p] = info.Cid;
-                        foreach (var (p, info) in vidResults) index.VideoCids[p] = info.Cid;
-                        foreach (var (cid, vinfo) in cidToVideo) index.CidToVideo[cid] = vinfo.Path;
-                        foreach (var f in Directory.EnumerateFiles(CurrentDirectory))
-                            index.FilePaths.Add(f);
-                        _cidIndexCache[CurrentDirectory] = index;
-                        _lastCachedDirectory = CurrentDirectory;
                     }
 
                     LogService.FileOp(
@@ -7020,10 +7019,13 @@ namespace LivePhotoBox.ViewModels
                     ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
                 bool hasExifTool = File.Exists(exifToolPath);
 
-                // ── Step 2: 拖入文件之间快速同名配对（不依赖文件夹扫描） ──
-                // Apple HEIC+MOV、VIVO 双文件实况照片：同名异类文件自动配对
-                var dropPairs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // image→video
-                var dropPairedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                // ── Step 2: 拖入文件之间快速定位同名候选（不依赖文件夹扫描） ──
+                // 文件名只用于把核验范围缩小到一对文件；Apple 必须两边 CID 一致，
+                // vivo 必须两边 com.android.camera.livephoto ID 一致，未知协议绝不配对。
+                var dropCandidates = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase); // image→video
+                var confirmedDropPairs = new Dictionary<string,
+                    (string VideoPath, LivePhotoProtocolType Protocol)>(StringComparer.OrdinalIgnoreCase);
+                var confirmedDropVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 {
                     var imgsByBase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                     var vidsByBase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -7041,14 +7043,46 @@ namespace LivePhotoBox.ViewModels
                     {
                         if (vidsByBase.TryGetValue(baseName, out var vidPath))
                         {
-                            dropPairs[imgPath] = vidPath;
-                            dropPairedVideos.Add(vidPath);
+                            dropCandidates[imgPath] = vidPath;
                         }
                     }
                 }
-                if (dropPairs.Count > 0)
+
+                foreach (var (imgPath, vidPath) in dropCandidates)
+                {
+                    // 已确认的单文件实况不能被旁边的同名普通视频覆盖。
+                    if (discoveryMap.TryGetValue(imgPath, out var singleMatch)
+                        && singleMatch.LivePhotoType is LivePhotoType.SingleFileJpeg
+                            or LivePhotoType.SingleFileHeic)
+                    {
+                        continue;
+                    }
+
+                    LivePhotoProtocolType pairProtocol = LivePhotoProtocolType.Unknown;
+                    try
+                    {
+                        pairProtocol = await LivePhotoMetadataMatcher.DetectDualFileProtocolAsync(
+                            imgPath, vidPath, hasExifTool ? exifToolPath : null,
+                            CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.FileOp(
+                            $"Drop[Pair] metadata validation failed for '{Path.GetFileName(imgPath)}': {ex.Message}",
+                            LogLevel.Warning);
+                    }
+
+                    if (pairProtocol != LivePhotoProtocolType.Unknown)
+                    {
+                        confirmedDropPairs[imgPath] = (vidPath, pairProtocol);
+                        confirmedDropVideos.Add(vidPath);
+                    }
+                }
+
+                if (confirmedDropPairs.Count > 0)
                     LogService.FileOp(
-                        $"Drop[Pair] Basename-matched {dropPairs.Count} dual-file pair(s) within dropped batch",
+                        $"Drop[Pair] Metadata-confirmed {confirmedDropPairs.Count}/{dropCandidates.Count} " +
+                        "same-name dual-file pair(s) within dropped batch",
                         LogLevel.Info);
 
                 // ── Step 3: 处理每个拖入文件 ──
@@ -7059,8 +7093,8 @@ namespace LivePhotoBox.ViewModels
                 {
                     if (!File.Exists(rawPath) || addedPaths.Contains(rawPath)) continue;
 
-                    // 视频已由同批图片配对 → 跳过（图片为主项）
-                    if (dropPairedVideos.Contains(rawPath)) continue;
+                    // 只有协议元数据已确认时，视频才由图片主项代表。
+                    if (confirmedDropVideos.Contains(rawPath)) continue;
 
                     var filePath = rawPath;
                     var fileName = Path.GetFileName(filePath);
@@ -7072,32 +7106,25 @@ namespace LivePhotoBox.ViewModels
                     string? pairedVideoPath = null;
                     long appendedVideoLength = 0;
                     bool confirmed = false;
+                    var protocol = LivePhotoProtocolType.Unknown;
 
                     bool isVideo = SupportedVideoExtensions.Contains(ext);
                     bool isImage = SupportedImageExtensions.Contains(ext);
 
-                    // ── 拖入批内同名配对（优先级最高，覆盖 discoveryMap 的单文件判定）──
-                    if (isImage && dropPairs.TryGetValue(filePath, out var dropVidPath))
+                    // ── 拖入批内已通过协议元数据确认的双文件配对 ──
+                    if (isImage && confirmedDropPairs.TryGetValue(filePath, out var dropPair))
                     {
-                        // 校验配对视频确实存在（防止路径格式差异导致后续 File.Exists 失败）
-                        if (!File.Exists(dropVidPath))
-                        {
-                            LogService.FileOp(
-                                $"Drop[Pair] WARNING: paired video NOT FOUND at '{dropVidPath}' — " +
-                                $"falling back to single-file detection",
-                                LogLevel.Warning);
-                            // 回退：让 discoveryMap 继续处理
-                        }
-                        else
-                        {
-                            detectedType = LivePhotoType.DualFile;
-                            pairedVideoPath = dropVidPath;
-                            detectionMethod = LivePhotoDetectionMethod.FilenamePairing;
-                            confirmed = true;
-                            LogService.FileOp(
-                                $"Drop[Pair] Dual-file matched: {Path.GetFileName(filePath)} ↔ {Path.GetFileName(dropVidPath)}",
-                                LogLevel.Info);
-                        }
+                        detectedType = LivePhotoType.DualFile;
+                        pairedVideoPath = dropPair.VideoPath;
+                        protocol = dropPair.Protocol;
+                        detectionMethod = protocol == LivePhotoProtocolType.Vivo
+                            ? LivePhotoDetectionMethod.VivoLivePhoto
+                            : LivePhotoDetectionMethod.ContentIdentifier;
+                        confirmed = true;
+                        LogService.FileOp(
+                            $"Drop[Pair] {protocol} metadata matched: {Path.GetFileName(filePath)} ↔ " +
+                            Path.GetFileName(dropPair.VideoPath),
+                            LogLevel.Info);
                     }
                     if (detectedType == LivePhotoType.None && discoveryMap.TryGetValue(filePath, out var match))
                     {
@@ -7127,6 +7154,7 @@ namespace LivePhotoBox.ViewModels
                                 myCid.Equals(oppCid, StringComparison.OrdinalIgnoreCase))
                             {
                                 quickMatched = true;
+                                protocol = LivePhotoProtocolType.Apple;
                                 if (isImage)
                                 {
                                     // 拖入照片 → 视频为配对文件
@@ -7139,68 +7167,6 @@ namespace LivePhotoBox.ViewModels
                                     filePath = oppPath;
                                     fileName = Path.GetFileName(oppPath);
                                     isVideo = false;
-                                }
-                            }
-                        }
-
-                        // 策略 2: 缓存 / 全量扫描（先校验目录是否变动）
-                        if (!quickMatched)
-                        {
-                            CidDirectoryIndex? index = null;
-                            if (_cidIndexCache.TryGetValue(dir, out var cached))
-                            {
-                                // 快速对比：当前目录文件列表 vs 建索引时快照
-                                var currentFiles = new HashSet<string>(
-                                    Directory.EnumerateFiles(dir), StringComparer.OrdinalIgnoreCase);
-                                if (currentFiles.SetEquals(cached.FilePaths))
-                                    index = cached;
-                                else
-                                    _cidIndexCache.Remove(dir); // 有变动，废弃旧索引
-                            }
-
-                            if (index == null)
-                            {
-                                index = await BuildCidIndexAsync(dir, exifToolPath, CancellationToken.None);
-                                if (index != null) _cidIndexCache[dir] = index;
-                            }
-
-                            if (index != null)
-                            {
-                                string? myCid = index.ImageCids.TryGetValue(filePath, out var ic) ? ic :
-                                    index.VideoCids.TryGetValue(filePath, out var vc) ? vc : null;
-
-                                if (!string.IsNullOrWhiteSpace(myCid))
-                                {
-                                    if (isImage && index.CidToVideo.TryGetValue(myCid, out var vid))
-                                    {
-                                        pairedVideoPath = vid;
-                                        quickMatched = true;
-                                    }
-                                    else if (isVideo)
-                                    {
-                                        foreach (var (ip, icid) in index.ImageCids)
-                                        {
-                                            if (string.Equals(icid, myCid, StringComparison.OrdinalIgnoreCase))
-                                            {
-                                                // 以照片为主项
-                                                filePath = ip;
-                                                fileName = Path.GetFileName(ip);
-                                                pairedVideoPath = rawPath;
-                                                isVideo = false;
-                                                quickMatched = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-
-                                    // 有 ContentIdentifier 但未找到配对 → 协议确认，标注缺失
-                                    if (!quickMatched)
-                                    {
-                                        detectedType = LivePhotoType.DualFile;
-                                        detectionMethod = LivePhotoDetectionMethod.ContentIdentifier;
-                                        confirmed = true;
-                                        // pairedVideoPath 保持 null → 属性面板显示"(未找到配对视频/照片)"
-                                    }
                                 }
                             }
                         }
@@ -7221,8 +7187,8 @@ namespace LivePhotoBox.ViewModels
                         dropTotalBytes += new FileInfo(pairedVideoPath).Length;
 
                     // Protocol detection for non-CID files (single-file JPEG/HEIC)
-                    var protocol = LivePhotoProtocolType.Unknown;
-                    if (confirmed && detectionMethod != LivePhotoDetectionMethod.ContentIdentifier)
+                    if (confirmed && protocol == LivePhotoProtocolType.Unknown
+                        && detectionMethod != LivePhotoDetectionMethod.ContentIdentifier)
                     {
                         try
                         {
@@ -7247,13 +7213,7 @@ namespace LivePhotoBox.ViewModels
                         PairedVideoPath = pairedVideoPath,
                         AppendedVideoLength = appendedVideoLength,
                         DetectionMethod = detectionMethod,
-                        HasConfirmedProtocol = confirmed,
-                        DetectedProtocol = (confirmed && detectionMethod == LivePhotoDetectionMethod.ContentIdentifier)
-                            || (confirmed && detectionMethod == LivePhotoDetectionMethod.FilenamePairing
-                                && detectedType == LivePhotoType.DualFile
-                                && protocol == LivePhotoProtocolType.Unknown)
-                            ? LivePhotoProtocolType.Apple
-                            : protocol,
+                        DetectedProtocol = protocol,
                         Resolution = string.Empty
                     };
 
@@ -7384,73 +7344,6 @@ namespace LivePhotoBox.ViewModels
             catch
             {
                 return (null, null);
-            }
-        }
-
-        /// <summary>
-        /// 建目录 CID 索引：批量查询目录内所有图片和视频的 ContentIdentifier，
-        /// 构建图片 CID 映射 + 视频 CID→路径反向索引，缓存供后续拖拽 O(1) 复用。
-        /// </summary>
-        private async Task<CidDirectoryIndex?> BuildCidIndexAsync(
-            string dir, string exifToolPath, CancellationToken token)
-        {
-            try
-            {
-                var allFiles = Directory.EnumerateFiles(dir).ToList();
-                var imgPaths = allFiles
-                    .Where(f => SupportedImageExtensions.Contains(Path.GetExtension(f)))
-                    .ToList();
-                var vidPaths = allFiles
-                    .Where(f => SupportedVideoExtensions.Contains(Path.GetExtension(f)))
-                    .ToList();
-
-                if (imgPaths.Count == 0 && vidPaths.Count == 0) return null;
-
-                var index = new CidDirectoryIndex();
-                // 保存文件路径快照，后续拖拽时对比检测目录变动
-                foreach (var f in allFiles) index.FilePaths.Add(f);
-                const int batchSize = 100;
-                int poolSize = ExifToolPoolSize;
-                var pool = new List<PersistentExifTool>(poolSize);
-
-                try
-                {
-                    for (int i = 0; i < poolSize; i++)
-                        pool.Add(new PersistentExifTool(exifToolPath));
-
-                    if (imgPaths.Count > 0)
-                    {
-                        var entries = imgPaths.Select((p, i) => (Index: i, Path: p)).ToList();
-                        await RunCidBatchAsync(pool, entries, batchSize, index.ImageCids, "Drop idx img", token);
-                    }
-
-                    if (vidPaths.Count > 0)
-                    {
-                        var entries = vidPaths.Select((p, i) => (Index: i, Path: p)).ToList();
-                        await RunCidBatchAsync(pool, entries, batchSize, index.VideoCids, "Drop idx vid", token);
-                    }
-
-                    foreach (var (vPath, cid) in index.VideoCids)
-                    {
-                        if (!string.IsNullOrWhiteSpace(cid) && !index.CidToVideo.ContainsKey(cid))
-                            index.CidToVideo[cid] = vPath;
-                    }
-
-                    LogService.FileOp(
-                        $"Drop[Index] Built for '{Path.GetFileName(dir)}': " +
-                        $"{imgPaths.Count} imgs + {vidPaths.Count} vids → {index.CidToVideo.Count} CIDs");
-                }
-                finally
-                {
-                    foreach (var t in pool) try { t.Dispose(); } catch { }
-                }
-
-                return index;
-            }
-            catch (Exception ex)
-            {
-                LogService.FileOp($"Drop[Index] Failed for '{dir}': {ex.Message}", LogLevel.Warning);
-                return null;
             }
         }
 

@@ -2498,6 +2498,8 @@ namespace LivePhotoBox.Views
                 or Windows.System.VirtualKey.Down
                 or Windows.System.VirtualKey.Left
                 or Windows.System.VirtualKey.Right;
+            bool isTimelineBoundary = e.Key is Windows.System.VirtualKey.Home
+                or Windows.System.VirtualKey.End;
 
             DependencyObject? focused = _editNavigationInputHost?.XamlRoot != null
                 ? FocusManager.GetFocusedElement(_editNavigationInputHost.XamlRoot) as DependencyObject
@@ -2539,6 +2541,10 @@ namespace LivePhotoBox.Views
                 e.Handled = e.Key is Windows.System.VirtualKey.Up or Windows.System.VirtualKey.Down
                     ? TryNavigateResourceFile(e.Key)
                     : TryNavigateTimelineFrame(e.Key);
+            }
+            else if (noModifiers && isTimelineBoundary)
+            {
+                e.Handled = TryNavigateTimelineFrame(e.Key);
             }
             else if (noModifiers && e.Key == Windows.System.VirtualKey.K)
             {
@@ -2696,11 +2702,15 @@ namespace LivePhotoBox.Views
             int currentIndex = ViewModel.SelectedTimelineFrame != null
                 ? ViewModel.TimelineFrames.IndexOf(ViewModel.SelectedTimelineFrame)
                 : -1;
-            int nextIndex = currentIndex < 0
-                ? 0
-                : key == Windows.System.VirtualKey.Left
-                    ? Math.Max(0, currentIndex - 1)
-                    : Math.Min(ViewModel.TimelineFrames.Count - 1, currentIndex + 1);
+            int nextIndex = key switch
+            {
+                Windows.System.VirtualKey.Home => 0,
+                Windows.System.VirtualKey.End => ViewModel.TimelineFrames.Count - 1,
+                Windows.System.VirtualKey.Left when currentIndex >= 0 => Math.Max(0, currentIndex - 1),
+                Windows.System.VirtualKey.Right when currentIndex >= 0 =>
+                    Math.Min(ViewModel.TimelineFrames.Count - 1, currentIndex + 1),
+                _ => 0
+            };
 
             ViewModel.SelectTimelineFrameProgrammatically(ViewModel.TimelineFrames[nextIndex]);
             return true;

@@ -157,7 +157,7 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 | Google Motion Photo (v2) | Windows / Xiaomi / Pixel | ✅ Supported |
 | OPPO O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
 | vivo Live Photo | Windows / vivo (≥ X300) | 🟡 In testing |
-| Samsung Motion Photo | Windows / Samsung | 🟡 In testing |
+| Samsung Motion Photo | Windows / Samsung | ✅ Supported |
 | HUAWEI Moving Photo | HUAWEI / Honor | ✅ Supported |
 
 **Split — device support:**

@@ -552,17 +552,9 @@ namespace LivePhotoBox.Views
                 hint.Text = ResourceService.GetString(hintKey);
             }
 
-            string JpegMp4Hint() => protocolIndex switch
-            {
-                5 => "MergePage_FormatHint_Untested",          // Samsung
-                _ => "MergePage_FormatHint_BestCompat",
-            };
+            string JpegMp4Hint() => "MergePage_FormatHint_BestCompat";
             string JpegMovHint() => "MergePage_FormatHint_GoodCompat";
-            string HeicMp4Hint() => protocolIndex switch
-            {
-                5 => "MergePage_FormatHint_Untested",          // Samsung
-                _ => "MergePage_FormatHint_Efficient",
-            };
+            string HeicMp4Hint() => "MergePage_FormatHint_Efficient";
             string HeicMovHint() => "MergePage_FormatHint_GoogleOnly";
             string HeicH265Hint() => "MergePage_FormatHint_HEVC";
 

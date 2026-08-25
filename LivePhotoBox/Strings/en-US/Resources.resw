@@ -1717,9 +1717,6 @@ Open the output folder when done — your photos are back to normal ~</value>
   <data name="MergePage_FormatHint_GoogleOnly" xml:space="preserve">
     <value>⚠️ Google Photos only</value>
   </data>
-  <data name="MergePage_FormatHint_Untested" xml:space="preserve">
-    <value>⚠️ Untested</value>
-  </data>
   <data name="MergePage_KeepOriginalFiles.Header" xml:space="preserve">
     <value>Keep Original Files</value>
   </data>
@@ -1954,7 +1951,7 @@ Supported video formats: MOV, MP4
 · HUAWEI Moving Photo
 
 · vivo Live Photo (≥ x300) ⚠️ In testing
-· Samsung Motion Photo ⚠️ In testing
+· Samsung Motion Photo
 
 💡 For supported devices, see the hint in the "Merge Protocol" dropdown
 
@@ -1980,7 +1977,7 @@ The resulting single-file format can be viewed and played directly on both Windo
 · HUAWEI Moving Photo
 
 · vivo Live Photo ⚠️ In testing
-· Samsung Motion Photo ⚠️ In testing
+· Samsung Motion Photo
 
 💡 For supported devices, see the hint in the "Match" dropdown
 
@@ -3625,7 +3622,7 @@ Then click "Start Split".</value>
     <value>Move Originals to Recycle Bin</value>
   </data>
   <data name="MergePage_Protocol_Samsung.Content" xml:space="preserve">
-    <value>Samsung - Motion Photo ⚠️</value>
+    <value>Samsung - Motion Photo</value>
   </data>
   <data name="MergePage_Protocol_Samsung_Hint" xml:space="preserve">
     <value>Windows / Samsung</value>
@@ -4176,7 +4173,7 @@ Then click "Start Split".</value>
     <value>Windows / Xiaomi / vivo (≥ x300)</value>
   </data>
   <data name="SplitPage_Match_Samsung.Content" xml:space="preserve">
-    <value>Samsung - Motion Photo ⚠️</value>
+    <value>Samsung - Motion Photo</value>
   </data>
   <data name="SplitPage_Match_Samsung_Hint" xml:space="preserve">
     <value>Windows / Samsung</value>

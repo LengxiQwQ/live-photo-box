@@ -83,7 +83,7 @@
 | Google - Motion Photo (v2) | Windows / 小米 / Pixel | ✅ 可用 |
 | OPPO - O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
 | HUAWEI - Moving Photo | 华为 / 荣耀 | ✅ 可用 |
-| Samsung - Motion Photo | Windows / Samsung | 🟡 测试中 |
+| Samsung - Motion Photo | Windows / Samsung | ✅ 可用 |
 | vivo - Live Photo | Windows / vivo（≥ x300） | 🟡 测试中 |
 
 ### 📸 实况照片拆分

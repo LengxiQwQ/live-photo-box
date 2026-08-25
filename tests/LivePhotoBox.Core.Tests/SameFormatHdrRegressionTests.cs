@@ -10,6 +10,184 @@ namespace LivePhotoBox.Core.Tests;
 
 public sealed class SameFormatHdrRegressionTests
 {
+    [Theory]
+    [InlineData("红米老款-GV1.JPG")]
+    [InlineData("荣耀.jpg")]
+    [InlineData("一加.jpg")]
+    [InlineData("vivo.jpg")]
+    [InlineData("三星.jpg")]
+    [InlineData("三星.heic")]
+    [InlineData("华为-Mate80.jpg")]
+    [InlineData("华为Mate80.heic")]
+    public async Task SplitKeep_RemovesLivePhotoIdentityFromAllSingleFileProtocols(string sampleName)
+    {
+        string source = ResolveSample(sampleName);
+        string outputDir = CreateTempDirectory();
+
+        try
+        {
+            LivePhotoSplitResult result = await LivePhotoSplitService.SplitAsync(
+                source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None);
+
+            string metadata = LivePhotoSplitService.ReadMetadataTextSync(result.ImageOutputPath);
+            Assert.DoesNotContain("GCamera:MotionPhoto", metadata, StringComparison.Ordinal);
+            Assert.DoesNotContain("GCamera:MicroVideo", metadata, StringComparison.Ordinal);
+            Assert.DoesNotContain("Semantic=\"MotionPhoto\"", metadata, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("OpCamera:", metadata, StringComparison.Ordinal);
+            Assert.DoesNotContain("VCamera:", metadata, StringComparison.Ordinal);
+            Assert.DoesNotContain("LivePhotoBox:Protocol", metadata, StringComparison.Ordinal);
+
+            LivePhotoType detectedType = await LivePhotoDiscoveryService.DetectSingleFileTypeAsync(
+                result.ImageOutputPath, CancellationToken.None);
+            Assert.Equal(LivePhotoType.None, detectedType);
+
+            LivePhotoType probeType = HeicConverterService.IsHeicFile(result.ImageOutputPath)
+                ? LivePhotoType.SingleFileHeic
+                : LivePhotoType.SingleFileJpeg;
+            LivePhotoProtocolType protocol = LivePhotoProtocolDetector.Detect(
+                result.ImageOutputPath, probeType, contentIdentifier: null, xmpText: metadata);
+            Assert.Equal(LivePhotoProtocolType.Unknown, protocol);
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
+    [Fact]
+    public async Task SplitKeep_HuaweiJpeg_PreservesCameraMake()
+    {
+        string source = ResolveSample("华为-Mate80.jpg");
+        string outputDir = CreateTempDirectory();
+
+        try
+        {
+            string sourceMake = await ReadExifTagsAsync(source, "-s", "-Make");
+            LivePhotoSplitResult result = await LivePhotoSplitService.SplitAsync(
+                source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None);
+            string outputMake = await ReadExifTagsAsync(result.ImageOutputPath, "-s", "-Make");
+
+            Assert.False(string.IsNullOrWhiteSpace(sourceMake));
+            Assert.Equal(sourceMake.Trim(), outputMake.Trim());
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
+    [Fact]
+    public async Task SplitKeep_JpegWithOrdinaryXmp_PreservesOrdinaryMetadata()
+    {
+        string outputDir = CreateTempDirectory();
+        string source = Path.Combine(outputDir, "synthetic_v2.jpg");
+        byte[] sampleBytes = await File.ReadAllBytesAsync(ResolveSample("荣耀.jpg"));
+        const string xmp =
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">" +
+            "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
+            "<rdf:Description xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" " +
+            "xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" " +
+            "xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" " +
+            "xmlns:dc=\"http://purl.org/dc/elements/1.1/\" " +
+            "GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\">" +
+            "<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">Keep me</rdf:li></rdf:Alt></dc:title>" +
+            "<Container:Directory><rdf:Seq>" +
+            "<rdf:li><Container:Item Item:Semantic=\"Primary\" Item:Mime=\"image/jpeg\"/></rdf:li>" +
+            "<rdf:li><Container:Item Item:Semantic=\"MotionPhoto\" Item:Mime=\"video/mp4\" Item:Length=\"24\"/></rdf:li>" +
+            "</rdf:Seq></Container:Directory>" +
+            "</rdf:Description></rdf:RDF></x:xmpmeta>";
+
+        byte[] xmpPayload = Encoding.UTF8.GetBytes("http://ns.adobe.com/xap/1.0/\0" + xmp);
+        using (var ms = new MemoryStream())
+        {
+            ms.Write(sampleBytes, 0, 2);
+            ms.Write([0xFF, 0xE1, (byte)((xmpPayload.Length + 2) >> 8), (byte)((xmpPayload.Length + 2) & 0xFF)]);
+            ms.Write(xmpPayload);
+            ms.Write(sampleBytes, 2, sampleBytes.Length - 2);
+            File.WriteAllBytes(source, ms.ToArray());
+        }
+
+        try
+        {
+            LivePhotoSplitResult result = await LivePhotoSplitService.SplitAsync(
+                source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None);
+            string metadata = LivePhotoSplitService.ReadMetadataTextSync(result.ImageOutputPath);
+
+            Assert.Contains("Keep me", metadata, StringComparison.Ordinal);
+            Assert.Contains("http://purl.org/dc/elements/1.1/", metadata, StringComparison.Ordinal);
+            Assert.DoesNotContain("MotionPhoto", metadata, StringComparison.Ordinal);
+            Assert.DoesNotContain("http://ns.google.com/photos/1.0/camera/", metadata, StringComparison.Ordinal);
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
+    [Fact]
+    public async Task PatchMp4TooAtom_NoLavfAndThreeByteTail_CompletesWithoutChangingFile()
+    {
+        string outputDir = CreateTempDirectory();
+        string path = Path.Combine(outputDir, "no_lavf.bin");
+        byte[] original = new byte[65_539];
+        Array.Fill(original, (byte)0x5A);
+        await File.WriteAllBytesAsync(path, original);
+
+        try
+        {
+            await Task.Run(() => LivePhotoMergeService.PatchMp4TooAtom(path, CancellationToken.None))
+                .WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.Equal(original, await File.ReadAllBytesAsync(path));
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
+    [Fact]
+    public async Task PatchMp4TooAtom_LavfCrossesChunkBoundary_ReplacesValueInPlace()
+    {
+        string outputDir = CreateTempDirectory();
+        string path = Path.Combine(outputDir, "cross_chunk_lavf.bin");
+        byte[] data = new byte[65_600];
+        Array.Fill(data, (byte)0x5A);
+        Encoding.ASCII.GetBytes("Lavf62.3.100").CopyTo(data, 65_534);
+        await File.WriteAllBytesAsync(path, data);
+
+        try
+        {
+            LivePhotoMergeService.PatchMp4TooAtom(path, CancellationToken.None);
+
+            byte[] patched = await File.ReadAllBytesAsync(path);
+            Assert.Equal(data.Length, patched.Length);
+            Assert.Equal("openharmony6", Encoding.ASCII.GetString(patched, 65_534, 12));
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
+    [Fact]
+    public void PatchMp4TooAtom_PreCancelled_ThrowsOperationCanceledException()
+    {
+        string outputDir = CreateTempDirectory();
+        string path = Path.Combine(outputDir, "cancelled.bin");
+        File.WriteAllBytes(path, new byte[2_048]);
+
+        try
+        {
+            Assert.Throws<OperationCanceledException>(() =>
+                LivePhotoMergeService.PatchMp4TooAtom(path, new CancellationToken(canceled: true)));
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
     [Fact]
     public async Task SplitJpeg_KeepFormat_PreservesGoogleGainMap()
     {

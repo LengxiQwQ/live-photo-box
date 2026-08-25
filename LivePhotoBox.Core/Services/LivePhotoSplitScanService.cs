@@ -327,29 +327,23 @@ namespace LivePhotoBox.Services
 
                 if (!hasHeadMarker && !hasTailMarker) return false;
 
-                // ── 第四步：偏移量复查（仅日志，不阻塞）───────────────────
-                // 尝试解析视频偏移量。成功→记录合法/非法；失败→标记已命中，照常放行
+                // ── 第四步：偏移量复查 ──────────────────────────────────
+                // XMP 标记不是决定性证据：Ultra HDR 也有 Container:Directory，编辑器也可能
+                // 在视频被移除后保留 MotionPhoto 壳。JPEG 必须同时具备合法的视频长度。
                 string metadataText = Encoding.UTF8.GetString(headBuffer, 0, headRead);
                 long? parsedOffset = TryParseVideoOffset(metadataText);
 
-                if (parsedOffset.HasValue && parsedOffset.Value > 0)
+                if (hasHeadMarker)
                 {
+                    if (!parsedOffset.HasValue || parsedOffset.Value <= 0)
+                        return false;
+
                     long videoLen = parsedOffset.Value;
                     if (videoLen < MinVideoBytes || videoLen >= fileSize
                         || (fileSize - videoLen) < MinImageBytes)
                     {
-                        LogService.Scan(
-                            $"Marker matched but offset looks invalid for '{Path.GetFileName(path)}' " +
-                            $"(offset={videoLen}, fileSize={fileSize}) — passing through anyway.",
-                            LogLevel.Debug);
+                        return false;
                     }
-                }
-                else if (hasHeadMarker)
-                {
-                    LogService.Scan(
-                        $"Marker matched but offset unparsed for '{Path.GetFileName(path)}' — " +
-                        "passing through (marker-only match).",
-                        LogLevel.Debug);
                 }
                 else
                 {

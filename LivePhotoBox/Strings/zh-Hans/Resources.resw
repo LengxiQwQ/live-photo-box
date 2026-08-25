@@ -972,7 +972,7 @@
     <value>等待拆分</value>
   </data>
   <data name="SplitPage_Task_Processing" xml:space="preserve">
-    <value>正在拆分...</value>
+    <value>拆分中...</value>
   </data>
   <data name="SplitPage_Task_Success" xml:space="preserve">
     <value>拆分完成</value>
@@ -1717,9 +1717,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="MergePage_FormatHint_GoogleOnly" xml:space="preserve">
     <value>⚠️ 仅 Google 相册可识别</value>
   </data>
-  <data name="MergePage_FormatHint_Untested" xml:space="preserve">
-    <value>⚠️ 有待测试</value>
-  </data>
   <data name="MergePage_KeepOriginalFiles.Header" xml:space="preserve">
     <value>保留原始文件</value>
   </data>
@@ -1954,7 +1951,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
 · HUAWEI Moving Photo
 
 · vivo Live Photo（≥ x300）⚠️ 测试中
-· Samsung Motion Photo ⚠️ 测试中
+· Samsung Motion Photo
 
 💡 具体支持机型，请看「合成协议」下拉菜单提示
 
@@ -1980,7 +1977,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
 · HUAWEI Moving Photo
 
 · vivo Live Photo ⚠️ 测试中
-· Samsung Motion Photo ⚠️ 测试中
+· Samsung Motion Photo
 
 💡 具体支持机型，请看「匹配方式」下拉菜单提示
 
@@ -3625,7 +3622,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>完成后将原文件移至回收站</value>
   </data>
   <data name="MergePage_Protocol_Samsung.Content" xml:space="preserve">
-    <value>Samsung - Motion Photo ⚠️</value>
+    <value>Samsung - Motion Photo</value>
   </data>
   <data name="MergePage_Protocol_Samsung_Hint" xml:space="preserve">
     <value>Windows / 三星</value>
@@ -4176,7 +4173,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>Windows / 小米 / vivo (≥ x300)</value>
   </data>
   <data name="SplitPage_Match_Samsung.Content" xml:space="preserve">
-    <value>Samsung - Motion Photo ⚠️</value>
+    <value>Samsung - Motion Photo</value>
   </data>
   <data name="SplitPage_Match_Samsung_Hint" xml:space="preserve">
     <value>Windows / 三星</value>
@@ -4325,25 +4322,67 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_BackgroundOnlyNotif_Desc.Text" xml:space="preserve">
     <value>开启后，应用在前台时不弹出通知</value>
   </data>
-  <data name="SplitPage_BrowseBtn1.ToolTipService.ToolTip" xml:space="preserve"><value>选择输入目录（Ctrl+Shift+O）</value></data>
-  <data name="SplitPage_BrowseBtn2.ToolTipService.ToolTip" xml:space="preserve"><value>选择输出目录（Alt+O）</value></data>
-  <data name="SplitPage_OpenInputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>打开输入目录（Ctrl+Shift+I）</value></data>
-  <data name="SplitPage_OpenOutputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>打开输出目录（Ctrl+Shift+E）</value></data>
-  <data name="SplitPage_AddFilesBtn.ToolTipService.ToolTip" xml:space="preserve"><value>添加文件（Ctrl+O）</value></data>
-  <data name="SplitPage_ClearBtn.ToolTipService.ToolTip" xml:space="preserve"><value>清空列表（C）/ 暂停或继续（P）</value></data>
-  <data name="SplitPage_ScanButton.ToolTipService.ToolTip" xml:space="preserve"><value>扫描目录（F5）/ 停止（双击 Esc）</value></data>
-  <data name="SplitPage_StartButton.ToolTipService.ToolTip" xml:space="preserve"><value>开始拆分（Ctrl+Enter）/ 停止（双击 Esc）</value></data>
-  <data name="SplitPage_SearchBox.ToolTipService.ToolTip" xml:space="preserve"><value>搜索任务（Ctrl+F）</value></data>
-  <data name="SplitPage_TaskDeleteButton.ToolTipService.ToolTip" xml:space="preserve"><value>移除任务（Delete）</value></data>
-  <data name="SplitPage_TaskMoreButton.ToolTipService.ToolTip" xml:space="preserve"><value>更多操作</value></data>
-  <data name="SplitPage_TaskPreviewButton.ToolTipService.ToolTip" xml:space="preserve"><value>灯箱预览（Enter 或 Space）</value></data>
-  <data name="RepairPage_BrowseBtn1.ToolTipService.ToolTip" xml:space="preserve"><value>选择输入目录（Ctrl+O）</value></data>
-  <data name="RepairPage_BrowseBtn2.ToolTipService.ToolTip" xml:space="preserve"><value>选择输出目录（Alt+O）</value></data>
-  <data name="RepairPage_OpenInputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>打开输入目录（Ctrl+Shift+I）</value></data>
-  <data name="RepairPage_OpenInputOutputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>打开输入目录（Ctrl+Shift+I）</value></data>
-  <data name="RepairPage_OpenOutputBtn.ToolTipService.ToolTip" xml:space="preserve"><value>打开输出目录（Ctrl+Shift+E）</value></data>
-  <data name="RepairPage_ScanButton.ToolTipService.ToolTip" xml:space="preserve"><value>扫描目录（F5）/ 停止（双击 Esc）</value></data>
-  <data name="RepairPage_FilterButton.ToolTipService.ToolTip" xml:space="preserve"><value>筛选任务（Ctrl+F）</value></data>
-  <data name="RepairPage_ClearButton.ToolTipService.ToolTip" xml:space="preserve"><value>清空列表（C）/ 暂停或继续（P）</value></data>
-  <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve"><value>开始修复（Ctrl+Enter）/ 停止（双击 Esc）</value></data>
+  <data name="SplitPage_BrowseBtn1.ToolTipService.ToolTip" xml:space="preserve">
+    <value>选择输入目录（Ctrl+Shift+O）</value>
+  </data>
+  <data name="SplitPage_BrowseBtn2.ToolTipService.ToolTip" xml:space="preserve">
+    <value>选择输出目录（Alt+O）</value>
+  </data>
+  <data name="SplitPage_OpenInputBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>打开输入目录（Ctrl+Shift+I）</value>
+  </data>
+  <data name="SplitPage_OpenOutputBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>打开输出目录（Ctrl+Shift+E）</value>
+  </data>
+  <data name="SplitPage_AddFilesBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>添加文件（Ctrl+O）</value>
+  </data>
+  <data name="SplitPage_ClearBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>清空列表（C）/ 暂停或继续（P）</value>
+  </data>
+  <data name="SplitPage_ScanButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>扫描目录（F5）/ 停止（双击 Esc）</value>
+  </data>
+  <data name="SplitPage_StartButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>开始拆分（Ctrl+Enter）/ 停止（双击 Esc）</value>
+  </data>
+  <data name="SplitPage_SearchBox.ToolTipService.ToolTip" xml:space="preserve">
+    <value>搜索任务（Ctrl+F）</value>
+  </data>
+  <data name="SplitPage_TaskDeleteButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>移除任务（Delete）</value>
+  </data>
+  <data name="SplitPage_TaskMoreButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>更多操作</value>
+  </data>
+  <data name="SplitPage_TaskPreviewButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>灯箱预览（Enter 或 Space）</value>
+  </data>
+  <data name="RepairPage_BrowseBtn1.ToolTipService.ToolTip" xml:space="preserve">
+    <value>选择输入目录（Ctrl+O）</value>
+  </data>
+  <data name="RepairPage_BrowseBtn2.ToolTipService.ToolTip" xml:space="preserve">
+    <value>选择输出目录（Alt+O）</value>
+  </data>
+  <data name="RepairPage_OpenInputBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>打开输入目录（Ctrl+Shift+I）</value>
+  </data>
+  <data name="RepairPage_OpenInputOutputBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>打开输入目录（Ctrl+Shift+I）</value>
+  </data>
+  <data name="RepairPage_OpenOutputBtn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>打开输出目录（Ctrl+Shift+E）</value>
+  </data>
+  <data name="RepairPage_ScanButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>扫描目录（F5）/ 停止（双击 Esc）</value>
+  </data>
+  <data name="RepairPage_FilterButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>筛选任务（Ctrl+F）</value>
+  </data>
+  <data name="RepairPage_ClearButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>清空列表（C）/ 暂停或继续（P）</value>
+  </data>
+  <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve">
+    <value>开始修复（Ctrl+Enter）/ 停止（双击 Esc）</value>
+  </data>
 </root>

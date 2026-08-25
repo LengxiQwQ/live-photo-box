@@ -535,7 +535,7 @@ namespace LivePhotoBox.Services
             // 5. ©too 补丁：真机华为 HEIC 实况的 moov/udta/meta/ilst 含
             //    ©too = "Openharmony6.1"。ffmpeg 默认写 "LavfXX.XX.XXX" 且
             //    -metadata too=... 无效（实测仍为 Lavf），需字节级改写。
-            PatchMp4TooAtom(targetPath);
+            PatchMp4TooAtom(targetPath, token);
 
             // 6. JPEG 后处理：方案 A——不改写 EXIF Make（保留来源 Make，避免 exiftool
             //    对残留 Apple MakerNote 实况条目报 Bad format）。详见方法头注释的方案 A/B。
@@ -1063,7 +1063,7 @@ namespace LivePhotoBox.Services
         // Patch it to "openharmony6" so Huawei Gallery recognizes the file.
         // Strategy: search the file for the unique "Lavf" marker (appears exactly
         // once in the entire combined file, inside the MP4's ©too atom).
-        internal static void PatchMp4TooAtom(string targetPath)
+        internal static void PatchMp4TooAtom(string targetPath, CancellationToken token)
         {
             using var fs = new FileStream(targetPath, FileMode.Open,
                 FileAccess.ReadWrite, FileShare.None, bufferSize: 4096);
@@ -1077,9 +1077,11 @@ namespace LivePhotoBox.Services
 
             while (pos < fileSize)
             {
+                token.ThrowIfCancellationRequested();
                 int toRead = (int)Math.Min(buf.Length, fileSize - pos);
                 fs.Seek(pos, SeekOrigin.Begin);
                 int actual = fs.Read(buf, 0, toRead);
+                if (actual == 0) break;
 
                 for (int i = 0; i <= actual - 4; i++)
                 {
@@ -1091,10 +1093,14 @@ namespace LivePhotoBox.Services
                     }
                 }
                 if (lavfPos >= 0) break;
-                pos += actual - 3; // overlap to catch cross-chunk match
+                // Keep a 3-byte overlap so a marker split across chunks is found.
+                // Math.Max guarantees progress when the final read contains 1-3 bytes;
+                // the previous code added zero for 3 bytes and looped forever.
+                pos += Math.Max(1, actual - 3);
             }
 
-            if (lavfPos < 0) return; // No "Lavf" — nothing to patch
+            if (lavfPos < 0 || lavfPos + OpenharmonyTooBytes.Length > fileSize)
+                return; // No complete "LavfXX.XX.XXX" value — nothing to patch
 
             // Write "openharmony6" over "Lavf62.3.100"
             fs.Seek(lavfPos, SeekOrigin.Begin);

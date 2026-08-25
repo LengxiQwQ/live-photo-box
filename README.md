@@ -80,7 +80,7 @@ Convert a **dual-file Live Photo** (or any image + video pair) into a **single-f
 | Google - Motion Photo (v2) | Windows / Xiaomi / Pixel | ✅ Supported |
 | OPPO - O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
 | HUAWEI - Moving Photo | HUAWEI / Honor | ✅ Supported |
-| Samsung - Motion Photo | Windows / Samsung | 🟡 In testing |
+| Samsung - Motion Photo | Windows / Samsung | ✅ Supported |
 | vivo - Live Photo | Windows / vivo (≥ X300) | 🟡 In testing |
 
 ### 📸 Split Live Photo

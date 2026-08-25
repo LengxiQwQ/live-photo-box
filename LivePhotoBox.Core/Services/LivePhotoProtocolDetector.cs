@@ -17,6 +17,7 @@ using LivePhotoBox.Models;
 using System;
 using System.IO;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace LivePhotoBox.Services
 {
@@ -29,6 +30,18 @@ namespace LivePhotoBox.Services
         private static readonly byte[] LiveUnderscoreMarker = "LIVE_"u8.ToArray();
         private static readonly byte[] SefhMarker = "SEFH"u8.ToArray();
         private static readonly byte[] SeftMarker = "SEFT"u8.ToArray();
+        private static readonly Regex MicroVideoFlagRegex = new(
+            @"(?:^|[\s<])(?:[A-Za-z_][\w.-]*:)?MicroVideo\s*=\s*[""']1[""']",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(2));
+        private static readonly Regex MotionPhotoFlagRegex = new(
+            @"(?:^|[\s<])(?:[A-Za-z_][\w.-]*:)?MotionPhoto\s*=\s*[""']1[""']",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant,
+            TimeSpan.FromSeconds(2));
+        private static readonly Regex MotionPhotoSemanticRegex = new(
+            @"(?:^|\s)(?:[A-Za-z_][\w.-]*:)?Semantic\s*=\s*[""']MotionPhoto[""']",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
+            TimeSpan.FromSeconds(2));
         private static readonly byte[] MotionPhotoDataTagMarker =
             { 0x00, 0x00, 0x30, 0x0a }; // Samsung marker 0x0a30
 
@@ -165,25 +178,26 @@ namespace LivePhotoBox.Services
             // OPPO — OpCamera 命名空间 或 oplus_ EXIF 兜底
             if (xmpText.Contains("OpCamera:VideoLength", StringComparison.Ordinal)
                 || xmpText.Contains("OpCamera:MotionPhotoOwner", StringComparison.Ordinal)
-                || xmpText.Contains("xmlns:OpCamera", StringComparison.Ordinal)
                 || xmpText.Contains("oplus_", StringComparison.Ordinal))
                 return LivePhotoProtocolType.OPPO;
 
             // vivo — VCamera 命名空间
             if (xmpText.Contains("VCamera:VMotionPhotoVersion", StringComparison.Ordinal)
-                || xmpText.Contains("xmlns:VCamera", StringComparison.Ordinal))
+                || xmpText.Contains("VCamera:VMotionPhotoSource", StringComparison.Ordinal))
                 return LivePhotoProtocolType.Vivo;
 
-            // Google V1 — MicroVideo 但无 Container:Directory（V1 独有特征）
-            bool hasMicroVideo = xmpText.Contains("GCamera:MicroVideo", StringComparison.Ordinal);
-            bool hasDirectory = xmpText.Contains("Container:Directory", StringComparison.Ordinal);
-            bool hasMotionPhoto = xmpText.Contains("GCamera:MotionPhoto", StringComparison.Ordinal);
+            // XMP prefix names are arbitrary. Match the local attribute name and value.
+            // Container:Directory is also used by Ultra HDR Primary/GainMap metadata;
+            // it is V2 only when a real Semantic="MotionPhoto" item remains.
+            bool hasMicroVideo = MicroVideoFlagRegex.IsMatch(xmpText);
+            bool hasMotionPhoto = MotionPhotoFlagRegex.IsMatch(xmpText);
+            bool hasMotionPhotoItem = MotionPhotoSemanticRegex.IsMatch(xmpText);
 
-            if (hasMicroVideo && !hasDirectory)
+            if (hasMicroVideo && !hasMotionPhoto && !hasMotionPhotoItem)
                 return LivePhotoProtocolType.GoogleV1;
 
-            // Google V2 — Container:Directory 或 MotionPhoto（最通用，兜底）
-            if (hasDirectory || hasMotionPhoto)
+            // Google V2 — an active MotionPhoto flag or an actual video item.
+            if (hasMotionPhoto || hasMotionPhotoItem)
                 return LivePhotoProtocolType.GoogleV2;
 
             return LivePhotoProtocolType.Unknown;

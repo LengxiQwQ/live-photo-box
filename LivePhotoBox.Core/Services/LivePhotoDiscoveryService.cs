@@ -373,10 +373,9 @@ namespace LivePhotoBox.Services
                     if (HasHuaweiLiveTail(filePath))
                         return LivePhotoType.SingleFileHeic;
 
-                    string xmpText = LivePhotoSplitService.ReadMetadataTextSync(filePath);
-                    if (xmpText.Contains("GCamera:MotionPhoto", StringComparison.Ordinal) ||
-                        xmpText.Contains("Container:Directory", StringComparison.Ordinal) ||
-                        xmpText.Contains("GContainer:Directory", StringComparison.Ordinal))
+                    // HEIC must contain a real mpvd video box. XMP alone is not enough:
+                    // HDR-only images also contain a Primary/GainMap Container directory.
+                    if (LivePhotoMergeService.GetMpvdVideoLength(filePath) > 0)
                         return LivePhotoType.SingleFileHeic;
                 }
                 catch { /* 回退检查失败 → 继续 exiftool 路径 */ }
@@ -513,12 +512,9 @@ namespace LivePhotoBox.Services
                                 if (HasHuaweiLiveTail(item.FilePath))
                                     return true;
 
-                                // XMP MotionPhoto 标记（Google V2 HEIC / Samsung HEIC）
-                                // 谷歌/三星 HEIC 实况照片使用 MotionPhoto V2 XMP + mpvd box
-                                string xmpText = LivePhotoSplitService.ReadMetadataTextSync(item.FilePath);
-                                if (xmpText.Contains("GCamera:MotionPhoto", StringComparison.Ordinal) ||
-                                    xmpText.Contains("Container:Directory", StringComparison.Ordinal) ||
-                                    xmpText.Contains("GContainer:Directory", StringComparison.Ordinal))
+                                // Google V2 / Samsung HEIC video data lives in an mpvd box.
+                                // Do not classify from Container XMP alone (HDR false positive).
+                                if (LivePhotoMergeService.GetMpvdVideoLength(item.FilePath) > 0)
                                     return true;
                             }
                             catch { /* 回退检查失败 → 继续 exiftool 路径 */ }

@@ -18,8 +18,8 @@ using System.Xml.Linq;
  * 实况照片拆分核心。
  *
  *   - 将合成的实况照片拆回独立的图片与视频
- *   - 图片端按 JPEG 段结构逐段重建：对每个 APP 段做"实况照片特征"嗅探，
- *     命中 Google 实况 XMP 段则整段丢弃，其余（EXIF/ICC/普通 XMP/图像数据）原样保留
+ *   - 图片端按 JPEG 段结构逐段重建：对 XMP 做 XML 结构化清洗，只删除实况照片字段，
+ *     保留 HDR GainMap、版权、评分等普通 XMP；EXIF/ICC/图像数据原样保留
  *   - 不直接按字节截断的原因：截断后图片端仍保留"我是实况照片"的标记，
  *     再次扫描会被误判为实况照片，构成"假阳性循环"
  *   - 嗅探按结构匹配（APP 段 + Adobe XMP 29 字节固定头 + Google 命名空间），
@@ -234,13 +234,14 @@ namespace LivePhotoBox.Services
                 // OPPO 协议在 EXIF UserComment 里写了 "oplus_10485792" 标记（供 OPPO 相册识别）。
                 // XMP 段已在上面被剥离，但 EXIF 段原样保留了 → 需单独清理。
                 // 只清以 "oplus_" 开头的值，不碰其他内容的 UserComment。HEIC 源无此 EXIF 段，跳过。
-                if (sourceImageIsJpeg && metadataText.Contains("xmlns:OpCamera", StringComparison.Ordinal))
+                if (sourceImageIsJpeg
+                    && protocol is LivePhotoProtocolType.OPPO or LivePhotoProtocolType.Fusion)
                 {
                     await ClearOppoExifMarkerAsync(tempImagePath, token);
                 }
 
                 // vivo X300 在 EXIF UserComment 里写了 multi-frame 签名（供 vivo 相册识别），同样需清理。
-                if (sourceImageIsJpeg && metadataText.Contains("VCamera", StringComparison.Ordinal))
+                if (sourceImageIsJpeg && protocol == LivePhotoProtocolType.Vivo)
                 {
                     await ClearVivoExifMarkerAsync(tempImagePath, token);
                 }
@@ -248,8 +249,6 @@ namespace LivePhotoBox.Services
                 // Apple 残留（双文件标记）：拆出的图片要单独使用，不能带 Apple ContentIdentifier。
                 // 复用 SourceProtocolCleaner 的清洗（exiftool -ContentIdentifier= + vivo 尾标）；
                 // Apple 目标输出会重建配对标记，不在此列（仅无协议大清洗时执行）。
-                // 必须先于华为 Make 清理：exiftool 以 Make 识别 Apple MakerNote，若先清空
-                // Make=HUAWEI 再执行 -ContentIdentifier= 会因无法定位 Apple MN 而失效。
                 if ((protocolIndex == 0 || protocolIndex == 2) && sourceImageIsJpeg)
                 {
                     await Protocols.SourceProtocolCleaner.CleanImageMarkersInPlaceAsync(tempImagePath, token);
@@ -269,15 +268,6 @@ namespace LivePhotoBox.Services
                             $"Apple MakerNote strip failed (non-fatal): {stripMnError}",
                             LogLevel.Warning);
                     }
-                }
-
-                // 华为/荣耀 JPEG：EXIF 辅助识别标记（Make=HUAWEI/HONOR）与原生 MakerNote
-                // 标记（##**N4031，文档标注"非必需"）——无协议大清洗时一并清掉。
-                // Apple 协议不清这些原始相机字段（保留原厂 Make/Model/拍摄信息）。
-                if (protocol == LivePhotoProtocolType.Huawei && sourceImageIsJpeg
-                    && (protocolIndex == 0 || protocolIndex == 2))
-                {
-                    await ClearHuaweiExifMarkersAsync(tempImagePath, token);
                 }
 
                 // Apple 协议：图片端 Apple MakerNote 必须在格式转换前注入到源 JPG。
@@ -1079,32 +1069,27 @@ namespace LivePhotoBox.Services
                             remainingPayload = 0;
 
                             string xmpText = ExtractXmpText(fullPayload);
-                            bool hasHdr = ContainsHdrGainMapXmp(xmpText);
-                            bool hasLivePhoto = ContainsLivePhotoXmp(xmpText);
-
-                            if (hasHdr && hasLivePhoto)
+                            if (TryRewriteXmpRemovingLivePhotoMetadata(
+                                    xmpText, out string? rewrittenXmp, out bool changed))
                             {
-                                if (TryRewriteXmpPreservingHdr(xmpText, out string? rewrittenXmp))
+                                if (changed)
                                 {
                                     byte[] rewrittenPayload = BuildXmpPayload(rewrittenXmp!);
                                     await WriteAppSegmentAsync(destinationStream, marker, rewrittenPayload, token);
                                 }
                                 else
                                 {
-                                    // 解析失败时宁可保留整段，也不能因为剥离失败而丢 HDR 增益图。
                                     await WriteAppSegmentAsync(destinationStream, marker, fullPayload, token);
-                                    LogService.Split(
-                                        $"Could not rewrite HDR+LivePhoto XMP (len={segmentLength}); preserved segment",
-                                        LogLevel.Warning);
                                 }
-                            }
-                            else if (hasLivePhoto)
-                            {
-                                // 只含实况照片的 XMP 段：整段丢弃（不写日志，属正常剥离路径）
                             }
                             else
                             {
+                                // 解析失败时宁可保留整段，也不能为剥离实况字段而误删 HDR、
+                                // 版权、评分等无关 XMP。
                                 await WriteAppSegmentAsync(destinationStream, marker, fullPayload, token);
+                                LogService.Split(
+                                    $"Could not precisely rewrite LivePhoto XMP (len={segmentLength}); preserved segment",
+                                    LogLevel.Warning);
                             }
                         }
                         else
@@ -1184,44 +1169,47 @@ namespace LivePhotoBox.Services
             return Encoding.UTF8.GetString(payload, XmpHeaderBytes.Length, payload.Length - XmpHeaderBytes.Length);
         }
 
-        private static bool ContainsHdrGainMapXmp(string xmpText)
-        {
-            return xmpText.Contains("xmlns:hdrgm=", StringComparison.Ordinal)
-                || xmpText.Contains("hdrgm:", StringComparison.OrdinalIgnoreCase)
-                || xmpText.Contains("Item:Semantic=\"GainMap\"", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool ContainsLivePhotoXmp(string xmpText)
-        {
-            return xmpText.Contains("xmlns:GCamera=", StringComparison.Ordinal)
-                || xmpText.Contains("xmlns:OpCamera=", StringComparison.Ordinal)
-                || xmpText.Contains("xmlns:MiCamera=", StringComparison.Ordinal)
-                || xmpText.Contains("xmlns:VCamera=", StringComparison.Ordinal)
-                || xmpText.Contains("xmlns:LivePhotoBox=", StringComparison.Ordinal)
-                || xmpText.Contains("Item:Semantic=\"MotionPhoto\"", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool TryRewriteXmpPreservingHdr(string xmpText, out string? rewritten)
+        private static bool TryRewriteXmpRemovingLivePhotoMetadata(
+            string xmpText, out string? rewritten, out bool changed)
         {
             rewritten = null;
+            changed = false;
             try
             {
-                var doc = XDocument.Parse(xmpText, LoadOptions.PreserveWhitespace);
+                string xml = xmpText.TrimEnd('\0', ' ', '\r', '\n', '\t');
+                var doc = XDocument.Parse(xml, LoadOptions.PreserveWhitespace);
                 XNamespace rdf = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
                 XNamespace container = "http://ns.google.com/photos/1.0/container/";
                 XNamespace item = "http://ns.google.com/photos/1.0/container/item/";
 
-                bool changed = false;
-
                 // 删除 Directory 中语义为 MotionPhoto 的条目，保留 Primary / GainMap。
                 foreach (var li in doc.Descendants(rdf + "li").ToList())
                 {
-                    var itemElement = li.Elements()
+                    var itemElement = li.DescendantsAndSelf()
                         .FirstOrDefault(e => e.Name.Namespace == container && e.Name.LocalName == "Item");
-                    string? semantic = itemElement?.Attribute(item + "Semantic")?.Value;
+                    string? semantic = itemElement?.Attributes()
+                        .FirstOrDefault(a => a.Name.Namespace == item && a.Name.LocalName == "Semantic")?.Value;
                     if (string.Equals(semantic, "MotionPhoto", StringComparison.OrdinalIgnoreCase))
                     {
                         li.Remove();
+                        changed = true;
+                    }
+                }
+
+                // 普通 V2 在删除 MotionPhoto 后只剩 Primary，Directory 已无意义；整块删除。
+                // Ultra HDR 仍有 GainMap（或未来未知辅助 Item），必须保留完整 Directory。
+                foreach (var directory in doc.Descendants(container + "Directory").ToList())
+                {
+                    var semantics = directory.Descendants(rdf + "li")
+                        .Select(li => li.DescendantsAndSelf()
+                            .SelectMany(e => e.Attributes())
+                            .FirstOrDefault(a => a.Name.Namespace == item
+                                && a.Name.LocalName == "Semantic")?.Value)
+                        .ToList();
+                    if (semantics.Count == 0 || semantics.All(s =>
+                            string.Equals(s, "Primary", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        directory.Remove();
                         changed = true;
                     }
                 }
@@ -1245,16 +1233,40 @@ namespace LivePhotoBox.Services
                         changed = true;
                     }
 
-                    if (livePhotoNamespaces.Contains(element.Name.NamespaceName))
+                    if (livePhotoNamespaces.Contains(element.Name.NamespaceName)
+                        && element.Parent != null)
                     {
                         element.Remove();
                         changed = true;
                     }
                 }
 
-                if (!changed)
+                // XDocument 不会自动删除已经不用的 xmlns 声明。残留的 GCamera / OpCamera /
+                // VCamera 等命名空间仍会触发旧扫描器；Container/Item 只在 HDR 目录使用时保留。
+                string[] removableNamespaceDeclarations =
+                [
+                    .. livePhotoNamespaces,
+                    container.NamespaceName,
+                    item.NamespaceName
+                ];
+                if (doc.Root != null)
                 {
-                    return false;
+                    foreach (var attribute in doc.Root.DescendantsAndSelf()
+                                 .SelectMany(e => e.Attributes())
+                                 .Where(a => a.IsNamespaceDeclaration
+                                     && removableNamespaceDeclarations.Contains(a.Value))
+                                 .ToList())
+                    {
+                        bool stillUsed = doc.Descendants().Any(e =>
+                            e.Name.NamespaceName == attribute.Value
+                            || e.Attributes().Any(a => !a.IsNamespaceDeclaration
+                                && a.Name.NamespaceName == attribute.Value));
+                        if (!stillUsed)
+                        {
+                            attribute.Remove();
+                            changed = true;
+                        }
+                    }
                 }
 
                 rewritten = doc.ToString(SaveOptions.DisableFormatting);
@@ -1392,90 +1404,67 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // ── 华为/荣耀 EXIF 标记清理 ──────────────────────────────────
-        // 文档：华为 JPEG 输出时写入 Make=HUAWEI 作为辅助识别标记（荣耀为 HONOR）；
-        // MakerNote 原生标记 "##**N4031" 非必需。无协议大清洗时清掉，避免残留厂商标记。
-        private static async Task ClearHuaweiExifMarkersAsync(string imagePath, CancellationToken token)
-        {
-            try
-            {
-                string make = (await ReadExifTagAsync(imagePath, "-Make", token)).Trim();
-                bool isHuaweiMake = make.Equals("HUAWEI", StringComparison.OrdinalIgnoreCase)
-                    || make.Equals("HONOR", StringComparison.OrdinalIgnoreCase);
-
-                // MakerNote 原生标记 ##**N4031（ASCII）直接扫字节
-                bool hasNativeMakerNote = await FileContainsAsciiAsync(imagePath, "##**N4031", token);
-
-                if (!isHuaweiMake && !hasNativeMakerNote)
-                    return;
-
-                var args = new List<string> { "-overwrite_original" };
-                if (isHuaweiMake) args.Add("-Make=");
-                if (hasNativeMakerNote) args.Add("-MakerNote=");
-                args.Add(imagePath);
-                await LivePhotoRepairService.RunExifToolAsync(token, args.ToArray());
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                LogService.Split(
-                    $"Failed to clear HUAWEI EXIF markers: {ex.Message}",
-                    LogLevel.Warning);
-            }
-        }
-
-        // 用 exiftool 读取单个标签（-s -s -S 纯值输出）。
-        private static async Task<string> ReadExifTagAsync(string imagePath, string tagArg, CancellationToken token)
-        {
-            string? exifToolPath = ExternalToolLocator.FindExifTool();
-            if (string.IsNullOrEmpty(exifToolPath)) return "";
-            try
-            {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = exifToolPath,
-                    Arguments = $"{tagArg} -s -s -S \"{imagePath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-                using var process = Process.Start(psi);
-                if (process == null) return "";
-                string value = await process.StandardOutput.ReadToEndAsync(token);
-                await process.WaitForExitAsync(token);
-                return value.Trim();
-            }
-            catch (OperationCanceledException) { throw; }
-            catch { return ""; }
-        }
-
-        private static async Task<bool> FileContainsAsciiAsync(string path, string needle, CancellationToken token)
-        {
-            try
-            {
-                byte[] data = await File.ReadAllBytesAsync(path, token);
-                string text = Encoding.ASCII.GetString(data);
-                return text.Contains(needle, StringComparison.Ordinal);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch { return false; }
-        }
-
         // ── HEIC meta box XMP 剥离 ───────────────────────────────────────
-        // HEIC 源（谷歌 V2 / 三星 / 融合）在 meta box 里带 GCamera/Container XMP，
-        // 拆分出的 HEIC 图片仍带「我是实况照片」签名，需用 exiftool 整组清掉 XMP。
-        // 华为 HEIC 无 XMP，此步为空操作。best-effort：exiftool 失败仅记日志不中断。
+        // HEIC 源（Google V2 / Samsung / Fusion）在 meta box 里带实况 XMP。
+        // 与 JPEG 使用同一套 XML 结构化清洗：只删除实况字段，保留 HDR 与普通 XMP。
         private static async Task StripHeicXmpAsync(string imagePath, CancellationToken token)
         {
+            string? xmpTempPath = null;
             try
             {
                 string? exifToolPath = ExternalToolLocator.FindExifTool();
                 if (string.IsNullOrEmpty(exifToolPath)) return;
 
+                var psi = new ProcessStartInfo
+                {
+                    FileName = exifToolPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    StandardOutputEncoding = Encoding.UTF8,
+                    StandardErrorEncoding = Encoding.UTF8
+                };
+                psi.ArgumentList.Add("-XMP");
+                psi.ArgumentList.Add("-b");
+                psi.ArgumentList.Add(imagePath);
+
+                using var process = Process.Start(psi);
+                if (process == null) return;
+                try
+                {
+                    Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync(token);
+                    Task<string> stderrTask = process.StandardError.ReadToEndAsync(token);
+                    await process.WaitForExitAsync(token);
+                    string xmpText = await stdoutTask;
+                    string stderr = await stderrTask;
+                    if (process.ExitCode != 0)
+                        throw new InvalidOperationException(stderr.Trim());
+                    if (string.IsNullOrWhiteSpace(xmpText)) return;
+
+                    if (!TryRewriteXmpRemovingLivePhotoMetadata(
+                            xmpText, out string? rewrittenXmp, out bool changed))
+                    {
+                        LogService.Split("Could not precisely rewrite HEIC XMP; preserved block",
+                            LogLevel.Warning);
+                        return;
+                    }
+                    if (!changed) return;
+
+                    string xmpDir = Path.GetDirectoryName(imagePath) ?? string.Empty;
+                    xmpTempPath = TempFileService.AllocateTempPath(xmpDir, "xmp_clean", "xmp");
+                    await File.WriteAllTextAsync(
+                        xmpTempPath, rewrittenXmp!, new UTF8Encoding(false), token);
+                }
+                catch (OperationCanceledException)
+                {
+                    try { if (!process.HasExited) process.Kill(); } catch { }
+                    throw;
+                }
+
                 await LivePhotoRepairService.RunExifToolAsync(token,
                     "-overwrite_original",
-                    "-XMP=",
+                    $"-XMP<={xmpTempPath}",
                     imagePath);
             }
             catch (OperationCanceledException) { throw; }
@@ -1484,6 +1473,11 @@ namespace LivePhotoBox.Services
                 LogService.Split(
                     $"Failed to strip HEIC XMP: {ex.Message}",
                     LogLevel.Warning);
+            }
+            finally
+            {
+                try { if (xmpTempPath != null && File.Exists(xmpTempPath)) File.Delete(xmpTempPath); }
+                catch { /* best-effort */ }
             }
         }
 
