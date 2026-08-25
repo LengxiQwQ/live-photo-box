@@ -22,3 +22,69 @@ jobs:
           token: ${{ secrets.WINGET_TOKEN }}
           # portable.zip / setup.exe 不进 winget（winget 只发布 CLI）
           installers-regex: '-x64-cli\.zip$'
+
+      # Komac 偶尔不会从旧版 defaultLocale 清单继承 Commands。
+      # PortableCommandAlias 负责实际别名；Commands 负责 WinGet 的命令元数据，二者都要保留。
+      - name: Preserve command metadata / 保留命令元数据
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.WINGET_TOKEN }}
+          script: |
+            const upstreamOwner = 'microsoft';
+            const upstreamRepo = 'winget-pkgs';
+            const forkOwner = context.repo.owner;
+            const version = context.payload.release.tag_name.replace(/^v/, '');
+            const title = `New version: LengxiQwQ.LivePhotoBox version ${version}`;
+
+            const { data: pulls } = await github.rest.pulls.list({
+              owner: upstreamOwner,
+              repo: upstreamRepo,
+              state: 'open',
+              sort: 'created',
+              direction: 'desc',
+              per_page: 100
+            });
+            const pull = pulls.find(pr =>
+              pr.title === title && pr.head.repo?.owner.login === forkOwner);
+            if (!pull) {
+              core.setFailed(`Could not find the WinGet PR: ${title}`);
+              return;
+            }
+
+            const manifestPath = `manifests/l/LengxiQwQ/LivePhotoBox/${version}/LengxiQwQ.LivePhotoBox.locale.en-US.yaml`;
+            const { data: file } = await github.rest.repos.getContent({
+              owner: forkOwner,
+              repo: 'winget-pkgs',
+              path: manifestPath,
+              ref: pull.head.ref
+            });
+            let content = Buffer.from(file.content, 'base64').toString('utf8');
+            if (/^Commands:\s*$/m.test(content)) {
+              core.info('Commands metadata is already present.');
+              return;
+            }
+
+            const commands = [
+              'Commands:',
+              '- livephotobox',
+              '- livebox',
+              '- lpb',
+              '- livephoto',
+              ''
+            ].join('\n');
+            content = content.replace(/^(Moniker:.*\r?\n)/m, `$1${commands}`);
+            if (!/^Commands:\s*$/m.test(content)) {
+              core.setFailed('Could not locate Moniker in the defaultLocale manifest.');
+              return;
+            }
+
+            await github.rest.repos.createOrUpdateFileContents({
+              owner: forkOwner,
+              repo: 'winget-pkgs',
+              path: manifestPath,
+              branch: pull.head.ref,
+              sha: file.sha,
+              message: 'Preserve WinGet command metadata',
+              content: Buffer.from(content, 'utf8').toString('base64')
+            });
+            core.info(`Added Commands metadata to PR #${pull.number}.`);
