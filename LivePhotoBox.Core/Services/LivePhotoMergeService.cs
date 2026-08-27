@@ -547,7 +547,7 @@ namespace LivePhotoBox.Services
         }
 
         // Estimate total video frame count. Prefers ffprobe nb_frames (exact),
-        // then exiftool MediaDuration (30fps approximation),
+        // then exiftool MediaDuration × actual VideoFrameRate,
         // then ffmpeg frame-by-frame count (exact, slower), then falls back to 1.
         public static async Task<int> DetectVideoFrameCountAsync(string videoPath, CancellationToken token)
         {
@@ -585,7 +585,7 @@ namespace LivePhotoBox.Services
             catch (OperationCanceledException) { throw; }
             catch { /* fall through to exiftool */ }
 
-            // 2. Fallback: exiftool MediaDuration × 30fps (legacy)
+            // 2. Fallback: exiftool MediaDuration × actual VideoFrameRate.
             try
             {
                 string? exifToolPath = ExternalToolLocator.FindExifTool();
@@ -613,7 +613,8 @@ namespace LivePhotoBox.Services
                             double duration = ParseMediaDuration(raw);
                             if (duration > 0)
                             {
-                                int frames = (int)Math.Ceiling(duration * 30);
+                                double fps = await DetectVideoFpsAsync(videoPath, token);
+                                int frames = (int)Math.Round(duration * fps);
                                 return Math.Max(1, frames);
                             }
                         }
@@ -1524,7 +1525,9 @@ namespace LivePhotoBox.Services
         /// MUST be called BEFORE ffmpeg transcode — the Apple mebx track is
         /// discarded by ffmpeg's -map 0:V:0 selector.
         /// </remarks>
-        public static long ReadSourceCoverTimestamp(string videoPath)
+        public static async Task<long> ReadSourceCoverTimestampAsync(
+            string videoPath,
+            CancellationToken token)
         {
             // ── Apple Live Photo ──
             if (videoPath.EndsWith(".mov", StringComparison.OrdinalIgnoreCase))
@@ -1536,77 +1539,9 @@ namespace LivePhotoBox.Services
             }
 
             // ── vivo old (MP4 with vivoMediaExtInfo uuid box) ──
-            return ReadVivoImageTime(videoPath);
-        }
-
-        /// <summary>
-        /// Extract com.android.camera.imageTime from the vivo JSON tail
-        /// inside the MP4's vivoMediaExtInfo uuid box. Returns microseconds.
-        /// </summary>
-        private static long ReadVivoImageTime(string videoPath)
-        {
-            if (!videoPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
-                return 0;
-
-            try
-            {
-                using var fs = new FileStream(
-                    videoPath, FileMode.Open, FileAccess.Read, FileShare.Read,
-                    bufferSize: 4096, options: FileOptions.SequentialScan);
-                long fileLen = fs.Length;
-                int tailLen = (int)Math.Min(fileLen, 4096);
-                fs.Seek(-tailLen, SeekOrigin.End);
-                byte[] tail = new byte[tailLen];
-                fs.ReadExactly(tail, 0, tailLen);
-
-                // Search backwards for "vivo{" marker
-                int idx = -1;
-                for (int i = tailLen - 6; i >= 0; i--)
-                {
-                    if (tail[i] == 'v' && tail[i + 1] == 'i' &&
-                        tail[i + 2] == 'v' && tail[i + 3] == 'o' &&
-                        tail[i + 4] == '{')
-                    {
-                        idx = i;
-                        break;
-                    }
-                }
-                if (idx < 0) return 0;
-
-                // Extract JSON portion: vivo{ ... }
-                int jsonStart = idx + 4; // skip "vivo"
-                int depth = 0, jsonEnd = -1;
-                for (int i = jsonStart; i < tailLen; i++)
-                {
-                    if (tail[i] == '{') depth++;
-                    else if (tail[i] == '}')
-                    {
-                        if (depth == 0) { jsonEnd = i; break; }
-                        depth--;
-                    }
-                }
-                if (jsonEnd < 0) return 0;
-
-                string json = Encoding.UTF8.GetString(
-                    tail, jsonStart, jsonEnd - jsonStart + 1);
-
-                // Lightweight regex — avoid full JSON parse overhead
-                var match = Regex.Match(
-                    json, @"""imageTime"":\s*(-?\d+)",
-                    RegexOptions.CultureInvariant);
-                if (match.Success &&
-                    long.TryParse(match.Groups[1].Value, out long imageTime) &&
-                    imageTime > 0)
-                {
-                    return imageTime * 1000; // milliseconds → microseconds
-                }
-
-                return 0;
-            }
-            catch
-            {
-                return 0; // Best-effort — non-critical metadata
-            }
+            VivoDualFileResolvedTiming? timing =
+                await VivoDualFileMetadataWriter.ResolveCoverTimingAsync(videoPath, token);
+            return timing?.CurrentTimestampUs ?? 0;
         }
     }
 }

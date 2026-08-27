@@ -223,12 +223,22 @@ namespace LivePhotoBox.Cli.Commands
                         videoDurationSec = await LivePhotoMergeService.DetectVideoDurationAsync(workingVideoPath, ct);
                     }
 
-                    long currentCoverTimestampUs = ReadCurrentCoverTimestampUs(
-                        imagePath, input.VideoPath, input.Protocol);
+                    VivoDualFileResolvedTiming? vivoTiming =
+                        input.Protocol == LivePhotoProtocolType.Vivo && input.VideoPath != null
+                            ? await VivoDualFileMetadataWriter.ResolveCoverTimingAsync(input.VideoPath, ct)
+                            : null;
+
+                    long currentCoverTimestampUs = vivoTiming?.CurrentTimestampUs
+                        ?? await ReadCurrentCoverTimestampUsAsync(
+                            imagePath, input.VideoPath, input.Protocol, ct);
 
                     long originalCoverTimestampUs = input.Protocol == LivePhotoProtocolType.OPPO
                         ? ReadOriginalCoverTimestampUs(imagePath)
-                        : 0;
+                        : vivoTiming?.OriginalTimestampUs ?? 0;
+                    bool hasDistinctOriginalCover =
+                        input.Protocol == LivePhotoProtocolType.OPPO && originalCoverTimestampUs > 0
+                        || vivoTiming?.HasEditedCover == true &&
+                           originalCoverTimestampUs != currentCoverTimestampUs;
 
                     int currentCoverFrame = 0;
                     if (totalFrames > 0 && videoDurationSec > 0 && currentCoverTimestampUs > 0)
@@ -239,7 +249,7 @@ namespace LivePhotoBox.Cli.Commands
                         // 读取时补一帧，让“显示”和“实际封面”一致。
                         if (input.Protocol == LivePhotoProtocolType.OPPO)
                             currentCoverFrame = Math.Min(totalFrames - 1, currentCoverFrame + 1);
-                        currentCoverFrame = Math.Clamp(currentCoverFrame, 0, totalFrames);
+                        currentCoverFrame = Math.Clamp(currentCoverFrame, 0, Math.Max(0, totalFrames - 1));
                     }
 
                     int originalCoverFrame = 0;
@@ -249,7 +259,7 @@ namespace LivePhotoBox.Cli.Commands
                         originalCoverFrame = (int)Math.Round(originalCoverTimestampUs / 1_000_000.0 * fps);
                         if (input.Protocol == LivePhotoProtocolType.OPPO)
                             originalCoverFrame = Math.Min(totalFrames - 1, originalCoverFrame + 1);
-                        originalCoverFrame = Math.Clamp(originalCoverFrame, 0, totalFrames);
+                        originalCoverFrame = Math.Clamp(originalCoverFrame, 0, Math.Max(0, totalFrames - 1));
                     }
 
                     string protocolDisplay = GetProtocolDisplayName(input.Protocol);
@@ -278,7 +288,7 @@ namespace LivePhotoBox.Cli.Commands
                             if (videoDurationSec > 0)
                                 CliConsole.WriteField("Duration", $"{videoDurationSec:F1}s / {totalFrames} frames", width: 16, valueColor: CliConsole.Highlight);
 
-                            if (input.Protocol == LivePhotoProtocolType.OPPO && originalCoverTimestampUs > 0)
+                            if (hasDistinctOriginalCover)
                                 CliConsole.WriteField("Original cover", $"frame {originalCoverFrame + 1} ({originalCoverTimestampUs / 1_000_000.0:F3}s)", width: 16, valueColor: CliConsole.Highlight);
 
                             if (currentCoverTimestampUs > 0)
@@ -300,10 +310,10 @@ namespace LivePhotoBox.Cli.Commands
                                 totalFrames,
                                 currentCoverFrame,
                                 currentCoverTimestampUs,
-                                originalCoverTimestampUs = input.Protocol == LivePhotoProtocolType.OPPO
+                                originalCoverTimestampUs = hasDistinctOriginalCover
                                     ? originalCoverTimestampUs
                                     : (long?)null,
-                                originalCoverFrame = input.Protocol == LivePhotoProtocolType.OPPO
+                                originalCoverFrame = hasDistinctOriginalCover
                                     ? originalCoverFrame
                                     : (int?)null
                             });
@@ -385,7 +395,7 @@ namespace LivePhotoBox.Cli.Commands
                         double newTimestampSec = timestampUs.Value / 1_000_000.0;
                         if (input.Protocol == LivePhotoProtocolType.OPPO)
                         {
-                            if (originalCoverTimestampUs > 0)
+                            if (hasDistinctOriginalCover)
                                 CliConsole.WriteField("Original cover", $"frame {originalCoverFrame + 1} ({originalCoverTimestampUs / 1_000_000.0:F3}s)", width: 16, valueColor: CliConsole.Highlight);
                             CliConsole.WriteField("Current cover", $"frame {coverFrameNumber + 1} ({newTimestampSec:F3}s)", width: 16, valueColor: CliConsole.Highlight);
                         }
@@ -564,13 +574,14 @@ namespace LivePhotoBox.Cli.Commands
             }
         }
 
-        private static long ReadCurrentCoverTimestampUs(
+        private static async Task<long> ReadCurrentCoverTimestampUsAsync(
             string imagePath,
             string? videoPath,
-            LivePhotoProtocolType protocol)
+            LivePhotoProtocolType protocol,
+            CancellationToken token)
         {
             if (videoPath != null)
-                return LivePhotoMergeService.ReadSourceCoverTimestamp(videoPath);
+                return await LivePhotoMergeService.ReadSourceCoverTimestampAsync(videoPath, token);
 
             if (protocol == LivePhotoProtocolType.Huawei)
             {

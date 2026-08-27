@@ -205,7 +205,7 @@ namespace LivePhotoBox.Services
                 // the Apple mebx track (StillImageTime) and vivo uuid box are
                 // discarded by ffmpeg's -map 0:V:0 selector.
                 long coverTimestampUs = options.KeyPhotoTimestampUs
-                    ?? LivePhotoMergeService.ReadSourceCoverTimestamp(videoPath);
+                    ?? await LivePhotoMergeService.ReadSourceCoverTimestampAsync(videoPath, token);
 
                 // ── 源协议标记清洗（Fusion 除外）──────────────────────────────
                 // 双文件源 → 单文件前，剥离源协议（苹果/各品牌）的实况照片标记，

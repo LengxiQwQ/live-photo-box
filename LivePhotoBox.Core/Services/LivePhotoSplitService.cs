@@ -466,7 +466,8 @@ namespace LivePhotoBox.Services
                 else if (protocolIndex == 2)
                 {
                     await Protocols.VivoDualFileMetadataWriter.WritePairMetadataAsync(
-                        imageOutputPath, videoOutputPath, token);
+                        sourcePath, metadataText, imageOutputPath, videoOutputPath,
+                        keyTimestampUs, token);
                 }
                 // ─────────────────────────────────────────────────────────────────────────────
 

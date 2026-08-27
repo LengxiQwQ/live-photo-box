@@ -241,11 +241,25 @@ namespace LivePhotoBox.Services.Protocols
             int pos = 0;
             while (pos + 8 <= data.Length)
             {
-                int size = ReadBE32(data, pos);
-                if (size < 8 || pos + size > data.Length) break;
-                if (IsType(data, pos, "uuid") && size >= 24 && MatchesUserType(data, pos, userType))
-                    targets.Add((pos, size));
-                pos += size;
+                uint size32 = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(pos, 4));
+                long size;
+                int headerSize = 8;
+                if (size32 == 1)
+                {
+                    if (pos + 16 > data.Length) break;
+                    size = BinaryPrimitives.ReadInt64BigEndian(data.AsSpan(pos + 8, 8));
+                    headerSize = 16;
+                }
+                else
+                {
+                    size = size32 == 0 ? data.Length - pos : size32;
+                }
+
+                if (size < headerSize || size > int.MaxValue || pos + size > data.Length) break;
+                int boxSize = (int)size;
+                if (IsType(data, pos, "uuid") && boxSize >= 24 && MatchesUserType(data, pos, userType))
+                    targets.Add((pos, boxSize));
+                pos += boxSize;
             }
             if (targets.Count == 0) return null;
 

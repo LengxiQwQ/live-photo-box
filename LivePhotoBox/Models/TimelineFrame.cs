@@ -33,10 +33,24 @@ namespace LivePhotoBox.Models
         public string TimestampDisplay => Timestamp.ToString(@"s\.fff");
 
         /// <summary>是否为静态照片帧（非视频帧），显示星标而非数字</summary>
-        public bool IsStillPhoto { get; set; }
+        [ObservableProperty]
+        private bool _isStillPhoto;
 
         /// <summary>是否为原始封面帧（换封面之前的旧高清大图位置），显示 🖼 标记。OPPO/VIVO 均支持</summary>
-        public bool IsOriginalPhoto { get; set; }
+        [ObservableProperty]
+        private bool _isOriginalPhoto;
+
+        partial void OnIsStillPhotoChanged(bool value)
+        {
+            OnPropertyChanged(nameof(FrameBadgeText));
+            OnPropertyChanged(nameof(FrameBadgeBackground));
+        }
+
+        partial void OnIsOriginalPhotoChanged(bool value)
+        {
+            OnPropertyChanged(nameof(FrameBadgeText));
+            OnPropertyChanged(nameof(FrameBadgeBackground));
+        }
 
         /// <summary>角标显示文本：原始封面=🖼，照片帧=⭐，视频帧=数字（从1开始）</summary>
         public string FrameBadgeText => IsOriginalPhoto ? "🖼" : (IsStillPhoto ? "⭐" : $"{FrameIndex + 1}");
