@@ -154,7 +154,7 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 | HEIC Native Decode | PhotoSauce.NativeCodecs.Libheif (MagicScaler pipeline) | 1.19.5-preview1 |
 | Markdown Rendering | Markdig | 1.3.2 |
 | UI Extensions | CommunityToolkit.WinUI + FluentIcons | — |
-| Command Line | System.CommandLine | 2.0.0-beta4.22272.1 |
+| Command Line | System.CommandLine | 2.0.11 |
 | Packaging | MSIX self-contained (no runtime required) | — |
 
 > `ExifTool` / `FFmpeg` / `jpegtran` / `libheif` are bundled external tools (in the `Tools/` folder) that handle metadata read/write and audio-video processing.

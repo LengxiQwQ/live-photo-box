@@ -156,7 +156,7 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 | HEIC 原生解码 | PhotoSauce.NativeCodecs.Libheif（MagicScaler 管线） | 1.19.5-preview1 |
 | Markdown 渲染 | Markdig | 1.3.2 |
 | UI 扩展 | CommunityToolkit.WinUI + FluentIcons | — |
-| 命令行 | System.CommandLine | 2.0.0-beta4.22272.1 |
+| 命令行 | System.CommandLine | 2.0.11 |
 | 打包 | MSIX 自包含（无需安装运行时） | — |
 
 > `ExifTool` / `FFmpeg` / `jpegtran` / `libheif` 为随包附带的外部工具（`Tools/` 目录），负责元数据读写与音视频处理。
