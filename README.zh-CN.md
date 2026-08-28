@@ -281,12 +281,12 @@ live-photo-box/
 <!-- INSIGHTS:START -->
 **📊 仓库流量**
 
-访问次数：**1,656** ｜ 不重复访客：**151**（近 14 天） ｜ 仓库克隆：**680** ｜ 不重复克隆：**139**（近 14 天）
+访问次数：**1,746** ｜ 不重复访客：**160**（近 14 天） ｜ 仓库克隆：**686** ｜ 不重复克隆：**137**（近 14 天）
 
 **热门来源（近 14 天）：** github.com · Google · Bing · chatgpt.com · doubao.com · developer.huawei.com  
 **热门内容（近 14 天）：** releases · README.zh-CN.md · releases/tag/v2.2.0 · releases/tag/v2.1.5
 
-> 数据开始：2026-08-02 · 最后更新：2026-08-27 (UTC+8)
+> 数据开始：2026-08-02 · 最后更新：2026-08-28 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
