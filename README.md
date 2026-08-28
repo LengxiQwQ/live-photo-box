@@ -148,7 +148,7 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 | Image Processing | Magick.NET (ImageMagick) + Win2D | 14.16.0 / 1.3.2 |
 | Image Scaling | PhotoSauce.MagicScaler | 0.15.0 |
 | Metadata Engine | `ExifTool` (daemon mode) | 13.59 |
-| Video Processing | `FFmpeg` (NVENC / QSV / AMF hardware acceleration) | n8.0.1 |
+| Video Processing | `FFmpeg` (NVENC / QSV / AMF hardware acceleration) | n9.0.1 |
 | JPEG Operations | `jpegtran` (lossless rotation, thumbnail stripping) | — |
 | HEIC Codec | `libheif` (`heif-enc` / `heif-dec`) | 1.23.1 |
 | HEIC Native Decode | PhotoSauce.NativeCodecs.Libheif (MagicScaler pipeline) | 1.19.5-preview1 |

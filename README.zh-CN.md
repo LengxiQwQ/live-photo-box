@@ -150,7 +150,7 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 | 图像处理 | Magick.NET（ImageMagick）+ Win2D | 14.16.0 / 1.3.2 |
 | 图像缩放 | PhotoSauce.MagicScaler | 0.15.0 |
 | 元数据引擎 | `ExifTool`（常驻进程模式） | 13.59 |
-| 视频处理 | `FFmpeg`（NVENC / QSV / AMF 硬件加速） | n8.0.1 |
+| 视频处理 | `FFmpeg` (NVENC / QSV / AMF 硬件加速) | n9.0.1 |
 | JPEG 操作 | `jpegtran`（无损旋转、缩略图剥离） | — |
 | HEIC 编解码 | `libheif`（`heif-enc` / `heif-dec`） | 1.23.1 |
 | HEIC 原生解码 | PhotoSauce.NativeCodecs.Libheif（MagicScaler 管线） | 1.19.5-preview1 |
