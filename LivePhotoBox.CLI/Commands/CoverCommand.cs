@@ -84,7 +84,7 @@ namespace LivePhotoBox.Cli.Commands
                 var verbose = parseResult.GetValue(verboseOpt);
                 var json = parseResult.GetValue(jsonOpt);
 
-                string? wildcard = files.FirstOrDefault(CliInputValidator.HasWildcard);
+                string? wildcard = files!.FirstOrDefault(CliInputValidator.HasWildcard);
                 if (wildcard != null)
                 {
                     CliInputValidator.WriteWildcardNotSupported();
@@ -119,7 +119,7 @@ namespace LivePhotoBox.Cli.Commands
                     yes = true;
 
                 Environment.ExitCode = await RunAsync(
-                    files,
+                    files!,
                     timestampUs,
                     frameNumber,
                     output,
