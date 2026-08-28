@@ -23,7 +23,9 @@ namespace LivePhotoBox.Cli.Tests
             {
                 Console.SetOut(outWriter);
                 Console.SetError(errWriter);
-                int exitCode = await command.InvokeAsync(args);
+                int exitCode = await command.Parse(args).InvokeAsync();
+                if (Environment.ExitCode != 0) exitCode = Environment.ExitCode;
+                Environment.ExitCode = 0; // Reset for next test
                 return new CliResult(exitCode, outWriter.ToString(), errWriter.ToString());
             }
             finally

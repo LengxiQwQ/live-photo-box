@@ -8,6 +8,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.CommandLine;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -83,9 +84,12 @@ namespace LivePhotoBox.Cli.Infrastructure
                && !Directory.Exists(value);
 
         /// <summary>打印未知选项错误（含 Did you mean 建议 + 帮助提示）。</summary>
-        public static void WriteUnknownOptionError(string option, IEnumerable<string> optionAliases, string commandName)
-            => CliConsole.WriteErrorLine(
-                $"Error: Unknown option '{option}'.{CliConsole.DidYouMean(option, optionAliases)} Run 'lpb {commandName} --help' to see available options.");
+        public static void WriteUnknownOptionError(string option, Command cmd)
+        {
+            var optionAliases = cmd.Options.SelectMany(o => o.Aliases.Append(o.Name));
+            CliConsole.WriteErrorLine(
+                $"Error: Unknown option '{option}'.{CliConsole.DidYouMean(option, optionAliases)} Run 'lpb {cmd.Name} --help' to see available options.");
+        }
 
         /// <summary>校验 -d/--dir 指向的目录存在（否则打印错误）。返回 false 表示调用方应立即退出。</summary>
         public static bool ValidateInputDirectory(DirectoryInfo? dir)

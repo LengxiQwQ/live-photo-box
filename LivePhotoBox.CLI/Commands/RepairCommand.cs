@@ -118,7 +118,7 @@ namespace LivePhotoBox.Cli.Commands
                     // System.CommandLine 会把未知选项当成位置参数（文件名）吞掉，提前识别避免误导性报错
                     if (CliInputValidator.IsUnknownOption(singlePath, ImageExtensions.Concat(VideoExtensions)))
                     {
-                        CliInputValidator.WriteUnknownOptionError(singlePath, cmd.Options.SelectMany(o => o.Aliases), "repair");
+                        CliInputValidator.WriteUnknownOptionError(singlePath, cmd);
                         Environment.ExitCode = 1;
                         return;
                     }

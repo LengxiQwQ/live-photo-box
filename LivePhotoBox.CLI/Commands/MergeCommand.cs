@@ -111,7 +111,7 @@ namespace LivePhotoBox.Cli.Commands
                     string? unknown = files.FirstOrDefault(f => CliInputValidator.IsUnknownOption(f, ImageExtensions.Concat(VideoExtensions)));
                     if (unknown != null)
                     {
-                        CliInputValidator.WriteUnknownOptionError(unknown, cmd.Options.SelectMany(o => o.Aliases), "merge");
+                        CliInputValidator.WriteUnknownOptionError(unknown, cmd);
                         Environment.ExitCode = 1;
                         return;
                     }
