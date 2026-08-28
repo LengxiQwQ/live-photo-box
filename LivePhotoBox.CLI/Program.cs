@@ -4,8 +4,6 @@ using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
 using System.CommandLine;
-using System.CommandLine.Builder;
-using System.CommandLine.Invocation;
 using System.CommandLine.Parsing;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -82,38 +80,26 @@ namespace LivePhotoBox.Cli
                     };
 
                     // Declare --info so `lpb --help` lists it (the fast path above handles actual invocation).
-                    root.AddOption(new Option<bool>("--info",
-                        "Show detailed environment info (build date, runtime, platform, channel, location, bundled tools)"));
+                    root.Add(new Option<bool>("--info") { Description = "Show detailed environment info (build date, runtime, platform, channel, location, bundled tools)" });
 
-                    // UseDefaults() 展开为下面的链，但默认的 --version 选项只有 --version 一个别名。
-                    // 换成 UseVersionOption("--version", "-v") 让 `--help` 也列出 `-v`。
-                    // 快路径（上面）仍优先处理单独的 `-v` / `--version`：更快、不产生日志副作用、输出保持 "Live Photo Box CLI vX.Y.Z"。
-                    var builder = new CommandLineBuilder(root)
-                        .UseVersionOption("--version", "-v")
-                        .UseHelp()
-                        .UseEnvironmentVariableDirective()
-                        .UseParseDirective()
-                        .UseSuggestDirective()
-                        .RegisterWithDotnetSuggest()
-                        .UseParseErrorReporting()
-                        // 自定义解析错误输出：默认行为会先打印整篇帮助再在末尾补一行错误，
-                        // 太吵且没有纠正提示。这里改成"简短错误 + 建议 + 帮助提示"。
-                        .AddMiddleware(async (context, next) =>
+                    var parseResult = root.Parse(args);
+                    if (parseResult.Errors.Count > 0)
+                    {
+                        PrintParseError(parseResult, root);
+                        exitCode = 1;
+                    }
+                    else
+                    {
+                        try
                         {
-                            if (context.ParseResult.Errors.Count > 0)
-                            {
-                                PrintParseError(context, root);
-                                context.ExitCode = 1;
-                                return;
-                            }
-                            await next(context);
-                        })
-                        .UseExceptionHandler(OnUnhandledException)
-                        .CancelOnProcessTermination()
-                        .UseHelpBuilder(context => new GroupedHelpBuilder(context.Console))
-                        .Build();
-
-                    exitCode = await builder.InvokeAsync(args);
+                            exitCode = await parseResult.InvokeAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            OnUnhandledException(ex);
+                            exitCode = 1;
+                        }
+                    }
                 }
             }
             finally
@@ -127,9 +113,9 @@ namespace LivePhotoBox.Cli
 
         // 解析错误（未知选项/命令、缺参数、参数类型不对、位置参数过多等）→ 一行错误 + 可能的
         // "Did you mean" 建议 + 帮助提示。不再整篇打印帮助。
-        private static void PrintParseError(InvocationContext context, RootCommand root)
+        private static void PrintParseError(ParseResult parseResult, RootCommand root)
         {
-            string commandName = context.ParseResult.CommandResult?.Command?.Name ?? "";
+            string commandName = parseResult.CommandResult?.Command?.Name ?? "";
             if (commandName.Length == 0 || commandName == root.Name) commandName = "lpb";
             var allOptionAliases = root.Options.SelectMany(o => o.Aliases)
                 .Concat(root.Subcommands.SelectMany(s => s.Options).SelectMany(o => o.Aliases))
@@ -139,7 +125,7 @@ namespace LivePhotoBox.Cli
 
             // 解析器对"未知选项 + 值"的处理很混乱（会把后面的路径/值报成错误对象），
             // 直接从原始 token 里识别拼错的选项，给出干净的 "Unknown option + Did you mean" 提示。
-            var unknownOptions = context.ParseResult.Tokens
+            var unknownOptions = parseResult.Tokens
                 .Where(t => t.Value.StartsWith('-')
                          && t.Value != "--"
                          && !aliasSet.Contains(t.Value)
@@ -155,7 +141,7 @@ namespace LivePhotoBox.Cli
             }
             else
             {
-                var messages = context.ParseResult.Errors.Select(e => e.Message).ToList();
+                var messages = parseResult.Errors.Select(e => e.Message).ToList();
                 // "Required command was not provided." 在已有更具体的"无法识别的命令/参数"错误时是纯噪音
                 if (messages.Any(m => m.Contains("Unrecognized command or argument", StringComparison.Ordinal)))
                     messages.RemoveAll(m => m == "Required command was not provided.");
@@ -189,7 +175,7 @@ namespace LivePhotoBox.Cli
 
         // 未处理异常（命令处理器抛出的、未被内部 catch 捕获的）→ 记录进日志（含堆栈）+ 输出到 stderr。
         // 退出码由异常处理器中间件置 1；随后 Main 的 finally 会再写一条退出码日志 + CLEAN SHUTDOWN。
-        private static void OnUnhandledException(Exception exception, InvocationContext context)
+        private static void OnUnhandledException(Exception exception)
         {
             LogService.Error($"Unhandled CLI exception: {exception}", exception, LogSource.System);
             string message = exception switch

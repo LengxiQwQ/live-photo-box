@@ -21,7 +21,7 @@ namespace LivePhotoBox.Cli.Commands
         public static Command Create()
         {
             var cmd = new Command("update-check", "Check if a newer version is available on GitHub");
-            cmd.SetHandler(async context =>
+            cmd.SetAction(async parseResult =>
             {
                 try
                 {
@@ -29,7 +29,7 @@ namespace LivePhotoBox.Cli.Commands
                     UpdateCheckService.BeginCheck();
                     var result = await UpdateCheckService.CheckAsync(
                         onRetry: UpdateCheckService.WriteCheckRetry);
-                    context.ExitCode = PrintResult(result);
+                    Environment.ExitCode = PrintResult(result);
                 }
                 catch (Exception ex)
                 {
@@ -37,7 +37,7 @@ namespace LivePhotoBox.Cli.Commands
                     CliConsole.WriteErrorWithHint(
                         $"Error: Update check failed. {UpdateCheckService.DescribeError(ex)}",
                         "Run 'lpb --info' to view the log folder if this keeps happening.");
-                    context.ExitCode = 1;
+                    Environment.ExitCode = 1;
                 }
             });
             return cmd;
@@ -46,20 +46,17 @@ namespace LivePhotoBox.Cli.Commands
         // update — 检查 + 询问 + 自动替换（便携版）或静默重装（安装版）
         public static Command CreateUpdate()
         {
-            var yesOption = new Option<bool>(
-                "--yes", "Skip the confirmation prompt and update automatically");
-            yesOption.AddAlias("-y");
-
+            var yesOption = new Option<bool>("--yes", "-y") { Description = "Skip the confirmation prompt and update automatically" };
             var cmd = new Command("update",
                 "Check for a newer version and update this copy automatically");
-            cmd.AddOption(yesOption);
+            cmd.Add(yesOption);
 
-            cmd.SetHandler(async context =>
+            cmd.SetAction(async parseResult =>
             {
-                var yes = context.ParseResult.GetValueForOption(yesOption);
+                var yes = parseResult.GetValue(yesOption);
                 try
                 {
-                    context.ExitCode = await SelfUpdateService.RunAsync(yes);
+                    Environment.ExitCode = await SelfUpdateService.RunAsync(yes);
                 }
                 catch (Exception ex)
                 {
@@ -67,7 +64,7 @@ namespace LivePhotoBox.Cli.Commands
                     CliConsole.WriteErrorWithHint(
                         $"Error: Update failed. {UpdateCheckService.DescribeError(ex)}",
                         "Try again later, or download the release manually from the GitHub releases page.");
-                    context.ExitCode = 1;
+                    Environment.ExitCode = 1;
                 }
             });
 

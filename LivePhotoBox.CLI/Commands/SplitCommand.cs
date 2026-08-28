@@ -91,78 +91,37 @@ namespace LivePhotoBox.Cli.Commands
 
         public static Command Create()
         {
-            var filesArg = new Argument<string?>("files",
-                "Live photo file (.jpg/.jpeg/.heic/.heif) or folder path. A path without a file extension is auto-detected as a folder (same as --dir).");
+            var filesArg = new Argument<string?>("files") { Description = "Live photo file (.jpg/.jpeg/.heic/.heif) or folder path. A path without a file extension is auto-detected as a folder (same as --dir)." };
             filesArg.Arity = ArgumentArity.ZeroOrOne;
 
-            var dirOpt = new Option<DirectoryInfo?>("--dir",
-                "Folder with single-file live photos. All detected live photos are split. For batch mode; a folder path can also be passed as the positional argument.");
-            dirOpt.AddAlias("-d");
+            var dirOpt = new Option<DirectoryInfo?>("--dir", "-d") { Description = "Folder with single-file live photos. All detected live photos are split. For batch mode; a folder path can also be passed as the positional argument." };
+            var pairingOpt = new Option<string>("--pairing") { DefaultValueFactory = _ => "all", Description = "Only split live photos of this protocol. all (no filter)|v1 (MicroVideo)|v2 (MotionPhoto)|oppo|vivo|samsung|huawei." };
 
-            var pairingOpt = new Option<string>("--pairing", () => "all",
-                "Only split live photos of this protocol. all (no filter)|v1 (MicroVideo)|v2 (MotionPhoto)|oppo|vivo|samsung|huawei.");
-
-            var protocolOpt = new Option<string>("--protocol", () => "none",
-                "Target phone format. none (split only)|apple (Apple Live Photo)|vivo (vivo Live Photo, ≤ X200).\n" +
-                "vivo writes JPG tail + MP4 uuid box pairing metadata; apple writes ContentIdentifier/mebx.");
-            protocolOpt.AddAlias("-p");
-
-            var formatOpt = new Option<string?>("--format",
-                "Output format. keep (no conversion)|jpg+mov (H.265)|heic+mov (H.265)|jpg+mp4 (H.264).\nDefault: first available for the chosen protocol.");
-            formatOpt.AddAlias("-f");
-
-            var keyTimestampOpt = new Option<string?>("--key-timestamp",
-                "Override the key photo (cover) position on the video timeline (Apple conversion, single-file mode).\n" +
+            var protocolOpt = new Option<string>("--protocol", "-p") { DefaultValueFactory = _ => "none", Description = "Target phone format. none (split only)|apple (Apple Live Photo)|vivo (vivo Live Photo, ≤ X200).\n" +
+                "vivo writes JPG tail + MP4 uuid box pairing metadata; apple writes ContentIdentifier/mebx." };
+            var formatOpt = new Option<string?>("--format", "-f") { Description = "Output format. keep (no conversion)|jpg+mov (H.265)|heic+mov (H.265)|jpg+mp4 (H.264).\nDefault: first available for the chosen protocol." };
+            var keyTimestampOpt = new Option<string?>("--key-timestamp") { Description = "Override the key photo (cover) position on the video timeline (Apple conversion, single-file mode).\n" +
                 "Accepts seconds (2.500), mm:ss (1:30.500) or hh:mm:ss (0:01:30.500).\n" +
-                "Default: follow the source live photo's own timeline.");
+                "Default: follow the source live photo's own timeline." };
 
-            var outputOpt = new Option<DirectoryInfo?>("--output",
-                "Output folder. Default: the source file's own directory for a single file; a \"{folder}_split\" subfolder inside the input folder for batch mode.");
-            outputOpt.AddAlias("-o");
+            var outputOpt = new Option<DirectoryInfo?>("--output", "-o") { Description = "Output folder. Default: the source file's own directory for a single file; a \"{folder}_split\" subfolder inside the input folder for batch mode." };
+            var namingOpt = new Option<string>("--naming", "-n") { DefaultValueFactory = _ => "keep", Description = "Output filename. keep (same name)|suffix (append _split)|custom:TEMPLATE.\nTemplate tokens: {name} {date} {date:yyyy-MM-dd} {time} {exif_date} {exif_time} {counter} {counter:D3}" };
+            var parallelOpt = new Option<int>("--parallel", "-j") { DefaultValueFactory = _ => Math.Min(Environment.ProcessorCount, 5), Description = "How many files to process at once (1-64). More = faster CPU usage." };
+            var yesOpt = new Option<bool>("--yes", "-y") { Description = "Skip confirmation prompts. Useful for scripts / automation." };
+            var jsonOpt = new Option<bool>("--json") { Description = "Output machine-readable JSON to stdout (implies --yes)." };
 
-            var namingOpt = new Option<string>("--naming", () => "keep",
-                "Output filename. keep (same name)|suffix (append _split)|custom:TEMPLATE.\nTemplate tokens: {name} {date} {date:yyyy-MM-dd} {time} {exif_date} {exif_time} {counter} {counter:D3}");
-            namingOpt.AddAlias("-n");
+            var dryRunOpt = new Option<bool>("--dry-run") { Description = "Preview: show what would be done, don't actually process files." };
 
-            var parallelOpt = new Option<int>("--parallel",
-                () => Math.Min(Environment.ProcessorCount, 5),
-                "How many files to process at once (1-64). More = faster CPU usage.");
-            parallelOpt.AddAlias("-j");
+            var verboseOpt = new Option<bool>("--verbose", "-v") { Description = "Show per-file status messages instead of summary only." };
+            var overwriteOpt = new Option<bool>("--overwrite", "-w") { Description = "Replace existing files. Without this, name conflicts get auto-renamed (photo.jpg -> photo (2).jpg)." };
+            var recursiveOpt = new Option<bool>("--recursive", "-r") { Description = "Also scan subdirectories inside the input folder." };
+            var preserveSubdirsOpt = new Option<bool>("--preserve-subdirs", "-s") { Description = "Keep source subdirectory structure in the output folder." };
+            var afterOpt = new Option<string>("--after") { DefaultValueFactory = _ => "none", Description = "After successful split: none (keep source)|move:PATH (move to folder)|recycle (Windows recycle bin)." };
 
-            var yesOpt = new Option<bool>("--yes",
-                "Skip confirmation prompts. Useful for scripts / automation.");
-            yesOpt.AddAlias("-y");
-
-            var jsonOpt = new Option<bool>("--json",
-                "Output machine-readable JSON to stdout (implies --yes).");
-
-            var dryRunOpt = new Option<bool>("--dry-run",
-                "Preview: show what would be done, don't actually process files.");
-
-            var verboseOpt = new Option<bool>("--verbose",
-                "Show per-file status messages instead of summary only.");
-            verboseOpt.AddAlias("-v");
-
-            var overwriteOpt = new Option<bool>("--overwrite",
-                "Replace existing files. Without this, name conflicts get auto-renamed (photo.jpg -> photo (2).jpg).");
-            overwriteOpt.AddAlias("-w");
-
-            var recursiveOpt = new Option<bool>("--recursive",
-                "Also scan subdirectories inside the input folder.");
-            recursiveOpt.AddAlias("-r");
-
-            var preserveSubdirsOpt = new Option<bool>("--preserve-subdirs",
-                "Keep source subdirectory structure in the output folder.");
-            preserveSubdirsOpt.AddAlias("-s");
-
-            var afterOpt = new Option<string>("--after", () => "none",
-                "After successful split: none (keep source)|move:PATH (move to folder)|recycle (Windows recycle bin).");
-
-            var allVariantsOpt = new Option<bool>("--all-variants",
-                "Export ALL split variants from a single live photo (single-file mode only):\n" +
+            var allVariantsOpt = new Option<bool>("--all-variants") { Description = "Export ALL split variants from a single live photo (single-file mode only):\n" +
                 "No protocol (keep / JPG+MOV / HEIC+MOV / JPG+MP4), Apple Live Photo (JPG+MOV / HEIC+MOV),\n" +
                 "vivo Live Photo (JPG+MP4) = 7 variants.\n" +
-                "Output goes to {output}/split_{name}_All_Variants/. Files are named {protocol}_{format}.ext.");
+                "Output goes to {output}/split_{name}_All_Variants/. Files are named {protocol}_{format}.ext." };
 
             var cmd = new Command("split",
                 "Split single-file live photos into separate image and video files.\n" +
@@ -185,31 +144,31 @@ namespace LivePhotoBox.Cli.Commands
                 allVariantsOpt
             };
 
-            cmd.SetHandler(async context =>
+            cmd.SetAction(async parseResult =>
             {
-                string? singlePath = context.ParseResult.GetValueForArgument(filesArg);
-                var dir = context.ParseResult.GetValueForOption(dirOpt);
-                var pairingName = context.ParseResult.GetValueForOption(pairingOpt)!;
-                var protocolName = context.ParseResult.GetValueForOption(protocolOpt)!;
-                var formatName = context.ParseResult.GetValueForOption(formatOpt);
-                var keyTimestampText = context.ParseResult.GetValueForOption(keyTimestampOpt);
-                var output = context.ParseResult.GetValueForOption(outputOpt);
-                var naming = context.ParseResult.GetValueForOption(namingOpt)!;
+                string? singlePath = parseResult.GetValue(filesArg);
+                var dir = parseResult.GetValue(dirOpt);
+                var pairingName = parseResult.GetValue(pairingOpt)!;
+                var protocolName = parseResult.GetValue(protocolOpt)!;
+                var formatName = parseResult.GetValue(formatOpt);
+                var keyTimestampText = parseResult.GetValue(keyTimestampOpt);
+                var output = parseResult.GetValue(outputOpt);
+                var naming = parseResult.GetValue(namingOpt)!;
                 // 用户是否显式传了 --naming（未传时单文件默认 suffix、批量默认 keep）
-                bool namingExplicit = context.ParseResult.Tokens.Any(t =>
+                bool namingExplicit = parseResult.Tokens.Any(t =>
                     t.Value == "--naming" || t.Value == "-n"
                     || t.Value.StartsWith("--naming=", StringComparison.Ordinal)
                     || t.Value.StartsWith("-n=", StringComparison.Ordinal));
-                var parallel = context.ParseResult.GetValueForOption(parallelOpt);
-                var yes = context.ParseResult.GetValueForOption(yesOpt);
-                var json = context.ParseResult.GetValueForOption(jsonOpt);
-                var dryRun = context.ParseResult.GetValueForOption(dryRunOpt);
-                var verbose = context.ParseResult.GetValueForOption(verboseOpt);
-                var overwrite = context.ParseResult.GetValueForOption(overwriteOpt);
-                var recursive = context.ParseResult.GetValueForOption(recursiveOpt);
-                var preserveSubdirs = context.ParseResult.GetValueForOption(preserveSubdirsOpt);
-                var after = context.ParseResult.GetValueForOption(afterOpt)!;
-                var allVariants = context.ParseResult.GetValueForOption(allVariantsOpt);
+                var parallel = parseResult.GetValue(parallelOpt);
+                var yes = parseResult.GetValue(yesOpt);
+                var json = parseResult.GetValue(jsonOpt);
+                var dryRun = parseResult.GetValue(dryRunOpt);
+                var verbose = parseResult.GetValue(verboseOpt);
+                var overwrite = parseResult.GetValue(overwriteOpt);
+                var recursive = parseResult.GetValue(recursiveOpt);
+                var preserveSubdirs = parseResult.GetValue(preserveSubdirsOpt);
+                var after = parseResult.GetValue(afterOpt)!;
+                var allVariants = parseResult.GetValue(allVariantsOpt);
 
                 long? keyTimestampUs = null;
                 if (keyTimestampText != null)
@@ -219,7 +178,7 @@ namespace LivePhotoBox.Cli.Commands
                         CliConsole.WriteErrorWithHint(
                             $"Error: Invalid --key-timestamp '{keyTimestampText}'.",
                             "Use seconds (e.g. 2.500), mm:ss (e.g. 1:30.500) or hh:mm:ss (e.g. 0:01:30.500).");
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
                     keyTimestampUs = parsedUs;
@@ -231,7 +190,7 @@ namespace LivePhotoBox.Cli.Commands
                     if (CliInputValidator.HasWildcard(singlePath))
                     {
                         CliInputValidator.WriteWildcardNotSupported();
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
 
@@ -239,7 +198,7 @@ namespace LivePhotoBox.Cli.Commands
                     if (CliInputValidator.IsUnknownOption(singlePath, ImageExtensions))
                     {
                         CliInputValidator.WriteUnknownOptionError(singlePath, cmd.Options.SelectMany(o => o.Aliases), "split");
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
 
@@ -249,7 +208,7 @@ namespace LivePhotoBox.Cli.Commands
                         singlePath, "supported files need .jpg/.jpeg/.heic/.heif", ref dir);
                     if (folderStatus == CliInputValidator.FolderInputStatus.NotFound)
                     {
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
                     if (folderStatus == CliInputValidator.FolderInputStatus.Resolved)
@@ -262,12 +221,12 @@ namespace LivePhotoBox.Cli.Commands
                         if (!ImageExtensions.Contains(ext))
                         {
                             CliConsole.WriteErrorLine($"Error: Unsupported file type '{ext}'. Supported: .jpg, .jpeg, .heic, .heif");
-                            context.ExitCode = 1;
+                            Environment.ExitCode = 1;
                             return;
                         }
                         if (!CliInputValidator.ValidateInputFile(new FileInfo(singlePath)))
                         {
-                            context.ExitCode = 1;
+                            Environment.ExitCode = 1;
                             return;
                         }
                     }
@@ -278,15 +237,15 @@ namespace LivePhotoBox.Cli.Commands
                     || !CliInputValidator.ValidateOutputDirectory(output)
                     || !CliInputValidator.ValidateParallel(parallel))
                 {
-                    context.ExitCode = 1;
+                    Environment.ExitCode = 1;
                     return;
                 }
 
-                context.ExitCode = await RunAsync(
+                Environment.ExitCode = await RunAsync(
                     singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs, after, allVariants, keyTimestampUs,
-                    context.GetCancellationToken());
+                    default);
             });
 
             return cmd;

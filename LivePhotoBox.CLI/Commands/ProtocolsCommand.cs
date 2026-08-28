@@ -36,20 +36,21 @@ namespace LivePhotoBox.Cli.Commands
 
         public static Command Create()
         {
-            var jsonOpt = new Option<bool>("--json", "Output in JSON format");
+            var jsonOpt = new Option<bool>("--json") { Description = "Output in JSON format" };
 
             var cmd = new Command("protocols", "List supported protocols and format combinations")
             {
                 jsonOpt
             };
 
-            cmd.SetHandler(json =>
+            cmd.SetAction(parseResult =>
             {
+                var json = parseResult.GetValue(jsonOpt);
                 if (json)
                     PrintJson();
                 else
                     PrintTable();
-            }, jsonOpt);
+            });
 
             return cmd;
         }

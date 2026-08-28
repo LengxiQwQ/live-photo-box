@@ -35,67 +35,32 @@ namespace LivePhotoBox.Cli.Commands
 
         public static Command Create()
         {
-            var filesArg = new Argument<string?>("files",
-                "One image or video file to repair (.jpg/.jpeg/.heic/.heif/.mov/.mp4), or a folder path (no file extension = batch mode, same as --dir).");
+            var filesArg = new Argument<string?>("files") { Description = "One image or video file to repair (.jpg/.jpeg/.heic/.heif/.mov/.mp4), or a folder path (no file extension = batch mode, same as --dir)." };
             filesArg.Arity = ArgumentArity.ZeroOrOne;
 
-            var dirOpt = new Option<DirectoryInfo?>("--dir",
-                "Folder with images and videos. Every detected file is analyzed and repaired. For batch mode; a folder path can also be passed as the positional argument.");
-            dirOpt.AddAlias("-d");
+            var dirOpt = new Option<DirectoryInfo?>("--dir", "-d") { Description = "Folder with images and videos. Every detected file is analyzed and repaired. For batch mode; a folder path can also be passed as the positional argument." };
+            var outputOpt = new Option<DirectoryInfo?>("--output", "-o") { Description = "Output folder. Default: a \"_repaired\" suffix next to the source for single-file; a \"{folder}_repaired\" subfolder inside the input folder for batch mode." };
+            var noRotateOpt = new Option<bool>("--no-rotate") { Description = "Disable image rotation fix (jpegtran lossless rotation)." };
+            var noThumbnailOpt = new Option<bool>("--no-thumbnail") { Description = "Disable embedded thumbnail stripping." };
+            var noHeicOpt = new Option<bool>("--no-heic") { Description = "Disable HEIC/HEIF orientation fix." };
+            var noVideoOpt = new Option<bool>("--no-video") { Description = "Disable video rotation bake (FFmpeg re-encode)." };
 
-            var outputOpt = new Option<DirectoryInfo?>("--output",
-                "Output folder. Default: a \"_repaired\" suffix next to the source for single-file; a \"{folder}_repaired\" subfolder inside the input folder for batch mode.");
-            outputOpt.AddAlias("-o");
+            var allDevicesOpt = new Option<bool>("--all-devices") { Description = "Repair files from all devices. Default: only Apple Live Photos (ContentIdentifier UUID) are repaired." };
 
-            var noRotateOpt = new Option<bool>("--no-rotate",
-                "Disable image rotation fix (jpegtran lossless rotation).");
-            var noThumbnailOpt = new Option<bool>("--no-thumbnail",
-                "Disable embedded thumbnail stripping.");
-            var noHeicOpt = new Option<bool>("--no-heic",
-                "Disable HEIC/HEIF orientation fix.");
-            var noVideoOpt = new Option<bool>("--no-video",
-                "Disable video rotation bake (FFmpeg re-encode).");
+            var repairLongVideosOpt = new Option<bool>("--repair-long-videos") { Description = "Also repair videos longer than 3.5s (not real live photos). Default: skipped." };
 
-            var allDevicesOpt = new Option<bool>("--all-devices",
-                "Repair files from all devices. Default: only Apple Live Photos (ContentIdentifier UUID) are repaired.");
+            var copyPerfectOpt = new Option<bool>("--copy-perfect") { Description = "Also copy files that need no repair to the output folder (batch mode only)." };
 
-            var repairLongVideosOpt = new Option<bool>("--repair-long-videos",
-                "Also repair videos longer than 3.5s (not real live photos). Default: skipped.");
+            var parallelOpt = new Option<int>("--parallel", "-j") { DefaultValueFactory = _ => Math.Min(Environment.ProcessorCount, 5), Description = "How many files to process at once (1-64). More = faster CPU usage." };
+            var yesOpt = new Option<bool>("--yes", "-y") { Description = "Skip confirmation prompts. Useful for scripts / automation." };
+            var jsonOpt = new Option<bool>("--json") { Description = "Output machine-readable JSON to stdout (implies --yes)." };
 
-            var copyPerfectOpt = new Option<bool>("--copy-perfect",
-                "Also copy files that need no repair to the output folder (batch mode only).");
+            var dryRunOpt = new Option<bool>("--dry-run") { Description = "Preview: show what would be done, don't actually process files." };
 
-            var parallelOpt = new Option<int>("--parallel",
-                () => Math.Min(Environment.ProcessorCount, 5),
-                "How many files to process at once (1-64). More = faster CPU usage.");
-            parallelOpt.AddAlias("-j");
-
-            var yesOpt = new Option<bool>("--yes",
-                "Skip confirmation prompts. Useful for scripts / automation.");
-            yesOpt.AddAlias("-y");
-
-            var jsonOpt = new Option<bool>("--json",
-                "Output machine-readable JSON to stdout (implies --yes).");
-
-            var dryRunOpt = new Option<bool>("--dry-run",
-                "Preview: show what would be done, don't actually process files.");
-
-            var verboseOpt = new Option<bool>("--verbose",
-                "Show per-file status messages instead of summary only.");
-            verboseOpt.AddAlias("-v");
-
-            var overwriteOpt = new Option<bool>("--overwrite",
-                "Replace existing files. Without this, name conflicts get auto-renamed (photo.jpg -> photo (2).jpg).");
-            overwriteOpt.AddAlias("-w");
-
-            var recursiveOpt = new Option<bool>("--recursive",
-                "Also scan subdirectories inside the input folder.");
-            recursiveOpt.AddAlias("-r");
-
-            var preserveSubdirsOpt = new Option<bool>("--preserve-subdirs",
-                "Keep source subdirectory structure in the output folder.");
-            preserveSubdirsOpt.AddAlias("-s");
-
+            var verboseOpt = new Option<bool>("--verbose", "-v") { Description = "Show per-file status messages instead of summary only." };
+            var overwriteOpt = new Option<bool>("--overwrite", "-w") { Description = "Replace existing files. Without this, name conflicts get auto-renamed (photo.jpg -> photo (2).jpg)." };
+            var recursiveOpt = new Option<bool>("--recursive", "-r") { Description = "Also scan subdirectories inside the input folder." };
+            var preserveSubdirsOpt = new Option<bool>("--preserve-subdirs", "-s") { Description = "Keep source subdirectory structure in the output folder." };
             var cmd = new Command("repair",
                 "Analyze and repair live photo metadata problems.\n" +
                 "Fixes image rotation, embedded thumbnails, HEIC orientation and video rotation.\n" +
@@ -119,26 +84,26 @@ namespace LivePhotoBox.Cli.Commands
                 overwriteOpt, recursiveOpt, preserveSubdirsOpt
             };
 
-            cmd.SetHandler(async context =>
+            cmd.SetAction(async parseResult =>
             {
-                string? singlePath = context.ParseResult.GetValueForArgument(filesArg);
-                var dir = context.ParseResult.GetValueForOption(dirOpt);
-                var output = context.ParseResult.GetValueForOption(outputOpt);
-                var noRotate = context.ParseResult.GetValueForOption(noRotateOpt);
-                var noThumbnail = context.ParseResult.GetValueForOption(noThumbnailOpt);
-                var noHeic = context.ParseResult.GetValueForOption(noHeicOpt);
-                var noVideo = context.ParseResult.GetValueForOption(noVideoOpt);
-                var allDevices = context.ParseResult.GetValueForOption(allDevicesOpt);
-                var repairLongVideos = context.ParseResult.GetValueForOption(repairLongVideosOpt);
-                var copyPerfect = context.ParseResult.GetValueForOption(copyPerfectOpt);
-                var parallel = context.ParseResult.GetValueForOption(parallelOpt);
-                var yes = context.ParseResult.GetValueForOption(yesOpt);
-                var json = context.ParseResult.GetValueForOption(jsonOpt);
-                var dryRun = context.ParseResult.GetValueForOption(dryRunOpt);
-                var verbose = context.ParseResult.GetValueForOption(verboseOpt);
-                var overwrite = context.ParseResult.GetValueForOption(overwriteOpt);
-                var recursive = context.ParseResult.GetValueForOption(recursiveOpt);
-                var preserveSubdirs = context.ParseResult.GetValueForOption(preserveSubdirsOpt);
+                string? singlePath = parseResult.GetValue(filesArg);
+                var dir = parseResult.GetValue(dirOpt);
+                var output = parseResult.GetValue(outputOpt);
+                var noRotate = parseResult.GetValue(noRotateOpt);
+                var noThumbnail = parseResult.GetValue(noThumbnailOpt);
+                var noHeic = parseResult.GetValue(noHeicOpt);
+                var noVideo = parseResult.GetValue(noVideoOpt);
+                var allDevices = parseResult.GetValue(allDevicesOpt);
+                var repairLongVideos = parseResult.GetValue(repairLongVideosOpt);
+                var copyPerfect = parseResult.GetValue(copyPerfectOpt);
+                var parallel = parseResult.GetValue(parallelOpt);
+                var yes = parseResult.GetValue(yesOpt);
+                var json = parseResult.GetValue(jsonOpt);
+                var dryRun = parseResult.GetValue(dryRunOpt);
+                var verbose = parseResult.GetValue(verboseOpt);
+                var overwrite = parseResult.GetValue(overwriteOpt);
+                var recursive = parseResult.GetValue(recursiveOpt);
+                var preserveSubdirs = parseResult.GetValue(preserveSubdirsOpt);
 
                 if (singlePath != null)
                 {
@@ -146,7 +111,7 @@ namespace LivePhotoBox.Cli.Commands
                     if (CliInputValidator.HasWildcard(singlePath))
                     {
                         CliInputValidator.WriteWildcardNotSupported();
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
 
@@ -154,7 +119,7 @@ namespace LivePhotoBox.Cli.Commands
                     if (CliInputValidator.IsUnknownOption(singlePath, ImageExtensions.Concat(VideoExtensions)))
                     {
                         CliInputValidator.WriteUnknownOptionError(singlePath, cmd.Options.SelectMany(o => o.Aliases), "repair");
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
 
@@ -164,7 +129,7 @@ namespace LivePhotoBox.Cli.Commands
                         singlePath, "images need .jpg/.jpeg/.heic/.heif, videos need .mov/.mp4", ref dir);
                     if (folderStatus == CliInputValidator.FolderInputStatus.NotFound)
                     {
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
                     if (folderStatus == CliInputValidator.FolderInputStatus.Resolved)
@@ -177,12 +142,12 @@ namespace LivePhotoBox.Cli.Commands
                         if (!ImageExtensions.Contains(ext) && !VideoExtensions.Contains(ext))
                         {
                             CliConsole.WriteErrorLine($"Error: Unsupported file type '{ext}'. Supported: .jpg, .jpeg, .heic, .heif, .mov, .mp4");
-                            context.ExitCode = 1;
+                            Environment.ExitCode = 1;
                             return;
                         }
                         if (!CliInputValidator.ValidateInputFile(new FileInfo(singlePath)))
                         {
-                            context.ExitCode = 1;
+                            Environment.ExitCode = 1;
                             return;
                         }
                     }
@@ -193,17 +158,17 @@ namespace LivePhotoBox.Cli.Commands
                     || !CliInputValidator.ValidateOutputDirectory(output)
                     || !CliInputValidator.ValidateParallel(parallel))
                 {
-                    context.ExitCode = 1;
+                    Environment.ExitCode = 1;
                     return;
                 }
 
-                context.ExitCode = await RunAsync(
+                Environment.ExitCode = await RunAsync(
                     singlePath, dir, output,
                     noRotate, noThumbnail, noHeic, noVideo,
                     allDevices, repairLongVideos, copyPerfect,
                     parallel, yes, json, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs,
-                    context.GetCancellationToken());
+                    default);
             });
 
             return cmd;

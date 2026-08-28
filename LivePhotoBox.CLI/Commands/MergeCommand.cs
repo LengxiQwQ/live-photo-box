@@ -25,77 +25,47 @@ namespace LivePhotoBox.Cli.Commands
         public static Command Create()
         {
             // Positional: just drop two files, auto-detect image/video by extension
-            var filesArg = new Argument<string[]>("files",
-                "Image + video file pair (.jpg/.jpeg/.heic/.heif + .mp4/.mov) auto-detected by extension, or a folder path (no file extension = batch mode, same as --dir).");
+            var filesArg = new Argument<string[]>("files") { Description = "Image + video file pair (.jpg/.jpeg/.heic/.heif + .mp4/.mov) auto-detected by extension, or a folder path (no file extension = batch mode, same as --dir)." };
             filesArg.Arity = new ArgumentArity(0, 2);
 
-            var dirOpt = new Option<DirectoryInfo?>("--dir",
-                "Folder with images + videos. Files with matching names are paired. For batch mode; a folder path can also be passed as the positional argument.");
-            dirOpt.AddAlias("-d");
+            var dirOpt = new Option<DirectoryInfo?>("--dir", "-d") { Description = "Folder with images + videos. Files with matching names are paired. For batch mode; a folder path can also be passed as the positional argument." };
 
-            var protocolOpt = new Option<string>("--protocol", () => "motion photo",
-                "Target phone format. micro video (v1)|motion photo (v2)|oppo|vivo|samsung|huawei.\n" +
+            var protocolOpt = new Option<string>("--protocol", "-p") { DefaultValueFactory = _ => "motion photo", Description = "Target phone format. micro video (v1)|motion photo (v2)|oppo|vivo|samsung|huawei.\n" +
                 "Multi-word names also work without spaces (no quotes): microvideo, motionphoto.\n" +
-                "Use 'protocols' command to see all supported combinations.");
-            protocolOpt.AddAlias("-p");
+                "Use 'protocols' command to see all supported combinations." };
 
-            var outputOpt = new Option<DirectoryInfo?>("--output",
-                "Output folder. Default: image's own directory for a single pair; a \"{folder}_<protocol>\" subfolder inside the input folder for batch mode.");
-            outputOpt.AddAlias("-o");
+            var outputOpt = new Option<DirectoryInfo?>("--output", "-o") { Description = "Output folder. Default: image's own directory for a single pair; a \"{folder}_<protocol>\" subfolder inside the input folder for batch mode." };
 
-            var formatOpt = new Option<string?>("--format",
-                "Container format. jpg+mp4 (most compatible)|jpg+mov (Apple-style)|heic+mp4 (compact)|heic+mov|heic+mp4-h265 (HUAWEI native, HEVC).\nDefault: first available for the chosen protocol.");
-            formatOpt.AddAlias("-f");
+            var formatOpt = new Option<string?>("--format", "-f") { Description = "Container format. jpg+mp4 (most compatible)|jpg+mov (Apple-style)|heic+mp4 (compact)|heic+mov|heic+mp4-h265 (HUAWEI native, HEVC).\nDefault: first available for the chosen protocol." };
 
-            var namingOpt = new Option<string>("--naming", () => "keep",
-                "Output filename. keep (same name)|suffix (append protocol; default for single-pair)|custom:TEMPLATE.\nTemplate tokens: {name} {protocol} {date} {date:yyyy-MM-dd} {time} {exif_date} {exif_time} {counter} {counter:D3}");
-            namingOpt.AddAlias("-n");
+            var namingOpt = new Option<string>("--naming", "-n") { DefaultValueFactory = _ => "keep", Description = "Output filename. keep (same name)|suffix (append protocol; default for single-pair)|custom:TEMPLATE.\nTemplate tokens: {name} {protocol} {date} {date:yyyy-MM-dd} {time} {exif_date} {exif_time} {counter} {counter:D3}" };
 
-            var parallelOpt = new Option<int>("--parallel",
-                () => Math.Min(Environment.ProcessorCount, 5),
-                "How many files to process at once (1-64). More = faster CPU usage.");
-            parallelOpt.AddAlias("-j");
+            var parallelOpt = new Option<int>("--parallel", "-j") { DefaultValueFactory = _ => Math.Min(Environment.ProcessorCount, 5), Description = "How many files to process at once (1-64). More = faster CPU usage." };
 
-            var yesOpt = new Option<bool>("--yes",
-                "Skip confirmation prompts. Useful for scripts / automation.");
-            yesOpt.AddAlias("-y");
+            var yesOpt = new Option<bool>("--yes", "-y") { Description = "Skip confirmation prompts. Useful for scripts / automation." };
 
-            var jsonOpt = new Option<bool>("--json",
-                "Output machine-readable JSON to stdout (implies --yes).");
+            var jsonOpt = new Option<bool>("--json") { Description = "Output machine-readable JSON to stdout (implies --yes)." };
 
-            var dryRunOpt = new Option<bool>("--dry-run",
-                "Preview: show what would be done, don't actually process files.");
+            var dryRunOpt = new Option<bool>("--dry-run") { Description = "Preview: show what would be done, don't actually process files." };
 
-            var verboseOpt = new Option<bool>("--verbose",
-                "Show per-file status messages instead of summary only.");
-            verboseOpt.AddAlias("-v");
+            var verboseOpt = new Option<bool>("--verbose", "-v") { Description = "Show per-file status messages instead of summary only." };
 
-            var overwriteOpt = new Option<bool>("--overwrite",
-                "Replace existing files. Without this, name conflicts get auto-renamed (photo.jpg -> photo (2).jpg).");
-            overwriteOpt.AddAlias("-w");
+            var overwriteOpt = new Option<bool>("--overwrite", "-w") { Description = "Replace existing files. Without this, name conflicts get auto-renamed (photo.jpg -> photo (2).jpg)." };
 
-            var recursiveOpt = new Option<bool>("--recursive",
-                "Also scan subdirectories inside the input folder.");
-            recursiveOpt.AddAlias("-r");
+            var recursiveOpt = new Option<bool>("--recursive", "-r") { Description = "Also scan subdirectories inside the input folder." };
 
-            var preserveSubdirsOpt = new Option<bool>("--preserve-subdirs",
-                "Keep source subdirectory structure in the output folder.");
-            preserveSubdirsOpt.AddAlias("-s");
+            var preserveSubdirsOpt = new Option<bool>("--preserve-subdirs", "-s") { Description = "Keep source subdirectory structure in the output folder." };
 
-            var pairingOpt = new Option<string>("--pairing", () => "name",
-                "How to match images with videos. name (same filename)|cid (Apple ContentIdentifier UUID)|vivo (vivo camera ID).");
+            var pairingOpt = new Option<string>("--pairing") { DefaultValueFactory = _ => "name", Description = "How to match images with videos. name (same filename)|cid (Apple ContentIdentifier UUID)|vivo (vivo camera ID)." };
 
-            var afterOpt = new Option<string>("--after", () => "none",
-                "After successful merge: none (keep source)|move:PATH (move to folder)|recycle (Windows recycle bin).");
+            var afterOpt = new Option<string>("--after") { DefaultValueFactory = _ => "none", Description = "After successful merge: none (keep source)|move:PATH (move to folder)|recycle (Windows recycle bin)." };
 
-            var allVariantsOpt = new Option<bool>("--all-variants",
-                "Generate for ALL supported protocol×format combos (single-pair mode only).\n" +
-                "Output goes to {output}/{name}_variants/ (default: input file's directory). Files are named {name}_{Protocol}_{Format}.ext.");
+            var allVariantsOpt = new Option<bool>("--all-variants") { Description = "Generate for ALL supported protocol×format combos (single-pair mode only).\n" +
+                "Output goes to {output}/{name}_variants/ (default: input file's directory). Files are named {name}_{Protocol}_{Format}.ext." };
 
-            var keyTimestampOpt = new Option<string?>("--key-timestamp",
-                "Set the key photo position on the video timeline (single-pair mode only).\n" +
+            var keyTimestampOpt = new Option<string?>("--key-timestamp") { Description = "Set the key photo position on the video timeline (single-pair mode only).\n" +
                 "Accepts seconds (2.500), mm:ss (1:30.500) or hh:mm:ss (0:01:30.500).\n" +
-                "Default: follow the source video's own timeline (Apple MOV / vivo metadata).");
+                "Default: follow the source video's own timeline (Apple MOV / vivo metadata)." };
 
             var cmd = new Command("merge",
                 "Combine images and videos into phone-compatible live photos.\n" +
@@ -118,14 +88,14 @@ namespace LivePhotoBox.Cli.Commands
                 allVariantsOpt, keyTimestampOpt
             };
 
-            cmd.SetHandler(async context =>
+            cmd.SetAction(async parseResult =>
             {
-                var dir = context.ParseResult.GetValueForOption(dirOpt);
+                var dir = parseResult.GetValue(dirOpt);
 
                 // Auto-detect image/video from positional file arguments
                 FileInfo? image = null;
                 FileInfo? video = null;
-                var files = context.ParseResult.GetValueForArgument(filesArg);
+                var files = parseResult.GetValue(filesArg);
                 // System.CommandLine 会把未知选项当成位置参数（文件名）吞掉，提前识别避免误导性报错
                 if (files is { Length: > 0 })
                 {
@@ -134,7 +104,7 @@ namespace LivePhotoBox.Cli.Commands
                     if (wildcard != null)
                     {
                         CliInputValidator.WriteWildcardNotSupported();
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
 
@@ -142,7 +112,7 @@ namespace LivePhotoBox.Cli.Commands
                     if (unknown != null)
                     {
                         CliInputValidator.WriteUnknownOptionError(unknown, cmd.Options.SelectMany(o => o.Aliases), "merge");
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
                 }
@@ -154,14 +124,14 @@ namespace LivePhotoBox.Cli.Commands
                         CliConsole.WriteErrorWithHint(
                             "Error: Cannot determine which file is the image and which is the video.",
                             "Pass one image (.jpg/.jpeg/.heic/.heif) and one video (.mp4/.mov), e.g. 'lpb merge photo.jpg video.mp4'.");
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
                     var img = resolved.Value.Image;
                     var vid = resolved.Value.Video;
                     if (!CliInputValidator.ValidateInputFile(img) || !CliInputValidator.ValidateInputFile(vid))
                     {
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
                     image ??= img;
@@ -176,7 +146,7 @@ namespace LivePhotoBox.Cli.Commands
                         p, "images need .jpg/.jpeg/.heic/.heif, videos need .mp4/.mov", ref dir);
                     if (folderStatus == CliInputValidator.FolderInputStatus.NotFound)
                     {
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
                     if (folderStatus == CliInputValidator.FolderInputStatus.NotFolder)
@@ -184,34 +154,34 @@ namespace LivePhotoBox.Cli.Commands
                         CliConsole.WriteErrorWithHint(
                             "Error: Provide TWO files (image + video), or use --dir for batch mode.",
                             "Examples: 'lpb merge photo.jpg video.mp4' or 'lpb merge ./MyPhotos -p motionphoto -y'.");
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
                 }
 
-                var protocolName = context.ParseResult.GetValueForOption(protocolOpt)!;
-                var output = context.ParseResult.GetValueForOption(outputOpt);
-                var formatName = context.ParseResult.GetValueForOption(formatOpt);
-                var naming = context.ParseResult.GetValueForOption(namingOpt)!;
+                var protocolName = parseResult.GetValue(protocolOpt)!;
+                var output = parseResult.GetValue(outputOpt);
+                var formatName = parseResult.GetValue(formatOpt);
+                var naming = parseResult.GetValue(namingOpt)!;
                 // 用户是否显式传了 --naming（未传时按模式用默认值：单文件=suffix，批量=keep）
                 // 注意：beta4 版 FindResultFor 会把带默认值的选项也物化成结果，无法据此判断"是否显式传入"，
                 // 只能扫描命令行 token 判断。
-                bool namingExplicit = context.ParseResult.Tokens.Any(t =>
+                bool namingExplicit = parseResult.Tokens.Any(t =>
                     t.Value == "--naming" || t.Value == "-n"
                     || t.Value.StartsWith("--naming=", StringComparison.Ordinal)
                     || t.Value.StartsWith("-n=", StringComparison.Ordinal));
-                var parallel = context.ParseResult.GetValueForOption(parallelOpt);
-                var yes = context.ParseResult.GetValueForOption(yesOpt);
-                var json = context.ParseResult.GetValueForOption(jsonOpt);
-                var dryRun = context.ParseResult.GetValueForOption(dryRunOpt);
-                var verbose = context.ParseResult.GetValueForOption(verboseOpt);
-                var overwrite = context.ParseResult.GetValueForOption(overwriteOpt);
-                var recursive = context.ParseResult.GetValueForOption(recursiveOpt);
-                var preserveSubdirs = context.ParseResult.GetValueForOption(preserveSubdirsOpt);
-                var pairing = context.ParseResult.GetValueForOption(pairingOpt)!;
-                var after = context.ParseResult.GetValueForOption(afterOpt)!;
-                var allVariants = context.ParseResult.GetValueForOption(allVariantsOpt);
-                var keyTimestampText = context.ParseResult.GetValueForOption(keyTimestampOpt);
+                var parallel = parseResult.GetValue(parallelOpt);
+                var yes = parseResult.GetValue(yesOpt);
+                var json = parseResult.GetValue(jsonOpt);
+                var dryRun = parseResult.GetValue(dryRunOpt);
+                var verbose = parseResult.GetValue(verboseOpt);
+                var overwrite = parseResult.GetValue(overwriteOpt);
+                var recursive = parseResult.GetValue(recursiveOpt);
+                var preserveSubdirs = parseResult.GetValue(preserveSubdirsOpt);
+                var pairing = parseResult.GetValue(pairingOpt)!;
+                var after = parseResult.GetValue(afterOpt)!;
+                var allVariants = parseResult.GetValue(allVariantsOpt);
+                var keyTimestampText = parseResult.GetValue(keyTimestampOpt);
                 long? keyTimestampUs = null;
                 if (keyTimestampText != null)
                 {
@@ -220,7 +190,7 @@ namespace LivePhotoBox.Cli.Commands
                         CliConsole.WriteErrorWithHint(
                             $"Error: Invalid --key-timestamp '{keyTimestampText}'.",
                             "Use seconds (e.g. 2.500), mm:ss (e.g. 1:30.500) or hh:mm:ss (e.g. 0:01:30.500).");
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
                     keyTimestampUs = parsedUs;
@@ -231,16 +201,16 @@ namespace LivePhotoBox.Cli.Commands
                     || !CliInputValidator.ValidateOutputDirectory(output)
                     || !CliInputValidator.ValidateParallel(parallel))
                 {
-                    context.ExitCode = 1;
+                    Environment.ExitCode = 1;
                     return;
                 }
 
-                context.ExitCode = await RunAsync(
+                Environment.ExitCode = await RunAsync(
                     image, video, dir, protocolName, output, formatName,
                     naming, namingExplicit, parallel, yes, json, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs, pairing, after,
                     allVariants, keyTimestampUs,
-                    context.GetCancellationToken());
+                    default);
             });
 
             return cmd;

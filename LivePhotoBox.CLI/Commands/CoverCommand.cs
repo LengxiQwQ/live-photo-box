@@ -34,43 +34,21 @@ namespace LivePhotoBox.Cli.Commands
 
         public static Command Create()
         {
-            var filesArg = new Argument<string[]>("files",
-                "Live photo file path. Single file: auto-detected as single-file live photo or dual-file image (auto-pair). Two files: image + video pair.");
+            var filesArg = new Argument<string[]>("files") { Description = "Live photo file path. Single file: auto-detected as single-file live photo or dual-file image (auto-pair). Two files: image + video pair." };
             filesArg.Arity = new ArgumentArity(1, 2);
 
-            var atOpt = new Option<string?>("--at",
-                "New cover position on the video timeline. Accepts seconds (2.500), mm:ss (1:30.500) or hh:mm:ss (0:01:30.500). Mutually exclusive with --frame.");
-            atOpt.AddAlias("-a");
+            var atOpt = new Option<string?>("--at", "-a") { Description = "New cover position on the video timeline. Accepts seconds (2.500), mm:ss (1:30.500) or hh:mm:ss (0:01:30.500). Mutually exclusive with --frame." };
+            var frameOpt = new Option<int?>("--frame") { Description = "New cover frame number (1-based). 1 = first frame. Mutually exclusive with --at." };
 
-            var frameOpt = new Option<int?>("--frame",
-                "New cover frame number (1-based). 1 = first frame. Mutually exclusive with --at.");
+            var outputOpt = new Option<DirectoryInfo?>("--output", "-o") { Description = "Output directory. Default: source file's own directory." };
+            var namingOpt = new Option<string>("--naming", "-n") { DefaultValueFactory = _ => "suffix", Description = "Output filename rule. keep (keep original name)|suffix (append protocol suffix)|custom:TEMPLATE.\n" +
+                "Template tokens: {name} {protocol} {date} {time} {exif_date} {exif_time} {frame} {counter} {counter:D3}" };
+            var overwriteOpt = new Option<bool>("--overwrite", "-w") { Description = "Replace existing files. Without this, name conflicts get auto-renamed." };
+            var yesOpt = new Option<bool>("--yes", "-y") { Description = "Skip confirmation prompts. Useful for scripts / automation." };
+            var dryRunOpt = new Option<bool>("--dry-run") { Description = "Preview only: show current cover info and what would be done, without modifying any files." };
 
-            var outputOpt = new Option<DirectoryInfo?>("--output",
-                "Output directory. Default: source file's own directory.");
-            outputOpt.AddAlias("-o");
-
-            var namingOpt = new Option<string>("--naming", () => "suffix",
-                "Output filename rule. keep (keep original name)|suffix (append protocol suffix)|custom:TEMPLATE.\n" +
-                "Template tokens: {name} {protocol} {date} {time} {exif_date} {exif_time} {frame} {counter} {counter:D3}");
-            namingOpt.AddAlias("-n");
-
-            var overwriteOpt = new Option<bool>("--overwrite",
-                "Replace existing files. Without this, name conflicts get auto-renamed.");
-            overwriteOpt.AddAlias("-w");
-
-            var yesOpt = new Option<bool>("--yes",
-                "Skip confirmation prompts. Useful for scripts / automation.");
-            yesOpt.AddAlias("-y");
-
-            var dryRunOpt = new Option<bool>("--dry-run",
-                "Preview only: show current cover info and what would be done, without modifying any files.");
-
-            var verboseOpt = new Option<bool>("--verbose",
-                "Show detailed progress messages.");
-            verboseOpt.AddAlias("-v");
-
-            var jsonOpt = new Option<bool>("--json",
-                "Output machine-readable JSON to stdout (implies --yes).");
+            var verboseOpt = new Option<bool>("--verbose", "-v") { Description = "Show detailed progress messages." };
+            var jsonOpt = new Option<bool>("--json") { Description = "Output machine-readable JSON to stdout (implies --yes)." };
 
             var command = new Command("cover",
                 "Change the cover frame (Key Photo) of an existing live photo, or view current cover info.\n" +
@@ -93,33 +71,31 @@ namespace LivePhotoBox.Cli.Commands
                 jsonOpt
             };
 
-            command.AddAlias("keyphoto");
-
-            command.SetHandler(async context =>
+            command.SetAction(async parseResult =>
             {
-                var files = context.ParseResult.GetValueForArgument(filesArg);
-                var at = context.ParseResult.GetValueForOption(atOpt);
-                var frame = context.ParseResult.GetValueForOption(frameOpt);
-                var output = context.ParseResult.GetValueForOption(outputOpt);
-                var naming = context.ParseResult.GetValueForOption(namingOpt)!;
-                var overwrite = context.ParseResult.GetValueForOption(overwriteOpt);
-                var yes = context.ParseResult.GetValueForOption(yesOpt);
-                var dryRun = context.ParseResult.GetValueForOption(dryRunOpt);
-                var verbose = context.ParseResult.GetValueForOption(verboseOpt);
-                var json = context.ParseResult.GetValueForOption(jsonOpt);
+                var files = parseResult.GetValue(filesArg);
+                var at = parseResult.GetValue(atOpt);
+                var frame = parseResult.GetValue(frameOpt);
+                var output = parseResult.GetValue(outputOpt);
+                var naming = parseResult.GetValue(namingOpt)!;
+                var overwrite = parseResult.GetValue(overwriteOpt);
+                var yes = parseResult.GetValue(yesOpt);
+                var dryRun = parseResult.GetValue(dryRunOpt);
+                var verbose = parseResult.GetValue(verboseOpt);
+                var json = parseResult.GetValue(jsonOpt);
 
                 string? wildcard = files.FirstOrDefault(CliInputValidator.HasWildcard);
                 if (wildcard != null)
                 {
                     CliInputValidator.WriteWildcardNotSupported();
-                    context.ExitCode = 1;
+                    Environment.ExitCode = 1;
                     return;
                 }
 
                 if (at != null && frame.HasValue)
                 {
                     CliConsole.WriteErrorLine("Error: --at and --frame are mutually exclusive. Specify only one.");
-                    context.ExitCode = 1;
+                    Environment.ExitCode = 1;
                     return;
                 }
 
@@ -132,7 +108,7 @@ namespace LivePhotoBox.Cli.Commands
                         CliConsole.WriteErrorWithHint(
                             $"Error: Invalid --at '{at}'.",
                             "Use seconds (e.g. 2.500), mm:ss (e.g. 1:30.500) or hh:mm:ss (e.g. 0:01:30.500).");
-                        context.ExitCode = 1;
+                        Environment.ExitCode = 1;
                         return;
                     }
                     timestampUs = parsedUs;
@@ -142,7 +118,7 @@ namespace LivePhotoBox.Cli.Commands
                 if (json)
                     yes = true;
 
-                context.ExitCode = await RunAsync(
+                Environment.ExitCode = await RunAsync(
                     files,
                     timestampUs,
                     frameNumber,
@@ -154,7 +130,7 @@ namespace LivePhotoBox.Cli.Commands
                     verbose,
                     json,
                     viewOnly,
-                    context.GetCancellationToken());
+                    default);
             });
 
             return command;
