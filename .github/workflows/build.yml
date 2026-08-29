@@ -75,6 +75,14 @@ jobs:
             publish\*.exe
           retention-days: 7
 
+      - name: Upload Native symbols / 上传 Native 符号
+        uses: actions/upload-artifact@v4
+        with:
+          name: LivePhotoBox-Native-Symbols-${{ github.run_number }}
+          path: artifacts\native\Release\win-x64\LivePhotoBox.Native.pdb
+          if-no-files-found: error
+          retention-days: 30
+
       # ── 6. Clean old artifact / 清理旧构建产物 ──────────────────
       - name: Clean old artifact / 清理旧构建产物
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}

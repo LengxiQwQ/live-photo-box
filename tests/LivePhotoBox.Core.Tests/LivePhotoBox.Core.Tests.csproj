@@ -28,7 +28,8 @@
       <Link>samples\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
-    <Content Include="..\..\designs\谷歌自己合成的.heic">
+    <Content Include="..\..\designs\谷歌自己合成的.heic"
+             Condition="Exists('..\..\designs\谷歌自己合成的.heic')">
       <Link>samples\谷歌自己合成的.heic</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

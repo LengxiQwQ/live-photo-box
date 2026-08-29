@@ -42,6 +42,15 @@ Set-Location $projectRoot
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 chcp 65001 > $null
 
+try {
+    & "$PSScriptRoot\native\build-native.ps1" -Configuration Release -Architecture x64 -RunTests
+}
+catch {
+    Write-Host "NATIVE BUILD FAILED - $($_.Exception.Message)" -ForegroundColor Red
+    if (-not $CI) { pause }
+    exit 1
+}
+
 $manifest = Get-Content 'LivePhotoBox\Package.appxmanifest' -Raw -Encoding UTF8
 $versionFull = if ($manifest -match 'Identity.*Version\s*=\s*"([^"]+)"') { $Matches[1] } else { '0.0.0.0' }
 $version = $versionFull -replace '\.0$', ''
@@ -70,6 +79,11 @@ if ($LASTEXITCODE -ne 0) {
 
 if (-not (Test-Path "$outDir\livephotobox-boot.exe")) {
     Write-Host 'BUILD FAILED - livephotobox-boot.exe not found in output' -ForegroundColor Red
+    if (-not $CI) { pause }
+    exit 1
+}
+if (-not (Test-Path "$outDir\LivePhotoBox.Native.dll")) {
+    Write-Host 'BUILD FAILED - LivePhotoBox.Native.dll not found in CLI output' -ForegroundColor Red
     if (-not $CI) { pause }
     exit 1
 }
@@ -153,7 +167,7 @@ Write-Host '[4/4] Creating CLI zip...' -ForegroundColor Yellow
 
 $zipName = "Live-Photo-Box-v$version-x64-cli.zip"
 $zipPath = "publish\$zipName"
-Invoke-ReliableZip -SourceDir $outDir -ZipPath $zipPath -RequiredNames @('add-to-path.cmd','remove-from-path.cmd') -CI:$CI
+Invoke-ReliableZip -SourceDir $outDir -ZipPath $zipPath -RequiredNames @('LivePhotoBox.Native.dll','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
 $zipSize = '{0:N1} MB' -f ((Get-Item $zipPath).Length / 1MB)
 Write-Host "       $zipName  ($zipSize)" -ForegroundColor Green
 

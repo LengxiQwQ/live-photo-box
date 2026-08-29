@@ -10,7 +10,30 @@
     <ImplicitUsings>disable</ImplicitUsings>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
+    <NativeRuntimeIdentifier>win-x64</NativeRuntimeIdentifier>
+    <NativeArtifactsDir>$(MSBuildThisFileDirectory)..\artifacts\native\$(Configuration)\$(NativeRuntimeIdentifier)</NativeArtifactsDir>
   </PropertyGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <Content Include="$(NativeArtifactsDir)\LivePhotoBox.Native.dll">
+      <Link>LivePhotoBox.Native.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!--
+    dotnet MSBuild cannot load Visual C++ targets directly. For standalone managed
+    builds, invoke the same vcxproj through desktop MSBuild. Full solution builds
+    use the explicit solution dependency instead.
+  -->
+  <Target Name="BuildLivePhotoBoxNative"
+          BeforeTargets="PrepareForBuild"
+          Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(SkipNativeBuild)' != 'true' and '$(DesignTimeBuild)' != 'true' and '$(BuildingSolutionFile)' != 'true'"
+          Inputs="$(MSBuildThisFileDirectory)..\LivePhotoBox.Native\LivePhotoBox.Native.vcxproj;$(MSBuildThisFileDirectory)..\LivePhotoBox.Native\include\livephotobox_native.h;$(MSBuildThisFileDirectory)..\LivePhotoBox.Native\src\livephotobox_native.cpp;$(MSBuildThisFileDirectory)..\LivePhotoBox\Package.appxmanifest;$(MSBuildThisFileDirectory)..\scripts\native\build-native.ps1"
+          Outputs="$(NativeArtifactsDir)\LivePhotoBox.Native.dll">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\scripts\native\build-native.ps1&quot; -Configuration $(Configuration) -Architecture x64" />
+  </Target>
 
   <ItemGroup>
     <EmbeddedResource Include="..\LivePhotoBox\Strings\en-US\Resources.resw"
@@ -42,4 +65,5 @@
     </PropertyGroup>
     <Message Importance="high" Text="Core version synced from Package.appxmanifest: $(_ManifestVersion)" Condition="$(_ManifestVersion) != ''" />
   </Target>
+
 </Project>

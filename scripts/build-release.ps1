@@ -38,6 +38,15 @@ Set-Location $projectRoot
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 chcp 65001 > $null
 
+try {
+    & "$PSScriptRoot\native\build-native.ps1" -Configuration Release -Architecture x64 -RunTests
+}
+catch {
+    Write-Host "NATIVE BUILD FAILED - $($_.Exception.Message)" -ForegroundColor Red
+    if (-not $CI) { pause }
+    exit 1
+}
+
 $manifest = Get-Content 'LivePhotoBox\Package.appxmanifest' -Raw -Encoding UTF8
 $versionFull = if ($manifest -match 'Identity.*Version\s*=\s*"([^"]+)"') { $Matches[1] } else { '0.0.0.0' }
 $version = $versionFull -replace '\.0$', ''
@@ -74,6 +83,11 @@ if ($LASTEXITCODE -ne 0) {
 
 if (-not (Test-Path "$outDir\Live Photo Box.exe")) {
     Write-Host 'BUILD FAILED - GUI exe not found in output' -ForegroundColor Red
+    if (-not $CI) { pause }
+    exit 1
+}
+if (-not (Test-Path "$outDir\LivePhotoBox.Native.dll")) {
+    Write-Host 'BUILD FAILED - LivePhotoBox.Native.dll not found in GUI output' -ForegroundColor Red
     if (-not $CI) { pause }
     exit 1
 }
@@ -123,6 +137,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
+    if (-not (Test-Path 'publish\cli_single\LivePhotoBox.Native.dll')) {
+        Write-Host 'BUILD FAILED - LivePhotoBox.Native.dll not found in CLI output' -ForegroundColor Red
+        if (-not $CI) { pause }
+        exit 1
+    }
     # Replace alias copies with Go symlink-safe launchers
     $goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
     $shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
@@ -187,7 +206,7 @@ if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
     # 打包 CLI zip
     $cliZipName = "Live-Photo-Box-v$version-x64-cli.zip"
     $cliZipPath = "publish\$cliZipName"
-    Invoke-ReliableZip -SourceDir $cliDir -ZipPath $cliZipPath -RequiredNames @('README.md','README.zh-CN.md','LICENSE','CLI-User-Guide.md','CLI-User-Guide.zh-CN.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
+    Invoke-ReliableZip -SourceDir $cliDir -ZipPath $cliZipPath -RequiredNames @('LivePhotoBox.Native.dll','README.md','README.zh-CN.md','LICENSE','CLI-User-Guide.md','CLI-User-Guide.zh-CN.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
     $cliZipSize = '{0:N1} MB' -f ((Get-Item $cliZipPath).Length / 1MB)
     Write-Host "       $cliZipName  ($cliZipSize)" -ForegroundColor Green
 

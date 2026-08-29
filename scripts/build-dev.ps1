@@ -10,6 +10,15 @@ Set-Location $projectRoot
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 chcp 65001 > $null
 
+try {
+    & "$PSScriptRoot\native\build-native.ps1" -Configuration Release -Architecture x64 -RunTests
+}
+catch {
+    Write-Host "NATIVE BUILD FAILED - $($_.Exception.Message)" -ForegroundColor Red
+    if (-not $CI) { pause }
+    exit 1
+}
+
 $manifest = Get-Content 'LivePhotoBox\Package.appxmanifest' -Raw -Encoding UTF8
 $version = if ($manifest -match 'Identity.*Version\s*=\s*"([^"]+)"') { $Matches[1] } else { '0.0.0.0' }
 
@@ -45,6 +54,11 @@ if (-not (Test-Path "$outDir\Live Photo Box.exe")) {
     if (-not $CI) { pause }
     exit 1
 }
+if (-not (Test-Path "$outDir\LivePhotoBox.Native.dll")) {
+    Write-Host 'BUILD FAILED - LivePhotoBox.Native.dll not found in GUI output' -ForegroundColor Red
+    if (-not $CI) { pause }
+    exit 1
+}
 
 # CLI publish + merge
 Write-Host 'Building CLI...' -ForegroundColor Yellow
@@ -65,6 +79,11 @@ if ($LASTEXITCODE -ne 0) {
 if (-not (Test-Path 'publish\cli_multi\livephotobox-boot.exe')) {
     Write-Host '       CLI build FAILED - exe not found, skipping merge' -ForegroundColor DarkYellow
 } else {
+    if (-not (Test-Path 'publish\cli_multi\LivePhotoBox.Native.dll')) {
+        Write-Host 'BUILD FAILED - LivePhotoBox.Native.dll not found in CLI output' -ForegroundColor Red
+        if (-not $CI) { pause }
+        exit 1
+    }
     # 只复制 GUI 目录中不存在的文件，避免 CLI 的 SDK 投影 DLL 覆盖 GUI 版本
     Get-ChildItem 'publish\cli_multi' -Recurse | ForEach-Object {
         $target = Join-Path $outDir $_.FullName.Substring((Get-Item 'publish\cli_multi').FullName.Length + 1)
