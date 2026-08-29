@@ -61,7 +61,7 @@
                         <FontIcon Glyph="&#xE81C;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Uid="Nav_PhotoClassify" Tag="PhotoClassify">
+                <NavigationViewItem x:Name="NavPhotoClassify" x:Uid="Nav_PhotoClassify" Tag="PhotoClassify">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xED43;" />
                     </NavigationViewItem.Icon>

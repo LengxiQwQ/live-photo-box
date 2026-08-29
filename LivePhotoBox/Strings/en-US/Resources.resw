@@ -2404,6 +2404,12 @@ Then click "Start Split".</value>
   <data name="SettingsPage_Debug_PhotoHistoryDesc.Text" xml:space="preserve">
     <value>Show the Photo History page in the navigation bar to view operation records of photos processed by LivePhotoBox</value>
   </data>
+  <data name="SettingsPage_Debug_PhotoClassifyHeader.Text" xml:space="preserve">
+    <value>Photo Auto-Classification Page</value>
+  </data>
+  <data name="SettingsPage_Debug_PhotoClassifyDesc.Text" xml:space="preserve">
+    <value>Show the Photo Auto-Classification page in the navigation bar to automatically categorize live photos</value>
+  </data>
   <data name="SettingsPage_Debug_OpenHistoryBtn.Text" xml:space="preserve">
     <value>Open</value>
   </data>

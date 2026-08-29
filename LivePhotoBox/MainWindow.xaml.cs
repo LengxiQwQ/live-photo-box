@@ -199,41 +199,14 @@ namespace LivePhotoBox
                 if (aw != null) aw.Title = localizedTitle;
             };
 
-            // 窗口关闭。
-            // 行业标准做法：只做"不做就会崩"的事。OS 在进程退出时自动回收内存/句柄/子进程。
-            // WinUI 3 特有风险：
-            //   a) DesktopAcrylicController 是 DWM COM 接口，窗口句柄销毁后无法释放 → 崩
-            //   b) DispatcherTimer.Tick 在窗口销毁后可能被 DispatcherQueue 派发，
-            //      回调访问已释放的 XAML 元素 → 0xc0000005
-            // 除此之外的"资源释放"都是替 OS 干它本来就会干的事。
+            // 拦截窗口关闭事件，提供“秒关”体验并防止后台线程崩溃
             Closed += (_, _) =>
             {
-                RemoveSettingsShortcutHook();
-
-                // 0. 记住窗口位置/大小/最大化状态（用户可在设置里关闭）
-                SaveWindowLayout();
-
-                // 1. 离开当前页面 → 触发 Page.Unloaded → 停止页面级 DispatcherQueue 定时器
-                //    （如 RepairPage 的缩略图检查定时器）
-                try { MainFrame.Navigate(typeof(Microsoft.UI.Xaml.Controls.Page)); }
-                catch { /* 窗口已在销毁中，导航失败是预期的 */ }
-
-                // 2. 释放 Acrylic 控制器（DWM COM，必须在窗口句柄有效时做）
-                CleanupAcrylicController();
-
-                // 2.5 取消任务栏成功闪烁延迟任务，并清除任务栏进度
-                _successFlashCts?.Cancel();
-                _successFlashCts?.Dispose();
-                _successFlashCts = null;
-                ClearTaskbarProgress();
-
-                // 3. 停止所有 DispatcherTimer 并解除 Tick 回调
-                //    Merge / Split / Repair 各有一个 60ms UI 刷新定时器
-                ViewModel.Cleanup();
-
-                // Done. OS 接管：回收内存、关闭文件、杀掉 exiftool/ffmpeg 子进程。
-                LogService.Info("MainWindow closed.", LogSource.UI);
-                LogService.MarkCleanShutdown();
+                if (!_isShuttingDown)
+                {
+                    LogService.Info("MainWindow closed natively.", LogSource.UI);
+                    LogService.MarkCleanShutdown();
+                }
             };
 
             // 启用自定义标题栏
@@ -250,6 +223,9 @@ namespace LivePhotoBox
 
             if (appWindow != null)
             {
+                // 挂载 Closing 事件以拦截系统销毁流程
+                appWindow.Closing += AppWindow_Closing;
+
                 // 设置 AppWindow.Title 控制 Alt+Tab、任务栏中显示的窗口标题
                 // （Window.Title 只控制标题栏文字；不设 AppWindow.Title 会回退到
                 //  ms-resource:Package_DisplayName，非打包模式下无法解析，Alt+Tab 显示异常）
@@ -351,6 +327,7 @@ namespace LivePhotoBox
             UpdateBackdrop();
             UpdateStatusBarVisibility();
             UpdateHistoryNavVisibility();
+            UpdatePhotoClassifyNavVisibility();
 
             // 应用持久化的窗口透明度
             if (ViewModel.Settings.WindowOpacity < 1.0)
@@ -408,6 +385,52 @@ namespace LivePhotoBox
             }
 
             return DefSubclassProc(hWnd, uMsg, wParam, lParam);
+        }
+
+        private bool _isShuttingDown;
+
+        private async void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+        {
+            if (_isShuttingDown) return;
+            _isShuttingDown = true;
+
+            // 拦截默认关闭动作：WinUI 3 中异步安全退出的官方规范模式
+            // （AppWindow.Closing 没有 Deferral 机制，必须通过 Cancel = true 拦截，异步处理后再调 Application.Current.Exit）
+            args.Cancel = true;
+
+            LogService.Info("MainWindow AppWindow.Closing triggered. Starting graceful shutdown.", LogSource.UI);
+
+            // 1. 同步保存当前状态并清理可能引发崩溃的系统资源
+            RemoveSettingsShortcutHook();
+            SaveWindowLayout();
+            CleanupAcrylicController();
+            
+            _successFlashCts?.Cancel();
+            _successFlashCts?.Dispose();
+            _successFlashCts = null;
+            ClearTaskbarProgress();
+
+            // 2. 使用 WinUI 3 原生 API 隐藏窗口，给用户最快速的关闭体验，同时保持 Dispatcher 存活以完成后台清理
+            sender.Hide();
+
+            // 3. 提前写入正常退出标记
+            LogService.MarkCleanShutdown();
+
+            // 4. 触发 ViewModel 的状态清理（此操作会触发 CancellationToken，安全结束 ffmpeg/exiftool 进程）
+            try
+            {
+                ViewModel.Cleanup();
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Error during ViewModel.Cleanup on shutdown: {ex.Message}", source: LogSource.UI);
+            }
+
+            // 5. 给予子进程短暂的时间响应取消信号并安全释放句柄
+            await Task.Delay(300);
+
+            // 6. 调用 WinUI 3 官方应用程序退出方法，安全卸载 XAML 框架并结束进程
+            Application.Current.Exit();
         }
 
         // 响应 AppViewModel 属性变更：状态栏可见性、任务栏进度条
@@ -497,11 +520,21 @@ namespace LivePhotoBox
                 : Visibility.Collapsed;
         }
 
-        // 响应历史页面可见性设置变更
+        // 更新导航栏中照片自动分类页面的可见性
+        private void UpdatePhotoClassifyNavVisibility()
+        {
+            NavPhotoClassify.Visibility = ViewModel.Settings.IsPhotoClassifyPageVisible
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        // 响应历史页面与分类页面可见性设置变更
         private void OnSettingsHistoryVisibilityChanged(object? sender, PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(SettingsViewModel.IsHistoryPageVisible))
                 UpdateHistoryNavVisibility();
+            else if (e.PropertyName == nameof(SettingsViewModel.IsPhotoClassifyPageVisible))
+                UpdatePhotoClassifyNavVisibility();
         }
 
         // 更新窗口背景材质。根据 BackdropIndex 选择：

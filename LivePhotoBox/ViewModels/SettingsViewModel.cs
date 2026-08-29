@@ -438,6 +438,17 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"History page visibility: {(value ? "shown" : "hidden")}", LogSource.Settings);
         }
 
+        // 是否在导航栏显示"照片自动分类"页面（默认隐藏）
+        [ObservableProperty]
+        private bool _isPhotoClassifyPageVisible;
+
+        partial void OnIsPhotoClassifyPageVisibleChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(IsPhotoClassifyPageVisible), value);
+            LogService.Info($"Photo classify page visibility: {(value ? "shown" : "hidden")}", LogSource.Settings);
+        }
+
         #endregion
 
         #region Notification Settings
@@ -700,6 +711,7 @@ namespace LivePhotoBox.ViewModels
             IsNonLivePhotoVideoRepairEnabled = AppSettingsService.GetValue(nameof(IsNonLivePhotoVideoRepairEnabled), false);
             IsCopyPerfectToOutput = AppSettingsService.GetValue(nameof(IsCopyPerfectToOutput), false);
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
+            IsPhotoClassifyPageVisible = AppSettingsService.GetValue(nameof(IsPhotoClassifyPageVisible), false);
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), false);
             IsDragDropAutoPairEnabled = AppSettingsService.GetValue(nameof(IsDragDropAutoPairEnabled), false);

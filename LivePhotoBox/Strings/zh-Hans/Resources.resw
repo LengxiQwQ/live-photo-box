@@ -2404,6 +2404,12 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SettingsPage_Debug_PhotoHistoryDesc.Text" xml:space="preserve">
     <value>在导航栏显示「照片历史」页面，用于查看 LivePhotoBox 处理过的照片操作记录</value>
   </data>
+  <data name="SettingsPage_Debug_PhotoClassifyHeader.Text" xml:space="preserve">
+    <value>照片自动分类页面</value>
+  </data>
+  <data name="SettingsPage_Debug_PhotoClassifyDesc.Text" xml:space="preserve">
+    <value>在导航栏显示「照片自动分类」页面，用于按规则自动分类实况照片</value>
+  </data>
   <data name="SettingsPage_Debug_OpenHistoryBtn.Text" xml:space="preserve">
     <value>打开</value>
   </data>

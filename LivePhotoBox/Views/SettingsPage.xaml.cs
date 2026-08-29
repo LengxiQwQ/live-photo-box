@@ -298,6 +298,13 @@ namespace LivePhotoBox.Views
                 mainWin.SwitchToPageByTag("History");
         }
 
+        // 打开照片自动分类页面
+        private void OpenPhotoClassifyPage_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.MainWindow is MainWindow mainWin)
+                mainWin.SwitchToPageByTag("PhotoClassify");
+        }
+
         // Resets the banner to the first (default) preset and turns off random mode.
         private void ResetBanner_Click(object sender, RoutedEventArgs e)
         {
