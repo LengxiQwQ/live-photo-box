@@ -1,49 +1,35 @@
-﻿#include "exif_rewrite.h"
-#include "binary/endian.h"
+#include "exif_rewrite.h"
+#include "binary/binary_io.h"
 #include <set>
 #include <algorithm>
 #include <cstring>
 
+using namespace lpb;
+
 namespace {
 
 static uint16_t read_u16(const uint8_t* p, bool big_endian) {
-    if (big_endian) {
-        return (uint16_t)((p[0] << 8) | p[1]);
-    } else {
-        return (uint16_t)((p[1] << 8) | p[0]);
-    }
+    uint16_t val = 0;
+    binary_reader reader(p, 2);
+    reader.try_read_u16_endian(val, big_endian);
+    return val;
 }
 
 static uint32_t read_u32(const uint8_t* p, bool big_endian) {
-    if (big_endian) {
-        return read_be32u(p);
-    } else {
-        return ((uint32_t)p[3] << 24) | ((uint32_t)p[2] << 16) | ((uint32_t)p[1] << 8) | p[0];
-    }
+    uint32_t val = 0;
+    binary_reader reader(p, 4);
+    reader.try_read_u32_endian(val, big_endian);
+    return val;
 }
 
 static void write_u16(uint8_t* p, uint16_t val, bool big_endian) {
-    if (big_endian) {
-        p[0] = (uint8_t)(val >> 8);
-        p[1] = (uint8_t)(val & 0xFF);
-    } else {
-        p[0] = (uint8_t)(val & 0xFF);
-        p[1] = (uint8_t)(val >> 8);
-    }
+    binary_writer writer(p, 2);
+    writer.try_write_u16_endian(val, big_endian);
 }
 
 static void write_u32(uint8_t* p, uint32_t val, bool big_endian) {
-    if (big_endian) {
-        p[0] = (uint8_t)(val >> 24);
-        p[1] = (uint8_t)((val >> 16) & 0xFF);
-        p[2] = (uint8_t)((val >> 8) & 0xFF);
-        p[3] = (uint8_t)(val & 0xFF);
-    } else {
-        p[0] = (uint8_t)(val & 0xFF);
-        p[1] = (uint8_t)((val >> 8) & 0xFF);
-        p[2] = (uint8_t)((val >> 16) & 0xFF);
-        p[3] = (uint8_t)(val >> 24);
-    }
+    binary_writer writer(p, 4);
+    writer.try_write_u32_endian(val, big_endian);
 }
 
 static int type_to_data_length(uint16_t type, uint32_t count) {
