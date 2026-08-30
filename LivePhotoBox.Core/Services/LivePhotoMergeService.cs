@@ -1201,31 +1201,19 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            // Build the complete JPEG prefix: SOI + APP1 marker + segment length + XMP header
-            // as a SINGLE byte array written with one WriteAsync call.
-            // Do NOT mix sync WriteByte with async WriteAsync on the same FileStream —
-            // they use different I/O code paths and the OS may reorder the writes,
-            // causing the XMP segment to land AFTER the source image data instead of before it.
-            byte[] prefix = new byte[4 + 2 + XmpHeader.Length];
-            prefix[0] = 0xFF; prefix[1] = 0xD8;               // SOI
-            prefix[2] = 0xFF; prefix[3] = 0xE1;               // APP1 marker
-            prefix[4] = (byte)(segmentLength >> 8);           // segment length hi
-            prefix[5] = (byte)(segmentLength & 0xFF);         // segment length lo
-            Array.Copy(XmpHeader, 0, prefix, 6, XmpHeader.Length);   // XMP header
+            byte[] imageBytes = await File.ReadAllBytesAsync(sourceImg, token);
+            if (!LivePhotoBox.Interop.NativeJpegEditor.TryInjectXmp(imageBytes, xmpBytes, out byte[]? newJpegBytes, out string? error))
+            {
+                LogService.Merge($"Native JPEG Editor failed to inject XMP: {error}", LogLevel.Error);
+                throw new InvalidOperationException($"Native JPEG Editor failed: {error}");
+            }
 
             using var targetFs = new FileStream(
                 targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
                 bufferSize: 8192, useAsync: true);
 
-            await targetFs.WriteAsync(prefix, 0, prefix.Length, token);
-            await targetFs.WriteAsync(xmpBytes, 0, xmpBytes.Length, token);
-
-            // Copy the rest of the source JPEG (skipping its SOI which we already wrote)
-            using var imgFs = new FileStream(
-                sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: 8192, useAsync: true);
-            imgFs.Position = 2;  // skip source JPEG's SOI
-            await imgFs.CopyToAsync(targetFs, token);
+            byte[] finalJpeg = newJpegBytes ?? imageBytes;
+            await targetFs.WriteAsync(finalJpeg, 0, finalJpeg.Length, token);
 
             // Append video
             using var vidFs = new FileStream(
@@ -1359,37 +1347,13 @@ namespace LivePhotoBox.Services
                     "image/jpeg", tagHeaderPadding.ToString(), videoMime);
             }
 
-            // Inject XMP into JPEG — write directly (same pattern as WriteNativeAsync),
-            // NOT via exiftool which parses and strips unknown XMP namespaces
-            // (OpCamera, VCamera, LivePhotoBox).
-            int segmentLength = 2 + XmpHeader.Length + xmpBytes.Length;
-            if (segmentLength > ushort.MaxValue)
+            byte[] imageBytes = await File.ReadAllBytesAsync(sourceImg, token);
+            if (!LivePhotoBox.Interop.NativeJpegEditor.TryInjectXmp(imageBytes, xmpBytes, out byte[]? newJpegBytes, out string? error))
             {
-                LogService.Merge($"XMP metadata too large: {segmentLength} bytes", LogLevel.Error);
-                throw new InvalidOperationException(
-                    ResourceService.Format("Error_XmpMetadataTooLarge", segmentLength));
+                LogService.Merge($"Native JPEG Editor failed to inject XMP: {error}", LogLevel.Error);
+                throw new InvalidOperationException($"Native JPEG Editor failed: {error}");
             }
-
-            byte[] prefix = new byte[4 + 2 + XmpHeader.Length];
-            prefix[0] = 0xFF; prefix[1] = 0xD8;                 // SOI
-            prefix[2] = 0xFF; prefix[3] = 0xE1;                 // APP1 marker
-            prefix[4] = (byte)(segmentLength >> 8);              // segment length hi
-            prefix[5] = (byte)(segmentLength & 0xFF);            // segment length lo
-            Array.Copy(XmpHeader, 0, prefix, 6, XmpHeader.Length); // XMP namespace header
-
-            byte[] jpegData;
-            using (var imgFs = new FileStream(
-                sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: 8192, useAsync: true))
-            {
-                // Skip source JPEG's SOI (we write our own)
-                imgFs.Position = 2;
-                using var ms = new MemoryStream();
-                await ms.WriteAsync(prefix, 0, prefix.Length, token);
-                await ms.WriteAsync(xmpBytes, 0, xmpBytes.Length, token);
-                await imgFs.CopyToAsync(ms, token);
-                jpegData = ms.ToArray();
-            }
+            byte[] jpegData = newJpegBytes ?? imageBytes;
 
             // Write: JPEG (with injected XMP) + Trailer
             using (var targetFs = new FileStream(

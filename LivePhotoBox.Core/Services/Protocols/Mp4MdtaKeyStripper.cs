@@ -22,7 +22,9 @@ namespace LivePhotoBox.Services.Protocols
         /// 或值包含 openharmony（覆盖 ©too=openharmony6 补丁产物）。
         /// </summary>
         public static bool TryStripHuaweiKeys(string path, out string? error)
-            => TryStripMdtaKeys(path, static (name, value) =>
+            => TryStripMdtaKeys(path, 
+                ["com.openharmony"], [], ["openharmony"],
+                static (name, value) =>
                 name.StartsWith("com.openharmony", StringComparison.OrdinalIgnoreCase)
                 || value.Contains("openharmony", StringComparison.OrdinalIgnoreCase), out error);
 
@@ -39,11 +41,24 @@ namespace LivePhotoBox.Services.Protocols
 
             try
             {
+                if (Interop.NativeMp4MdtaKeyStripper.TryStripUuidBox(data, userType, out byte[]? nativeResult, out string? nativeError))
+                {
+                    if (nativeResult != null)
+                    {
+                        string tmpPath = path + ".lpb_uuid_strip.tmp";
+                        File.WriteAllBytes(tmpPath, nativeResult);
+                        File.Move(tmpPath, path, overwrite: true);
+                    }
+                    return true;
+                }
+                
+                LogService.Merge($"Native UUID strip failed: {nativeError}, falling back to legacy", Models.LogLevel.Warning);
+
                 byte[]? result = StripUuidBoxes(data, userType);
                 if (result == null) return true;
-                string tmpPath = path + ".lpb_uuid_strip.tmp";
-                File.WriteAllBytes(tmpPath, result);
-                File.Move(tmpPath, path, overwrite: true);
+                string tmpPath2 = path + ".lpb_uuid_strip.tmp";
+                File.WriteAllBytes(tmpPath2, result);
+                File.Move(tmpPath2, path, overwrite: true);
                 return true;
             }
             catch (Exception ex)
@@ -67,11 +82,24 @@ namespace LivePhotoBox.Services.Protocols
 
             try
             {
+                if (Interop.NativeMp4MdtaKeyStripper.TryStripTracks(data, stsdKeyFragments, out byte[]? nativeResult, out string? nativeError))
+                {
+                    if (nativeResult != null)
+                    {
+                        string tmpPath = path + ".lpb_track_strip.tmp";
+                        File.WriteAllBytes(tmpPath, nativeResult);
+                        File.Move(tmpPath, path, overwrite: true);
+                    }
+                    return true;
+                }
+                
+                LogService.Merge($"Native track strip failed: {nativeError}, falling back to legacy", Models.LogLevel.Warning);
+
                 byte[]? result = StripTracksWithKeys(data, stsdKeyFragments);
                 if (result == null) return true;
-                string tmpPath = path + ".lpb_track_strip.tmp";
-                File.WriteAllBytes(tmpPath, result);
-                File.Move(tmpPath, path, overwrite: true);
+                string tmpPath2 = path + ".lpb_track_strip.tmp";
+                File.WriteAllBytes(tmpPath2, result);
+                File.Move(tmpPath2, path, overwrite: true);
                 return true;
             }
             catch (Exception ex)
@@ -91,10 +119,10 @@ namespace LivePhotoBox.Services.Protocols
                 out error);
 
         /// <summary>
-        /// 从文件剔除满足 <paramref name="shouldRemove"/> 的 mdta 键（成对删除 keys/ilst 条目）。
+        /// 从文件剔除满足 <paramref name="fallbackShouldRemove"/> 的 mdta 键（成对删除 keys/ilst 条目）。
         /// 无命中时返回 true 且不写盘；命中时原地重写文件。失败返回 false 并给出 error。
         /// </summary>
-        public static bool TryStripMdtaKeys(string path, Func<string, string, bool> shouldRemove, out string? error)
+        public static bool TryStripMdtaKeys(string path, string[] nameStarts, string[] nameContains, string[] valueContains, Func<string, string, bool> fallbackShouldRemove, out string? error)
         {
             error = null;
             byte[] data;
@@ -103,13 +131,26 @@ namespace LivePhotoBox.Services.Protocols
 
             try
             {
-                byte[]? stripped = Strip(data, shouldRemove);
+                if (Interop.NativeMp4MdtaKeyStripper.TryStripMdtaKeys(data, nameStarts, nameContains, valueContains, out byte[]? nativeResult, out string? nativeError))
+                {
+                    if (nativeResult != null)
+                    {
+                        string tmpPath = path + ".lpb_mdta_strip.tmp";
+                        File.WriteAllBytes(tmpPath, nativeResult);
+                        File.Move(tmpPath, path, overwrite: true);
+                    }
+                    return true;
+                }
+                
+                LogService.Merge($"Native MDTA key strip failed: {nativeError}, falling back to legacy", Models.LogLevel.Warning);
+
+                byte[]? stripped = Strip(data, fallbackShouldRemove);
                 if (stripped == null)
                     return true; // 无命中，无需改动
 
-                string tmpPath = path + ".lpb_mdta_strip.tmp";
-                File.WriteAllBytes(tmpPath, stripped);
-                File.Move(tmpPath, path, overwrite: true);
+                string tmpPath2 = path + ".lpb_mdta_strip.tmp";
+                File.WriteAllBytes(tmpPath2, stripped);
+                File.Move(tmpPath2, path, overwrite: true);
                 return true;
             }
             catch (Exception ex)

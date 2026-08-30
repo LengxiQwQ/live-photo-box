@@ -14,9 +14,36 @@
     <ClInclude Include="include\livephotobox_native.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="src\foundation\internal.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\binary\endian.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\isobmff.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\livephotobox_native.cpp">
+    <ClCompile Include="src\foundation\context.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\containers\isobmff.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\vivo_legacy.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\metadata\jpeg.cpp">
+      <Filter>Source Files\metadata</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\huawei.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\containers\heif.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="src\containers\mp4_strip.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

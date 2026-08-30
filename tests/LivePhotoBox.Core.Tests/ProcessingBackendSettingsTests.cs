@@ -35,11 +35,18 @@ public sealed class ProcessingBackendSettingsTests
 
         ProcessingBackendProtocolDefinition vivoLegacy = ProcessingBackendProtocolCatalog.All
             .Single(definition => definition.Key == "vivo-legacy");
+        ProcessingBackendProtocolDefinition huaweiHonor = ProcessingBackendProtocolCatalog.All
+            .Single(definition => definition.Key == "huawei-honor");
+
         Assert.Equal(NativeBackendMaturity.Preview,
             ProcessingBackendSettingsService.GetNativeMaturity(vivoLegacy, runtime));
         Assert.False(ProcessingBackendSettingsService.ShouldPreferNative(settings, vivoLegacy, runtime));
 
-        Assert.All(ProcessingBackendProtocolCatalog.All.Where(definition => definition != vivoLegacy), definition =>
+        Assert.Equal(NativeBackendMaturity.Preview,
+            ProcessingBackendSettingsService.GetNativeMaturity(huaweiHonor, runtime));
+        Assert.False(ProcessingBackendSettingsService.ShouldPreferNative(settings, huaweiHonor, runtime));
+
+        Assert.All(ProcessingBackendProtocolCatalog.All.Where(definition => definition != vivoLegacy && definition != huaweiHonor), definition =>
         {
             Assert.Equal(NativeBackendMaturity.Unavailable,
                 ProcessingBackendSettingsService.GetNativeMaturity(definition, runtime));

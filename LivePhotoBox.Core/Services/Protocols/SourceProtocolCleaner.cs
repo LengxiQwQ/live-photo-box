@@ -1,28 +1,29 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using LivePhotoBox.Models;
 
 namespace LivePhotoBox.Services.Protocols
 {
     /*
      * SourceProtocolCleaner.cs
      *
-     * 合成端源协议标记清洗：剥离双文件源图片/视频携带的实况照片标记。
-     * 只清双文件协议标记；单文件协议标记由拆分端清理（双文件源不可能携带）。
+     * 鍚堟垚绔簮鍗忚鏍囪娓呮礂锛氬墺绂诲弻鏂囦欢婧愬浘鐗?瑙嗛鎼哄甫鐨勫疄鍐电収鐗囨爣璁般€?
+     * 鍙竻鍙屾枃浠跺崗璁爣璁帮紱鍗曟枃浠跺崗璁爣璁扮敱鎷嗗垎绔竻鐞嗭紙鍙屾枃浠舵簮涓嶅彲鑳芥惡甯︼級銆?
      *
-     *   - Apple：图片 ContentIdentifier（Apple MakerNote）、视频配对键
-     *     （content.identifier / live-photo / vitality）、实况时序元数据轨
-     *     （ContentDescribes / 封面轨）
-     *   - vivo ≤X200：JPEG 尾部 vivo{...}cameralbum!、MP4 vivoMediaExtInfo uuid box
-     *   - 只在临时副本上操作，绝不修改用户源文件；返回的临时路径由调用方随工作区清理
+     *   - Apple锛氬浘鐗?ContentIdentifier锛圓pple MakerNote锛夈€佽棰戦厤瀵归敭
+     *     锛坈ontent.identifier / live-photo / vitality锛夈€佸疄鍐垫椂搴忓厓鏁版嵁杞?
+     *     锛圕ontentDescribes / 灏侀潰杞級
+     *   - vivo 鈮200锛欽PEG 灏鹃儴 vivo{...}cameralbum!銆丮P4 vivoMediaExtInfo uuid box
+     *   - 鍙湪涓存椂鍓湰涓婃搷浣滐紝缁濅笉淇敼鐢ㄦ埛婧愭枃浠讹紱杩斿洖鐨勪复鏃惰矾寰勭敱璋冪敤鏂归殢宸ヤ綔鍖烘竻鐞?
      */
     public static class SourceProtocolCleaner
     {
         /// <summary>
-        /// 清洗源图片：剥离苹果 ContentIdentifier 与 vivo ≤X200 JPEG 尾部标记。
-        /// 返回清洗后的临时副本路径（调用方负责清理）；失败时抛出异常。
+        /// 娓呮礂婧愬浘鐗囷細鍓ョ鑻规灉 ContentIdentifier 涓?vivo 鈮200 JPEG 灏鹃儴鏍囪銆?
+        /// 杩斿洖娓呮礂鍚庣殑涓存椂鍓湰璺緞锛堣皟鐢ㄦ柟璐熻矗娓呯悊锛夛紱澶辫触鏃舵姏鍑哄紓甯搞€?
         /// </summary>
         public static async Task<string> CleanImageAsync(string imagePath, string workDir, CancellationToken token)
         {
@@ -32,7 +33,7 @@ namespace LivePhotoBox.Services.Protocols
             try
             {
                 File.Copy(imagePath, tempPath, overwrite: true);
-                await CleanImageMarkersInPlaceAsync(tempPath, token);
+                CleanImageMarkersInPlace(tempPath, token);
                 return tempPath;
             }
             catch
@@ -43,8 +44,8 @@ namespace LivePhotoBox.Services.Protocols
         }
 
         /// <summary>
-        /// 清洗源视频：剥离 Apple 实况键与 mebx 轨、vivo ≤X200 uuid box。
-        /// 无命中时返回原路径；命中时返回清洗后的临时副本路径。
+        /// 娓呮礂婧愯棰戯細鍓ョ Apple 瀹炲喌閿笌 mebx 杞ㄣ€乿ivo 鈮200 uuid box銆?
+        /// 鏃犲懡涓椂杩斿洖鍘熻矾寰勶紱鍛戒腑鏃惰繑鍥炴竻娲楀悗鐨勪复鏃跺壇鏈矾寰勩€?
         /// </summary>
         public static async Task<string> CleanVideoAsync(string videoPath, string workDir, CancellationToken token)
         {
@@ -70,30 +71,48 @@ namespace LivePhotoBox.Services.Protocols
         }
 
         /// <summary>
-        /// 就地清洗图片中的双文件协议标记：vivo ≤X200 JPEG 尾部 + Apple ContentIdentifier。
-        /// 供拆分端对已提取的临时图片调用（防脏源：旧文件/第三方工具可能残留）。
+        /// 灏卞湴娓呮礂鍥剧墖涓殑鍙屾枃浠跺崗璁爣璁帮細vivo 鈮200 JPEG 灏鹃儴 + Apple ContentIdentifier銆?
+        /// 渚涙媶鍒嗙瀵瑰凡鎻愬彇鐨勪复鏃跺浘鐗囪皟鐢紙闃茶剰婧愶細鏃ф枃浠?绗笁鏂瑰伐鍏峰彲鑳芥畫鐣欙級銆?
         /// </summary>
-        public static async Task CleanImageMarkersInPlaceAsync(string path, CancellationToken token)
+                public static void CleanImageMarkersInPlace(string path, CancellationToken token)
         {
-            // vivo ≤X200 JPEG 尾部：vivo{...}cameralbum!（二进制截断）
+            // vivo \u2265X200 JPEG 灏鹃儴锛歷ivo{...}cameralbum!锛堜簩杩涘埗鎴柇锛?
             StripVivoJpegTail(path);
 
-            // Apple ContentIdentifier（MakerNote 里的配对 UUID → 清空）
-            await LivePhotoRepairService.RunExifToolAsync(
-                token, "-overwrite_original", "-ContentIdentifier=", path);
+            // Apple ContentIdentifier锛圡akerNote 閲岀殑閰嶅 UUID 鈫?娓呯┖锛?
+            try
+            {
+                byte[] data = File.ReadAllBytes(path);
+                if (Interop.NativeAppleMakerNoteWriter.TryStripLivePhotoEntries(data, out string? error))
+                {
+                    File.WriteAllBytes(path, data);
+                }
+                else
+                {
+                    LogService.Warn($"Apple MakerNote strip failed: {error}", source: LogSource.Split);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Warn($"Failed to read/write image for cleaning: {ex.Message}", source: LogSource.Split);
+            }
         }
 
         /// <summary>
-        /// 就地清洗视频中的双文件协议标记：Apple 实况配对键 + 实况时序元数据轨 +
-        /// vivo ≤X200 uuid box。供拆分端对已提取的临时视频调用。
+        /// 灏卞湴娓呮礂瑙嗛涓殑鍙屾枃浠跺崗璁爣璁帮細Apple 瀹炲喌閰嶅閿?+ 瀹炲喌鏃跺簭鍏冩暟鎹建 +
+        /// vivo 鈮200 uuid box銆備緵鎷嗗垎绔宸叉彁鍙栫殑涓存椂瑙嗛璋冪敤銆?
         /// </summary>
         public static void CleanVideoMarkersInPlace(string path)
         {
-            // Apple 实况配对键（content.identifier / live-photo / vitality）
-            Mp4MdtaKeyStripper.TryStripMdtaKeys(path, ShouldStripAppleKey, out _);
-            // Apple 实况时序元数据轨（ContentDescribes / 封面轨）
+            // Apple 瀹炲喌閰嶅閿紙content.identifier / live-photo / vitality锛?
+            Mp4MdtaKeyStripper.TryStripMdtaKeys(path, 
+                ["com.apple.quicktime.content.identifier"], 
+                ["live-photo", "vitality"], 
+                [], 
+                ShouldStripAppleKey, out _);
+            // Apple 瀹炲喌鏃跺簭鍏冩暟鎹建锛圕ontentDescribes / 灏侀潰杞級
             Mp4MdtaKeyStripper.TryStripMebxTracks(path, out _);
-            // vivo ≤X200 uuid box
+            // vivo 鈮200 uuid box
             Mp4MdtaKeyStripper.TryStripUuidBox(path, "vivoMediaExtInfo", out _);
         }
 
@@ -102,9 +121,9 @@ namespace LivePhotoBox.Services.Protocols
             || name.Contains("live-photo", StringComparison.OrdinalIgnoreCase)
             || name.Contains("vitality", StringComparison.OrdinalIgnoreCase);
 
-        // vivo ≤X200 JPEG 尾部：从最后一个 vivo{ 到文件末尾整体截断。
-        // 新版样本的 cameralbum! 之后还有 ID、FF FF FF FF 与 11 字节签名，
-        // 不能再用 "以 cameralbum! 结尾" 判断。
+        // vivo 鈮200 JPEG 灏鹃儴锛氫粠鏈€鍚庝竴涓?vivo{ 鍒版枃浠舵湯灏炬暣浣撴埅鏂€?
+        // 鏂扮増鏍锋湰鐨?cameralbum! 涔嬪悗杩樻湁 ID銆丗F FF FF FF 涓?11 瀛楄妭绛惧悕锛?
+        // 涓嶈兘鍐嶇敤 "浠?cameralbum! 缁撳熬" 鍒ゆ柇銆?
         private static void StripVivoJpegTail(string path)
         {
             try
@@ -125,11 +144,11 @@ namespace LivePhotoBox.Services.Protocols
             }
             catch
             {
-                // 截断失败不阻断（vivo 尾标清理是 best-effort）
+                // 鎴柇澶辫触涓嶉樆鏂紙vivo 灏炬爣娓呯悊鏄?best-effort锛?
             }
         }
 
-        // 全文件 ASCII 扫描（XMP/EXIF/keys 可能在文件头也可能在文件尾的 moov 区，必须扫全量）。
+        // 鍏ㄦ枃浠?ASCII 鎵弿锛圶MP/EXIF/keys 鍙兘鍦ㄦ枃浠跺ご涔熷彲鑳藉湪鏂囦欢灏剧殑 moov 鍖猴紝蹇呴』鎵叏閲忥級銆?
         private static bool FileContainsAny(string path, params string[] needles)
         {
             try
@@ -144,10 +163,12 @@ namespace LivePhotoBox.Services.Protocols
             }
             catch
             {
-                // 读失败按"有标记"处理，让上层走剥离路径重试
+                // 璇诲け璐ユ寜"鏈夋爣璁?澶勭悊锛岃涓婂眰璧板墺绂昏矾寰勯噸璇?
                 return true;
             }
             return false;
         }
     }
 }
+
+

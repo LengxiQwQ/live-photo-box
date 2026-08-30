@@ -1,4 +1,4 @@
-#ifndef LIVEPHOTOBOX_NATIVE_H
+﻿#ifndef LIVEPHOTOBOX_NATIVE_H
 #define LIVEPHOTOBOX_NATIVE_H
 
 #include <stddef.h>
@@ -158,7 +158,7 @@ LPB_API lpb_result LPB_CALL lpb_huawei_patch_heic_ftyp(
     size_t data_size);
 
 /*
- * Patches an MP4 file's ftyp brand and ©too atom in-place for Huawei compatibility.
+ * Patches an MP4 file's ftyp brand and 漏too atom in-place for Huawei compatibility.
  * Modifies the data in-place without changing the size or offsets.
  */
 LPB_API lpb_result LPB_CALL lpb_huawei_patch_mp4(
@@ -166,8 +166,119 @@ LPB_API lpb_result LPB_CALL lpb_huawei_patch_mp4(
     uint8_t* data,
     size_t data_size);
 
+
+/*
+ * Locates the exact byte offset and length of an Exif item in a HEIF file's ISO-BMFF container.
+ */
+LPB_API lpb_result LPB_CALL lpb_heif_locate_exif_item(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    uint64_t* out_offset,
+    uint64_t* out_length);
+
+LPB_API lpb_result LPB_CALL lpb_mp4_strip_uuid_box(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    const uint8_t* user_type_16,
+    uint8_t* output,
+    size_t output_size,
+    size_t* out_written);
+
+LPB_API lpb_result LPB_CALL lpb_mp4_strip_stsd_tracks(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    const char** key_fragments,
+    size_t fragment_count,
+    uint8_t* output,
+    size_t output_size,
+    size_t* out_written);
+
+LPB_API lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    const char** name_starts,
+    size_t name_starts_count,
+    const char** name_contains,
+    size_t name_contains_count,
+    const char** value_contains,
+    size_t value_contains_count,
+    uint8_t* output,
+    size_t output_size,
+    size_t* out_written);
+LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    const uint8_t* xmp_xml,
+    size_t xmp_xml_size,
+    uint8_t* output,
+    size_t output_size,
+    size_t* out_written);
+
+/*
+ * Strips Apple Live Photo proprietary EXIF MakerNote entries (e.g. 0x0011, 0x0017, 0x002b)
+ * in-place for both JPEG and HEIC files.
+ * Returns LPB_RESULT_SUCCESS on success or if MakerNote does not exist.
+ */
+LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
+    lpb_context* context,
+    uint8_t* data,
+    size_t data_size);
+
+/*
+ * Overwrites the Apple MakerNote in-place with a minimal 70-byte block containing
+ * the provided content_id (UUID). Used during merge/split if MakerNote already exists.
+ */
+LPB_API lpb_result LPB_CALL lpb_apple_write_content_identifier(
+    lpb_context* context,
+    uint8_t* data,
+    size_t data_size,
+    const char* content_id);
+
+/*
+ * Injects a constructed MakerNote into a JPEG's APP1 Exif segment.
+ * Adjusts all TIFF/ExifIFD pointers internally.
+ */
+LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_jpeg(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    const uint8_t* makernote,
+    size_t makernote_size,
+    uint8_t* output,
+    size_t output_size,
+    size_t* out_written);
+
+/*
+ * Injects a constructed MakerNote into a HEIC file's Exif item.
+ * If the new Exif data is larger than the original item's extent, it relocates
+ * the Exif item payload to the end of the mdat box.
+ */
+LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    const uint8_t* makernote,
+    size_t makernote_size,
+    uint8_t* output,
+    size_t output_size,
+    size_t* out_written);
+
+/**
+ * Appends Apple mebx/ContentDescribes metadata tracks to an MP4/QuickTime file.
+ * out_data will be allocated by lpb_malloc, caller must lpb_free.
+ */
+LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
+    lpb_context* context,
+    const uint8_t* data, size_t data_size,
+    double cover_seconds,
+    uint8_t* output, size_t output_size, size_t* out_written);
 #ifdef __cplusplus
 }
 #endif
-
 #endif
+
