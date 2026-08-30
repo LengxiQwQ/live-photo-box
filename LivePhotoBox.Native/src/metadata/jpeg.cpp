@@ -1,7 +1,8 @@
 #include "foundation/internal.h"
-#include "binary/endian.h"
+#include "binary/binary_io.h"
 #include "jpeg.h"
-#include <cstring>
+
+using namespace lpb;
 
 namespace {
 
@@ -33,64 +34,59 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
 {
     if (!context || !input || !out_written) return LPB_RESULT_INVALID_ARGUMENT;
 
-    if (input_size < 2 || input[0] != 0xFF || input[1] != 0xD8) {
+    binary_reader reader(input, input_size);
+    uint16_t soi = 0;
+    if (!reader.try_read_be16u(soi) || soi != 0xFFD8) {
         set_error(context, "Input is not a valid JPEG (missing SOI).");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     std::vector<jpeg_segment> segments;
-    size_t pos = 2; // skip SOI
     size_t sos_pos = 0;
 
-    while (pos < input_size) {
-        if (input[pos] != 0xFF) {
-            // Not a marker? Could be padding or corrupted.
+    while (reader.remaining() > 0) {
+        uint8_t current_byte = 0;
+        if (!reader.try_read_u8(current_byte) || current_byte != 0xFF) {
             break;
         }
         
-        // Skip padding FF
-        size_t marker_start = pos;
-        while (pos < input_size && input[pos] == 0xFF) {
-            pos++;
+        size_t marker_start = reader.position() - 1;
+        while (reader.remaining() > 0 && reader.data()[reader.position()] == 0xFF) {
+            reader.skip(1);
         }
         
-        if (pos >= input_size) break;
-        uint8_t marker = input[pos];
-        pos++;
+        uint8_t marker = 0;
+        if (!reader.try_read_u8(marker)) break;
 
-        if (marker == 0x00 || marker >= 0xD0 && marker <= 0xD7) {
-            // RSTn or escaped FF, not standalone segments with length.
-            // But they shouldn't appear outside entropy-coded data.
-            continue;
-        }
-
-        if (marker == 0xD9) { // EOI
-            break;
-        }
-
+        if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+        if (marker == 0xD9) break; // EOI
+        
         if (marker == 0xDA) { // SOS
             sos_pos = marker_start;
             break;
         }
 
-        if (pos + 1 >= input_size) break;
-        size_t len = (static_cast<size_t>(input[pos]) << 8) | input[pos + 1];
-        if (pos + len > input_size) break;
+        uint16_t len = 0;
+        if (!reader.try_read_be16u(len)) break;
+        if (len < 2) break; // Invalid length
+        
+        size_t payload_size = len;
+        if (reader.remaining() < static_cast<size_t>(payload_size - 2)) break;
 
         bool is_xmp = false;
-        if (marker == 0xE1 && len >= 2 + XMP_HEADER_SIZE) {
-            if (std::memcmp(input + pos + 2, XMP_HEADER, XMP_HEADER_SIZE) == 0) {
+        if (marker == 0xE1 && payload_size >= 2 + XMP_HEADER_SIZE) {
+            if (std::memcmp(reader.current_ptr(), XMP_HEADER, XMP_HEADER_SIZE) == 0) {
                 is_xmp = true;
             }
         }
 
-        segments.push_back({ marker_start, pos - marker_start + 1, len, marker, is_xmp });
-        pos += len;
+        segments.push_back({ marker_start, reader.position() - 2 - marker_start, payload_size, marker, is_xmp });
+        reader.skip(payload_size - 2);
     }
 
     if (sos_pos == 0) {
         // No SOS found, maybe just segments or truncated.
-        sos_pos = pos;
+        sos_pos = reader.position();
     }
 
     // Prepare new APP1 XMP
@@ -98,17 +94,18 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
     std::vector<uint8_t> new_xmp_segment;
     if (xmp_xml && xmp_xml_size > 0) {
         new_xmp_len = 2 + XMP_HEADER_SIZE + xmp_xml_size;
-        if (new_xmp_len > 65535) {
-            set_error(context, "XMP metadata exceeds JPEG segment size limit.");
+        if (new_xmp_len > 0xFFFF) {
+            set_error(context, "XMP XML is too large for APP1 segment.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        new_xmp_segment.reserve(2 + new_xmp_len);
-        new_xmp_segment.push_back(0xFF);
-        new_xmp_segment.push_back(0xE1);
-        new_xmp_segment.push_back(static_cast<uint8_t>(new_xmp_len >> 8));
-        new_xmp_segment.push_back(static_cast<uint8_t>(new_xmp_len & 0xFF));
-        new_xmp_segment.insert(new_xmp_segment.end(), XMP_HEADER, XMP_HEADER + XMP_HEADER_SIZE);
-        new_xmp_segment.insert(new_xmp_segment.end(), xmp_xml, xmp_xml + xmp_xml_size);
+        
+        new_xmp_segment.resize(2 + new_xmp_len);
+        binary_writer writer(new_xmp_segment.data(), new_xmp_segment.size());
+        writer.try_write_u8(0xFF);
+        writer.try_write_u8(0xE1);
+        writer.try_write_be16(static_cast<uint16_t>(new_xmp_len));
+        writer.try_write_bytes(XMP_HEADER, XMP_HEADER_SIZE);
+        writer.try_write_bytes(xmp_xml, xmp_xml_size);
     }
 
     // Determine insertion index for new XMP (after APP0 or EXIF if present)
@@ -121,48 +118,42 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
         }
     }
 
-    // Calculate total required size
-    size_t total_size = 2; // SOI
-    for (size_t i = 0; i < segments.size(); i++) {
-        total_size += segments[i].marker_size + segments[i].payload_size;
-        if (i + 1 == insert_idx) {
-            total_size += new_xmp_segment.size();
-        }
-    }
-    if (insert_idx == 0) {
-        total_size += new_xmp_segment.size();
+    // Calculate total size
+    size_t total_expected = 2; // SOI
+    if (!new_xmp_segment.empty()) {
+        total_expected += new_xmp_segment.size();
     }
     
-    // Add rest of the file (SOS through EOF, including trailing data)
-    size_t remaining = input_size - sos_pos;
-    total_size += remaining;
+    for (const auto& seg : segments) {
+        if (!seg.is_xmp) {
+            total_expected += seg.marker_size + seg.payload_size;
+        }
+    }
+    total_expected += (input_size - sos_pos); // SOS to EOI
 
-    *out_written = total_size;
-    if (!output || output_size < total_size) {
+    if (output == nullptr || output_size < total_expected) {
+        *out_written = total_expected;
         return LPB_RESULT_BUFFER_TOO_SMALL;
     }
 
-    // Write output
-    size_t out_pos = 0;
-    output[out_pos++] = 0xFF;
-    output[out_pos++] = 0xD8;
+    binary_writer out_writer(output, output_size);
+    out_writer.try_write_be16(0xFFD8);
 
     if (insert_idx == 0 && !new_xmp_segment.empty()) {
-        std::memcpy(output + out_pos, new_xmp_segment.data(), new_xmp_segment.size());
-        out_pos += new_xmp_segment.size();
+        out_writer.try_write_bytes(new_xmp_segment.data(), new_xmp_segment.size());
     }
 
     for (size_t i = 0; i < segments.size(); i++) {
-        size_t seg_len = segments[i].marker_size + segments[i].payload_size;
-        std::memcpy(output + out_pos, input + segments[i].start, seg_len);
-        out_pos += seg_len;
-        
+        if (!segments[i].is_xmp) {
+            out_writer.try_write_bytes(input + segments[i].start, segments[i].marker_size + segments[i].payload_size);
+        }
         if (i + 1 == insert_idx && !new_xmp_segment.empty()) {
-            std::memcpy(output + out_pos, new_xmp_segment.data(), new_xmp_segment.size());
-            out_pos += new_xmp_segment.size();
+            out_writer.try_write_bytes(new_xmp_segment.data(), new_xmp_segment.size());
         }
     }
 
-    std::memcpy(output + out_pos, input + sos_pos, remaining);
+    out_writer.try_write_bytes(input + sos_pos, input_size - sos_pos);
+
+    *out_written = out_writer.position();
     return LPB_RESULT_OK;
 }
