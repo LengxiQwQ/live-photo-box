@@ -2,7 +2,7 @@
 
 `LivePhotoBox.Native` is the x64 Windows C++ runtime used by `LivePhotoBox.Core`, the WinUI application, and the CLI. It is a first-class Visual C++ DLL project in `Live Photo Box.sln`, so Visual Studio provides the normal C++ project model, IntelliSense, build properties, debugging, and error reporting.
 
-Phase 1 intentionally contains only the stable C ABI foundation:
+The runtime started with a stable C ABI foundation:
 
 - ABI and product version negotiation
 - opaque context ownership
@@ -11,7 +11,14 @@ Phase 1 intentionally contains only the stable C ABI foundation:
 - capability discovery
 - managed runtime smoke tests
 
-Protocol and media implementations will be migrated behind this ABI in later changes. Existing C# protocol behavior remains the reference until each Native implementation passes differential and real-device validation.
+Phase 2 now migrates protocol byte transformations behind that ABI one vertical slice at a time. The first completed slice is the vivo legacy (X200 and earlier) dual-file metadata writer:
+
+- JPEG `vivoMediaExtInfo` tail append and replacement
+- MP4 top-level vivo UUID replacement
+- legacy `stco` / `co64` offset adjustment
+- managed routing with automatic fallback to the unchanged C# implementation
+
+C# remains responsible for protocol decisions, JSON construction, asynchronous file I/O, cancellation, and logging. C++ owns the byte-layout transformation. Existing C# behavior remains the reference and fallback until each Native implementation passes differential and real-device validation.
 
 ## Build
 

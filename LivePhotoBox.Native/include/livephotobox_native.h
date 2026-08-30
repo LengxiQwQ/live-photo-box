@@ -102,6 +102,36 @@ LPB_API lpb_result LPB_CALL lpb_get_last_error(
     size_t buffer_size,
     size_t* required_size);
 
+/*
+ * Builds a vivo <= X200 JPEG payload from the complete UTF-8 `vivo{...}` JSON.
+ * When replace_existing is non-zero, the last existing vivo tail within the
+ * final 2 MiB is removed before the new tail is appended.
+ */
+LPB_API lpb_result LPB_CALL lpb_vivo_rewrite_image_metadata(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    const uint8_t* vivo_json,
+    size_t vivo_json_size,
+    int32_t replace_existing,
+    uint8_t* output,
+    size_t output_size,
+    size_t* required_size);
+
+/*
+ * Replaces top-level vivoMediaExtInfo uuid boxes and appends the new vivo
+ * metadata box, preserving the Legacy writer's stco/co64 adjustment behavior.
+ */
+LPB_API lpb_result LPB_CALL lpb_vivo_rewrite_video_metadata(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    const uint8_t* vivo_json,
+    size_t vivo_json_size,
+    uint8_t* output,
+    size_t output_size,
+    size_t* required_size);
+
 #ifdef __cplusplus
 }
 #endif

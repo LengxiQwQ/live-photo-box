@@ -1,5 +1,6 @@
 namespace LivePhotoBox.Services.Protocols
 {
+    using LivePhotoBox.Interop;
     using LivePhotoBox.Models;
     using System;
     using System.Buffers.Binary;
@@ -122,8 +123,9 @@ namespace LivePhotoBox.Services.Protocols
             token.ThrowIfCancellationRequested();
 
             string id = CreateLivePhotoId();
+            bool preferNative = ShouldUseNativeWriter();
 
-            await AppendJpegTailAsync(imagePath, id, token);
+            await AppendJpegTailAsync(imagePath, id, preferNative, token);
             await AppendVideoUuidBoxAsync(
                 videoPath,
                 Encoding.UTF8.GetBytes(string.Format(
@@ -131,6 +133,7 @@ namespace LivePhotoBox.Services.Protocols
                     UneditedVideoJsonTemplate,
                     id,
                     Math.Max(0, coverFrameIndex))),
+                preferNative,
                 token);
 
             LogService.Split(
@@ -178,10 +181,11 @@ namespace LivePhotoBox.Services.Protocols
                 "vivo" + imageJson.ToJsonString(JsonOptions));
             byte[] videoJsonBytes = Encoding.UTF8.GetBytes(
                 "vivo" + videoJson.ToJsonString(JsonOptions));
+            bool preferNative = ShouldUseNativeWriter();
 
-            StripExistingJpegTail(outputImagePath);
-            await AppendRawJpegTailAsync(outputImagePath, imageJsonBytes, token);
-            await AppendVideoUuidBoxAsync(outputVideoPath, videoJsonBytes, token);
+            await AppendRawJpegTailAsync(
+                outputImagePath, imageJsonBytes, replaceExisting: true, preferNative, token);
+            await AppendVideoUuidBoxAsync(outputVideoPath, videoJsonBytes, preferNative, token);
 
             LogService.Split(
                 $"vivo edited-cover metadata rewritten: ID={id}, " +
@@ -270,18 +274,40 @@ namespace LivePhotoBox.Services.Protocols
         private static async Task AppendJpegTailAsync(
             string imagePath,
             string id,
+            bool preferNative,
             CancellationToken token)
         {
             byte[] json = Encoding.UTF8.GetBytes(
                 string.Format(ImageJsonTemplate, id));
-            await AppendRawJpegTailAsync(imagePath, json, token);
+            await AppendRawJpegTailAsync(
+                imagePath, json, replaceExisting: false, preferNative, token);
         }
 
         private static async Task AppendRawJpegTailAsync(
             string imagePath,
             byte[] json,
+            bool replaceExisting,
+            bool preferNative,
             CancellationToken token)
         {
+            if (preferNative)
+            {
+                byte[] input = await File.ReadAllBytesAsync(imagePath, token);
+                if (NativeVivoLegacyMetadata.TryRewriteImage(
+                    input, json, replaceExisting, out byte[] nativeOutput, out string? nativeError))
+                {
+                    await File.WriteAllBytesAsync(imagePath, nativeOutput, token);
+                    LogService.Split("vivo[image] metadata bytes written by Native", LogLevel.Debug);
+                    return;
+                }
+
+                LogService.Split(
+                    $"vivo[image] Native metadata writer failed; using Legacy: {nativeError}",
+                    LogLevel.Warning);
+            }
+
+            if (replaceExisting)
+                StripExistingJpegTail(imagePath);
             byte[] tail = BuildTail(json);
 
             await using var fs = new FileStream(
@@ -298,8 +324,25 @@ namespace LivePhotoBox.Services.Protocols
         private static async Task AppendVideoUuidBoxAsync(
             string videoPath,
             byte[] json,
+            bool preferNative,
             CancellationToken token)
         {
+            if (preferNative)
+            {
+                byte[] input = await File.ReadAllBytesAsync(videoPath, token);
+                if (NativeVivoLegacyMetadata.TryRewriteVideo(
+                    input, json, out byte[] nativeOutput, out string? nativeError))
+                {
+                    await File.WriteAllBytesAsync(videoPath, nativeOutput, token);
+                    LogService.Split("vivo[video] metadata bytes written by Native", LogLevel.Debug);
+                    return;
+                }
+
+                LogService.Split(
+                    $"vivo[video] Native metadata writer failed; using Legacy: {nativeError}",
+                    LogLevel.Warning);
+            }
+
             // 防止输出视频本身残留旧 vivo 双文件 box（如 keep 原样输出路径）。
             if (!Mp4MdtaKeyStripper.TryStripUuidBox(
                     videoPath, "vivoMediaExtInfo", out string? stripError))
@@ -329,6 +372,19 @@ namespace LivePhotoBox.Services.Protocols
                 81920,
                 FileOptions.Asynchronous | FileOptions.SequentialScan);
             await fs.WriteAsync(box, token);
+        }
+
+        private static bool ShouldUseNativeWriter()
+        {
+            if (!ProcessingBackendProtocolCatalog.TryResolve(
+                "vivo-legacy", out ProcessingBackendProtocolDefinition? definition)
+                || definition == null)
+            {
+                return false;
+            }
+
+            return ProcessingBackendSettingsService.ShouldPreferNative(
+                ProcessingBackendSettingsService.Load(), definition);
         }
 
         private static readonly JsonSerializerOptions JsonOptions = new()

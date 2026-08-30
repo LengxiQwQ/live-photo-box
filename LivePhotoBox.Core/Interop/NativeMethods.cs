@@ -61,5 +61,32 @@ namespace LivePhotoBox.Interop
             nint utf8Buffer,
             nuint bufferSize,
             out nuint requiredSize);
+
+        [LibraryImport(LibraryName, EntryPoint = "lpb_vivo_rewrite_image_metadata")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static unsafe partial NativeResult RewriteVivoImageMetadata(
+            nint context,
+            byte* input,
+            nuint inputSize,
+            byte* vivoJson,
+            nuint vivoJsonSize,
+            int replaceExisting,
+            byte* output,
+            nuint outputSize,
+            out nuint requiredSize);
+
+        [LibraryImport(LibraryName, EntryPoint = "lpb_vivo_rewrite_video_metadata")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static unsafe partial NativeResult RewriteVivoVideoMetadata(
+            nint context,
+            byte* input,
+            nuint inputSize,
+            byte* vivoJson,
+            nuint vivoJsonSize,
+            byte* output,
+            nuint outputSize,
+            out nuint requiredSize);
     }
 }

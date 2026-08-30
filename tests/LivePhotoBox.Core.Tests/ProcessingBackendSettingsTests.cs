@@ -28,12 +28,18 @@ public sealed class ProcessingBackendSettingsTests
     }
 
     [Fact]
-    public void CurrentFoundationRuntime_DoesNotEnableReservedProtocolCapabilities()
+    public void CurrentRuntime_ExposesOnlyCompletedPreviewProtocolCapability()
     {
         NativeRuntimeInfo runtime = NativeRuntime.Probe();
         var settings = new ProcessingBackendSettings { Mode = ProcessingBackendMode.Auto };
 
-        Assert.All(ProcessingBackendProtocolCatalog.All, definition =>
+        ProcessingBackendProtocolDefinition vivoLegacy = ProcessingBackendProtocolCatalog.All
+            .Single(definition => definition.Key == "vivo-legacy");
+        Assert.Equal(NativeBackendMaturity.Preview,
+            ProcessingBackendSettingsService.GetNativeMaturity(vivoLegacy, runtime));
+        Assert.False(ProcessingBackendSettingsService.ShouldPreferNative(settings, vivoLegacy, runtime));
+
+        Assert.All(ProcessingBackendProtocolCatalog.All.Where(definition => definition != vivoLegacy), definition =>
         {
             Assert.Equal(NativeBackendMaturity.Unavailable,
                 ProcessingBackendSettingsService.GetNativeMaturity(definition, runtime));
