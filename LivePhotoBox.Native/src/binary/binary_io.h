@@ -48,11 +48,36 @@ public:
         return true;
     }
 
+    bool try_read_le16u(uint16_t& out_val) noexcept {
+        if (remaining() < 2) return false;
+        out_val = static_cast<uint16_t>(m_data[m_pos]) | (static_cast<uint16_t>(m_data[m_pos + 1]) << 8);
+        m_pos += 2;
+        return true;
+    }
+    
+    bool try_read_u16_endian(uint16_t& out_val, bool is_big_endian) noexcept {
+        return is_big_endian ? try_read_be16u(out_val) : try_read_le16u(out_val);
+    }
+
     bool try_read_be32u(uint32_t& out_val) noexcept {
         if (remaining() < 4) return false;
         out_val = read_be32u(m_data.data() + m_pos);
         m_pos += 4;
         return true;
+    }
+    
+    bool try_read_le32u(uint32_t& out_val) noexcept {
+        if (remaining() < 4) return false;
+        out_val = static_cast<uint32_t>(m_data[m_pos]) |
+                 (static_cast<uint32_t>(m_data[m_pos + 1]) << 8) |
+                 (static_cast<uint32_t>(m_data[m_pos + 2]) << 16) |
+                 (static_cast<uint32_t>(m_data[m_pos + 3]) << 24);
+        m_pos += 4;
+        return true;
+    }
+
+    bool try_read_u32_endian(uint32_t& out_val, bool is_big_endian) noexcept {
+        return is_big_endian ? try_read_be32u(out_val) : try_read_le32u(out_val);
     }
     
     bool try_read_be32(int32_t& out_val) noexcept {
@@ -123,6 +148,18 @@ public:
         return true;
     }
 
+    bool try_write_le16(uint16_t val) noexcept {
+        if (remaining() < 2) return false;
+        m_data[m_pos] = static_cast<uint8_t>(val);
+        m_data[m_pos + 1] = static_cast<uint8_t>(val >> 8);
+        m_pos += 2;
+        return true;
+    }
+    
+    bool try_write_u16_endian(uint16_t val, bool is_big_endian) noexcept {
+        return is_big_endian ? try_write_be16(val) : try_write_le16(val);
+    }
+
     bool try_write_be32(int32_t val) noexcept {
         if (remaining() < 4) return false;
         write_be32(m_data.data() + m_pos, val);
@@ -135,6 +172,20 @@ public:
         write_be32(m_data.data() + m_pos, static_cast<int32_t>(val));
         m_pos += 4;
         return true;
+    }
+
+    bool try_write_le32u(uint32_t val) noexcept {
+        if (remaining() < 4) return false;
+        m_data[m_pos] = static_cast<uint8_t>(val);
+        m_data[m_pos + 1] = static_cast<uint8_t>(val >> 8);
+        m_data[m_pos + 2] = static_cast<uint8_t>(val >> 16);
+        m_data[m_pos + 3] = static_cast<uint8_t>(val >> 24);
+        m_pos += 4;
+        return true;
+    }
+    
+    bool try_write_u32_endian(uint32_t val, bool is_big_endian) noexcept {
+        return is_big_endian ? try_write_be32u(val) : try_write_le32u(val);
     }
 
     bool try_write_be64(int64_t val) noexcept {
