@@ -5,7 +5,7 @@
  * 将视频全部帧提取为缩略图 JPEG 文件，存储于临时目录。
  *
  * 参考 ThumbnailService.LoadVideoThumbnailDataAsync 的 Process.Start 模式，
- * 但这里提取全部帧（-vsync 0）而非仅第一帧。
+ * 但这里提取全部帧（-fps_mode passthrough）而非仅第一帧。
  *
  * 所有帧一次性输出到临时目录（frame_000001.jpg ~ frame_NNNNNN.jpg），
  * 调用方负责按序读取并创建 BitmapImage，最后清理临时目录。
@@ -63,13 +63,13 @@ namespace LivePhotoBox.Services
                 ct.ThrowIfCancellationRequested();
 
                 // ffmpeg 参数：
-                //   -vsync 0      — 不丢帧不重复，每帧都输出
+                //   -fps_mode passthrough — 不丢帧不重复，每帧都输出（FFmpeg 9+）
                 //   -q:v 3       — JPEG 质量（2-5，3=高质量小体积）
                 //   frame_%06d   — 六位零填充序号（ffmpeg 从 1 开始编号）
                 //   不缩放 — 输出原始尺寸，缩略图由 DecodePixelWidth 控制
                 string outputPattern = Path.Combine(tempDir, "frame_%06d.jpg");
 
-                string args = $"-i \"{videoPath}\" -vsync 0 " +
+                string args = $"-i \"{videoPath}\" -fps_mode passthrough " +
                               $"-q:v 3 -f image2 \"{outputPattern}\" -y -loglevel error";
 
                 var run = await ExternalToolProcessGuard.RunAsync(

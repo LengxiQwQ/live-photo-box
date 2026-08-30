@@ -489,8 +489,8 @@ namespace LivePhotoBox.Services
             {
                 string hwaccel = GetVideoHwAccelFlag();
                 string args = string.IsNullOrEmpty(hwaccel)
-                    ? $"-i \"{videoPath}\" -vframes 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error"
-                    : $"{hwaccel} -i \"{videoPath}\" -vframes 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
+                    ? $"-i \"{videoPath}\" -frames:v 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error"
+                    : $"{hwaccel} -i \"{videoPath}\" -frames:v 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
 
                 var run = await ExternalToolProcessGuard.RunAsync(
                     () => new ProcessStartInfo
@@ -932,7 +932,7 @@ namespace LivePhotoBox.Services
             try
             {
                 // 缩略图只抽一帧，CPU 解码快且稳定；GPU hwaccel 可能触发 nvcuda64.dll 访问冲突
-                string args = $"-i \"{videoPath}\" -vframes 1 -vf \"scale={targetSize}:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
+                string args = $"-i \"{videoPath}\" -frames:v 1 -vf \"scale={targetSize}:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
 
                 var run = await ExternalToolProcessGuard.RunAsync(
                     () => new ProcessStartInfo

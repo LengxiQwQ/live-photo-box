@@ -97,7 +97,7 @@ if (-not (Test-Path 'publish\cli_multi\livephotobox-boot.exe')) {
 
     # Build Go alias shims (symlink-safe) — 与 build-release.ps1 的 step 3 一致
     $goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
-    $shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
+    $shimSrc = Join-Path $projectRoot 'scripts\utils\alias-launcher.go'
     if ($goCmd -and (Test-Path $shimSrc)) {
         $cliAliases = @('livephotobox', 'livebox', 'lpb', 'livephoto')
         foreach ($alias in $cliAliases) {

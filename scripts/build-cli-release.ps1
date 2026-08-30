@@ -94,7 +94,7 @@ Write-Host ''
 Write-Host '[1.5/4] Building Go alias shims (symlink-safe)...' -ForegroundColor Yellow
 
 $goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
-$shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
+$shimSrc = Join-Path $projectRoot 'scripts\utils\alias-launcher.go'
 
 if ($goCmd -and (Test-Path $shimSrc)) {
     $cliAliases = @('livephotobox', 'livebox', 'lpb', 'livephoto')
@@ -157,8 +157,8 @@ $kb = (Get-ChildItem $outDir -Recurse -ErrorAction SilentlyContinue | Measure-Ob
 Write-Host "       Final size: $('{0:N0}' -f $kb) KB" -ForegroundColor Green
 
 # 3.5 拷贝 PATH 辅助脚本（用户可一键把本目录加入用户 PATH）
-Copy-Item 'scripts\add-to-path.cmd'      "$outDir\add-to-path.cmd"      -Force
-Copy-Item 'scripts\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
+Copy-Item 'scripts\install\add-to-path.cmd'      "$outDir\add-to-path.cmd"      -Force
+Copy-Item 'scripts\install\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
 Write-Host '       PATH helper scripts (add/remove-to-path.cmd) copied' -ForegroundColor Green
 
 # ── 4. 打包 zip ───────────────────────────────────────────────

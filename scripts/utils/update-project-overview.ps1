@@ -5,7 +5,7 @@
 #   2. Update the "最后更新" (last updated) date at the bottom.
 #
 # Usage (run after creating/moving/deleting files):
-#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/update-project-overview.ps1
+#   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/utils/update-project-overview.ps1
 #
 # NOTE: The directory trees in section 4 are hand-maintained (they carry
 # Chinese annotations and logical ordering). After structural changes, an
@@ -16,7 +16,7 @@
 # regardless of console code page. The overview file itself is UTF-8.
 
 $ErrorActionPreference = "Stop"
-$repoRoot = Split-Path -Parent $PSScriptRoot
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $overview = Join-Path $repoRoot "docs\项目总览.md"
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 

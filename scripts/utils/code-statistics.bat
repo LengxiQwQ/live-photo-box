@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~dp0\.."
+cd /d "%~dp0\..\.."
 
 where cloc >nul 2>nul
 if errorlevel 1 (

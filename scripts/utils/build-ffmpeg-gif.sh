@@ -11,12 +11,12 @@ OUT_DIR=/c/Users/LengxiQwQ/Downloads/ffmpeg-out
 TOOLS_DIR="/d/Projects/live-photo-box/Live Photo Box/Tools"
 
 # ── 步骤 1: 下载源码 ──
-echo "=== [1/8] 克隆 FFmpeg n8.0.1 ==="
+echo "=== [1/8] 克隆 FFmpeg n9.0.1 ==="
 cd /c/Users/LengxiQwQ/Downloads
 rm -rf ffmpeg-src 2>/dev/null
-git clone --depth 1 --branch n8.0.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
+git clone --depth 1 --branch n9.0.1 https://github.com/FFmpeg/FFmpeg.git ffmpeg-src
 # 如果 GitHub 不行，换官方源:
-# git clone --depth 1 --branch n8.0.1 https://git.ffmpeg.org/ffmpeg.git ffmpeg-src
+# git clone --depth 1 --branch n9.0.1 https://git.ffmpeg.org/ffmpeg.git ffmpeg-src
 cd ffmpeg-src
 
 # ── 步骤 2: configure（≡ 文档 2.2 节 + ↓NEW: gif, palettegen, paletteuse）──

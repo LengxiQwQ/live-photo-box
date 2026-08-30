@@ -8,7 +8,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 
 $Exe = (Resolve-Path $Exe).Path
 
-$root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+$root = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $designs = Join-Path $root 'designs'
 
 function Get-SampleBySize {

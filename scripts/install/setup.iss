@@ -8,8 +8,8 @@
 #define AppPublisher "LengxiQwQ"
 #define AppURL "https://github.com/LengxiQwQ/live-photo-box"
 #define AppExeName "Live Photo Box.exe"
-#define SourceDir "..\publish\portable_x64"
-#define IconFile "..\LivePhotoBox\Assets\Icons\AppIcon.ico"
+#define SourceDir "..\..\publish\portable_x64"
+#define IconFile "..\..\LivePhotoBox\Assets\Icons\AppIcon.ico"
 
 ; 版本号从 Package.appxmanifest 读取（命令行 /dVERSION=x.x.x.x 传入）
 #ifndef VERSION
@@ -30,8 +30,8 @@ AppSupportURL={#AppURL}
 DefaultDirName={autopf}\{#AppName}
 DefaultGroupName={#AppName}
 AllowNoIcons=yes
-LicenseFile=..\LICENSE
-OutputDir=..\publish
+LicenseFile=..\..\LICENSE
+OutputDir=..\..\publish
 OutputBaseFilename=Live-Photo-Box-v{#VERSION_SHORT}-x64-setup
 SetupIconFile={#IconFile}
 UninstallDisplayIcon={app}\{#AppExeName}

@@ -771,7 +771,7 @@ namespace LivePhotoBox.Services
             try
             {
                 string outputPattern = Path.Combine(frameDir, "frame_%06d.jpg");
-                string args = $"-i \"{videoPath}\" -vsync 0 " +
+                string args = $"-i \"{videoPath}\" -fps_mode passthrough " +
                               $"-q:v 3 -f image2 \"{outputPattern}\" -y -loglevel error";
 
                 var psi = new ProcessStartInfo

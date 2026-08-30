@@ -40,7 +40,7 @@ rem ============================================================
 setlocal
 chcp 65001 >nul
 
-set "ROOT=%~dp0.."
+set "ROOT=%~dp0..\.."
 set "EXE=%ROOT%\LivePhotoBox.CLI\bin\Debug\net9.0-windows10.0.19041.0\livephotobox-boot.exe"
 
 if not exist "%EXE%" (

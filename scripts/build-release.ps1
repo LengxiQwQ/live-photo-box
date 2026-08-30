@@ -144,7 +144,7 @@ if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
     }
     # Replace alias copies with Go symlink-safe launchers
     $goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
-    $shimSrc = Join-Path $projectRoot 'scripts\alias-launcher.go'
+    $shimSrc = Join-Path $projectRoot 'scripts\utils\alias-launcher.go'
 
     if ($goCmd -and (Test-Path $shimSrc)) {
         $cliAliases = @('livephotobox', 'livebox', 'lpb', 'livephoto')
@@ -199,8 +199,8 @@ if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
     Copy-Item 'LICENSE' "$cliDir\LICENSE" -Force
     Copy-Item 'docs\CLI-User-Guide.md' "$cliDir\CLI-User-Guide.md" -Force
     Copy-Item 'docs\CLI-User-Guide.zh-CN.md' "$cliDir\CLI-User-Guide.zh-CN.md" -Force
-    Copy-Item 'scripts\add-to-path.cmd'      "$cliDir\add-to-path.cmd"      -Force
-    Copy-Item 'scripts\remove-from-path.cmd' "$cliDir\remove-from-path.cmd" -Force
+    Copy-Item 'scripts\install\add-to-path.cmd'      "$cliDir\add-to-path.cmd"      -Force
+    Copy-Item 'scripts\install\remove-from-path.cmd' "$cliDir\remove-from-path.cmd" -Force
     Write-Host '       Docs + PATH helper scripts copied' -ForegroundColor Green
 
     # 打包 CLI zip
@@ -296,8 +296,8 @@ Copy-Item 'README.zh-CN.md' "$outDir\README.zh-CN.md" -Force
 Copy-Item 'LICENSE' "$outDir\LICENSE" -Force
 Copy-Item 'docs\CLI-User-Guide.md' "$outDir\CLI-User-Guide.md" -Force
 Copy-Item 'docs\CLI-User-Guide.zh-CN.md' "$outDir\CLI-User-Guide.zh-CN.md" -Force
-Copy-Item 'scripts\add-to-path.cmd'      "$outDir\add-to-path.cmd"      -Force
-Copy-Item 'scripts\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
+Copy-Item 'scripts\install\add-to-path.cmd'      "$outDir\add-to-path.cmd"      -Force
+Copy-Item 'scripts\install\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
 
 $zipName = "Live-Photo-Box-v$version-x64-portable.zip"
 $zipPath = "publish\$zipName"
@@ -313,7 +313,7 @@ Write-Host '[7/7] Creating installer...' -ForegroundColor Yellow
 
 $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 if (Test-Path $iscc) {
-    & $iscc /Qp "/dVERSION=$versionFull" "/dVERSION_SHORT=$version" 'scripts\setup.iss'
+    & $iscc /Qp "/dVERSION=$versionFull" "/dVERSION_SHORT=$version" 'scripts\install\setup.iss'
     if ($LASTEXITCODE -eq 0) {
         $setupName = "Live-Photo-Box-v$version-x64-setup.exe"
         $setupPath = "publish\$setupName"

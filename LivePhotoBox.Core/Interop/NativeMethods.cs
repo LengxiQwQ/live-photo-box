@@ -88,5 +88,36 @@ namespace LivePhotoBox.Interop
             byte* output,
             nuint outputSize,
             out nuint requiredSize);
+
+        [LibraryImport(LibraryName, EntryPoint = "lpb_huawei_build_tail", StringMarshalling = StringMarshalling.Utf8)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static unsafe partial NativeResult HuaweiBuildTail(
+            nint context,
+            int coverFrame,
+            int totalFrames,
+            ulong mp4Size,
+            int originalCoverMs,
+            int originalDurationMs,
+            string prefix,
+            byte* output,
+            nuint outputSize,
+            out nuint requiredSize);
+
+        [LibraryImport(LibraryName, EntryPoint = "lpb_huawei_patch_heic_ftyp")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static unsafe partial NativeResult HuaweiPatchHeicFtyp(
+            nint context,
+            byte* data,
+            nuint dataSize);
+
+        [LibraryImport(LibraryName, EntryPoint = "lpb_huawei_patch_mp4")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static unsafe partial NativeResult HuaweiPatchMp4(
+            nint context,
+            byte* data,
+            nuint dataSize);
     }
 }

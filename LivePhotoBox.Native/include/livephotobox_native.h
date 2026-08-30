@@ -132,6 +132,40 @@ LPB_API lpb_result LPB_CALL lpb_vivo_rewrite_video_metadata(
     size_t output_size,
     size_t* required_size);
 
+/*
+ * Builds the 60-byte HUAWEI Moving Photo tail marker.
+ * prefix should be null-terminated (e.g. "v6_f").
+ */
+LPB_API lpb_result LPB_CALL lpb_huawei_build_tail(
+    lpb_context* context,
+    int32_t cover_frame,
+    int32_t total_frames,
+    uint64_t mp4_size,
+    int32_t original_cover_ms,
+    int32_t original_duration_ms,
+    const char* prefix,
+    uint8_t* output,
+    size_t output_size,
+    size_t* required_size);
+
+/*
+ * Patches a HEIC file's ftyp box to include the "tmap" compatible brand.
+ * Modifies the data in-place. Requires at least 16 bytes.
+ */
+LPB_API lpb_result LPB_CALL lpb_huawei_patch_heic_ftyp(
+    lpb_context* context,
+    uint8_t* data,
+    size_t data_size);
+
+/*
+ * Patches an MP4 file's ftyp brand and ©too atom in-place for Huawei compatibility.
+ * Modifies the data in-place without changing the size or offsets.
+ */
+LPB_API lpb_result LPB_CALL lpb_huawei_patch_mp4(
+    lpb_context* context,
+    uint8_t* data,
+    size_t data_size);
+
 #ifdef __cplusplus
 }
 #endif

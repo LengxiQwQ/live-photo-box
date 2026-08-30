@@ -38,7 +38,7 @@ jobs:
         env:
           TRAFFIC_TOKEN: ${{ secrets.WINGET_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: python3 scripts/insights/collect.py
+        run: python3 scripts/utils/collect.py
 
       - name: Commit & push / 提交并存档
         env:

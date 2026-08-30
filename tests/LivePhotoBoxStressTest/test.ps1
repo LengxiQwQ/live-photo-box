@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Dir = "D:/图片/相册/苹果导出2025年",
     [int]$Iterations = 30,
     [int]$DelayMs = 50
@@ -100,7 +100,7 @@ if (Test-Path $ffmpeg) {
                 $tmpDir = [IO.Path]::Combine([IO.Path]::GetTempPath(), "lpb_stress_$([Guid]::NewGuid())")
                 New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
                 $proc = Start-Process -FilePath $ffmpeg `
-                    -ArgumentList "-i `"$($lp.Video)`" -vsync 0 -q:v 3 -f image2 `"$tmpDir\frame_%06d.jpg`" -y -loglevel error" `
+                    -ArgumentList "-i `"$($lp.Video)`" -fps_mode passthrough -q:v 3 -f image2 `"$tmpDir\frame_%06d.jpg`" -y -loglevel error" `
                     -Wait -NoNewWindow -PassThru
                 $frameCount = (Get-ChildItem -Path $tmpDir -Filter "frame_*.jpg" -ErrorAction SilentlyContinue).Count
                 Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
