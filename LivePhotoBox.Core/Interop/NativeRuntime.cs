@@ -49,6 +49,17 @@ namespace LivePhotoBox.Interop
         /// <summary>Foundation capability exposed by the Phase 1 native runtime.</summary>
         public const ulong FoundationCapability = 1UL << 0;
 
+        /// <summary>Reserved capability bits for complete product-facing protocol workflows.</summary>
+        public const ulong GoogleV1Capability = 1UL << 8;
+        public const ulong GoogleV2Capability = 1UL << 9;
+        public const ulong OppoCapability = 1UL << 10;
+        public const ulong VivoX300Capability = 1UL << 11;
+        public const ulong VivoLegacyCapability = 1UL << 12;
+        public const ulong HuaweiHonorCapability = 1UL << 13;
+        public const ulong SamsungJpegCapability = 1UL << 14;
+        public const ulong SamsungHeicCapability = 1UL << 15;
+        public const ulong AppleCapability = 1UL << 16;
+
         /// <summary>
         /// Loads the native runtime, validates the ABI, and creates a temporary context.
         /// </summary>

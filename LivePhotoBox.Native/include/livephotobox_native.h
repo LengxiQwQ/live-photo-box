@@ -69,7 +69,16 @@ typedef struct lpb_runtime_info
 
 enum lpb_capability
 {
-    LPB_CAPABILITY_FOUNDATION = 1ull << 0
+    LPB_CAPABILITY_FOUNDATION = 1ull << 0,
+    LPB_CAPABILITY_GOOGLE_V1 = 1ull << 8,
+    LPB_CAPABILITY_GOOGLE_V2 = 1ull << 9,
+    LPB_CAPABILITY_OPPO = 1ull << 10,
+    LPB_CAPABILITY_VIVO_X300 = 1ull << 11,
+    LPB_CAPABILITY_VIVO_LEGACY = 1ull << 12,
+    LPB_CAPABILITY_HUAWEI_HONOR = 1ull << 13,
+    LPB_CAPABILITY_SAMSUNG_JPEG = 1ull << 14,
+    LPB_CAPABILITY_SAMSUNG_HEIC = 1ull << 15,
+    LPB_CAPABILITY_APPLE = 1ull << 16
 };
 
 LPB_API uint32_t LPB_CALL lpb_get_abi_version(void);

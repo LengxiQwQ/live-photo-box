@@ -98,6 +98,9 @@ lpb --info
 # 查看协议 × 格式兼容矩阵
 lpb protocols
 
+# 查看 GUI 与 CLI 共用的旧版/Native 处理配置
+lpb backend
+
 # 转换单个文件对（iPhone → Google 相册）
 lpb merge photo.heic video.mov -p motionphoto -y
 
@@ -128,9 +131,28 @@ lpb cover photo.jpg --at 1.5 -y
 | `lpb split` | 把单文件实况照片拆回独立的图片与视频 |
 | `lpb cover` | 修改已有实况照片的封面帧（Key Photo），别名 `keyphoto` |
 | `lpb repair` | 分析并修复实况照片元数据 |
+| `lpb backend` | 查看或配置旧版/Native 处理分流 |
 | `lpb --info` / `lpb --version`（`-v`） | 查看版本、环境与内置工具版本 |
 
 `update` / `update-check` 命令见上文「更新」一节。
+
+### `backend` — 配置旧版/Native 处理分流
+
+GUI 与 CLI 共用 `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`。默认模式是 `auto`：仅自动选择达到稳定级别的 Native 实现，不可用的操作会安全回退到现有旧版实现。
+
+| 目标 | 命令 |
+|------|------|
+| 查看当前模式、配置路径、Native 运行时与协议可用性 | `lpb backend` |
+| 全部使用现有托管实现 | `lpb backend mode legacy` |
+| 恢复稳定 Native 自动选择 | `lpb backend mode auto` |
+| 启用按协议自定义 | `lpb backend mode custom` |
+| 为单个协议选择旧版并自动切到自定义模式 | `lpb backend protocol google-v1 legacy` |
+| 为可用协议选择 Native 并自动切到自定义模式 | `lpb backend protocol google-v1 native` |
+| 删除共享配置并恢复安全默认值 | `lpb backend reset` |
+
+只有当前安装版本公开了对应协议能力时才能选择 Native。选择不可用实现会返回退出码 `1`，且不会改动已保存配置。运行 `lpb backend` 可查看规范协议键及当前可用性。
+
+---
 
 ### `protocols` — 查看协议 × 格式兼容矩阵与设备支持
 

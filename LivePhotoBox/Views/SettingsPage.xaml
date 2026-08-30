@@ -9,6 +9,7 @@
     xmlns:controls="using:CommunityToolkit.WinUI.Controls"
     xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
     xmlns:ic="using:FluentIcons.WinUI"
+    xmlns:appControls="using:LivePhotoBox.Controls"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
@@ -367,6 +368,8 @@
                 </controls:SettingsCard>
 
             </StackPanel>
+
+            <appControls:ProcessingEngineSettingsControl/>
 
             <!-- ====================================================================== -->
             <!--  视频转码                                                             -->

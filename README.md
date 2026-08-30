@@ -126,7 +126,7 @@ Automatically scan, categorize, and archive photos by device, date, and Live Pho
 
 Live Photo Box ships a **command-line interface** — `livephotobox` — that shares 100% of its core logic with the GUI, ideal for scripting and AI agents.
 
-- **Commands**: `merge` (single-pair or batch), `split` (back to image + video), `cover` / `keyphoto` (change cover frame), `repair` (fix Apple Live Photo display issues), `protocols` (query protocol × format compatibility matrix), `update` / `update-check` (check & install updates)
+- **Commands**: `merge` (single-pair or batch), `split` (back to image + video), `cover` / `keyphoto` (change cover frame), `repair` (fix Apple Live Photo display issues), `protocols` (query protocol × format compatibility matrix), `backend` (configure Legacy/Native routing), `update` / `update-check` (check & install updates)
 - **Four executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lpb`
 - **Batch pairing & naming**: auto-pair by filename, Apple `ContentIdentifier` UUID, or vivo camera ID; rename outputs with templates like `-n custom:{name}_{date}` (`{frame}` token for the cover command); `--after` moves sources to a folder / recycle bin on completion
 - **Script-friendly**: `--json` outputs structured results that scripts and AI agents can consume directly; `--dry-run` previews operations without touching files

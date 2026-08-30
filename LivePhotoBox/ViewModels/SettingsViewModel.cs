@@ -858,6 +858,7 @@ namespace LivePhotoBox.ViewModels
         {
             // 1. 清空所有已保存设置 → 下次读取全部走默认值（含窗口布局记忆）
             AppSettingsService.ClearAll();
+            ProcessingBackendSettingsService.Reset();
             LogService.Info("All settings + window layout cleared.", LogSource.Settings);
 
             // 2. 重新从默认值加载 → UI 刷新 + OnChanged 回写默认值

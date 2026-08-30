@@ -73,8 +73,8 @@ $stats = @{
     "RESW 资源文件"             = "2 (zh-Hans + en-US)"
 }
 foreach ($k in $stats.Keys) {
-    $esc = [regex]::Escape($k)
-    $text = [regex]::Replace($text, "(?m)^(\|\s*$esc\s*\|\s*)[^|]+(\s*\|)$", "`${1}$($stats[$k])`${2}")
+    # Keys containing punctuation already carry the required regex escaping.
+    $text = [regex]::Replace($text, "(?m)^(\|\s*$k\s*\|\s*)[^|\r\n]+\|\r?$", "`${1}$($stats[$k]) |")
 }
 
 # 2b. Update the last-updated date.

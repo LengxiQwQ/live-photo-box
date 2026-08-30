@@ -68,6 +68,7 @@ namespace LivePhotoBox.Cli
                         "  lpb repair -d ./Photos -y           Batch fix a folder\n" +
                         "  lpb cover photo.jpg --at 2.5        Change cover frame\n" +
                         "  lpb cover photo.jpg                  View current cover info\n" +
+                        "  lpb backend                          View or configure processing backends\n" +
                         "  lpb --info                          Show detailed environment info")
                     {
                         MergeCommand.Create(),
@@ -76,7 +77,8 @@ namespace LivePhotoBox.Cli
                         ProtocolsCommand.Create(),
                         UpdateCommand.Create(),
                         UpdateCommand.CreateUpdate(),
-                        CoverCommand.Create()
+                        CoverCommand.Create(),
+                        BackendCommand.Create()
                     };
 
                     // Declare --info so `lpb --help` lists it (the fast path above handles actual invocation).
@@ -150,7 +152,7 @@ namespace LivePhotoBox.Cli
                 {
                     string message = raw.Replace(" as expected type 'System.Int32'", " as a whole number");
                     if (message == "Required command was not provided.")
-                        message = "No command specified. Try: merge, split, repair, protocols, update";
+                        message = "No command specified. Try: merge, split, repair, cover, protocols, backend, update";
                     string? token = ExtractQuotedToken(message);
                     string suggestion = "";
                     if (token != null && !aliasSet.Contains(token))

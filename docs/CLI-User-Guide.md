@@ -98,6 +98,9 @@ lpb --info
 # View protocol × format compatibility matrix
 lpb protocols
 
+# View the shared Legacy/Native processing configuration
+lpb backend
+
 # Convert a single pair (iPhone → Google Photos)
 lpb merge photo.heic video.mov -p motionphoto -y
 
@@ -128,9 +131,28 @@ lpb cover photo.jpg --at 1.5 -y
 | `lpb split` | Split single-file live photos into separate image and video files |
 | `lpb cover` | Change the cover frame (Key Photo) of an existing live photo; alias `keyphoto` |
 | `lpb repair` | Analyze and repair live photo metadata |
+| `lpb backend` | View or configure Legacy/Native processing routing |
 | `lpb --info` / `lpb --version` (`-v`) | Show version, environment, and bundled tool versions |
 
 The `update` / `update-check` commands are covered in the Updating section above.
+
+### `backend` — Configure Legacy/Native processing
+
+The GUI and CLI share `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`. The default mode is `auto`: only stable Native implementations are selected automatically, and every unavailable operation safely falls back to the existing Legacy implementation.
+
+| Goal | Command |
+|------|---------|
+| View the current mode, configuration path, runtime, and protocol availability | `lpb backend` |
+| Use only the existing managed implementation | `lpb backend mode legacy` |
+| Restore automatic stable-Native selection | `lpb backend mode auto` |
+| Enable per-protocol preferences | `lpb backend mode custom` |
+| Select Legacy for one protocol and switch to custom mode | `lpb backend protocol google-v1 legacy` |
+| Select Native for an available protocol and switch to custom mode | `lpb backend protocol google-v1 native` |
+| Delete the shared configuration and restore safe defaults | `lpb backend reset` |
+
+Native cannot be selected until the installed build exposes that protocol capability. An unavailable selection returns exit code `1` and leaves the saved configuration unchanged. Run `lpb backend` for canonical protocol keys and current availability.
+
+---
 
 ### `protocols` — View protocol × format compatibility and device support
 

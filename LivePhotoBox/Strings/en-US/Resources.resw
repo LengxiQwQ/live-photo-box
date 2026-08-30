@@ -4352,4 +4352,26 @@ Then click "Start Split".</value>
   <data name="RepairPage_FilterButton.ToolTipService.ToolTip" xml:space="preserve"><value>Filter tasks (Ctrl+F)</value></data>
   <data name="RepairPage_ClearButton.ToolTipService.ToolTip" xml:space="preserve"><value>Clear list (C) / Pause or resume (P)</value></data>
   <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve"><value>Start repairing (Ctrl+Enter) / Stop (press Esc twice)</value></data>
+  <data name="SettingsPage_ProcessingBackend_Header.Text" xml:space="preserve"><value>Processing engine</value></data>
+  <data name="SettingsPage_ProcessingBackend_Mode.Text" xml:space="preserve"><value>Default processing mode</value></data>
+  <data name="SettingsPage_ProcessingBackend_Mode_Desc.Text" xml:space="preserve"><value>Auto uses only stable Native implementations and safely falls back to Legacy</value></data>
+  <data name="SettingsPage_ProcessingBackend_Mode_Auto.Content" xml:space="preserve"><value>Auto (recommended)</value></data>
+  <data name="SettingsPage_ProcessingBackend_Mode_Legacy.Content" xml:space="preserve"><value>Legacy only</value></data>
+  <data name="SettingsPage_ProcessingBackend_Mode_Custom.Content" xml:space="preserve"><value>Customize by protocol</value></data>
+  <data name="SettingsPage_ProcessingBackend_ProtocolToggle.OnContent" xml:space="preserve"><value>Prefer Native</value></data>
+  <data name="SettingsPage_ProcessingBackend_ProtocolToggle.OffContent" xml:space="preserve"><value>Legacy</value></data>
+  <data name="SettingsPage_ProcessingBackend_Protocols.Text" xml:space="preserve"><value>Choose engine by protocol</value></data>
+  <data name="SettingsPage_ProcessingBackend_Protocols_Desc.Text" xml:space="preserve"><value>Expand to choose Legacy or Native for each protocol</value></data>
+  <data name="SettingsPage_ProcessingBackend_Status_Unavailable" xml:space="preserve"><value>Native not implemented yet</value></data>
+  <data name="SettingsPage_ProcessingBackend_Status_Preview" xml:space="preserve"><value>Native preview available</value></data>
+  <data name="SettingsPage_ProcessingBackend_Status_Stable" xml:space="preserve"><value>Native stable</value></data>
+  <data name="SettingsPage_ProcessingBackend_google_v1" xml:space="preserve"><value>Google MicroVideo V1</value></data>
+  <data name="SettingsPage_ProcessingBackend_google_v2" xml:space="preserve"><value>Google Motion Photo V2 / Xiaomi</value></data>
+  <data name="SettingsPage_ProcessingBackend_oppo" xml:space="preserve"><value>OPPO / OnePlus</value></data>
+  <data name="SettingsPage_ProcessingBackend_vivo_x300" xml:space="preserve"><value>vivo X300</value></data>
+  <data name="SettingsPage_ProcessingBackend_vivo_legacy" xml:space="preserve"><value>vivo X200 and earlier dual-file</value></data>
+  <data name="SettingsPage_ProcessingBackend_huawei_honor" xml:space="preserve"><value>HUAWEI / Honor</value></data>
+  <data name="SettingsPage_ProcessingBackend_samsung_jpeg" xml:space="preserve"><value>Samsung JPEG</value></data>
+  <data name="SettingsPage_ProcessingBackend_samsung_heic" xml:space="preserve"><value>Samsung HEIC</value></data>
+  <data name="SettingsPage_ProcessingBackend_apple" xml:space="preserve"><value>Apple Live Photo</value></data>
 </root>
