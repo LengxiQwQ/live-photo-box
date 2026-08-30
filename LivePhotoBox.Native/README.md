@@ -11,14 +11,22 @@ The runtime started with a stable C ABI foundation:
 - capability discovery
 - managed runtime smoke tests
 
-Phase 2 now migrates protocol byte transformations behind that ABI one vertical slice at a time. The first completed slice is the vivo legacy (X200 and earlier) dual-file metadata writer:
+Protocol byte transformations are being moved behind this ABI one path at a time. The first completed path is the vivo legacy (X200 and earlier) dual-file metadata writer:
 
 - JPEG `vivoMediaExtInfo` tail append and replacement
 - MP4 top-level vivo UUID replacement
 - legacy `stco` / `co64` offset adjustment
 - managed routing with automatic fallback to the unchanged C# implementation
 
-C# remains responsible for protocol decisions, JSON construction, asynchronous file I/O, cancellation, and logging. C++ owns the byte-layout transformation. Existing C# behavior remains the reference and fallback until each Native implementation passes differential and real-device validation.
+The same ABI also includes preview Huawei/Honor byte writers:
+
+- 60-byte Moving Photo tail construction
+- HEIC `ftyp` brand patching
+- MP4 brand and `Lavf` marker patching
+
+They are still preview features and need differential and real-device validation. The managed C# implementation remains the reference and fallback.
+
+C# still handles protocol decisions, JSON construction, asynchronous file I/O, cancellation, and logging. C++ handles the byte-layout transformation. Until a Native implementation passes differential and real-device validation, the C# path remains the reference and fallback.
 
 ## Build
 

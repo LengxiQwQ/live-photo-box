@@ -144,6 +144,7 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 | 层级 | 技术 | 版本 |
 |------|------|------|
 | 语言 | C# | 13.0 |
+| Native 后端 | Visual C++ / C++20 DLL（稳定 C ABI） | MSVC x64（v143/v145） |
 | 运行时 | .NET | 9.0 |
 | UI 框架 | Windows App SDK（WinUI 3） | 1.8 |
 | 架构 | MVVM（CommunityToolkit.Mvvm） | 8.4.2 |
@@ -160,6 +161,8 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 | 打包 | MSIX 自包含（无需安装运行时） | — |
 
 > `ExifTool` / `FFmpeg` / `jpegtran` / `libheif` 为随包附带的外部工具（`Tools/` 目录），负责元数据读写与音视频处理。
+>
+> Native 后端由 `LivePhotoBox.Core/Interop` 通过 .NET `LibraryImport` 调用。现在已经迁移完成的是 vivo 旧版双文件写入；Huawei/Honor 目前也接入了 3 个预览级底层写入操作。每条 Native 路径在完成差分和真机验证前，都会保留 C# 实现作为参考和回退。
 
 ---
 
@@ -168,7 +171,7 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 ### 环境
 
 - [Visual Studio 2022](https://visualstudio.microsoft.com/) 及以上
-- 在 VS Installer 中勾选：**.NET 桌面开发** + **通用 Windows 平台开发**（含 Windows App SDK 组件）
+- 在 VS Installer 中勾选：**.NET 桌面开发** + **通用 Windows 平台开发** + **使用 C++ 的桌面开发**（MSVC x64 工具链）
 - [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
 
 ### 构建
@@ -189,6 +192,16 @@ cd live-photo-box
 
 > 脚本支持 `-CI` 参数，供 GitHub Actions 等 CI 环境使用（不弹 `pause` 等待）。
 
+本地验证请在仓库根目录依次运行 Native smoke test、解决方案测试和 CLI 全流程测试：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/build-native.ps1 -Configuration Release -Architecture x64 -RunTests
+dotnet test
+python scripts/testing/run-cli-integration-test.py
+```
+
+创建发布标签前，以上三项必须全部通过。`scripts/build-release.ps1` 也会自动构建 Native，并检查 GUI 与 CLI 产物中存在 `LivePhotoBox.Native.dll`。
+
 ---
 
 ## 📁 项目结构
@@ -196,6 +209,7 @@ cd live-photo-box
 ```
 live-photo-box/
 ├── LivePhotoBox.Core/        # 共享核心库（协议、合成/拆分/修复服务、本地化）
+├── LivePhotoBox.Native/      # C++20 Native 后端（稳定 C ABI，x64 DLL）
 ├── LivePhotoBox/             # 主项目（WinUI 3 MSIX 应用）
 │   ├── Assets/               # 图标、教程截图等静态资源
 │   ├── Controls/             # 自定义控件（全屏灯箱、底部状态栏）
@@ -211,6 +225,8 @@ live-photo-box/
 ├── docs/                     # 项目文档
 ├── changelogs/               # 更新日志
 ├── scripts/                  # 构建与打包脚本
+│   └── native/               # MSVC/Native 构建与 smoke test 脚本
+├── artifacts/                # Native 构建产物（gitignore）
 ├── screenshots/              # 截图资源
 ├── lpb.cmd                   # 源码版 CLI 开发别名（直接运行当前源码，等价 dotnet run）
 └── README.md

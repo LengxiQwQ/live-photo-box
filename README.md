@@ -142,6 +142,7 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 | Layer | Technology | Version |
 |-------|-----------|---------|
 | Language | C# | 13.0 |
+| Native backend | Visual C++ / C++20 DLL (stable C ABI) | MSVC x64 (v143/v145) |
 | Runtime | .NET | 9.0 |
 | UI Framework | Windows App SDK (WinUI 3) | 1.8 |
 | Architecture | MVVM (CommunityToolkit.Mvvm) | 8.4.2 |
@@ -158,6 +159,8 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 | Packaging | MSIX self-contained (no runtime required) | — |
 
 > `ExifTool` / `FFmpeg` / `jpegtran` / `libheif` are bundled external tools (in the `Tools/` folder) that handle metadata read/write and audio-video processing.
+>
+> `LivePhotoBox.Core/Interop` calls the Native DLL through .NET `LibraryImport`. The first protocol path moved to Native is the vivo legacy dual-file writer. Huawei/Honor also has three preview byte-level operations. The C# implementation remains the reference path and fallback until each Native path has passed differential and device testing.
 
 ---
 
@@ -166,7 +169,7 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 ### Prerequisites
 
 - [Visual Studio 2022](https://visualstudio.microsoft.com/) or later
-- In VS Installer, select: **.NET desktop development** + **Universal Windows Platform development** (includes Windows App SDK components)
+- In VS Installer, select: **.NET desktop development** + **Universal Windows Platform development** + **Desktop development with C++** (MSVC x64 toolchain)
 - [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
 
 ### Build
@@ -187,6 +190,16 @@ The repo ships ready-made PowerShell build scripts (`scripts/`) for both GUI and
 
 > Scripts accept `-CI` for GitHub Actions and other CI environments (no `pause` prompt).
 
+For local verification, run the Native smoke test and the solution/CLI test suites from the repository root:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/build-native.ps1 -Configuration Release -Architecture x64 -RunTests
+dotnet test
+python scripts/testing/run-cli-integration-test.py
+```
+
+All three commands must pass before creating a release tag. `scripts/build-release.ps1` also invokes the Native build and checks that `LivePhotoBox.Native.dll` is present in GUI and CLI outputs.
+
 ---
 
 ## 📁 Project Structure
@@ -194,6 +207,7 @@ The repo ships ready-made PowerShell build scripts (`scripts/`) for both GUI and
 ```
 live-photo-box/
 ├── LivePhotoBox.Core/        # Shared core library (protocols, merge/split/repair services, localization)
+├── LivePhotoBox.Native/      # C++20 Native backend (stable C ABI; x64 DLL)
 ├── LivePhotoBox/             # Main project (WinUI 3 MSIX app)
 │   ├── Assets/               # Icons, screenshots, static resources
 │   ├── Controls/             # Custom controls (fullscreen lightbox, status bar)
@@ -209,6 +223,8 @@ live-photo-box/
 ├── docs/                     # Project documentation
 ├── changelogs/               # Release notes
 ├── scripts/                  # Build & packaging scripts
+│   └── native/                # MSVC/Native build and smoke-test script
+├── artifacts/                # Native build outputs (gitignored)
 ├── screenshots/              # Screenshots
 ├── lpb.cmd                   # Dev alias for the source CLI (runs current code, same as `dotnet run`)
 └── README.md
