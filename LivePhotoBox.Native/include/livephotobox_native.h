@@ -1,4 +1,4 @@
-﻿#ifndef LIVEPHOTOBOX_NATIVE_H
+#ifndef LIVEPHOTOBOX_NATIVE_H
 #define LIVEPHOTOBOX_NATIVE_H
 
 #include <stddef.h>
@@ -158,7 +158,7 @@ LPB_API lpb_result LPB_CALL lpb_huawei_patch_heic_ftyp(
     size_t data_size);
 
 /*
- * Patches an MP4 file's ftyp brand and 漏too atom in-place for Huawei compatibility.
+ * Patches an MP4 file's ftyp brand and ©too atom in-place for Huawei compatibility.
  * Modifies the data in-place without changing the size or offsets.
  */
 LPB_API lpb_result LPB_CALL lpb_huawei_patch_mp4(
@@ -176,6 +176,8 @@ LPB_API lpb_result LPB_CALL lpb_heif_locate_exif_item(
     size_t input_size,
     uint64_t* out_offset,
     uint64_t* out_length);
+
+LPB_API lpb_result LPB_CALL lpb_samsung_sef_parse(lpb_context* context, const uint8_t* input, size_t input_size, uint64_t* out_video_offset, uint64_t* out_video_size);
 
 LPB_API lpb_result LPB_CALL lpb_mp4_strip_uuid_box(
     lpb_context* context,

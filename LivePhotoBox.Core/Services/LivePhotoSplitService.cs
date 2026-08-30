@@ -1496,14 +1496,27 @@ namespace LivePhotoBox.Services
             {
                 using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
                 long fileSize = fs.Length;
-                if (fileSize < 4096) return null;
+                if (fileSize < 16) return null;
 
-                // "MotionPhoto_Data" 鍚嶅瓧锛?6 瀛楄妭锛変箣鍚庡嵆瑙嗛鏁版嵁
+                // For Samsung SEF, read the last 1MB max
+                int chunk = (int)Math.Min(1024 * 1024, fileSize);
+                byte[] buffer = new byte[chunk];
+                fs.Seek(-chunk, SeekOrigin.End);
+                fs.ReadExactly(buffer, 0, chunk);
+
+                if (Interop.NativeSamsungSef.TryParse(buffer, out long videoOffset, out long videoSize, out string? error))
+                {
+                    // videoOffset is relative to the buffer. We need absolute file offset.
+                    long absoluteOffset = (fileSize - chunk) + videoOffset;
+                    return (absoluteOffset, videoSize);
+                }
+
+                // Fallback to legacy string scanning if native fails
+                fs.Seek(0, SeekOrigin.Begin);
                 long dataNamePos = FindBytesForward(fs, 0, "MotionPhoto_Data"u8, fileSize);
                 if (dataNamePos < 0) return null;
                 long videoStart = dataNamePos + "MotionPhoto_Data".Length;
 
-                // 涓嬩竴涓爣绛?"MotionPhoto_Version" 鐨勫悕瀛楋紙19 瀛楄妭锛夛紝鍏舵爣绛惧ご 8 瀛楄妭鍦ㄥ悕瀛椾箣鍓?
                 long versionNamePos = FindBytesForward(fs, videoStart, "MotionPhoto_Version"u8, fileSize);
                 long videoEnd;
                 if (versionNamePos >= 0)
@@ -1512,7 +1525,6 @@ namespace LivePhotoBox.Services
                 }
                 else
                 {
-                    // 鍏滃簳锛氭棤 MotionPhoto_Version 鏃朵互 SEFH 榄旀暟鏀跺熬
                     long sefhPos = FindBytesForward(fs, videoStart, "SEFH"u8, fileSize);
                     videoEnd = sefhPos >= 0 ? sefhPos : fileSize;
                 }
@@ -1527,6 +1539,7 @@ namespace LivePhotoBox.Services
                 return null;
             }
         }
+        
 
         // 鍦?FileStream 涓粠 startPos 鍚戝悗鎼滅储浠绘剰瀛楄妭搴忓垪锛岃繑鍥炲叾缁濆鍋忕Щ锛堝垎鍧楁壂鎻忥紝閬垮厤澶у唴瀛樺垎閰嶏級銆?
         private static long FindBytesForward(FileStream fs, long startPos, ReadOnlySpan<byte> pattern, long endLimit)

@@ -206,7 +206,7 @@ lpb_result LPB_CALL lpb_heif_locate_exif_item(
                     *out_offset = base_offset + extent_offset;
                     *out_length = extent_length;
                     
-                    if (extent_length >= 4) {
+                    if (false) {
                         binary_reader exif_reader(input, input_size);
                         if (exif_reader.try_seek(*out_offset)) {
                             uint32_t exif_hdr = 0;
