@@ -1,110 +1,91 @@
-# build.yml — GitHub Actions automatic build & release
-# build.yml — GitHub Actions 自动构建与发布
-#
-# Push to master → automatic build verification
-# Push v* tag     → automatic build + package + create Release
-# 推送到 master → 自动编译验证
-# 推送 v* 标签  → 自动编译 + 打包 + 创建 Release
-#
-# Usage / 使用方式：
-#   git tag v1.14.11
-#   git push --tags
-#   → GitHub auto-builds, packages zip/exe, creates Release (draft)
-#   → Check the Releases page → click Publish to release
-
+# PR: repeatable build/test gate. master: Full gate plus package artifact.
+# v* tag: Full gate, then package and create a draft release.
 name: Build & Release / 构建与发布
 
-# ── Triggers / 触发条件 ──────────────────────────────────────────
 on:
   push:
-    branches: [ master ]
-    tags: [ 'v*' ]
+    branches: [master]
+    tags: ['v*']
   pull_request:
-    branches: [ master ]
+    branches: [master]
   workflow_dispatch:
 
-# ── Permissions / 权限 ──────────────────────────────────────────
+# Verification must not be able to modify the repository or Actions state.
 permissions:
-  contents: write
-  actions: write
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 jobs:
-  build:
-    # 机器人自动提交（insights 数据更新）跳过构建；其余 push/PR/手动照常构建
-    # Skip build for github-actions bot auto-commits (insights data updates); build everything else
+  verify:
     if: github.event_name != 'push' || (github.event.head_commit.author.name != 'github-actions[bot]' && github.event.head_commit.committer.name != 'github-actions[bot]')
     runs-on: windows-latest
-
+    timeout-minutes: 45
+    env:
+      VERIFY_SCOPE: ${{ github.event_name == 'pull_request' && 'Fast' || 'Full' }}
     steps:
-      # ── 1. Checkout / 拉取代码 ──────────────────────────────────
       - name: Checkout / 拉取代码
         uses: actions/checkout@v4
-
-      # ── 2. Setup .NET / 安装 .NET ───────────────────────────────
-      - name: Setup .NET 9 / 安装 .NET 9
+      - name: Setup .NET 9 and 10 / 安装 .NET 9 与 10
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: |
+            9.0.x
+            10.0.x
+      - name: Verify build and tests / 构建与测试门禁
+        shell: pwsh
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File scripts/verify.ps1
+          -Scope $env:VERIFY_SCOPE
+          -Configuration Release
+      - name: Upload Native symbols / 上传 Native 符号
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LivePhotoBox-Native-Symbols-${{ github.run_number }}
+          path: artifacts/native/Release/win-x64/LivePhotoBox.Native.pdb
+          if-no-files-found: warn
+          retention-days: 30
 
-      # ── 2.5 Setup Go / 安装 Go（winget alias shim 编译）───────────
+  package:
+    needs: verify
+    if: github.event_name == 'push'
+    runs-on: windows-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout / 拉取代码
+        uses: actions/checkout@v4
+      - name: Setup .NET 9 and 10 / 安装 .NET 9 与 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
       - name: Setup Go / 安装 Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.23.x'
-
-      # ── 3. Install Inno Setup / 安装 Inno Setup ─────────────────
       - name: Install Inno Setup / 安装 Inno Setup
         run: choco install innosetup -y --no-progress --limit-output
         shell: pwsh
-
-      # ── 4. Build & Package / 构建 & 打包 ────────────────────────
-      # Uses the same script as local builds — single source of truth
-      # 和本地构建用同一个脚本，单一真相源
-      - name: Build & Package / 构建 & 打包
+      - name: Build and package / 构建与打包
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1 -CI
         shell: pwsh
-
-      # ── 5. Upload artifacts (non-release) / 上传构建产物 ────────
-      - name: Upload artifacts (non-release) / 上传构建产物（非 Release）
+      - name: Upload package artifacts / 上传打包产物
         if: ${{ !startsWith(github.ref, 'refs/tags/') }}
         uses: actions/upload-artifact@v4
         with:
           name: LivePhotoBox-x64-Release
           path: |
-            publish\*.zip
-            publish\*.exe
+            publish/*.zip
+            publish/*.exe
           retention-days: 7
-
-      - name: Upload Native symbols / 上传 Native 符号
-        uses: actions/upload-artifact@v4
-        with:
-          name: LivePhotoBox-Native-Symbols-${{ github.run_number }}
-          path: artifacts\native\Release\win-x64\LivePhotoBox.Native.pdb
-          if-no-files-found: error
-          retention-days: 30
-
-      # ── 6. Clean old artifact / 清理旧构建产物 ──────────────────
-      - name: Clean old artifact / 清理旧构建产物
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        run: |
-          $attempt = 0
-          do {
-            $attempt++
-            $id = gh api /repos/${{ github.repository }}/actions/artifacts --paginate -q '.artifacts[] | select(.name == "LivePhotoBox-x64-Release" and .expired == false) | .id'
-            if ($LASTEXITCODE -eq 0) {
-              if ($id) { $id | ForEach-Object { gh api -X DELETE "/repos/${{ github.repository }}/actions/artifacts/$_" } }
-              if ($LASTEXITCODE -eq 0) { Write-Host "Artifact cleanup OK (attempt $attempt)"; exit 0 }
-            }
-            if ($attempt -ge 5) { throw "GitHub API artifact cleanup failed after $attempt attempts" }
-            Write-Host "GitHub API unavailable, retrying ($attempt/5)..."
-            Start-Sleep -Seconds 5
-          } while ($true)
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: pwsh
-
-      # ── 7. Create GitHub Release (tag builds) / 创建 Release ────
-      - name: Create Release / 创建 Release
+      - name: Create draft release / 创建草稿 Release
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v2
         with:
@@ -114,6 +95,6 @@ jobs:
           prerelease: false
           make_latest: true
           files: |
-            publish\*.zip
-            publish\*.exe
+            publish/*.zip
+            publish/*.exe
           fail_on_unmatched_files: false

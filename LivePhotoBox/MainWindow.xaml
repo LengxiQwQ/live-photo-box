@@ -31,27 +31,32 @@
 
             <!-- 主导航菜单 -->
             <NavigationView.MenuItems>
-                <NavigationViewItem x:Uid="Nav_Home" Tag="Home" IsSelected="True">
+                <NavigationViewItem x:Uid="Nav_Home" Tag="Home" IsSelected="True"
+                                    AutomationProperties.AutomationId="NavHome">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE80F;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Uid="Nav_KeyPhoto" Tag="Edit">
+                <NavigationViewItem x:Uid="Nav_KeyPhoto" Tag="Edit"
+                                    AutomationProperties.AutomationId="NavEdit">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE932;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Uid="Nav_Merge" Tag="Merge">
+                <NavigationViewItem x:Uid="Nav_Merge" Tag="Merge"
+                                    AutomationProperties.AutomationId="NavMerge">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8B1;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Uid="Nav_Split" Tag="Split">
+                <NavigationViewItem x:Uid="Nav_Split" Tag="Split"
+                                    AutomationProperties.AutomationId="NavSplit">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE8C6;"/>
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem x:Uid="Nav_Repair" Tag="Repair">
+                <NavigationViewItem x:Uid="Nav_Repair" Tag="Repair"
+                                    AutomationProperties.AutomationId="NavRepair">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE7C5;"/>
                     </NavigationViewItem.Icon>

@@ -7,6 +7,7 @@ using Xunit;
 
 namespace LivePhotoBox.Core.Tests;
 
+[Trait("Category", "RealSamples")]
 public sealed class VivoDualFileProtocolDetectionTests
 {
     [Fact]

@@ -6,6 +6,7 @@ using System;
 
 namespace LivePhotoBox.Core.Tests;
 
+[Trait("Category", "NativeDifferential")]
 public sealed class HeifBoxParserDifferentialTests
 {
     private static byte[] BuildBox(string type, byte[] payload)
@@ -89,5 +90,39 @@ public sealed class HeifBoxParserDifferentialTests
 
         Assert.Equal(legacyOffset, nativeOffset);
         Assert.Equal(legacyLength, nativeLength);
+    }
+
+    [Fact]
+    public void LocateXmpItem_LocatesRdfMimeItem()
+    {
+        const ushort itemId = 43;
+        byte[] contentType = "application/rdf+xml\0"u8.ToArray();
+        byte[] infePayload = new byte[8 + contentType.Length];
+        BinaryPrimitives.WriteUInt16BigEndian(infePayload.AsSpan(0), itemId);
+        // item_protection_index remains zero at bytes 2..3.
+        "mime"u8.CopyTo(infePayload.AsSpan(4));
+        contentType.CopyTo(infePayload, 8);
+        byte[] infe = BuildFullBox("infe", 2, 0, infePayload);
+
+        byte[] iinfPayload = new byte[2 + infe.Length];
+        BinaryPrimitives.WriteUInt16BigEndian(iinfPayload.AsSpan(0), 1);
+        infe.CopyTo(iinfPayload, 2);
+        byte[] iinf = BuildFullBox("iinf", 0, 0, iinfPayload);
+
+        byte[] ilocPayload = new byte[2 + 2 + 18];
+        ilocPayload[0] = (4 << 4) | 4; // offset_size=4, length_size=4
+        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(2), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(4), itemId);
+        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(8), 1); // extent_count
+        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(10), 100);
+        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(14), 200);
+        byte[] iloc = BuildFullBox("iloc", 0, 0, ilocPayload);
+
+        byte[] file = [.. BuildBox("ftyp", new byte[16]), .. BuildFullBox("meta", 0, 0, [.. iinf, .. iloc]), .. new byte[500]];
+
+        Assert.True(NativeHeifBoxParser.TryLocateXmpItem(
+            file, out long offset, out long length, out string? error), error);
+        Assert.Equal(100L, offset);
+        Assert.Equal(200L, length);
     }
 }

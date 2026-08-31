@@ -208,10 +208,10 @@ static bool try_relocate_exif_to_mdat_end(
 }
 
 // Helper to find Apple MakerNote signature: "Apple iOS\0" + 0x00 0x01 + "MM"
-static ptrdiff_t find_apple_makernote(const uint8_t* data, size_t size) {
-    if (size < 14) return -1;
+static ptrdiff_t find_apple_makernote(const uint8_t* data, size_t size, size_t search_from = 0) {
+    if (size < 14 || search_from > size - 14) return -1;
     const uint8_t sig[] = {'A','p','p','l','e',' ','i','O','S','\0'};
-    for (size_t i = 0; i <= size - 14; i++) {
+    for (size_t i = search_from; i <= size - 14; i++) {
         if (data[i] == 'A' && data[i+1] == 'p') {
             if (std::memcmp(data + i, sig, 10) == 0 &&
                 data[i+10] == 0x00 && data[i+11] == 0x01 &&
@@ -250,59 +250,62 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
 {
     if (!context || !data) return LPB_RESULT_INVALID_ARGUMENT;
 
-    ptrdiff_t mn_start = find_apple_makernote(data, data_size);
-    if (mn_start < 0) return LPB_RESULT_OK;
+    size_t search_from = 0;
+    while (true) {
+        ptrdiff_t mn_start = find_apple_makernote(data, data_size, search_from);
+        if (mn_start < 0) return LPB_RESULT_OK;
 
-    size_t mnStart = static_cast<size_t>(mn_start);
-    if (mnStart + 16 > data_size) return LPB_RESULT_OK;
+        size_t mnStart = static_cast<size_t>(mn_start);
+        // Continue after the signature even when this candidate is malformed, so a later
+        // valid MakerNote is never hidden by an unrelated byte sequence.
+        search_from = mnStart + 14;
+        if (mnStart + 16 > data_size) continue;
 
-    uint16_t entry_count = read_be16u(data + mnStart + 14);
-    if (entry_count == 0 || entry_count > 64) return LPB_RESULT_OK;
+        uint16_t entry_count = read_be16u(data + mnStart + 14);
+        if (entry_count == 0 || entry_count > 64) continue;
 
-    size_t entriesStart = mnStart + 16;
-    size_t entriesLen = entry_count * 12;
-    if (entriesStart + entriesLen + 4 > data_size) return LPB_RESULT_OK;
+        size_t entriesStart = mnStart + 16;
+        size_t entriesLen = entry_count * 12;
+        if (entriesStart + entriesLen + 4 > data_size) continue;
 
-    std::vector<size_t> keep;
-    for (uint16_t i = 0; i < entry_count; i++) {
-        size_t e = entriesStart + i * 12;
-        uint16_t tag = read_be16u(data + e);
-        bool isLiveEntry = (tag == 0x0011 || tag == 0x0017 || tag == 0x0025 || tag == 0x002b);
-        
-        if (!isLiveEntry) {
-            keep.push_back(i);
-            continue;
+        std::vector<size_t> keep;
+        for (uint16_t i = 0; i < entry_count; i++) {
+            size_t e = entriesStart + i * 12;
+            uint16_t tag = read_be16u(data + e);
+            bool isLiveEntry = (tag == 0x0011 || tag == 0x0017 || tag == 0x0025 || tag == 0x002b);
+
+            if (!isLiveEntry) {
+                keep.push_back(i);
+                continue;
+            }
+
+            uint16_t type = read_be16u(data + e + 2);
+            uint32_t count = read_be32u(data + e + 4);
+            uint32_t offset = read_be32u(data + e + 8);
+            int dataLen = type_to_data_length(type, count);
+
+            size_t absData = mnStart + offset;
+            if (dataLen > 0 && offset >= (entriesStart - mnStart + entriesLen + 4) && absData + dataLen <= data_size) {
+                std::memset(data + absData, 0, dataLen);
+            }
         }
 
-        uint16_t type = read_be16u(data + e + 2);
-        uint32_t count = read_be32u(data + e + 4);
-        uint32_t offset = read_be32u(data + e + 8);
-        int dataLen = type_to_data_length(type, count);
-        
-        size_t absData = mnStart + offset;
-        if (dataLen > 0 && offset >= (entriesStart - mnStart + entriesLen + 4) && absData + dataLen <= data_size) {
-            std::memset(data + absData, 0, dataLen);
+        if (keep.size() == entry_count) continue;
+
+        for (size_t k = 0; k < keep.size(); k++) {
+            size_t src = entriesStart + keep[k] * 12;
+            size_t dst = entriesStart + k * 12;
+            if (src != dst) {
+                std::memmove(data + dst, data + src, 12);
+            }
         }
+
+        size_t newCount = keep.size();
+        size_t newEntriesLen = newCount * 12;
+        size_t tail = entriesStart + entriesLen;
+        std::memset(data + entriesStart + newEntriesLen, 0, tail - (entriesStart + newEntriesLen));
+        write_be16(data + mnStart + 14, static_cast<uint16_t>(newCount));
     }
-
-    if (keep.size() == entry_count) return LPB_RESULT_OK;
-
-    for (size_t k = 0; k < keep.size(); k++) {
-        size_t src = entriesStart + keep[k] * 12;
-        size_t dst = entriesStart + k * 12;
-        if (src != dst) {
-            std::memmove(data + dst, data + src, 12);
-        }
-    }
-
-    size_t newCount = keep.size();
-    size_t newEntriesLen = newCount * 12;
-    size_t tail = entriesStart + entriesLen;
-    std::memset(data + entriesStart + newEntriesLen, 0, tail - (entriesStart + newEntriesLen));
-    
-    write_be16(data + mnStart + 14, static_cast<uint16_t>(newCount));
-    
-    return LPB_RESULT_OK;
 }
 
 extern "C" LPB_API lpb_result LPB_CALL lpb_apple_write_content_identifier(

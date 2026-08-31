@@ -88,6 +88,15 @@ namespace LivePhotoBox.Services.Protocols
                 // Fallback to legacy if native fails
             }
 
+            return BuildTrailerLegacy(videoData, imageType, imageSize);
+        }
+
+        /// <summary>
+        /// Builds the managed fallback trailer. Kept internal so Native differential
+        /// tests can compare both implementations without changing runtime selection.
+        /// </summary>
+        internal static byte[] BuildTrailerLegacy(byte[] videoData, string imageType, long imageSize = 0)
+        {
             bool isHeic = string.Equals(imageType, "heic", StringComparison.OrdinalIgnoreCase);
 
             // Build the MotionPhoto_Data payload

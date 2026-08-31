@@ -1,0 +1,59 @@
+name: CodeQL / 安全扫描
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyze:
+    name: Analyze ${{ matrix.language }}
+    runs-on: windows-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp
+          - language: c-cpp
+    steps:
+      - name: Checkout / 拉取代码
+        uses: actions/checkout@v4
+      - name: Setup .NET 9 and 10 / 安装 .NET 9 与 10
+        if: matrix.language == 'csharp'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            9.0.x
+            10.0.x
+      - name: Initialize CodeQL / 初始化 CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: manual
+      - name: Build managed projects / 构建托管项目
+        if: matrix.language == 'csharp'
+        shell: pwsh
+        run: |
+          dotnet build "LivePhotoBox/LivePhotoBox.csproj" -c Release -p:Platform=x64 -p:SkipNativeBuild=true
+          dotnet build "LivePhotoBox.CLI/LivePhotoBox.CLI.csproj" -c Release -p:Platform=x64 -p:SkipNativeBuild=true
+      - name: Build Native project / 构建 Native 项目
+        if: matrix.language == 'c-cpp'
+        shell: pwsh
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File scripts/native/build-native.ps1
+          -Configuration Release
+          -Architecture x64
+      - name: Analyze / 分析
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}

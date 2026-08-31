@@ -125,7 +125,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
     }
     
     for (const auto& seg : segments) {
-        if (true) {
+        if (!seg.is_xmp) {
             total_expected += seg.marker_size + seg.payload_size;
         }
     }
@@ -144,7 +144,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
     }
 
     for (size_t i = 0; i < segments.size(); i++) {
-        if (true) {
+        if (!segments[i].is_xmp) {
             out_writer.try_write_bytes(input + segments[i].start, segments[i].marker_size + segments[i].payload_size);
         }
         if (i + 1 == insert_idx && !new_xmp_segment.empty()) {

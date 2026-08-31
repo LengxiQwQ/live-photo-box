@@ -62,7 +62,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_samsung_sef_parse(
         if (!reader.try_read_u32_endian(offset, false)) break;
         if (!reader.try_read_u32_endian(size, false)) break;
 
-        if (marker == 0x0A20) { if (size < 24 || offset > sef_start) { set_error(context, "Invalid MotionPhoto_Data size or offset."); return LPB_RESULT_INVALID_ARGUMENT; }
+        if (marker == 0x0A30) { if (size < 24 || offset > sef_start) { set_error(context, "Invalid MotionPhoto_Data size or offset."); return LPB_RESULT_INVALID_ARGUMENT; }
             *out_video_offset = (uint64_t)sef_start - offset + 24;
             *out_video_size = size - 24;
             return LPB_RESULT_OK;
