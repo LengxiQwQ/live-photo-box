@@ -46,7 +46,6 @@ jobs:
           dotnet build "LivePhotoBox/LivePhotoBox.csproj" -c Release -p:Platform=x64 -p:SkipNativeBuild=true
           dotnet build "LivePhotoBox.CLI/LivePhotoBox.CLI.csproj" -c Release -p:Platform=x64 -p:SkipNativeBuild=true
       - name: Build Native project / 构建 Native 项目
-        if: matrix.language == 'c-cpp'
         shell: pwsh
         run: >-
           powershell -NoProfile -ExecutionPolicy Bypass
