@@ -32,7 +32,7 @@ jobs:
 
     steps:
       - name: Checkout / 拉取代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Collect traffic & render / 抓取、归档、渲染
         env:

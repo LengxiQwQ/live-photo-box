@@ -26,7 +26,7 @@ jobs:
           - language: c-cpp
     steps:
       - name: Checkout / 拉取代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup .NET 9 and 10 / 安装 .NET 9 与 10
         if: matrix.language == 'csharp'
         uses: actions/setup-dotnet@v4

@@ -27,7 +27,7 @@ jobs:
       VERIFY_SCOPE: ${{ github.event_name == 'pull_request' && 'Fast' || 'Full' }}
     steps:
       - name: Checkout / 拉取代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup .NET 9 and 10 / 安装 .NET 9 与 10
         uses: actions/setup-dotnet@v4
         with:
@@ -59,7 +59,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout / 拉取代码
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Setup .NET 9 and 10 / 安装 .NET 9 与 10
         uses: actions/setup-dotnet@v4
         with:
