@@ -22,6 +22,11 @@ $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 if (-not (Test-Path $overview)) { throw "Overview not found: $overview" }
 
+$syncNative = Join-Path $repoRoot 'scripts\native\sync-native-project.ps1'
+if (Test-Path $syncNative) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $syncNative -Quiet
+}
+
 # ---- 1. Compute stats -------------------------------------------------------
 function Count-Cs([string]$dir) {
     if (-not (Test-Path $dir)) { return 0 }

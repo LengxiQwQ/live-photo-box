@@ -406,3 +406,8 @@ docs/实况照片协议完整分析报告.md
 
 # CLI integration test workspace (large binary samples & output)
 /cli-integration-test/
+
+# 专项测试与专项性能测试（本地保留，不提交至远程仓库）
+/tests/LivePhotoBox.Benchmarks/
+/tests/LivePhotoBoxStressTest/
+/tests/ThumbnailStressTest/

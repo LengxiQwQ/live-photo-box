@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -113,22 +113,28 @@
 
   <ItemGroup>
     <ClInclude Include="include\livephotobox_native.h" />
-    <ClInclude Include="src\foundation\internal.h" />
+    <ClInclude Include="src\binary\binary_io.h" />
     <ClInclude Include="src\binary\endian.h" />
     <ClInclude Include="src\containers\isobmff.h" />
+    <ClInclude Include="src\foundation\internal.h" />
+    <ClInclude Include="src\metadata\exif.h" />
+    <ClInclude Include="src\metadata\exif_rewrite.h" />
+    <ClInclude Include="src\metadata\jpeg.h" />
+    <ClInclude Include="src\protocols\apple_mebx_templates.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\foundation\context.cpp" />
+    <ClCompile Include="src\containers\heif.cpp" />
     <ClCompile Include="src\containers\isobmff.cpp" />
-    <ClCompile Include="src\protocols\vivo_legacy.cpp" />
-    <ClCompile Include="src\metadata\jpeg.cpp" />
+    <ClCompile Include="src\containers\mp4_strip.cpp" />
+    <ClCompile Include="src\foundation\context.cpp" />
     <ClCompile Include="src\metadata\exif.cpp" />
     <ClCompile Include="src\metadata\exif_rewrite.cpp" />
+    <ClCompile Include="src\metadata\jpeg.cpp" />
     <ClCompile Include="src\protocols\apple.cpp" />
     <ClCompile Include="src\protocols\apple_mebx.cpp" />
     <ClCompile Include="src\protocols\huawei.cpp" />
-    <ClCompile Include="src\containers\heif.cpp" />
-    <ClCompile Include="src\containers\mp4_strip.cpp" />
+    <ClCompile Include="src\protocols\samsung_sef.cpp" />
+    <ClCompile Include="src\protocols\vivo_legacy.cpp" />
   </ItemGroup>
 
   <Target Name="GenerateNativeVersionHeader"

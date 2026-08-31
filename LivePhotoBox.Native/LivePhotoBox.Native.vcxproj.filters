@@ -1,50 +1,93 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <Filter Include="Header Files">
-      <UniqueIdentifier>{FB618F6D-FE72-4A59-9B16-89DFCBE06D7D}</UniqueIdentifier>
-      <Extensions>h;hh;hpp;hxx;inl;inc;ipp;xsd</Extensions>
+    <Filter Include="include">
+      <UniqueIdentifier>{0FEB36D4-DED9-B510-4A82-8CE6435F7E81}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Source Files">
-      <UniqueIdentifier>{96A88D83-5EF1-4AD2-946F-7A74B972F65B}</UniqueIdentifier>
-      <Extensions>cpp;c;cc;cxx;c++;cppm;ixx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
+    <Filter Include="src">
+      <UniqueIdentifier>{C202D925-8342-8CAB-FBAC-54DFA101AD31}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\binary">
+      <UniqueIdentifier>{13BCE4B7-2083-C282-A521-2B38DB86621D}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\containers">
+      <UniqueIdentifier>{81F9DE9D-6DC6-9A5B-2B3D-2408481FA06A}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\foundation">
+      <UniqueIdentifier>{9571FC9D-967B-0180-A04D-85B6C84C1027}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\metadata">
+      <UniqueIdentifier>{9E46C3DC-3A10-4C53-3CAA-5B096147A700}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="src\protocols">
+      <UniqueIdentifier>{62CB4572-B229-1D2F-3AF1-43C35D1039D9}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\livephotobox_native.h">
-      <Filter>Header Files</Filter>
+      <Filter>include</Filter>
     </ClInclude>
-    <ClInclude Include="src\foundation\internal.h">
-      <Filter>Header Files</Filter>
+    <ClInclude Include="src\binary\binary_io.h">
+      <Filter>src\binary</Filter>
     </ClInclude>
     <ClInclude Include="src\binary\endian.h">
-      <Filter>Header Files</Filter>
+      <Filter>src\binary</Filter>
     </ClInclude>
     <ClInclude Include="src\containers\isobmff.h">
-      <Filter>Header Files</Filter>
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\foundation\internal.h">
+      <Filter>src\foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="src\metadata\exif.h">
+      <Filter>src\metadata</Filter>
+    </ClInclude>
+    <ClInclude Include="src\metadata\exif_rewrite.h">
+      <Filter>src\metadata</Filter>
+    </ClInclude>
+    <ClInclude Include="src\metadata\jpeg.h">
+      <Filter>src\metadata</Filter>
+    </ClInclude>
+    <ClInclude Include="src\protocols\apple_mebx_templates.h">
+      <Filter>src\protocols</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\foundation\context.cpp">
-      <Filter>Source Files</Filter>
+    <ClCompile Include="src\containers\heif.cpp">
+      <Filter>src\containers</Filter>
     </ClCompile>
     <ClCompile Include="src\containers\isobmff.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\protocols\vivo_legacy.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\metadata\jpeg.cpp">
-      <Filter>Source Files\metadata</Filter>
-    </ClCompile>
-    <ClCompile Include="src\protocols\huawei.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-    <ClCompile Include="src\containers\heif.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>src\containers</Filter>
     </ClCompile>
     <ClCompile Include="src\containers\mp4_strip.cpp">
-      <Filter>Source Files</Filter>
+      <Filter>src\containers</Filter>
+    </ClCompile>
+    <ClCompile Include="src\foundation\context.cpp">
+      <Filter>src\foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="src\metadata\exif.cpp">
+      <Filter>src\metadata</Filter>
+    </ClCompile>
+    <ClCompile Include="src\metadata\exif_rewrite.cpp">
+      <Filter>src\metadata</Filter>
+    </ClCompile>
+    <ClCompile Include="src\metadata\jpeg.cpp">
+      <Filter>src\metadata</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\apple.cpp">
+      <Filter>src\protocols</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\apple_mebx.cpp">
+      <Filter>src\protocols</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\huawei.cpp">
+      <Filter>src\protocols</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\samsung_sef.cpp">
+      <Filter>src\protocols</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\vivo_legacy.cpp">
+      <Filter>src\protocols</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>

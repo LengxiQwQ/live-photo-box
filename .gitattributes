@@ -82,3 +82,8 @@
 
 # exiftool Perl 第三方库 + Tools 目录其他第三方工具（不参与语言统计）
 LivePhotoBox/Tools/** linguist-vendored
+
+# 强制将所有头文件及 Native 代码统一统计为 C++（避免 GitHub 将 .h 误识别为 C 语言）
+*.h linguist-language=C++
+*.hpp linguist-language=C++
+LivePhotoBox.Native/** linguist-language=C++

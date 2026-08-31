@@ -158,14 +158,13 @@ LPB_API lpb_result LPB_CALL lpb_huawei_patch_heic_ftyp(
     size_t data_size);
 
 /*
- * Patches an MP4 file's ftyp brand and ©too atom in-place for Huawei compatibility.
+ * Patches an MP4 file's ftyp brand and (c)too atom in-place for Huawei compatibility.
  * Modifies the data in-place without changing the size or offsets.
  */
 LPB_API lpb_result LPB_CALL lpb_huawei_patch_mp4(
     lpb_context* context,
     uint8_t* data,
     size_t data_size);
-
 
 /*
  * Locates the exact byte offset and length of an Exif item in a HEIF file's ISO-BMFF container.
@@ -177,7 +176,41 @@ LPB_API lpb_result LPB_CALL lpb_heif_locate_exif_item(
     uint64_t* out_offset,
     uint64_t* out_length);
 
-LPB_API lpb_result LPB_CALL lpb_samsung_sef_parse(lpb_context* context, const uint8_t* input, size_t input_size, uint64_t* out_video_offset, uint64_t* out_video_size);
+/*
+ * Locates the exact byte offset and length of an XMP item in a HEIF file's ISO-BMFF container.
+ * XMP items are identified by item_type 'mime' with content_type 'application/rdf+xml'.
+ */
+LPB_API lpb_result LPB_CALL lpb_heif_locate_xmp_item(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    uint64_t* out_offset,
+    uint64_t* out_length);
+
+LPB_API lpb_result LPB_CALL lpb_samsung_sef_parse(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    uint64_t* out_video_offset,
+    uint64_t* out_video_size);
+
+/*
+ * Builds a complete Samsung SEF trailer for appending after image data.
+ * JPEG: returns [tag_data | SEFH/SEFT].
+ * HEIC: returns [mpvd box containing video + sefd box with tag_data + SEFH/SEFT].
+ * video_data: raw MP4 video bytes.
+ * is_heic: non-zero for HEIC output, zero for JPEG.
+ * image_size: size of the still image portion (required for HEIC mpv2 offset pointer).
+ */
+LPB_API lpb_result LPB_CALL lpb_samsung_sef_build_trailer(
+    lpb_context* context,
+    const uint8_t* video_data,
+    size_t video_size,
+    int32_t is_heic,
+    uint64_t image_size,
+    uint8_t* output,
+    size_t output_size,
+    size_t* out_written);
 
 LPB_API lpb_result LPB_CALL lpb_mp4_strip_uuid_box(
     lpb_context* context,
@@ -211,6 +244,7 @@ LPB_API lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
     uint8_t* output,
     size_t output_size,
     size_t* out_written);
+
 LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
     lpb_context* context,
     const uint8_t* input,
@@ -224,7 +258,7 @@ LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
 /*
  * Strips Apple Live Photo proprietary EXIF MakerNote entries (e.g. 0x0011, 0x0017, 0x002b)
  * in-place for both JPEG and HEIC files.
- * Returns LPB_RESULT_SUCCESS on success or if MakerNote does not exist.
+ * Returns LPB_RESULT_OK on success or if MakerNote does not exist.
  */
 LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
     lpb_context* context,
@@ -272,15 +306,14 @@ LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
 
 /**
  * Appends Apple mebx/ContentDescribes metadata tracks to an MP4/QuickTime file.
- * out_data will be allocated by lpb_malloc, caller must lpb_free.
  */
 LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
     lpb_context* context,
     const uint8_t* data, size_t data_size,
     double cover_seconds,
     uint8_t* output, size_t output_size, size_t* out_written);
+
 #ifdef __cplusplus
 }
 #endif
 #endif
-

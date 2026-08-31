@@ -15,6 +15,7 @@
 using System;
 using System.Buffers.Binary;
 using System.Text;
+using LivePhotoBox.Interop;
 
 namespace LivePhotoBox.Services.Protocols
 {
@@ -74,6 +75,19 @@ namespace LivePhotoBox.Services.Protocols
         /// </returns>
         public static byte[] BuildTrailer(byte[] videoData, string imageType, long imageSize = 0)
         {
+            var runtimeInfo = NativeRuntime.Probe();
+            if (runtimeInfo.IsAvailable && (
+                (runtimeInfo.Capabilities & NativeRuntime.SamsungJpegCapability) != 0 || 
+                (runtimeInfo.Capabilities & NativeRuntime.SamsungHeicCapability) != 0))
+            {
+                byte[]? nativeResult = Interop.NativeSamsungSef.BuildTrailer(videoData, imageType, imageSize);
+                if (nativeResult != null)
+                {
+                    return nativeResult;
+                }
+                // Fallback to legacy if native fails
+            }
+
             bool isHeic = string.Equals(imageType, "heic", StringComparison.OrdinalIgnoreCase);
 
             // Build the MotionPhoto_Data payload

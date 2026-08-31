@@ -31,6 +31,11 @@ if (-not (Test-Path -LiteralPath $msbuild)) {
     throw "MSBuild was not found in Visual Studio: $msbuild"
 }
 
+$syncScript = Join-Path $PSScriptRoot 'sync-native-project.ps1'
+if (Test-Path $syncScript) {
+    & powershell -NoProfile -ExecutionPolicy Bypass -File $syncScript -Quiet
+}
+
 $target = if ($Clean) { 'Rebuild' } else { 'Build' }
 
 Write-Host "[Native] Building $Configuration $Architecture with Visual C++..." -ForegroundColor Cyan

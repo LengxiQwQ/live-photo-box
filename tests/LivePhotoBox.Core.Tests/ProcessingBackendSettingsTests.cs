@@ -37,6 +37,10 @@ public sealed class ProcessingBackendSettingsTests
             .Single(definition => definition.Key == "vivo-legacy");
         ProcessingBackendProtocolDefinition huaweiHonor = ProcessingBackendProtocolCatalog.All
             .Single(definition => definition.Key == "huawei-honor");
+        ProcessingBackendProtocolDefinition samsungJpeg = ProcessingBackendProtocolCatalog.All
+            .Single(definition => definition.Key == "samsung-jpeg");
+        ProcessingBackendProtocolDefinition samsungHeic = ProcessingBackendProtocolCatalog.All
+            .Single(definition => definition.Key == "samsung-heic");
 
         Assert.Equal(NativeBackendMaturity.Preview,
             ProcessingBackendSettingsService.GetNativeMaturity(vivoLegacy, runtime));
@@ -46,7 +50,19 @@ public sealed class ProcessingBackendSettingsTests
             ProcessingBackendSettingsService.GetNativeMaturity(huaweiHonor, runtime));
         Assert.False(ProcessingBackendSettingsService.ShouldPreferNative(settings, huaweiHonor, runtime));
 
-        Assert.All(ProcessingBackendProtocolCatalog.All.Where(definition => definition != vivoLegacy && definition != huaweiHonor), definition =>
+        Assert.Equal(NativeBackendMaturity.Preview,
+            ProcessingBackendSettingsService.GetNativeMaturity(samsungJpeg, runtime));
+        Assert.False(ProcessingBackendSettingsService.ShouldPreferNative(settings, samsungJpeg, runtime));
+
+        Assert.Equal(NativeBackendMaturity.Preview,
+            ProcessingBackendSettingsService.GetNativeMaturity(samsungHeic, runtime));
+        Assert.False(ProcessingBackendSettingsService.ShouldPreferNative(settings, samsungHeic, runtime));
+
+        Assert.All(ProcessingBackendProtocolCatalog.All.Where(definition => 
+            definition != vivoLegacy && 
+            definition != huaweiHonor && 
+            definition != samsungJpeg && 
+            definition != samsungHeic), definition =>
         {
             Assert.Equal(NativeBackendMaturity.Unavailable,
                 ProcessingBackendSettingsService.GetNativeMaturity(definition, runtime));
