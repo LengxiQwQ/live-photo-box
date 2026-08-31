@@ -29,6 +29,13 @@ $cliTests = Join-Path $projectRoot 'tests\LivePhotoBox.CLI.Tests\LivePhotoBox.CL
 $cliIntegrationScript = Join-Path $projectRoot 'scripts\testing\run-cli-integration-test.py'
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $coreTestFilter = if ($env:CI -eq 'true') { 'Category!=RealSamples' } else { $null }
+$ciTrackedProjects = @(
+    'LivePhotoBox\LivePhotoBox.csproj',
+    'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj',
+    'tests\LivePhotoBox.Core.Tests\LivePhotoBox.Core.Tests.csproj',
+    'tests\LivePhotoBox.CLI.Tests\LivePhotoBox.CLI.Tests.csproj',
+    'tests\LivePhotoBox.UITests\LivePhotoBox.UITests.csproj'
+)
 
 function Invoke-VerificationStep {
     param(
@@ -52,8 +59,18 @@ try {
     Write-Host "Scope: $Scope | Configuration: $Configuration" -ForegroundColor Gray
     Write-Host "SDK:   $(& dotnet --version)" -ForegroundColor Gray
 
-    Invoke-VerificationStep -Name 'Restore solution' -Action {
-        & dotnet restore $solutionPath --nologo
+    Invoke-VerificationStep -Name 'Restore tracked projects' -Action {
+        if ($env:CI -eq 'true') {
+            # The local solution intentionally includes private stress/benchmark projects that
+            # are Git-ignored. GitHub must restore only projects present in a clean checkout.
+            foreach ($project in $ciTrackedProjects) {
+                & dotnet restore $project --nologo
+                if ($LASTEXITCODE -ne 0) { return }
+            }
+        }
+        else {
+            & dotnet restore $solutionPath --nologo
+        }
     }
 
     Invoke-VerificationStep -Name "Build Native ($Configuration x64) and run ABI smoke tests" -Action {
@@ -120,16 +137,33 @@ try {
         }
 
         # dotnet test cannot import the solution's .vcxproj. Core and CLI tests
-        # have already run above; desktop MSBuild verifies every solution project.
-        Invoke-VerificationStep -Name "Build complete solution with Visual Studio MSBuild ($Configuration x64)" -Action {
-            & $desktopMsbuild $solutionPath `
-                /nologo `
-                /m `
-                /t:Build `
-                "/p:Configuration=$Configuration" `
-                /p:Platform=x64 `
-                /p:SkipNativeBuild=true `
-                /v:minimal
+        # have already run above. A clean CI checkout excludes local-only stress projects,
+        # so it verifies the tracked desktop product projects individually instead.
+        if ($env:CI -eq 'true') {
+            foreach ($project in @('LivePhotoBox\LivePhotoBox.csproj', 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj')) {
+                Invoke-VerificationStep -Name "Build tracked project with Visual Studio MSBuild: $project ($Configuration x64)" -Action {
+                    & $desktopMsbuild $project `
+                        /nologo `
+                        /m `
+                        /t:Build `
+                        "/p:Configuration=$Configuration" `
+                        /p:Platform=x64 `
+                        /p:SkipNativeBuild=true `
+                        /v:minimal
+                }
+            }
+        }
+        else {
+            Invoke-VerificationStep -Name "Build complete solution with Visual Studio MSBuild ($Configuration x64)" -Action {
+                & $desktopMsbuild $solutionPath `
+                    /nologo `
+                    /m `
+                    /t:Build `
+                    "/p:Configuration=$Configuration" `
+                    /p:Platform=x64 `
+                    /p:SkipNativeBuild=true `
+                    /v:minimal
+            }
         }
     }
 
