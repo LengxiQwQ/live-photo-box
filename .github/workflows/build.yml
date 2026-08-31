@@ -1,13 +1,10 @@
-# PR: repeatable build/test gate. master: Full gate plus package artifact.
-# v* tag: Full gate, then package and create a draft release.
+# master: repeatable full build/test gate. v* tag: build a release and create a draft.
 name: Build & Release / 构建与发布
 
 on:
   push:
     branches: [master]
     tags: ['v*']
-  pull_request:
-    branches: [master]
   workflow_dispatch:
 
 # Verification must not be able to modify the repository or Actions state.
@@ -24,7 +21,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     env:
-      VERIFY_SCOPE: ${{ github.event_name == 'pull_request' && 'Fast' || 'Full' }}
+      VERIFY_SCOPE: Full
     steps:
       - name: Checkout / 拉取代码
         uses: actions/checkout@v4
@@ -52,7 +49,7 @@ jobs:
 
   package:
     needs: verify
-    if: github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: windows-latest
     timeout-minutes: 45
     permissions:
@@ -76,17 +73,7 @@ jobs:
       - name: Build and package / 构建与打包
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1 -CI
         shell: pwsh
-      - name: Upload package artifacts / 上传打包产物
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: LivePhotoBox-x64-Release
-          path: |
-            publish/*.zip
-            publish/*.exe
-          retention-days: 7
       - name: Create draft release / 创建草稿 Release
-        if: ${{ startsWith(github.ref, 'refs/tags/') }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}

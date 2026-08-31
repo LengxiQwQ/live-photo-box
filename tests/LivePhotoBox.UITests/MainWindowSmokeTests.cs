@@ -44,12 +44,11 @@ public sealed class MainWindowSmokeTests
             new FlawrightOptions { DefaultTimeout = TimeSpan.FromSeconds(20) });
 
         IFlawrightPage page = await flawright.Browser.NewPageAsync();
-        var merge = page.GetByTestId("NavMerge");
-        var split = page.GetByTestId("NavSplit");
-
-        await merge.ClickAsync();
-        Assert.Equal("true", await merge.GetAttributeAsync("Selected"));
-        await split.ClickAsync();
-        Assert.Equal("true", await split.GetAttributeAsync("Selected"));
+        foreach (string navigationId in new[] { "NavHome", "NavEdit", "NavMerge", "NavSplit", "NavRepair" })
+        {
+            var navigationItem = page.GetByTestId(navigationId);
+            await navigationItem.ClickAsync();
+            Assert.Equal("true", await navigationItem.GetAttributeAsync("Selected"));
+        }
     }
 }
