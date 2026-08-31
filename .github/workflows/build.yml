@@ -67,7 +67,7 @@ jobs:
             9.0.x
             10.0.x
       - name: Setup Go / 安装 Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.23.x'
       - name: Install Inno Setup / 安装 Inno Setup
