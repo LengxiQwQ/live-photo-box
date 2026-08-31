@@ -1,3 +1,8 @@
+# Disabled by maintainer decision on 2026-08-31.
+#
+# This preserves the former Dependabot version-update policy without allowing
+# GitHub to create branches or pull requests automatically. To re-enable it,
+# rename this file to dependabot.yml only after explicit maintainer approval.
 version: 2
 updates:
   - package-ecosystem: nuget
