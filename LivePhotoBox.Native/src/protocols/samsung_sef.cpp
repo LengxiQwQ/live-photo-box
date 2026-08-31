@@ -84,6 +84,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_samsung_sef_build_trailer(
     size_t* out_written)
 {
     if (!context || (!video_data && video_size > 0)) return LPB_RESULT_INVALID_ARGUMENT;
+    (void)image_size; // ABI-retained; mpv2 offsets are mpvd-relative.
 
     bool is_heic_bool = (is_heic != 0);
     size_t payload_len = is_heic_bool ? 12 : video_size;
@@ -119,7 +120,9 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_samsung_sef_build_trailer(
     writer.try_write_bytes((const uint8_t*)"MotionPhoto_Data", 16);
     if (is_heic_bool) {
         writer.try_write_bytes((const uint8_t*)"mpv2", 4);
-        writer.try_write_be32u((uint32_t)(image_size + 8));
+        // mpv2 offsets are relative to the mpvd box start; the MP4 follows
+        // the 8-byte ISOBMFF header immediately.
+        writer.try_write_be32u(8);
         writer.try_write_be32u((uint32_t)video_size);
     } else {
         writer.try_write_bytes(video_data, video_size);

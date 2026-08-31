@@ -104,8 +104,10 @@ namespace LivePhotoBox.Services.Protocols
             if (isHeic)
             {
                 // HEIC: "mpv2" + video_offset(BE u32) + video_size(BE u32) = 12 bytes
-                // video_offset = imageSize + 8 (mpvd box header)
-                long videoOffset = imageSize + BoxHeaderSize;
+                // Samsung's mpv2 pointer is relative to the beginning of the
+                // mpvd box, so the MP4 starts immediately after its 8-byte
+                // header.  Do not write an absolute file offset here.
+                long videoOffset = BoxHeaderSize;
                 motionPhotoPayload = new byte[12];
                 Array.Copy(Mpv2Signature, 0, motionPhotoPayload, 0, 4);
                 BinaryPrimitives.WriteInt32BigEndian(motionPhotoPayload.AsSpan(4), (int)videoOffset);

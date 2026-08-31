@@ -200,7 +200,8 @@ LPB_API lpb_result LPB_CALL lpb_samsung_sef_parse(
  * HEIC: returns [mpvd box containing video + sefd box with tag_data + SEFH/SEFT].
  * video_data: raw MP4 video bytes.
  * is_heic: non-zero for HEIC output, zero for JPEG.
- * image_size: size of the still image portion (required for HEIC mpv2 offset pointer).
+ * image_size: retained for ABI compatibility; HEIC mpv2 offsets are relative
+ * to the emitted mpvd box and therefore start at byte 8.
  */
 LPB_API lpb_result LPB_CALL lpb_samsung_sef_build_trailer(
     lpb_context* context,
