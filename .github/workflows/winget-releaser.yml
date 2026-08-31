@@ -26,7 +26,7 @@ jobs:
       # Komac 偶尔不会从旧版 defaultLocale 清单继承 Commands。
       # PortableCommandAlias 负责实际别名；Commands 负责 WinGet 的命令元数据，二者都要保留。
       - name: Preserve command metadata / 保留命令元数据
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.WINGET_TOKEN }}
           script: |
