@@ -39,12 +39,6 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: manual
-      - name: Build managed projects / 构建托管项目
-        if: matrix.language == 'csharp'
-        shell: pwsh
-        run: |
-          dotnet build "LivePhotoBox/LivePhotoBox.csproj" -c Release -p:Platform=x64 -p:SkipNativeBuild=true
-          dotnet build "LivePhotoBox.CLI/LivePhotoBox.CLI.csproj" -c Release -p:Platform=x64 -p:SkipNativeBuild=true
       - name: Build Native project / 构建 Native 项目
         shell: pwsh
         run: >-
@@ -52,6 +46,12 @@ jobs:
           -File scripts/native/build-native.ps1
           -Configuration Release
           -Architecture x64
+      - name: Build managed projects / 构建托管项目
+        if: matrix.language == 'csharp'
+        shell: pwsh
+        run: |
+          dotnet build "LivePhotoBox/LivePhotoBox.csproj" -c Release -p:Platform=x64 -p:SkipNativeBuild=true
+          dotnet build "LivePhotoBox.CLI/LivePhotoBox.CLI.csproj" -c Release -p:Platform=x64 -p:SkipNativeBuild=true
       - name: Analyze / 分析
         uses: github/codeql-action/analyze@v4
         with:
