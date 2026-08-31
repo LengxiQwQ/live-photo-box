@@ -29,7 +29,7 @@ jobs:
       - name: Checkout / 拉取代码
         uses: actions/checkout@v4
       - name: Setup .NET 9 and 10 / 安装 .NET 9 与 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             9.0.x
@@ -61,7 +61,7 @@ jobs:
       - name: Checkout / 拉取代码
         uses: actions/checkout@v4
       - name: Setup .NET 9 and 10 / 安装 .NET 9 与 10
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: |
             9.0.x
