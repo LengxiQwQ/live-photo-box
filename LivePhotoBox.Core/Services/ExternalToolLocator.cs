@@ -11,7 +11,6 @@ namespace LivePhotoBox.Services
     public static class ExternalToolLocator
     {
         private static readonly Lazy<string?> _cachedFFmpegPath = new(ResolveFFmpegPath);
-        private static readonly Lazy<string?> _cachedFFprobePath = new(ResolveFFprobePath);
         private static readonly Lazy<string?> _cachedExifToolPath = new(ResolveExifToolPath);
         private static readonly Lazy<string?> _cachedJpegTranPath = new(ResolveJpegTranPath);
         private static readonly Lazy<string?> _cachedHeifEncPath = new(ResolveHeifEncPath);
@@ -19,8 +18,6 @@ namespace LivePhotoBox.Services
 
         // 获取缓存的 FFmpeg 可执行文件路径，未找到时返回 null。
         public static string? FindFFmpeg() => _cachedFFmpegPath.Value;
-        // 获取缓存的 FFprobe 可执行文件路径，未找到时返回 null。
-        public static string? FindFFprobe() => _cachedFFprobePath.Value;
         // 获取缓存的 ExifTool 可执行文件路径，未找到时返回 null。
         public static string? FindExifTool() => _cachedExifToolPath.Value;
         // 获取缓存的 jpegtran 可执行文件路径，未找到时返回 null。
@@ -62,13 +59,6 @@ namespace LivePhotoBox.Services
         {
             var path = FindTool("ffmpeg.exe");
             LogService.Info($"ExternalToolLocator: ffmpeg → {path ?? "NOT FOUND"}", LogSource.System);
-            return path;
-        }
-
-        private static string? ResolveFFprobePath()
-        {
-            var path = FindTool("ffprobe.exe");
-            LogService.Info($"ExternalToolLocator: ffprobe → {path ?? "NOT FOUND"}", LogSource.System);
             return path;
         }
 
