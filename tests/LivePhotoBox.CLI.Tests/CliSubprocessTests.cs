@@ -90,29 +90,25 @@ public sealed class CliSubprocessTests
         params string[] arguments)
     {
         string repositoryRoot = FindRepositoryRoot();
+        string cliTarget = FindCliExecutable(repositoryRoot);
+        bool isDll = cliTarget.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+
         var startInfo = new ProcessStartInfo
         {
-            FileName = "dotnet",
+            FileName = isDll ? "dotnet" : cliTarget,
             WorkingDirectory = repositoryRoot,
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             CreateNoWindow = true
         };
-#if DEBUG
-        const string configuration = "Debug";
-#else
-        const string configuration = "Release";
-#endif
-        startInfo.ArgumentList.Add("run");
-        startInfo.ArgumentList.Add("--project");
-        startInfo.ArgumentList.Add(Path.Combine(repositoryRoot, "LivePhotoBox.CLI", "LivePhotoBox.CLI.csproj"));
-        startInfo.ArgumentList.Add("-c");
-        startInfo.ArgumentList.Add(configuration);
-        startInfo.ArgumentList.Add("--no-build");
-        startInfo.ArgumentList.Add("--");
+
+        if (isDll)
+            startInfo.ArgumentList.Add(cliTarget);
+
         foreach (string argument in arguments)
             startInfo.ArgumentList.Add(argument);
+
         startInfo.Environment["LIVEPHOTOBOX_BACKEND_SETTINGS_PATH"] = settingsPath;
         startInfo.Environment["DOTNET_CLI_TELEMETRY_OPTOUT"] = "1";
         startInfo.Environment["DOTNET_NOLOGO"] = "1";
@@ -131,6 +127,30 @@ public sealed class CliSubprocessTests
 
         await exitTask;
         return new CliResult(process.ExitCode, await stdoutTask, await stderrTask);
+    }
+
+    private static string FindCliExecutable(string repositoryRoot)
+    {
+#if DEBUG
+        const string configuration = "Debug";
+#else
+        const string configuration = "Release";
+#endif
+        string[] candidateDirs =
+        [
+            Path.Combine(repositoryRoot, "LivePhotoBox.CLI", "bin", "x64", configuration, "net9.0-windows10.0.19041.0"),
+            Path.Combine(repositoryRoot, "LivePhotoBox.CLI", "bin", configuration, "net9.0-windows10.0.19041.0"),
+        ];
+
+        foreach (string dir in candidateDirs)
+        {
+            string exe = Path.Combine(dir, "livephotobox-boot.exe");
+            if (File.Exists(exe)) return exe;
+            string dll = Path.Combine(dir, "livephotobox-boot.dll");
+            if (File.Exists(dll)) return dll;
+        }
+
+        throw new FileNotFoundException("Could not locate compiled CLI executable or DLL.");
     }
 
     private static string FindRepositoryRoot()
