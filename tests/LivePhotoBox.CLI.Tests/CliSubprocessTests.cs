@@ -99,9 +99,16 @@ public sealed class CliSubprocessTests
             RedirectStandardError = true,
             CreateNoWindow = true
         };
+#if DEBUG
+        const string configuration = "Debug";
+#else
+        const string configuration = "Release";
+#endif
         startInfo.ArgumentList.Add("run");
         startInfo.ArgumentList.Add("--project");
         startInfo.ArgumentList.Add(Path.Combine(repositoryRoot, "LivePhotoBox.CLI", "LivePhotoBox.CLI.csproj"));
+        startInfo.ArgumentList.Add("-c");
+        startInfo.ArgumentList.Add(configuration);
         startInfo.ArgumentList.Add("--no-build");
         startInfo.ArgumentList.Add("--");
         foreach (string argument in arguments)
