@@ -1759,19 +1759,34 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            if (IsOutputToDirectory)
+            try
             {
-                if (string.IsNullOrWhiteSpace(OutputDirectory))
-                    OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_RepairedPhotos"));
-                if (!Directory.Exists(OutputDirectory))
-                    Directory.CreateDirectory(OutputDirectory);
-            }
+                await ProcessingPipelineRouter.RunAsync("repair", async () =>
+                {
+                    if (IsOutputToDirectory)
+                    {
+                        if (string.IsNullOrWhiteSpace(OutputDirectory))
+                            OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_RepairedPhotos"));
+                        if (!Directory.Exists(OutputDirectory))
+                            Directory.CreateDirectory(OutputDirectory);
+                    }
 
-            IsDirectoryPanelOpen = false;
-            await RunTasksAsync();
+                    IsDirectoryPanelOpen = false;
+                    await RunLegacyTasksAsync();
+                });
+            }
+            catch (RebuiltPipelineNotReadyException exception)
+            {
+                await ProcessingNotReadyDialogService.ShowAsync(exception.Operation);
+            }
         }
 
-        private async Task RunTasksAsync()
+        private Task RunTasksAsync()
+        {
+            return ProcessingPipelineRouter.RunAsync("repair", RunLegacyTasksAsync);
+        }
+
+        private async Task RunLegacyTasksAsync()
         {
             InitializeRunState();
             // 开始修复：强制回"全部"、取消状态筛选、禁用筛选

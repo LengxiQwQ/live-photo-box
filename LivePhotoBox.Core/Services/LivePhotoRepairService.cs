@@ -805,7 +805,13 @@ public static class LivePhotoRepairService
         }
 
         // 2. 修复文件：analysis.RotationAngle → jpegtran 无损旋转 → exiftool 合并重置方向 + 剥离缩略图
-        public static async Task<(bool Success, string Message)> RepairAsync(string sourcePath, string targetPath, RepairAnalysisResult analysis, CancellationToken token, RepairOptions? options = null)
+        public static Task<(bool Success, string Message)> RepairAsync(string sourcePath, string targetPath, RepairAnalysisResult analysis, CancellationToken token, RepairOptions? options = null)
+        {
+            return ProcessingPipelineRouter.RunAsync("repair", () => RepairLegacyAsync(
+                sourcePath, targetPath, analysis, token, options));
+        }
+
+        private static async Task<(bool Success, string Message)> RepairLegacyAsync(string sourcePath, string targetPath, RepairAnalysisResult analysis, CancellationToken token, RepairOptions? options = null)
         {
             // 默认全部开启
             options ??= new RepairOptions();

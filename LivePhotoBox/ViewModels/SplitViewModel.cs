@@ -1218,7 +1218,14 @@ namespace LivePhotoBox.ViewModels
             RefreshTaskView();
 
             IsDirectoryPanelOpen = false;
-            await RunTasksAsync();
+            try
+            {
+                await RunTasksAsync();
+            }
+            catch (RebuiltPipelineNotReadyException exception)
+            {
+                await ProcessingNotReadyDialogService.ShowAsync(exception.Operation);
+            }
         }
 
         #endregion
@@ -1303,7 +1310,12 @@ namespace LivePhotoBox.ViewModels
         #region Task Execution
 
         // 执行所有拆分任务的异步核心方法。
-        private async Task RunTasksAsync()
+        private Task RunTasksAsync()
+        {
+            return ProcessingPipelineRouter.RunAsync("split", RunLegacyTasksAsync);
+        }
+
+        private async Task RunLegacyTasksAsync()
         {
             InitializeRunState();
             _stopwatch = Stopwatch.StartNew();

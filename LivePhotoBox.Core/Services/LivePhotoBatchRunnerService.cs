@@ -45,6 +45,19 @@ namespace LivePhotoBox.Services
             Action<IMergeTaskInfo>? onTaskStarted,
             Action<IMergeTaskInfo, bool, string, int>? onTaskCompleted)
         {
+            await ProcessingPipelineRouter.RunAsync("merge", () => RunLegacyAsync(
+                tasks, options, pauseEvent, cancellationToken, onTaskStarted, onTaskCompleted))
+                .ConfigureAwait(false);
+        }
+
+        private static async Task RunLegacyAsync(
+            IReadOnlyCollection<IMergeTaskInfo> tasks,
+            LivePhotoBatchRunOptions options,
+            ManualResetEventSlim pauseEvent,
+            CancellationToken cancellationToken,
+            Action<IMergeTaskInfo>? onTaskStarted,
+            Action<IMergeTaskInfo, bool, string, int>? onTaskCompleted)
+        {
             Directory.CreateDirectory(options.OutputDirectory);
             string tempDir = Path.Combine(options.OutputDirectory, "Temp");
             Directory.CreateDirectory(tempDir);

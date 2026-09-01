@@ -1,3 +1,7 @@
+using System.Buffers.Binary;
+using System.Text;
+using LivePhotoBox.Models;
+using LivePhotoBox.Services;
 using LivePhotoBox.Services.Protocols;
 using Xunit;
 
@@ -6,75 +10,70 @@ namespace LivePhotoBox.Core.Tests;
 public sealed class VivoDualFileCoverMetadataTests
 {
     [Fact]
-    public async Task RealDeviceMetadata_SeparatesOriginalFrameAndEditedCoverTime()
+    [Trait("Category", "RealSamples")]
+    public async Task ChangeCover_RealVivoPair_PreservesTheSourceTailOnOutputJpeg()
     {
-        string directory = Path.Combine(
-            Path.GetTempPath(), $"lpb_vivo_real_metadata_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
+        string directory = CreateTempDirectory("lpb_vivo_cover_real");
+        string? previousSettingsPath = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
         try
         {
-            // 以 2026-08-27 iQOO 12 真机三份样本的原始 JSON 关键字段建立回归夹具。
-            string originalPath = Path.Combine(directory, "original.mp4");
-            string firstPath = Path.Combine(directory, "first.mp4");
-            string lastPath = Path.Combine(directory, "last.mp4");
-            await WriteVivoFixtureAsync(originalPath,
-                "{\"com.android.camera.imageTime\":39,\"com.android.camera.livephoto\":\"original\",\"version\":2104,\"com.android.camera.faceInfo\":{}}");
-            await WriteVivoFixtureAsync(firstPath,
-                "{\"com.android.camera.imageTime\":39,\"com.vivo.gallery.livePhoto.bestTime\":0,\"com.android.camera.livephoto\":\"first\",\"version\":2200,\"com.android.camera.faceInfo\":{},\"com.vivo.gallery.livePhoto.newCoverTime\":0}");
-            await WriteVivoFixtureAsync(lastPath,
-                "{\"com.android.camera.imageTime\":39,\"com.vivo.gallery.livePhoto.bestTime\":0,\"com.android.camera.livephoto\":\"last\",\"version\":2200,\"com.android.camera.faceInfo\":{},\"com.vivo.gallery.livePhoto.newCoverTime\":2921}");
+            string sourceImage = Path.Combine(directory, "source.jpg");
+            string sourceVideo = Path.Combine(directory, "source.mp4");
+            string outputImage = Path.Combine(directory, "output.jpg");
+            string outputVideo = Path.Combine(directory, "output.mp4");
+            File.Copy(ResolveSample("vivo双文件.jpg"), sourceImage);
+            File.Copy(ResolveSample("vivo双文件.mp4"), sourceVideo);
+            Environment.SetEnvironmentVariable(
+                "LIVEPHOTOBOX_BACKEND_SETTINGS_PATH",
+                Path.Combine(directory, "legacy-settings.json"));
+            ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
 
-            VivoDualFileCoverInfo original = AssertCoverInfo(originalPath);
-            Assert.Equal(39, original.OriginalFrameIndex);
-            Assert.Null(original.CurrentCoverTimeMilliseconds);
+            byte[] sourceTail = ReadVivoTail(await File.ReadAllBytesAsync(sourceImage));
+            Assert.NotEmpty(sourceTail);
 
-            VivoDualFileCoverInfo first = AssertCoverInfo(firstPath);
-            Assert.Equal(39, first.OriginalFrameIndex);
-            Assert.Equal(0, first.CurrentCoverTimeMilliseconds);
+            await CoverChangeService.ChangeCoverAsync(new CoverChangeRequest
+            {
+                ImagePath = sourceImage,
+                VideoPath = sourceVideo,
+                LivePhotoType = LivePhotoType.DualFile,
+                Protocol = LivePhotoProtocolType.Vivo,
+                TimestampUs = 0,
+                OutputImagePath = outputImage,
+                OutputVideoPath = outputVideo
+            }, CancellationToken.None);
 
-            VivoDualFileCoverInfo last = AssertCoverInfo(lastPath);
-            Assert.Equal(39, last.OriginalFrameIndex);
-            Assert.Equal(2921, last.CurrentCoverTimeMilliseconds);
+            byte[] outputBytes = await File.ReadAllBytesAsync(outputImage);
+            Assert.True(outputBytes.Length >= sourceTail.Length);
+            Assert.True(outputBytes.AsSpan(outputBytes.Length - sourceTail.Length).SequenceEqual(sourceTail));
+            Assert.True(File.Exists(outputVideo));
         }
         finally
         {
-            Directory.Delete(directory, recursive: true);
+            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", previousSettingsPath);
+            try { Directory.Delete(directory, recursive: true); } catch { /* best effort */ }
         }
     }
 
     [Fact]
-    public async Task Writer_StoresSingleUneditedCoverPosition()
+    public async Task Writer_UsesTheV221ImageAndVideoContracts()
     {
-        string directory = Path.Combine(
-            Path.GetTempPath(), $"lpb_vivo_cover_test_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
+        string directory = CreateTempDirectory("lpb_vivo_contract");
         try
         {
             string imagePath = Path.Combine(directory, "pair.jpg");
             string videoPath = Path.Combine(directory, "pair.mp4");
             await File.WriteAllBytesAsync(imagePath, [0xFF, 0xD8, 0xFF, 0xD9]);
-            await File.WriteAllBytesAsync(videoPath,
-                [0x00, 0x00, 0x00, 0x08, (byte)'f', (byte)'t', (byte)'y', (byte)'p']);
+            await File.WriteAllBytesAsync(videoPath, Ftyp());
 
             await VivoDualFileMetadataWriter.WritePairMetadataAsync(
-                imagePath,
-                videoPath,
-                coverFrameIndex: 39,
-                CancellationToken.None);
+                imagePath, videoPath, CancellationToken.None);
 
-            VivoDualFileCoverInfo? infoResult =
-                VivoDualFileMetadataWriter.ReadCoverInfo(videoPath);
-            Assert.NotNull(infoResult);
-            VivoDualFileCoverInfo info = infoResult!;
-            Assert.Equal(39, info.OriginalFrameIndex);
-            Assert.Null(info.CurrentCoverTimeMilliseconds);
-            Assert.False(string.IsNullOrWhiteSpace(info.LivePhotoId));
-
-            string tail = System.Text.Encoding.UTF8.GetString(
-                await File.ReadAllBytesAsync(videoPath));
-            Assert.DoesNotContain("com.vivo.gallery.livePhoto.newCoverTime", tail);
-            Assert.DoesNotContain("com.vivo.gallery.livePhoto.bestTime", tail);
-            Assert.Contains("\"version\":2104", tail);
+            string imageText = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(imagePath));
+            string videoText = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(videoPath));
+            Assert.Contains("\"version\":2200", imageText);
+            Assert.Contains("\"version\":2016", videoText);
+            Assert.Contains("\"com.vivo.gallery.livePhoto.newCoverTime\":0", videoText);
+            Assert.DoesNotContain("com.android.camera.imageTime", videoText);
         }
         finally
         {
@@ -83,46 +82,56 @@ public sealed class VivoDualFileCoverMetadataTests
     }
 
     [Fact]
-    public async Task Writer_ReplacesUuidAfterExtendedSizeMdat()
+    public async Task Writer_CreatesOneStandardUuidBoxAndSharedId()
     {
-        string directory = Path.Combine(
-            Path.GetTempPath(), $"lpb_vivo_extended_mdat_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
+        string directory = CreateTempDirectory("lpb_vivo_pair");
+        try
+        {
+            string imagePath = Path.Combine(directory, "pair.jpg");
+            string videoPath = Path.Combine(directory, "pair.mp4");
+            await File.WriteAllBytesAsync(imagePath, [0xFF, 0xD8, 0xFF, 0xD9]);
+            await File.WriteAllBytesAsync(videoPath, Ftyp());
+
+            await VivoDualFileMetadataWriter.WritePairMetadataAsync(
+                imagePath, videoPath, CancellationToken.None);
+
+            byte[] image = await File.ReadAllBytesAsync(imagePath);
+            byte[] video = await File.ReadAllBytesAsync(videoPath);
+            Assert.Equal(1, CountOccurrences(video, "vivoMediaExtInfo"u8));
+            string imageId = ExtractId(image);
+            string videoId = ExtractId(video);
+            Assert.False(string.IsNullOrWhiteSpace(imageId));
+            Assert.Equal(imageId, videoId);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task Writer_RemovesAnExistingStandardUuidBoxBeforeAppending()
+    {
+        string directory = CreateTempDirectory("lpb_vivo_existing");
         try
         {
             string imagePath = Path.Combine(directory, "pair.jpg");
             string videoPath = Path.Combine(directory, "pair.mp4");
             await File.WriteAllBytesAsync(imagePath, [0xFF, 0xD8, 0xFF, 0xD9]);
 
-            byte[] oldJson = System.Text.Encoding.UTF8.GetBytes(
-                "vivo{\"com.android.camera.imageTime\":39," +
-                "\"com.android.camera.livephoto\":\"old\"}");
-            byte[] oldPayload = BuildTail(oldJson);
-            byte[] oldUuid = BuildUuidBox(oldPayload);
-            byte[] extendedMdat =
-            [
-                0, 0, 0, 1, (byte)'m', (byte)'d', (byte)'a', (byte)'t',
-                0, 0, 0, 0, 0, 0, 0, 20,
-                1, 2, 3, 4
-            ];
+            byte[] oldUuid = BuildUuidBox(Encoding.UTF8.GetBytes(
+                "vivo{\"com.android.camera.livephoto\":\"old\"}"));
             await File.WriteAllBytesAsync(videoPath,
             [
-                0, 0, 0, 8, (byte)'f', (byte)'t', (byte)'y', (byte)'p',
-                .. extendedMdat,
+                .. Ftyp(),
                 .. oldUuid
             ]);
 
             await VivoDualFileMetadataWriter.WritePairMetadataAsync(
-                imagePath,
-                videoPath,
-                coverFrameIndex: 12,
-                CancellationToken.None);
+                imagePath, videoPath, CancellationToken.None);
 
             byte[] result = await File.ReadAllBytesAsync(videoPath);
             Assert.Equal(1, CountOccurrences(result, "vivoMediaExtInfo"u8));
-            VivoDualFileCoverInfo info = AssertCoverInfo(videoPath);
-            Assert.Equal(12, info.OriginalFrameIndex);
-            Assert.Null(info.CurrentCoverTimeMilliseconds);
         }
         finally
         {
@@ -131,55 +140,23 @@ public sealed class VivoDualFileCoverMetadataTests
     }
 
     [Fact]
-    public async Task EditedWriter_PreservesOriginalAndAddsCurrentCoverPosition()
+    public async Task Writer_DoesNotInventEditedCoverMetadata()
     {
-        string directory = Path.Combine(
-            Path.GetTempPath(), $"lpb_vivo_edited_cover_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(directory);
+        string directory = CreateTempDirectory("lpb_vivo_unedited");
         try
         {
-            string sourceImagePath = Path.Combine(directory, "source.jpg");
-            string sourceVideoPath = Path.Combine(directory, "source.mp4");
-            string outputImagePath = Path.Combine(directory, "output.jpg");
-            string outputVideoPath = Path.Combine(directory, "output.mp4");
+            string imagePath = Path.Combine(directory, "pair.jpg");
+            string videoPath = Path.Combine(directory, "pair.mp4");
+            await File.WriteAllBytesAsync(imagePath, [0xFF, 0xD8, 0xFF, 0xD9]);
+            await File.WriteAllBytesAsync(videoPath, Ftyp());
 
-            byte[] sourceImageJson = System.Text.Encoding.UTF8.GetBytes(
-                "vivo{\"com.android.camera.livephoto\":\"source\",\"version\":2104}");
-            await File.WriteAllBytesAsync(sourceImagePath,
-            [
-                0xFF, 0xD8, 0xFF, 0xD9,
-                .. BuildTail(sourceImageJson)
-            ]);
+            await VivoDualFileMetadataWriter.WritePairMetadataAsync(
+                imagePath, videoPath, CancellationToken.None);
 
-            byte[] sourceVideoJson = System.Text.Encoding.UTF8.GetBytes(
-                "vivo{\"com.android.camera.imageTime\":39," +
-                "\"com.android.camera.livephoto\":\"source\",\"version\":2104}");
-            await File.WriteAllBytesAsync(sourceVideoPath,
-            [
-                0, 0, 0, 8, (byte)'f', (byte)'t', (byte)'y', (byte)'p',
-                .. BuildUuidBox(BuildTail(sourceVideoJson))
-            ]);
-            File.Copy(sourceImagePath, outputImagePath);
-            File.Copy(sourceVideoPath, outputVideoPath);
-
-            await VivoDualFileMetadataWriter.RewriteEditedPairMetadataAsync(
-                sourceImagePath,
-                sourceVideoPath,
-                outputImagePath,
-                outputVideoPath,
-                currentCoverTimeMilliseconds: 456,
-                CancellationToken.None);
-
-            VivoDualFileCoverInfo info = AssertCoverInfo(outputVideoPath);
-            Assert.Equal(39, info.OriginalFrameIndex);
-            Assert.Equal(456, info.CurrentCoverTimeMilliseconds);
-
-            string tail = System.Text.Encoding.UTF8.GetString(
-                await File.ReadAllBytesAsync(outputVideoPath));
-            Assert.Contains("com.vivo.gallery.livePhoto.bestTime\":0", tail);
-            Assert.Contains("\"version\":2200", tail);
-            Assert.Equal(1, CountOccurrences(
-                await File.ReadAllBytesAsync(outputVideoPath), "vivoMediaExtInfo"u8));
+            string videoText = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(videoPath));
+            Assert.DoesNotContain("com.vivo.gallery.livePhoto.bestTime", videoText);
+            Assert.Contains("com.vivo.gallery.livePhoto.newCoverTime\":0", videoText);
+            Assert.DoesNotContain("com.android.camera.imageTime", videoText);
         }
         finally
         {
@@ -187,31 +164,73 @@ public sealed class VivoDualFileCoverMetadataTests
         }
     }
 
-    private static VivoDualFileCoverInfo AssertCoverInfo(string path)
+    private static string CreateTempDirectory(string prefix)
     {
-        VivoDualFileCoverInfo? result = VivoDualFileMetadataWriter.ReadCoverInfo(path);
-        Assert.NotNull(result);
-        return result!;
+        string directory = Path.Combine(Path.GetTempPath(), $"{prefix}_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        return directory;
     }
 
-    private static Task WriteVivoFixtureAsync(string path, string json)
+    private static string ResolveSample(params string[] pathParts)
     {
-        byte[] prefix = [0x00, 0x00, 0x00, 0x08, (byte)'f', (byte)'t', (byte)'y', (byte)'p'];
-        byte[] metadata = System.Text.Encoding.UTF8.GetBytes("vivo" + json);
-        return File.WriteAllBytesAsync(path, [.. prefix, .. metadata]);
+        string path = Path.Combine([AppContext.BaseDirectory, "samples", .. pathParts]);
+        if (!File.Exists(path))
+            throw new FileNotFoundException($"Sample not found: {path}");
+        return path;
     }
 
-    private static byte[] BuildTail(byte[] json)
-        => [.. json, .. "cameralbum!"u8, 0xFF, 0xFF, 0xFF, 0xFF];
+    private static byte[] ReadVivoTail(byte[] image)
+    {
+        int start = -1;
+        for (int i = image.Length - 6; i >= 0; i--)
+        {
+            if (image[i] == 'v' && image[i + 1] == 'i' && image[i + 2] == 'v' &&
+                image[i + 3] == 'o' && image[i + 4] == '{')
+            {
+                start = i;
+                break;
+            }
+        }
+
+        Assert.True(start >= 0, "The copied vivo sample must contain a vivo tail.");
+        byte[] marker = "cameralbum!"u8.ToArray();
+        Assert.True(IndexOf(image, marker, start) >= 0, "The copied vivo sample must contain the tail end marker.");
+        return image[start..];
+    }
+
+    private static int IndexOf(byte[] haystack, byte[] needle, int start)
+    {
+        for (int i = start; i <= haystack.Length - needle.Length; i++)
+        {
+            if (haystack.AsSpan(i, needle.Length).SequenceEqual(needle))
+                return i;
+        }
+        return -1;
+    }
+
+    private static byte[] Ftyp()
+        => [0, 0, 0, 8, (byte)'f', (byte)'t', (byte)'y', (byte)'p'];
+
+    private static string ExtractId(byte[] data)
+    {
+        byte[] marker = Encoding.UTF8.GetBytes("com.android.camera.livephoto\":\"");
+        int start = IndexOf(data, marker);
+        Assert.True(start >= 0);
+        start += marker.Length;
+        int end = Array.IndexOf(data, (byte)'\"', start);
+        Assert.True(end > start);
+        return Encoding.UTF8.GetString(data, start, end - start);
+    }
 
     private static byte[] BuildUuidBox(byte[] payload)
     {
-        int size = 8 + 16 + payload.Length;
+        byte[] userType = Encoding.ASCII.GetBytes("vivoMediaExtInfo");
+        int size = 8 + userType.Length + payload.Length;
         byte[] result = new byte[size];
-        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(result, size);
-        "uuid"u8.CopyTo(result.AsSpan(4));
-        "vivoMediaExtInfo"u8.CopyTo(result.AsSpan(8));
-        payload.CopyTo(result.AsSpan(24));
+        BinaryPrimitives.WriteUInt32BigEndian(result, (uint)size);
+        Encoding.ASCII.GetBytes("uuid").CopyTo(result, 4);
+        userType.CopyTo(result, 8);
+        payload.CopyTo(result, 8 + userType.Length);
         return result;
     }
 
@@ -224,5 +243,15 @@ public sealed class VivoDualFileCoverMetadataTests
                 count++;
         }
         return count;
+    }
+
+    private static int IndexOf(byte[] haystack, byte[] needle)
+    {
+        for (int i = 0; i <= haystack.Length - needle.Length; i++)
+        {
+            if (haystack.AsSpan(i, needle.Length).SequenceEqual(needle))
+                return i;
+        }
+        return -1;
     }
 }

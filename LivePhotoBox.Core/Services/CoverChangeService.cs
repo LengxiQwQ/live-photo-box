@@ -64,7 +64,14 @@ namespace LivePhotoBox.Services
         /// <summary>
         /// 按协议更换封面帧并写出目标文件。
         /// </summary>
-        public static async Task<CoverChangeResult> ChangeCoverAsync(
+        public static Task<CoverChangeResult> ChangeCoverAsync(
+            CoverChangeRequest request,
+            CancellationToken token)
+        {
+            return ProcessingPipelineRouter.RunAsync("cover", () => ChangeCoverLegacyAsync(request, token));
+        }
+
+        private static async Task<CoverChangeResult> ChangeCoverLegacyAsync(
             CoverChangeRequest request,
             CancellationToken token)
         {
@@ -542,29 +549,29 @@ namespace LivePhotoBox.Services
             string frameJpeg = await ExtractFrameAsync(
                 request, pairedVideoPath, workDir, "vivo_frame.jpg", token).ConfigureAwait(false);
 
+            byte[]? vivoTail = ReadVivoTail(request.ImagePath);
+            if (vivoTail is not { Length: > 0 })
+            {
+                LogService.Split("VivoOldCover: no vivo tail found in source JPEG — live pairing may be lost", LogLevel.Warning);
+            }
+
             string tempJpgPath = Path.Combine(workDir, $"frame_{Guid.NewGuid():N}.jpg");
             File.Copy(frameJpeg, tempJpgPath, overwrite: true);
             LogService.Split("VivoOldCover: copying EXIF from source", LogLevel.Info);
             await CopyExifFromSourceAsync(request.ImagePath, tempJpgPath, token).ConfigureAwait(false);
 
+            if (vivoTail is { Length: > 0 })
+            {
+                LogService.Split("VivoOldCover: appending vivo tail to output JPEG", LogLevel.Info);
+                await using (var dstFs = new FileStream(tempJpgPath, FileMode.Append, FileAccess.Write, FileShare.None))
+                {
+                    await dstFs.WriteAsync(vivoTail, 0, vivoTail.Length, token).ConfigureAwait(false);
+                }
+            }
+
             File.Copy(tempJpgPath, request.OutputImagePath, overwrite: true);
             LogService.Split("VivoOldCover: copying paired video", LogLevel.Info);
             File.Copy(pairedVideoPath, request.OutputVideoPath, overwrite: true);
-
-            long currentCoverTimeMs = await VivoDualFileMetadataWriter
-                .ResolveCurrentCoverTimeMillisecondsAsync(
-                    pairedVideoPath, request.TimestampUs, request.FrameIndex, token)
-                .ConfigureAwait(false);
-            LogService.Split(
-                $"VivoOldCover: rewriting pair metadata (newCoverTime={currentCoverTimeMs}ms)",
-                LogLevel.Info);
-            await VivoDualFileMetadataWriter.RewriteEditedPairMetadataAsync(
-                request.ImagePath,
-                pairedVideoPath,
-                request.OutputImagePath,
-                request.OutputVideoPath,
-                currentCoverTimeMs,
-                token).ConfigureAwait(false);
 
             TrySetLastWriteTime(request.OutputImagePath);
             TrySetLastWriteTime(request.OutputVideoPath);
@@ -771,7 +778,7 @@ namespace LivePhotoBox.Services
             try
             {
                 string outputPattern = Path.Combine(frameDir, "frame_%06d.jpg");
-                string args = $"-i \"{videoPath}\" -fps_mode passthrough " +
+                string args = $"-i \"{videoPath}\" -vsync 0 " +
                               $"-q:v 3 -f image2 \"{outputPattern}\" -y -loglevel error";
 
                 var psi = new ProcessStartInfo
@@ -949,6 +956,70 @@ namespace LivePhotoBox.Services
         // ═══════════════════════════════════════════════════════════
         //  辅助
         // ═══════════════════════════════════════════════════════════
+
+        private static byte[]? ReadVivoTail(string imagePath)
+        {
+            try
+            {
+                const int tailProbe = 8192;
+                using var srcFs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                int probeSize = (int)Math.Min(srcFs.Length, tailProbe);
+                if (probeSize < 6)
+                    return null;
+
+                byte[] probe = new byte[probeSize];
+                srcFs.Seek(-probeSize, SeekOrigin.End);
+                srcFs.ReadExactly(probe, 0, probeSize);
+
+                int vivoIndex = -1;
+                for (int i = probeSize - 6; i >= 0; i--)
+                {
+                    if (probe[i] == 'v' && probe[i + 1] == 'i' &&
+                        probe[i + 2] == 'v' && probe[i + 3] == 'o' &&
+                        probe[i + 4] == '{')
+                    {
+                        vivoIndex = i;
+                        break;
+                    }
+                }
+
+                if (vivoIndex < 0)
+                    return null;
+
+                byte[] endMarker = "cameralbum!"u8.ToArray();
+                int endIndex = -1;
+                for (int i = vivoIndex; i <= probeSize - endMarker.Length; i++)
+                {
+                    bool matched = true;
+                    for (int j = 0; j < endMarker.Length; j++)
+                    {
+                        if (probe[i + j] != endMarker[j])
+                        {
+                            matched = false;
+                            break;
+                        }
+                    }
+
+                    if (matched)
+                    {
+                        endIndex = i + endMarker.Length;
+                        break;
+                    }
+                }
+
+                if (endIndex <= vivoIndex)
+                    return null;
+
+                int tailLength = probeSize - vivoIndex;
+                byte[] tail = new byte[tailLength];
+                Array.Copy(probe, vivoIndex, tail, 0, tailLength);
+                return tail;
+            }
+            catch
+            {
+                return null;
+            }
+        }
 
         private static int ToProtocolIndex(LivePhotoProtocolType protocol)
         {

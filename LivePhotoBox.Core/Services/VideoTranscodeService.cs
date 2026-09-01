@@ -912,7 +912,7 @@ namespace LivePhotoBox.Services
             return false;
         }
 
-        internal static bool ShouldFallbackToSoftware(string errorOutput)
+        private static bool ShouldFallbackToSoftware(string errorOutput)
         {
             if (string.IsNullOrEmpty(errorOutput)) return false;
 
@@ -923,12 +923,9 @@ namespace LivePhotoBox.Services
                 "no capable devices found", "no device found", "failed to initialize", "device lost",
                 "could not open encoder", "error opening encoder", "failed to open encoder", "encoder not found",
                 "cuda_error", "cuda error", "nvenc encoder not found", "qsv encoder not found", "amf encoder not found",
-                "driver does not support the required nvenc api version", "minimum required nvidia driver for nvenc",
-                "required nvenc api version", "error while opening encoder",
                 "unsupported codec", "invalid codec", "encoder error", "encoding error",
                 "permission denied", "operation not permitted", "out of memory", "allocation failed", "driver not installed", "not supported",
-                "failed to encode", "encoding failed", "encode failed",
-                "error setting option rc", "unable to parse \"rc\" option value"
+                "failed to encode", "encoding failed", "encode failed"
             };
 
             foreach (var trigger in fallbackTriggers)
@@ -966,7 +963,7 @@ namespace LivePhotoBox.Services
             {
                 if (EncoderHelper.IsEncoderAvailable(forceEncoder))
                 {
-                    string encoderParams = EncoderHelper.GetHardwareEncoderParams(forceEncoder, (19, 21));
+                    string encoderParams = GetHardwareEncoderParams(forceEncoder, targetFormat);
                     LogService.Split($"Using forced encoder: {forceEncoder} for {targetFormat}");
                     return (forceEncoder, encoderParams);
                 }
@@ -988,7 +985,7 @@ namespace LivePhotoBox.Services
 
             if (!string.IsNullOrEmpty(savedEncoder) && IsEncoderAvailable(savedEncoder))
             {
-                string encoderParams = EncoderHelper.GetHardwareEncoderParams(savedEncoder, (19, 21));
+                string encoderParams = GetHardwareEncoderParams(savedEncoder, targetFormat);
                 LogService.Split($"Using hardware encoder: {savedEncoder} for {targetFormat}");
                 return (savedEncoder, encoderParams);
             }
@@ -1392,6 +1389,34 @@ namespace LivePhotoBox.Services
             if (targetFormat == VideoFormat.MP4) return "-pix_fmt yuv420p";
             if (encoder.ToLowerInvariant().Contains("hevc") || encoder.ToLowerInvariant().Contains("h265")) return "";
             return "";
+        }
+
+        private static string GetHardwareEncoderParams(string encoder, VideoFormat targetFormat)
+        {
+            string lowerEncoder = encoder.ToLowerInvariant();
+
+            // CRF 19 (H.264) / CRF 21 (HEVC)：输入≈输出码率的精准平衡点。
+            // CRF 20 仍会让原本 1 万 kbps 的源被压到 8000+，CRF 19 刚好持平。
+            if (lowerEncoder.StartsWith("h264"))
+            {
+                return lowerEncoder switch
+                {
+                    "h264_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 19 -b:v 0 -maxrate:v 30M -bufsize:v 60M -profile:v high",
+                    "h264_qsv" => "-global_quality 19 -look_ahead 1",
+                    "h264_amf" => "-preset quality -rc cqp -qp 19",
+                    "h264_vaapi" => "-quality 85 -rc_mode 1",
+                    _ => "-preset medium -crf 19"
+                };
+            }
+
+            return lowerEncoder switch
+            {
+                "hevc_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 21 -b:v 0 -maxrate:v 25M -bufsize:v 50M -tune hq",
+                "hevc_qsv" => "-global_quality 21 -look_ahead 1",
+                "hevc_amf" => "-preset quality -rc cqp -qp 21",
+                "hevc_vaapi" => "-quality 85 -rc_mode 1",
+                _ => "-preset medium -crf 21"
+            };
         }
 
         // 读取 FFmpeg 进程的 stderr 输出（异步）。

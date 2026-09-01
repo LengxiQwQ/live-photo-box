@@ -84,7 +84,7 @@ namespace LivePhotoBox.Cli.Commands
                 overwriteOpt, recursiveOpt, preserveSubdirsOpt
             };
 
-            cmd.SetAction(async parseResult =>
+            cmd.SetAction(async (parseResult, cancellationToken) =>
             {
                 string? singlePath = parseResult.GetValue(filesArg);
                 var dir = parseResult.GetValue(dirOpt);
@@ -168,13 +168,38 @@ namespace LivePhotoBox.Cli.Commands
                     allDevices, repairLongVideos, copyPerfect,
                     parallel, yes, json, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs,
-                    default);
+                    cancellationToken);
             });
 
             return cmd;
         }
 
         private static async Task<int> RunAsync(
+            string? singlePath, DirectoryInfo? dir, DirectoryInfo? output,
+            bool noRotate, bool noThumbnail, bool noHeic, bool noVideo,
+            bool allDevices, bool repairLongVideos, bool copyPerfect,
+            int parallel, bool yes, bool json, bool dryRun, bool verbose,
+            bool overwrite, bool recursive, bool preserveSubdirs,
+            CancellationToken ct)
+        {
+            try
+            {
+                return await ProcessingPipelineRouter.RunAsync("repair", () => RunLegacyAsync(
+                    singlePath, dir, output, noRotate, noThumbnail, noHeic, noVideo,
+                    allDevices, repairLongVideos, copyPerfect, parallel, yes, json, dryRun,
+                    verbose, overwrite, recursive, preserveSubdirs, ct));
+            }
+            catch (RebuiltPipelineNotReadyException exception)
+            {
+                if (json)
+                    Console.WriteLine(JsonSerializer.Serialize(new { status = "failed", errorCode = "rebuilt_not_ready", operation = exception.Operation, error = exception.Message }));
+                else
+                    CliConsole.WriteErrorLine($"Error: {exception.Message}");
+                return 1;
+            }
+        }
+
+        private static async Task<int> RunLegacyAsync(
             string? singlePath, DirectoryInfo? dir, DirectoryInfo? output,
             bool noRotate, bool noThumbnail, bool noHeic, bool noVideo,
             bool allDevices, bool repairLongVideos, bool copyPerfect,

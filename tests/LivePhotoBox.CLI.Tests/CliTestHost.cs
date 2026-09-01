@@ -1,6 +1,8 @@
 using System.CommandLine;
 using System.IO;
 using System.Threading.Tasks;
+using LivePhotoBox.Models;
+using LivePhotoBox.Services;
 
 namespace LivePhotoBox.Cli.Tests
 {
@@ -19,8 +21,15 @@ namespace LivePhotoBox.Cli.Tests
             var errWriter = new StringWriter();
             var oldOut = Console.Out;
             var oldErr = Console.Error;
+            string settingsDir = Path.Combine(Path.GetTempPath(), $"lpb-cli-settings-{Guid.NewGuid():N}");
+            string? oldSettingsPath = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
             try
             {
+                Directory.CreateDirectory(settingsDir);
+                Environment.SetEnvironmentVariable(
+                    "LIVEPHOTOBOX_BACKEND_SETTINGS_PATH",
+                    Path.Combine(settingsDir, "settings.json"));
+                ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
                 Console.SetOut(outWriter);
                 Console.SetError(errWriter);
                 int exitCode = await command.Parse(args).InvokeAsync();
@@ -32,6 +41,8 @@ namespace LivePhotoBox.Cli.Tests
             {
                 Console.SetOut(oldOut);
                 Console.SetError(oldErr);
+                Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", oldSettingsPath);
+                if (Directory.Exists(settingsDir)) Directory.Delete(settingsDir, recursive: true);
             }
         }
 

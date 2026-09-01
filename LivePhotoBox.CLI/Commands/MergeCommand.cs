@@ -88,7 +88,7 @@ namespace LivePhotoBox.Cli.Commands
                 allVariantsOpt, keyTimestampOpt
             };
 
-            cmd.SetAction(async parseResult =>
+            cmd.SetAction(async (parseResult, cancellationToken) =>
             {
                 var dir = parseResult.GetValue(dirOpt);
 
@@ -210,7 +210,7 @@ namespace LivePhotoBox.Cli.Commands
                     naming, namingExplicit, parallel, yes, json, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs, pairing, after,
                     allVariants, keyTimestampUs,
-                    default);
+                    cancellationToken);
             });
 
             return cmd;
@@ -243,6 +243,30 @@ namespace LivePhotoBox.Cli.Commands
         }
 
         private static async Task<int> RunAsync(
+            FileInfo? image, FileInfo? video, DirectoryInfo? dir,
+            string protocolName, DirectoryInfo? output, string? formatName,
+            string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,
+            bool overwrite, bool recursive, bool preserveSubdirs,
+            string pairing, string after, bool allVariants, long? keyTimestampUs, CancellationToken ct)
+        {
+            try
+            {
+                return await ProcessingPipelineRouter.RunAsync("merge", () => RunLegacyAsync(
+                    image, video, dir, protocolName, output, formatName, naming, namingExplicit,
+                    parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,
+                    pairing, after, allVariants, keyTimestampUs, ct));
+            }
+            catch (RebuiltPipelineNotReadyException exception)
+            {
+                if (json)
+                    Console.WriteLine(JsonSerializer.Serialize(new { status = "failed", errorCode = "rebuilt_not_ready", operation = exception.Operation, error = exception.Message }));
+                else
+                    CliConsole.WriteErrorLine($"Error: {exception.Message}");
+                return 1;
+            }
+        }
+
+        private static async Task<int> RunLegacyAsync(
             FileInfo? image, FileInfo? video, DirectoryInfo? dir,
             string protocolName, DirectoryInfo? output, string? formatName,
             string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,

@@ -2344,6 +2344,26 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="History_Action_Repair" xml:space="preserve">
     <value>修复</value>
   </data>
+  <data name="Processing_NotReady_Title" xml:space="preserve">
+    <value>重构版处理尚未就绪</value>
+  </data>
+  <data name="Processing_NotReady_Message" xml:space="preserve">
+    <value>“{0}”无法在“使用重构版处理”开启时运行。
+
+重构版处理分支尚未就绪，程序没有调用 Legacy，也没有创建输出。请前往设置关闭“使用重构版处理”，以使用保留的旧版兼容流程。</value>
+  </data>
+  <data name="Processing_NotReady_Operation_Merge" xml:space="preserve">
+    <value>合成</value>
+  </data>
+  <data name="Processing_NotReady_Operation_Split" xml:space="preserve">
+    <value>拆分</value>
+  </data>
+  <data name="Processing_NotReady_Operation_Cover" xml:space="preserve">
+    <value>编辑 / 封面</value>
+  </data>
+  <data name="Processing_NotReady_Operation_Repair" xml:space="preserve">
+    <value>修复</value>
+  </data>
   <data name="History_MergeDesc" xml:space="preserve">
     <value>协议: {0}</value>
   </data>
@@ -4394,26 +4414,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve">
     <value>开始修复（Ctrl+Enter）/ 停止（双击 Esc）</value>
   </data>
-  <data name="SettingsPage_ProcessingBackend_Header.Text" xml:space="preserve"><value>处理引擎</value></data>
-  <data name="SettingsPage_ProcessingBackend_Mode.Text" xml:space="preserve"><value>默认处理模式</value></data>
-  <data name="SettingsPage_ProcessingBackend_Mode_Desc.Text" xml:space="preserve"><value>自动模式只启用稳定的 Native 实现，其余操作安全回退到旧版</value></data>
-  <data name="SettingsPage_ProcessingBackend_Mode_Auto.Content" xml:space="preserve"><value>自动（推荐）</value></data>
-  <data name="SettingsPage_ProcessingBackend_Mode_Legacy.Content" xml:space="preserve"><value>全部使用旧版</value></data>
-  <data name="SettingsPage_ProcessingBackend_Mode_Custom.Content" xml:space="preserve"><value>按协议自定义</value></data>
-  <data name="SettingsPage_ProcessingBackend_ProtocolToggle.OnContent" xml:space="preserve"><value>优先 Native</value></data>
-  <data name="SettingsPage_ProcessingBackend_ProtocolToggle.OffContent" xml:space="preserve"><value>旧版</value></data>
-  <data name="SettingsPage_ProcessingBackend_Protocols.Text" xml:space="preserve"><value>按协议选择处理引擎</value></data>
-  <data name="SettingsPage_ProcessingBackend_Protocols_Desc.Text" xml:space="preserve"><value>展开后可分别选择旧版或 Native 实现</value></data>
-  <data name="SettingsPage_ProcessingBackend_Status_Unavailable" xml:space="preserve"><value>Native 尚未完成</value></data>
-  <data name="SettingsPage_ProcessingBackend_Status_Preview" xml:space="preserve"><value>Native 预览版可用</value></data>
-  <data name="SettingsPage_ProcessingBackend_Status_Stable" xml:space="preserve"><value>Native 稳定版可用</value></data>
-  <data name="SettingsPage_ProcessingBackend_google_v1" xml:space="preserve"><value>Google MicroVideo V1</value></data>
-  <data name="SettingsPage_ProcessingBackend_google_v2" xml:space="preserve"><value>Google Motion Photo V2 / 小米</value></data>
-  <data name="SettingsPage_ProcessingBackend_oppo" xml:space="preserve"><value>OPPO / 一加</value></data>
-  <data name="SettingsPage_ProcessingBackend_vivo_x300" xml:space="preserve"><value>vivo X300</value></data>
-  <data name="SettingsPage_ProcessingBackend_vivo_legacy" xml:space="preserve"><value>vivo X200 及更早双文件</value></data>
-  <data name="SettingsPage_ProcessingBackend_huawei_honor" xml:space="preserve"><value>华为 / 荣耀</value></data>
-  <data name="SettingsPage_ProcessingBackend_samsung_jpeg" xml:space="preserve"><value>Samsung JPEG</value></data>
-  <data name="SettingsPage_ProcessingBackend_samsung_heic" xml:space="preserve"><value>Samsung HEIC</value></data>
-  <data name="SettingsPage_ProcessingBackend_apple" xml:space="preserve"><value>Apple Live Photo</value></data>
+  <data name="SettingsPage_General_ProcessingVersion.Text" xml:space="preserve"><value>使用重构版处理</value></data>
+  <data name="SettingsPage_General_ProcessingVersion_Desc.Text" xml:space="preserve"><value>重构版是隔离的新分支，当前尚未实现任何协议；关闭后使用保留的旧版兼容流程</value></data>
 </root>

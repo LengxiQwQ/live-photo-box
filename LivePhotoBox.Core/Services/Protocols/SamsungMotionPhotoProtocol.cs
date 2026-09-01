@@ -15,7 +15,6 @@
 using System;
 using System.Buffers.Binary;
 using System.Text;
-using LivePhotoBox.Interop;
 
 namespace LivePhotoBox.Services.Protocols
 {
@@ -75,28 +74,6 @@ namespace LivePhotoBox.Services.Protocols
         /// </returns>
         public static byte[] BuildTrailer(byte[] videoData, string imageType, long imageSize = 0)
         {
-            var runtimeInfo = NativeRuntime.Probe();
-            if (runtimeInfo.IsAvailable && (
-                (runtimeInfo.Capabilities & NativeRuntime.SamsungJpegCapability) != 0 || 
-                (runtimeInfo.Capabilities & NativeRuntime.SamsungHeicCapability) != 0))
-            {
-                byte[]? nativeResult = Interop.NativeSamsungSef.BuildTrailer(videoData, imageType, imageSize);
-                if (nativeResult != null)
-                {
-                    return nativeResult;
-                }
-                // Fallback to legacy if native fails
-            }
-
-            return BuildTrailerLegacy(videoData, imageType, imageSize);
-        }
-
-        /// <summary>
-        /// Builds the managed fallback trailer. Kept internal so Native differential
-        /// tests can compare both implementations without changing runtime selection.
-        /// </summary>
-        internal static byte[] BuildTrailerLegacy(byte[] videoData, string imageType, long imageSize = 0)
-        {
             bool isHeic = string.Equals(imageType, "heic", StringComparison.OrdinalIgnoreCase);
 
             // Build the MotionPhoto_Data payload
@@ -104,10 +81,8 @@ namespace LivePhotoBox.Services.Protocols
             if (isHeic)
             {
                 // HEIC: "mpv2" + video_offset(BE u32) + video_size(BE u32) = 12 bytes
-                // Samsung's mpv2 pointer is relative to the beginning of the
-                // mpvd box, so the MP4 starts immediately after its 8-byte
-                // header.  Do not write an absolute file offset here.
-                long videoOffset = BoxHeaderSize;
+                // video_offset = imageSize + 8 (mpvd box header)
+                long videoOffset = imageSize + BoxHeaderSize;
                 motionPhotoPayload = new byte[12];
                 Array.Copy(Mpv2Signature, 0, motionPhotoPayload, 0, 4);
                 BinaryPrimitives.WriteInt32BigEndian(motionPhotoPayload.AsSpan(4), (int)videoOffset);

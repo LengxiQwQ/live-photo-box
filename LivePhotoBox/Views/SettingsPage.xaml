@@ -299,6 +299,8 @@
                         <TextBlock x:Uid="SettingsPage_General_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
+                    <appControls:ProcessingEngineSettingsControl/>
+
                     <controls:SettingsCard FontFamily="Microsoft YaHei UI">
                     <controls:SettingsCard.Header>
                         <TextBlock x:Uid="SettingsPage_General_RecursiveScan" FontFamily="Microsoft YaHei UI"/>
@@ -368,8 +370,6 @@
                 </controls:SettingsCard>
 
             </StackPanel>
-
-            <appControls:ProcessingEngineSettingsControl/>
 
             <!-- ====================================================================== -->
             <!--  视频转码                                                             -->

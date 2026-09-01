@@ -93,9 +93,7 @@ namespace LivePhotoBox.Services
             {
                 return lower switch
                 {
-                    // FFmpeg 9 removed the deprecated NVENC VBR_HQ alias. Use
-                    // the current VBR mode with the same quality controls.
-                    "h264_nvenc" => "-preset p5 -rc:v vbr -cq:v 19 -b:v 0 -maxrate:v 30M -bufsize:v 60M -profile:v high",
+                    "h264_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 19 -b:v 0 -maxrate:v 30M -bufsize:v 60M -profile:v high",
                     "h264_qsv"   => "-global_quality 19 -look_ahead 1",
                     "h264_amf"   => "-preset quality -rc cqp -qp 19",
                     "h264_vaapi" => "-quality 85 -rc_mode 1",
@@ -105,7 +103,7 @@ namespace LivePhotoBox.Services
 
             return lower switch
             {
-                "hevc_nvenc" => "-preset p5 -rc:v vbr -cq:v 21 -b:v 0 -maxrate:v 25M -bufsize:v 50M -tune hq",
+                "hevc_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 21 -b:v 0 -maxrate:v 25M -bufsize:v 50M -tune hq",
                 "hevc_qsv"   => "-global_quality 21 -look_ahead 1",
                 "hevc_amf"   => "-preset quality -rc cqp -qp 21",
                 "hevc_vaapi" => "-quality 85 -rc_mode 1",

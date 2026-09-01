@@ -217,7 +217,7 @@ namespace LivePhotoBox.Services.Protocols
         //   OPPO：MotionPhotoPrimaryPresentationTimestampUs（原始拍摄帧，微秒）
         //   华为：com.openharmony.covertime（毫秒）/ 尾部 v6_fXX + PPP:QQQQ
         // 全无则用视频时长的中点兜底（参照协议文档）。
-        internal static async Task<double> ResolveCoverSecondsAsync(
+        private static async Task<double> ResolveCoverSecondsAsync(
             string sourcePath, string metadataText, string videoOutputPath, CancellationToken token)
         {
             // 1. V2 当前封面帧（Google V2 / OPPO / vivo / 三星）。

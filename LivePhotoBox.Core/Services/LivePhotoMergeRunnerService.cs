@@ -65,6 +65,19 @@ namespace LivePhotoBox.Services
             Action<IMergeTaskInfo>? onTaskStarted,
             Action<IMergeTaskInfo, bool, string, int>? onTaskCompleted)
         {
+            await ProcessingPipelineRouter.RunAsync("merge", () => RunLegacyAsync(
+                tasks, options, pauseEvent, cancellationToken, onTaskStarted, onTaskCompleted))
+                .ConfigureAwait(false);
+        }
+
+        private static async Task RunLegacyAsync(
+            IReadOnlyCollection<IMergeTaskInfo> tasks,
+            LivePhotoMergeRunOptions options,
+            ManualResetEventSlim pauseEvent,
+            CancellationToken cancellationToken,
+            Action<IMergeTaskInfo>? onTaskStarted,
+            Action<IMergeTaskInfo, bool, string, int>? onTaskCompleted)
+        {
             Directory.CreateDirectory(options.OutputDirectory);
             string tempDir = Path.Combine(options.OutputDirectory, "Temp");
             Directory.CreateDirectory(tempDir);
@@ -98,7 +111,7 @@ namespace LivePhotoBox.Services
 
                         onTaskStarted?.Invoke(task);
 
-                        var result = await ProcessSinglePairAsync(
+                        var result = await ProcessSinglePairLegacyAsync(
                             task.ImagePath, task.VideoPath, task.BaseName, task.Index, options, tempDir,
                             cancellationToken)
                             .ConfigureAwait(false);
@@ -148,7 +161,20 @@ namespace LivePhotoBox.Services
         // tempDir: 临时文件目录。
         // token: 取消令牌。
         // 返回: (是否成功, 结果描述)
-        public static async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
+        public static Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
+            string imagePath,
+            string videoPath,
+            string baseName,
+            int taskIndex,
+            LivePhotoMergeRunOptions options,
+            string tempDir,
+            CancellationToken token)
+        {
+            return ProcessingPipelineRouter.RunAsync("merge", () => ProcessSinglePairLegacyAsync(
+                imagePath, videoPath, baseName, taskIndex, options, tempDir, token));
+        }
+
+        private static async Task<(bool IsSuccess, string Details)> ProcessSinglePairLegacyAsync(
             string imagePath,
             string videoPath,
             string baseName,
@@ -205,7 +231,7 @@ namespace LivePhotoBox.Services
                 // the Apple mebx track (StillImageTime) and vivo uuid box are
                 // discarded by ffmpeg's -map 0:V:0 selector.
                 long coverTimestampUs = options.KeyPhotoTimestampUs
-                    ?? await LivePhotoMergeService.ReadSourceCoverTimestampAsync(videoPath, token);
+                    ?? LivePhotoMergeService.ReadSourceCoverTimestamp(videoPath);
 
                 // ── 源协议标记清洗（Fusion 除外）──────────────────────────────
                 // 双文件源 → 单文件前，剥离源协议（苹果/各品牌）的实况照片标记，

@@ -15,7 +15,7 @@ public sealed class HuaweiMovingPhotoDifferentialTests
         const long mp4Size = 12_345_678;
 
         byte[] expected = HuaweiMovingPhotoProtocol.BuildTail(
-            coverFrame, totalFrames, mp4Size, tailPrefix: "v6_f", preferNative: false);
+            coverFrame, totalFrames, mp4Size, tailPrefix: "v6_f");
 
         Assert.True(NativeHuaweiMovingPhoto.TryBuildTail(
             coverFrame, totalFrames, mp4Size, 0, 0, "v6_f", out byte[] actual, out string? error), error);
@@ -34,7 +34,7 @@ public sealed class HuaweiMovingPhotoDifferentialTests
 
         byte[] expected = HuaweiMovingPhotoProtocol.BuildTail(
             coverFrame, totalFrames, mp4Size, originalCoverMs, originalDurationMs,
-            tailPrefix: "v6_f", preferNative: false);
+            tailPrefix: "v6_f");
 
         Assert.True(NativeHuaweiMovingPhoto.TryBuildTail(
             coverFrame, totalFrames, mp4Size, originalCoverMs, originalDurationMs,

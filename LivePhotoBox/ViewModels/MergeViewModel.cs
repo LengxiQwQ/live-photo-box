@@ -1313,7 +1313,14 @@ namespace LivePhotoBox.ViewModels
             RefreshTaskView();
 
             IsDirectoryPanelOpen = false;
-            await RunTasksAsync();
+            try
+            {
+                await RunTasksAsync();
+            }
+            catch (RebuiltPipelineNotReadyException exception)
+            {
+                await ProcessingNotReadyDialogService.ShowAsync(exception.Operation);
+            }
         }
 
         #endregion
@@ -1430,7 +1437,12 @@ namespace LivePhotoBox.ViewModels
         // 处理流程：初始化状态 → 创建输出/临时目录 → 按并发限制并行处理任务 →
         // 对 HEIC 图片转码 JPEG、视频转码 MP4、协议预处理 → 写入实况照片文件 →
         // 清理临时文件 → 显示结果对话框。
-        private async Task RunTasksAsync()
+        private Task RunTasksAsync()
+        {
+            return ProcessingPipelineRouter.RunAsync("merge", RunLegacyTasksAsync);
+        }
+
+        private async Task RunLegacyTasksAsync()
         {
             InitializeRunState();
             _stopwatch = Stopwatch.StartNew();

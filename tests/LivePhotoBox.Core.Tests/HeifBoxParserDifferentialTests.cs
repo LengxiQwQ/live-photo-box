@@ -77,10 +77,10 @@ public sealed class HeifBoxParserDifferentialTests
         byte[] file = [.. ftyp, .. meta, .. new byte[500]];
 
         // Test Legacy C# parser
-        bool legacySuccess = HeifBoxParser.TryLocateExifItem(file, out long legacyOffset, out long legacyLength, out string? legacyError, preferNative: false);
+        bool legacySuccess = HeifBoxParser.TryLocateExifItem(file, out long legacyOffset, out long legacyLength, out string? legacyError);
         
         // Test Native C++ parser
-        bool nativeSuccess = HeifBoxParser.TryLocateExifItem(file, out long nativeOffset, out long nativeLength, out string? nativeError, preferNative: true);
+        bool nativeSuccess = NativeHeifBoxParser.TryLocateExifItem(file, out long nativeOffset, out long nativeLength, out string? nativeError);
 
         Assert.True(legacySuccess, $"Legacy parser failed: {legacyError}");
         Assert.True(nativeSuccess, $"Native parser failed: {nativeError}");

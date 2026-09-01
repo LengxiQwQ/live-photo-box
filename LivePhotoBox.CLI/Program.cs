@@ -11,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace LivePhotoBox.Cli
@@ -94,11 +95,16 @@ namespace LivePhotoBox.Cli
                     {
                         try
                         {
-                            exitCode = await parseResult.InvokeAsync();
+                            int invocationExitCode = await parseResult.InvokeAsync();
+                            // Command actions in System.CommandLine return 0 even when
+                            // they set Environment.ExitCode themselves.
+                            exitCode = invocationExitCode != 0
+                                ? invocationExitCode
+                                : Environment.ExitCode;
                         }
                         catch (Exception ex)
                         {
-                            OnUnhandledException(ex);
+                            OnUnhandledException(ex, args);
                             exitCode = 1;
                         }
                     }
@@ -177,9 +183,28 @@ namespace LivePhotoBox.Cli
 
         // 未处理异常（命令处理器抛出的、未被内部 catch 捕获的）→ 记录进日志（含堆栈）+ 输出到 stderr。
         // 退出码由异常处理器中间件置 1；随后 Main 的 finally 会再写一条退出码日志 + CLEAN SHUTDOWN。
-        private static void OnUnhandledException(Exception exception)
+        private static void OnUnhandledException(Exception exception, string[] args)
         {
             LogService.Error($"Unhandled CLI exception: {exception}", exception, LogSource.System);
+            if (exception is RebuiltPipelineNotReadyException rebuilt)
+            {
+                string rebuiltMessage = rebuilt.Message;
+                if (args.Contains("--json", StringComparer.OrdinalIgnoreCase))
+                {
+                    Console.WriteLine(JsonSerializer.Serialize(new
+                    {
+                        status = "failed",
+                        errorCode = "rebuilt_not_ready",
+                        operation = rebuilt.Operation,
+                        error = rebuiltMessage
+                    }));
+                }
+                else
+                {
+                    CliConsole.WriteErrorLine($"Error: {rebuiltMessage}");
+                }
+                return;
+            }
             string message = exception switch
             {
                 FileNotFoundException e => $"File not found: {e.FileName ?? e.Message}",

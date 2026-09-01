@@ -144,7 +144,7 @@ namespace LivePhotoBox.Cli.Commands
                 allVariantsOpt
             };
 
-            cmd.SetAction(async parseResult =>
+            cmd.SetAction(async (parseResult, cancellationToken) =>
             {
                 string? singlePath = parseResult.GetValue(filesArg);
                 var dir = parseResult.GetValue(dirOpt);
@@ -245,13 +245,37 @@ namespace LivePhotoBox.Cli.Commands
                     singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs, after, allVariants, keyTimestampUs,
-                    default);
+                    cancellationToken);
             });
 
             return cmd;
         }
 
         private static async Task<int> RunAsync(
+            string? singlePath, DirectoryInfo? dir,
+            string pairingName, string protocolName, string? formatName, DirectoryInfo? output,
+            string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,
+            bool overwrite, bool recursive, bool preserveSubdirs, string after, bool allVariants, long? keyTimestampUs,
+            CancellationToken ct)
+        {
+            try
+            {
+                return await ProcessingPipelineRouter.RunAsync("split", () => RunLegacyAsync(
+                    singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
+                    parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,
+                    after, allVariants, keyTimestampUs, ct));
+            }
+            catch (RebuiltPipelineNotReadyException exception)
+            {
+                if (json)
+                    Console.WriteLine(JsonSerializer.Serialize(new { status = "failed", errorCode = "rebuilt_not_ready", operation = exception.Operation, error = exception.Message }));
+                else
+                    CliConsole.WriteErrorLine($"Error: {exception.Message}");
+                return 1;
+            }
+        }
+
+        private static async Task<int> RunLegacyAsync(
             string? singlePath, DirectoryInfo? dir,
             string pairingName, string protocolName, string? formatName, DirectoryInfo? output,
             string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,

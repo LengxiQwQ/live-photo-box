@@ -205,7 +205,21 @@ namespace LivePhotoBox.Services
         // targetPath: Output file path.
         // selectedModeIndex: Protocol index.
         // token: Cancellation token.
-        public static async Task WriteLivePhotoAsync(
+        public static Task WriteLivePhotoAsync(
+            string sourceImg,
+            string sourceVid,
+            string targetPath,
+            int selectedModeIndex,
+            CancellationToken token,
+            long presentationTimestampUs = 0,
+            int outputFormatIndex = 0)
+        {
+            return ProcessingPipelineRouter.RunAsync("merge", () => WriteLivePhotoLegacyAsync(
+                sourceImg, sourceVid, targetPath, selectedModeIndex, token,
+                presentationTimestampUs, outputFormatIndex));
+        }
+
+        private static async Task WriteLivePhotoLegacyAsync(
             string sourceImg,
             string sourceVid,
             string targetPath,
@@ -447,13 +461,6 @@ namespace LivePhotoBox.Services
             int originalDurationMs = 0,
             string tailPrefix = "v6_f")
         {
-            bool preferNative = false;
-            if (Models.ProcessingBackendProtocolCatalog.TryResolve("huawei-honor", out var def) && def != null)
-            {
-                preferNative = ProcessingBackendSettingsService.ShouldPreferNative(
-                    ProcessingBackendSettingsService.Load(), def);
-            }
-
             long videoSize = new FileInfo(sourceVid).Length;
 
             // 1. Get total video frame count (ffprobe nb_frames preferred, exiftool fallback)
@@ -473,6 +480,8 @@ namespace LivePhotoBox.Services
             }
 
             // 1.6 Write com.openharmony.covertime to MP4 metadata.
+            // Huawei Gallery reads this tag (in milliseconds) to position the cover frame.
+            // Without it, the cover defaults to the first frame regardless of the tail values.
             string? covertimeMp4ToCleanup = null;
             if (presentationTimestampUs > 0)
             {
@@ -482,71 +491,27 @@ namespace LivePhotoBox.Services
                 videoSize = new FileInfo(sourceVid).Length; // remux may change MP4 size
             }
 
-            // 1.7 嵌入视频 ftyp 品牌修正与 ©too (Lavf) 补丁
-            string? patchedMp4ToCleanup = null;
-            string? nativePatchedMp4ToCleanup = null;
-            bool useLegacyMp4Patch = true;
+            // 1.7 嵌入视频 ftyp 品牌修正（P2-8）：真机华为 HEIC 实况的嵌入 MP4 为
+            //     major=mp42 / compat=[iso2, mp42]，而 ffmpeg 默认写 isom/[isom,iso2,avc1,mp41]。
+            //     字节级改写品牌（保持 box 尺寸不变，避免破坏 moov/stco 偏移），
+            //     与真机结构一致，拆分定位逻辑（按 ftyp 定位）不受影响。
+            sourceVid = await PatchMp4FtypBrandAsync(sourceVid, targetPath, token);
+            string? patchedMp4ToCleanup = sourceVid;
+            videoSize = new FileInfo(sourceVid).Length; // 品牌改写不改变尺寸，保险起见重读
 
-            if (preferNative)
-            {
-                try
-                {
-                    byte[] mp4Data = await File.ReadAllBytesAsync(sourceVid, token);
-                    if (Interop.NativeHuaweiMovingPhoto.TryPatchMp4(mp4Data, out string? patchError))
-                    {
-                        nativePatchedMp4ToCleanup = Path.Combine(Path.GetTempPath(), $"lpb_hmp4_{Guid.NewGuid():N}.mp4");
-                        await File.WriteAllBytesAsync(nativePatchedMp4ToCleanup, mp4Data, token);
-                        sourceVid = nativePatchedMp4ToCleanup;
-                        videoSize = mp4Data.Length;
-                        useLegacyMp4Patch = false;
-                        LogService.Merge("HUAWEI Native MP4 patcher applied.", LogLevel.Debug);
-                    }
-                    else
-                    {
-                        LogService.Merge($"HUAWEI Native MP4 patcher failed; using Legacy: {patchError}", LogLevel.Warning);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogService.Merge($"HUAWEI Native MP4 patcher exception; using Legacy: {ex.Message}", LogLevel.Warning);
-                }
-            }
-
-            if (useLegacyMp4Patch)
-            {
-                sourceVid = await PatchMp4FtypBrandAsync(sourceVid, targetPath, token);
-                patchedMp4ToCleanup = sourceVid;
-                videoSize = new FileInfo(sourceVid).Length;
-            }
-
-            // 2. Build 60-byte tail
+            // 2. Build 60-byte tail (preserve original PPP:QQQQ when provided)
             byte[] tail = originalDurationMs > 0
                 ? HuaweiMovingPhotoProtocol.BuildTail(coverFrame, totalFrames, videoSize,
-                    originalCoverMs, originalDurationMs, tailPrefix, preferNative)
-                : HuaweiMovingPhotoProtocol.BuildTail(coverFrame, totalFrames, videoSize, tailPrefix, preferNative);
+                    originalCoverMs, originalDurationMs, tailPrefix)
+                : HuaweiMovingPhotoProtocol.BuildTail(coverFrame, totalFrames, videoSize, tailPrefix);
 
             // 3. Write still image → target
             if (isHeicOutput)
             {
                 // Read source HEIC, patch ftyp to include "tmap" brand
                 byte[] heicData = await File.ReadAllBytesAsync(sourceImg, token);
-                if (preferNative)
-                {
-                    if (Interop.NativeHuaweiMovingPhoto.TryPatchHeicFtyp(heicData, out string? heicError))
-                    {
-                        LogService.Merge("HUAWEI Native HEIC ftyp patched.", LogLevel.Debug);
-                    }
-                    else
-                    {
-                        LogService.Merge($"HUAWEI Native HEIC ftyp failed; using Legacy: {heicError}", LogLevel.Warning);
-                        heicData = InsertTmapBrand(heicData);
-                    }
-                }
-                else
-                {
-                    heicData = InsertTmapBrand(heicData);
-                }
-                await File.WriteAllBytesAsync(targetPath, heicData, token);
+                byte[] patched = InsertTmapBrand(heicData);
+                await File.WriteAllBytesAsync(targetPath, patched, token);
             }
             else
             {
@@ -571,26 +536,20 @@ namespace LivePhotoBox.Services
                 await vidFs.CopyToAsync(targetFs, token);
                 await targetFs.WriteAsync(tail, 0, tail.Length, token);
             }
-
             // Clean up temp MP4s created by covertime injection / ftyp brand patch
             if (covertimeMp4ToCleanup != null)
             {
                 try { if (File.Exists(covertimeMp4ToCleanup)) File.Delete(covertimeMp4ToCleanup); } catch { }
             }
-            if (patchedMp4ToCleanup != null && patchedMp4ToCleanup != sourceVid)
+            if (patchedMp4ToCleanup != null)
             {
                 try { if (File.Exists(patchedMp4ToCleanup)) File.Delete(patchedMp4ToCleanup); } catch { }
             }
-            if (nativePatchedMp4ToCleanup != null)
-            {
-                try { if (File.Exists(nativePatchedMp4ToCleanup)) File.Delete(nativePatchedMp4ToCleanup); } catch { }
-            }
 
-            // 5. ©too 补丁 (Legacy)
-            if (useLegacyMp4Patch)
-            {
-                PatchMp4TooAtom(targetPath, token);
-            }
+            // 5. ©too 补丁：真机华为 HEIC 实况的 moov/udta/meta/ilst 含
+            //    ©too = "Openharmony6.1"。ffmpeg 默认写 "LavfXX.XX.XXX" 且
+            //    -metadata too=... 无效（实测仍为 Lavf），需字节级改写。
+            PatchMp4TooAtom(targetPath, token);
 
             // 6. JPEG 后处理：方案 A——不改写 EXIF Make（保留来源 Make，避免 exiftool
             //    对残留 Apple MakerNote 实况条目报 Bad format）。详见方法头注释的方案 A/B。
@@ -602,7 +561,7 @@ namespace LivePhotoBox.Services
         }
 
         // Estimate total video frame count. Prefers ffprobe nb_frames (exact),
-        // then exiftool MediaDuration × actual VideoFrameRate,
+        // then exiftool MediaDuration (30fps approximation),
         // then ffmpeg frame-by-frame count (exact, slower), then falls back to 1.
         public static async Task<int> DetectVideoFrameCountAsync(string videoPath, CancellationToken token)
         {
@@ -640,7 +599,7 @@ namespace LivePhotoBox.Services
             catch (OperationCanceledException) { throw; }
             catch { /* fall through to exiftool */ }
 
-            // 2. Fallback: exiftool MediaDuration × actual VideoFrameRate.
+            // 2. Fallback: exiftool MediaDuration × 30fps (legacy)
             try
             {
                 string? exifToolPath = ExternalToolLocator.FindExifTool();
@@ -668,8 +627,7 @@ namespace LivePhotoBox.Services
                             double duration = ParseMediaDuration(raw);
                             if (duration > 0)
                             {
-                                double fps = await DetectVideoFpsAsync(videoPath, token);
-                                int frames = (int)Math.Round(duration * fps);
+                                int frames = (int)Math.Ceiling(duration * 30);
                                 return Math.Max(1, frames);
                             }
                         }
@@ -702,7 +660,7 @@ namespace LivePhotoBox.Services
             try
             {
                 string outputPattern = Path.Combine(frameDir, "frame_%06d.jpg");
-                string args = $"-i \"{videoPath}\" -fps_mode passthrough " +
+                string args = $"-i \"{videoPath}\" -vsync 0 " +
                               $"-q:v 3 -f image2 \"{outputPattern}\" -y -loglevel error";
 
                 var psi = new ProcessStartInfo
@@ -1201,19 +1159,31 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            byte[] imageBytes = await File.ReadAllBytesAsync(sourceImg, token);
-            if (!LivePhotoBox.Interop.NativeJpegEditor.TryInjectXmp(imageBytes, xmpBytes, out byte[]? newJpegBytes, out string? error))
-            {
-                LogService.Merge($"Native JPEG Editor failed to inject XMP: {error}", LogLevel.Error);
-                throw new InvalidOperationException($"Native JPEG Editor failed: {error}");
-            }
+            // Build the complete JPEG prefix: SOI + APP1 marker + segment length + XMP header
+            // as a SINGLE byte array written with one WriteAsync call.
+            // Do NOT mix sync WriteByte with async WriteAsync on the same FileStream —
+            // they use different I/O code paths and the OS may reorder the writes,
+            // causing the XMP segment to land AFTER the source image data instead of before it.
+            byte[] prefix = new byte[4 + 2 + XmpHeader.Length];
+            prefix[0] = 0xFF; prefix[1] = 0xD8;               // SOI
+            prefix[2] = 0xFF; prefix[3] = 0xE1;               // APP1 marker
+            prefix[4] = (byte)(segmentLength >> 8);           // segment length hi
+            prefix[5] = (byte)(segmentLength & 0xFF);         // segment length lo
+            Array.Copy(XmpHeader, 0, prefix, 6, XmpHeader.Length);   // XMP header
 
             using var targetFs = new FileStream(
                 targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
                 bufferSize: 8192, useAsync: true);
 
-            byte[] finalJpeg = newJpegBytes ?? imageBytes;
-            await targetFs.WriteAsync(finalJpeg, 0, finalJpeg.Length, token);
+            await targetFs.WriteAsync(prefix, 0, prefix.Length, token);
+            await targetFs.WriteAsync(xmpBytes, 0, xmpBytes.Length, token);
+
+            // Copy the rest of the source JPEG (skipping its SOI which we already wrote)
+            using var imgFs = new FileStream(
+                sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 8192, useAsync: true);
+            imgFs.Position = 2;  // skip source JPEG's SOI
+            await imgFs.CopyToAsync(targetFs, token);
 
             // Append video
             using var vidFs = new FileStream(
@@ -1347,13 +1317,37 @@ namespace LivePhotoBox.Services
                     "image/jpeg", tagHeaderPadding.ToString(), videoMime);
             }
 
-            byte[] imageBytes = await File.ReadAllBytesAsync(sourceImg, token);
-            if (!LivePhotoBox.Interop.NativeJpegEditor.TryInjectXmp(imageBytes, xmpBytes, out byte[]? newJpegBytes, out string? error))
+            // Inject XMP into JPEG — write directly (same pattern as WriteNativeAsync),
+            // NOT via exiftool which parses and strips unknown XMP namespaces
+            // (OpCamera, VCamera, LivePhotoBox).
+            int segmentLength = 2 + XmpHeader.Length + xmpBytes.Length;
+            if (segmentLength > ushort.MaxValue)
             {
-                LogService.Merge($"Native JPEG Editor failed to inject XMP: {error}", LogLevel.Error);
-                throw new InvalidOperationException($"Native JPEG Editor failed: {error}");
+                LogService.Merge($"XMP metadata too large: {segmentLength} bytes", LogLevel.Error);
+                throw new InvalidOperationException(
+                    ResourceService.Format("Error_XmpMetadataTooLarge", segmentLength));
             }
-            byte[] jpegData = newJpegBytes ?? imageBytes;
+
+            byte[] prefix = new byte[4 + 2 + XmpHeader.Length];
+            prefix[0] = 0xFF; prefix[1] = 0xD8;                 // SOI
+            prefix[2] = 0xFF; prefix[3] = 0xE1;                 // APP1 marker
+            prefix[4] = (byte)(segmentLength >> 8);              // segment length hi
+            prefix[5] = (byte)(segmentLength & 0xFF);            // segment length lo
+            Array.Copy(XmpHeader, 0, prefix, 6, XmpHeader.Length); // XMP namespace header
+
+            byte[] jpegData;
+            using (var imgFs = new FileStream(
+                sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 8192, useAsync: true))
+            {
+                // Skip source JPEG's SOI (we write our own)
+                imgFs.Position = 2;
+                using var ms = new MemoryStream();
+                await ms.WriteAsync(prefix, 0, prefix.Length, token);
+                await ms.WriteAsync(xmpBytes, 0, xmpBytes.Length, token);
+                await imgFs.CopyToAsync(ms, token);
+                jpegData = ms.ToArray();
+            }
 
             // Write: JPEG (with injected XMP) + Trailer
             using (var targetFs = new FileStream(
@@ -1544,9 +1538,7 @@ namespace LivePhotoBox.Services
         /// MUST be called BEFORE ffmpeg transcode — the Apple mebx track is
         /// discarded by ffmpeg's -map 0:V:0 selector.
         /// </remarks>
-        public static async Task<long> ReadSourceCoverTimestampAsync(
-            string videoPath,
-            CancellationToken token)
+        public static long ReadSourceCoverTimestamp(string videoPath)
         {
             // ── Apple Live Photo ──
             if (videoPath.EndsWith(".mov", StringComparison.OrdinalIgnoreCase))
@@ -1558,9 +1550,77 @@ namespace LivePhotoBox.Services
             }
 
             // ── vivo old (MP4 with vivoMediaExtInfo uuid box) ──
-            VivoDualFileResolvedTiming? timing =
-                await VivoDualFileMetadataWriter.ResolveCoverTimingAsync(videoPath, token);
-            return timing?.CurrentTimestampUs ?? 0;
+            return ReadVivoImageTime(videoPath);
+        }
+
+        /// <summary>
+        /// Extract com.android.camera.imageTime from the vivo JSON tail
+        /// inside the MP4's vivoMediaExtInfo uuid box. Returns microseconds.
+        /// </summary>
+        private static long ReadVivoImageTime(string videoPath)
+        {
+            if (!videoPath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase))
+                return 0;
+
+            try
+            {
+                using var fs = new FileStream(
+                    videoPath, FileMode.Open, FileAccess.Read, FileShare.Read,
+                    bufferSize: 4096, options: FileOptions.SequentialScan);
+                long fileLen = fs.Length;
+                int tailLen = (int)Math.Min(fileLen, 4096);
+                fs.Seek(-tailLen, SeekOrigin.End);
+                byte[] tail = new byte[tailLen];
+                fs.ReadExactly(tail, 0, tailLen);
+
+                // Search backwards for "vivo{" marker
+                int idx = -1;
+                for (int i = tailLen - 6; i >= 0; i--)
+                {
+                    if (tail[i] == 'v' && tail[i + 1] == 'i' &&
+                        tail[i + 2] == 'v' && tail[i + 3] == 'o' &&
+                        tail[i + 4] == '{')
+                    {
+                        idx = i;
+                        break;
+                    }
+                }
+                if (idx < 0) return 0;
+
+                // Extract JSON portion: vivo{ ... }
+                int jsonStart = idx + 4; // skip "vivo"
+                int depth = 0, jsonEnd = -1;
+                for (int i = jsonStart; i < tailLen; i++)
+                {
+                    if (tail[i] == '{') depth++;
+                    else if (tail[i] == '}')
+                    {
+                        if (depth == 0) { jsonEnd = i; break; }
+                        depth--;
+                    }
+                }
+                if (jsonEnd < 0) return 0;
+
+                string json = Encoding.UTF8.GetString(
+                    tail, jsonStart, jsonEnd - jsonStart + 1);
+
+                // Lightweight regex — avoid full JSON parse overhead
+                var match = Regex.Match(
+                    json, @"""imageTime"":\s*(-?\d+)",
+                    RegexOptions.CultureInvariant);
+                if (match.Success &&
+                    long.TryParse(match.Groups[1].Value, out long imageTime) &&
+                    imageTime > 0)
+                {
+                    return imageTime * 1000; // milliseconds → microseconds
+                }
+
+                return 0;
+            }
+            catch
+            {
+                return 0; // Best-effort — non-critical metadata
+            }
         }
     }
 }

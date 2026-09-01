@@ -128,7 +128,7 @@
 
 Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 100% 核心逻辑，适合脚本和 AI Agent 调用。
 
-- **命令**：`merge`（单对或批量合成）、`split`（拆回图片 + 视频）、`cover` / `keyphoto`（修改封面帧）、`repair`（修复 Apple 实况照片显示问题）、`protocols`（协议 × 格式兼容矩阵查询）、`backend`（配置旧版/Native 分流）、`update` / `update-check`（检查并安装更新）
+- **命令**：`merge`（单对或批量合成）、`split`（拆回图片 + 视频）、`cover` / `keyphoto`（修改封面帧）、`repair`（修复 Apple 实况照片显示问题）、`protocols`（协议 × 格式兼容矩阵查询）、`backend`（选择全局 `rebuilt` / `legacy` 分支）、`update` / `update-check`（检查并安装更新）
 - **四个可执行别名**：`livephotobox` / `livephoto` / `livebox` / `lpb`
 - **批量配对和命名方式**：按文件名、Apple `ContentIdentifier` UUID、vivo 相机 ID 自动配对；`-n custom:{name}_{date}` 等命名模板批量重命名输出；`--after` 支持完成后移动到文件夹 / 回收站
 - **脚本友好**：使用`--json` 输出结构化结果，供脚本与 AI Agent 直接消费；`--dry-run` 可预览操作而不实际处理文件
@@ -162,7 +162,7 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 
 > `ExifTool` / `FFmpeg` / `jpegtran` / `libheif` 为随包附带的外部工具（`Tools/` 目录），负责元数据读写与音视频处理。
 >
-> Native 后端由 `LivePhotoBox.Core/Interop` 通过 .NET `LibraryImport` 调用。现在已经迁移完成的是 vivo 旧版双文件写入；Huawei/Honor 目前也接入了 3 个预览级底层写入操作。每条 Native 路径在完成差分和真机验证前，都会保留 C# 实现作为参考和回退。
+> 本阶段 Native 协议能力不接入产品的全局分流。默认 `rebuilt` 不实现也不调用任何厂商协议；`legacy` 保留 v2.2.1 兼容路径。Native 协议工作要等中性媒体管线和独立验证完成后再开始。
 
 ---
 

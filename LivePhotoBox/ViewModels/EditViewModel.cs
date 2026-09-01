@@ -998,6 +998,18 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private async Task Save()
         {
+            try
+            {
+                await ProcessingPipelineRouter.RunAsync("cover", SaveLegacyAsync);
+            }
+            catch (RebuiltPipelineNotReadyException exception)
+            {
+                await ProcessingNotReadyDialogService.ShowAsync(exception.Operation);
+            }
+        }
+
+        private async Task SaveLegacyAsync()
+        {
             // ── 1. Guards ──────────────────────────────────────────────────
             var frame = SelectedTimelineFrame;
             if (frame == null || frame.IsStillPhoto)
@@ -1998,7 +2010,61 @@ namespace LivePhotoBox.ViewModels
                 tempWorkDir = Path.Combine(Path.GetTempPath(), $"lpb_vivo_save_{Guid.NewGuid():N}");
                 Directory.CreateDirectory(tempWorkDir);
 
-                // ── 5. 帧 JPEG 注入原图 EXIF ────────────────────────────
+                // ── 5. 读原始 vivo JSON 尾标 ────────────────────────────
+                byte[]? vivoTail = null;
+                try
+                {
+                    // vivo 尾标格式: vivo{...JSON...}cameralbum![ID][FF FF FF FF][签名]
+                    // 位于 JPEG 文件末尾；新版样本 cameralbum! 之后仍有数据，
+                    // 因此从 vivo{ 一直取到文件末尾。
+                    const int tailProbe = 8192;
+                    using var srcFs = new FileStream(photoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    int probeSize = (int)Math.Min(srcFs.Length, tailProbe);
+                    byte[] probe = new byte[probeSize];
+                    srcFs.Seek(-probeSize, SeekOrigin.End);
+                    srcFs.ReadExactly(probe, 0, probeSize);
+
+                    // 从后往前搜 "vivo{"
+                    int vivoIdx = -1;
+                    for (int i = probeSize - 6; i >= 0; i--)
+                    {
+                        if (probe[i] == 'v' && probe[i + 1] == 'i'
+                            && probe[i + 2] == 'v' && probe[i + 3] == 'o'
+                            && probe[i + 4] == '{')
+                        { vivoIdx = i; break; }
+                    }
+
+                    if (vivoIdx >= 0)
+                    {
+                        // 搜 "cameralbum!" 结尾
+                        byte[] endMarker = "cameralbum!"u8.ToArray();
+                        int endIdx = -1;
+                        for (int i = vivoIdx; i <= probeSize - endMarker.Length; i++)
+                        {
+                            bool match = true;
+                            for (int j = 0; j < endMarker.Length; j++)
+                            {
+                                if (probe[i + j] != endMarker[j]) { match = false; break; }
+                            }
+                            if (match) { endIdx = i + endMarker.Length; break; }
+                        }
+
+                        if (endIdx > vivoIdx)
+                        {
+                            int tailLen = probeSize - vivoIdx;
+                            vivoTail = new byte[tailLen];
+                            Array.Copy(probe, vivoIdx, vivoTail, 0, tailLen);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp(
+                        $"KeyPhoto Save[vivo-old]: vivo tail read failed (non-fatal): {ex.Message}",
+                        LogLevel.Warning);
+                }
+
+                // ── 6. 帧 JPEG 注入原图 EXIF ────────────────────────────
                 string tempJpgPath = Path.Combine(tempWorkDir, $"frame_{Guid.NewGuid():N}.jpg");
                 File.Copy(frame.FullFramePath, tempJpgPath, overwrite: true);
 
@@ -2014,31 +2080,25 @@ namespace LivePhotoBox.ViewModels
                     "-quiet",
                     tempJpgPath);
 
-                // ── 6. 复制新 JPEG 到用户选择的位置 ──────────────────────
+                // ── 7. 追加 vivo 尾标到新 JPEG ───────────────────────────
+                if (vivoTail != null && vivoTail.Length > 0)
+                {
+                    using var dstFs = new FileStream(tempJpgPath, FileMode.Append, FileAccess.Write, FileShare.None);
+                    await dstFs.WriteAsync(vivoTail, 0, vivoTail.Length);
+                }
+
+                // ── 8. 复制新 JPEG 到用户选择的位置 ──────────────────────
                 var tempFile = await StorageFile.GetFileFromPathAsync(tempJpgPath);
                 await tempFile.CopyAndReplaceAsync(savedFile);
 
-                // ── 7. 静默复制配对 MP4，并重建两端 vivo 元数据 ──────────
+                // ── 9. 静默复制配对 MP4 到同目录 ─────────────────────────
                 string outputDir = Path.GetDirectoryName(targetJpgPath)!;
                 string targetBaseName = Path.GetFileNameWithoutExtension(targetJpgPath);
                 string targetMovPath = Path.Combine(outputDir, targetBaseName + ".MP4");
 
                 File.Copy(pairedVideoPath, targetMovPath, overwrite: true);
 
-                long timestampUs = (long)Math.Round(
-                    frame.Timestamp.TotalSeconds * 1_000_000.0);
-                long currentCoverTimeMs = await VivoDualFileMetadataWriter
-                    .ResolveCurrentCoverTimeMillisecondsAsync(
-                        pairedVideoPath, timestampUs, frame.FrameIndex, CancellationToken.None);
-                await VivoDualFileMetadataWriter.RewriteEditedPairMetadataAsync(
-                    photoPath,
-                    pairedVideoPath,
-                    targetJpgPath,
-                    targetMovPath,
-                    currentCoverTimeMs,
-                    CancellationToken.None);
-
-                // ── 8. 修改日期 ──────────────────────────────────────────
+                // ── 10. 修改日期 ─────────────────────────────────────────
                 try { File.SetLastWriteTime(targetJpgPath, DateTime.Now); } catch { }
                 try { File.SetLastWriteTime(targetMovPath, DateTime.Now); } catch { }
 
@@ -4036,13 +4096,7 @@ namespace LivePhotoBox.ViewModels
                     $"embeddedVideoLen={item?.AppendedVideoLength}",
                     LogLevel.Info);
             }
-            _ = LoadPropertiesAsync(
-                filePath,
-                videoPath,
-                embeddedVideoLen,
-                item?.DetectedProtocol ?? LivePhotoProtocolType.Unknown,
-                myGeneration,
-                token);
+            _ = LoadPropertiesAsync(filePath, videoPath, embeddedVideoLen, myGeneration, token);
         }
 
         /// <summary>清空信息面板</summary>
@@ -4149,13 +4203,7 @@ namespace LivePhotoBox.ViewModels
         /// 选中代数（来自 SelectFile 的 Interlocked.Increment）。
         /// 在 dispatcher.TryEnqueue 回调中检查：如果已过期则跳过 TriggerTimelineExtraction。
         /// </param>
-        private async Task LoadPropertiesAsync(
-            string imagePath,
-            string? videoPath,
-            long embeddedVideoLen,
-            LivePhotoProtocolType detectedProtocol,
-            int generation,
-            CancellationToken token)
+        private async Task LoadPropertiesAsync(string imagePath, string? videoPath, long embeddedVideoLen, int generation, CancellationToken token)
         {
             LogService.FileOp(
                 $"Timeline[LoadProps] START: image='{Path.GetFileName(imagePath)}', " +
@@ -4418,30 +4466,6 @@ namespace LivePhotoBox.ViewModels
                     System.Globalization.CultureInfo.InvariantCulture, out var f)
                     ? f : 30.0;
 
-                // vivo ≤X200 旧双文件：imageTime 是原始拍摄帧的 0-based 帧号，
-                // newCoverTime 才是编辑后的当前封面毫秒时间。字段值 0 同样有效。
-                VivoDualFileCoverInfo? vivoCoverInfo = null;
-                if (detectedProtocol == LivePhotoProtocolType.Vivo &&
-                    !string.IsNullOrEmpty(videoPath) && File.Exists(videoPath))
-                {
-                    vivoCoverInfo = VivoDualFileMetadataWriter.ReadCoverInfo(videoPath);
-                    if (vivoCoverInfo != null)
-                    {
-                        double originalSeconds = fps > 0
-                            ? vivoCoverInfo.OriginalFrameIndex / fps
-                            : 0;
-                        keyPhotoTimeSeconds = vivoCoverInfo.CurrentCoverTimeMilliseconds.HasValue
-                            ? vivoCoverInfo.CurrentCoverTimeMilliseconds.Value / 1000.0
-                            : originalSeconds;
-                        coverFromProtocol = true;
-                        LogService.FileOp(
-                            $"Timeline[LoadProps] vivo cover: imageTime={vivoCoverInfo.OriginalFrameIndex}, " +
-                            $"newCoverTime={vivoCoverInfo.CurrentCoverTimeMilliseconds?.ToString() ?? "(missing)"}ms, " +
-                            $"current={keyPhotoTimeSeconds:F4}s",
-                            LogLevel.Info);
-                    }
-                }
-
                 // Huawei / Honor Moving Photo — 封面帧位置
                 // 优先读新版 covertime（MP4 udta 毫秒时间戳），fallback 旧版 v6_fXX（尾部帧序号）
                 if (keyPhotoTimeSeconds <= 0 && embeddedVideoLen <= 0)
@@ -4523,21 +4547,6 @@ namespace LivePhotoBox.ViewModels
                 catch { /* 非 JPEG 或读取失败，跳过 */ }
                 var timing = EditTimingService.Resolve(keyPhotoTimeSeconds, xmpText);
 
-                double photoTimeSeconds = timing.PhotoTimeSeconds;
-                double coverTimeSeconds = timing.CoverTimeSeconds;
-                bool isVivoOld = vivoCoverInfo != null;
-                int? vivoOriginalFrameIndex = null;
-                if (vivoCoverInfo != null)
-                {
-                    vivoOriginalFrameIndex = vivoCoverInfo.OriginalFrameIndex;
-                    photoTimeSeconds = fps > 0
-                        ? vivoCoverInfo.OriginalFrameIndex / fps
-                        : 0;
-                    coverTimeSeconds = vivoCoverInfo.CurrentCoverTimeMilliseconds.HasValue
-                        ? vivoCoverInfo.CurrentCoverTimeMilliseconds.Value / 1000.0
-                        : photoTimeSeconds;
-                }
-
                 // OPPO 改封面后原始高清图提取
                 byte[]? originalPhotoBytes = null;
                 if (timing.HasOriginalPhoto)
@@ -4577,12 +4586,10 @@ namespace LivePhotoBox.ViewModels
                                 $"Timeline[LoadProps] → Triggering extraction for '{Path.GetFileName(actualVideoPath!)}'",
                                 LogLevel.Info);
                             TriggerTimelineExtractionDebounced(actualVideoPath!, durSec, fps,
-                                photoTimeSeconds, coverTimeSeconds,
+                                timing.PhotoTimeSeconds, timing.CoverTimeSeconds,
                                 generation,
                                 originalPhotoBytes,
-                                timing.IsOppo,
-                                isVivoOld,
-                                vivoOriginalFrameIndex);
+                                timing.IsOppo);
                         }
                         else
                         {
@@ -4687,8 +4694,7 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         private void TriggerTimelineExtractionDebounced(string videoPath, double durationSeconds,
             double fps, double photoTimeSeconds, double coverTimeSeconds,
-            int generation, byte[]? originalPhotoBytes, bool isOppo = false,
-            bool isVivoOld = false, int? vivoOriginalFrameIndex = null)
+            int generation, byte[]? originalPhotoBytes, bool isOppo = false)
         {
             _timelineDebounceCts?.Cancel();
             _timelineDebounceCts = new CancellationTokenSource();
@@ -4698,8 +4704,7 @@ namespace LivePhotoBox.ViewModels
             {
                 // 首次点击：直接启动，零延迟
                 TriggerTimelineExtraction(videoPath, durationSeconds, fps,
-                    photoTimeSeconds, coverTimeSeconds, generation, originalPhotoBytes, isOppo,
-                    isVivoOld, vivoOriginalFrameIndex);
+                    photoTimeSeconds, coverTimeSeconds, generation, originalPhotoBytes, isOppo);
 
                 // 预设 200ms 后解除武装，期间的新点击会走防抖路径
                 _ = Task.Run(async () =>
@@ -4720,8 +4725,7 @@ namespace LivePhotoBox.ViewModels
                     if (generation != Volatile.Read(ref _selectionGeneration))
                         return;
                     TriggerTimelineExtraction(videoPath, durationSeconds, fps,
-                        photoTimeSeconds, coverTimeSeconds, generation, originalPhotoBytes, isOppo,
-                        isVivoOld, vivoOriginalFrameIndex);
+                        photoTimeSeconds, coverTimeSeconds, generation, originalPhotoBytes, isOppo);
                 }
                 catch (OperationCanceledException)
                 {
@@ -4754,16 +4758,13 @@ namespace LivePhotoBox.ViewModels
             double photoTimeSeconds, double coverTimeSeconds,
             int generation = 0,
             byte[]? originalPhotoBytes = null,
-            bool isOppo = false,
-            bool isVivoOld = false,
-            int? vivoOriginalFrameIndex = null)
+            bool isOppo = false)
         {
             bool split = Math.Abs(coverTimeSeconds - photoTimeSeconds) > 0.001;
             LogService.FileOp(
                 $"Timeline[Extract] START: video='{Path.GetFileName(videoPath)}', " +
                 $"dur={durationSeconds}s, fps={fps}, gen={generation}, " +
-                $"photo={photoTimeSeconds}s, cover={coverTimeSeconds}s, split={split}, " +
-                $"vivoOld={isVivoOld}, vivoOriginalFrame={vivoOriginalFrameIndex}",
+                $"photo={photoTimeSeconds}s, cover={coverTimeSeconds}s, split={split}",
                 LogLevel.Info);
 
             // 取消上一次提取
@@ -4929,14 +4930,9 @@ namespace LivePhotoBox.ViewModels
                                 if (diff < starMinDiff) { starMinDiff = diff; starInsertPos = i; }
                             }
 
-                            // OPPO / vivo ≤X200 已换封面：⭐ 来自视频中选中的一帧
-                            // → 合并到视频帧上（打标，不删帧）。vivo 末帧写时长边界，
-                            // 因此对接近 duration 的 newCoverTime 强制吸附到末帧。
+                            // OPPO 已换封面：⭐ 来自视频中选中的一帧 → 合并到视频帧上（打标，不删帧）
                             // 其他协议 / OPPO 未修改：⭐ 是相机拍摄的高清大图 → 独立插入
-                            bool vivoAtEnd = isVivoOld &&
-                                coverTimeSeconds >= durationSeconds - frameInterval;
-                            if ((isOppo || isVivoOld) && split &&
-                                (starMinDiff < dupThreshold || vivoAtEnd))
+                            if (isOppo && split && starMinDiff < dupThreshold)
                             {
                                 var mergedFrame = TimelineFrames[starInsertPos];
                                 mergedFrame.IsStillPhoto = true;
@@ -4944,8 +4940,7 @@ namespace LivePhotoBox.ViewModels
                                 stillFrame = mergedFrame;
                                 LogService.FileOp(
                                     $"Timeline[Extract] ⭐ merged onto vid frame #{mergedFrame.FrameIndex} " +
-                                    $"(protocol={(isVivoOld ? "vivo-old" : "OPPO")}, " +
-                                    $"diff={starMinDiff * 1000:F2}ms, time={coverTimeSeconds}s)",
+                                    $"(OPPO, diff={starMinDiff * 1000:F2}ms, time={coverTimeSeconds}s)",
                                     LogLevel.Debug);
                             }
                             else
@@ -4967,23 +4962,6 @@ namespace LivePhotoBox.ViewModels
                                     $"Timeline[Extract] Still photo ⭐ at pos={starInsertPos}/{TimelineFrames.Count}, " +
                                     $"time={coverTimeSeconds}s, isOppo={isOppo}, split={split}",
                                     LogLevel.Info);
-                            }
-
-                            // 2a. vivo 原始拍摄帧 🖼：imageTime 是精确 0-based 帧号。
-                            // 编辑后的 JPG 只保留当前封面，原始画面从该视频帧展示/导出。
-                            if (isVivoOld && split && vivoOriginalFrameIndex.HasValue)
-                            {
-                                TimelineFrame? vivoOriginalFrame = TimelineFrames.FirstOrDefault(
-                                    f => f.FrameIndex == vivoOriginalFrameIndex.Value);
-                                if (vivoOriginalFrame != null)
-                                {
-                                    vivoOriginalFrame.IsOriginalPhoto = true;
-                                    OnPropertyChanged(nameof(HasOriginalPhotoFrame));
-                                    LogService.FileOp(
-                                        $"Timeline[Extract] vivo original photo 🖼 merged onto " +
-                                        $"video frame #{vivoOriginalFrame.FrameIndex}",
-                                        LogLevel.Info);
-                                }
                             }
 
                             // 2b. 原始封面帧 🖼（用 photoTimeSeconds，仅 split 时显示）

@@ -2,66 +2,22 @@
     x:Class="LivePhotoBox.Controls.ProcessingEngineSettingsControl"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:controls="using:CommunityToolkit.WinUI.Controls"
-    xmlns:local="using:LivePhotoBox.Controls">
-    <StackPanel Spacing="4">
-        <StackPanel Orientation="Horizontal" Spacing="10" Margin="0,0,0,6">
-            <FontIcon Glyph="&#xE943;" FontSize="18" Foreground="{ThemeResource SystemAccentColor}"/>
-            <TextBlock x:Uid="SettingsPage_ProcessingBackend_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
-        </StackPanel>
-
-        <controls:SettingsCard FontFamily="Microsoft YaHei UI">
-            <controls:SettingsCard.Header>
-                <TextBlock x:Uid="SettingsPage_ProcessingBackend_Mode"/>
-            </controls:SettingsCard.Header>
-            <controls:SettingsCard.Description>
-                <TextBlock x:Uid="SettingsPage_ProcessingBackend_Mode_Desc" FontSize="12"
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-            </controls:SettingsCard.Description>
-            <ComboBox x:Name="ModeComboBox" MinWidth="210" SelectionChanged="ModeComboBox_SelectionChanged">
-                <ComboBoxItem x:Uid="SettingsPage_ProcessingBackend_Mode_Auto"/>
-                <ComboBoxItem x:Uid="SettingsPage_ProcessingBackend_Mode_Legacy"/>
-                <ComboBoxItem x:Uid="SettingsPage_ProcessingBackend_Mode_Custom"/>
-            </ComboBox>
-        </controls:SettingsCard>
-
-        <controls:SettingsExpander x:Name="ProtocolExpander"
-                                   IsExpanded="False"
-                                   Expanded="ProtocolExpander_Expanded"
-                                   Collapsed="ProtocolExpander_Collapsed"
-                                   FontFamily="Microsoft YaHei UI">
-            <controls:SettingsExpander.Header>
-                <TextBlock x:Uid="SettingsPage_ProcessingBackend_Protocols"/>
-            </controls:SettingsExpander.Header>
-            <controls:SettingsExpander.Description>
-                <TextBlock x:Uid="SettingsPage_ProcessingBackend_Protocols_Desc"
-                           FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           TextWrapping="Wrap"/>
-            </controls:SettingsExpander.Description>
-            <controls:SettingsExpander.HeaderIcon>
-                <FontIcon Glyph="&#xE8D4;"/>
-            </controls:SettingsExpander.HeaderIcon>
-            <controls:SettingsExpander.Items>
-                <ItemsControl ItemsSource="{x:Bind Rows}">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate x:DataType="local:BackendProtocolRow">
-                            <controls:SettingsCard FontFamily="Microsoft YaHei UI">
-                                <controls:SettingsCard.Header>
-                                    <TextBlock Text="{x:Bind DisplayName}"/>
-                                </controls:SettingsCard.Header>
-                                <controls:SettingsCard.Description>
-                                    <TextBlock Text="{x:Bind Status}" FontSize="12" FontWeight="SemiBold"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                </controls:SettingsCard.Description>
-                                <ToggleSwitch x:Uid="SettingsPage_ProcessingBackend_ProtocolToggle"
-                                              Tag="{x:Bind Key}" IsOn="{x:Bind PreferNative, Mode=TwoWay}"
-                                              IsEnabled="{x:Bind IsSelectable, Mode=OneWay}"
-                                              Toggled="ProtocolToggle_Toggled"/>
-                            </controls:SettingsCard>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </controls:SettingsExpander.Items>
-        </controls:SettingsExpander>
-    </StackPanel>
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls">
+    <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+        <controls:SettingsCard.Header>
+            <TextBlock x:Uid="SettingsPage_General_ProcessingVersion" FontFamily="Microsoft YaHei UI"/>
+        </controls:SettingsCard.Header>
+        <controls:SettingsCard.Description>
+            <TextBlock x:Uid="SettingsPage_General_ProcessingVersion_Desc"
+                       FontSize="12"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       TextWrapping="Wrap"/>
+        </controls:SettingsCard.Description>
+        <controls:SettingsCard.HeaderIcon>
+            <FontIcon Glyph="&#xE943;" FontSize="16"/>
+        </controls:SettingsCard.HeaderIcon>
+        <ToggleSwitch x:Name="ProcessingVersionToggle"
+                      x:Uid="Toggle_OnOff"
+                      Toggled="PipelineToggle_Toggled"/>
+    </controls:SettingsCard>
 </UserControl>

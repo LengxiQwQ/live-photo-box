@@ -41,7 +41,7 @@ internal static class HeifBoxParser
     /// 仅接受 construction_method=0（文件偏移）且单 extent 的常规情况，
     /// 遇到 idat / 多 extent / 未知版本等一律返回 false，交由上层回退重编码。
     /// </summary>
-    public static bool TryLocateExifItem(string heicPath, out long offset, out long length, out string? error, bool preferNative = false)
+    public static bool TryLocateExifItem(string heicPath, out long offset, out long length, out string? error)
     {
         offset = 0;
         length = 0;
@@ -49,7 +49,7 @@ internal static class HeifBoxParser
         try
         {
             byte[] data = File.ReadAllBytes(heicPath);
-            return TryLocateExifItem(data, out offset, out length, out error, preferNative);
+            return TryLocateExifItem(data, out offset, out length, out error);
         }
         catch (Exception ex)
         {
@@ -58,21 +58,11 @@ internal static class HeifBoxParser
         }
     }
 
-    public static bool TryLocateExifItem(byte[] data, out long offset, out long length, out string? error, bool preferNative = false)
+    public static bool TryLocateExifItem(byte[] data, out long offset, out long length, out string? error)
     {
         offset = 0;
         length = 0;
         error = null;
-
-        if (preferNative)
-        {
-            if (Interop.NativeHeifBoxParser.TryLocateExifItem(data, out offset, out length, out error))
-            {
-                LogService.Merge("HEIF Exif item located via Native parser.", Models.LogLevel.Debug);
-                return true;
-            }
-            LogService.Merge($"HEIF Native parser failed; using Legacy: {error}", Models.LogLevel.Warning);
-        }
 
         if (!TryFindBox(data, 0, data.Length, "meta", out int metaStart, out int metaLen, out int metaBodyStart))
         {

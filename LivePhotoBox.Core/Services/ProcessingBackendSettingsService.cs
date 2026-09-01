@@ -1,226 +1,218 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
-using LivePhotoBox.Interop;
+using System.Threading;
 using LivePhotoBox.Models;
 
-namespace LivePhotoBox.Services
+namespace LivePhotoBox.Services;
+
+/// <summary>
+/// Stores the one product-wide branch switch. It is deliberately not a
+/// protocol/backend matrix: Legacy is the preserved compatibility branch and
+/// Rebuilt is the isolated, currently unimplemented branch.
+/// </summary>
+public static class ProcessingBackendSettingsService
 {
-    /// <summary>
-    /// Stores backend defaults in one human-readable file shared by the GUI and CLI.
-    /// </summary>
-    public static class ProcessingBackendSettingsService
+    public static event EventHandler? Changed;
+
+    private const string SettingsPathEnvironmentVariable = "LIVEPHOTOBOX_BACKEND_SETTINGS_PATH";
+    private const string MutexName = "Local\\LivePhotoBox.ProcessingPipeline.v3";
+    private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        /// <summary>Raised after the shared backend configuration changes in this process.</summary>
-        public static event EventHandler? Changed;
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        WriteIndented = true
+    };
 
-        private const string SettingsPathEnvironmentVariable = "LIVEPHOTOBOX_BACKEND_SETTINGS_PATH";
-        private static readonly JsonSerializerOptions JsonOptions = new()
+    public static string SettingsPath
+    {
+        get
         {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            WriteIndented = true
-        };
-
-        /// <summary>Gets the active shared backend settings file.</summary>
-        public static string SettingsPath
-        {
-            get
-            {
-                string? overridden = Environment.GetEnvironmentVariable(SettingsPathEnvironmentVariable);
-                if (!string.IsNullOrWhiteSpace(overridden))
-                    return Path.GetFullPath(overridden);
-
-                return Path.Combine(
+            string? overridden = Environment.GetEnvironmentVariable(SettingsPathEnvironmentVariable);
+            return !string.IsNullOrWhiteSpace(overridden)
+                ? Path.GetFullPath(overridden)
+                : Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "LivePhotoBox",
-                    "backend-settings.json");
-            }
+                    "LivePhotoBox", "backend-settings.json");
         }
+    }
 
-        /// <summary>Loads settings, returning safe defaults for missing or malformed files.</summary>
-        public static ProcessingBackendSettings Load()
+    public static ProcessingBackendSettings Load()
+    {
+        string path = SettingsPath;
+        if (!File.Exists(path)) return new ProcessingBackendSettings();
+        try
         {
-            string path = SettingsPath;
-            if (!File.Exists(path))
-                return new ProcessingBackendSettings();
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                throw new JsonException("The processing-pipeline settings root must be a JSON object.");
 
-            try
-            {
-                string json = File.ReadAllText(path);
-                PersistedSettings? persisted = JsonSerializer.Deserialize<PersistedSettings>(json, JsonOptions);
-                var result = new ProcessingBackendSettings
-                {
-                    Mode = ParseMode(persisted?.Mode)
-                };
+            int schemaVersion = root.TryGetProperty("schemaVersion", out JsonElement schema)
+                && schema.ValueKind == JsonValueKind.Number
+                && schema.TryGetInt32(out int version) ? version : 1;
+            if (schemaVersion >= ProcessingBackendSettings.CurrentSchemaVersion)
+                return ReadCurrent(root);
 
-                if (persisted?.Protocols != null)
-                {
-                    foreach ((string key, string value) in persisted.Protocols)
-                    {
-                        if (ProcessingBackendProtocolCatalog.TryResolve(key, out ProcessingBackendProtocolDefinition? definition)
-                            && definition != null)
-                        {
-                            result.Protocols[definition.Key] = ParsePreference(value);
-                        }
-                    }
-                }
-
-                return result;
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-            {
-                LogService.Warn(
-                    "Backend settings could not be loaded; using Auto with Legacy protocol defaults.",
-                    details: ex.Message,
-                    source: LogSource.Settings);
-                return new ProcessingBackendSettings();
-            }
+            ProcessingBackendSettings migrated = MigrateLegacySettings(root);
+            Save(migrated);
+            return Load();
         }
-
-        /// <summary>Saves settings atomically next to the final configuration file.</summary>
-        public static void Save(ProcessingBackendSettings settings)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            ArgumentNullException.ThrowIfNull(settings);
-            string path = SettingsPath;
-            string? directory = Path.GetDirectoryName(path);
-            if (string.IsNullOrEmpty(directory))
-                throw new InvalidOperationException("Backend settings path must have a parent directory.");
-
-            Directory.CreateDirectory(directory);
-            var protocols = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (ProcessingBackendProtocolDefinition definition in ProcessingBackendProtocolCatalog.All)
-            {
-                protocols[definition.Key] = FormatPreference(settings.GetPreference(definition.Key));
-            }
-
-            var persisted = new PersistedSettings
-            {
-                Mode = FormatMode(settings.Mode),
-                Protocols = protocols
-            };
-            string json = JsonSerializer.Serialize(persisted, JsonOptions);
-            string tempPath = path + ".tmp-" + Guid.NewGuid().ToString("N");
-            try
-            {
-                File.WriteAllText(tempPath, json);
-                File.Move(tempPath, path, overwrite: true);
-                Changed?.Invoke(null, EventArgs.Empty);
-            }
-            finally
-            {
-                try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
-            }
+            LogService.Warn("Processing-pipeline settings could not be loaded; using Rebuilt by default.",
+                ex.Message, LogSource.Settings);
+            return new ProcessingBackendSettings();
         }
+    }
 
-        /// <summary>Updates the global mode while preserving per-protocol preferences.</summary>
-        public static void SetMode(ProcessingBackendMode mode)
+    public static void Save(ProcessingBackendSettings settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        using Mutex mutex = new(false, MutexName);
+        mutex.WaitOne();
+        try { SaveUnderLock(settings); }
+        finally { mutex.ReleaseMutex(); }
+    }
+
+    /// <summary>Atomically updates the one branch switch.</summary>
+    public static void SetMode(ProcessingPipelineMode mode)
+    {
+        using Mutex mutex = new(false, MutexName);
+        mutex.WaitOne();
+        try
         {
-            ProcessingBackendSettings settings = Load();
+            ProcessingBackendSettings settings = LoadUnderLock();
             settings.Mode = mode;
-            Save(settings);
+            SaveUnderLock(settings);
         }
+        finally { mutex.ReleaseMutex(); }
+    }
 
-        /// <summary>Updates one protocol preference while preserving all other settings.</summary>
-        public static void SetPreference(string protocolKey, ProcessingBackendPreference preference)
-        {
-            if (!ProcessingBackendProtocolCatalog.TryResolve(protocolKey, out ProcessingBackendProtocolDefinition? definition)
-                || definition == null)
-            {
-                throw new ArgumentException($"Unknown backend protocol: {protocolKey}", nameof(protocolKey));
-            }
-
-            ProcessingBackendSettings settings = Load();
-            settings.Protocols[definition.Key] = preference;
-            Save(settings);
-        }
-
-        /// <summary>Deletes the shared configuration so the next read uses Auto defaults.</summary>
-        public static void Reset()
+    /// <summary>Removes persisted configuration so the default Rebuilt branch applies.</summary>
+    public static void Reset()
+    {
+        using Mutex mutex = new(false, MutexName);
+        mutex.WaitOne();
+        try
         {
             string path = SettingsPath;
-            if (File.Exists(path))
-                File.Delete(path);
+            if (File.Exists(path)) File.Delete(path);
             Changed?.Invoke(null, EventArgs.Empty);
         }
+        finally { mutex.ReleaseMutex(); }
+    }
 
-        /// <summary>Gets the runtime-backed availability of a protocol.</summary>
-        public static NativeBackendMaturity GetNativeMaturity(
-            ProcessingBackendProtocolDefinition definition,
-            NativeRuntimeInfo? runtimeInfo = null)
+    public static string FormatMode(ProcessingPipelineMode mode) =>
+        mode == ProcessingPipelineMode.Rebuilt ? "rebuilt" : "legacy";
+
+    public static bool TryParseMode(string? value, out ProcessingPipelineMode mode)
+    {
+        if (string.Equals(value?.Trim(), "rebuilt", StringComparison.OrdinalIgnoreCase))
         {
-            ArgumentNullException.ThrowIfNull(definition);
-            runtimeInfo ??= NativeRuntime.Probe();
-            if (!runtimeInfo.IsAvailable
-                || (runtimeInfo.Capabilities & definition.NativeCapability) == 0)
+            mode = ProcessingPipelineMode.Rebuilt;
+            return true;
+        }
+        if (string.Equals(value?.Trim(), "legacy", StringComparison.OrdinalIgnoreCase))
+        {
+            mode = ProcessingPipelineMode.Legacy;
+            return true;
+        }
+
+        mode = ProcessingPipelineMode.Rebuilt;
+        return false;
+    }
+
+    private static void SaveUnderLock(ProcessingBackendSettings settings)
+    {
+        string path = SettingsPath;
+        string? directory = Path.GetDirectoryName(path);
+        if (string.IsNullOrEmpty(directory))
+            throw new InvalidOperationException("Processing-pipeline settings path must have a parent directory.");
+
+        Directory.CreateDirectory(directory);
+        ProcessingBackendSettings current = LoadUnderLock();
+        settings.Revision = Math.Max(settings.Revision, current.Revision) + 1;
+        string json = JsonSerializer.Serialize(new PersistedSettings
+        {
+            SchemaVersion = ProcessingBackendSettings.CurrentSchemaVersion,
+            Revision = settings.Revision,
+            Mode = FormatMode(settings.Mode)
+        }, JsonOptions);
+        string tempPath = path + ".tmp-" + Guid.NewGuid().ToString("N");
+        try
+        {
+            using (FileStream stream = new(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            using (var writer = new StreamWriter(stream))
             {
-                return NativeBackendMaturity.Unavailable;
+                writer.Write(json);
+                writer.Flush();
+                stream.Flush(flushToDisk: true);
             }
-
-            return definition.MaturityWhenAvailable;
+            File.Move(tempPath, path, overwrite: true);
+            Changed?.Invoke(null, EventArgs.Empty);
         }
+        finally { try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { } }
+    }
 
-        /// <summary>
-        /// Resolves whether a request should prefer Native. Unsupported operations still fall back
-        /// through the operation-level router when it is introduced.
-        /// </summary>
-        public static bool ShouldPreferNative(
-            ProcessingBackendSettings settings,
-            ProcessingBackendProtocolDefinition definition,
-            NativeRuntimeInfo? runtimeInfo = null)
+    private static ProcessingBackendSettings LoadUnderLock()
+    {
+        string path = SettingsPath;
+        if (!File.Exists(path)) return new ProcessingBackendSettings();
+        try
         {
-            NativeBackendMaturity maturity = GetNativeMaturity(definition, runtimeInfo);
-            return settings.Mode switch
-            {
-                ProcessingBackendMode.Legacy => false,
-                ProcessingBackendMode.Auto => maturity == NativeBackendMaturity.Stable,
-                ProcessingBackendMode.Custom =>
-                    maturity != NativeBackendMaturity.Unavailable
-                    && settings.GetPreference(definition.Key) == ProcessingBackendPreference.PreferNative,
-                _ => false
-            };
+            using JsonDocument document = JsonDocument.Parse(File.ReadAllText(path));
+            JsonElement root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+                throw new JsonException("The processing-pipeline settings root must be a JSON object.");
+
+            return root.TryGetProperty("schemaVersion", out JsonElement schema)
+                && schema.ValueKind == JsonValueKind.Number
+                && schema.TryGetInt32(out int version)
+                && version >= ProcessingBackendSettings.CurrentSchemaVersion
+                ? ReadCurrent(root)
+                : MigrateLegacySettings(root);
         }
-
-        /// <summary>Parses a global mode name used by the JSON file and CLI.</summary>
-        public static bool TryParseMode(string value, out ProcessingBackendMode mode)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            switch (value.Trim().ToLowerInvariant())
-            {
-                case "auto": mode = ProcessingBackendMode.Auto; return true;
-                case "legacy": mode = ProcessingBackendMode.Legacy; return true;
-                case "custom": mode = ProcessingBackendMode.Custom; return true;
-                default: mode = ProcessingBackendMode.Auto; return false;
-            }
+            LogService.Warn("Processing-pipeline settings were malformed; using Rebuilt by default.", ex.Message,
+                LogSource.Settings);
+            return new ProcessingBackendSettings();
         }
+    }
 
-        /// <summary>Formats a mode for configuration and CLI output.</summary>
-        public static string FormatMode(ProcessingBackendMode mode) => mode switch
-        {
-            ProcessingBackendMode.Legacy => "legacy",
-            ProcessingBackendMode.Custom => "custom",
-            _ => "auto"
-        };
+    private static ProcessingBackendSettings ReadCurrent(JsonElement root)
+    {
+        var result = new ProcessingBackendSettings();
+        if (root.TryGetProperty("revision", out JsonElement revision)
+            && revision.ValueKind == JsonValueKind.Number
+            && revision.TryGetInt64(out long value))
+            result.Revision = Math.Max(0, value);
+        if (root.TryGetProperty("mode", out JsonElement mode)
+            && mode.ValueKind == JsonValueKind.String
+            && TryParseMode(mode.GetString(), out ProcessingPipelineMode parsed))
+            result.Mode = parsed;
+        return result;
+    }
 
-        /// <summary>Formats a protocol preference for configuration and CLI output.</summary>
-        public static string FormatPreference(ProcessingBackendPreference preference) =>
-            preference == ProcessingBackendPreference.PreferNative ? "native" : "legacy";
+    private static ProcessingBackendSettings MigrateLegacySettings(JsonElement root)
+    {
+        // v1/v2 stored a protocol matrix. Preserve only an explicit old
+        // all-Legacy choice; every other historic matrix becomes Rebuilt so no
+        // protocol path is silently selected by the new architecture.
+        var result = new ProcessingBackendSettings();
+        if (root.TryGetProperty("mode", out JsonElement oldMode)
+            && oldMode.ValueKind == JsonValueKind.String
+            && string.Equals(oldMode.GetString(), "legacy", StringComparison.OrdinalIgnoreCase))
+            result.Mode = ProcessingPipelineMode.Legacy;
+        LogService.Warn("Migrated per-protocol backend settings to the global processing-pipeline switch.",
+            source: LogSource.Settings);
+        return result;
+    }
 
-        private static ProcessingBackendMode ParseMode(string? value) =>
-            value != null && TryParseMode(value, out ProcessingBackendMode mode)
-                ? mode
-                : ProcessingBackendMode.Auto;
-
-        private static ProcessingBackendPreference ParsePreference(string? value) =>
-            string.Equals(value, "native", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(value, "prefer-native", StringComparison.OrdinalIgnoreCase)
-                ? ProcessingBackendPreference.PreferNative
-                : ProcessingBackendPreference.Legacy;
-
-        private sealed class PersistedSettings
-        {
-            public string Mode { get; set; } = "auto";
-            public Dictionary<string, string> Protocols { get; set; } =
-                new(StringComparer.OrdinalIgnoreCase);
-        }
+    private sealed class PersistedSettings
+    {
+        public int SchemaVersion { get; set; }
+        public long Revision { get; set; }
+        public string Mode { get; set; } = "rebuilt";
     }
 }

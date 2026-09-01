@@ -11,6 +11,16 @@ namespace LivePhotoBox.Core.Tests;
 [Trait("Category", "RealSamples")]
 public sealed class SameFormatHdrRegressionTests
 {
+    public SameFormatHdrRegressionTests()
+    {
+        // These are Legacy compatibility regression tests. Keep the product
+        // default Rebuilt, but make the intended branch explicit per test.
+        Environment.SetEnvironmentVariable(
+            "LIVEPHOTOBOX_BACKEND_SETTINGS_PATH",
+            Path.Combine(Path.GetTempPath(), "lpb-core-tests", "legacy-pipeline-settings.json"));
+        ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
+    }
+
     [Theory]
     [InlineData("红米老款-GV1.JPG")]
     [InlineData("荣耀.jpg")]

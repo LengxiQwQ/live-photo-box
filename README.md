@@ -126,7 +126,7 @@ Automatically scan, categorize, and archive photos by device, date, and Live Pho
 
 Live Photo Box ships a **command-line interface** — `livephotobox` — that shares 100% of its core logic with the GUI, ideal for scripting and AI agents.
 
-- **Commands**: `merge` (single-pair or batch), `split` (back to image + video), `cover` / `keyphoto` (change cover frame), `repair` (fix Apple Live Photo display issues), `protocols` (query protocol × format compatibility matrix), `backend` (configure Legacy/Native routing), `update` / `update-check` (check & install updates)
+- **Commands**: `merge` (single-pair or batch), `split` (back to image + video), `cover` / `keyphoto` (change cover frame), `repair` (fix Apple Live Photo display issues), `protocols` (query protocol × format compatibility matrix), `backend` (choose the global `rebuilt` / `legacy` branch), `update` / `update-check` (check & install updates)
 - **Four executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lpb`
 - **Batch pairing & naming**: auto-pair by filename, Apple `ContentIdentifier` UUID, or vivo camera ID; rename outputs with templates like `-n custom:{name}_{date}` (`{frame}` token for the cover command); `--after` moves sources to a folder / recycle bin on completion
 - **Script-friendly**: `--json` outputs structured results that scripts and AI agents can consume directly; `--dry-run` previews operations without touching files
@@ -160,7 +160,7 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 
 > `ExifTool` / `FFmpeg` / `jpegtran` / `libheif` are bundled external tools (in the `Tools/` folder) that handle metadata read/write and audio-video processing.
 >
-> `LivePhotoBox.Core/Interop` calls the Native DLL through .NET `LibraryImport`. The first protocol path moved to Native is the vivo legacy dual-file writer. Huawei/Honor also has three preview byte-level operations. The C# implementation remains the reference path and fallback until each Native path has passed differential and device testing.
+> Native support is kept outside the product-wide `rebuilt` / `legacy` switch in this phase. The default `rebuilt` branch does not implement or call any vendor protocol; `legacy` preserves the v2.2.1 compatibility path. Native protocol work is deferred until the neutral-media pipeline and independent verification are complete.
 
 ---
 

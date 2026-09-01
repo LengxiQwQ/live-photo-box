@@ -227,10 +227,16 @@ namespace LivePhotoBox.Services.Protocols
             try
             {
                 byte[] data = File.ReadAllBytes(imagePath);
-                if (!Interop.NativeAppleMakerNoteWriter.TryStripLivePhotoEntries(data, out error))
+                int mnStart = FindAppleMakerNote(data);
+                if (mnStart < 0)
                 {
-                    return false;
+                    // 无 Apple MakerNote —— 无需剥离
+                    return true;
                 }
+
+                // StripAppleLiveEntriesFromMakerNote 就地修改 data 并返回同一引用
+                // （保持 MN 长度不变，不产生新数组），所以这里必须无条件写回。
+                StripAppleLiveEntriesFromMakerNote(data, mnStart);
                 File.WriteAllBytes(imagePath, data);
                 return true;
             }
@@ -256,10 +262,21 @@ namespace LivePhotoBox.Services.Protocols
             try
             {
                 byte[] data = File.ReadAllBytes(imagePath);
-                if (!Interop.NativeAppleMakerNoteWriter.TryWriteContentIdentifier(data, contentId, out error))
+                int mnStart = FindAppleMakerNote(data);
+                if (mnStart < 0)
                 {
+                    error = "No existing Apple MakerNote found; cannot write ContentIdentifier in place.";
                     return false;
                 }
+
+                byte[] minimal = BuildMakerNote(contentId);
+                if (mnStart + minimal.Length > data.Length)
+                {
+                    error = "Apple MakerNote region too small to rebuild.";
+                    return false;
+                }
+
+                Array.Copy(minimal, 0, data, mnStart, minimal.Length);
                 File.WriteAllBytes(imagePath, data);
                 return true;
             }
@@ -280,21 +297,94 @@ namespace LivePhotoBox.Services.Protocols
             return TryInjectMakerNoteIntoHeic(heicPath, BuildMakerNote(contentId), out error);
         }
 
+        // 将任意已构造的 Apple MakerNote 块原位注入 HEIC 的 Exif item。
+        // 不重编码像素：按 iloc 定位 Exif item，重建其内部 TIFF 的 MakerNote，
+        // 要求新 TIFF 长度 <= 原 extent 长度，文件总长度与所有盒子偏移保持不变。
         public static bool TryInjectMakerNoteIntoHeic(string heicPath, byte[] makerNote, out string? error)
         {
             error = null;
             try
             {
-                byte[] data = File.ReadAllBytes(heicPath);
-                if (LivePhotoBox.Interop.NativeAppleMakerNoteWriter.TryInjectMakerNoteIntoHeic(data, makerNote, out byte[]? output, out error))
+                if (!HeifBoxParser.TryLocateExifItem(heicPath, out long exifOffset, out long exifLength, out string? locateError))
                 {
-                    if (output != null)
+                    error = $"Exif item locate failed: {locateError}";
+                    return false;
+                }
+
+                byte[] data = File.ReadAllBytes(heicPath);
+                int itemStart = checked((int)exifOffset);
+                int itemLen = checked((int)exifLength);
+                if (itemStart + itemLen > data.Length)
+                {
+                    error = "Exif extent out of range.";
+                    return false;
+                }
+
+                // Exif item payload: [32bit exif_tiff_header_offset]["Exif\0\0"][TIFF]
+                if (itemLen < 10)
+                {
+                    error = "Exif item too short.";
+                    return false;
+                }
+
+                int tiffHeaderOffset = BinaryPrimitives.ReadInt32BigEndian(data.AsSpan(itemStart, 4));
+                int tiffStart = itemStart + 4 + tiffHeaderOffset;
+                if (tiffStart + 8 > itemStart + itemLen)
+                {
+                    error = "Exif TIFF offset out of range.";
+                    return false;
+                }
+
+                bool bigEndian = data[tiffStart] == (byte)'M' && data[tiffStart + 1] == (byte)'M';
+                bool littleEndian = data[tiffStart] == (byte)'I' && data[tiffStart + 1] == (byte)'I';
+                if (!bigEndian && !littleEndian)
+                {
+                    error = "Exif TIFF byte order unknown.";
+                    return false;
+                }
+
+                int tiffLen = (itemStart + itemLen) - tiffStart;
+                byte[] tiff = new byte[tiffLen];
+                Array.Copy(data, tiffStart, tiff, 0, tiffLen);
+
+                byte[]? newTiff = InjectMakerNoteIntoTiff(tiff, makerNote, out string? tiffError);
+                if (newTiff == null)
+                {
+                    error = $"TIFF MakerNote injection failed: {tiffError}";
+                    return false;
+                }
+                if (newTiff.Length > tiffLen)
+                {
+                    // 容量不足：把完整 Exif item payload（[offset=6]["Exif\0\0"][TIFF]）
+                    // 追加到 mdat 末尾并重指 Exif item 的 iloc。追加的必须是完整 payload
+                    // （含 4 字节 offset 头），否则后续解析器会把 TIFF 头当 offset 读错。
+                    // 保留源 EXIF 全部数据（含缩略图 / UserComment / 厂商私有字段），
+                    // 不移动其它 item 的数据。mdat 必须是最后一个顶层 box。
+                    byte[] fullPayload = new byte[4 + 6 + newTiff.Length];
+                    BinaryPrimitives.WriteInt32BigEndian(fullPayload.AsSpan(0, 4), 6);
+                    "Exif\0\0"u8.CopyTo(fullPayload.AsSpan(4, 6));
+                    newTiff.CopyTo(fullPayload.AsSpan(10));
+                    if (TryRelocateExifToMdatEnd(
+                        data, itemStart, itemLen, fullPayload, out byte[] relocated, out string? relocateError))
                     {
-                        File.WriteAllBytes(heicPath, output);
+                        File.WriteAllBytes(heicPath, relocated);
                         return true;
                     }
+
+                    error = $"New TIFF ({newTiff.Length} bytes) exceeds Exif item capacity ({tiffLen} bytes)"
+                        + $" and relocation failed: {relocateError}";
+                    return false;
                 }
-                return false;
+
+                // 原位写回，尾部零填充；文件长度与所有盒子偏移不变。
+                Array.Copy(newTiff, 0, data, tiffStart, newTiff.Length);
+                for (int i = tiffStart + newTiff.Length; i < itemStart + itemLen; i++)
+                {
+                    data[i] = 0;
+                }
+
+                File.WriteAllBytes(heicPath, data);
+                return true;
             }
             catch (Exception ex)
             {
@@ -626,10 +716,110 @@ namespace LivePhotoBox.Services.Protocols
         // 在内存字节上完成注入（测试友好）。成功返回新字节数组，失败返回 null。
         internal static byte[]? InjectIntoJpegBytes(byte[] data, byte[] makerNote, out string? error)
         {
-            if (LivePhotoBox.Interop.NativeAppleMakerNoteWriter.TryInjectMakerNoteIntoJpeg(data, makerNote, out byte[]? output, out error))
+            error = null;
+            int pos = 2; // after SOI
+            bool foundExif = false;
+            while (pos + 4 <= data.Length)
             {
-                return output;
+                if (data[pos] != 0xFF)
+                {
+                    break; // 损坏或已进入熵编码，交给下方“无 Exif”分支决定
+                }
+                byte marker = data[pos + 1];
+                if (marker == 0xD8) { pos += 2; continue; }
+                if (marker >= 0xD0 && marker <= 0xD9) { pos += 2; continue; }
+                if (marker == 0xDA || marker == 0xD9) break; // SOS / EOI：段扫描结束
+                if (pos + 4 > data.Length) break;
+
+                int segLen = (data[pos + 2] << 8) | data[pos + 3];
+                if (segLen < 2 || pos + 2 + segLen > data.Length)
+                {
+                    break;
+                }
+
+                bool isExif = marker == 0xE1 && pos + 10 <= data.Length
+                    && data[pos + 4] == (byte)'E' && data[pos + 5] == (byte)'x'
+                    && data[pos + 6] == (byte)'i' && data[pos + 7] == (byte)'f'
+                    && data[pos + 8] == 0 && data[pos + 9] == 0;
+
+                if (isExif)
+                {
+                    foundExif = true;
+                    int tiff = pos + 10;
+                    if (tiff + 8 > data.Length)
+                    {
+                        error = "Truncated EXIF TIFF header";
+                        return null;
+                    }
+                    bool bigEndian = data[tiff] == (byte)'M' && data[tiff + 1] == (byte)'M';
+                    if (!bigEndian && !(data[tiff] == (byte)'I' && data[tiff + 1] == (byte)'I'))
+                    {
+                        error = "Unrecognized EXIF byte order";
+                        return null;
+                    }
+
+                    int ifd0 = Read32(data, tiff + 4, bigEndian); // IFD0 偏移是 4 字节
+                    // 在 IFD0 与 ExifIFD 里找 MakerNote 条目（tag 0x927C）。
+                    int exifPtrValuePos = FindEntryValue(data, tiff, ifd0, 0x8769, bigEndian);
+                    int exifPtr = exifPtrValuePos >= 0 ? Read32(data, exifPtrValuePos, bigEndian) : -1;
+                    int makerNoteValuePos = FindEntryValue(data, tiff, ifd0, 0x927C, bigEndian);
+                    if (makerNoteValuePos < 0 && exifPtr >= 0)
+                    {
+                        makerNoteValuePos = FindEntryValue(data, tiff, exifPtr, 0x927C, bigEndian);
+                    }
+
+                    if (makerNoteValuePos < 0)
+                    {
+                        // EXIF 存在但没有 0x927C 条目（原生小米/OPPO 等相机 JPEG）：
+                        // 增长 ExifIFD（缺失时用 IFD0）新增一条，并把 MakerNote 块追加到
+                        // APP1 Exif 段尾，修正所有指向插入点之后的 TIFF 偏移。
+                        return InsertMakerNoteEntry(
+                            data, tiff, segLen, ifd0, exifPtr, makerNote, bigEndian,
+                            pos, out error);
+                    }
+
+                    // 已有 0x927C 条目（华为/荣耀原生相机 JPEG 常带 1~多个 MakerNote 条目）。
+                    // iOS 只接受 ExifIFD 中「唯一一条」Apple MakerNote；重复条目会导致导入失败。
+                    // 因此：删除所有 0x927C 条目，再按「无条目」路径在 ExifIFD 新增唯一一条。
+                    byte[]? cleaned = RemoveAllMakerNoteEntries(
+                        data, tiff, ifd0, bigEndian, out int removedCount, out error);
+                    if (cleaned == null || removedCount == 0)
+                    {
+                        if (cleaned == null) return null;
+                        return InsertMakerNoteEntry(
+                            cleaned, tiff, segLen, ifd0, exifPtr, makerNote, bigEndian,
+                            pos, out error);
+                    }
+
+                    int cleanedSegLen = segLen - 12 * removedCount;
+                    int cleanedExifPtr = exifPtr;
+                    int cleanedExifPos = FindEntryValue(cleaned, tiff, ifd0, 0x8769, bigEndian);
+                    if (cleanedExifPos >= 0)
+                    {
+                        cleanedExifPtr = Read32(cleaned, cleanedExifPos, bigEndian);
+                    }
+
+                    return InsertMakerNoteEntry(
+                        cleaned, tiff, cleanedSegLen, ifd0, cleanedExifPtr, makerNote,
+                        bigEndian, pos, out error);
+                }
+
+                pos += 2 + segLen;
             }
+
+            // 源 JPEG 没有 Exif（或结构不含可定位的 APP1）：新建最小 APP1 Exif，
+            // 内含 IFD0 → tag 0x927C(MakerNote) → 70 字节 MakerNote 块。
+            if (!foundExif)
+            {
+                byte[] app1 = BuildFreshExifApp1(makerNote);
+                byte[] grown = new byte[data.Length + app1.Length];
+                Array.Copy(data, 0, grown, 0, 2);                 // SOI
+                Array.Copy(app1, 0, grown, 2, app1.Length);
+                Array.Copy(data, 2, grown, 2 + app1.Length, data.Length - 2);
+                return grown;
+            }
+
+            error = "EXIF APP1 found but MakerNote entry not found";
             return null;
         }
 
