@@ -16,6 +16,9 @@
     <Filter Include="src\foundation">
       <UniqueIdentifier>{9571FC9D-967B-0180-A04D-85B6C84C1027}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\media">
+      <UniqueIdentifier>{C1137034-E411-A8F5-A344-4ACB3752F344}</UniqueIdentifier>
+    </Filter>
     <Filter Include="src\metadata">
       <UniqueIdentifier>{9E46C3DC-3A10-4C53-3CAA-5B096147A700}</UniqueIdentifier>
     </Filter>
@@ -38,6 +41,18 @@
     </ClInclude>
     <ClInclude Include="src\foundation\internal.h">
       <Filter>src\foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\image_converter.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\media_extractor.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\media_inspector.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\video_converter.h">
+      <Filter>src\media</Filter>
     </ClInclude>
     <ClInclude Include="src\metadata\exif.h">
       <Filter>src\metadata</Filter>
@@ -64,6 +79,21 @@
     </ClCompile>
     <ClCompile Include="src\foundation\context.cpp">
       <Filter>src\foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\image_converter.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\media_api.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\media_extractor.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\media_inspector.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\video_converter.cpp">
+      <Filter>src\media</Filter>
     </ClCompile>
     <ClCompile Include="src\metadata\exif.cpp">
       <Filter>src\metadata</Filter>

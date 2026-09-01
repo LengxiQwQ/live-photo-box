@@ -1,0 +1,32 @@
+using System;
+
+namespace LivePhotoBox.Media.Models;
+
+public sealed record VideoConversionRequest
+{
+    public required MediaArtifact SourceArtifact { get; init; }
+    public required VideoContainer TargetContainer { get; init; }
+    public required VideoCodec TargetCodec { get; init; }
+    public required string TargetDirectory { get; init; }
+    public int Crf { get; init; } = 23;
+    public int TargetFps { get; init; } = 0;
+}
+
+public sealed record VideoExecutionRecord
+{
+    public required VideoContainer InputContainer { get; init; }
+    public required VideoContainer OutputContainer { get; init; }
+    public required VideoCodec OutputCodec { get; init; }
+    public bool RemuxUsed { get; init; }
+    public string SelectedEncoder { get; init; } = string.Empty;
+    public bool HardwareFallbackOccurred { get; init; }
+    public TimeSpan Duration { get; init; }
+}
+
+public sealed record VideoConversionResult
+{
+    public bool Success { get; init; }
+    public MediaArtifact? OutputArtifact { get; init; }
+    public required VideoExecutionRecord ExecutionRecord { get; init; }
+    public string? ErrorMessage { get; init; }
+}

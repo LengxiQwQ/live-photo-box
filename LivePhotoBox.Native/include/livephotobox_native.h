@@ -314,7 +314,182 @@ LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
     double cover_seconds,
     uint8_t* output, size_t output_size, size_t* out_written);
 
+/* ========================================================================= */
+/* Phase 02A: Media Inspection, Extraction, and Native Media Conversion      */
+/* ========================================================================= */
+
+typedef enum lpb_image_container
+{
+    LPB_IMAGE_CONTAINER_UNKNOWN = 0,
+    LPB_IMAGE_CONTAINER_JPEG = 1,
+    LPB_IMAGE_CONTAINER_HEIC = 2,
+    LPB_IMAGE_CONTAINER_PNG = 3
+} lpb_image_container;
+
+typedef enum lpb_video_container
+{
+    LPB_VIDEO_CONTAINER_UNKNOWN = 0,
+    LPB_VIDEO_CONTAINER_MP4 = 1,
+    LPB_VIDEO_CONTAINER_MOV = 2
+} lpb_video_container;
+
+typedef enum lpb_video_codec
+{
+    LPB_VIDEO_CODEC_UNKNOWN = 0,
+    LPB_VIDEO_CODEC_COPY = 1,
+    LPB_VIDEO_CODEC_H264 = 2,
+    LPB_VIDEO_CODEC_HEVC = 3
+} lpb_video_codec;
+
+typedef enum lpb_source_protocol
+{
+    LPB_SOURCE_PROTOCOL_UNKNOWN = 0,
+    LPB_SOURCE_PROTOCOL_NON_LIVE = 1,
+    LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1 = 2,
+    LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2 = 3,
+    LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO = 4,
+    LPB_SOURCE_PROTOCOL_VIVO_X300 = 5,
+    LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL = 6,
+    LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG = 7,
+    LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC = 8,
+    LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO = 9,
+    LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO = 10,
+    LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO = 11
+} lpb_source_protocol;
+
+typedef struct lpb_media_range
+{
+    uint64_t offset;
+    uint64_t length;
+} lpb_media_range;
+
+typedef struct lpb_image_item_facts
+{
+    uint32_t struct_size;
+    int32_t is_present;
+    lpb_image_container container;
+    uint32_t width;
+    uint32_t height;
+    lpb_media_range file_range;
+} lpb_image_item_facts;
+
+typedef struct lpb_video_item_facts
+{
+    uint32_t struct_size;
+    int32_t is_present;
+    lpb_video_container container;
+    lpb_video_codec codec;
+    uint32_t width;
+    uint32_t height;
+    int32_t rotation_degrees;
+    double duration_seconds;
+    double fps;
+    int32_t has_audio;
+    lpb_media_range file_range;
+} lpb_video_item_facts;
+
+typedef struct lpb_gainmap_item_facts
+{
+    uint32_t struct_size;
+    int32_t is_present;
+    lpb_image_container container;
+    lpb_media_range file_range;
+} lpb_gainmap_item_facts;
+
+typedef struct lpb_timing_facts
+{
+    uint32_t struct_size;
+    int64_t cover_timestamp_us;
+    int64_t primary_timestamp_us;
+    int32_t cover_frame_index;
+    int32_t total_frames;
+} lpb_timing_facts;
+
+typedef struct lpb_source_media_facts
+{
+    uint32_t struct_size;
+    lpb_source_protocol protocol;
+    lpb_image_item_facts primary_image;
+    lpb_video_item_facts motion_video;
+    lpb_gainmap_item_facts gain_map;
+    lpb_timing_facts timing;
+    char pairing_identifier[128];
+} lpb_source_media_facts;
+
+/*
+ * High-level Native inspection of source media files.
+ * Performs deep container parsing (JPEG APP segments, ISOBMFF box trees,
+ * SEF trailers, MakerNotes, XMP) in memory/file streams to identify
+ * protocol and calculate exact, non-overlapping media ranges.
+ */
+LPB_API lpb_result LPB_CALL lpb_inspect_media(
+    lpb_context* context,
+    const char* primary_path,
+    const char* secondary_path,
+    lpb_source_media_facts* out_facts);
+
+/*
+ * High-level Native extraction of media items into destination files.
+ * Reads source files strictly read-only and writes slices/files directly.
+ */
+LPB_API lpb_result LPB_CALL lpb_extract_media(
+    lpb_context* context,
+    const char* primary_path,
+    const char* secondary_path,
+    const lpb_source_media_facts* facts,
+    const char* output_image_path,
+    const char* output_video_path,
+    const char* output_gainmap_path);
+
+/*
+ * Probes a video file natively (ISOBMFF box tree traversal: moov/trak/stsd/tkhd/stts/mvhd)
+ * to populate format facts (dimensions, duration, fps, rotation, codec, audio).
+ */
+LPB_API lpb_result LPB_CALL lpb_probe_video(
+    lpb_context* context,
+    const char* video_path,
+    lpb_video_item_facts* out_video_facts);
+
+/*
+ * Stream remuxes between MP4 and MOV containers natively (modifies ftyp and box headers
+ * without re-encoding video/audio samples).
+ */
+LPB_API lpb_result LPB_CALL lpb_remux_video(
+    lpb_context* context,
+    const char* input_video_path,
+    const char* output_video_path,
+    lpb_video_container target_container);
+
+/*
+ * Converts image formats natively.
+ * If target matches source container, performs structure copy (out_reencoded = 0).
+ * If transcoding is required (e.g. HEIC <-> JPEG), uses WIC (Windows Imaging Component).
+ */
+LPB_API lpb_result LPB_CALL lpb_convert_image(
+    lpb_context* context,
+    const char* input_image_path,
+    const char* output_image_path,
+    lpb_image_container target_container,
+    int32_t quality,
+    int32_t* out_reencoded);
+
+/*
+ * Transcodes video natively.
+ * If target codec is COPY or matches source codec, performs native stream remuxing.
+ * Otherwise uses Windows Media Foundation (supporting hardware MFTs with software fallback).
+ */
+LPB_API lpb_result LPB_CALL lpb_transcode_video(
+    lpb_context* context,
+    const char* input_video_path,
+    const char* output_video_path,
+    lpb_video_container target_container,
+    lpb_video_codec target_codec,
+    int32_t crf,
+    char* out_encoder_used,
+    size_t encoder_buf_len);
+
 #ifdef __cplusplus
 }
 #endif
 #endif
+

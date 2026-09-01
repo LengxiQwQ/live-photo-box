@@ -1,4 +1,5 @@
 #include "foundation/internal.h"
+#include <windows.h>
 
 void set_error(lpb_context* context, const char* message) noexcept
 {
@@ -33,6 +34,29 @@ void log_message(lpb_context* context, lpb_log_level level, const char* message)
     {
         set_error(context, "A native log callback failed.");
     }
+}
+
+std::filesystem::path utf8_to_path(const char* utf8_str) noexcept
+{
+    if (utf8_str == nullptr || *utf8_str == '\0')
+    {
+        return {};
+    }
+
+    int wlen = MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, nullptr, 0);
+    if (wlen <= 1)
+    {
+        return {};
+    }
+
+    std::wstring wstr(wlen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, utf8_str, -1, wstr.data(), wlen);
+    if (!wstr.empty() && wstr.back() == L'\0')
+    {
+        wstr.pop_back();
+    }
+
+    return std::filesystem::path(wstr);
 }
 
 lpb_result copy_output(

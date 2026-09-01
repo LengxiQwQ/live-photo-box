@@ -117,6 +117,10 @@
     <ClInclude Include="src\binary\endian.h" />
     <ClInclude Include="src\containers\isobmff.h" />
     <ClInclude Include="src\foundation\internal.h" />
+    <ClInclude Include="src\media\image_converter.h" />
+    <ClInclude Include="src\media\media_extractor.h" />
+    <ClInclude Include="src\media\media_inspector.h" />
+    <ClInclude Include="src\media\video_converter.h" />
     <ClInclude Include="src\metadata\exif.h" />
     <ClInclude Include="src\metadata\exif_rewrite.h" />
     <ClInclude Include="src\metadata\jpeg.h" />
@@ -127,6 +131,11 @@
     <ClCompile Include="src\containers\isobmff.cpp" />
     <ClCompile Include="src\containers\mp4_strip.cpp" />
     <ClCompile Include="src\foundation\context.cpp" />
+    <ClCompile Include="src\media\image_converter.cpp" />
+    <ClCompile Include="src\media\media_api.cpp" />
+    <ClCompile Include="src\media\media_extractor.cpp" />
+    <ClCompile Include="src\media\media_inspector.cpp" />
+    <ClCompile Include="src\media\video_converter.cpp" />
     <ClCompile Include="src\metadata\exif.cpp" />
     <ClCompile Include="src\metadata\exif_rewrite.cpp" />
     <ClCompile Include="src\metadata\jpeg.cpp" />
