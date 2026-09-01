@@ -18,6 +18,13 @@ public sealed class ProcessingOperationSession
         Revision = settings.Revision;
     }
 
+    internal ProcessingOperationSession(string operation, ProcessingOperationSession parent)
+    {
+        Operation = operation;
+        Mode = parent.Mode;
+        Revision = parent.Revision;
+    }
+
     public string Operation { get; }
     public ProcessingPipelineMode Mode { get; }
     public long Revision { get; }
@@ -52,14 +59,10 @@ public static class ProcessingPipelineRouter
     {
         ArgumentNullException.ThrowIfNull(legacyAction);
         ProcessingOperationSession? inherited = Current;
-        if (inherited != null)
-        {
-            inherited.EnsureLegacy();
-            await legacyAction().ConfigureAwait(false);
-            return;
-        }
+        ProcessingOperationSession session = inherited != null
+            ? new ProcessingOperationSession(string.IsNullOrWhiteSpace(operation) ? inherited.Operation : operation, inherited)
+            : Begin(operation);
 
-        ProcessingOperationSession session = Begin(operation);
         session.EnsureLegacy();
         await RunInSessionAsync(session, legacyAction).ConfigureAwait(false);
     }
@@ -68,13 +71,10 @@ public static class ProcessingPipelineRouter
     {
         ArgumentNullException.ThrowIfNull(legacyAction);
         ProcessingOperationSession? inherited = Current;
-        if (inherited != null)
-        {
-            inherited.EnsureLegacy();
-            return await legacyAction().ConfigureAwait(false);
-        }
+        ProcessingOperationSession session = inherited != null
+            ? new ProcessingOperationSession(string.IsNullOrWhiteSpace(operation) ? inherited.Operation : operation, inherited)
+            : Begin(operation);
 
-        ProcessingOperationSession session = Begin(operation);
         session.EnsureLegacy();
         T result = default!;
         await RunInSessionAsync(session, async () => result = await legacyAction().ConfigureAwait(false))

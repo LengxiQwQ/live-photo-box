@@ -85,6 +85,7 @@ try {
             -c $Configuration `
             -p:Platform=x64 `
             -p:SkipNativeBuild=true `
+            -p:EnableMsixTooling=false `
             --no-restore `
             --nologo
     }

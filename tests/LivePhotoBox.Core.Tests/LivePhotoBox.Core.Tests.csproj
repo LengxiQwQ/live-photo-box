@@ -37,5 +37,9 @@
       <Link>samples\谷歌自己合成的.heic</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\..\LivePhotoBox\Tools\**\*" Condition="Exists('..\..\LivePhotoBox\Tools')">
+      <Link>Tools\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 </Project>

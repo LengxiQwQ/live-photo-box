@@ -274,6 +274,7 @@ public sealed class ProcessingBackendSettingsTests
             await ProcessingPipelineRouter.RunAsync("merge", async () =>
             {
                 Assert.Equal(ProcessingPipelineMode.Legacy, ProcessingPipelineRouter.Current?.Mode);
+                Assert.Equal("merge", ProcessingPipelineRouter.Current?.Operation);
                 legacyCalls++;
                 ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
                 await Task.Yield();
@@ -282,11 +283,82 @@ public sealed class ProcessingBackendSettingsTests
                 await ProcessingPipelineRouter.RunAsync("split", () =>
                 {
                     Assert.Equal(ProcessingPipelineMode.Legacy, ProcessingPipelineRouter.Current?.Mode);
+                    Assert.Equal("split", ProcessingPipelineRouter.Current?.Operation);
                     return Task.CompletedTask;
                 });
+
+                Assert.Equal("merge", ProcessingPipelineRouter.Current?.Operation);
             });
 
             Assert.Equal(1, legacyCalls);
+            Assert.Null(ProcessingPipelineRouter.Current);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", previous);
+            TryDeleteDirectory(directory);
+            SettingsTestLock.Release();
+        }
+    }
+
+    [Fact]
+    public async Task Router_NestedOperationCleansUpContextOnException()
+    {
+        await SettingsTestLock.WaitAsync();
+        string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
+        string? previous = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", Path.Combine(directory, "settings.json"));
+            ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
+
+            await ProcessingPipelineRouter.RunAsync("merge", async () =>
+            {
+                Assert.Equal("merge", ProcessingPipelineRouter.Current?.Operation);
+
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    ProcessingPipelineRouter.RunAsync("split", () => throw new InvalidOperationException("test failure")));
+
+                Assert.Equal("merge", ProcessingPipelineRouter.Current?.Operation);
+            });
+
+            Assert.Null(ProcessingPipelineRouter.Current);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", previous);
+            TryDeleteDirectory(directory);
+            SettingsTestLock.Release();
+        }
+    }
+
+    [Fact]
+    public async Task SettingsService_FiresChangedEvent()
+    {
+        await SettingsTestLock.WaitAsync();
+        string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
+        string? previous = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", Path.Combine(directory, "settings.json"));
+            int changedCount = 0;
+            EventHandler handler = (_, _) => changedCount++;
+            ProcessingBackendSettingsService.Changed += handler;
+            try
+            {
+                ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
+                Assert.Equal(1, changedCount);
+
+                ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
+                Assert.Equal(2, changedCount);
+
+                ProcessingBackendSettingsService.Reset();
+                Assert.Equal(3, changedCount);
+            }
+            finally
+            {
+                ProcessingBackendSettingsService.Changed -= handler;
+            }
         }
         finally
         {

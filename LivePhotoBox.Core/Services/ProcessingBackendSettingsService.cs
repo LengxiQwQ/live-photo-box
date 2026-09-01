@@ -54,8 +54,17 @@ public static class ProcessingBackendSettingsService
                 return ReadCurrent(root);
 
             ProcessingBackendSettings migrated = MigrateLegacySettings(root);
-            Save(migrated);
-            return Load();
+            try
+            {
+                Save(migrated);
+                return Load();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
+            {
+                LogService.Warn("Processing-pipeline settings migration could not be written back to disk; continuing with migrated settings.",
+                    ex.Message, LogSource.Settings);
+                return migrated;
+            }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -69,37 +78,87 @@ public static class ProcessingBackendSettingsService
     {
         ArgumentNullException.ThrowIfNull(settings);
         using Mutex mutex = new(false, MutexName);
-        mutex.WaitOne();
-        try { SaveUnderLock(settings); }
-        finally { mutex.ReleaseMutex(); }
+        bool acquired = false;
+        try
+        {
+            try
+            {
+                acquired = mutex.WaitOne();
+            }
+            catch (AbandonedMutexException)
+            {
+                acquired = true;
+                LogService.Warn("Processing-pipeline settings mutex was abandoned by a previous process.",
+                    source: LogSource.Settings);
+            }
+
+            SaveUnderLock(settings);
+        }
+        finally
+        {
+            if (acquired) mutex.ReleaseMutex();
+        }
+
+        Changed?.Invoke(null, EventArgs.Empty);
     }
 
     /// <summary>Atomically updates the one branch switch.</summary>
     public static void SetMode(ProcessingPipelineMode mode)
     {
         using Mutex mutex = new(false, MutexName);
-        mutex.WaitOne();
+        bool acquired = false;
         try
         {
+            try
+            {
+                acquired = mutex.WaitOne();
+            }
+            catch (AbandonedMutexException)
+            {
+                acquired = true;
+                LogService.Warn("Processing-pipeline settings mutex was abandoned by a previous process.",
+                    source: LogSource.Settings);
+            }
+
             ProcessingBackendSettings settings = LoadUnderLock();
             settings.Mode = mode;
             SaveUnderLock(settings);
         }
-        finally { mutex.ReleaseMutex(); }
+        finally
+        {
+            if (acquired) mutex.ReleaseMutex();
+        }
+
+        Changed?.Invoke(null, EventArgs.Empty);
     }
 
     /// <summary>Removes persisted configuration so the default Rebuilt branch applies.</summary>
     public static void Reset()
     {
         using Mutex mutex = new(false, MutexName);
-        mutex.WaitOne();
+        bool acquired = false;
         try
         {
+            try
+            {
+                acquired = mutex.WaitOne();
+            }
+            catch (AbandonedMutexException)
+            {
+                acquired = true;
+                LogService.Warn("Processing-pipeline settings mutex was abandoned by a previous process.",
+                    source: LogSource.Settings);
+            }
+
             string path = SettingsPath;
             if (File.Exists(path)) File.Delete(path);
-            Changed?.Invoke(null, EventArgs.Empty);
         }
-        finally { mutex.ReleaseMutex(); }
+        finally
+        {
+            if (acquired) mutex.ReleaseMutex();
+        }
+
+        Changed?.Invoke(null, EventArgs.Empty);
     }
 
     public static string FormatMode(ProcessingPipelineMode mode) =>
@@ -149,7 +208,6 @@ public static class ProcessingBackendSettingsService
                 stream.Flush(flushToDisk: true);
             }
             File.Move(tempPath, path, overwrite: true);
-            Changed?.Invoke(null, EventArgs.Empty);
         }
         finally { try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { } }
     }

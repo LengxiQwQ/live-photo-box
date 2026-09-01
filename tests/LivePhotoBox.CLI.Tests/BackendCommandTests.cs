@@ -26,4 +26,25 @@ public sealed class BackendCommandTests
         Assert.Contains("global", result.StdOut, System.StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("protocol", result.StdOut, System.StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task BackendCommand_ShowAndSetModeAndReset()
+    {
+        var root = new RootCommand { BackendCommand.Create() };
+
+        var showResult = await CliTestHost.RunAsync(root, "backend");
+        Assert.Equal(0, showResult.ExitCode);
+        Assert.Contains("legacy", showResult.StdOut, System.StringComparison.OrdinalIgnoreCase);
+
+        var setRebuiltResult = await CliTestHost.RunAsync(root, "backend", "mode", "rebuilt");
+        Assert.Equal(0, setRebuiltResult.ExitCode);
+        Assert.Contains("rebuilt", setRebuiltResult.StdOut, System.StringComparison.OrdinalIgnoreCase);
+
+        var resetResult = await CliTestHost.RunAsync(root, "backend", "reset");
+        Assert.Equal(0, resetResult.ExitCode);
+        Assert.Contains("reset", resetResult.StdOut, System.StringComparison.OrdinalIgnoreCase);
+
+        var setInvalidResult = await CliTestHost.RunAsync(root, "backend", "mode", "invalid_mode");
+        Assert.Equal(1, setInvalidResult.ExitCode);
+    }
 }

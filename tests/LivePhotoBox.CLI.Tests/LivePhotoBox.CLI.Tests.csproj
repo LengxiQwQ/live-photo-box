@@ -26,4 +26,11 @@
   <ItemGroup>
     <ProjectReference Include="..\..\LivePhotoBox.CLI\LivePhotoBox.CLI.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\LivePhotoBox\Tools\**\*" Condition="Exists('..\..\LivePhotoBox\Tools')">
+      <Link>Tools\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>
