@@ -13,6 +13,9 @@
  */
 
 using LivePhotoBox.Models;
+using LivePhotoBox.Interop;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using System;
 using System.IO;
 using System.Threading;
@@ -41,6 +44,9 @@ namespace LivePhotoBox.Services
         {
             if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
                 return null;
+
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+                return await ExtractVideoRebuiltAsync(filePath, ct).ConfigureAwait(false);
 
             await Task.Yield();
 
@@ -93,6 +99,44 @@ namespace LivePhotoBox.Services
             catch (Exception ex)
             {
                 LogService.Split($"LivePhotoVideoExtractor failed: {ex.Message}", LogLevel.Warning);
+                return null;
+            }
+        }
+
+        private static async Task<string?> ExtractVideoRebuiltAsync(string filePath, CancellationToken ct)
+        {
+            try
+            {
+                SourceMediaFacts facts = await new SourceInspector()
+                    .InspectAsync(filePath, null, ct).ConfigureAwait(false);
+                if (facts.MotionVideo is not { IsPresent: true } videoFacts
+                    || videoFacts.ByteLength <= 0)
+                    return null;
+
+                string extension = videoFacts.Container == VideoContainer.Mov ? ".mov" : ".mp4";
+                string outputPath = Path.Combine(Path.GetTempPath(), $"lpb_live_{Guid.NewGuid():N}{extension}");
+                await NativeMediaService.ExtractMediaAsync(
+                    filePath,
+                    null,
+                    facts,
+                    outputImagePath: null,
+                    outputVideoPath: outputPath,
+                    outputGainmapPath: null,
+                    ct).ConfigureAwait(false);
+
+                if (File.Exists(outputPath) && new FileInfo(outputPath).Length == videoFacts.ByteLength)
+                    return outputPath;
+
+                try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
+                return null;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogService.Split($"Rebuilt Native video extraction failed: {ex.Message}", LogLevel.Warning);
                 return null;
             }
         }

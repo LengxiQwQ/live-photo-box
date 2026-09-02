@@ -13,6 +13,7 @@ using Windows.Graphics.Imaging;
 using Windows.Storage;
 using Windows.Storage.FileProperties;
 using Windows.Storage.Streams;
+using LivePhotoBox.Models;
 using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
@@ -56,6 +57,9 @@ namespace LivePhotoBox.Services
         // 追踪 TryGetOrLoad 发起的加载（与 _photoLoadCts 分开，存在于整个加载周期而非仅信号量等待期）
         private static readonly ConcurrentDictionary<string, byte> _tryGetOrLoadInFlight = new(StringComparer.OrdinalIgnoreCase);
         private static int _cacheVersion;
+
+        private static bool IsRebuiltMode =>
+            ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt;
 
         // 从缓存中直接获取已加载的缩略图（同步，非阻塞）。
         // imagePath: 文件路径。
@@ -479,6 +483,12 @@ namespace LivePhotoBox.Services
         // 根据用户设置中选中的显卡自动添加硬件加速。
         private static async Task<ImageSource?> LoadVideoThumbnailAsync(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
         {
+            if (IsRebuiltMode)
+            {
+                LogService.FileOp("Video thumbnail skipped: Rebuilt uses Native media execution; FFmpeg is Legacy-only.", LogLevel.Info);
+                return null;
+            }
+
             string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
                 return null;
@@ -923,6 +933,12 @@ namespace LivePhotoBox.Services
             uint targetSize = 80,
             CancellationToken cancellationToken = default)
         {
+            if (IsRebuiltMode)
+            {
+                LogService.FileOp("Video thumbnail data skipped: Rebuilt uses Native media execution; FFmpeg is Legacy-only.", LogLevel.Info);
+                return (Array.Empty<byte>(), 0, 0);
+            }
+
             string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
                 return (Array.Empty<byte>(), 0, 0);

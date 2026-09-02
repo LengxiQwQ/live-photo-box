@@ -20,6 +20,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using LivePhotoBox.Models;
 
 namespace LivePhotoBox.Services
 {
@@ -47,6 +48,14 @@ namespace LivePhotoBox.Services
         public static async Task<FrameExtractionResult?> ExtractAllFramesAsync(
             string videoPath, CancellationToken ct)
         {
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                LogService.FileOp(
+                    "VideoFrameExtraction skipped: Rebuilt uses Native media execution; FFmpeg is Legacy-only.",
+                    Models.LogLevel.Info);
+                return null;
+            }
+
             string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
             if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
             {
