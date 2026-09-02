@@ -1312,7 +1312,12 @@ namespace LivePhotoBox.ViewModels
         // 执行所有拆分任务的异步核心方法。
         private Task RunTasksAsync()
         {
-            return ProcessingPipelineRouter.RunAsync("split", RunLegacyTasksAsync);
+            // SplitAsync 内部负责根据全局模式选择 rebuilt/Legacy。
+            // 不能先用 Legacy-only Router 包住它，否则默认 rebuilt 会在
+            // 真正进入拆分管线前被 RebuiltPipelineNotReadyException 拦截。
+            return ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt
+                ? RunLegacyTasksAsync()
+                : ProcessingPipelineRouter.RunAsync("split", RunLegacyTasksAsync);
         }
 
         private async Task RunLegacyTasksAsync()

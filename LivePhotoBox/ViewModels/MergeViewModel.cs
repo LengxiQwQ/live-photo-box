@@ -1439,7 +1439,168 @@ namespace LivePhotoBox.ViewModels
         // 清理临时文件 → 显示结果对话框。
         private Task RunTasksAsync()
         {
-            return ProcessingPipelineRouter.RunAsync("merge", RunLegacyTasksAsync);
+            // 合成运行器内部负责根据全局模式选择 rebuilt/Legacy。
+            // 这里不能先用 Legacy-only Router 包住它，否则默认 rebuilt 会在
+            // 真正进入媒体管线前被 RebuiltPipelineNotReadyException 拦截。
+            return ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt
+                ? RunRebuiltTasksAsync()
+                : ProcessingPipelineRouter.RunAsync("merge", RunLegacyTasksAsync);
+        }
+
+        private async Task RunRebuiltTasksAsync()
+        {
+            InitializeRunState();
+            _stopwatch = Stopwatch.StartNew();
+            OnPropertyChanged(nameof(ElapsedTimeText));
+
+            var token = GetProcessingToken();
+            string outputDir = OutputDirectory;
+            string tempDir = Path.Combine(outputDir, "Temp");
+            Directory.CreateDirectory(outputDir);
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
+                bool hasHeic = tasksToProcess.Any(t => HeicConverterService.IsHeicFile(t.ImagePath));
+                int maxParallel = hasHeic
+                    ? AppSettingsService.GetValue("MergeThreadCount", 4)
+                    : 20;
+
+                var options = new LivePhotoMergeRunOptions
+                {
+                    OutputDirectory = outputDir,
+                    SelectedModeIndex = SelectedModeIndex,
+                    OutputFormatIndex = OutputFormatIndex,
+                    NamingRuleIndex = NamingRuleIndex,
+                    CustomNamingPattern = CustomNamingPattern,
+                    MaxDegreeOfParallelism = maxParallel,
+                    OverwriteExisting = OverwriteExisting,
+                    PreserveSubfolders = AppSettingsService.GetValue("IsOutputPreserveSubfolderStructure", false),
+                    InputDirectory = InputDirectory,
+                };
+
+                await LivePhotoMergeRunnerService.RunAsync(
+                    Tasks,
+                    options,
+                    PauseEvent,
+                    token,
+                    task => ApplyRebuiltMergeTaskStarted(task),
+                    (task, isSuccess, details, completedCount) =>
+                        ApplyRebuiltMergeTaskCompleted(task, isSuccess, details, completedCount));
+            }
+            catch (OperationCanceledException)
+            {
+                int total = Tasks.Count;
+                int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
+                int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
+                int unprocessed = total - succeeded - failed;
+                double elapsed = _stopwatch.Elapsed.TotalSeconds;
+                LogService.Merge($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalPairsCount}");
+                SetStatus("Status_MergeStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                LogService.Merge($"RunRebuiltTasksAsync fatal error: {ex.Message}", LogLevel.Error, ex);
+                Environment.ExitCode = unchecked((int)0xE0000001);
+                throw;
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
+                catch (Exception ex) { LogService.Merge($"Failed to clean rebuilt temp dir: {ex.Message}", LogLevel.Warning); }
+
+                _stopwatch.Stop();
+                bool wasCancelled = _cancelledByUser;
+                FinalizeRunState();
+
+                if (!wasCancelled)
+                {
+                    if (AfterCompletionActionIndex == 1)
+                    {
+                        var moveDir = OriginalDirectory;
+                        if (!string.IsNullOrWhiteSpace(moveDir))
+                        {
+                            try { Directory.CreateDirectory(moveDir); }
+                            catch (Exception ex) { LogService.Merge($"Failed to create original dir: {ex.Message}", LogLevel.Warning); }
+                            foreach (var task in Tasks.Where(t => t.Status == ProcessStatus.Success))
+                            {
+                                try { if (File.Exists(task.ImagePath)) File.Move(task.ImagePath, Path.Combine(moveDir, Path.GetFileName(task.ImagePath))); } catch { }
+                                if (!string.IsNullOrEmpty(task.VideoPath))
+                                    try { if (File.Exists(task.VideoPath)) File.Move(task.VideoPath, Path.Combine(moveDir, Path.GetFileName(task.VideoPath))); } catch { }
+                            }
+                        }
+                    }
+                    else if (AfterCompletionActionIndex == 2)
+                    {
+                        foreach (var task in Tasks.Where(t => t.Status == ProcessStatus.Success))
+                        {
+                            try
+                            {
+                                if (File.Exists(task.ImagePath)) await MoveFileToRecycleBinAsync(task.ImagePath);
+                                if (!string.IsNullOrEmpty(task.VideoPath) && File.Exists(task.VideoPath))
+                                    await MoveFileToRecycleBinAsync(task.VideoPath);
+                            }
+                            catch (Exception ex)
+                            {
+                                LogService.Merge($"Failed to move source file to recycle bin: {ex.Message}", LogLevel.Warning, ex);
+                            }
+                        }
+                    }
+                }
+
+                if (Tasks.Count > 0 && !_isCleaningUp)
+                {
+                    try
+                    {
+                        if (wasCancelled)
+                            await ShowMergeCancelledDialogAsync();
+                        else
+                            await ShowMergeAlreadyDoneDialogAsync();
+                    }
+                    catch (System.Runtime.InteropServices.COMException ex)
+                    {
+                        LogService.Debug($"Completion dialog skipped (another dialog already open): {ex.Message}", LogSource.UI);
+                    }
+                }
+            }
+        }
+
+        private void ApplyRebuiltMergeTaskStarted(IMergeTaskInfo task)
+        {
+            if (task is not MergeTask mergeTask) return;
+            RunRebuiltMergeUiUpdate(() => UpdateTaskStarted(mergeTask));
+        }
+
+        private void ApplyRebuiltMergeTaskCompleted(
+            IMergeTaskInfo task, bool isSuccess, string details, int completedCount)
+        {
+            if (task is not MergeTask mergeTask) return;
+            RunRebuiltMergeUiUpdate(() =>
+            {
+                _completedTasksCount = completedCount;
+                UpdateTaskCompleted(mergeTask, isSuccess, details, completedCount);
+            });
+        }
+
+        private static void RunRebuiltMergeUiUpdate(Action update)
+        {
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            if (dispatcher == null || dispatcher.HasThreadAccess)
+            {
+                update();
+                return;
+            }
+
+            var completed = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!dispatcher.TryEnqueue(() =>
+            {
+                try { update(); }
+                finally { completed.TrySetResult(true); }
+            }))
+                return;
+
+            completed.Task.GetAwaiter().GetResult();
         }
 
         private async Task RunLegacyTasksAsync()
