@@ -2301,6 +2301,12 @@ namespace LivePhotoBox.Views
         private static bool IsSupportedMediaFile(string ext)
         {
             var lower = ext.ToLowerInvariant();
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                return lower is ".heic" or ".heif" or ".jpg" or ".jpeg" or ".png"
+                    or ".mov" or ".mp4";
+            }
+
             return lower is ".heic" or ".heif" or ".jpg" or ".jpeg" or ".png"
                 or ".bmp" or ".gif" or ".tiff" or ".tif" or ".webp"
                 or ".mov" or ".mp4";

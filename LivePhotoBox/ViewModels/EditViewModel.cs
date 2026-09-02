@@ -59,15 +59,29 @@ namespace LivePhotoBox.ViewModels
         // ══════════════════════════════════════════════════════════════
         //  支持的文件扩展名（图片 + 视频）
         // ══════════════════════════════════════════════════════════════
-        private static readonly HashSet<string> SupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+        // Legacy 保持原有托管/外部工具格式范围；Rebuilt 只能暴露 Native 当前真实支持的格式。
+        private static readonly HashSet<string> LegacySupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
             ".heic", ".heif", ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".tif", ".webp"
+        };
+
+        private static readonly HashSet<string> RebuiltSupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".heic", ".heif", ".jpg", ".jpeg", ".png"
         };
 
         private static readonly HashSet<string> SupportedVideoExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
             ".mov", ".mp4"
         };
+
+        private static bool IsSupportedImageExtension(string extension)
+        {
+            var supported = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt
+                ? RebuiltSupportedImageExtensions
+                : LegacySupportedImageExtensions;
+            return supported.Contains(extension);
+        }
 
         /// <summary>exiftool 并发数。磁盘 I/O 密集操作，上限 8 避免 HDD 颠簸或 SSD 带宽饱和。</summary>
         private static readonly int ExifToolPoolSize = Math.Min(Environment.ProcessorCount, 8);
@@ -6745,7 +6759,7 @@ namespace LivePhotoBox.ViewModels
         // ══════════════════════════════════════════════════════════════
 
         private static bool IsImageOrVideo(string path) =>
-            SupportedImageExtensions.Contains(Path.GetExtension(path)) ||
+            IsSupportedImageExtension(Path.GetExtension(path)) ||
             SupportedVideoExtensions.Contains(Path.GetExtension(path));
 
         private static int ParseIntFromJson(JsonElement e) => e.ValueKind switch
@@ -7299,7 +7313,7 @@ namespace LivePhotoBox.ViewModels
                         if (!File.Exists(fp)) continue;
                         string baseName = Path.GetFileNameWithoutExtension(fp);
                         string ext = Path.GetExtension(fp);
-                        if (SupportedImageExtensions.Contains(ext))
+                        if (IsSupportedImageExtension(ext))
                             imgsByBase[baseName] = fp;
                         else if (SupportedVideoExtensions.Contains(ext))
                             vidsByBase[baseName] = fp;
@@ -7374,7 +7388,7 @@ namespace LivePhotoBox.ViewModels
                     var protocol = LivePhotoProtocolType.Unknown;
 
                     bool isVideo = SupportedVideoExtensions.Contains(ext);
-                    bool isImage = SupportedImageExtensions.Contains(ext);
+                    bool isImage = IsSupportedImageExtension(ext);
 
                     // ── 拖入批内已通过协议元数据确认的双文件配对 ──
                     if (isImage && confirmedDropPairs.TryGetValue(filePath, out var dropPair))
@@ -7567,7 +7581,7 @@ namespace LivePhotoBox.ViewModels
                     .Distinct(StringComparer.OrdinalIgnoreCase)
                     .ToList();
                 var images = existingPaths
-                    .Where(p => SupportedImageExtensions.Contains(Path.GetExtension(p)))
+                    .Where(p => IsSupportedImageExtension(Path.GetExtension(p)))
                     .ToList();
                 var videos = existingPaths
                     .Where(p => SupportedVideoExtensions.Contains(Path.GetExtension(p)))
@@ -7622,7 +7636,7 @@ namespace LivePhotoBox.ViewModels
                 {
                     if (addedPaths.Contains(rawPath) || pairedVideos.Contains(rawPath)) continue;
                     string ext = Path.GetExtension(rawPath);
-                    bool isImage = SupportedImageExtensions.Contains(ext);
+                    bool isImage = IsSupportedImageExtension(ext);
                     LivePhotoType type = LivePhotoType.None;
                     LivePhotoDetectionMethod method = LivePhotoDetectionMethod.FilenamePairing;
                     string? pairedVideoPath = null;
