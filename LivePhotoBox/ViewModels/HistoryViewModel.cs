@@ -487,11 +487,11 @@ namespace LivePhotoBox.ViewModels
             return attr?.Value;
         }
 
-        // 判断文件是否为支持的图片格式（jpg/jpeg/heic/heif/png）。
+        // 判断文件是否为支持的图片格式（jpg/jpeg/heic/heif）。
         private static bool IsSupportedImage(string path)
         {
             var ext = Path.GetExtension(path).ToLowerInvariant();
-            return ext is ".jpg" or ".jpeg" or ".heic" or ".heif" or ".png";
+            return ext is ".jpg" or ".jpeg" or ".heic" or ".heif";
         }
     }
 }

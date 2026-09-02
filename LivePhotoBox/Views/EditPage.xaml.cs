@@ -2322,11 +2322,11 @@ namespace LivePhotoBox.Views
             var lower = ext.ToLowerInvariant();
             if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
             {
-                return lower is ".heic" or ".heif" or ".jpg" or ".jpeg" or ".png"
+                return lower is ".heic" or ".heif" or ".jpg" or ".jpeg"
                     or ".mov" or ".mp4";
             }
 
-            return lower is ".heic" or ".heif" or ".jpg" or ".jpeg" or ".png"
+            return lower is ".heic" or ".heif" or ".jpg" or ".jpeg"
                 or ".bmp" or ".gif" or ".tiff" or ".tif" or ".webp"
                 or ".mov" or ".mp4";
         }

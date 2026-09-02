@@ -174,7 +174,6 @@ namespace LivePhotoBox.Services
                 var displayName = extLower switch
                 {
                     ".jpg" or ".jpeg" => "JPEG 图像",
-                    ".png" => "PNG 图像",
                     ".heic" or ".heif" => "HEIC 图像",
                     ".bmp" => "BMP 图像",
                     ".gif" => "GIF 图像",
@@ -287,7 +286,6 @@ namespace LivePhotoBox.Services
                 string originalLabel = extLower switch
                 {
                     ".heic" or ".heif" => "HEIC 图像（原格式）",
-                    ".png" => "PNG 图像（原格式）",
                     ".bmp" => "BMP 图像（原格式）",
                     ".tiff" or ".tif" => "TIFF 图像（原格式）",
                     _ => $"{extUpper.TrimStart('.')}（原格式）"
@@ -327,7 +325,6 @@ namespace LivePhotoBox.Services
             };
 
             savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".JPG", ".JPEG" });
-            savePicker.FileTypeChoices.Add("PNG 图像", new List<string> { ".PNG" });
             if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
                 savePicker.FileTypeChoices.Add("HEIC 图像", new List<string> { ".HEIC", ".HEIF" });
             else

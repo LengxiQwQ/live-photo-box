@@ -62,12 +62,12 @@ namespace LivePhotoBox.ViewModels
         // Legacy 保持原有托管/外部工具格式范围；Rebuilt 只能暴露 Native 当前真实支持的格式。
         private static readonly HashSet<string> LegacySupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".heic", ".heif", ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".tif", ".webp"
+            ".heic", ".heif", ".jpg", ".jpeg", ".bmp", ".gif", ".tiff", ".tif", ".webp"
         };
 
         private static readonly HashSet<string> RebuiltSupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".heic", ".heif", ".jpg", ".jpeg", ".png"
+            ".heic", ".heif", ".jpg", ".jpeg"
         };
 
         private static readonly HashSet<string> SupportedVideoExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -3021,7 +3021,6 @@ namespace LivePhotoBox.ViewModels
                 Items =
                 {
                     new ComboBoxItem { Content = "JPEG (.jpg)", Tag = ".jpg" },
-                    new ComboBoxItem { Content = "PNG (.png)", Tag = ".png" },
                 },
                 SelectedIndex = 0,
             };
@@ -7763,7 +7762,7 @@ namespace LivePhotoBox.ViewModels
             }, token).ConfigureAwait(false);
         }
 
-        /// <summary>找同目录同名异类文件：JPG→MOV, MOV→JPG/HEIC/PNG。</summary>
+        /// <summary>找同目录同名异类文件：JPG→MOV, MOV→JPG/HEIC。</summary>
         private static string? FindOppositeTypeFile(string dir, string filePath, bool isImage, bool isVideo)
         {
             var baseName = Path.GetFileNameWithoutExtension(filePath);
@@ -7777,7 +7776,7 @@ namespace LivePhotoBox.ViewModels
             }
             else if (isVideo)
             {
-                foreach (var iExt in new[] { ".JPG", ".JPEG", ".HEIC", ".HEIF", ".PNG" })
+                foreach (var iExt in new[] { ".JPG", ".JPEG", ".HEIC", ".HEIF" })
                 {
                     var p = Path.Combine(dir, baseName + iExt);
                     if (File.Exists(p)) return p;

@@ -15,7 +15,7 @@ namespace LivePhotoBox.Services
 {
     /// <summary>
     /// 通用图片格式转换服务。Legacy 使用 Magick.NET；Rebuilt 使用 Native WIC。
-    /// Rebuilt 当前支持 JPEG、PNG、HEIC，WebP 仍仅属于 Legacy。
+    /// Rebuilt 当前支持 JPEG、HEIC；PNG/WebP 不属于产品支持的输入或输出格式。
     /// </summary>
     public static class ImageFormatService
     {
@@ -23,15 +23,14 @@ namespace LivePhotoBox.Services
         {
             { ".jpg", MagickFormat.Jpeg },
             { ".jpeg", MagickFormat.Jpeg },
-            { ".png", MagickFormat.Png },
             { ".webp", MagickFormat.WebP },
         };
 
         /// <summary>支持的导出图片格式</summary>
         public static IReadOnlyList<string> SupportedExportExtensions =>
             ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt
-                ? new[] { ".jpg", ".png", ".heic" }
-                : new[] { ".jpg", ".png", ".webp" };
+                ? new[] { ".jpg", ".heic" }
+                : new[] { ".jpg", ".webp" };
 
         /// <summary>
         /// 将源图片转换为目标格式。
@@ -90,7 +89,6 @@ namespace LivePhotoBox.Services
             ImageContainer targetContainer = Path.GetExtension(targetPath).ToLowerInvariant() switch
             {
                 ".jpg" or ".jpeg" => ImageContainer.Jpeg,
-                ".png" => ImageContainer.Png,
                 ".heic" or ".heif" => ImageContainer.Heic,
                 _ => throw new NotSupportedException(
                     "The Rebuilt Native image pipeline currently supports JPEG and HEIC output only.")

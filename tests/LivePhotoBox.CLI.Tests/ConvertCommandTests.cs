@@ -20,6 +20,6 @@ public sealed class ConvertCommandTests
         Assert.Contains("Rebuilt Native", result.StdOut, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("--codec", result.StdOut, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("--overwrite", result.StdOut, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains(".png", result.StdOut, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(".png", result.StdOut, StringComparison.OrdinalIgnoreCase);
     }
 }

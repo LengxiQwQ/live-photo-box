@@ -22,7 +22,7 @@ internal static class ConvertCommand
     {
         var source = new Argument<FileInfo>("source")
         {
-            Description = "Source image or video (.jpg/.jpeg/.png/.heic/.heif/.mp4/.mov)."
+            Description = "Source image or video (.jpg/.jpeg/.heic/.heif/.mp4/.mov)."
         };
         var output = new Option<FileInfo?>("--output", "-o")
         {
@@ -44,7 +44,7 @@ internal static class ConvertCommand
             "Examples:\n" +
             "  lpb convert input.mov -o output.mp4 --codec h264\n" +
             "  lpb convert input.heic -o output.jpg\n" +
-            "  lpb convert input.jpg -o output.png")
+            "  lpb convert input.jpg -o output.heic")
         {
             source,
             output,
@@ -208,7 +208,7 @@ internal static class ConvertCommand
             return 0;
         }
 
-        CliConsole.WriteErrorLine("Error: Output extension must be .jpg, .jpeg, .png, .heic, .heif, .mp4, or .mov.");
+        CliConsole.WriteErrorLine("Error: Output extension must be .jpg, .jpeg, .heic, .heif, .mp4, or .mov.");
         return 1;
     }
 
@@ -225,7 +225,6 @@ internal static class ConvertCommand
         container = extension.ToLowerInvariant() switch
         {
             ".jpg" or ".jpeg" => ImageContainer.Jpeg,
-            ".png" => ImageContainer.Png,
             ".heic" or ".heif" => ImageContainer.Heic,
             _ => ImageContainer.Unknown
         };
