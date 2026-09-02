@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstring>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace lpb::protocols::clean {
@@ -15,7 +16,16 @@ struct attribute_span
     size_t start{};
     size_t end{};
     std::string_view name{};
+    std::string_view value{};
 };
+
+using namespace_binding = std::pair<std::string_view, std::string_view>;
+
+static constexpr std::string_view google_camera_namespace = "http://ns.google.com/photos/1.0/camera/";
+static constexpr std::string_view google_container_namespace = "http://ns.google.com/photos/1.0/container/";
+static constexpr std::string_view google_item_namespace = "http://ns.google.com/photos/1.0/container/item/";
+static constexpr std::string_view oppo_camera_namespace = "http://ns.oplus.com/photos/1.0/camera/";
+static constexpr std::string_view vivo_camera_namespace = "http://ns.vivo.com/photos/1.0/camera/";
 
 static bool is_name_char(char c) noexcept
 {
@@ -37,27 +47,6 @@ static bool equals_icase(std::string_view a, std::string_view b) noexcept
             std::tolower(static_cast<unsigned char>(b[i]))) return false;
     }
     return true;
-}
-
-static bool is_protocol_attribute(std::string_view name, lpb_source_protocol protocol) noexcept
-{
-    const std::string_view local = local_name(name);
-    static constexpr std::string_view common[] = {
-        "MotionPhoto", "MotionPhotoVersion", "MotionPhotoPresentationTimestampUs",
-        "MotionPhotoPrimaryPresentationTimestampUs", "MotionPhotoOwner", "MotionPhotoEnable",
-        "MicroVideo", "MicroVideoVersion", "MicroVideoOffset", "MicroVideoPresentationTimestampUs",
-        "OLivePhotoVersion", "VideoLength", "VMotionPhotoVersion", "VMotionPhotoSource",
-        "VMotionPhotoFlags", "VMediaKitVersion"
-    };
-    for (const auto candidate : common)
-    {
-        if (equals_icase(local, candidate)) return true;
-    }
-    if (protocol == LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO)
-    {
-        return equals_icase(local, "ContentIdentifier") || equals_icase(local, "PhotoIdentifier");
-    }
-    return false;
 }
 
 static bool find_tag_end(std::string_view xml, size_t start, size_t& end) noexcept
@@ -108,38 +97,135 @@ static bool parse_start_tag(std::string_view xml, size_t start, size_t end,
         while (p < end && std::isspace(static_cast<unsigned char>(xml[p]))) ++p;
         if (p >= end || (xml[p] != '\'' && xml[p] != '"')) return false;
         const char quote = xml[p++];
+        const size_t value_start = p;
         while (p < end && xml[p] != quote) ++p;
         if (p >= end) return false;
         ++p;
-        attributes.push_back({ attr_start, p, attr_name });
+        attributes.push_back({ attr_start, p, attr_name, xml.substr(value_start, (p - 1) - value_start) });
     }
     return true;
 }
 
-static bool item_is_motion(std::string_view xml, size_t tag_start, size_t tag_end) noexcept
+static void set_namespace_binding(std::vector<namespace_binding>& bindings,
+    std::string_view prefix, std::string_view uri)
+{
+    for (auto& binding : bindings)
+    {
+        if (binding.first == prefix)
+        {
+            binding.second = uri;
+            return;
+        }
+    }
+    bindings.emplace_back(prefix, uri);
+}
+
+static void collect_namespace_bindings(const std::vector<attribute_span>& attributes,
+    std::vector<namespace_binding>& bindings)
+{
+    for (const auto& attribute : attributes)
+    {
+        if (attribute.name == "xmlns")
+        {
+            set_namespace_binding(bindings, {}, attribute.value);
+        }
+        else if (attribute.name.size() > 6 && attribute.name.substr(0, 6) == "xmlns:")
+        {
+            set_namespace_binding(bindings, attribute.name.substr(6), attribute.value);
+        }
+    }
+}
+
+static std::string_view namespace_uri_for_name(std::string_view name,
+    const std::vector<namespace_binding>& bindings, bool attribute_name) noexcept
+{
+    const size_t colon = name.find(':');
+    if (colon == std::string_view::npos && attribute_name) return {};
+    const std::string_view prefix = colon == std::string_view::npos ? std::string_view{} : name.substr(0, colon);
+    for (auto it = bindings.rbegin(); it != bindings.rend(); ++it)
+    {
+        if (it->first == prefix) return it->second;
+    }
+    return {};
+}
+
+static bool is_google_camera_attribute(std::string_view local, lpb_source_protocol protocol) noexcept
+{
+    if (protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1)
+    {
+        return equals_icase(local, "MicroVideo") ||
+            equals_icase(local, "MicroVideoVersion") ||
+            equals_icase(local, "MicroVideoOffset") ||
+            equals_icase(local, "MicroVideoPresentationTimestampUs");
+    }
+
+    return equals_icase(local, "MotionPhoto") ||
+        equals_icase(local, "MotionPhotoVersion") ||
+        equals_icase(local, "MotionPhotoPresentationTimestampUs") ||
+        equals_icase(local, "MotionPhotoPrimaryPresentationTimestampUs") ||
+        equals_icase(local, "MotionPhotoOwner") ||
+        equals_icase(local, "MotionPhotoEnable");
+}
+
+static bool is_container_protocol(lpb_source_protocol protocol) noexcept
+{
+    return protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2 ||
+        protocol == LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO ||
+        protocol == LPB_SOURCE_PROTOCOL_VIVO_X300 ||
+        protocol == LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG ||
+        protocol == LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC;
+}
+
+static bool is_protocol_attribute(std::string_view name,
+    std::string_view uri, lpb_source_protocol protocol) noexcept
+{
+    const std::string_view local = local_name(name);
+    if (uri == google_camera_namespace &&
+        (protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1 ||
+         protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2 ||
+         protocol == LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO ||
+         protocol == LPB_SOURCE_PROTOCOL_VIVO_X300 ||
+         protocol == LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG ||
+         protocol == LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC))
+    {
+        return is_google_camera_attribute(local, protocol);
+    }
+
+    if (protocol == LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO && uri == oppo_camera_namespace)
+    {
+        return equals_icase(local, "OLivePhotoVersion") ||
+            equals_icase(local, "VideoLength");
+    }
+
+    if ((protocol == LPB_SOURCE_PROTOCOL_VIVO_X300 ||
+         protocol == LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL) && uri == vivo_camera_namespace)
+    {
+        return equals_icase(local, "VMotionPhotoVersion") ||
+            equals_icase(local, "VMotionPhotoSource") ||
+            equals_icase(local, "VMotionPhotoFlags") ||
+            equals_icase(local, "VMediaKitVersion");
+    }
+
+    // Apple Live Photo pairing is stored in MakerNote / QuickTime metadata,
+    // not an arbitrary XMP ContentIdentifier attribute.
+    return false;
+}
+
+static bool item_is_motion(std::string_view xml, size_t tag_start, size_t tag_end,
+    const std::vector<namespace_binding>& bindings, lpb_source_protocol protocol) noexcept
 {
     std::string_view tag_name;
     std::vector<attribute_span> attrs;
     if (!parse_start_tag(xml, tag_start, tag_end, tag_name, attrs) ||
-        !equals_icase(local_name(tag_name), "Item")) return false;
+        !equals_icase(local_name(tag_name), "Item") ||
+        !is_container_protocol(protocol) ||
+        namespace_uri_for_name(tag_name, bindings, false) != google_container_namespace) return false;
 
     for (const auto& attr : attrs)
     {
-        const std::string_view local = local_name(attr.name);
-        if (!equals_icase(local, "Mime") && !equals_icase(local, "Semantic")) continue;
-        size_t p = attr.start;
-        while (p < attr.end && xml[p] != '=') ++p;
-        if (p >= attr.end) continue;
-        ++p;
-        while (p < attr.end && std::isspace(static_cast<unsigned char>(xml[p]))) ++p;
-        if (p >= attr.end || (xml[p] != '\'' && xml[p] != '"')) continue;
-        const char quote = xml[p++];
-        const size_t value_start = p;
-        while (p < attr.end && xml[p] != quote) ++p;
-        if (p >= attr.end) continue;
-        const std::string_view value = xml.substr(value_start, p - value_start);
-        if (equals_icase(value, "video/mp4") || equals_icase(value, "video/quicktime") ||
-            equals_icase(value, "MotionPhoto")) return true;
+        if (namespace_uri_for_name(attr.name, bindings, true) != google_item_namespace) continue;
+        if (equals_icase(local_name(attr.name), "Semantic") &&
+            equals_icase(attr.value, "MotionPhoto")) return true;
     }
     return false;
 }
@@ -156,6 +242,8 @@ static void add_fact(std::vector<lpb_removed_protocol_fact>& out_facts,
 }
 
 static bool find_motion_ranges(std::string_view xml,
+    lpb_source_protocol protocol,
+    const std::vector<namespace_binding>& bindings,
     std::vector<std::pair<size_t, size_t>>& ranges) noexcept
 {
     size_t p = 0;
@@ -166,7 +254,8 @@ static bool find_motion_ranges(std::string_view xml,
         std::string_view tag_name;
         std::vector<attribute_span> attrs;
         if (parse_start_tag(xml, p, tag_end, tag_name, attrs) &&
-            equals_icase(local_name(tag_name), "Item") && item_is_motion(xml, p, tag_end))
+            equals_icase(local_name(tag_name), "Item") &&
+            item_is_motion(xml, p, tag_end, bindings, protocol))
         {
             size_t start = p;
             size_t end = tag_end;
@@ -196,8 +285,21 @@ bool clean_xmp_metadata(
     if (input_xmp.empty()) return false;
     const std::string_view xml(input_xmp);
 
+    std::vector<namespace_binding> bindings;
+    size_t scan = 0;
+    while ((scan = xml.find('<', scan)) != std::string_view::npos)
+    {
+        size_t tag_end = 0;
+        if (!find_tag_end(xml, scan, tag_end)) return false;
+        std::string_view tag_name;
+        std::vector<attribute_span> attrs;
+        if (parse_start_tag(xml, scan, tag_end, tag_name, attrs))
+            collect_namespace_bindings(attrs, bindings);
+        scan = tag_end;
+    }
+
     std::vector<std::pair<size_t, size_t>> motion_ranges;
-    if (!find_motion_ranges(xml, motion_ranges)) return false;
+    if (!find_motion_ranges(xml, protocol, bindings, motion_ranges)) return false;
 
     // Rebuild start tags while dropping only exact protocol attributes. Values
     // and text nodes are copied byte-for-byte, so words such as MotionPhoto in
@@ -229,10 +331,13 @@ bool clean_xmp_metadata(
             size_t cursor = tag_start;
             for (const auto& attr : attrs)
             {
-                if (!is_protocol_attribute(attr.name, protocol)) continue;
-                cleaned.append(xml.substr(cursor, attr.start - cursor));
-                cursor = attr.end;
-                removed_attribute = true;
+                if (is_protocol_attribute(attr.name,
+                    namespace_uri_for_name(attr.name, bindings, true), protocol))
+                {
+                    cleaned.append(xml.substr(cursor, attr.start - cursor));
+                    cursor = attr.end;
+                    removed_attribute = true;
+                }
             }
             cleaned.append(xml.substr(cursor, tag_end - cursor));
         }
@@ -244,7 +349,19 @@ bool clean_xmp_metadata(
     if (!motion_ranges.empty())
     {
         std::vector<std::pair<size_t, size_t>> final_ranges;
-        if (!find_motion_ranges(cleaned, final_ranges)) return false;
+        std::vector<namespace_binding> cleaned_bindings;
+        size_t cleaned_scan = 0;
+        while ((cleaned_scan = std::string_view(cleaned).find('<', cleaned_scan)) != std::string_view::npos)
+        {
+            size_t tag_end = 0;
+            if (!find_tag_end(cleaned, cleaned_scan, tag_end)) return false;
+            std::string_view tag_name;
+            std::vector<attribute_span> attrs;
+            if (parse_start_tag(cleaned, cleaned_scan, tag_end, tag_name, attrs))
+                collect_namespace_bindings(attrs, cleaned_bindings);
+            cleaned_scan = tag_end;
+        }
+        if (!find_motion_ranges(cleaned, protocol, cleaned_bindings, final_ranges)) return false;
         std::sort(final_ranges.begin(), final_ranges.end());
         final_ranges.erase(std::unique(final_ranges.begin(), final_ranges.end()), final_ranges.end());
 

@@ -82,7 +82,7 @@ internal static class SyntheticProtocolFixtures
     public static void CreateOppoJpeg(string outputPath)
     {
         byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_PAYLOAD_OPPO_22B");
-        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:OpCamera=\"http://ns.oppo.com/photos/1.0/camera/\" OpCamera:OLivePhotoVersion=\"1\" OpCamera:VideoLength=\"{dummyMp4.Length}\" /></rdf:RDF></x:xmpmeta>";
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" OpCamera:OLivePhotoVersion=\"1\" OpCamera:VideoLength=\"{dummyMp4.Length}\" /></rdf:RDF></x:xmpmeta>";
         byte[] jpeg = CreateJpegWithXmp(xmp);
 
         using var fs = File.Create(outputPath);
@@ -93,7 +93,7 @@ internal static class SyntheticProtocolFixtures
     public static void CreateGoogleV2JpegWithNormalMotionPhotoText(string outputPath)
     {
         byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_COLLISION_31B");
-        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" GCamera:MotionPhoto=\"1\"><dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">A normal note mentioning MotionPhoto and LIVE_ must survive.</rdf:li></rdf:Alt></dc:description><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Camera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" xmlns:Other=\"urn:example:unrelated\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" GCamera:MotionPhoto=\"1\" Camera:MotionPhotoVersion=\"1\" Other:MotionPhoto=\"1\"><dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">A normal note mentioning MotionPhoto and LIVE_ must survive.</rdf:li></rdf:Alt></dc:description><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Other:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Other:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
         byte[] jpeg = CreateJpegWithXmp(xmp);
         using var fs = File.Create(outputPath);
         fs.Write(jpeg);

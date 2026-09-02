@@ -314,6 +314,32 @@ public sealed class VideoConverterTests
     }
 
     [Fact]
+    public async Task Convert_SourceProbeFailure_DoesNotGuessFromArtifact()
+    {
+        using var workspace = new MediaWorkspace();
+        var converter = new VideoConverter();
+        var result = await converter.ConvertAsync(new VideoConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = @"C:\non_existent_video_path_xyz123.mp4",
+                Kind = MediaArtifactKind.MotionVideo,
+                MimeType = "video/mp4",
+                VideoContainer = VideoContainer.Mov,
+                VideoCodec = VideoCodec.Hevc
+            },
+            TargetContainer = VideoContainer.Mp4,
+            TargetCodec = VideoCodec.H264,
+            TargetDirectory = workspace.RootDirectory
+        });
+
+        Assert.False(result.Success);
+        Assert.Contains("Source video probe failed", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(VideoContainer.Unknown, result.ExecutionRecord.InputContainer);
+        Assert.Equal(VideoCodec.Unknown, result.ExecutionRecord.InputCodec);
+    }
+
+    [Fact]
     [Trait("Category", "RealSamples")]
     public async Task Convert_WhenCancelled_ThrowsOperationCanceledException()
     {

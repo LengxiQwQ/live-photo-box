@@ -62,13 +62,33 @@ public sealed class VideoConverter : IVideoConverter
         {
             sourceFacts = await ProbeAsync(request.SourceArtifact.Path, cancellationToken).ConfigureAwait(false);
         }
-        catch
+        catch (OperationCanceledException)
         {
-            sourceFacts = new VideoFacts
+            sw.Stop();
+            throw;
+        }
+        catch (Exception ex)
+        {
+            sw.Stop();
+            return new VideoConversionResult
             {
-                IsPresent = true,
-                Container = request.SourceArtifact.VideoContainer,
-                Codec = request.SourceArtifact.VideoCodec
+                Success = false,
+                ErrorMessage = $"Source video probe failed: {ex.Message}",
+                ExecutionRecord = new VideoExecutionRecord
+                {
+                    InputContainer = VideoContainer.Unknown,
+                    InputCodec = VideoCodec.Unknown,
+                    RequestedContainer = request.TargetContainer,
+                    RequestedCodec = request.TargetCodec,
+                    OutputContainer = VideoContainer.Unknown,
+                    OutputCodec = VideoCodec.Unknown,
+                    RemuxUsed = false,
+                    SelectedEncoder = string.Empty,
+                    HardwareFallbackOccurred = false,
+                    AudioPreserved = false,
+                    RotationPreserved = false,
+                    Duration = sw.Elapsed
+                }
             };
         }
 
@@ -180,8 +200,8 @@ public sealed class VideoConverter : IVideoConverter
                 ErrorMessage = ex.Message,
                 ExecutionRecord = new VideoExecutionRecord
                 {
-                    InputContainer = sourceFacts?.Container ?? request.SourceArtifact.VideoContainer,
-                    InputCodec = sourceFacts?.Codec ?? request.SourceArtifact.VideoCodec,
+                    InputContainer = sourceFacts?.Container ?? VideoContainer.Unknown,
+                    InputCodec = sourceFacts?.Codec ?? VideoCodec.Unknown,
                     RequestedContainer = request.TargetContainer,
                     RequestedCodec = request.TargetCodec,
                     OutputContainer = request.TargetContainer,

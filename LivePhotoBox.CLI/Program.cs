@@ -65,9 +65,10 @@ namespace LivePhotoBox.Cli
                         "  lpb merge -d ./Photos -p huawei -y  Batch convert a folder\n" +
                         "  lpb split photo.jpg                 Split a live photo\n" +
                         "  lpb split ./Photos -y               Batch split a folder\n" +
-                        "  lpb repair photo.jpg                Fix live photo metadata\n" +
-                        "  lpb repair -d ./Photos -y           Batch fix a folder\n" +
-                        "  lpb cover photo.jpg --at 2.5        Change cover frame\n" +
+                         "  lpb repair photo.jpg                Fix live photo metadata\n" +
+                         "  lpb repair -d ./Photos -y           Batch fix a folder\n" +
+                         "  lpb convert input.mov -o output.mp4 Convert media through Rebuilt Native\n" +
+                         "  lpb cover photo.jpg --at 2.5        Change cover frame\n" +
                         "  lpb cover photo.jpg                  View current cover info\n" +
                         "  lpb backend                          View or configure processing backends\n" +
                         "  lpb --info                          Show detailed environment info")
@@ -75,6 +76,7 @@ namespace LivePhotoBox.Cli
                         MergeCommand.Create(),
                         SplitCommand.Create(),
                         RepairCommand.Create(),
+                        ConvertCommand.Create(),
                         ProtocolsCommand.Create(),
                         UpdateCommand.Create(),
                         UpdateCommand.CreateUpdate(),

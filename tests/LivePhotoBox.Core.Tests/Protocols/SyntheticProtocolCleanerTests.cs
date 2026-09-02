@@ -344,6 +344,10 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.True(result.Success, result.ErrorMessage);
         string cleanText = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(result.CleanedImage!.Path));
         Assert.Contains("A normal note mentioning MotionPhoto and LIVE_ must survive.", cleanText);
-        Assert.DoesNotContain("Item:Semantic=\"MotionPhoto\"", cleanText);
+        Assert.Contains("Other:MotionPhoto=\"1\"", cleanText);
+        Assert.DoesNotContain("Camera:MotionPhotoVersion", cleanText);
+        Assert.Contains("Other:Semantic=\"MotionPhoto\"", cleanText);
+        Assert.Contains("<Other:Item", cleanText);
+        Assert.DoesNotContain("<Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\"", cleanText);
     }
 }

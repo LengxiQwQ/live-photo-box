@@ -35,6 +35,13 @@ public sealed class ProcessingOperationSession
         if (!IsLegacy)
             throw new RebuiltPipelineNotReadyException(Operation);
     }
+
+    internal void EnsureRebuilt()
+    {
+        if (IsLegacy)
+            throw new InvalidOperationException(
+                $"The rebuilt media pipeline is not available while the explicit Legacy mode is enabled for '{Operation}'.");
+    }
 }
 
 /// <summary>
@@ -80,6 +87,32 @@ public static class ProcessingPipelineRouter
         await RunInSessionAsync(session, async () => result = await legacyAction().ConfigureAwait(false))
             .ConfigureAwait(false);
         return result;
+    }
+
+    /// <summary>
+    /// Runs a rebuilt operation only when the global switch is Rebuilt.  This is
+    /// deliberately separate from <see cref="RunAsync{T}"/>, whose callback is
+    /// the preserved Legacy implementation used by the old protocol commands.
+    /// </summary>
+    public static async Task<T> RunRebuiltAsync<T>(string operation, Func<Task<T>> rebuiltAction)
+    {
+        ArgumentNullException.ThrowIfNull(rebuiltAction);
+        ProcessingOperationSession? inherited = Current;
+        ProcessingOperationSession session = inherited != null
+            ? new ProcessingOperationSession(string.IsNullOrWhiteSpace(operation) ? inherited.Operation : operation, inherited)
+            : Begin(operation);
+
+        session.EnsureRebuilt();
+        ProcessingOperationSession? previous = CurrentSlot.Value;
+        CurrentSlot.Value = session;
+        try
+        {
+            return await rebuiltAction().ConfigureAwait(false);
+        }
+        finally
+        {
+            CurrentSlot.Value = previous;
+        }
     }
 
     private static async Task RunInSessionAsync(ProcessingOperationSession session, Func<Task> action)

@@ -17,6 +17,9 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Helpers;
+using LivePhotoBox.Interop;
+using LivePhotoBox.Media.Models;
+using LivePhotoBox.Media.Video;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.Services.Protocols;
@@ -3364,12 +3367,10 @@ namespace LivePhotoBox.ViewModels
 
             try
             {
-                bool isMp4 = Path.GetExtension(targetFile.Path).Equals(".mp4", StringComparison.OrdinalIgnoreCase);
-                var format = isMp4 ? VideoTranscodeService.VideoFormat.MP4 : VideoTranscodeService.VideoFormat.MOV;
                 var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
-                var result = format == VideoTranscodeService.VideoFormat.MP4
-                    ? await VideoTranscodeService.TranscodeToMp4Async(videoPath, targetFile.Path, cts.Token)
-                    : await VideoTranscodeService.TranscodeToMovAsync(videoPath, targetFile.Path, cts.Token);
+                var result = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt
+                    ? await ExportVideoWithNativeAsync(videoPath, targetFile.Path, cts.Token)
+                    : await VideoTranscodeService.TranscodeToMp4Async(videoPath, targetFile.Path, cts.Token);
 
                 if (result.Success)
                 {
@@ -3396,6 +3397,39 @@ namespace LivePhotoBox.ViewModels
                 CleanupExportTempVideo();
                 FinalizeExportProgress();
             }
+        }
+
+        private static async Task<(bool Success, string? ErrorMessage)> ExportVideoWithNativeAsync(
+            string inputPath, string outputPath, CancellationToken token)
+        {
+            bool isMp4 = Path.GetExtension(outputPath).Equals(".mp4", StringComparison.OrdinalIgnoreCase);
+            VideoContainer targetContainer = isMp4 ? VideoContainer.Mp4 : VideoContainer.Mov;
+            VideoCodec targetCodec = isMp4 ? VideoCodec.H264 : VideoCodec.Hevc;
+
+            var converter = new VideoConverter();
+            VideoFacts facts = await converter.ProbeAsync(inputPath, token).ConfigureAwait(false);
+            var result = await converter.ConvertAsync(new VideoConversionRequest
+            {
+                SourceArtifact = new MediaArtifact
+                {
+                    Path = inputPath,
+                    Kind = MediaArtifactKind.MotionVideo,
+                    MimeType = facts.Container == VideoContainer.Mov ? "video/quicktime" : "video/mp4",
+                    VideoContainer = facts.Container,
+                    VideoCodec = facts.Codec,
+                    ByteLength = new FileInfo(inputPath).Length
+                },
+                TargetContainer = targetContainer,
+                TargetCodec = targetCodec,
+                TargetDirectory = Path.GetDirectoryName(outputPath)!,
+                Crf = 23
+            }, token).ConfigureAwait(false);
+
+            if (!result.Success || result.OutputArtifact == null)
+                return (false, result.ErrorMessage ?? "Native video conversion failed.");
+
+            File.Copy(result.OutputArtifact.Path, outputPath, overwrite: true);
+            return (true, null);
         }
 
         // ══════════════════════════════════════════════════════════════

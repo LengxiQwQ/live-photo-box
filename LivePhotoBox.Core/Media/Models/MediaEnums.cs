@@ -89,6 +89,11 @@ public enum PreservationPolicy
 public enum PreservationOutcome
 {
     Preserved,
+    /// <summary>
+    /// The media was re-encoded. This is not lossless, even when selected
+    /// audio and rotation metadata were retained.
+    /// </summary>
+    Reencoded,
     TranscodedLossless,
     DegradedToSdr,
     DiscardedNotApplicable,

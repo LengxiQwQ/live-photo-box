@@ -10,7 +10,7 @@ internal static class BackendCommand
 {
     public static Command Create()
     {
-        var command = new Command("backend", "View or configure the global Legacy/Rebuilt processing switch");
+        var command = new Command("backend", "View or configure the global Rebuilt/Legacy processing switch");
         command.SetAction(_ => Show());
 
         var modeValue = new Argument<string>("mode") { Description = "legacy or rebuilt" };
@@ -38,8 +38,8 @@ internal static class BackendCommand
         CliConsole.WriteField("Processing mode", ProcessingBackendSettingsService.FormatMode(settings.Mode), valueColor: ConsoleColor.Yellow);
         Console.WriteLine();
         Console.WriteLine(settings.Mode == ProcessingPipelineMode.Rebuilt
-            ? "Rebuilt is isolated and has no protocol implementation yet. Operations fail before Legacy code is invoked."
-            : "Legacy is the preserved compatibility implementation. All existing protocol behavior runs only in this branch.");
+            ? "Rebuilt is the default media pipeline. Standalone format conversion uses Native; protocol writers are not enabled yet."
+            : "Legacy is available only when explicitly selected and retains the old protocol implementation.");
     }
 
     private static int SetMode(string value)

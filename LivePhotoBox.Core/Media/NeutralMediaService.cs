@@ -130,7 +130,7 @@ public sealed class NeutralMediaService : INeutralMediaService
 
                 finalVideo = vidConv.OutputArtifact;
                 PreservationOutcome convOutcome = (vidConv.ExecutionRecord.AudioPreserved && vidConv.ExecutionRecord.RotationPreserved)
-                    ? (vidConv.ExecutionRecord.RemuxUsed ? PreservationOutcome.Preserved : PreservationOutcome.TranscodedLossless)
+                    ? (vidConv.ExecutionRecord.RemuxUsed ? PreservationOutcome.Preserved : PreservationOutcome.Reencoded)
                     : PreservationOutcome.PartiallyPreserved;
 
                 videoOutcome = CombineOutcome(videoOutcome, convOutcome);
@@ -201,6 +201,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         if (a == PreservationOutcome.DegradedToSdr || b == PreservationOutcome.DegradedToSdr) return PreservationOutcome.DegradedToSdr;
         if (a == PreservationOutcome.PartiallyPreserved || b == PreservationOutcome.PartiallyPreserved) return PreservationOutcome.PartiallyPreserved;
         if (a == PreservationOutcome.DiscardedNotApplicable || b == PreservationOutcome.DiscardedNotApplicable) return PreservationOutcome.DiscardedNotApplicable;
+        if (a == PreservationOutcome.Reencoded || b == PreservationOutcome.Reencoded) return PreservationOutcome.Reencoded;
         if (a == PreservationOutcome.TranscodedLossless || b == PreservationOutcome.TranscodedLossless) return PreservationOutcome.TranscodedLossless;
         return PreservationOutcome.Preserved;
     }

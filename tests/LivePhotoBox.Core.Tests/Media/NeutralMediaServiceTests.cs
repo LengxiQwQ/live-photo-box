@@ -68,6 +68,26 @@ public sealed class NeutralMediaServiceTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
+    public async Task CreateNeutralBundle_ReencodedVideo_IsNotReportedLossless()
+    {
+        string primary = ResolveSample("vivo双文件.jpg");
+        string secondary = ResolveSample("vivo双文件.mp4");
+        using var workspace = new MediaWorkspace();
+
+        var service = new NeutralMediaService();
+        var bundle = await service.CreateNeutralBundleAsync(primary, secondary, workspace, new MediaFormatRequirement
+        {
+            ImageContainer = ImageContainer.Unknown,
+            VideoContainer = VideoContainer.Mp4,
+            VideoCodec = VideoCodec.Hevc
+        });
+
+        var videoManifest = Assert.Single(bundle.Manifest, x => x.Role == "MotionVideo");
+        Assert.Equal(PreservationOutcome.Reencoded, videoManifest.PreservationOutcome);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
     public async Task CreateNeutralBundle_XiaomiWithGainMap_PreservesGainMapInBundle()
     {
         string primary = ResolveSample("小米.jpg");
