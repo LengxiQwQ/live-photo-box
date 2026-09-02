@@ -675,20 +675,25 @@ lpb_result transcode_video_file(
     if (has_audio_stream) {
         IMFMediaType* pNativeAudio = nullptr;
         if (SUCCEEDED(pReader->GetNativeMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), 0, &pNativeAudio)) && pNativeAudio) {
-            UINT32 sample_rate = 48000;
-            UINT32 channels = 2;
-            pNativeAudio->GetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, &sample_rate);
-            pNativeAudio->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS, &channels);
+            UINT32 raw_sample_rate = 48000;
+            UINT32 raw_channels = 2;
+            pNativeAudio->GetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, &raw_sample_rate);
+            pNativeAudio->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS, &raw_channels);
             pNativeAudio->Release();
+
+            // Normalize audio parameters: AAC encoder reliably supports 1 (mono) or 2 (stereo)
+            UINT32 target_channels = (raw_channels == 1) ? 1 : 2;
+            UINT32 target_sample_rate = (raw_sample_rate == 44100) ? 44100 : 48000;
+            UINT32 avg_bytes = (target_channels == 1) ? 12000 : 16000; // 96 kbps mono / 128 kbps stereo
 
             IMFMediaType* pOutAudioType = nullptr;
             MFCreateMediaType(&pOutAudioType);
             pOutAudioType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
             pOutAudioType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_AAC);
             pOutAudioType->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
-            pOutAudioType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, sample_rate > 0 ? sample_rate : 48000);
-            pOutAudioType->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, channels > 0 ? channels : 2);
-            pOutAudioType->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, 16000); // 128 kbps
+            pOutAudioType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, target_sample_rate);
+            pOutAudioType->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, target_channels);
+            pOutAudioType->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, avg_bytes);
 
             if (SUCCEEDED(pWriter->AddStream(pOutAudioType, &sinkAudioIndex))) {
                 IMFMediaType* pInAudioType = nullptr;
@@ -696,8 +701,10 @@ lpb_result transcode_video_file(
                 pInAudioType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
                 pInAudioType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
                 pInAudioType->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
-                pInAudioType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, sample_rate > 0 ? sample_rate : 48000);
-                pInAudioType->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, channels > 0 ? channels : 2);
+                pInAudioType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, target_sample_rate);
+                pInAudioType->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, target_channels);
+                pInAudioType->SetUINT32(MF_MT_AUDIO_BLOCK_ALIGNMENT, target_channels * 2);
+                pInAudioType->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, target_sample_rate * target_channels * 2);
 
                 hr = pWriter->SetInputMediaType(sinkAudioIndex, pInAudioType, nullptr);
                 if (SUCCEEDED(hr)) {

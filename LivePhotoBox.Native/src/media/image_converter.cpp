@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <windows.h>
 #include <wincodec.h>
+#include <wincodecsdk.h>
 
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "ole32.lib")
@@ -155,6 +156,38 @@ lpb_result convert_image_file(
     if (SUCCEEDED(hr)) {
         hr = frame_encode->Initialize(prop_bag);
     }
+
+    // Preserve color contexts (ICC profiles / wide color gamut) if available
+    if (SUCCEEDED(hr)) {
+        UINT cColorContexts = 0;
+        frame_decode->GetColorContexts(0, nullptr, &cColorContexts);
+        if (cColorContexts > 0) {
+            std::vector<IWICColorContext*> colorContexts(cColorContexts, nullptr);
+            for (UINT i = 0; i < cColorContexts; ++i) {
+                factory->CreateColorContext(&colorContexts[i]);
+            }
+            if (SUCCEEDED(frame_decode->GetColorContexts(cColorContexts, colorContexts.data(), &cColorContexts))) {
+                frame_encode->SetColorContexts(cColorContexts, colorContexts.data());
+            }
+            for (auto* pCtx : colorContexts) {
+                if (pCtx) pCtx->Release();
+            }
+        }
+    }
+
+    // Best-effort metadata block copying (Exif, GPS, XMP) across compatible container encoders
+    if (SUCCEEDED(hr)) {
+        IWICMetadataBlockReader* pBlockReader = nullptr;
+        IWICMetadataBlockWriter* pBlockWriter = nullptr;
+        if (SUCCEEDED(frame_decode->QueryInterface(IID_PPV_ARGS(&pBlockReader)))) {
+            if (SUCCEEDED(frame_encode->QueryInterface(IID_PPV_ARGS(&pBlockWriter)))) {
+                pBlockWriter->InitializeFromBlockReader(pBlockReader);
+                pBlockWriter->Release();
+            }
+            pBlockReader->Release();
+        }
+    }
+
     if (SUCCEEDED(hr)) {
         hr = frame_encode->WriteSource(frame_decode, nullptr);
     }
