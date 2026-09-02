@@ -172,6 +172,8 @@ lpb convert input.jpg -o output.png
 
 运行 `lpb protocols` 可交互查看，或 `lpb protocols --json` 获取结构化输出。
 
+该命令会报告当前全局后端。默认 `rebuilt` 模式下，下面的矩阵仅表示 Legacy 兼容资料；协议 `merge`、`split`、`cover`、`repair` 写入器尚未启用。当前可通过 `lpb convert` 使用 Native 后端进行独立媒体格式转换。
+
 **兼容矩阵** — 每个协议支持的输出格式：
 
 | 协议 | JPEG + MP4 | JPEG + MOV | HEIC + MP4 | HEIC + MOV | HEIC + MP4 (H.265) |

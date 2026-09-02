@@ -172,6 +172,8 @@ lpb convert input.jpg -o output.png
 
 Run `lpb protocols` to view this interactively, or `lpb protocols --json` for structured output.
 
+The command reports the active global backend. In the default `rebuilt` mode, the table is Legacy compatibility data only; protocol `merge`, `split`, `cover`, and `repair` writers are not enabled yet. Standalone media conversion through the Native backend is available via `lpb convert`.
+
 **Compatibility matrix** — which output formats each protocol supports:
 
 | Protocol | JPEG + MP4 | JPEG + MOV | HEIC + MP4 | HEIC + MOV | HEIC + MP4 (H.265) |
