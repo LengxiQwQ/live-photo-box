@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Threading.Tasks;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Core.Tests.Protocols;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Media;
@@ -229,6 +230,21 @@ public sealed class SourceInspectorTests
 
         string afterSha = await ComputeSha256Async(sample);
         Assert.Equal(beforeSha, afterSha);
+    }
+
+    [Fact]
+    public async Task Inspect_WrongNamespaceMotionPhoto_IsNonLive()
+    {
+        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("wrong_namespace", ".jpg");
+        SyntheticProtocolFixtures.CreateWrongNamespaceMotionPhotoJpeg(inputPath);
+
+        var inspector = new SourceInspector();
+        var facts = await inspector.InspectAsync(inputPath);
+
+        Assert.Equal(SourceProtocol.NonLive, facts.Protocol);
+        Assert.Null(facts.MotionVideo);
+        Assert.Equal(ImageContainer.Jpeg, facts.PrimaryImage?.Container);
     }
 
     [Fact]

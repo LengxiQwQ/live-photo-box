@@ -100,6 +100,16 @@ internal static class SyntheticProtocolFixtures
         fs.Write(dummyMp4);
     }
 
+    public static void CreateWrongNamespaceMotionPhotoJpeg(string outputPath)
+    {
+        byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_WRONG_NAMESPACE_25B");
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:Other=\"urn:example:unrelated\" xmlns:WrongContainer=\"urn:example:container\" xmlns:WrongItem=\"urn:example:item\" Other:MotionPhoto=\"1\"><WrongContainer:Directory><rdf:Seq><rdf:li><WrongContainer:Item WrongItem:Mime=\"video/mp4\" WrongItem:Semantic=\"MotionPhoto\" WrongItem:Length=\"{dummyMp4.Length}\" /></rdf:li></rdf:Seq></WrongContainer:Directory><dc:description xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><rdf:li>MotionPhoto is ordinary text here.</rdf:li></dc:description></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyMp4);
+    }
+
     public static void CreateVivoX300Jpeg(string outputPath)
     {
         byte[] dummyGainMap = Encoding.UTF8.GetBytes(new string('G', 64));
