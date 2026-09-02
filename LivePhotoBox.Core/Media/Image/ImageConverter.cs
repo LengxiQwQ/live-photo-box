@@ -45,7 +45,12 @@ public sealed class ImageConverter : IImageConverter
             };
         }
 
-        string ext = request.TargetContainer == ImageContainer.Heic ? ".heic" : ".jpg";
+        string ext = request.TargetContainer switch
+        {
+            ImageContainer.Heic => ".heic",
+            ImageContainer.Png => ".png",
+            _ => ".jpg"
+        };
         string outPath = Path.Combine(request.TargetDirectory, $"img-conv-{Guid.NewGuid():N}{ext}");
 
         try
@@ -149,6 +154,11 @@ public sealed class ImageConverter : IImageConverter
             if (read >= 2 && header[0] == 0xFF && header[1] == 0xD8)
             {
                 return ImageContainer.Jpeg;
+            }
+            if (read >= 8 && header[..8].SequenceEqual(
+                new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }))
+            {
+                return ImageContainer.Png;
             }
             if (read >= 12 && header[4] == (byte)'f' && header[5] == (byte)'t' && header[6] == (byte)'y' && header[7] == (byte)'p')
             {

@@ -3008,10 +3008,13 @@ namespace LivePhotoBox.ViewModels
                 {
                     new ComboBoxItem { Content = "JPEG (.jpg)", Tag = ".jpg" },
                     new ComboBoxItem { Content = "PNG (.png)", Tag = ".png" },
-                    new ComboBoxItem { Content = "WebP (.webp)", Tag = ".webp" },
                 },
                 SelectedIndex = 0,
             };
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+                formatComboBox.Items.Add(new ComboBoxItem { Content = "HEIC (.heic)", Tag = ".heic" });
+            else
+                formatComboBox.Items.Add(new ComboBoxItem { Content = "WebP (.webp)", Tag = ".webp" });
             panel.Children.Add(formatComboBox);
 
             // EXIF 勾选框（默认勾选，JPEG 格式时生效）

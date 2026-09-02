@@ -10,6 +10,39 @@ namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class ImageConverterTests
 {
+    [Fact]
+    public async Task Convert_PngToPng_UsesPngOutputExtensionAndPreservesContainer()
+    {
+        using var workspace = new MediaWorkspace();
+        string source = Path.Combine(workspace.RootDirectory, "source.png");
+        File.WriteAllBytes(source,
+        [
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
+            0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
+            0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01
+        ]);
+
+        var result = await new ImageConverter().ConvertAsync(new ImageConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = source,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/png",
+                ImageContainer = ImageContainer.Png,
+                ByteLength = new FileInfo(source).Length
+            },
+            TargetContainer = ImageContainer.Png,
+            TargetDirectory = workspace.RootDirectory
+        });
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputArtifact);
+        Assert.EndsWith(".png", result.OutputArtifact.Path, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(ImageContainer.Png, result.ExecutionRecord.OutputContainer);
+        Assert.False(result.ExecutionRecord.PixelReencoded);
+    }
+
     private static string ResolveSample(string fileName)
     {
         string[] candidates = [
