@@ -19,6 +19,7 @@ using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media;
+using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Video;
 using LivePhotoBox.Media.Workspace;
@@ -4340,6 +4341,12 @@ namespace LivePhotoBox.ViewModels
                     return;
                 }
 
+                if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+                {
+                    await LoadRebuiltPropertiesAsync(imagePath, videoPath, generation, token).ConfigureAwait(false);
+                    return;
+                }
+
                 PersistentExifTool exifTool;
                 try { exifTool = GetPropExifTool(); }
                 catch (InvalidOperationException ex)
@@ -5716,6 +5723,112 @@ namespace LivePhotoBox.ViewModels
             await LoadPreviewImageAsync(imagePath);
         }
 
+        /// <summary>
+        /// Rebuilt property path. Only Native facts and the existing small
+        /// binary metadata reader are allowed here; the Legacy EXIF process
+        /// is intentionally not a fallback.
+        /// </summary>
+        private async Task LoadRebuiltPropertiesAsync(
+            string imagePath, string? videoPath, int generation, CancellationToken token)
+        {
+            try
+            {
+                var inspector = new SourceInspector();
+                var facts = await inspector.InspectAsync(imagePath, videoPath, token).ConfigureAwait(false);
+                VideoFacts? videoFacts = facts.MotionVideo;
+                if (IsSelectedFileVideo)
+                    videoFacts = await new VideoConverter().ProbeAsync(imagePath, token).ConfigureAwait(false);
+
+                string resolution = string.Empty;
+                EditFileItem? selectedItem = FileItems.FirstOrDefault(f =>
+                    string.Equals(f.FilePath, imagePath, StringComparison.OrdinalIgnoreCase));
+                if (!IsSelectedFileVideo)
+                {
+                    var (width, height, _) = FastMetadataReader.Read(imagePath);
+                    if (width > 0 && height > 0)
+                    {
+                        resolution = $"{width} × {height}";
+                        if (selectedItem != null && string.IsNullOrEmpty(selectedItem.Resolution))
+                            selectedItem.Resolution = resolution;
+                    }
+                    else
+                    {
+                        resolution = selectedItem?.Resolution ?? string.Empty;
+                    }
+                }
+
+                string extension = Path.GetExtension(imagePath).TrimStart('.').ToUpperInvariant();
+                string photoInfo = IsSelectedFileVideo
+                    ? string.Empty
+                    : string.IsNullOrEmpty(resolution)
+                        ? $"{GetPhotoSizeDisplay(selectedItem)}  │  {extension}"
+                        : $"{resolution}  │  {GetPhotoSizeDisplay(selectedItem)}  │  {extension}";
+
+                string videoInfo = string.Empty;
+                string timelineInfo = string.Empty;
+                string fpsText = string.Empty;
+                if (videoFacts is { IsPresent: true })
+                {
+                    long videoBytes = videoFacts.ByteLength;
+                    if (videoBytes <= 0 && videoPath != null && File.Exists(videoPath))
+                        videoBytes = new FileInfo(videoPath).Length;
+                    var parts = new List<string>();
+                    if (videoFacts.Width > 0 && videoFacts.Height > 0)
+                        parts.Add($"{videoFacts.Width} × {videoFacts.Height}");
+                    if (videoBytes > 0)
+                        parts.Add(FileSizeFormatter.Format(videoBytes));
+                    parts.Add(videoFacts.Codec switch
+                    {
+                        VideoCodec.H264 => "H.264",
+                        VideoCodec.Hevc => "H.265",
+                        _ => VideoCodec.Unknown.ToString()
+                    });
+                    if (videoFacts.DurationSeconds > 0)
+                    {
+                        parts.Add($"{videoFacts.DurationSeconds:F2}s");
+                        timelineInfo = $"{videoFacts.DurationSeconds:F2}s";
+                    }
+                    videoInfo = string.Join("  │  ", parts);
+                    if (videoFacts.Fps > 0)
+                        fpsText = ResourceService.Format("EditPage_TimelineFps", videoFacts.Fps.ToString("F2"));
+                }
+
+                string protocol = GetRebuiltProtocolName(facts.Protocol);
+                var dispatcher = App.MainWindow?.DispatcherQueue;
+                dispatcher?.TryEnqueue(() =>
+                {
+                    if (generation != _selectionGeneration) return;
+                    PhotoInfoLine = photoInfo;
+                    VideoInfoLine = videoInfo;
+                    ProtocolLine = protocol;
+                    TimelineInfo = timelineInfo;
+                    FpsDisplayText = fpsText;
+                    ExifCamera = ResourceService.GetString("EditPage_UnknownDevice");
+                    ExifCameraDateSuffix = string.Empty;
+                    ExifLensParams = string.Empty;
+                    ExifShootingParams = string.Empty;
+                    ExifPlaceName = string.Empty;
+                });
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"Timeline[LoadProps] Rebuilt Native inspection failed: {ex.Message}", LogLevel.Warning);
+            }
+        }
+
+        private static string GetRebuiltProtocolName(SourceProtocol protocol) => protocol switch
+        {
+            SourceProtocol.GoogleMicroVideoV1 => ResourceService.GetString("EditPage_Protocol_GoogleV1"),
+            SourceProtocol.GoogleMotionPhotoV2 => ResourceService.GetString("EditPage_Protocol_GoogleV2"),
+            SourceProtocol.OppoLivePhoto => ResourceService.GetString("EditPage_Protocol_OPPO"),
+            SourceProtocol.VivoLivePhoto or SourceProtocol.VivoLegacyDualFile => ResourceService.GetString("EditPage_Protocol_Vivo"),
+            SourceProtocol.SamsungMotionPhotoJpeg or SourceProtocol.SamsungMotionPhotoHeic => ResourceService.GetString("EditPage_Protocol_Samsung"),
+            SourceProtocol.HuaweiMovingPhoto or SourceProtocol.HonorMovingPhoto => ResourceService.GetString("EditPage_Protocol_Huawei"),
+            SourceProtocol.AppleLivePhoto => ResourceService.GetString("EditPage_Protocol_Apple"),
+            _ => ResourceService.GetString("EditPage_Protocol_NonLive")
+        };
+
         /// <summary>解析 exiftool JSON 输出为结构化属性</summary>
         private static ExifProperties ParseExifProperties(string json, string filePath)
         {
@@ -6141,6 +6254,12 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         private async Task ReadResolutionsAsync(List<EditFileItem> files, List<string> videoPaths, CancellationToken token)
         {
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                await ReadRebuiltResolutionsAsync(files, token).ConfigureAwait(false);
+                return;
+            }
+
             var dispatcher = App.MainWindow?.DispatcherQueue;
             if (dispatcher == null) return;
 
@@ -7039,6 +7158,9 @@ namespace LivePhotoBox.ViewModels
         {
             if (filePaths.Count == 0) return null;
 
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+                return await LoadDroppedFilesRebuiltAsync(filePaths);
+
             IsScanning = true;
             try
             {
@@ -7427,6 +7549,201 @@ namespace LivePhotoBox.ViewModels
             {
                 IsScanning = false;
             }
+        }
+
+        private async Task<string?> LoadDroppedFilesRebuiltAsync(List<string> filePaths)
+        {
+            IsScanning = true;
+            try
+            {
+                var dispatcher = App.MainWindow?.DispatcherQueue;
+                if (dispatcher == null) return null;
+
+                var existingPaths = filePaths
+                    .Where(File.Exists)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+                var images = existingPaths
+                    .Where(p => SupportedImageExtensions.Contains(Path.GetExtension(p)))
+                    .ToList();
+                var videos = existingPaths
+                    .Where(p => SupportedVideoExtensions.Contains(Path.GetExtension(p)))
+                    .ToList();
+                bool autoPair = AppSettingsService.GetValue("IsDragDropAutoPairEnabled", false);
+                var videoByBaseName = videos
+                    .GroupBy(p => Path.GetFileNameWithoutExtension(p), StringComparer.OrdinalIgnoreCase)
+                    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+                if (autoPair)
+                {
+                    foreach (string imagePath in images)
+                    {
+                        string? directory = Path.GetDirectoryName(imagePath);
+                        if (directory == null) continue;
+                        string baseName = Path.GetFileNameWithoutExtension(imagePath);
+                        string? adjacentVideo = Directory.EnumerateFiles(directory)
+                            .FirstOrDefault(p => SupportedVideoExtensions.Contains(Path.GetExtension(p)) &&
+                                string.Equals(Path.GetFileNameWithoutExtension(p), baseName, StringComparison.OrdinalIgnoreCase));
+                        if (adjacentVideo != null)
+                            videoByBaseName.TryAdd(baseName, adjacentVideo);
+                    }
+                }
+
+                var inspector = new SourceInspector();
+                var pairedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var pairedImages = new Dictionary<string, (string VideoPath, SourceProtocol Protocol)>(StringComparer.OrdinalIgnoreCase);
+                foreach (string imagePath in images)
+                {
+                    string baseName = Path.GetFileNameWithoutExtension(imagePath);
+                    if (!videoByBaseName.TryGetValue(baseName, out string? videoPath)) continue;
+                    SourceProtocol protocol = SourceProtocol.Unknown;
+                    try
+                    {
+                        var facts = await inspector.InspectAsync(imagePath, videoPath, CancellationToken.None).ConfigureAwait(false);
+                        protocol = facts.Protocol;
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.FileOp($"Drop[Rebuilt] Native pair inspection failed: {ex.Message}", LogLevel.Warning);
+                    }
+                    if (protocol is SourceProtocol.AppleLivePhoto or SourceProtocol.VivoLegacyDualFile)
+                    {
+                        pairedImages[imagePath] = (videoPath, protocol);
+                        pairedVideos.Add(videoPath);
+                    }
+                }
+
+                var toAdd = new List<EditFileItem>();
+                var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string rawPath in existingPaths)
+                {
+                    if (addedPaths.Contains(rawPath) || pairedVideos.Contains(rawPath)) continue;
+                    string ext = Path.GetExtension(rawPath);
+                    bool isImage = SupportedImageExtensions.Contains(ext);
+                    LivePhotoType type = LivePhotoType.None;
+                    LivePhotoDetectionMethod method = LivePhotoDetectionMethod.FilenamePairing;
+                    string? pairedVideoPath = null;
+                    long appendedVideoLength = 0;
+                    SourceProtocol sourceProtocol = SourceProtocol.NonLive;
+
+                    if (isImage && pairedImages.TryGetValue(rawPath, out var pair))
+                    {
+                        type = LivePhotoType.DualFile;
+                        method = pair.Protocol == SourceProtocol.VivoLegacyDualFile
+                            ? LivePhotoDetectionMethod.VivoLivePhoto
+                            : LivePhotoDetectionMethod.ContentIdentifier;
+                        pairedVideoPath = pair.VideoPath;
+                        sourceProtocol = pair.Protocol;
+                    }
+                    else if (isImage)
+                    {
+                        try
+                        {
+                            var facts = await inspector.InspectAsync(rawPath, null, CancellationToken.None).ConfigureAwait(false);
+                            sourceProtocol = facts.Protocol;
+                            if (facts.MotionVideo?.IsPresent == true && sourceProtocol != SourceProtocol.NonLive)
+                            {
+                                type = ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+                                    ? LivePhotoType.SingleFileJpeg
+                                    : LivePhotoType.SingleFileHeic;
+                                method = type == LivePhotoType.SingleFileJpeg
+                                    ? LivePhotoDetectionMethod.JpegByteMarkers
+                                    : LivePhotoDetectionMethod.HeicVideoTrack;
+                                appendedVideoLength = facts.MotionVideo.ByteLength;
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.FileOp($"Drop[Rebuilt] Native inspection failed: {ex.Message}", LogLevel.Warning);
+                        }
+                    }
+
+                    long totalBytes = new FileInfo(rawPath).Length;
+                    if (pairedVideoPath != null && File.Exists(pairedVideoPath))
+                        totalBytes += new FileInfo(pairedVideoPath).Length;
+                    toAdd.Add(new EditFileItem
+                    {
+                        FileName = Path.GetFileName(rawPath),
+                        FilePath = rawPath,
+                        FileSize = FileSizeFormatter.Format(totalBytes),
+                        DateTaken = File.GetLastWriteTime(rawPath).ToString("yyyy/MM/dd HH:mm"),
+                        LivePhotoType = type,
+                        PairedVideoPath = pairedVideoPath,
+                        AppendedVideoLength = appendedVideoLength,
+                        DetectionMethod = method,
+                        DetectedProtocol = MapRebuiltProtocol(sourceProtocol),
+                        Resolution = string.Empty
+                    });
+                    addedPaths.Add(rawPath);
+                    if (pairedVideoPath != null) addedPaths.Add(pairedVideoPath);
+                }
+
+                if (toAdd.Count == 0) return null;
+                _ = ReadResolutionsAsync(toAdd, [], CancellationToken.None);
+                var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+                dispatcher.TryEnqueue(() =>
+                {
+                    try
+                    {
+                        string? firstNewPath = null;
+                        foreach (var item in toAdd)
+                        {
+                            if (FileItems.Any(f => string.Equals(f.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase)))
+                                continue;
+                            FileItems.Add(item);
+                            _allFileItems.Add(item);
+                            firstNewPath ??= item.FilePath;
+                        }
+                        RefreshCounts();
+                        ApplySortAndFilter();
+                        tcs.SetResult(firstNewPath);
+                    }
+                    catch (Exception ex) { tcs.SetException(ex); }
+                });
+                return await tcs.Task.ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { return null; }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"Drop[Rebuilt] failed: {ex.Message}", LogLevel.Warning);
+                return null;
+            }
+            finally
+            {
+                IsScanning = false;
+            }
+        }
+
+        private static LivePhotoProtocolType MapRebuiltProtocol(SourceProtocol protocol) => protocol switch
+        {
+            SourceProtocol.AppleLivePhoto => LivePhotoProtocolType.Apple,
+            SourceProtocol.GoogleMicroVideoV1 => LivePhotoProtocolType.GoogleV1,
+            SourceProtocol.GoogleMotionPhotoV2 => LivePhotoProtocolType.GoogleV2,
+            SourceProtocol.OppoLivePhoto => LivePhotoProtocolType.OPPO,
+            SourceProtocol.VivoLivePhoto or SourceProtocol.VivoLegacyDualFile => LivePhotoProtocolType.Vivo,
+            SourceProtocol.SamsungMotionPhotoJpeg or SourceProtocol.SamsungMotionPhotoHeic => LivePhotoProtocolType.Samsung,
+            SourceProtocol.HuaweiMovingPhoto or SourceProtocol.HonorMovingPhoto => LivePhotoProtocolType.Huawei,
+            _ => LivePhotoProtocolType.Unknown
+        };
+
+        private static async Task ReadRebuiltResolutionsAsync(
+            List<EditFileItem> files, CancellationToken token)
+        {
+            await Task.Run(() =>
+            {
+                foreach (var file in files)
+                {
+                    token.ThrowIfCancellationRequested();
+                    try
+                    {
+                        var (width, height, _) = FastMetadataReader.Read(file.FilePath);
+                        if (width > 0 && height > 0)
+                            file.Resolution = $"{width} × {height}";
+                    }
+                    catch (IOException) { }
+                    catch (UnauthorizedAccessException) { }
+                }
+            }, token).ConfigureAwait(false);
         }
 
         /// <summary>找同目录同名异类文件：JPG→MOV, MOV→JPG/HEIC/PNG。</summary>

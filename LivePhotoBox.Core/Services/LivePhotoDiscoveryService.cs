@@ -10,6 +10,8 @@
  */
 
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -72,6 +74,11 @@ namespace LivePhotoBox.Services
                 throw new ArgumentException("Input directory is required.", nameof(inputDirectory));
             if (!Directory.Exists(inputDirectory))
                 throw new DirectoryNotFoundException($"Directory not found: {inputDirectory}");
+
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                return await ScanRebuiltAsync(inputDirectory, scanMode, ct, progress, itemProgress);
+            }
 
             LogService.Scan($"LivePhotoDiscovery scan started. Directory: {inputDirectory}, mode: {scanMode}");
             progress?.Report(new WorkProgressSnapshot(0, 0));
@@ -335,6 +342,145 @@ namespace LivePhotoBox.Services
             {
                 Items = allItems.OrderBy(i => Path.GetFileName(i.FilePath), StringComparer.OrdinalIgnoreCase).ToList()
             };
+        }
+
+        /// <summary>
+        /// Rebuilt discovery path.  It uses the Native source inspector for
+        /// single-file facts and dual-file validation, and deliberately does
+        /// not start ExifTool or any other external metadata process.
+        /// </summary>
+        private static async Task<LivePhotoDiscoveryResult> ScanRebuiltAsync(
+            string inputDirectory,
+            DiscoveryScanMode scanMode,
+            CancellationToken ct,
+            IProgress<WorkProgressSnapshot>? progress,
+            IProgress<LivePhotoDiscoveryItem>? itemProgress)
+        {
+            LogService.Scan($"LivePhotoDiscovery rebuilt scan started. Directory: {inputDirectory}, mode: {scanMode}");
+            var allItems = EnumerateDirectory(inputDirectory, ct);
+            int totalFiles = allItems.Count;
+            progress?.Report(new WorkProgressSnapshot(totalFiles, 0));
+            if (totalFiles == 0)
+                return new LivePhotoDiscoveryResult { Items = Array.Empty<LivePhotoDiscoveryItem>() };
+
+            var images = allItems.Where(i => ImageExtensions.Contains(Path.GetExtension(i.FilePath))).ToList();
+            var videos = allItems.Where(i => VideoExtensions.Contains(Path.GetExtension(i.FilePath))).ToList();
+            var classifiedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var inspector = new SourceInspector();
+            int completed = 0;
+
+            if (scanMode.HasFlag(DiscoveryScanMode.JpegMarkers) || scanMode.HasFlag(DiscoveryScanMode.HeicTrack))
+            {
+                foreach (var item in images)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    string ext = Path.GetExtension(item.FilePath);
+                    bool enabled = JpegExtensions.Contains(ext)
+                        ? scanMode.HasFlag(DiscoveryScanMode.JpegMarkers)
+                        : scanMode.HasFlag(DiscoveryScanMode.HeicTrack);
+                    if (enabled)
+                    {
+                        try
+                        {
+                            SourceMediaFacts facts = await inspector.InspectAsync(item.FilePath, null, ct).ConfigureAwait(false);
+                            if (facts.Protocol != SourceProtocol.NonLive && facts.Protocol != SourceProtocol.Unknown &&
+                                facts.MotionVideo?.IsPresent == true)
+                            {
+                                item.LivePhotoType = JpegExtensions.Contains(ext)
+                                    ? LivePhotoType.SingleFileJpeg
+                                    : LivePhotoType.SingleFileHeic;
+                                item.DetectionMethod = JpegExtensions.Contains(ext)
+                                    ? LivePhotoDetectionMethod.JpegByteMarkers
+                                    : LivePhotoDetectionMethod.HeicVideoTrack;
+                                item.AppendedVideoLength = facts.MotionVideo.ByteLength;
+                                classifiedPaths.Add(item.FilePath);
+                                itemProgress?.Report(item);
+                            }
+                        }
+                        catch (OperationCanceledException) { throw; }
+                        catch (Exception ex)
+                        {
+                            LogService.Scan($"Rebuilt inspection failed for '{item.FilePath}': {ex.Message}", LogLevel.Warning);
+                        }
+                    }
+                    completed++;
+                    progress?.Report(new WorkProgressSnapshot(totalFiles, Math.Min(totalFiles, completed)));
+                }
+            }
+
+            var videoByBaseName = videos
+                .GroupBy(v => Path.GetFileNameWithoutExtension(v.FilePath), StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+            var usedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var image in images.Where(i => !classifiedPaths.Contains(i.FilePath)))
+            {
+                ct.ThrowIfCancellationRequested();
+                string baseName = Path.GetFileNameWithoutExtension(image.FilePath);
+                if (!videoByBaseName.TryGetValue(baseName, out var video) || usedVideos.Contains(video.FilePath))
+                    continue;
+
+                SourceProtocol protocol = SourceProtocol.Unknown;
+                LivePhotoDetectionMethod method = LivePhotoDetectionMethod.FilenamePairing;
+                if (scanMode.HasFlag(DiscoveryScanMode.FilenamePair))
+                {
+                    protocol = SourceProtocol.Unknown;
+                    method = LivePhotoDetectionMethod.FilenamePairing;
+                }
+                else if (scanMode.HasFlag(DiscoveryScanMode.VivoMatch))
+                {
+                    protocol = await InspectDualProtocolAsync(inspector, image.FilePath, video.FilePath, ct).ConfigureAwait(false);
+                    if (protocol != SourceProtocol.VivoLegacyDualFile) continue;
+                    method = LivePhotoDetectionMethod.VivoLivePhoto;
+                }
+                else if (scanMode.HasFlag(DiscoveryScanMode.CidMatch))
+                {
+                    protocol = await InspectDualProtocolAsync(inspector, image.FilePath, video.FilePath, ct).ConfigureAwait(false);
+                    if (protocol != SourceProtocol.AppleLivePhoto) continue;
+                    method = LivePhotoDetectionMethod.ContentIdentifier;
+                }
+                else
+                {
+                    continue;
+                }
+
+                image.LivePhotoType = LivePhotoType.DualFile;
+                image.DetectionMethod = method;
+                image.PairedVideoPath = video.FilePath;
+                video.LivePhotoType = LivePhotoType.DualFile;
+                video.DetectionMethod = method;
+                video.PairedImagePath = image.FilePath;
+                classifiedPaths.Add(image.FilePath);
+                classifiedPaths.Add(video.FilePath);
+                usedVideos.Add(video.FilePath);
+                itemProgress?.Report(image);
+                completed++;
+                progress?.Report(new WorkProgressSnapshot(totalFiles, Math.Min(totalFiles, completed)));
+            }
+
+            int liveCount = allItems.Count(i => i.IsLivePhoto);
+            progress?.Report(new WorkProgressSnapshot(totalFiles, totalFiles, liveCount));
+            LogService.Scan($"LivePhotoDiscovery rebuilt scan complete. Total: {totalFiles}, LivePhotos: {liveCount}");
+            return new LivePhotoDiscoveryResult
+            {
+                Items = allItems.OrderBy(i => Path.GetFileName(i.FilePath), StringComparer.OrdinalIgnoreCase).ToList()
+            };
+        }
+
+        private static async Task<SourceProtocol> InspectDualProtocolAsync(
+            SourceInspector inspector, string imagePath, string videoPath, CancellationToken ct)
+        {
+            try
+            {
+                SourceMediaFacts facts = await inspector.InspectAsync(imagePath, videoPath, ct).ConfigureAwait(false);
+                return facts.Protocol;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                LogService.Scan($"Rebuilt dual-file inspection failed for '{imagePath}': {ex.Message}", LogLevel.Warning);
+                return SourceProtocol.Unknown;
+            }
         }
 
         /// <summary>
