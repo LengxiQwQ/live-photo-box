@@ -40,31 +40,21 @@ namespace LivePhotoBox.Cli.Commands
             ["jpg+mp4"]  = 3,
         };
 
-        // Split protocol → format availability matrix (single source of truth for CLI split).
+        // Split protocol → format availability matrix (single source of truth in ProtocolFormatMatrix).
         // protocolIndex: 0=none / 1=Apple / 2=vivo (see SplitProtocolMap).
         // formatIndex:   0=keep / 1=jpg+mov / 2=heic+mov / 3=jpg+mp4 (see SplitFormatMap).
         // Mirrors the GUI SplitPage matrix.
-        internal static readonly bool[][] SplitFormatMatrix =
-        [
-            [true,  true,  true,  true ],  // none:  keep / jpg+mov / heic+mov / jpg+mp4
-            [false, true,  true,  false],  // apple: jpg+mov / heic+mov
-            [false, false, false, true ],  // vivo:  jpg+mp4
-        ];
+        internal static readonly bool[][] SplitFormatMatrix = ProtocolFormatMatrix.SplitMatrix;
 
         // Split format short names, ordered by outputFormatIndex (for the protocols command matrix / JSON).
-        internal static readonly string[] SplitFormatNames = ["keep", "jpg+mov", "heic+mov", "jpg+mp4"];
+        internal static readonly string[] SplitFormatNames = ProtocolFormatMatrix.SplitFormatNames;
 
         // 默认格式：该协议的第一个可用格式（none→keep、apple→jpg+mov、vivo→jpg+mp4）。
         private static int GetSplitDefaultFormat(int protocolIndex)
-        {
-            var row = SplitFormatMatrix[protocolIndex];
-            for (int f = 0; f < row.Length; f++)
-                if (row[f]) return f;
-            return 0;
-        }
+            => ProtocolFormatMatrix.GetDefaultSplitFormat(protocolIndex);
 
         private static bool IsSplitFormatAvailable(int protocolIndex, int formatIndex)
-            => SplitFormatMatrix[protocolIndex][formatIndex];
+            => ProtocolFormatMatrix.IsSplitAvailable(protocolIndex, formatIndex);
 
         // Split-specific pairing filter: protocol name → LivePhotoProtocolType (null = no filter).
         // Mirrors the GUI SplitViewModel.MatchProtocolType mapping (0=all → null, then

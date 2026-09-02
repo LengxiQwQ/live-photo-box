@@ -24,6 +24,7 @@ public static class NativeMediaService
 
         return Task.Run(() =>
         {
+            using var ctx = NativeContext.Create(cancellationToken);
             unsafe
             {
                 var nativeFacts = new NativeSourceMediaFacts
@@ -35,11 +36,8 @@ public static class NativeMediaService
                     Timing = new NativeTimingFacts { StructSize = checked((uint)sizeof(NativeTimingFacts)) }
                 };
 
-                NativeResult res = NativeMethods.InspectMedia(nint.Zero, primaryPath, secondaryPath, ref nativeFacts);
-                if (res != NativeResult.Ok)
-                {
-                    throw new InvalidOperationException($"Native source media inspection failed with result: {res}");
-                }
+                NativeResult res = NativeMethods.InspectMedia(ctx.Handle, primaryPath, secondaryPath, ref nativeFacts);
+                ctx.ThrowIfFailed(res);
 
                 return MapFromNativeFacts(nativeFacts);
             }
@@ -59,10 +57,11 @@ public static class NativeMediaService
 
         return Task.Run(() =>
         {
+            using var ctx = NativeContext.Create(cancellationToken);
             NativeSourceMediaFacts nativeFacts = MapToNativeFacts(facts);
 
             NativeResult res = NativeMethods.ExtractMedia(
-                nint.Zero,
+                ctx.Handle,
                 primaryPath,
                 secondaryPath,
                 in nativeFacts,
@@ -70,10 +69,7 @@ public static class NativeMediaService
                 outputVideoPath,
                 outputGainmapPath);
 
-            if (res != NativeResult.Ok)
-            {
-                throw new InvalidOperationException($"Native media extraction failed with result: {res}");
-            }
+            ctx.ThrowIfFailed(res);
         }, cancellationToken);
     }
 
@@ -87,6 +83,7 @@ public static class NativeMediaService
 
         return Task.Run(() =>
         {
+            using var ctx = NativeContext.Create(cancellationToken);
             unsafe
             {
                 var nativeFacts = new NativeVideoItemFacts
@@ -94,11 +91,8 @@ public static class NativeMediaService
                     StructSize = checked((uint)sizeof(NativeVideoItemFacts))
                 };
 
-                NativeResult res = NativeMethods.ProbeVideo(nint.Zero, videoPath, ref nativeFacts);
-                if (res != NativeResult.Ok)
-                {
-                    throw new InvalidOperationException($"Native video probe failed with result: {res}");
-                }
+                NativeResult res = NativeMethods.ProbeVideo(ctx.Handle, videoPath, ref nativeFacts);
+                ctx.ThrowIfFailed(res);
 
                 return MapFromNativeVideoFacts(nativeFacts);
             }
@@ -115,16 +109,14 @@ public static class NativeMediaService
 
         return Task.Run(() =>
         {
+            using var ctx = NativeContext.Create(cancellationToken);
             NativeResult res = NativeMethods.RemuxVideo(
-                nint.Zero,
+                ctx.Handle,
                 inputVideoPath,
                 outputVideoPath,
                 (int)targetContainer);
 
-            if (res != NativeResult.Ok)
-            {
-                throw new InvalidOperationException($"Native video remux failed with result: {res}");
-            }
+            ctx.ThrowIfFailed(res);
         }, cancellationToken);
     }
 
@@ -139,18 +131,16 @@ public static class NativeMediaService
 
         return Task.Run(() =>
         {
+            using var ctx = NativeContext.Create(cancellationToken);
             NativeResult res = NativeMethods.ConvertImage(
-                nint.Zero,
+                ctx.Handle,
                 inputImagePath,
                 outputImagePath,
                 (int)targetContainer,
                 quality,
                 out int outReencoded);
 
-            if (res != NativeResult.Ok)
-            {
-                throw new InvalidOperationException($"Native image conversion failed with result: {res}");
-            }
+            ctx.ThrowIfFailed(res);
 
             return outReencoded != 0;
         }, cancellationToken);
@@ -168,6 +158,7 @@ public static class NativeMediaService
 
         return Task.Run(() =>
         {
+            using var ctx = NativeContext.Create(cancellationToken);
             Span<byte> encoderBuf = stackalloc byte[128];
             NativeResult res;
             unsafe
@@ -175,7 +166,7 @@ public static class NativeMediaService
                 fixed (byte* pBuf = encoderBuf)
                 {
                     res = NativeMethods.TranscodeVideo(
-                        nint.Zero,
+                        ctx.Handle,
                         inputVideoPath,
                         outputVideoPath,
                         (int)targetContainer,
@@ -186,10 +177,7 @@ public static class NativeMediaService
                 }
             }
 
-            if (res != NativeResult.Ok)
-            {
-                throw new InvalidOperationException($"Native video transcode failed with result: {res}");
-            }
+            ctx.ThrowIfFailed(res);
 
             int nullIdx = encoderBuf.IndexOf((byte)0);
             if (nullIdx < 0) nullIdx = encoderBuf.Length;

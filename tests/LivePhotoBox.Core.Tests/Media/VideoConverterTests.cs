@@ -290,4 +290,57 @@ public sealed class VideoConverterTests
         Assert.Equal(VideoContainer.Mp4, vivoJpgMp4.VideoContainer);
         Assert.Equal(VideoCodec.H264, vivoJpgMp4.VideoCodec);
     }
+
+    [Theory]
+    [InlineData(1, 0)] // Apple + Keep -> Invalid
+    [InlineData(1, 3)] // Apple + JPG+MP4 -> Invalid
+    [InlineData(2, 0)] // vivo + Keep -> Invalid
+    [InlineData(2, 1)] // vivo + JPG+MOV -> Invalid
+    [InlineData(2, 2)] // vivo + HEIC+MOV -> Invalid
+    [InlineData(99, 1)] // Unknown protocol -> Invalid
+    [InlineData(1, 99)] // Unknown format -> Invalid
+    public void ProtocolMediaRequirements_InvalidSplitCombinations_ThrowsArgumentException(int protocol, int format)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            ProtocolMediaRequirements.GetSplitRequirement(protocol, format));
+    }
+
+    [Fact]
+    public async Task Probe_NonExistentFile_ThrowsFileNotFoundException()
+    {
+        var converter = new VideoConverter();
+        await Assert.ThrowsAsync<FileNotFoundException>(() =>
+            converter.ProbeAsync(@"C:\non_existent_video_path_xyz123.mp4"));
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Convert_WhenCancelled_ThrowsOperationCanceledException()
+    {
+        string sample = ResolveSample("苹果双文件.MOV");
+        using var workspace = new MediaWorkspace();
+
+        var artifact = new MediaArtifact
+        {
+            Path = sample,
+            Kind = MediaArtifactKind.MotionVideo,
+            MimeType = "video/quicktime",
+            VideoContainer = VideoContainer.Mov,
+            VideoCodec = VideoCodec.Hevc,
+            ByteLength = new FileInfo(sample).Length
+        };
+
+        using var cts = new System.Threading.CancellationTokenSource();
+        cts.Cancel(); // pre-cancelled
+
+        var converter = new VideoConverter();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            converter.ConvertAsync(new VideoConversionRequest
+            {
+                SourceArtifact = artifact,
+                TargetContainer = VideoContainer.Mp4,
+                TargetCodec = VideoCodec.H264,
+                TargetDirectory = workspace.RootDirectory
+            }, cts.Token));
+    }
 }

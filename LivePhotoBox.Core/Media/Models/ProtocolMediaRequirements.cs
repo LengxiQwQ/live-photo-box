@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using LivePhotoBox.Services;
 
@@ -76,28 +76,34 @@ public static class ProtocolMediaRequirements
     /// </summary>
     public static MediaFormatRequirement GetSplitRequirement(int splitProtocolIndex, int splitFormatIndex)
     {
+        if (!ProtocolFormatMatrix.IsSplitAvailable(splitProtocolIndex, splitFormatIndex))
+        {
+            throw new ArgumentException(
+                $"Split format index {splitFormatIndex} is not available for split protocol index {splitProtocolIndex}.");
+        }
+
         return splitFormatIndex switch
         {
-            0 => new MediaFormatRequirement // keep
+            ProtocolFormatMatrix.SplitFormatKeep => new MediaFormatRequirement // keep
             {
                 ImageContainer = ImageContainer.Unknown,
                 VideoContainer = VideoContainer.Unknown,
                 VideoCodec = VideoCodec.Copy,
                 KeepSourceIfSame = true
             },
-            1 => new MediaFormatRequirement // jpg+mov
+            ProtocolFormatMatrix.SplitFormatJpgMov => new MediaFormatRequirement // jpg+mov
             {
                 ImageContainer = ImageContainer.Jpeg,
                 VideoContainer = VideoContainer.Mov,
                 VideoCodec = VideoCodec.Hevc
             },
-            2 => new MediaFormatRequirement // heic+mov
+            ProtocolFormatMatrix.SplitFormatHeicMov => new MediaFormatRequirement // heic+mov
             {
                 ImageContainer = ImageContainer.Heic,
                 VideoContainer = VideoContainer.Mov,
                 VideoCodec = VideoCodec.Hevc
             },
-            3 => new MediaFormatRequirement // jpg+mp4
+            ProtocolFormatMatrix.SplitFormatJpgMp4 => new MediaFormatRequirement // jpg+mp4
             {
                 ImageContainer = ImageContainer.Jpeg,
                 VideoContainer = VideoContainer.Mp4,

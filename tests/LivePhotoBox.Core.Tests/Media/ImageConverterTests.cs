@@ -125,7 +125,7 @@ public sealed class ImageConverterTests
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.True(result.ExecutionRecord.PixelReencoded);
         Assert.False(result.ExecutionRecord.MetadataCopied);
-        Assert.Equal(PreservationOutcome.DegradedToSdr, result.ExecutionRecord.PreservationOutcome);
+        Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.PreservationOutcome);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.InputContainer);
         Assert.Equal(ImageContainer.Jpeg, result.ExecutionRecord.OutputContainer);
     }
@@ -160,7 +160,7 @@ public sealed class ImageConverterTests
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.True(result.ExecutionRecord.PixelReencoded);
         Assert.False(result.ExecutionRecord.MetadataCopied);
-        Assert.Equal(PreservationOutcome.DegradedToSdr, result.ExecutionRecord.PreservationOutcome);
+        Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.PreservationOutcome);
         Assert.Equal(ImageContainer.Jpeg, result.ExecutionRecord.InputContainer);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.OutputContainer);
     }
@@ -192,5 +192,35 @@ public sealed class ImageConverterTests
 
         Assert.False(result.Success);
         Assert.Contains("Strict", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.PreservationOutcome);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Convert_Mp4AsInput_IsNotFalselyIdentifiedAsHeic()
+    {
+        string sample = ResolveSample("vivo双文件.mp4");
+        using var workspace = new MediaWorkspace();
+
+        var artifact = new MediaArtifact
+        {
+            Path = sample,
+            Kind = MediaArtifactKind.PrimaryImage,
+            MimeType = "video/mp4",
+            ImageContainer = ImageContainer.Unknown,
+            ByteLength = new FileInfo(sample).Length
+        };
+
+        var converter = new ImageConverter();
+        // Requesting HEIC target for an MP4 video file will fail during container validation if WIC or native fails, or if container doesn't match
+        var result = await converter.ConvertAsync(new ImageConversionRequest
+        {
+            SourceArtifact = artifact,
+            TargetContainer = ImageContainer.Heic,
+            TargetDirectory = workspace.RootDirectory,
+            PreservationPolicy = PreservationPolicy.AllowDiscard
+        });
+
+        Assert.False(result.Success);
     }
 }

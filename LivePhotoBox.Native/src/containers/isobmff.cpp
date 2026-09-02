@@ -172,7 +172,7 @@ void adjust_chunk_offsets(
     }
 }
 
-static void shift_trak_chunk_offsets(
+static bool shift_trak_chunk_offsets(
     std::vector<uint8_t>& data,
     size_t trak_start,
     size_t trak_end,
@@ -190,19 +190,19 @@ static void shift_trak_chunk_offsets(
     };
 
     const size_t mdia = find_child_box(data, trak_start + 8, trak_end, "mdia");
-    if (mdia == missing) return;
+    if (mdia == missing) return true; // not a media track or no mdia
     const size_t mdia_end = get_box_end(mdia, data.size());
-    if (mdia_end == missing) return;
+    if (mdia_end == missing) return false;
 
     const size_t minf = find_child_box(data, mdia + 8, mdia_end, "minf");
-    if (minf == missing) return;
+    if (minf == missing) return true;
     const size_t minf_end = get_box_end(minf, data.size());
-    if (minf_end == missing) return;
+    if (minf_end == missing) return false;
 
     const size_t stbl = find_child_box(data, minf + 8, minf_end, "stbl");
-    if (stbl == missing) return;
+    if (stbl == missing) return true;
     const size_t stbl_end = get_box_end(stbl, data.size());
-    if (stbl_end == missing) return;
+    if (stbl_end == missing) return false;
 
     const size_t stco = find_child_box(data, stbl + 8, stbl_end, "stco");
     if (stco != missing && stco + 16 <= stbl_end)
@@ -215,19 +215,20 @@ static void shift_trak_chunk_offsets(
                 for (uint32_t index = 0; index < count; ++index)
                 {
                     size_t field = stco + 16 + static_cast<size_t>(index) * 4;
-                    if (field + 4 > stbl_end) break;
+                    if (field + 4 > stbl_end) return false;
                     
                     uint32_t offset = 0;
                     reader.try_seek(field);
-                    reader.try_read_be32u(offset);
+                    if (!reader.try_read_be32u(offset)) return false;
                     
                     if (offset > 0 && static_cast<size_t>(offset) > threshold)
                     {
                         int64_t shifted = static_cast<int64_t>(offset) + delta;
-                        if (shifted > 0 && shifted <= std::numeric_limits<uint32_t>::max()) {
-                            writer.try_seek(field);
-                            writer.try_write_be32u(static_cast<uint32_t>(shifted));
+                        if (shifted <= 0 || shifted > static_cast<int64_t>(std::numeric_limits<uint32_t>::max())) {
+                            return false; // underflow / overflow
                         }
+                        writer.try_seek(field);
+                        writer.try_write_be32u(static_cast<uint32_t>(shifted));
                     }
                 }
             }
@@ -245,39 +246,42 @@ static void shift_trak_chunk_offsets(
                 for (uint32_t index = 0; index < count; ++index)
                 {
                     size_t field = co64 + 16 + static_cast<size_t>(index) * 8;
-                    if (field + 8 > stbl_end) break;
+                    if (field + 8 > stbl_end) return false;
                     
                     int64_t offset = 0;
                     reader.try_seek(field);
-                    reader.try_read_be64(offset);
+                    if (!reader.try_read_be64(offset)) return false;
                     
                     if (offset > 0 && static_cast<uint64_t>(offset) > threshold)
                     {
                         int64_t shifted = offset + delta;
-                        if (shifted > 0) {
-                            writer.try_seek(field);
-                            writer.try_write_be64(shifted);
+                        if (shifted <= 0) {
+                            return false; // underflow
                         }
+                        writer.try_seek(field);
+                        writer.try_write_be64(shifted);
                     }
                 }
             }
         }
     }
+
+    return true;
 }
 
-void shift_chunk_offsets(
+bool shift_chunk_offsets(
     std::vector<uint8_t>& data,
     size_t moov_start,
     size_t threshold,
     int64_t delta) noexcept
 {
     binary_reader reader(data);
-    if (!reader.try_seek(moov_start)) return;
+    if (!reader.try_seek(moov_start)) return false;
     
     uint32_t moov_size = 0;
     if (!reader.try_read_be32u(moov_size) || moov_size < 8 || moov_size > data.size() - moov_start)
     {
-        return;
+        return false;
     }
     
     const size_t moov_end = moov_start + static_cast<size_t>(moov_size);
@@ -285,19 +289,24 @@ void shift_chunk_offsets(
     
     while (position + 8 <= moov_end)
     {
-        if (!reader.try_seek(position)) break;
+        if (!reader.try_seek(position)) return false;
         uint32_t child_size = 0;
         if (!reader.try_read_be32u(child_size) || child_size < 8 || child_size > moov_end - position)
         {
-            break;
+            return false;
         }
         
         if (is_type(data, position, "trak"))
         {
-            shift_trak_chunk_offsets(
+            if (!shift_trak_chunk_offsets(
                 data, position, position + static_cast<size_t>(child_size),
-                threshold, delta);
+                threshold, delta))
+            {
+                return false;
+            }
         }
         position += static_cast<size_t>(child_size);
     }
+
+    return true;
 }

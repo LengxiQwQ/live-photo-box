@@ -19,6 +19,8 @@ public sealed class ImageConverter : IImageConverter
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         var sw = Stopwatch.StartNew();
 
         // Check if strict preservation is requested for cross-container conversion
@@ -37,7 +39,7 @@ public sealed class ImageConverter : IImageConverter
                     OutputContainer = request.TargetContainer,
                     PixelReencoded = false,
                     MetadataCopied = false,
-                    PreservationOutcome = PreservationOutcome.DiscardedNotApplicable,
+                    PreservationOutcome = PreservationOutcome.PartiallyPreserved,
                     Duration = sw.Elapsed
                 }
             };
@@ -75,7 +77,7 @@ public sealed class ImageConverter : IImageConverter
                 ? PreservationOutcome.Preserved
                 : (request.PreservationPolicy == PreservationPolicy.AllowDiscard
                     ? PreservationOutcome.DiscardedNotApplicable
-                    : PreservationOutcome.DegradedToSdr);
+                    : PreservationOutcome.PartiallyPreserved);
 
             var outArtifact = new MediaArtifact
             {
@@ -102,6 +104,15 @@ public sealed class ImageConverter : IImageConverter
                 }
             };
         }
+        catch (OperationCanceledException)
+        {
+            sw.Stop();
+            if (File.Exists(outPath))
+            {
+                try { File.Delete(outPath); } catch { /* ignore cleanup errors */ }
+            }
+            throw;
+        }
         catch (Exception ex)
         {
             sw.Stop();
@@ -120,16 +131,18 @@ public sealed class ImageConverter : IImageConverter
                     OutputContainer = request.TargetContainer,
                     PixelReencoded = false,
                     MetadataCopied = false,
-                    PreservationOutcome = PreservationOutcome.DiscardedNotApplicable,
+                    PreservationOutcome = PreservationOutcome.PartiallyPreserved,
                     Duration = sw.Elapsed
                 }
             };
         }
     }
 
+    private static readonly string[] HeifBrands = ["heic", "heix", "heim", "heis", "hevc", "hevx", "mif1", "msf1", "miaf"];
+
     private static ImageContainer DetectOutputContainer(string path)
     {
-        Span<byte> header = stackalloc byte[16];
+        Span<byte> header = stackalloc byte[64];
         using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
         {
             int read = fs.Read(header);
@@ -139,7 +152,28 @@ public sealed class ImageConverter : IImageConverter
             }
             if (read >= 12 && header[4] == (byte)'f' && header[5] == (byte)'t' && header[6] == (byte)'y' && header[7] == (byte)'p')
             {
-                return ImageContainer.Heic;
+                // Check major brand
+                string majorBrand = System.Text.Encoding.ASCII.GetString(header.Slice(8, 4));
+                foreach (string b in HeifBrands)
+                {
+                    if (string.Equals(majorBrand, b, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return ImageContainer.Heic;
+                    }
+                }
+
+                // Check compatible brands
+                for (int offset = 16; offset + 4 <= read; offset += 4)
+                {
+                    string brand = System.Text.Encoding.ASCII.GetString(header.Slice(offset, 4));
+                    foreach (string b in HeifBrands)
+                    {
+                        if (string.Equals(brand, b, StringComparison.OrdinalIgnoreCase))
+                        {
+                            return ImageContainer.Heic;
+                        }
+                    }
+                }
             }
         }
         return ImageContainer.Unknown;

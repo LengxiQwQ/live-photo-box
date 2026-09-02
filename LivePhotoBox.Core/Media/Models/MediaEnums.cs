@@ -91,5 +91,6 @@ public enum PreservationOutcome
     Preserved,
     TranscodedLossless,
     DegradedToSdr,
-    DiscardedNotApplicable
+    DiscardedNotApplicable,
+    PartiallyPreserved
 }

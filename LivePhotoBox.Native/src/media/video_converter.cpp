@@ -200,96 +200,144 @@ lpb_result probe_video_file(
             if (trak_size < 8) break;
             size_t trak_end = std::min(trak_pos + trak_size, moov_end);
 
-            std::string_view trak_sv(reinterpret_cast<const char*>(moov_data.data() + trak_pos), trak_end - trak_pos);
+            size_t mdia_pos = find_child_box(moov_data, trak_pos + 8, trak_end, "mdia");
+            if (mdia_pos != SIZE_MAX && mdia_pos + 8 <= trak_end) {
+                uint32_t mdia_size = (static_cast<uint32_t>(moov_data[mdia_pos]) << 24) |
+                                     (static_cast<uint32_t>(moov_data[mdia_pos + 1]) << 16) |
+                                     (static_cast<uint32_t>(moov_data[mdia_pos + 2]) << 8)  |
+                                     (static_cast<uint32_t>(moov_data[mdia_pos + 3]));
+                size_t mdia_end = std::min(mdia_pos + mdia_size, trak_end);
 
-            // Audio track check
-            if (trak_sv.find("soun") != std::string_view::npos || trak_sv.find("mp4a") != std::string_view::npos) {
-                out_video_facts->has_audio = 1;
-            }
+                // Structure-based hdlr handler detection
+                size_t hdlr_pos = find_child_box(moov_data, mdia_pos + 8, mdia_end, "hdlr");
+                if (hdlr_pos != SIZE_MAX && hdlr_pos + 20 <= mdia_end) {
+                    const char* handler_type = reinterpret_cast<const char*>(moov_data.data() + hdlr_pos + 16);
 
-            // Video track check
-            if (trak_sv.find("vide") != std::string_view::npos || trak_sv.find("avc1") != std::string_view::npos ||
-                trak_sv.find("hvc1") != std::string_view::npos || trak_sv.find("hev1") != std::string_view::npos) {
-                
-                // Codec
-                if (trak_sv.find("avc1") != std::string_view::npos) {
-                    out_video_facts->codec = LPB_VIDEO_CODEC_H264;
-                } else if (trak_sv.find("hvc1") != std::string_view::npos || trak_sv.find("hev1") != std::string_view::npos) {
-                    out_video_facts->codec = LPB_VIDEO_CODEC_HEVC;
-                }
+                    if (std::memcmp(handler_type, "soun", 4) == 0) {
+                        out_video_facts->has_audio = 1;
+                    } else if (std::memcmp(handler_type, "vide", 4) == 0) {
+                        // Parse tkhd for rotation and dimensions
+                        size_t tkhd_pos = find_child_box(moov_data, trak_pos + 8, trak_end, "tkhd");
+                        if (tkhd_pos != SIZE_MAX && tkhd_pos + 84 <= trak_end) {
+                            uint8_t tkhd_ver = moov_data[tkhd_pos + 8];
+                            size_t matrix_offset = (tkhd_ver == 1) ? (tkhd_pos + 56) : (tkhd_pos + 48);
+                            size_t dim_offset = (tkhd_ver == 1) ? (tkhd_pos + 92) : (tkhd_pos + 84);
 
-                // Parse tkhd for rotation and dimensions
-                size_t tkhd_pos = find_child_box(moov_data, trak_pos + 8, trak_end, "tkhd");
-                if (tkhd_pos != SIZE_MAX && tkhd_pos + 84 <= trak_end) {
-                    uint8_t tkhd_ver = moov_data[tkhd_pos + 8];
-                    size_t matrix_offset = (tkhd_ver == 1) ? (tkhd_pos + 56) : (tkhd_pos + 48);
-                    size_t dim_offset = (tkhd_ver == 1) ? (tkhd_pos + 92) : (tkhd_pos + 84);
+                            if (matrix_offset + 36 <= trak_end) {
+                                int32_t a = (static_cast<int32_t>(moov_data[matrix_offset]) << 24) |
+                                            (static_cast<int32_t>(moov_data[matrix_offset + 1]) << 16) |
+                                            (static_cast<int32_t>(moov_data[matrix_offset + 2]) << 8)  |
+                                            (static_cast<int32_t>(moov_data[matrix_offset + 3]));
+                                int32_t b = (static_cast<int32_t>(moov_data[matrix_offset + 4]) << 24) |
+                                            (static_cast<int32_t>(moov_data[matrix_offset + 5]) << 16) |
+                                            (static_cast<int32_t>(moov_data[matrix_offset + 6]) << 8)  |
+                                            (static_cast<int32_t>(moov_data[matrix_offset + 7]));
 
-                    if (matrix_offset + 36 <= trak_end) {
-                        int32_t a = (static_cast<int32_t>(moov_data[matrix_offset]) << 24) |
-                                    (static_cast<int32_t>(moov_data[matrix_offset + 1]) << 16) |
-                                    (static_cast<int32_t>(moov_data[matrix_offset + 2]) << 8)  |
-                                    (static_cast<int32_t>(moov_data[matrix_offset + 3]));
-                        int32_t b = (static_cast<int32_t>(moov_data[matrix_offset + 4]) << 24) |
-                                    (static_cast<int32_t>(moov_data[matrix_offset + 5]) << 16) |
-                                    (static_cast<int32_t>(moov_data[matrix_offset + 6]) << 8)  |
-                                    (static_cast<int32_t>(moov_data[matrix_offset + 7]));
+                                if (a == 0 && b == 0x00010000) out_video_facts->rotation_degrees = 90;
+                                else if (a == -0x00010000 && b == 0) out_video_facts->rotation_degrees = 180;
+                                else if (a == 0 && (b == -0x00010000 || static_cast<uint32_t>(b) == 0xFFFF0000)) out_video_facts->rotation_degrees = 270;
+                                else out_video_facts->rotation_degrees = 0;
+                            }
 
-                        if (a == 0 && b == 0x00010000) out_video_facts->rotation_degrees = 90;
-                        else if (a == -0x00010000 && b == 0) out_video_facts->rotation_degrees = 180;
-                        else if (a == 0 && (b == -0x00010000 || static_cast<uint32_t>(b) == 0xFFFF0000)) out_video_facts->rotation_degrees = 270;
-                        else out_video_facts->rotation_degrees = 0;
-                    }
-
-                    if (dim_offset + 8 <= trak_end) {
-                        uint32_t w = (static_cast<uint32_t>(moov_data[dim_offset]) << 8) |
-                                     (static_cast<uint32_t>(moov_data[dim_offset + 1]));
-                        uint32_t h = (static_cast<uint32_t>(moov_data[dim_offset + 4]) << 8) |
-                                     (static_cast<uint32_t>(moov_data[dim_offset + 5]));
-                        if (w > 0 && h > 0) {
-                            out_video_facts->width = w;
-                            out_video_facts->height = h;
+                            if (dim_offset + 8 <= trak_end) {
+                                uint32_t w = (static_cast<uint32_t>(moov_data[dim_offset]) << 8) |
+                                             (static_cast<uint32_t>(moov_data[dim_offset + 1]));
+                                uint32_t h = (static_cast<uint32_t>(moov_data[dim_offset + 4]) << 8) |
+                                             (static_cast<uint32_t>(moov_data[dim_offset + 5]));
+                                if (w > 0 && h > 0) {
+                                    out_video_facts->width = w;
+                                    out_video_facts->height = h;
+                                }
+                            }
                         }
-                    }
-                }
 
-                // Parse mdhd & stts for timescale & fps
-                size_t mdia_pos = find_child_box(moov_data, trak_pos + 8, trak_end, "mdia");
-                if (mdia_pos != SIZE_MAX) {
-                    size_t mdhd_pos = find_child_box(moov_data, mdia_pos + 8, trak_end, "mdhd");
-                    uint32_t track_timescale = 0;
-                    if (mdhd_pos != SIZE_MAX && mdhd_pos + 28 <= trak_end) {
-                        uint8_t mdhd_ver = moov_data[mdhd_pos + 8];
-                        if (mdhd_ver == 0 && mdhd_pos + 24 <= trak_end) {
-                            track_timescale = (static_cast<uint32_t>(moov_data[mdhd_pos + 20]) << 24) |
-                                              (static_cast<uint32_t>(moov_data[mdhd_pos + 21]) << 16) |
-                                              (static_cast<uint32_t>(moov_data[mdhd_pos + 22]) << 8)  |
-                                              (static_cast<uint32_t>(moov_data[mdhd_pos + 23]));
-                        } else if (mdhd_ver == 1 && mdhd_pos + 32 <= trak_end) {
-                            track_timescale = (static_cast<uint32_t>(moov_data[mdhd_pos + 28]) << 24) |
-                                              (static_cast<uint32_t>(moov_data[mdhd_pos + 29]) << 16) |
-                                              (static_cast<uint32_t>(moov_data[mdhd_pos + 30]) << 8)  |
-                                              (static_cast<uint32_t>(moov_data[mdhd_pos + 31]));
+                        // Parse mdhd for timescale
+                        size_t mdhd_pos = find_child_box(moov_data, mdia_pos + 8, mdia_end, "mdhd");
+                        uint32_t track_timescale = 0;
+                        if (mdhd_pos != SIZE_MAX && mdhd_pos + 28 <= mdia_end) {
+                            uint8_t mdhd_ver = moov_data[mdhd_pos + 8];
+                            if (mdhd_ver == 0 && mdhd_pos + 24 <= mdia_end) {
+                                track_timescale = (static_cast<uint32_t>(moov_data[mdhd_pos + 20]) << 24) |
+                                                  (static_cast<uint32_t>(moov_data[mdhd_pos + 21]) << 16) |
+                                                  (static_cast<uint32_t>(moov_data[mdhd_pos + 22]) << 8)  |
+                                                  (static_cast<uint32_t>(moov_data[mdhd_pos + 23]));
+                            } else if (mdhd_ver == 1 && mdhd_pos + 32 <= mdia_end) {
+                                track_timescale = (static_cast<uint32_t>(moov_data[mdhd_pos + 28]) << 24) |
+                                                  (static_cast<uint32_t>(moov_data[mdhd_pos + 29]) << 16) |
+                                                  (static_cast<uint32_t>(moov_data[mdhd_pos + 30]) << 8)  |
+                                                  (static_cast<uint32_t>(moov_data[mdhd_pos + 31]));
+                            }
                         }
-                    }
 
-                    size_t minf_pos = find_child_box(moov_data, mdia_pos + 8, trak_end, "minf");
-                    if (minf_pos != SIZE_MAX) {
-                        size_t stbl_pos = find_child_box(moov_data, minf_pos + 8, trak_end, "stbl");
-                        if (stbl_pos != SIZE_MAX) {
-                            size_t stts_pos = find_child_box(moov_data, stbl_pos + 8, trak_end, "stts");
-                            if (stts_pos != SIZE_MAX && stts_pos + 24 <= trak_end && track_timescale > 0) {
-                                uint32_t entry_count = (static_cast<uint32_t>(moov_data[stts_pos + 12]) << 24) |
-                                                       (static_cast<uint32_t>(moov_data[stts_pos + 13]) << 16) |
-                                                       (static_cast<uint32_t>(moov_data[stts_pos + 14]) << 8)  |
-                                                       (static_cast<uint32_t>(moov_data[stts_pos + 15]));
-                                if (entry_count > 0) {
-                                    uint32_t sample_delta = (static_cast<uint32_t>(moov_data[stts_pos + 20]) << 24) |
-                                                            (static_cast<uint32_t>(moov_data[stts_pos + 21]) << 16) |
-                                                            (static_cast<uint32_t>(moov_data[stts_pos + 22]) << 8)  |
-                                                            (static_cast<uint32_t>(moov_data[stts_pos + 23]));
-                                    if (sample_delta > 0) {
-                                        out_video_facts->fps = static_cast<double>(track_timescale) / sample_delta;
+                        // Parse minf -> stbl -> stsd (codec) & stts (fps)
+                        size_t minf_pos = find_child_box(moov_data, mdia_pos + 8, mdia_end, "minf");
+                        if (minf_pos != SIZE_MAX && minf_pos + 8 <= mdia_end) {
+                            uint32_t minf_size = (static_cast<uint32_t>(moov_data[minf_pos]) << 24) |
+                                                 (static_cast<uint32_t>(moov_data[minf_pos + 1]) << 16) |
+                                                 (static_cast<uint32_t>(moov_data[minf_pos + 2]) << 8)  |
+                                                 (static_cast<uint32_t>(moov_data[minf_pos + 3]));
+                            size_t minf_end = std::min(minf_pos + minf_size, mdia_end);
+
+                            size_t stbl_pos = find_child_box(moov_data, minf_pos + 8, minf_end, "stbl");
+                            if (stbl_pos != SIZE_MAX && stbl_pos + 8 <= minf_end) {
+                                uint32_t stbl_size = (static_cast<uint32_t>(moov_data[stbl_pos]) << 24) |
+                                                     (static_cast<uint32_t>(moov_data[stbl_pos + 1]) << 16) |
+                                                     (static_cast<uint32_t>(moov_data[stbl_pos + 2]) << 8)  |
+                                                     (static_cast<uint32_t>(moov_data[stbl_pos + 3]));
+                                size_t stbl_end = std::min(stbl_pos + stbl_size, minf_end);
+
+                                // stsd entry inspection
+                                size_t stsd_pos = find_child_box(moov_data, stbl_pos + 8, stbl_end, "stsd");
+                                if (stsd_pos != SIZE_MAX && stsd_pos + 24 <= stbl_end) {
+                                    uint32_t entry_count = (static_cast<uint32_t>(moov_data[stsd_pos + 12]) << 24) |
+                                                           (static_cast<uint32_t>(moov_data[stsd_pos + 13]) << 16) |
+                                                           (static_cast<uint32_t>(moov_data[stsd_pos + 14]) << 8)  |
+                                                           (static_cast<uint32_t>(moov_data[stsd_pos + 15]));
+                                    if (entry_count > 0) {
+                                        const char* format_4cc = reinterpret_cast<const char*>(moov_data.data() + stsd_pos + 20);
+                                        if (std::memcmp(format_4cc, "avc1", 4) == 0 || std::memcmp(format_4cc, "avc3", 4) == 0) {
+                                            out_video_facts->codec = LPB_VIDEO_CODEC_H264;
+                                        } else if (std::memcmp(format_4cc, "hvc1", 4) == 0 || std::memcmp(format_4cc, "hev1", 4) == 0) {
+                                            out_video_facts->codec = LPB_VIDEO_CODEC_HEVC;
+                                        }
+                                    }
+                                }
+
+                                // stts fps inspection
+                                size_t stts_pos = find_child_box(moov_data, stbl_pos + 8, stbl_end, "stts");
+                                if (stts_pos != SIZE_MAX && stts_pos + 16 <= stbl_end && track_timescale > 0) {
+                                    uint32_t entry_count = (static_cast<uint32_t>(moov_data[stts_pos + 12]) << 24) |
+                                                           (static_cast<uint32_t>(moov_data[stts_pos + 13]) << 16) |
+                                                           (static_cast<uint32_t>(moov_data[stts_pos + 14]) << 8)  |
+                                                           (static_cast<uint32_t>(moov_data[stts_pos + 15]));
+                                    if (entry_count == 1 && stts_pos + 24 <= stbl_end) {
+                                        uint32_t sample_delta = (static_cast<uint32_t>(moov_data[stts_pos + 20]) << 24) |
+                                                                (static_cast<uint32_t>(moov_data[stts_pos + 21]) << 16) |
+                                                                (static_cast<uint32_t>(moov_data[stts_pos + 22]) << 8)  |
+                                                                (static_cast<uint32_t>(moov_data[stts_pos + 23]));
+                                        if (sample_delta > 0) {
+                                            out_video_facts->fps = static_cast<double>(track_timescale) / sample_delta;
+                                        }
+                                    } else if (entry_count > 1) {
+                                        uint64_t total_samples = 0;
+                                        uint64_t total_duration = 0;
+                                        for (uint32_t i = 0; i < entry_count; ++i) {
+                                            size_t entry_offset = stts_pos + 16 + static_cast<size_t>(i) * 8;
+                                            if (entry_offset + 8 > stbl_end) break;
+                                            uint32_t s_count = (static_cast<uint32_t>(moov_data[entry_offset]) << 24) |
+                                                               (static_cast<uint32_t>(moov_data[entry_offset + 1]) << 16) |
+                                                               (static_cast<uint32_t>(moov_data[entry_offset + 2]) << 8)  |
+                                                               (static_cast<uint32_t>(moov_data[entry_offset + 3]));
+                                            uint32_t s_delta = (static_cast<uint32_t>(moov_data[entry_offset + 4]) << 24) |
+                                                               (static_cast<uint32_t>(moov_data[entry_offset + 5]) << 16) |
+                                                               (static_cast<uint32_t>(moov_data[entry_offset + 6]) << 8)  |
+                                                               (static_cast<uint32_t>(moov_data[entry_offset + 7]));
+                                            total_samples += s_count;
+                                            total_duration += static_cast<uint64_t>(s_count) * s_delta;
+                                        }
+                                        if (total_duration > 0) {
+                                            out_video_facts->fps = static_cast<double>(total_samples * track_timescale) / total_duration;
+                                        }
                                     }
                                 }
                             }
@@ -300,10 +348,6 @@ lpb_result probe_video_file(
 
             pos = trak_end;
         }
-    }
-
-    if (out_video_facts->fps == 0) {
-        out_video_facts->fps = 30.0;
     }
 
     return LPB_RESULT_OK;
@@ -336,6 +380,18 @@ lpb_result remux_video_file(
     auto boxes = scan_top_level_boxes(in, static_cast<uint64_t>(file_size));
     if (boxes.empty()) {
         set_error(context, "No valid ISO-BMFF boxes found in input video.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    // Structural pre-flight validation: must have moov and mdat
+    bool has_moov = false;
+    bool has_mdat = false;
+    for (const auto& b : boxes) {
+        if (std::memcmp(b.type, "moov", 4) == 0) has_moov = true;
+        if (std::memcmp(b.type, "mdat", 4) == 0) has_mdat = true;
+    }
+    if (!has_moov || !has_mdat) {
+        set_error(context, "Unsupported ISO-BMFF layout for zero-copy remux (missing moov or mdat).");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
@@ -403,7 +459,12 @@ lpb_result remux_video_file(
             in.read(reinterpret_cast<char*>(moov_data.data()), b.size);
 
             if (delta != 0) {
-                shift_chunk_offsets(moov_data, 0, old_ftyp_size, delta);
+                if (!shift_chunk_offsets(moov_data, 0, old_ftyp_size, delta)) {
+                    out.close();
+                    fs::remove(p_out);
+                    set_error(context, "ISO-BMFF chunk offset shift failed (underflow or corrupted table).");
+                    return LPB_RESULT_INTERNAL_ERROR;
+                }
             }
 
             out.write(reinterpret_cast<const char*>(moov_data.data()), moov_data.size());
@@ -443,8 +504,6 @@ lpb_result transcode_video_file(
     char* out_encoder_used,
     size_t encoder_buf_len) noexcept
 {
-    (void)crf;
-
     if (!input_video_path || !output_video_path) {
         set_error(context, "Invalid arguments for video transcode.");
         return LPB_RESULT_INVALID_ARGUMENT;
@@ -552,11 +611,17 @@ lpb_result transcode_video_file(
     pOutVideoType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
     pOutVideoType->SetGUID(MF_MT_SUBTYPE, target_guid);
     
-    // Calculate reasonable average bitrate based on resolution and fps
+    // Calculate reasonable average bitrate based on resolution, fps, and quality/CRF mapping
     double bpp = (target_codec == LPB_VIDEO_CODEC_HEVC) ? 0.08 : 0.12;
-    uint32_t avg_bitrate = static_cast<uint32_t>(width * height * (static_cast<double>(fps_num) / fps_den) * bpp);
-    if (avg_bitrate < 1500000) avg_bitrate = 1500000;
-    if (avg_bitrate > 25000000) avg_bitrate = 25000000;
+    double fps_val = (fps_den > 0) ? (static_cast<double>(fps_num) / fps_den) : 30.0;
+    if (fps_val <= 0 || fps_val > 240) fps_val = 30.0;
+    uint32_t avg_bitrate = static_cast<uint32_t>(width * height * fps_val * bpp);
+    if (crf > 0 && crf <= 51) {
+        double crf_factor = std::pow(2.0, (23.0 - static_cast<double>(crf)) / 6.0);
+        avg_bitrate = static_cast<uint32_t>(avg_bitrate * crf_factor);
+    }
+    if (avg_bitrate < 500000) avg_bitrate = 500000;
+    if (avg_bitrate > 50000000) avg_bitrate = 50000000;
 
     pOutVideoType->SetUINT32(MF_MT_AVG_BITRATE, avg_bitrate);
     MFSetAttributeSize(pOutVideoType, MF_MT_FRAME_SIZE, width, height);
@@ -634,9 +699,15 @@ lpb_result transcode_video_file(
                 pInAudioType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, sample_rate > 0 ? sample_rate : 48000);
                 pInAudioType->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, channels > 0 ? channels : 2);
 
-                pWriter->SetInputMediaType(sinkAudioIndex, pInAudioType, nullptr);
-                pReader->SetCurrentMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), nullptr, pInAudioType);
+                hr = pWriter->SetInputMediaType(sinkAudioIndex, pInAudioType, nullptr);
+                if (SUCCEEDED(hr)) {
+                    hr = pReader->SetCurrentMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), nullptr, pInAudioType);
+                }
                 pInAudioType->Release();
+
+                if (FAILED(hr)) {
+                    has_audio_stream = false;
+                }
             } else {
                 has_audio_stream = false;
             }
@@ -674,11 +745,21 @@ lpb_result transcode_video_file(
             LONGLONG timestamp = 0;
             IMFSample* pSample = nullptr;
             hr = pReader->ReadSample(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM), 0, &stream_idx, &flags, &timestamp, &pSample);
-            if (FAILED(hr) || (flags & MF_SOURCE_READERF_ENDOFSTREAM)) {
+            if (FAILED(hr)) {
+                set_error(context, "Media Foundation video ReadSample failed.");
+                transcode_res = LPB_RESULT_INTERNAL_ERROR;
+                break;
+            }
+            if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {
                 video_finished = true;
             } else if (pSample) {
-                pWriter->WriteSample(sinkVideoIndex, pSample);
+                hr = pWriter->WriteSample(sinkVideoIndex, pSample);
                 pSample->Release();
+                if (FAILED(hr)) {
+                    set_error(context, "Media Foundation video WriteSample failed.");
+                    transcode_res = LPB_RESULT_INTERNAL_ERROR;
+                    break;
+                }
             }
         }
 
@@ -688,24 +769,39 @@ lpb_result transcode_video_file(
             LONGLONG timestamp = 0;
             IMFSample* pSample = nullptr;
             hr = pReader->ReadSample(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), 0, &stream_idx, &flags, &timestamp, &pSample);
-            if (FAILED(hr) || (flags & MF_SOURCE_READERF_ENDOFSTREAM)) {
+            if (FAILED(hr)) {
+                set_error(context, "Media Foundation audio ReadSample failed.");
+                transcode_res = LPB_RESULT_INTERNAL_ERROR;
+                break;
+            }
+            if (flags & MF_SOURCE_READERF_ENDOFSTREAM) {
                 audio_finished = true;
             } else if (pSample) {
-                pWriter->WriteSample(sinkAudioIndex, pSample);
+                hr = pWriter->WriteSample(sinkAudioIndex, pSample);
                 pSample->Release();
+                if (FAILED(hr)) {
+                    set_error(context, "Media Foundation audio WriteSample failed.");
+                    transcode_res = LPB_RESULT_INTERNAL_ERROR;
+                    break;
+                }
             }
         }
     }
 
-    pWriter->Finalize();
+    HRESULT finalize_hr = pWriter->Finalize();
+    if (FAILED(finalize_hr) && transcode_res == LPB_RESULT_OK) {
+        set_error(context, "Media Foundation SinkWriter Finalize failed.");
+        transcode_res = LPB_RESULT_INTERNAL_ERROR;
+    }
+
     pWriter->Release();
     pReader->Release();
     MFShutdown();
     if (co_inited) CoUninitialize();
 
-    if (transcode_res == LPB_RESULT_CANCELLED) {
+    if (transcode_res != LPB_RESULT_OK) {
         fs::remove(temp_mp4_path);
-        return LPB_RESULT_CANCELLED;
+        return transcode_res;
     }
 
     // 7. If MOV container was requested, remux temp MP4 to MOV

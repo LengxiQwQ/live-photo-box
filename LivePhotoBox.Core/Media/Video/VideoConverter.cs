@@ -24,6 +24,8 @@ public sealed class VideoConverter : IVideoConverter
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        cancellationToken.ThrowIfCancellationRequested();
+
         var sw = Stopwatch.StartNew();
 
         // TargetFps handling
@@ -108,8 +110,21 @@ public sealed class VideoConverter : IVideoConverter
                 throw new InvalidOperationException("Output video duration could not be determined or is zero.");
             }
 
+            // Duration tolerance check: catch noticeable truncations
+            if (sourceFacts.DurationSeconds > 0)
+            {
+                double durationTolerance = Math.Max(0.5, sourceFacts.DurationSeconds * 0.15);
+                if (Math.Abs(probed.DurationSeconds - sourceFacts.DurationSeconds) > durationTolerance)
+                {
+                    throw new InvalidOperationException(
+                        $"Output video duration discrepancy/truncation detected: expected ~{sourceFacts.DurationSeconds:F2}s, actual {probed.DurationSeconds:F2}s.");
+                }
+            }
+
             bool remuxUsed = encoderUsed.Contains("Stream", StringComparison.OrdinalIgnoreCase) ||
                              encoderUsed.Contains("Remux", StringComparison.OrdinalIgnoreCase);
+
+            bool audioPreserved = sourceFacts.HasAudio ? probed.HasAudio : true;
 
             var outArtifact = new MediaArtifact
             {
@@ -135,12 +150,21 @@ public sealed class VideoConverter : IVideoConverter
                     OutputCodec = probed.Codec,
                     RemuxUsed = remuxUsed,
                     SelectedEncoder = encoderUsed,
-                    HardwareFallbackOccurred = false,
-                    AudioPreserved = probed.HasAudio,
+                    HardwareFallbackOccurred = encoderUsed.Contains("Software", StringComparison.OrdinalIgnoreCase),
+                    AudioPreserved = audioPreserved,
                     RotationPreserved = (sourceFacts.RotationDegrees == probed.RotationDegrees),
                     Duration = sw.Elapsed
                 }
             };
+        }
+        catch (OperationCanceledException)
+        {
+            sw.Stop();
+            if (File.Exists(outPath))
+            {
+                try { File.Delete(outPath); } catch { /* ignore cleanup errors */ }
+            }
+            throw;
         }
         catch (Exception ex)
         {

@@ -54,5 +54,54 @@ namespace LivePhotoBox.Services
             var formats = GetAvailableFormats(protocolIndex);
             return formats.Length > 0 ? formats[0] : FormatJpgMp4;
         }
+
+        // 拆分协议索引常量
+        public const int SplitProtocolNone = 0;
+        public const int SplitProtocolApple = 1;
+        public const int SplitProtocolVivo = 2;
+
+        // 拆分格式索引常量
+        public const int SplitFormatKeep = 0;
+        public const int SplitFormatJpgMov = 1;
+        public const int SplitFormatHeicMov = 2;
+        public const int SplitFormatJpgMp4 = 3;
+
+        // 拆分格式短名称（CLI / Matrix 共享）
+        public static readonly string[] SplitFormatNames =
+            ["keep", "jpg+mov", "heic+mov", "jpg+mp4"];
+
+        // 拆分协议 × 格式可用性矩阵（单一事实源：GUI、CLI、ProtocolMediaRequirements 共享）
+        // protocolIndex: 0=none / 1=Apple / 2=vivo
+        // formatIndex:   0=keep / 1=jpg+mov / 2=heic+mov / 3=jpg+mp4
+        public static readonly bool[][] SplitMatrix =
+        [
+            [true,  true,  true,  true ],  // none:  keep / jpg+mov / heic+mov / jpg+mp4
+            [false, true,  true,  false],  // apple: jpg+mov / heic+mov
+            [false, false, false, true ],  // vivo:  jpg+mp4
+        ];
+
+        // 检查指定拆分协议索引和格式索引的组合是否可用
+        public static bool IsSplitAvailable(int splitProtocolIndex, int splitFormatIndex)
+        {
+            if (splitProtocolIndex < 0 || splitProtocolIndex >= SplitMatrix.Length) return false;
+            if (splitFormatIndex < 0 || splitFormatIndex >= SplitMatrix[splitProtocolIndex].Length) return false;
+            return SplitMatrix[splitProtocolIndex][splitFormatIndex];
+        }
+
+        // 获取指定拆分协议可用的格式索引列表
+        public static int[] GetAvailableSplitFormats(int splitProtocolIndex)
+        {
+            if (splitProtocolIndex < 0 || splitProtocolIndex >= SplitMatrix.Length) return [];
+            return Enumerable.Range(0, SplitMatrix[splitProtocolIndex].Length)
+                .Where(i => SplitMatrix[splitProtocolIndex][i])
+                .ToArray();
+        }
+
+        // 获取指定拆分协议的默认格式索引（第一个可用格式）
+        public static int GetDefaultSplitFormat(int splitProtocolIndex)
+        {
+            var formats = GetAvailableSplitFormats(splitProtocolIndex);
+            return formats.Length > 0 ? formats[0] : SplitFormatKeep;
+        }
     }
 }
