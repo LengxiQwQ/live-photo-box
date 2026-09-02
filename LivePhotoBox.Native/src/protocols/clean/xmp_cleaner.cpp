@@ -24,8 +24,19 @@ using namespace_binding = std::pair<std::string_view, std::string_view>;
 static constexpr std::string_view google_camera_namespace = "http://ns.google.com/photos/1.0/camera/";
 static constexpr std::string_view google_container_namespace = "http://ns.google.com/photos/1.0/container/";
 static constexpr std::string_view google_item_namespace = "http://ns.google.com/photos/1.0/container/item/";
+static constexpr std::string_view rdf_namespace = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 static constexpr std::string_view oppo_camera_namespace = "http://ns.oplus.com/photos/1.0/camera/";
 static constexpr std::string_view vivo_camera_namespace = "http://ns.vivo.com/photos/1.0/camera/";
+
+struct parsed_element
+{
+    size_t start{};
+    size_t start_tag_end{};
+    size_t end{};
+    std::string_view name{};
+    std::vector<attribute_span> attributes{};
+    std::vector<namespace_binding> bindings{};
+};
 
 static bool is_name_char(char c) noexcept
 {
@@ -136,6 +147,60 @@ static void collect_namespace_bindings(const std::vector<attribute_span>& attrib
     }
 }
 
+static bool parse_xml_elements(std::string_view xml, std::vector<parsed_element>& elements)
+{
+    std::vector<size_t> open_elements;
+    size_t p = 0;
+    while ((p = xml.find('<', p)) != std::string_view::npos)
+    {
+        if (xml.substr(p, 4) == "<!--")
+        {
+            const size_t comment_end = xml.find("-->", p + 4);
+            if (comment_end == std::string_view::npos) return false;
+            p = comment_end + 3;
+            continue;
+        }
+
+        size_t tag_end = 0;
+        if (!find_tag_end(xml, p, tag_end)) return false;
+        if (p + 1 < xml.size() && (xml[p + 1] == '!' || xml[p + 1] == '?'))
+        {
+            p = tag_end;
+            continue;
+        }
+
+        if (p + 1 < xml.size() && xml[p + 1] == '/')
+        {
+            if (open_elements.empty()) return false;
+            parsed_element& element = elements[open_elements.back()];
+            element.end = tag_end;
+            open_elements.pop_back();
+            p = tag_end;
+            continue;
+        }
+
+        std::string_view tag_name;
+        std::vector<attribute_span> attributes;
+        if (!parse_start_tag(xml, p, tag_end, tag_name, attributes))
+        {
+            p = tag_end;
+            continue;
+        }
+
+        std::vector<namespace_binding> bindings = open_elements.empty()
+            ? std::vector<namespace_binding>{}
+            : elements[open_elements.back()].bindings;
+        collect_namespace_bindings(attributes, bindings);
+
+        const size_t element_index = elements.size();
+        elements.push_back({ p, tag_end, tag_end, tag_name, std::move(attributes), std::move(bindings) });
+        const bool self_closing = tag_end >= 2 && xml[tag_end - 2] == '/';
+        if (!self_closing) open_elements.push_back(element_index);
+        p = tag_end;
+    }
+    return open_elements.empty();
+}
+
 static std::string_view namespace_uri_for_name(std::string_view name,
     const std::vector<namespace_binding>& bindings, bool attribute_name) noexcept
 {
@@ -211,19 +276,15 @@ static bool is_protocol_attribute(std::string_view name,
     return false;
 }
 
-static bool item_is_motion(std::string_view xml, size_t tag_start, size_t tag_end,
-    const std::vector<namespace_binding>& bindings, lpb_source_protocol protocol) noexcept
+static bool item_is_motion(const parsed_element& element, lpb_source_protocol protocol) noexcept
 {
-    std::string_view tag_name;
-    std::vector<attribute_span> attrs;
-    if (!parse_start_tag(xml, tag_start, tag_end, tag_name, attrs) ||
-        !equals_icase(local_name(tag_name), "Item") ||
+    if (!equals_icase(local_name(element.name), "Item") ||
         !is_container_protocol(protocol) ||
-        namespace_uri_for_name(tag_name, bindings, false) != google_container_namespace) return false;
+        namespace_uri_for_name(element.name, element.bindings, false) != google_container_namespace) return false;
 
-    for (const auto& attr : attrs)
+    for (const auto& attr : element.attributes)
     {
-        if (namespace_uri_for_name(attr.name, bindings, true) != google_item_namespace) continue;
+        if (namespace_uri_for_name(attr.name, element.bindings, true) != google_item_namespace) continue;
         if (equals_icase(local_name(attr.name), "Semantic") &&
             equals_icase(attr.value, "MotionPhoto")) return true;
     }
@@ -243,33 +304,32 @@ static void add_fact(std::vector<lpb_removed_protocol_fact>& out_facts,
 
 static bool find_motion_ranges(std::string_view xml,
     lpb_source_protocol protocol,
-    const std::vector<namespace_binding>& bindings,
     std::vector<std::pair<size_t, size_t>>& ranges) noexcept
 {
-    size_t p = 0;
-    while ((p = xml.find('<', p)) != std::string_view::npos)
+    std::vector<parsed_element> elements;
+    if (!parse_xml_elements(xml, elements)) return false;
+
+    for (const auto& element : elements)
     {
-        size_t tag_end = 0;
-        if (!find_tag_end(xml, p, tag_end)) return false;
-        std::string_view tag_name;
-        std::vector<attribute_span> attrs;
-        if (parse_start_tag(xml, p, tag_end, tag_name, attrs) &&
-            equals_icase(local_name(tag_name), "Item") &&
-            item_is_motion(xml, p, tag_end, bindings, protocol))
+        if (!item_is_motion(element, protocol)) continue;
+
+        size_t start = element.start;
+        size_t end = element.end;
+        size_t best_wrapper_size = static_cast<size_t>(-1);
+        for (const auto& wrapper : elements)
         {
-            size_t start = p;
-            size_t end = tag_end;
-            const size_t li_start = xml.rfind("<rdf:li", p);
-            const size_t li_close = li_start == std::string_view::npos
-                ? std::string_view::npos : xml.find("</rdf:li>", p);
-            if (li_start != std::string_view::npos && li_close != std::string_view::npos && li_start < p)
+            if (!equals_icase(local_name(wrapper.name), "li") ||
+                namespace_uri_for_name(wrapper.name, wrapper.bindings, false) != rdf_namespace ||
+                wrapper.start >= element.start || wrapper.end < element.end) continue;
+            const size_t wrapper_size = wrapper.end - wrapper.start;
+            if (wrapper_size < best_wrapper_size)
             {
-                start = li_start;
-                end = li_close + std::strlen("</rdf:li>");
+                best_wrapper_size = wrapper_size;
+                start = wrapper.start;
+                end = wrapper.end;
             }
-            ranges.push_back({ start, end });
         }
-        p = tag_end;
+        ranges.push_back({ start, end });
     }
     return true;
 }
@@ -285,83 +345,43 @@ bool clean_xmp_metadata(
     if (input_xmp.empty()) return false;
     const std::string_view xml(input_xmp);
 
-    std::vector<namespace_binding> bindings;
-    size_t scan = 0;
-    while ((scan = xml.find('<', scan)) != std::string_view::npos)
-    {
-        size_t tag_end = 0;
-        if (!find_tag_end(xml, scan, tag_end)) return false;
-        std::string_view tag_name;
-        std::vector<attribute_span> attrs;
-        if (parse_start_tag(xml, scan, tag_end, tag_name, attrs))
-            collect_namespace_bindings(attrs, bindings);
-        scan = tag_end;
-    }
-
     std::vector<std::pair<size_t, size_t>> motion_ranges;
-    if (!find_motion_ranges(xml, protocol, bindings, motion_ranges)) return false;
+    if (!find_motion_ranges(xml, protocol, motion_ranges)) return false;
 
     // Rebuild start tags while dropping only exact protocol attributes. Values
     // and text nodes are copied byte-for-byte, so words such as MotionPhoto in
     // a normal caption cannot trigger a destructive edit.
     std::string cleaned;
     cleaned.reserve(xml.size());
+    std::vector<parsed_element> elements;
+    if (!parse_xml_elements(xml, elements)) return false;
     size_t p = 0;
     bool removed_attribute = false;
-    while (p < xml.size())
+    for (const auto& element : elements)
     {
-        const size_t tag_start = xml.find('<', p);
-        if (tag_start == std::string_view::npos)
+        cleaned.append(xml.substr(p, element.start - p));
+        size_t cursor = element.start;
+        for (const auto& attr : element.attributes)
         {
-            cleaned.append(xml.substr(p));
-            break;
-        }
-        cleaned.append(xml.substr(p, tag_start - p));
-        size_t tag_end = 0;
-        if (!find_tag_end(xml, tag_start, tag_end)) return false;
-
-        std::string_view tag_name;
-        std::vector<attribute_span> attrs;
-        if (!parse_start_tag(xml, tag_start, tag_end, tag_name, attrs))
-        {
-            cleaned.append(xml.substr(tag_start, tag_end - tag_start));
-        }
-        else
-        {
-            size_t cursor = tag_start;
-            for (const auto& attr : attrs)
+            if (is_protocol_attribute(attr.name,
+                namespace_uri_for_name(attr.name, element.bindings, true), protocol))
             {
-                if (is_protocol_attribute(attr.name,
-                    namespace_uri_for_name(attr.name, bindings, true), protocol))
-                {
-                    cleaned.append(xml.substr(cursor, attr.start - cursor));
-                    cursor = attr.end;
-                    removed_attribute = true;
-                }
+                cleaned.append(xml.substr(cursor, attr.start - cursor));
+                cursor = attr.end;
+                removed_attribute = true;
             }
-            cleaned.append(xml.substr(cursor, tag_end - cursor));
         }
-        p = tag_end;
+        cleaned.append(xml.substr(cursor, element.start_tag_end - cursor));
+        p = element.start_tag_end;
     }
+    cleaned.append(xml.substr(p));
 
     // Attribute removal changes offsets. Re-discover motion item ranges on the
     // rebuilt XML before applying them; never use stale string-search offsets.
     if (!motion_ranges.empty())
     {
         std::vector<std::pair<size_t, size_t>> final_ranges;
-        std::vector<namespace_binding> cleaned_bindings;
-        size_t cleaned_scan = 0;
-        while ((cleaned_scan = std::string_view(cleaned).find('<', cleaned_scan)) != std::string_view::npos)
-        {
-            size_t tag_end = 0;
-            if (!find_tag_end(cleaned, cleaned_scan, tag_end)) return false;
-            std::string_view tag_name;
-            std::vector<attribute_span> attrs;
-            if (parse_start_tag(cleaned, cleaned_scan, tag_end, tag_name, attrs))
-                collect_namespace_bindings(attrs, cleaned_bindings);
-            cleaned_scan = tag_end;
-        }
-        if (!find_motion_ranges(cleaned, protocol, cleaned_bindings, final_ranges)) return false;
+        if (!find_motion_ranges(cleaned, protocol, final_ranges)) return false;
         std::sort(final_ranges.begin(), final_ranges.end());
         final_ranges.erase(std::unique(final_ranges.begin(), final_ranges.end()), final_ranges.end());
 

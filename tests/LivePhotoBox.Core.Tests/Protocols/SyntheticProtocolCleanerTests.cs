@@ -350,4 +350,27 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Contains("<Other:Item", cleanText);
         Assert.DoesNotContain("<Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\"", cleanText);
     }
+
+    [Fact]
+    public async Task Clean_ScopedNamespaceRebinding_RemovesOnlyGoogleAttribute()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("scoped_namespace", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV2JpegWithScopedPrefixRebinding(inputPath);
+
+        var facts = await _inspector.InspectAsync(inputPath, null);
+        Assert.Equal(SourceProtocol.GoogleMotionPhotoV2, facts.Protocol);
+        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var result = await _cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            SourceFacts = facts,
+            ExtractedBundle = extracted
+        }, ws);
+
+        Assert.True(result.Success, result.ErrorMessage);
+        string cleanText = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(result.CleanedImage!.Path));
+        Assert.DoesNotContain("GCamera:MotionPhoto=\"1\"", cleanText);
+        Assert.Contains("GCamera:MotionPhoto=\"keep-this\"", cleanText);
+        Assert.DoesNotContain("Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\"", cleanText);
+    }
 }

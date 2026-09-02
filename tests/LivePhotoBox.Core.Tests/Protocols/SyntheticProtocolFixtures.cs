@@ -110,6 +110,16 @@ internal static class SyntheticProtocolFixtures
         fs.Write(dummyMp4);
     }
 
+    public static void CreateGoogleV2JpegWithScopedPrefixRebinding(string outputPath)
+    {
+        byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_SCOPED_NAMESPACE_26B");
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\"><note xmlns:GCamera=\"urn:example:unrelated\" GCamera:MotionPhoto=\"keep-this\" /><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyMp4);
+    }
+
     public static void CreateVivoX300Jpeg(string outputPath)
     {
         byte[] dummyGainMap = Encoding.UTF8.GetBytes(new string('G', 64));
