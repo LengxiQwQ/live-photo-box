@@ -264,6 +264,36 @@ public sealed class SourceInspectorTests
         Assert.Equal(VideoContainer.Mov, facts.MotionVideo.Container);
     }
 
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Inspect_AppleDualFileQuickTimeWithoutFtyp_IdentifiesAppleLivePhoto()
+    {
+        string img = ResolveSample("苹果双文件.HEIC");
+        string sourceMov = ResolveSample("苹果双文件.MOV");
+        string tempMov = Path.Combine(Path.GetTempPath(), $"lpb-apple-no-ftyp-{Guid.NewGuid():N}.mov");
+
+        try
+        {
+            byte[] mov = await File.ReadAllBytesAsync(sourceMov);
+            Assert.True(mov.Length >= 20);
+            Assert.Equal("ftyp", System.Text.Encoding.ASCII.GetString(mov, 4, 4));
+            uint ftypSize = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(mov.AsSpan(0, 4));
+            Assert.InRange(ftypSize, 8u, (uint)mov.Length);
+            await File.WriteAllBytesAsync(tempMov, mov[(int)ftypSize..]);
+
+            var inspector = new SourceInspector();
+            var facts = await inspector.InspectAsync(img, tempMov);
+
+            Assert.Equal(SourceProtocol.AppleLivePhoto, facts.Protocol);
+            Assert.NotNull(facts.MotionVideo);
+            Assert.Equal(VideoContainer.Mov, facts.MotionVideo.Container);
+        }
+        finally
+        {
+            try { File.Delete(tempMov); } catch { }
+        }
+    }
+
     private static async Task<string> ComputeSha256Async(string filePath)
     {
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024, useAsync: true);

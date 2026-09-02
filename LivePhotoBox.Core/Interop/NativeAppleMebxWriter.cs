@@ -13,6 +13,15 @@ namespace LivePhotoBox.Interop
             byte* output, nuint output_size,
             out nuint out_written);
 
+        [LibraryImport(NativeMethods.LibraryName, StringMarshalling = StringMarshalling.Utf8)]
+        internal static unsafe partial NativeResult lpb_apple_append_mebx_tracks_with_content_identifier(
+            nint context,
+            byte* data, nuint data_size,
+            double cover_seconds,
+            string content_id,
+            byte* output, nuint output_size,
+            out nuint out_written);
+
         public static unsafe bool TryAppendStillImageTrack(byte[] data, double coverSeconds, out byte[]? output, out string? error)
         {
             output = null;
@@ -57,6 +66,53 @@ namespace LivePhotoBox.Interop
             {
                 if (context != nint.Zero)
                     NativeMethods.DestroyContext(context);
+            }
+        }
+
+        public static unsafe bool TryAppendStillImageTrackWithContentIdentifier(
+            byte[] data, double coverSeconds, string contentId,
+            out byte[]? output, out string? error)
+        {
+            output = null;
+            error = null;
+            nint context = nint.Zero;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(contentId))
+                {
+                    error = "Apple ContentIdentifier is required.";
+                    return false;
+                }
+                if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+
+                nuint outWritten = 0;
+                NativeResult res;
+                fixed (byte* pIn = data)
+                {
+                    res = lpb_apple_append_mebx_tracks_with_content_identifier(
+                        context, pIn, (nuint)data.Length, coverSeconds, contentId,
+                        null, 0, out outWritten);
+
+                    if (res == NativeResult.BufferTooSmall && outWritten > 0)
+                    {
+                        output = new byte[checked((int)outWritten)];
+                        fixed (byte* pOut = output)
+                        {
+                            res = lpb_apple_append_mebx_tracks_with_content_identifier(
+                                context, pIn, (nuint)data.Length, coverSeconds, contentId,
+                                pOut, (nuint)output.Length, out outWritten);
+                        }
+                    }
+                }
+
+                if (res == NativeResult.Ok && output != null) return true;
+                error = $"Failed with result: {res}";
+                output = null;
+                return false;
+            }
+            finally
+            {
+                if (context != nint.Zero) NativeMethods.DestroyContext(context);
             }
         }
     }

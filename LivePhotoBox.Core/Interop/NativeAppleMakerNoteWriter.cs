@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -6,6 +7,28 @@ namespace LivePhotoBox.Interop;
 
 public static class NativeAppleMakerNoteWriter
 {
+    /// <summary>Builds the minimal Apple MakerNote payload used by the rebuilt split writer.</summary>
+    public static byte[] BuildContentIdentifierMakerNote(string contentId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(contentId);
+        byte[] cid = Encoding.ASCII.GetBytes(contentId + "\0");
+        const int dataOffset = 32;
+        byte[] makerNote = new byte[dataOffset + cid.Length + 1];
+        Encoding.ASCII.GetBytes("Apple iOS\0").CopyTo(makerNote, 0);
+        makerNote[10] = 0;
+        makerNote[11] = 1;
+        makerNote[12] = (byte)'M';
+        makerNote[13] = (byte)'M';
+        BinaryPrimitives.WriteUInt16BigEndian(makerNote.AsSpan(14, 2), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(makerNote.AsSpan(16, 2), 0x0011);
+        BinaryPrimitives.WriteUInt16BigEndian(makerNote.AsSpan(18, 2), 2);
+        BinaryPrimitives.WriteUInt32BigEndian(makerNote.AsSpan(20, 4), (uint)cid.Length);
+        BinaryPrimitives.WriteUInt32BigEndian(makerNote.AsSpan(24, 4), dataOffset);
+        BinaryPrimitives.WriteUInt32BigEndian(makerNote.AsSpan(28, 4), 0);
+        cid.CopyTo(makerNote, dataOffset);
+        return makerNote;
+    }
+
     [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_strip_live_photo_entries")]
     private static extern NativeResult LpbAppleStripLivePhotoEntries(
         nint context,

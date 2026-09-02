@@ -2,6 +2,7 @@
 #include "foundation/internal.h"
 #include "binary/endian.h"
 #include <cstring>
+#include <algorithm>
 #include <vector>
 #include <string>
 
@@ -241,6 +242,185 @@ static int type_to_data_length(uint16_t type, uint32_t count) {
     return len > 4 ? (int)len : 0;
 }
 
+static std::vector<uint8_t> build_heif_exif_item(const uint8_t* makernote, size_t makernote_size) {
+    // HEIF Exif item: a four-byte TIFF-header offset, the Exif marker, then a
+    // minimal big-endian TIFF whose ExifIFD contains one MakerNote tag.
+    std::vector<uint8_t> tiff(44 + makernote_size, 0);
+    tiff[0] = 'M'; tiff[1] = 'M';
+    write_be16(tiff.data() + 2, 42);
+    write_be32(tiff.data() + 4, 8);
+    write_be16(tiff.data() + 8, 1);
+    write_be16(tiff.data() + 10, 0x8769);
+    write_be16(tiff.data() + 12, 4);
+    write_be32(tiff.data() + 14, 1);
+    write_be32(tiff.data() + 18, 26);
+    write_be32(tiff.data() + 22, 0);
+    write_be16(tiff.data() + 26, 1);
+    write_be16(tiff.data() + 28, 0x927C);
+    write_be16(tiff.data() + 30, 7);
+    write_be32(tiff.data() + 32, static_cast<uint32_t>(makernote_size));
+    write_be32(tiff.data() + 36, 44);
+    write_be32(tiff.data() + 40, 0);
+    if (makernote_size > 0) std::memcpy(tiff.data() + 44, makernote, makernote_size);
+
+    std::vector<uint8_t> item(10 + tiff.size(), 0);
+    write_be32(item.data(), 6);
+    std::memcpy(item.data() + 4, "Exif\0\0", 6);
+    std::memcpy(item.data() + 10, tiff.data(), tiff.size());
+    return item;
+}
+
+static bool add_heif_exif_item(
+    lpb_context* context,
+    const uint8_t* input, size_t input_size,
+    const uint8_t* makernote, size_t makernote_size,
+    std::vector<uint8_t>& output)
+{
+    size_t meta_start, meta_len, meta_body;
+    if (!find_box(input, 0, input_size, "meta", meta_start, meta_len, meta_body)) {
+        set_error(context, "No meta box found while creating HEIF Exif item.");
+        return false;
+    }
+    size_t meta_end = meta_start + meta_len;
+    size_t iinf_start, iinf_len, iinf_body;
+    size_t iloc_start, iloc_len, iloc_body;
+    if (!find_box(input, meta_body + 4, meta_end, "iinf", iinf_start, iinf_len, iinf_body) ||
+        !find_box(input, meta_body + 4, meta_end, "iloc", iloc_start, iloc_len, iloc_body)) {
+        set_error(context, "HEIF meta lacks iinf or iloc for Exif item creation.");
+        return false;
+    }
+
+    const size_t iloc_end = iloc_start + iloc_len;
+    if (iloc_body + 8 > iloc_end || input[iloc_body] != 1 ||
+        (input[iloc_body + 4] >> 4) != 4 || (input[iloc_body + 4] & 0x0F) != 4 ||
+        (input[iloc_body + 5] >> 4) != 0 || (input[iloc_body + 5] & 0x0F) != 0) {
+        set_error(context, "Unsupported HEIF iloc layout for Exif item creation.");
+        return false;
+    }
+
+    uint32_t item_count = (static_cast<uint16_t>(input[iloc_body + 6]) << 8) | input[iloc_body + 7];
+    size_t p = iloc_body + 8;
+    uint32_t max_item_id = 0;
+    for (uint32_t i = 0; i < item_count; ++i) {
+        if (p + 8 > iloc_end) {
+            set_error(context, "Truncated HEIF iloc while creating Exif item.");
+            return false;
+        }
+        uint32_t item_id = (static_cast<uint16_t>(input[p]) << 8) | input[p + 1];
+        uint16_t construction_method = (static_cast<uint16_t>(input[p + 2]) << 8) | input[p + 3];
+        uint16_t extent_count = (static_cast<uint16_t>(input[p + 6]) << 8) | input[p + 7];
+        max_item_id = std::max(max_item_id, item_id);
+        if (construction_method == 0) {
+            size_t extent = p + 8;
+            for (uint16_t e = 0; e < extent_count; ++e) {
+                if (extent + 8 > iloc_end) {
+                    set_error(context, "Truncated HEIF extent while creating Exif item.");
+                    return false;
+                }
+                uint32_t old_offset = read_be32u(input + extent);
+                if (old_offset > 0xFFFFFFFFu - 37u) {
+                    set_error(context, "HEIF iloc offset overflow while creating Exif item.");
+                    return false;
+                }
+                extent += 8;
+            }
+        } else if (construction_method != 1) {
+            set_error(context, "Unsupported HEIF construction method for Exif item creation.");
+            return false;
+        }
+        p += 8 + static_cast<size_t>(extent_count) * 8;
+    }
+    if (p != iloc_end || max_item_id >= 0xFFFFu || item_count >= 0xFFFFu) {
+        set_error(context, "Unsupported HEIF iloc contents for Exif item creation.");
+        return false;
+    }
+
+    // The new iinf entry and iloc entry add 21 + 16 bytes to meta. Existing
+    // absolute extents move with the enlarged meta box, so shift them by 37.
+    constexpr size_t metadata_delta = 21 + 16;
+    std::vector<uint8_t> new_iinf(input + iinf_start, input + iinf_start + iinf_len);
+    new_iinf.resize(iinf_len + 21, 0);
+    write_be32(new_iinf.data(), static_cast<uint32_t>(new_iinf.size()));
+    uint16_t old_iinf_count = (static_cast<uint16_t>(new_iinf[12]) << 8) | new_iinf[13];
+    if (old_iinf_count != item_count) {
+        set_error(context, "HEIF iinf/iloc item counts differ.");
+        return false;
+    }
+    write_be16(new_iinf.data() + 12, static_cast<uint16_t>(old_iinf_count + 1));
+    uint8_t* infe = new_iinf.data() + iinf_len;
+    write_be32(infe, 21);
+    std::memcpy(infe + 4, "infe", 4);
+    infe[8] = 2;
+    write_be16(infe + 12, static_cast<uint16_t>(max_item_id + 1));
+    std::memcpy(infe + 16, "Exif", 4);
+
+    std::vector<uint8_t> new_iloc(input + iloc_start, input + iloc_start + iloc_len);
+    new_iloc.resize(iloc_len + 16, 0);
+    write_be32(new_iloc.data(), static_cast<uint32_t>(new_iloc.size()));
+    // iloc box header is 8 bytes; version/flags are at 8..11, sizes at
+    // 12..13, and the version-1 item count is at 14..15.
+    write_be16(new_iloc.data() + 14, static_cast<uint16_t>(item_count + 1));
+    p = 16;
+    for (uint32_t i = 0; i < item_count; ++i) {
+        uint16_t extent_count = (static_cast<uint16_t>(new_iloc[p + 6]) << 8) | new_iloc[p + 7];
+        uint16_t construction_method = (static_cast<uint16_t>(new_iloc[p + 2]) << 8) | new_iloc[p + 3];
+        if (construction_method == 0) {
+            size_t extent = p + 8;
+            for (uint16_t e = 0; e < extent_count; ++e) {
+                uint32_t old_offset = read_be32u(new_iloc.data() + extent);
+                write_be32(new_iloc.data() + extent, old_offset + static_cast<uint32_t>(metadata_delta));
+                extent += 8;
+            }
+        }
+        p += 8 + static_cast<size_t>(extent_count) * 8;
+    }
+    write_be16(new_iloc.data() + p, static_cast<uint16_t>(max_item_id + 1));
+    write_be16(new_iloc.data() + p + 2, 0);
+    write_be16(new_iloc.data() + p + 4, 0);
+    write_be16(new_iloc.data() + p + 6, 1);
+    std::vector<uint8_t> exif_item = build_heif_exif_item(makernote, makernote_size);
+    size_t new_mdat_start = input_size + metadata_delta;
+    write_be32(new_iloc.data() + p + 8, static_cast<uint32_t>(new_mdat_start + 8));
+    write_be32(new_iloc.data() + p + 12, static_cast<uint32_t>(exif_item.size()));
+
+    std::vector<uint8_t> new_meta;
+    new_meta.reserve(meta_len + metadata_delta);
+    new_meta.resize(12);
+    write_be32(new_meta.data(), static_cast<uint32_t>(meta_len + metadata_delta));
+    std::memcpy(new_meta.data() + 4, "meta", 4);
+    std::memcpy(new_meta.data() + 8, input + meta_body, 4);
+    p = meta_body + 4;
+    while (p < meta_end) {
+        if (p + 8 > meta_end) {
+            set_error(context, "Truncated HEIF meta while creating Exif item.");
+            return false;
+        }
+        uint32_t box_size = read_be32u(input + p);
+        if (box_size < 8 || p + box_size > meta_end) {
+            set_error(context, "Invalid HEIF meta child while creating Exif item.");
+            return false;
+        }
+        const std::vector<uint8_t>* replacement = nullptr;
+        if (p == iinf_start) replacement = &new_iinf;
+        if (p == iloc_start) replacement = &new_iloc;
+        if (replacement != nullptr) new_meta.insert(new_meta.end(), replacement->begin(), replacement->end());
+        else new_meta.insert(new_meta.end(), input + p, input + p + box_size);
+        p += box_size;
+    }
+
+    std::vector<uint8_t> new_mdat(8 + exif_item.size(), 0);
+    write_be32(new_mdat.data(), static_cast<uint32_t>(new_mdat.size()));
+    std::memcpy(new_mdat.data() + 4, "mdat", 4);
+    std::memcpy(new_mdat.data() + 8, exif_item.data(), exif_item.size());
+
+    output.reserve(input_size + metadata_delta + new_mdat.size());
+    output.insert(output.end(), input, input + meta_start);
+    output.insert(output.end(), new_meta.begin(), new_meta.end());
+    output.insert(output.end(), input + meta_end, input + input_size);
+    output.insert(output.end(), new_mdat.begin(), new_mdat.end());
+    return true;
+}
+
 } // namespace
 
 extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
@@ -448,7 +628,19 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
 
     uint64_t exif_offset, exif_length;
     if (lpb_heif_locate_exif_item(context, input, input_size, &exif_offset, &exif_length) != LPB_RESULT_OK) {
-        return LPB_RESULT_INVALID_ARGUMENT; // error set inside
+        // WIC can produce a valid HEIC without an Exif item when the source
+        // image has no metadata block that it can carry across. Apple still
+        // needs a MakerNote for the pairing UUID, so create the smallest
+        // standards-shaped Exif item in Native instead of falling back to an
+        // external metadata tool.
+        std::vector<uint8_t> created;
+        if (!add_heif_exif_item(context, input, input_size, makernote, makernote_size, created)) {
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        *out_written = created.size();
+        if (!output || output_size < created.size()) return LPB_RESULT_BUFFER_TOO_SMALL;
+        std::memcpy(output, created.data(), created.size());
+        return LPB_RESULT_OK;
     }
 
     if (exif_offset + exif_length > input_size) {

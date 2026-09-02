@@ -38,7 +38,7 @@ internal static class BackendCommand
         CliConsole.WriteField("Processing mode", ProcessingBackendSettingsService.FormatMode(settings.Mode), valueColor: ConsoleColor.Yellow);
         Console.WriteLine();
         Console.WriteLine(settings.Mode == ProcessingPipelineMode.Rebuilt
-            ? "Rebuilt is the default media pipeline. Standalone format conversion uses Native; protocol writers are not enabled yet."
+            ? "Rebuilt is the default media pipeline. Standalone conversion and the current merge/split Native paths are active; remaining protocol coverage is still in testing."
             : "Legacy is available only when explicitly selected and retains the old protocol implementation.");
     }
 

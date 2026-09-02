@@ -77,6 +77,22 @@ static bool contains_text(const std::vector<uint8_t>& data, std::string_view val
     return std::search(begin, end, value.begin(), value.end()) != end;
 }
 
+// Apple MOV metadata samples remain byte-packed in mdat after their metadata
+// tracks are removed.  Validation must inspect the owning moov structure, not
+// search the entire file, or those now-unreferenced sample bytes look like
+// live-photo metadata and cause a false cleaning failure.
+static bool contains_text_in_moov(const std::vector<uint8_t>& data, std::string_view value)
+{
+    if (value.empty()) return false;
+    const size_t moov = find_top_level_box(data, "moov");
+    if (moov == std::numeric_limits<size_t>::max() || moov + 8 > data.size()) return false;
+    const uint32_t moov_size = read_be32(data.data() + moov);
+    if (moov_size < 8 || moov_size > data.size() - moov) return false;
+    const auto begin = data.begin() + static_cast<std::ptrdiff_t>(moov);
+    const auto end = begin + moov_size;
+    return std::search(begin, end, value.begin(), value.end()) != end;
+}
+
 static bool remove_validated_ranges(
     lpb_context* context,
     const std::string& input_path,
@@ -351,21 +367,37 @@ static lpb_result clean_apple_video(
         add_fact(out_facts, "Apple", "QuickTime MDTA Keys", "Removed com.apple.quicktime.content.identifier and live-photo keys");
     }
 
-    const char* track_patterns[] = { "mebx", "still-image-time" };
+    // Remove only Apple Live Photo metadata tracks.  A plain "mebx" match
+    // would also remove unrelated QuickTime metadata such as the video
+    // orientation track.
+    const char* track_patterns[] = {
+        "com.apple.quicktime.live-photo-info",
+        "com.apple.quicktime.still-image-time",
+        "com.apple.quicktime.live-photo-still-image-transform",
+        "com.apple.quicktime.live-photo-still-image-transform-reference-dimensions"
+    };
     std::vector<uint8_t> out_b(data.size() + 4096);
     size_t written_b = 0;
-    const bool had_tracks = contains_text(data, "mebx") || contains_text(data, "still-image-time");
-    lpb_result strip_tracks = lpb_mp4_strip_stsd_tracks(context, data.data(), data.size(), track_patterns, 2, out_b.data(), out_b.size(), &written_b);
+    const bool had_tracks = contains_text_in_moov(data, track_patterns[0]) ||
+        contains_text_in_moov(data, track_patterns[1]) ||
+        contains_text_in_moov(data, track_patterns[2]) ||
+        contains_text_in_moov(data, track_patterns[3]);
+    lpb_result strip_tracks = lpb_mp4_strip_stsd_tracks(
+        context, data.data(), data.size(), track_patterns, 4,
+        out_b.data(), out_b.size(), &written_b);
     if (strip_tracks != LPB_RESULT_OK) return strip_tracks;
     if (written_b > 0) {
         out_b.resize(written_b);
         data = std::move(out_b);
-        add_fact(out_facts, "Apple", "QuickTime Metadata Tracks", "Removed mebx and still-image-time metadata tracks");
+        add_fact(out_facts, "Apple", "QuickTime Live Photo Tracks", "Removed Apple Live Photo metadata tracks");
     }
 
-    if ((had_mdta && (contains_text(data, "com.apple.quicktime.content.identifier") ||
-        contains_text(data, "com.apple.quicktime.live-photo"))) ||
-        (had_tracks && (contains_text(data, "mebx") || contains_text(data, "still-image-time")))) {
+    if ((had_mdta && (contains_text_in_moov(data, "com.apple.quicktime.content.identifier") ||
+        contains_text_in_moov(data, "com.apple.quicktime.live-photo"))) ||
+        (had_tracks && (contains_text_in_moov(data, track_patterns[0]) ||
+        contains_text_in_moov(data, track_patterns[1]) ||
+        contains_text_in_moov(data, track_patterns[2]) ||
+        contains_text_in_moov(data, track_patterns[3])))) {
         set_error(context, "Cleaned Apple MOV still contains Live Photo metadata.");
         return LPB_RESULT_INTERNAL_ERROR;
     }

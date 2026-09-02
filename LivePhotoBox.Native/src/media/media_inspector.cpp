@@ -209,12 +209,23 @@ static bool get_attribute_string(const xmp_element& element, std::string_view ur
 }
 
 static const xmp_element* find_motion_item(const std::vector<xmp_element>& elements,
-    uint64_t& out_length) {
+    uint64_t& out_length, lpb_video_container& out_container) {
     for (const auto& element : elements) {
         if (!element_is(element, google_container_namespace, "Item") ||
             !get_attribute_string(element, google_item_namespace, "Semantic", "MotionPhoto") ||
-            !get_attribute_string(element, google_item_namespace, "Mime", "video/mp4") ||
             !get_attribute_u64(element, google_item_namespace, "Length", out_length)) continue;
+
+        // The container item MIME is authoritative for the embedded video.
+        // Google Motion Photo metadata can describe both MP4 and QuickTime/MOV
+        // payloads; accepting only video/mp4 made valid rebuilt JPEG+MOV output
+        // impossible to inspect and split again.
+        if (get_attribute_string(element, google_item_namespace, "Mime", "video/quicktime"))
+            out_container = LPB_VIDEO_CONTAINER_MOV;
+        else if (get_attribute_string(element, google_item_namespace, "Mime", "video/mp4"))
+            out_container = LPB_VIDEO_CONTAINER_MP4;
+        else
+            continue;
+
         if (out_length > 0) return &element;
     }
     return nullptr;
@@ -297,6 +308,15 @@ lpb_video_container detect_video_container(std::span<const uint8_t> header) noex
         std::string_view brand(reinterpret_cast<const char*>(header.data() + 8), 4);
         if (brand == "qt  ") return LPB_VIDEO_CONTAINER_MOV;
         return LPB_VIDEO_CONTAINER_MP4;
+    }
+    // Some iPhone QuickTime files omit ftyp and begin with the standard
+    // 8-byte wide placeholder followed by mdat.  The complete probe later
+    // validates moov/mdat and tracks; this header-level classification only
+    // needs to recognize the container for dual-file Apple inspection.
+    if (header.size() >= 16 &&
+        header[4] == 'w' && header[5] == 'i' && header[6] == 'd' && header[7] == 'e' &&
+        header[12] == 'm' && header[13] == 'd' && header[14] == 'a' && header[15] == 't') {
+        return LPB_VIDEO_CONTAINER_MOV;
     }
     if (header.size() >= 8 && header[4] == 'm' && header[5] == 'o' && header[6] == 'o' && header[7] == 'v') {
         return LPB_VIDEO_CONTAINER_MOV;
@@ -510,8 +530,9 @@ static bool check_vivo_x300(
     uint64_t& out_video_offset,
     uint64_t& out_video_len)
 {
+    lpb_video_container video_container = LPB_VIDEO_CONTAINER_MP4;
     if (has_protocol_attribute(elements, vivo_camera_namespace, "VMotionPhotoVersion") &&
-        find_motion_item(elements, out_video_len) != nullptr) {
+        find_motion_item(elements, out_video_len, video_container) != nullptr) {
         // Collect the exact Container/Item lengths in document order.  The
         // last item is the motion video and the preceding item is the vivo
         // X300 gain map.
@@ -729,7 +750,8 @@ lpb_result inspect_source(
     if (!xmp_elements.empty() &&
         get_first_attribute_u64(xmp_elements, oppo_camera_namespace, "VideoLength", op_vid_len) && op_vid_len > 0) {
         uint64_t item_len = op_vid_len;
-        find_motion_item(xmp_elements, item_len);
+        lpb_video_container ignored_container = LPB_VIDEO_CONTAINER_MP4;
+        find_motion_item(xmp_elements, item_len, ignored_container);
 
         out_facts->protocol = LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO;
         out_facts->motion_video.is_present = 1;
@@ -753,13 +775,14 @@ lpb_result inspect_source(
 
     // 6. Check Google Motion Photo V2 / Xiaomi (Container:Directory)
     uint64_t mp_vid_len = 0;
+    lpb_video_container motion_video_container = LPB_VIDEO_CONTAINER_MP4;
     if (!xmp_elements.empty() &&
         has_attribute_value(xmp_elements, google_camera_namespace, "MotionPhoto", "1") &&
-        find_motion_item(xmp_elements, mp_vid_len) != nullptr &&
+        find_motion_item(xmp_elements, mp_vid_len, motion_video_container) != nullptr &&
         mp_vid_len < primary_size) {
         out_facts->protocol = LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2;
         out_facts->motion_video.is_present = 1;
-        out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
+        out_facts->motion_video.container = motion_video_container;
         out_facts->motion_video.file_range.offset = primary_size - mp_vid_len;
         out_facts->motion_video.file_range.length = mp_vid_len;
 

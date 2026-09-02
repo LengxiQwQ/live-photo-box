@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Image;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
@@ -39,6 +40,45 @@ public sealed class ImageConverterTests
         Assert.False(result.Success);
         Assert.Contains("JPEG and HEIC", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
         Assert.False(result.ExecutionRecord.PixelReencoded);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task AppleMakerNoteInjection_CreatesOrUpdatesHeifExifItem()
+    {
+        string sample = ResolveSample("oppo.jpg");
+        using var workspace = new MediaWorkspace();
+        var result = await new ImageConverter().ConvertAsync(new ImageConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = sample,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/jpeg",
+                ImageContainer = ImageContainer.Jpeg,
+                ByteLength = new FileInfo(sample).Length
+            },
+            TargetContainer = ImageContainer.Heic,
+            TargetDirectory = workspace.RootDirectory
+        });
+
+        Assert.True(result.Success, result.ErrorMessage);
+        byte[] heic = await File.ReadAllBytesAsync(result.OutputArtifact!.Path);
+        const string contentId = "AAAAAAAA-BBBB-CCCC-DDDD-EEEEFFFF0000";
+        byte[] makerNote = NativeAppleMakerNoteWriter.BuildContentIdentifierMakerNote(contentId);
+
+        Assert.True(
+            NativeAppleMakerNoteWriter.TryInjectMakerNoteIntoHeic(
+                heic, makerNote, out byte[]? rewritten, out string? error), error);
+        Assert.NotNull(rewritten);
+        Assert.True(
+            NativeHeifBoxParser.TryLocateExifItem(
+                rewritten!, out long exifOffset, out long exifLength, out string? parserError),
+            parserError);
+        Assert.True(exifOffset >= 0);
+        Assert.True(exifLength > 0);
+        Assert.Contains("Apple iOS", System.Text.Encoding.ASCII.GetString(rewritten!), StringComparison.Ordinal);
+        Assert.Contains(contentId, System.Text.Encoding.ASCII.GetString(rewritten!), StringComparison.Ordinal);
     }
 
     private static string ResolveSample(string fileName)

@@ -314,6 +314,17 @@ LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
     double cover_seconds,
     uint8_t* output, size_t output_size, size_t* out_written);
 
+/*
+ * Appends Apple mebx/ContentDescribes metadata tracks and a QuickTime
+ * ContentIdentifier metadata item to an MP4/QuickTime file.
+ */
+LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks_with_content_identifier(
+    lpb_context* context,
+    const uint8_t* data, size_t data_size,
+    double cover_seconds,
+    const char* content_id,
+    uint8_t* output, size_t output_size, size_t* out_written);
+
 /* ========================================================================= */
 /* Phase 02A: Media Inspection, Extraction, and Native Media Conversion      */
 /* ========================================================================= */

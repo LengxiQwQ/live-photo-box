@@ -152,7 +152,7 @@ The GUI and CLI share `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`. There
 | Use the new isolated branch | `lpb backend mode rebuilt` |
 | Delete the shared configuration and restore the Rebuilt default | `lpb backend reset` |
 
-`rebuilt` deliberately does not fall back to Legacy. `lpb convert` is the first user-facing Rebuilt media operation; it fails clearly when Native probing or conversion fails and creates no guessed output. Vendor protocol commands continue to report the not-ready error (`errorCode: rebuilt_not_ready` with `--json`) and create no output.
+`rebuilt` deliberately does not fall back to Legacy. `lpb convert` and the current rebuilt merge/split paths use Native probing, conversion, cleaning, and the implemented target writers; unsupported or still-in-testing protocol coverage fails clearly and creates no guessed output.
 
 ### `convert` — Rebuilt Native standalone media conversion
 
@@ -172,7 +172,7 @@ lpb convert input.jpg -o output.heic
 
 Run `lpb protocols` to view this interactively, or `lpb protocols --json` for structured output.
 
-The command reports the active global backend. In the default `rebuilt` mode, the table is Legacy compatibility data only; protocol `merge`, `split`, `cover`, and `repair` writers are not enabled yet. Standalone media conversion through the Native backend is available via `lpb convert`.
+The command reports the active global backend and the protocol/format matrix. In the default `rebuilt` mode, standalone conversion and the current merge/split paths use Native; remaining protocol coverage is marked as in testing. Standalone media conversion is available via `lpb convert`.
 
 **Compatibility matrix** — which output formats each protocol supports:
 

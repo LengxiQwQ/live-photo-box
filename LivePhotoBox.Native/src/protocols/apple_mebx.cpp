@@ -62,6 +62,8 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
         }
         return -1;
     }
+    ptrdiff_t find_atom_recursive(
+        const std::vector<uint8_t>& data, size_t start, size_t end, const char* type);
     void write_type(uint8_t* data, size_t off, const char* type) {
         data[off] = type[0]; data[off+1] = type[1];
         data[off+2] = type[2]; data[off+3] = type[3];
@@ -77,6 +79,13 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
             std::memcpy(box.data() + off, c.data(), c.size());
             off += c.size();
         }
+        return box;
+    }
+    std::vector<uint8_t> build_box_from_body(const char* type, const std::vector<uint8_t>& body) {
+        std::vector<uint8_t> box(8 + body.size(), 0);
+        write_be32(box.data(), static_cast<int32_t>(box.size()));
+        write_type(box.data(), 4, type);
+        if (!body.empty()) std::memcpy(box.data() + 8, body.data(), body.size());
         return box;
     }
     std::vector<uint8_t> build_hdlr(const char* pre, const char* htype, const char* name) {
@@ -199,30 +208,100 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
     void patch_track_timestamps(std::vector<uint8_t>& trak, uint32_t appleTime) {
         ptrdiff_t tkhd = find_atom(trak, 8, trak.size(), "tkhd");
         if (tkhd >= 0) { write_be32(trak.data() + tkhd + 12, appleTime); write_be32(trak.data() + tkhd + 16, appleTime); }
-        ptrdiff_t mdhd = find_atom(trak, 8, trak.size(), "mdhd");
+        ptrdiff_t mdhd = find_atom_recursive(trak, 8, trak.size(), "mdhd");
         if (mdhd >= 0) { write_be32(trak.data() + mdhd + 12, appleTime); write_be32(trak.data() + mdhd + 16, appleTime); }
     }
 
-    void shift_trak_stco(std::vector<uint8_t>& trak, size_t oldMoovEnd, int delta) {
-        ptrdiff_t stco = find_atom(trak, 8, trak.size(), "stco");
-        if (stco < 0) return;
-        uint32_t count = read_be32u(trak.data() + stco + 12);
-        for (uint32_t i = 0; i < count; i++) {
-            size_t off = stco + 16 + i * 4;
-            uint32_t v = read_be32u(trak.data() + off);
-            if (v >= oldMoovEnd) write_be32(trak.data() + off, v + delta);
+    bool is_box_container(const std::string& type) {
+        return type == "moov" || type == "trak" || type == "mdia" ||
+               type == "minf" || type == "stbl" || type == "udta";
+    }
+
+    bool contains_atom_recursive(
+        const std::vector<uint8_t>& data, size_t start, size_t end, const char* type) {
+        size_t p = start;
+        while (p + 8 <= end) {
+            uint32_t size = read_be32u(data.data() + p);
+            if (size < 8 || p + size > end) break;
+            std::string current(reinterpret_cast<const char*>(data.data() + p + 4), 4);
+            if (is_box_type(data.data() + p, type)) return true;
+            if (is_box_container(current) &&
+                contains_atom_recursive(data, p + 8, p + size, type)) {
+                return true;
+            }
+            p += size;
         }
+        return false;
+    }
+
+    ptrdiff_t find_atom_recursive(
+        const std::vector<uint8_t>& data, size_t start, size_t end, const char* type) {
+        size_t p = start;
+        while (p + 8 <= end) {
+            uint32_t size = read_be32u(data.data() + p);
+            if (size < 8 || p + size > end) break;
+            std::string current(reinterpret_cast<const char*>(data.data() + p + 4), 4);
+            if (is_box_type(data.data() + p, type)) return static_cast<ptrdiff_t>(p);
+            if (is_box_container(current)) {
+                ptrdiff_t nested = find_atom_recursive(data, p + 8, p + size, type);
+                if (nested >= 0) return nested;
+            }
+            p += size;
+        }
+        return -1;
+    }
+    ptrdiff_t find_atom_recursive(
+        const std::vector<uint8_t>& data, size_t start, size_t end, const char* type);
+
+    void shift_trak_chunk_offsets_in_range(
+        std::vector<uint8_t>& data, size_t start, size_t end,
+        size_t oldMoovEnd, int delta) {
+        size_t p = start;
+        while (p + 8 <= end) {
+            uint32_t size = read_be32u(data.data() + p);
+            if (size < 8 || p + size > end) break;
+
+            std::string type(reinterpret_cast<const char*>(data.data() + p + 4), 4);
+            if (type == "stco") {
+                uint32_t count = read_be32u(data.data() + p + 12);
+                for (uint32_t i = 0; i < count; i++) {
+                    size_t off = p + 16 + static_cast<size_t>(i) * 4;
+                    if (off + 4 > p + size) break;
+                    uint32_t v = read_be32u(data.data() + off);
+                    if (v >= oldMoovEnd) write_be32(data.data() + off, v + delta);
+                }
+            } else if (type == "co64") {
+                // Large media files use the 64-bit co64 variant.  These
+                // offsets must move together with the rebuilt moov box.
+                uint32_t count = read_be32u(data.data() + p + 12);
+                for (uint32_t i = 0; i < count; i++) {
+                    size_t off = p + 16 + static_cast<size_t>(i) * 8;
+                    if (off + 8 > p + size) break;
+                    uint64_t v = static_cast<uint64_t>(read_be64(data.data() + off));
+                    if (v >= oldMoovEnd)
+                        write_be64(data.data() + off, static_cast<int64_t>(v) + delta);
+                }
+            } else if (is_box_container(type)) {
+                shift_trak_chunk_offsets_in_range(data, p + 8, p + size, oldMoovEnd, delta);
+            }
+
+            p += size;
+        }
+    }
+
+    void shift_trak_chunk_offsets(std::vector<uint8_t>& trak, size_t oldMoovEnd, int delta) {
+        shift_trak_chunk_offsets_in_range(trak, 8, trak.size(), oldMoovEnd, delta);
     }
 
     std::vector<uint8_t> build_content_describes_track(int trackId, int timescale, double /*videoSeconds*/, int sampleCount, int chunk1, int dataOff) {
         std::vector<uint8_t> trak(ContentDescribesTrackTemplate, ContentDescribesTrackTemplate + sizeof(ContentDescribesTrackTemplate));
-        ptrdiff_t tkhd = find_atom(trak, 8, trak.size(), "tkhd");
-        ptrdiff_t elst = find_atom(trak, 8, trak.size(), "elst");
-        ptrdiff_t mdhd = find_atom(trak, 8, trak.size(), "mdhd");
-        ptrdiff_t stts = find_atom(trak, 8, trak.size(), "stts");
-        ptrdiff_t stsc = find_atom(trak, 8, trak.size(), "stsc");
-        ptrdiff_t stsz = find_atom(trak, 8, trak.size(), "stsz");
-        ptrdiff_t stco = find_atom(trak, 8, trak.size(), "stco");
+        ptrdiff_t tkhd = find_atom_recursive(trak, 8, trak.size(), "tkhd");
+        ptrdiff_t elst = find_atom_recursive(trak, 8, trak.size(), "elst");
+        ptrdiff_t mdhd = find_atom_recursive(trak, 8, trak.size(), "mdhd");
+        ptrdiff_t stts = find_atom_recursive(trak, 8, trak.size(), "stts");
+        ptrdiff_t stsc = find_atom_recursive(trak, 8, trak.size(), "stsc");
+        ptrdiff_t stsz = find_atom_recursive(trak, 8, trak.size(), "stsz");
+        ptrdiff_t stco = find_atom_recursive(trak, 8, trak.size(), "stco");
 
         int mediaDur = sampleCount * 1000;
         int leadIn = static_cast<int>(std::round(0.05 * timescale));
@@ -247,9 +326,9 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
 
     std::vector<uint8_t> build_mebx_cover_track(int trackId, int timescale, double coverSeconds, int dataOff) {
         std::vector<uint8_t> trak(MebxCoverTrackTemplate, MebxCoverTrackTemplate + sizeof(MebxCoverTrackTemplate));
-        ptrdiff_t tkhd = find_atom(trak, 8, trak.size(), "tkhd");
-        ptrdiff_t elst = find_atom(trak, 8, trak.size(), "elst");
-        ptrdiff_t stco = find_atom(trak, 8, trak.size(), "stco");
+        ptrdiff_t tkhd = find_atom_recursive(trak, 8, trak.size(), "tkhd");
+        ptrdiff_t elst = find_atom_recursive(trak, 8, trak.size(), "elst");
+        ptrdiff_t stco = find_atom_recursive(trak, 8, trak.size(), "stco");
 
         int coverDur = static_cast<int>(std::round(coverSeconds * timescale));
         if (coverDur < 0) coverDur = 0;
@@ -264,11 +343,49 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
 
         return trak;
     }
+
+    std::vector<uint8_t> build_apple_content_identifier_meta(const char* contentId) {
+        if (contentId == nullptr || *contentId == '\0') return {};
+
+        const std::string key = "com.apple.quicktime.content.identifier";
+        const std::string value(contentId);
+
+        std::vector<uint8_t> keyEntry(8 + key.size());
+        write_be32(keyEntry.data(), static_cast<int32_t>(keyEntry.size()));
+        write_type(keyEntry.data(), 4, "mdta");
+        std::memcpy(keyEntry.data() + 8, key.data(), key.size());
+
+        std::vector<uint8_t> keysBody(8 + keyEntry.size(), 0);
+        write_be32(keysBody.data() + 4, 1);
+        std::memcpy(keysBody.data() + 8, keyEntry.data(), keyEntry.size());
+        std::vector<uint8_t> keys = build_box_from_body("keys", keysBody);
+
+        std::vector<uint8_t> dataBox(16 + value.size(), 0);
+        write_be32(dataBox.data(), static_cast<int32_t>(dataBox.size()));
+        write_type(dataBox.data(), 4, "data");
+        write_be32(dataBox.data() + 8, 1); // UTF-8
+        std::memcpy(dataBox.data() + 16, value.data(), value.size());
+
+        std::vector<uint8_t> item(8 + dataBox.size(), 0);
+        write_be32(item.data(), static_cast<int32_t>(item.size()));
+        item[7] = 1; // key index 1
+        std::memcpy(item.data() + 8, dataBox.data(), dataBox.size());
+        std::vector<uint8_t> ilst = build_box_from_body("ilst", item);
+
+        std::vector<uint8_t> hdlr = build_hdlr("\0\0\0\0", "mdta", "");
+        std::vector<uint8_t> metaBody;
+        metaBody.reserve(hdlr.size() + keys.size() + ilst.size());
+        metaBody.insert(metaBody.end(), hdlr.begin(), hdlr.end());
+        metaBody.insert(metaBody.end(), keys.begin(), keys.end());
+        metaBody.insert(metaBody.end(), ilst.begin(), ilst.end());
+        return build_box_from_body("meta", metaBody);
+    }
 }
-extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
+static lpb_result append_mebx_tracks_impl(
     lpb_context* context,
     const uint8_t* data, size_t data_size,
     double cover_seconds,
+    const char* content_id,
     uint8_t* output, size_t output_size, size_t* out_written)
 {
     if (!context || !data || !out_written) return LPB_RESULT_INVALID_ARGUMENT;
@@ -306,8 +423,8 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
 
     for (const auto& c : moov_children) {
         if (c.type != "trak") continue;
-        bool isVideo = find_atom(c.data, 8, c.data.size(), "vmhd") >= 0;
-        bool isAudio = find_atom(c.data, 8, c.data.size(), "smhd") >= 0;
+        bool isVideo = contains_atom_recursive(c.data, 8, c.data.size(), "vmhd");
+        bool isAudio = contains_atom_recursive(c.data, 8, c.data.size(), "smhd");
         ptrdiff_t tkhd = find_atom(c.data, 8, c.data.size(), "tkhd");
         int tid = tkhd >= 0 ? read_be32u(c.data.data() + tkhd + 20) : 0;
         if (tid > maxTrackId) maxTrackId = tid;
@@ -326,7 +443,16 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
     int normalizationDelta = (normVideo.empty() ? 0 : static_cast<int>(normVideo.size()) - videoOldLen) +
                              (normAudio.empty() ? 0 : static_cast<int>(normAudio.size()) - audioOldLen);
     const int MetadataTrakSize = 1043 + 672;
-    int moovDelta = normalizationDelta + MetadataTrakSize;
+    std::vector<uint8_t> contentMeta;
+    int replacedMetaSize = 0;
+    if (content_id != nullptr) {
+        contentMeta = build_apple_content_identifier_meta(content_id);
+        for (const auto& c : moov_children) {
+            if (c.type == "meta") replacedMetaSize += static_cast<int>(c.data.size());
+        }
+    }
+    const int metadataDelta = static_cast<int>(contentMeta.size()) - replacedMetaSize;
+    int moovDelta = normalizationDelta + MetadataTrakSize + metadataDelta;
 
     double videoSeconds = (double)movieDuration / timescale;
     int sampleCount = static_cast<int>(std::clamp(std::round(videoSeconds * 60.0), 2.0, 600.0));
@@ -341,8 +467,8 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
     patch_track_timestamps(contentTrak, appleTime);
     patch_track_timestamps(coverTrak, appleTime);
 
-    if (!normVideo.empty()) shift_trak_stco(normVideo, oldMoovEnd, moovDelta);
-    if (!normAudio.empty()) shift_trak_stco(normAudio, oldMoovEnd, moovDelta);
+    if (!normVideo.empty()) shift_trak_chunk_offsets(normVideo, oldMoovEnd, moovDelta);
+    if (!normAudio.empty()) shift_trak_chunk_offsets(normAudio, oldMoovEnd, moovDelta);
 
     std::vector<std::vector<uint8_t>> newMoovPayload;
     std::vector<std::vector<uint8_t>> pending;
@@ -354,17 +480,21 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
             write_be32(m.data() + 104, coverTrackId + 1);
             newMoovPayload.push_back(m);
         } else if (c.type == "trak") {
-            bool isVideo = find_atom(c.data, 8, c.data.size(), "vmhd") >= 0;
-            bool isAudio = find_atom(c.data, 8, c.data.size(), "smhd") >= 0;
+            bool isVideo = contains_atom_recursive(c.data, 8, c.data.size(), "vmhd");
+            bool isAudio = contains_atom_recursive(c.data, 8, c.data.size(), "smhd");
             if (isVideo && !normVideo.empty()) newMoovPayload.push_back(normVideo);
             else if (isAudio && !normAudio.empty()) newMoovPayload.push_back(normAudio);
             else newMoovPayload.push_back(c.data);
+        } else if (c.type == "meta" && content_id != nullptr) {
+            // Replace stale top-level QuickTime metadata when the rebuilt
+            // writer supplies a new ContentIdentifier.
         } else {
             pending.push_back(c.data);
         }
     }
     newMoovPayload.push_back(contentTrak);
     newMoovPayload.push_back(coverTrak);
+    if (!contentMeta.empty()) newMoovPayload.push_back(std::move(contentMeta));
     newMoovPayload.insert(newMoovPayload.end(), pending.begin(), pending.end());
 
     std::vector<uint8_t> newMoov = build_container("moov", newMoovPayload);
@@ -391,6 +521,33 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
     std::memcpy(output + sampleMdatOff + 8 + sampleCount * sizeof(LivePhotoInfoSample), MebxCoverSample, sizeof(MebxCoverSample));
 
     return LPB_RESULT_OK;
+}
+
+extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
+    lpb_context* context,
+    const uint8_t* data, size_t data_size,
+    double cover_seconds,
+    uint8_t* output, size_t output_size, size_t* out_written)
+{
+    return append_mebx_tracks_impl(
+        context, data, data_size, cover_seconds, nullptr,
+        output, output_size, out_written);
+}
+
+extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks_with_content_identifier(
+    lpb_context* context,
+    const uint8_t* data, size_t data_size,
+    double cover_seconds,
+    const char* content_id,
+    uint8_t* output, size_t output_size, size_t* out_written)
+{
+    if (content_id == nullptr || *content_id == '\0') {
+        set_error(context, "Apple ContentIdentifier is required.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    return append_mebx_tracks_impl(
+        context, data, data_size, cover_seconds, content_id,
+        output, output_size, out_written);
 }
 
 

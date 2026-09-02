@@ -10,7 +10,7 @@ namespace LivePhotoBox.Cli.Tests;
 public sealed class ProtocolsCommandTests
 {
     [Fact]
-    public async Task RebuiltTable_ExplainsThatProtocolMatrixIsLegacyOnly()
+    public async Task RebuiltTable_ExplainsCurrentNativeCoverage()
     {
         var root = new RootCommand { ProtocolsCommand.Create() };
 
@@ -19,11 +19,11 @@ public sealed class ProtocolsCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Current backend: Rebuilt", result.StdOut);
-        Assert.Contains("Legacy compatibility data only", result.StdOut);
+        Assert.Contains("current merge/split paths are active", result.StdOut);
     }
 
     [Fact]
-    public async Task RebuiltJson_ReportsProtocolCommandsNotReady()
+    public async Task RebuiltJson_ReportsPartialProtocolCoverage()
     {
         var root = new RootCommand { ProtocolsCommand.Create() };
 
@@ -32,6 +32,6 @@ public sealed class ProtocolsCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("\"backendMode\": \"rebuilt\"", result.StdOut);
-        Assert.Contains("\"protocolCommands\": \"not_ready\"", result.StdOut);
+        Assert.Contains("\"protocolCommands\": \"partial\"", result.StdOut);
     }
 }

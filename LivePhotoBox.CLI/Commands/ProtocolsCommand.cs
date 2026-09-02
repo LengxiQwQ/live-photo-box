@@ -27,12 +27,12 @@ namespace LivePhotoBox.Cli.Commands
         private static readonly bool[] MergeSupported =
             [false, true, true, true, false, false, true];
 
-        // Split protocols — the split command writes no pairing metadata this iteration (protocol is a placeholder).
+        // Split protocols — the current rebuilt split target writers are Native-backed.
         private static readonly (string Name, string Devices, bool Supported)[] SplitProtocols =
         [
             ("None (split only)",  "Any device", true),
             ("Apple Live Photo",   "iPhone / iPad", true),
-            ("vivo Live Photo",    "vivo (≤ X200)", false),
+            ("vivo Live Photo",    "vivo (≤ X200)", true),
         ];
 
         public static Command Create()
@@ -311,9 +311,9 @@ namespace LivePhotoBox.Cli.Commands
             var json = JsonSerializer.Serialize(new
             {
                 backendMode = rebuilt ? "rebuilt" : "legacy",
-                protocolCommands = rebuilt ? "not_ready" : "legacy",
+                protocolCommands = rebuilt ? "partial" : "legacy",
                 notice = rebuilt
-                    ? "Protocol merge/split/cover/repair are not implemented in Rebuilt mode; the matrix is Legacy compatibility data."
+                    ? "Rebuilt Native media conversion and the current merge/split paths are active; remaining protocol coverage is still in testing."
                     : "Protocol commands use the Legacy compatibility pipeline.",
                 protocols,
                 split
@@ -327,7 +327,7 @@ namespace LivePhotoBox.Cli.Commands
             {
                 CliConsole.WriteLine("Current backend: Rebuilt (Native)", CliConsole.Accent);
                 CliConsole.WriteLine(
-                    "Protocol merge/split/cover/repair are not implemented yet; the tables below are Legacy compatibility data only.",
+                    "Rebuilt Native media conversion and the current merge/split paths are active; remaining protocol coverage is still in testing.",
                     CliConsole.Notice);
             }
             else

@@ -152,7 +152,7 @@ GUI 与 CLI 共用 `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`。这里�
 | 使用隔离的新重构分支 | `lpb backend mode rebuilt` |
 | 删除共享配置并恢复“新重构分支”默认值 | `lpb backend reset` |
 
-`rebuilt` 绝不自动回退到 `legacy`。`lpb convert` 是第一个面向用户的新版媒体操作；Native 探测或转换失败会明确失败，不会猜测媒体事实或继续产出文件。协议命令仍使用 `--json` 返回固定的 `errorCode=rebuilt_not_ready`，退出码为 1。
+`rebuilt` 绝不自动回退到 `legacy`。`lpb convert` 以及当前已接入的新版合成/拆分路径使用 Native 完成探测、转换、清理和目标 writer；尚未完成或仍在测试中的协议覆盖会明确失败，不会猜测媒体事实或继续产出文件。
 
 ### `convert` — 新版 Native 独立媒体转换
 
