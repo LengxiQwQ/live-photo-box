@@ -101,5 +101,15 @@ public sealed class NeutralMediaServiceTests
         Assert.NotNull(bundle.MotionVideo);
         Assert.NotNull(bundle.GainMap);
         Assert.True(File.Exists(bundle.GainMap.Path));
+
+        byte[] primaryBytes = await File.ReadAllBytesAsync(bundle.PrimaryImage.Path);
+        int jpegCount = 0;
+        for (int i = 0; i + 1 < primaryBytes.Length; i++)
+        {
+            if (primaryBytes[i] == 0xFF && primaryBytes[i + 1] == 0xD8)
+                jpegCount++;
+        }
+
+        Assert.True(jpegCount >= 2, "Neutral JPEG must retain the primary and GainMap JPEG payloads.");
     }
 }

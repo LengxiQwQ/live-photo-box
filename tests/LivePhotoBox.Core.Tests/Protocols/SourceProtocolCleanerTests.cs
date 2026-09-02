@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Inspection;
@@ -159,6 +160,34 @@ public sealed class SourceProtocolCleanerTests
     public async Task Clean_SamsungHeic_StripsMpvd()
     {
         await RunSampleCleanAndVerifyAsync("三星.heic", null, SourceProtocol.SamsungMotionPhotoHeic);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Clean_SamsungHeic_StripsMotionPhotoXmpWithoutDroppingHdrDirectory()
+    {
+        string primaryPath = ResolveSample("三星.heic");
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(primaryPath);
+        Assert.Equal(SourceProtocol.SamsungMotionPhotoHeic, facts.Protocol);
+        var extracted = await extractor.ExtractAsync(facts, primaryPath, null, workspace);
+        var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            SourceFacts = facts,
+            ExtractedBundle = extracted,
+            PreservationPolicy = PreservationPolicy.BestEffort
+        }, workspace);
+
+        Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
+        string cleanedText = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(cleanResult.CleanedImage!.Path));
+        Assert.DoesNotContain("GCamera:MotionPhoto", cleanedText, StringComparison.Ordinal);
+        Assert.DoesNotContain("Semantic=\"MotionPhoto\"", cleanedText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sefd", cleanedText, StringComparison.Ordinal);
+        Assert.Contains("Semantic=\"GainMap\"", cleanedText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

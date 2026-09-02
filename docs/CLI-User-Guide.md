@@ -152,7 +152,7 @@ The GUI and CLI share `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`. There
 | Use the new isolated branch | `lpb backend mode rebuilt` |
 | Delete the shared configuration and restore the Rebuilt default | `lpb backend reset` |
 
-`rebuilt` deliberately does not fall back to Legacy. `lpb convert` and the current rebuilt merge/split paths use Native probing, conversion, cleaning, and the implemented target writers; unsupported or still-in-testing protocol coverage fails clearly and creates no guessed output.
+`rebuilt` deliberately does not fall back to Legacy. `lpb convert` and the current rebuilt merge/split media paths use Native probing, conversion, and cleaning. Rebuilt split exports only protocol-free neutral files; Apple/vivo target writers remain isolated for a later phase. Unsupported operations fail clearly and create no guessed output.
 
 ### `convert` — Rebuilt Native standalone media conversion
 
@@ -172,7 +172,7 @@ lpb convert input.jpg -o output.heic
 
 Run `lpb protocols` to view this interactively, or `lpb protocols --json` for structured output.
 
-The command reports the active global backend and the protocol/format matrix. In the default `rebuilt` mode, standalone conversion and the current merge/split paths use Native; remaining protocol coverage is marked as in testing. Standalone media conversion is available via `lpb convert`.
+The command reports the active global backend and the protocol/format matrix. In the default `rebuilt` mode, standalone conversion and the current merge/split media paths use Native; rebuilt split exposes only protocol-free neutral output. Target protocol writers remain isolated for a later phase. Standalone media conversion is available via `lpb convert`.
 
 **Compatibility matrix** — which output formats each protocol supports:
 
@@ -202,16 +202,14 @@ The command reports the active global backend and the protocol/format matrix. In
 
 | Protocol | Devices | Status |
 |---|---|---|
-| Apple Live Photo | iPhone / iPad | ✅ Supported |
-| vivo Live Photo | vivo (≤ X200) | 🟡 In testing |
+| Neutral split | Any device | ✅ Supported |
 
 **Split — protocol × format compatibility:**
 
 | Protocol | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | None (split only) | ✅ | ✅ | ✅ | ✅ |
-| Apple Live Photo | ✖️ | ✅ | ✅ | ✖️ |
-| vivo Live Photo | ✖️ | ✖️ | ✖️ | ✅ |
+> In `rebuilt` mode only `none` (neutral split) is enabled. Apple/vivo combinations remain available only in the preserved Legacy compatibility branch and do not indicate rebuilt target-writer support.
 
 **JSON output** for scripting:
 
@@ -410,8 +408,7 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 | Preview without processing | `lpb split -d ./MyPhotos --dry-run` |
 | Only split vivo live photos | `lpb split -d ./MyPhotos --pairing vivo -y` |
 | Overwrite existing outputs | `lpb split photo.jpg -w` |
-| Export all variants (Apple + vivo + no-protocol) | `lpb split photo.jpg --all-variants` |
-| Set key photo position (Apple conversion) | `lpb split photo.jpg -p apple --key-timestamp 2.500 -y` |
+| Export all neutral media variants | `lpb split photo.jpg --all-variants` |
 
 > **Note:** Wildcards (`*.jpg`) are not supported. Pass a folder (`-d`) or list files explicitly.
 
@@ -441,9 +438,9 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 
 | Option | Description |
 |--------|-------------|
-| `-p, --protocol <p>` | Target phone format (default `none`): `none` (split only), `apple` (Apple Live Photo), `vivo` (vivo Live Photo, ≤ X200). Apple/vivo write pairing metadata (ContentIdentifier / vivo tail + uuid box) |
-| `-f, --format <f>` | Output format (default: first available for the protocol): `keep` (no conversion), `jpg+mov` (H.265), `heic+mov` (H.265), `jpg+mp4` (H.264) |
-| `--key-timestamp <time>` | Override the key photo (cover) position (Apple conversion, single-file only). Accepts seconds (`2.500`), `mm:ss` (`1:30.500`), `hh:mm:ss` (`0:01:30.500`). Default: follow the source |
+| `-p, --protocol <p>` | Target protocol (default `none`). In rebuilt mode only `none` is available and no target protocol metadata is written; Legacy retains `apple` / `vivo` compatibility |
+| `-f, --format <f>` | Output format (default: `keep`): `keep` (no conversion), `jpg+mov` (H.265), `heic+mov` (H.265), `jpg+mp4` (H.264) |
+| `--key-timestamp <time>` | Legacy Apple conversion option only; unavailable in rebuilt neutral split |
 | `-n, --naming <rule>` | Output filename rule. Default: `keep`. `keep` (same name) or `custom:TEMPLATE` (tokens below) |
 
 Naming tokens:
@@ -468,7 +465,7 @@ Naming tokens:
 | `-y, --yes` | Skip confirmation prompts. Useful for scripts / automation |
 | `--dry-run` | Preview: show what would be done, don't actually process files |
 | `-v, --verbose` | Show per-file status messages instead of summary only |
-| `--all-variants` | Export ALL split variants (single-file mode only); output to `{output}/split_{name}_All_Variants/` |
+| `--all-variants` | Export all split variants (single-file mode only). Rebuilt emits 4 protocol-free media variants; Legacy also emits Apple/vivo compatibility variants. Output goes to `{output}/split_{name}_All_Variants/` |
 
 #### Default Output Location
 
@@ -486,7 +483,7 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 
 #### `--all-variants` — Export every split variant
 
-From one single-file live photo, generate all 7 supported split variants in one command. Single-file mode only — batch (`-d`) is rejected. Ideal for developer QA and testing.
+From one single-file live photo, generate all rebuilt neutral split variants in one command. Single-file mode only — batch (`-d`) is rejected. Legacy mode additionally includes its compatibility variants.
 
 | Variant | Output pair |
 |---------|-------------|
@@ -510,7 +507,7 @@ Files are named `{protocol}_{format}` (lowercase CLI values, e.g. `-p apple -f j
 
 #### Protocol × Format Matrix
 
-Which output formats each split protocol supports:
+The following matrix is retained for the Legacy compatibility branch. In rebuilt mode only `none` is enabled:
 
 | Protocol | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
@@ -518,7 +515,7 @@ Which output formats each split protocol supports:
 | `apple` (Apple Live Photo) | ✖️ | ✅ | ✅ | ✖️ |
 | `vivo` (vivo Live Photo) | ✖️ | ✖️ | ✖️ | ✅ |
 
-Omitted `--format` defaults to the protocol's first available format: `keep` (`none`), `jpg+mov` (`apple`), `jpg+mp4` (`vivo`).
+In rebuilt mode, omitted `--format` defaults to `keep`. Legacy mode retains the protocol-specific defaults shown by the matrix.
 
 #### Pairing Filter
 

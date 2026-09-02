@@ -82,7 +82,7 @@ internal static class SyntheticProtocolFixtures
     public static void CreateOppoJpeg(string outputPath)
     {
         byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_PAYLOAD_OPPO_22B");
-        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" OpCamera:OLivePhotoVersion=\"1\" OpCamera:VideoLength=\"{dummyMp4.Length}\" /></rdf:RDF></x:xmpmeta>";
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" OpCamera:OLivePhotoVersion=\"1\" OpCamera:VideoLength=\"{dummyMp4.Length}\" OpCamera:MotionPhotoOwner=\"oplus\" OpCamera:MotionPhotoPrimaryPresentationTimestampUs=\"123\" OpCamera:MotionPhotoEnable=\"True\" /></rdf:RDF></x:xmpmeta>";
         byte[] jpeg = CreateJpegWithXmp(xmp);
 
         using var fs = File.Create(outputPath);
@@ -353,7 +353,8 @@ internal static class SyntheticProtocolFixtures
                             {
                                 WriteBe32(stsdMs, 0); // version/flags
                                 WriteBe32(stsdMs, 1); // 1 entry
-                                WriteBox(stsdMs, "mebx", new byte[16]);
+                                WriteBox(stsdMs, "mebx",
+                                    Encoding.UTF8.GetBytes("com.apple.quicktime.live-photo-info"));
                                 WriteBox(stblMs, "stsd", stsdMs.ToArray());
                             }
                             WriteBox(minfMs, "stbl", stblMs.ToArray());

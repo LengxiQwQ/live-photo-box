@@ -9,7 +9,7 @@ namespace LivePhotoBox.Core.Tests.Media;
 public sealed class AppleSplitRegressionTests
 {
     [Fact]
-    public async Task RebuiltAppleSplit_ChunkOffsetsPointIntoMediaData()
+    public async Task RebuiltNeutralSplit_ChunkOffsetsPointIntoMediaData()
     {
         ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
         string outputDirectory = Path.Combine(Path.GetTempPath(), $"lpb-apple-split-{Guid.NewGuid():N}");
@@ -20,7 +20,7 @@ public sealed class AppleSplitRegressionTests
             LivePhotoSplitResult result = await LivePhotoSplitService.SplitAsync(
                 ResolveSample("oppo.jpg"),
                 outputDirectory,
-                protocolIndex: ProtocolFormatMatrix.SplitProtocolApple,
+                protocolIndex: ProtocolFormatMatrix.SplitProtocolNone,
                 outputFormatIndex: ProtocolFormatMatrix.SplitFormatJpgMov,
                 CancellationToken.None);
 
@@ -32,7 +32,7 @@ public sealed class AppleSplitRegressionTests
                 .ToArray();
 
             Assert.NotEmpty(mediaDataRanges);
-            Assert.Contains(boxes, x => x.Type == "mebx");
+            Assert.DoesNotContain(boxes, x => x.Type == "mebx");
 
             var chunkOffsets = boxes
                 .Where(x => x.Type is "stco" or "co64")
@@ -44,6 +44,32 @@ public sealed class AppleSplitRegressionTests
                 Assert.True(
                     mediaDataRanges.Any(range => offset >= range.Start && offset < range.End),
                     $"Chunk offset {offset} does not point into an mdat payload."));
+        }
+        finally
+        {
+            ProcessingBackendSettingsService.Reset();
+            try { Directory.Delete(outputDirectory, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task RebuiltSplit_RejectsTargetProtocolWriterOptions()
+    {
+        ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
+        string outputDirectory = Path.Combine(Path.GetTempPath(), $"lpb-neutral-split-{Guid.NewGuid():N}");
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                LivePhotoSplitService.SplitAsync(
+                    Path.Combine(outputDirectory, "missing.jpg"),
+                    outputDirectory,
+                    protocolIndex: ProtocolFormatMatrix.SplitProtocolApple,
+                    outputFormatIndex: ProtocolFormatMatrix.SplitFormatJpgMov,
+                    CancellationToken.None));
+
+            Assert.Contains("protocol-free neutral media", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.False(Directory.Exists(outputDirectory));
         }
         finally
         {

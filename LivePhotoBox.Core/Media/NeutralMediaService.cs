@@ -74,6 +74,21 @@ public sealed class NeutralMediaService : INeutralMediaService
         MediaArtifact finalImage = cleanResult.CleanedImage;
         MediaArtifact? finalVideo = cleanResult.CleanedVideo;
 
+        // A Google/Vivo/Xiaomi Ultra HDR source carries the GainMap as a
+        // second JPEG after the primary JPEG. Extraction keeps it separate so
+        // the cleaner can remove only the motion-photo ranges. Before the
+        // a JPEG neutral artifact leaves this workspace, restore that
+        // standard representation; otherwise the retained hdrgm/Container
+        // metadata would point at bytes that are no longer in the artifact.
+        if (cleanResult.CleanedGainMap != null
+            && finalImage.ImageContainer == ImageContainer.Jpeg
+            && (requirement == null || requirement.ImageContainer != ImageContainer.Heic))
+        {
+            finalImage = await ReassembleJpegGainMapAsync(
+                finalImage, cleanResult.CleanedGainMap, workspace, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
         PreservationOutcome imageOutcome = cleanResult.PreservationOutcome;
         PreservationOutcome videoOutcome = cleanResult.CleanedVideo == null
             ? PreservationOutcome.Preserved
@@ -143,6 +158,21 @@ public sealed class NeutralMediaService : INeutralMediaService
             }
         }
 
+        // Final guard: a neutral bundle must not expose a still image that the
+        // Native Inspector still recognizes as a Live/Motion Photo. This is a
+        // post-clean check, not a second protocol parser or a writer check.
+        SourceMediaFacts neutralFacts = await _inspector
+            .InspectAsync(finalImage.Path, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        if (neutralFacts.Protocol != SourceProtocol.NonLive
+            || neutralFacts.MotionVideo != null
+            || neutralFacts.ProtocolTailLength != 0
+            || neutralFacts.PairingIdentifier != null)
+        {
+            throw new InvalidDataException(
+                $"Neutral media validation failed: Inspector reported {neutralFacts.Protocol} for the cleaned image.");
+        }
+
         // 5. Build Artifact Manifest with truthful outcomes
         var manifest = new List<NeutralArtifactManifest>
         {
@@ -204,5 +234,46 @@ public sealed class NeutralMediaService : INeutralMediaService
         if (a == PreservationOutcome.Reencoded || b == PreservationOutcome.Reencoded) return PreservationOutcome.Reencoded;
         if (a == PreservationOutcome.TranscodedLossless || b == PreservationOutcome.TranscodedLossless) return PreservationOutcome.TranscodedLossless;
         return PreservationOutcome.Preserved;
+    }
+
+    private static async Task<MediaArtifact> ReassembleJpegGainMapAsync(
+        MediaArtifact primaryImage,
+        MediaArtifact gainMap,
+        IMediaWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        if (!File.Exists(primaryImage.Path))
+            throw new FileNotFoundException("Cleaned primary image was not found.", primaryImage.Path);
+        if (!File.Exists(gainMap.Path))
+            throw new FileNotFoundException("Cleaned GainMap was not found.", gainMap.Path);
+
+        string outputPath = workspace.AllocateFilePath("neutral-img-gainmap", ".jpg");
+        await using (var output = new FileStream(
+            outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
+            bufferSize: 128 * 1024, useAsync: true))
+        {
+            await using (FileStream primary = new(
+                primaryImage.Path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 128 * 1024, useAsync: true))
+            {
+                await primary.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+            }
+
+            await using (FileStream map = new(
+                gainMap.Path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                bufferSize: 128 * 1024, useAsync: true))
+            {
+                await map.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+            }
+
+            await output.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        return primaryImage with
+        {
+            Path = outputPath,
+            ByteLength = new FileInfo(outputPath).Length,
+            Sha256 = await workspace.ComputeFileSha256Async(outputPath, cancellationToken).ConfigureAwait(false)
+        };
     }
 }

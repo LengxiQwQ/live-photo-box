@@ -27,7 +27,8 @@ namespace LivePhotoBox.Cli.Commands
         private static readonly bool[] MergeSupported =
             [false, true, true, true, false, false, true];
 
-        // Split protocols — the current rebuilt split target writers are Native-backed.
+        // Split protocols retained for the Legacy compatibility branch. Rebuilt exposes
+        // only the protocol-free neutral split path; target writers are intentionally isolated.
         private static readonly (string Name, string Devices, bool Supported)[] SplitProtocols =
         [
             ("None (split only)",  "Any device", true),
@@ -156,7 +157,9 @@ namespace LivePhotoBox.Cli.Commands
             string[] fmtNames = SplitCommand.SplitFormatNames
                 .Select(f => f == "keep" ? "keep" : f.ToUpperInvariant().Replace("+", " + "))
                 .ToArray();
-            int nameW = Math.Max("Protocol".Length, SplitProtocols.Max(p => p.Name.Length));
+            bool rebuilt = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt;
+            int protocolCount = rebuilt ? 1 : SplitProtocols.Length;
+            int nameW = Math.Max("Protocol".Length, SplitProtocols.Take(protocolCount).Max(p => p.Name.Length));
             int fmtW = Math.Max(8, fmtNames.Max(f => f.Length) + 1);
 
             Console.Write("Protocol".PadRight(nameW));
@@ -177,7 +180,7 @@ namespace LivePhotoBox.Cli.Commands
             }
             Console.WriteLine();
 
-            for (int s = 0; s < SplitProtocols.Length; s++)
+            for (int s = 0; s < protocolCount; s++)
             {
                 Console.Write(SplitProtocols[s].Name.PadRight(nameW));
                 Console.Write(" ");
@@ -290,8 +293,9 @@ namespace LivePhotoBox.Cli.Commands
                 };
             }
 
-            var split = new object[SplitProtocols.Length];
-            for (int s = 0; s < SplitProtocols.Length; s++)
+            int splitProtocolCount = rebuilt ? 1 : SplitProtocols.Length;
+            var split = new object[splitProtocolCount];
+            for (int s = 0; s < splitProtocolCount; s++)
             {
                 int fmtCount = SplitCommand.SplitFormatNames.Length;
                 var formats = new string[fmtCount];
@@ -313,7 +317,7 @@ namespace LivePhotoBox.Cli.Commands
                 backendMode = rebuilt ? "rebuilt" : "legacy",
                 protocolCommands = rebuilt ? "partial" : "legacy",
                 notice = rebuilt
-                    ? "Rebuilt Native media conversion and the current merge/split paths are active; remaining protocol coverage is still in testing."
+                    ? "Rebuilt Native media conversion and the current merge/split paths are active for media work; neutral split exports only protocol-free files, and target protocol writers remain isolated for a later phase."
                     : "Protocol commands use the Legacy compatibility pipeline.",
                 protocols,
                 split
@@ -327,7 +331,7 @@ namespace LivePhotoBox.Cli.Commands
             {
                 CliConsole.WriteLine("Current backend: Rebuilt (Native)", CliConsole.Accent);
                 CliConsole.WriteLine(
-                    "Rebuilt Native media conversion and the current merge/split paths are active; remaining protocol coverage is still in testing.",
+                    "Rebuilt Native media conversion and the current merge/split paths are active for media work; neutral split exports only protocol-free files, and target protocol writers remain isolated for a later phase.",
                     CliConsole.Notice);
             }
             else

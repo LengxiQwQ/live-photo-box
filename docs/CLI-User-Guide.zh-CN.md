@@ -152,7 +152,7 @@ GUI 与 CLI 共用 `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`。这里�
 | 使用隔离的新重构分支 | `lpb backend mode rebuilt` |
 | 删除共享配置并恢复“新重构分支”默认值 | `lpb backend reset` |
 
-`rebuilt` 绝不自动回退到 `legacy`。`lpb convert` 以及当前已接入的新版合成/拆分路径使用 Native 完成探测、转换、清理和目标 writer；尚未完成或仍在测试中的协议覆盖会明确失败，不会猜测媒体事实或继续产出文件。
+`rebuilt` 绝不自动回退到 `legacy`。`lpb convert` 以及当前已接入的新版合成/拆分媒体路径使用 Native 完成探测、转换和清理。新版拆分只导出协议无关的中性文件，不调用 Apple/vivo 目标 writer；目标协议写入器留待后续阶段。尚未完成的操作会明确失败，不会猜测媒体事实或继续产出文件。
 
 ### `convert` — 新版 Native 独立媒体转换
 
@@ -202,16 +202,14 @@ lpb convert input.jpg -o output.heic
 
 | 协议 | 支持机型 | 状态 |
 |---|---|---|
-| Apple Live Photo | iPhone / iPad | ✅ 可用 |
-| vivo Live Photo | vivo（≤ X200） | 🟡 测试中 |
+| 中性拆分 | 任意设备 | ✅ 可用 |
 
 **拆分 — 协议 × 格式兼容矩阵：**
 
 | 协议 | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | None（仅拆分） | ✅ | ✅ | ✅ | ✅ |
-| Apple Live Photo | ✖️ | ✅ | ✅ | ✖️ |
-| vivo Live Photo | ✖️ | ✖️ | ✖️ | ✅ |
+> rebuilt 模式当前只启用 `none`（中性拆分）这一行；下方 Apple/vivo 组合仅由 Legacy 兼容分支保留，不代表新版已接入目标协议写入。
 
 **JSON 输出**（供脚本消费）：
 
@@ -441,9 +439,9 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 | 选项 | 说明 |
 |------|------|
-| `-p, --protocol <协议>` | 目标手机格式（默认 `none`）：`none`（仅拆分）、`apple`（Apple Live Photo）、`vivo`（vivo Live Photo，≤ X200）。apple/vivo 会写入配对元数据（ContentIdentifier / vivo 尾标 + uuid box） |
-| `-f, --format <格式>` | 输出格式（默认：指定协议的首个可用格式）：`keep`（不转换）、`jpg+mov` (H.265)、`heic+mov` (H.265)、`jpg+mp4` (H.264) |
-| `--key-timestamp <时间>` | 覆盖封面（key photo）在视频时间轴上的位置（仅 Apple 转换、单文件）。支持秒（`2.500`）、分:秒（`1:30.500`）、时:分:秒（`0:01:30.500`）；默认跟随源 |
+| `-p, --protocol <协议>` | 目标协议（默认 `none`）。rebuilt 模式只允许 `none`，只导出协议无关的中性媒体且不写入目标协议数据；Legacy 兼容分支保留 `apple` / `vivo` |
+| `-f, --format <格式>` | 输出格式（默认：`keep`）：`keep`（不转换）、`jpg+mov` (H.265)、`heic+mov` (H.265)、`jpg+mp4` (H.264) |
+| `--key-timestamp <时间>` | 仅 Legacy Apple 转换选项；rebuilt 中性拆分不可用 |
 | `-n, --naming <规则>` | 输出文件名规则。默认：`keep`。`keep`（保持原名）或 `custom:模板`（占位符见下） |
 
 命名占位符：
@@ -486,7 +484,7 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 #### `--all-variants` — 一键导出所有拆分变体
 
-从单个单文件实况照片一键导出全部 7 组拆分变体。仅单文件模式——批量（`-d`）会被拒绝。适合开发者快速验证各协议的拆分输出。
+从单个单文件实况照片一键导出 rebuilt 的 4 组中性拆分变体。仅单文件模式——批量（`-d`）会被拒绝。Legacy 模式额外包含 Apple/vivo 兼容变体。
 
 | 变体 | 输出文件对 |
 |------|-----------|
@@ -506,11 +504,11 @@ lpb split photo.jpg --all-variants
 lpb split photo.jpg --all-variants -o ./Out
 ```
 
-文件名按 `{协议}_{格式}` 命名（小写 CLI 规范值，如 `-p apple -f jpg+mov` → `apple_jpg+mov`）；原文件名只进**文件夹名**，所有名称不含空格。keep 变体图片跟随源扩展名、视频跟随源容器（`.MOV` / `.MP4`）。`-p` / `-f` / `-n` / `-w` / `--after` 被忽略；`-j` 仍控制并行度。
+文件名按 `{协议}_{格式}` 命名；原文件名只进**文件夹名**，所有名称不含空格。rebuilt 的 4 个变体均为协议无关输出，不写入 Apple/vivo 配对数据。keep 变体图片跟随源扩展名、视频跟随源容器（`.MOV` / `.MP4`）。`-p` / `-f` / `-n` / `-w` / `--after` 被忽略；`-j` 仍控制并行度。
 
 #### 协议 × 格式矩阵
 
-每个拆分协议支持的输出格式：
+Legacy 兼容分支的拆分协议支持的输出格式如下；rebuilt 模式只启用 `none`：
 
 | 协议 | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
@@ -518,7 +516,7 @@ lpb split photo.jpg --all-variants -o ./Out
 | `apple`（Apple Live Photo） | ✖️ | ✅ | ✅ | ✖️ |
 | `vivo`（vivo Live Photo） | ✖️ | ✖️ | ✖️ | ✅ |
 
-省略 `--format` 时，默认取该协议的首个可用格式：`none` → `keep`、`apple` → `jpg+mov`、`vivo` → `jpg+mp4`。
+rebuilt 省略 `--format` 时使用 `keep`。Legacy 省略时仍取该协议的首个可用格式。
 
 #### 配对过滤
 

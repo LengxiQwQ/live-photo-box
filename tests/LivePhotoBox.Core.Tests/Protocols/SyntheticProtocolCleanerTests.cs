@@ -95,6 +95,9 @@ public sealed class SyntheticProtocolCleanerTests
         string cleanText = Encoding.UTF8.GetString(cleanBytes);
         Assert.DoesNotContain("OLivePhotoVersion", cleanText);
         Assert.DoesNotContain("VideoLength", cleanText);
+        Assert.DoesNotContain("MotionPhotoOwner", cleanText);
+        Assert.DoesNotContain("MotionPhotoPrimaryPresentationTimestampUs", cleanText);
+        Assert.DoesNotContain("MotionPhotoEnable", cleanText);
     }
 
     [Fact]

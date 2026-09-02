@@ -48,56 +48,35 @@ public sealed class CliSubprocessTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task RebuiltMergeAndSplitConvertTargetMediaShapes()
+    public async Task RebuiltSplitExportsOnlyCleanNeutralMediaShapes()
     {
         string repositoryRoot = FindRepositoryRoot();
         string directory = CreateTempDirectory("lpb_cli_rebuilt_conversion_");
-        string imagePath = Path.Combine(repositoryRoot, "designs", "各个机型测试", "苹果-双文件.JPG");
-        string videoPath = Path.Combine(repositoryRoot, "designs", "各个机型测试", "苹果-双文件.MOV");
-        string mergeDirectory = Path.Combine(directory, "merged");
+        string sourcePath = Path.Combine(repositoryRoot, "designs", "各个机型测试", "oppo.jpg");
+        string outputDirectory = Path.Combine(directory, "split");
         string settingsPath = Path.Combine(directory, "rebuilt-settings.json");
-        string imageHash = await ComputeSha256Async(imagePath);
-        string videoHash = await ComputeSha256Async(videoPath);
+        string sourceHash = await ComputeSha256Async(sourcePath);
 
         try
         {
-            CliResult merge = await RunCliAsync(
+            CliResult split = await RunCliAsync(
                 directory, settingsPath,
-                "merge", imagePath, videoPath,
-                "--all-variants", "--output", mergeDirectory, "--overwrite", "--yes", "--json");
+                "split", sourcePath,
+                "--protocol", "none", "--all-variants",
+                "--output", outputDirectory, "--overwrite", "--yes", "--json");
 
-            Assert.True(merge.ExitCode == 0, $"merge stdout: {merge.StdOut}\nmerge stderr: {merge.StdErr}");
-            DirectoryInfo variantsDirectory = Assert.Single(new DirectoryInfo(mergeDirectory).GetDirectories("*_variants"));
-            FileInfo[] mergedFiles = variantsDirectory.GetFiles();
-            Assert.Equal(12, mergedFiles.Length);
-            Assert.All(mergedFiles, file => Assert.True(
+            Assert.True(split.ExitCode == 0, $"split stdout: {split.StdOut}\nsplit stderr: {split.StdErr}");
+            DirectoryInfo variantsDirectory = Assert.Single(new DirectoryInfo(outputDirectory).GetDirectories("*_All_Variants"));
+            FileInfo[] splitFiles = variantsDirectory.GetFiles();
+            Assert.Equal(8, splitFiles.Length);
+            Assert.All(splitFiles, file => Assert.True(
                 file.Extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
-                || file.Extension.Equals(".heic", StringComparison.OrdinalIgnoreCase)));
-            Assert.DoesNotContain(mergedFiles, file => file.Extension.Equals(".png", StringComparison.OrdinalIgnoreCase));
-
-            FileInfo mergedImage = mergedFiles.Single(
-                file => file.Name.Equals("苹果-双文件_MotionPhoto_JPEG+MP4.jpg", StringComparison.Ordinal));
-
-            foreach (string format in new[] { "keep", "jpg+mov", "heic+mov", "jpg+mp4" })
-            {
-                string splitDirectory = Path.Combine(directory, $"split-{format.Replace('+', '-')}");
-                CliResult split = await RunCliAsync(
-                    directory, settingsPath,
-                    "split", mergedImage.FullName,
-                    "--protocol", "none", "--format", format,
-                    "--output", splitDirectory, "--overwrite", "--yes", "--json");
-
-                Assert.True(split.ExitCode == 0, $"split {format} stdout: {split.StdOut}\nsplit stderr: {split.StdErr}");
-                FileInfo[] splitFiles = new DirectoryInfo(splitDirectory).GetFiles();
-                Assert.Equal(2, splitFiles.Length);
-                Assert.Contains(splitFiles, file => file.Extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
-                    || file.Extension.Equals(".heic", StringComparison.OrdinalIgnoreCase));
-                Assert.Contains(splitFiles, file => file.Extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
-                    || file.Extension.Equals(".mov", StringComparison.OrdinalIgnoreCase));
-            }
-
-            Assert.Equal(imageHash, await ComputeSha256Async(imagePath));
-            Assert.Equal(videoHash, await ComputeSha256Async(videoPath));
+                || file.Extension.Equals(".heic", StringComparison.OrdinalIgnoreCase)
+                || file.Extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
+                || file.Extension.Equals(".mov", StringComparison.OrdinalIgnoreCase)));
+            Assert.DoesNotContain(splitFiles, file => file.Name.Contains("apple", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(splitFiles, file => file.Name.Contains("vivo", StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(sourceHash, await ComputeSha256Async(sourcePath));
         }
         finally
         {

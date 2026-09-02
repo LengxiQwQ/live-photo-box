@@ -259,7 +259,10 @@ static bool is_protocol_attribute(std::string_view name,
     if (protocol == LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO && uri == oppo_camera_namespace)
     {
         return equals_icase(local, "OLivePhotoVersion") ||
-            equals_icase(local, "VideoLength");
+            equals_icase(local, "VideoLength") ||
+            equals_icase(local, "MotionPhotoOwner") ||
+            equals_icase(local, "MotionPhotoPrimaryPresentationTimestampUs") ||
+            equals_icase(local, "MotionPhotoEnable");
     }
 
     if ((protocol == LPB_SOURCE_PROTOCOL_VIVO_X300 ||

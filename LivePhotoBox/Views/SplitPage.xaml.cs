@@ -47,6 +47,7 @@ namespace LivePhotoBox.Views
 
         // 是否已绑定 ViewModel 事件，防止重复绑定
         private bool _eventsHooked;
+        private bool _backendSettingsHooked;
 
         // 页面激活期间接管窗口级快捷键，避免外层 NavigationView 抢占队列方向键。
         private UIElement? _splitShortcutHost;
@@ -524,6 +525,28 @@ namespace LivePhotoBox.Views
             UpdateOutputFormatOptions(ProtocolComboBox.SelectedIndex);
         }
 
+        // Rebuilt 的拆分阶段只导出清洗后的中性媒体，不显示也不接受目标协议 Writer 选项。
+        // Legacy 模式仍保留历史 Apple/vivo 选项，由 SplitService 的 Legacy 分支处理。
+        private void ApplySplitBackendOptions()
+        {
+            if (ProtocolComboBox == null) return;
+
+            bool rebuiltOnly = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt;
+            for (int i = 1; i < ProtocolComboBox.Items.Count; i++)
+            {
+                if (ProtocolComboBox.Items[i] is ComboBoxItem item)
+                    item.Visibility = rebuiltOnly ? Visibility.Collapsed : Visibility.Visible;
+            }
+
+            if (rebuiltOnly && ViewModel.ProtocolIndex != ProtocolFormatMatrix.SplitProtocolNone)
+            {
+                ViewModel.ProtocolIndex = ProtocolFormatMatrix.SplitProtocolNone;
+                ProtocolComboBox.SelectedIndex = ProtocolFormatMatrix.SplitProtocolNone;
+            }
+
+            UpdateOutputFormatOptions(ProtocolComboBox.SelectedIndex);
+        }
+
         // 根据选中的协议切换导出格式下拉框中各项的可见性
         private void UpdateOutputFormatOptions(int protocolIndex)
         {
@@ -673,6 +696,14 @@ namespace LivePhotoBox.Views
 
             SyncOutputFormatSelection();
 
+            ApplySplitBackendOptions();
+
+            if (!_backendSettingsHooked)
+            {
+                ProcessingBackendSettingsService.Changed += OnProcessingBackendSettingsChanged;
+                _backendSettingsHooked = true;
+            }
+
             if (_eventsHooked) return;
 
             ViewModel.TaskStartedForScroll += OnTaskStarted;
@@ -708,6 +739,12 @@ namespace LivePhotoBox.Views
             if (appWindow != null)
                 appWindow.Changed -= AppWindow_Changed;
 
+            if (_backendSettingsHooked)
+            {
+                ProcessingBackendSettingsService.Changed -= OnProcessingBackendSettingsChanged;
+                _backendSettingsHooked = false;
+            }
+
             if (!_eventsHooked) return;
 
             ViewModel.TaskStartedForScroll -= OnTaskStarted;
@@ -715,6 +752,12 @@ namespace LivePhotoBox.Views
             ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
             DetachTaskQueueMeasurements();
             _eventsHooked = false;
+        }
+
+        private void OnProcessingBackendSettingsChanged(object? sender, EventArgs e)
+        {
+            if (!IsLoaded) return;
+            _ = DispatcherQueue.TryEnqueue(ApplySplitBackendOptions);
         }
 
         // 任务开始处理时通知自动滚动器定位

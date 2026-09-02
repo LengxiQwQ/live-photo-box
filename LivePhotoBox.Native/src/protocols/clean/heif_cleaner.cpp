@@ -1,4 +1,5 @@
 #include "heif_cleaner.h"
+#include "xmp_cleaner.h"
 #include "foundation/internal.h"
 #include <cstring>
 #include <filesystem>
@@ -15,8 +16,8 @@ static void add_fact(std::vector<lpb_removed_protocol_fact>& facts)
     lpb_removed_protocol_fact fact{};
     fact.struct_size = sizeof(fact);
     strncpy_s(fact.protocol_name, "Samsung", _TRUNCATE);
-    strncpy_s(fact.component, "HEIF mpvd Box", _TRUNCATE);
-    strncpy_s(fact.description, "Removed the validated mpvd Motion Photo payload box", _TRUNCATE);
+    strncpy_s(fact.component, "HEIF mpvd/sefd Boxes", _TRUNCATE);
+    strncpy_s(fact.description, "Removed the validated Samsung Motion Photo mpvd payload and sefd metadata boxes", _TRUNCATE);
     facts.push_back(fact);
 }
 
@@ -57,6 +58,51 @@ static uint32_t be32(const uint8_t* p) noexcept
         (static_cast<uint32_t>(p[2]) << 8) | p[3];
 }
 
+static bool rewrite_samsung_xmp(
+    lpb_context* context,
+    std::vector<uint8_t>& data,
+    std::vector<lpb_removed_protocol_fact>& out_facts)
+{
+    const std::string_view whole(
+        reinterpret_cast<const char*>(data.data()), data.size());
+    const size_t xml_start = whole.find("<x:xmpmeta");
+    const std::string_view xml_end_tag = "</x:xmpmeta>";
+    if (xml_start == std::string_view::npos)
+    {
+        // Some HEIF files do not carry an XMP item. The structural Samsung
+        // payload cleaner can still remove mpvd in that case.
+        return true;
+    }
+    const size_t xml_end = whole.find(xml_end_tag, xml_start);
+    if (xml_end == std::string_view::npos)
+    {
+        set_error(context, "Samsung HEIF XMP item is truncated.");
+        return false;
+    }
+
+    const size_t old_xml_length = xml_end + xml_end_tag.size() - xml_start;
+    const std::string xmp(whole.substr(xml_start, old_xml_length));
+    std::string cleaned_xmp;
+    if (!clean_xmp_metadata(
+            xmp, LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC, cleaned_xmp, out_facts))
+    {
+        return true;
+    }
+    if (cleaned_xmp.size() > old_xml_length)
+    {
+        set_error(context, "Cleaned Samsung HEIF XMP is larger than the source item.");
+        return false;
+    }
+
+    // Keep the HEIF item length and all iloc offsets stable. The removed
+    // protocol fields only make the XML shorter; zero-fill the unused tail so
+    // no stale bytes can be parsed as a second XML document.
+    std::copy(cleaned_xmp.begin(), cleaned_xmp.end(), data.begin() + xml_start);
+    std::fill(data.begin() + xml_start + cleaned_xmp.size(),
+        data.begin() + xml_start + old_xml_length, static_cast<uint8_t>(0));
+    return true;
+}
+
 lpb_result clean_samsung_heic(
     lpb_context* context,
     const std::string& input_path,
@@ -73,10 +119,15 @@ lpb_result clean_samsung_heic(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
+    if (!rewrite_samsung_xmp(context, input, out_facts)) {
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
     std::vector<uint8_t> output;
     output.reserve(input.size());
     size_t offset = 0;
     bool removed_mpvd = false;
+    bool removed_sefd = false;
     while (offset < input.size()) {
         if (input.size() - offset < 8) {
             set_error(context, "Truncated HEIF box header.");
@@ -103,6 +154,8 @@ lpb_result clean_samsung_heic(
         }
         if (type == 0x6D707664U) { // mpvd
             removed_mpvd = true;
+        } else if (type == 0x73656664U) { // sefd
+            removed_sefd = true;
         } else {
             output.insert(output.end(), input.begin() + offset,
                 input.begin() + offset + static_cast<size_t>(box_size));
@@ -117,7 +170,7 @@ lpb_result clean_samsung_heic(
         set_error(context, "Failed to publish cleaned Samsung HEIC.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
-    add_fact(out_facts);
+    if (removed_sefd) add_fact(out_facts);
     return LPB_RESULT_OK;
 }
 

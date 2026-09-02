@@ -2,7 +2,6 @@ using LivePhotoBox.Models;
 using LivePhotoBox.Media;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
-using LivePhotoBox.Interop;
 using NeutralMediaBundle = LivePhotoBox.Protocols.Cleaning.NeutralMediaBundle;
 using System;
 using System.Buffers;
@@ -10,7 +9,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -84,8 +82,8 @@ namespace LivePhotoBox.Services
         }
 
         // Rebuilt split: materialize a source single-file live photo into two
-        // independently usable media files, then apply the selected target
-        // pairing metadata through Native ABI writers.
+        // independently usable, protocol-free media files. Target protocol
+        // writers intentionally do not participate in this pipeline stage.
         private static async Task<LivePhotoSplitResult> SplitRebuiltAsync(
             string sourcePath,
             string outputDirectory,
@@ -96,8 +94,14 @@ namespace LivePhotoBox.Services
             string? outputBaseName,
             bool overwriteExisting)
         {
+            if (protocolIndex != ProtocolFormatMatrix.SplitProtocolNone)
+            {
+                throw new NotSupportedException(
+                    "Rebuilt split currently exports protocol-free neutral media only; target protocol writers are not enabled. Use protocol 'none'.");
+            }
+
             MediaFormatRequirement requirement = ProtocolMediaRequirements.GetSplitRequirement(
-                protocolIndex, outputFormatIndex);
+                ProtocolFormatMatrix.SplitProtocolNone, outputFormatIndex);
             using var workspace = new MediaWorkspace();
             NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
                 sourcePath,
@@ -109,9 +113,6 @@ namespace LivePhotoBox.Services
 
             if (bundle.MotionVideo == null || !File.Exists(bundle.MotionVideo.Path))
                 throw new InvalidDataException("Rebuilt split requires a Native-inspected motion video.");
-            if (bundle.GainMap != null)
-                throw new InvalidOperationException(
-                    "Rebuilt split cannot yet reassemble an embedded GainMap into the standalone image without losing HDR data.");
 
             string imageExtension = bundle.PrimaryImage.ImageContainer == ImageContainer.Heic ? ".HEIC" : ".JPG";
             string videoExtension = bundle.MotionVideo.VideoContainer == VideoContainer.Mov ? ".MOV" : ".MP4";
@@ -129,17 +130,6 @@ namespace LivePhotoBox.Services
                 File.Copy(bundle.PrimaryImage.Path, imageOutputPath, overwrite: true);
                 File.Copy(bundle.MotionVideo.Path, videoOutputPath, overwrite: true);
 
-                if (protocolIndex == ProtocolFormatMatrix.SplitProtocolApple)
-                {
-                    await ApplyRebuiltApplePairingAsync(
-                        imageOutputPath, videoOutputPath, bundle.Timing, token).ConfigureAwait(false);
-                }
-                else if (protocolIndex == ProtocolFormatMatrix.SplitProtocolVivo)
-                {
-                    await ApplyRebuiltVivoPairingAsync(
-                        imageOutputPath, videoOutputPath, token).ConfigureAwait(false);
-                }
-
                 return new LivePhotoSplitResult
                 {
                     ImageOutputPath = imageOutputPath,
@@ -151,87 +141,6 @@ namespace LivePhotoBox.Services
                 try { if (File.Exists(imageOutputPath)) File.Delete(imageOutputPath); } catch { }
                 try { if (File.Exists(videoOutputPath)) File.Delete(videoOutputPath); } catch { }
                 throw;
-            }
-        }
-
-        private static async Task ApplyRebuiltApplePairingAsync(
-            string imagePath,
-            string videoPath,
-            TimingFacts timing,
-            CancellationToken token)
-        {
-            string contentId = Guid.NewGuid().ToString("D").ToUpperInvariant();
-            byte[] makerNote = NativeAppleMakerNoteWriter.BuildContentIdentifierMakerNote(contentId);
-            byte[] image = await File.ReadAllBytesAsync(imagePath, token).ConfigureAwait(false);
-
-            bool imageOk = imagePath.EndsWith(".heic", StringComparison.OrdinalIgnoreCase)
-                ? NativeAppleMakerNoteWriter.TryInjectMakerNoteIntoHeic(
-                    image, makerNote, out byte[]? rewrittenImage, out string? imageError)
-                : NativeAppleMakerNoteWriter.TryInjectMakerNoteIntoJpeg(
-                    image, makerNote, out rewrittenImage, out imageError);
-            if (!imageOk || rewrittenImage == null)
-                throw new InvalidOperationException($"Rebuilt Apple image writer failed: {imageError}");
-
-            await ReplaceFileAtomicallyAsync(imagePath, rewrittenImage, token).ConfigureAwait(false);
-
-            byte[] video = await File.ReadAllBytesAsync(videoPath, token).ConfigureAwait(false);
-            double coverSeconds = timing.CoverTimestampUs > 0
-                ? timing.CoverTimestampUs / 1_000_000.0
-                : 0;
-            if (!NativeAppleMebxWriter.TryAppendStillImageTrackWithContentIdentifier(
-                    video, coverSeconds, contentId,
-                    out byte[]? rewrittenVideo, out string? videoError)
-                || rewrittenVideo == null)
-            {
-                throw new InvalidOperationException($"Rebuilt Apple video writer failed: {videoError}");
-            }
-
-            await ReplaceFileAtomicallyAsync(videoPath, rewrittenVideo, token).ConfigureAwait(false);
-        }
-
-        private static async Task ApplyRebuiltVivoPairingAsync(
-            string imagePath,
-            string videoPath,
-            CancellationToken token)
-        {
-            string id = Convert.ToHexString(RandomNumberGenerator.GetBytes(14)).ToLowerInvariant();
-            byte[] imageJson = Encoding.UTF8.GetBytes(
-                $"vivo{{\"com.vivo.gallery.livephoto.source\":4,\"com.vivo.gallery.livePhoto.rotationOffset\":0,\"com.vivo.gallery.livePhoto.rotationCheck\":3,\"com.android.camera.livephoto\":\"{id}\",\"version\":2200}}");
-            byte[] videoJson = Encoding.UTF8.GetBytes(
-                $"vivo{{\"com.android.camera.livephoto\":\"{id}\",\"version\":2016,\"com.vivo.gallery.livePhoto.newCoverTime\":0}}");
-
-            byte[] image = await File.ReadAllBytesAsync(imagePath, token).ConfigureAwait(false);
-            if (!NativeVivoLegacyMetadata.TryRewriteImage(
-                    image, imageJson, replaceExisting: true,
-                    out byte[] rewrittenImage, out string? imageError))
-            {
-                throw new InvalidOperationException($"Rebuilt vivo image writer failed: {imageError}");
-            }
-            await ReplaceFileAtomicallyAsync(imagePath, rewrittenImage, token).ConfigureAwait(false);
-
-            byte[] video = await File.ReadAllBytesAsync(videoPath, token).ConfigureAwait(false);
-            if (!NativeVivoLegacyMetadata.TryRewriteVideo(
-                    video, videoJson, out byte[] rewrittenVideo, out string? videoError))
-            {
-                throw new InvalidOperationException($"Rebuilt vivo video writer failed: {videoError}");
-            }
-            await ReplaceFileAtomicallyAsync(videoPath, rewrittenVideo, token).ConfigureAwait(false);
-        }
-
-        private static async Task ReplaceFileAtomicallyAsync(
-            string path,
-            byte[] content,
-            CancellationToken token)
-        {
-            string tempPath = path + $".lpb-rebuilt-{Guid.NewGuid():N}.tmp";
-            try
-            {
-                await File.WriteAllBytesAsync(tempPath, content, token).ConfigureAwait(false);
-                File.Move(tempPath, path, overwrite: true);
-            }
-            finally
-            {
-                try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
             }
         }
 
