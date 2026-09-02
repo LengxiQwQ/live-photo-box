@@ -1,4 +1,5 @@
 using LivePhotoBox.Cli.Infrastructure;
+using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
 using System.CommandLine;
@@ -57,6 +58,7 @@ namespace LivePhotoBox.Cli.Commands
 
         private static void PrintTable()
         {
+            PrintBackendNotice();
             Console.WriteLine();
             CliConsole.WriteLine("Merge — protocol × format compatibility", CliConsole.Accent);
             Console.WriteLine();
@@ -268,6 +270,7 @@ namespace LivePhotoBox.Cli.Commands
 
         private static void PrintJson()
         {
+            bool rebuilt = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt;
             var protocols = new object[ProtocolFormatMatrix.Matrix.Length - 1];
             for (int p = 1; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
@@ -305,8 +308,32 @@ namespace LivePhotoBox.Cli.Commands
                 };
             }
 
-            var json = JsonSerializer.Serialize(new { protocols, split }, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(new
+            {
+                backendMode = rebuilt ? "rebuilt" : "legacy",
+                protocolCommands = rebuilt ? "not_ready" : "legacy",
+                notice = rebuilt
+                    ? "Protocol merge/split/cover/repair are not implemented in Rebuilt mode; the matrix is Legacy compatibility data."
+                    : "Protocol commands use the Legacy compatibility pipeline.",
+                protocols,
+                split
+            }, new JsonSerializerOptions { WriteIndented = true });
             Console.WriteLine(json);
+        }
+
+        private static void PrintBackendNotice()
+        {
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                CliConsole.WriteLine("Current backend: Rebuilt (Native)", CliConsole.Accent);
+                CliConsole.WriteLine(
+                    "Protocol merge/split/cover/repair are not implemented yet; the tables below are Legacy compatibility data only.",
+                    CliConsole.Notice);
+            }
+            else
+            {
+                CliConsole.WriteLine("Current backend: Legacy", CliConsole.Accent);
+            }
         }
     }
 }
