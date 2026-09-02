@@ -13,6 +13,7 @@
  */
 
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -228,15 +229,27 @@ namespace LivePhotoBox.Controls
         {
             try
             {
-                await Task.Run(() =>
+                if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
                 {
-                    LightboxItemSource.DetectSingleFileVideo(item.ImagePath, out long videoLen);
-                    if (videoLen > 0)
+                    var facts = await new SourceInspector().InspectAsync(item.ImagePath);
+                    if (facts.MotionVideo is { IsPresent: true } video)
                     {
-                        item.AppendedVideoLength = videoLen;
+                        item.AppendedVideoLength = video.ByteLength;
                         item.IsLivePhoto = true;
                     }
-                });
+                }
+                else
+                {
+                    await Task.Run(() =>
+                    {
+                        LightboxItemSource.DetectSingleFileVideo(item.ImagePath, out long videoLen);
+                        if (videoLen > 0)
+                        {
+                            item.AppendedVideoLength = videoLen;
+                            item.IsLivePhoto = true;
+                        }
+                    });
+                }
 
                 // 回到 UI 线程更新按钮
                 DispatcherQueue.TryEnqueue(() =>

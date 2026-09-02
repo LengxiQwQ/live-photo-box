@@ -11,6 +11,7 @@
  */
 
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Inspection;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -104,7 +105,9 @@ namespace LivePhotoBox.Services
 
                 // 华为/荣耀无 XMP 视频标记，扫描阶段解析不出长度；
                 // 按内容标记（尾部 LIVE_）补查嵌入式视频范围，不限扩展名
-                if (videoLen == 0 && HasLiveTailMarker(t.SourcePath))
+                if (videoLen == 0
+                    && ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Legacy
+                    && HasLiveTailMarker(t.SourcePath))
                 {
                     try
                     {
@@ -151,11 +154,28 @@ namespace LivePhotoBox.Services
 
                     if (File.Exists(path))
                     {
-                        videoPath = FindPairedVideo(path);
-                        if (videoPath == null)
+                        if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
                         {
-                            // 通用探测：读 XMP 头 + 尾部 LIVE_ 标记，不按扩展名筛选
-                            DetectSingleFileVideo(path, out videoLen);
+                            if (IsImagePath(path))
+                            {
+                                try
+                                {
+                                    var facts = await new SourceInspector().InspectAsync(path);
+                                    videoLen = facts.MotionVideo is { IsPresent: true } video
+                                        ? video.ByteLength
+                                        : 0;
+                                }
+                                catch { videoLen = 0; }
+                            }
+                        }
+                        else
+                        {
+                            videoPath = FindPairedVideo(path);
+                            if (videoPath == null)
+                            {
+                                // 通用探测：读 XMP 头 + 尾部 LIVE_ 标记，不按扩展名筛选
+                                DetectSingleFileVideo(path, out videoLen);
+                            }
                         }
                     }
 
@@ -191,6 +211,12 @@ namespace LivePhotoBox.Services
                     return candidate;
             }
             return null;
+        }
+
+        private static bool IsImagePath(string path)
+        {
+            string ext = Path.GetExtension(path);
+            return ext is ".jpg" or ".jpeg" or ".heic" or ".heif";
         }
 
         /// <summary>
