@@ -53,7 +53,6 @@ namespace LivePhotoBox.Models
         {
             ".heic" or ".heif" => "", // HEIC file icon
             ".jpg" or ".jpeg" => "",
-            ".png" => "",
             ".gif" => "",
             _ => "",
         };

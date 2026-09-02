@@ -11,7 +11,7 @@ namespace LivePhotoBox.Core.Tests.Media;
 public sealed class ImageConverterTests
 {
     [Fact]
-    public async Task Convert_PngToPng_UsesPngOutputExtensionAndPreservesContainer()
+    public async Task Convert_PngSource_IsRejectedAsUnsupportedProductInput()
     {
         using var workspace = new MediaWorkspace();
         string source = Path.Combine(workspace.RootDirectory, "source.png");
@@ -29,17 +29,15 @@ public sealed class ImageConverterTests
                 Path = source,
                 Kind = MediaArtifactKind.PrimaryImage,
                 MimeType = "image/png",
-                ImageContainer = ImageContainer.Png,
+                ImageContainer = ImageContainer.Unknown,
                 ByteLength = new FileInfo(source).Length
             },
-            TargetContainer = ImageContainer.Png,
+            TargetContainer = ImageContainer.Jpeg,
             TargetDirectory = workspace.RootDirectory
         });
 
-        Assert.True(result.Success, result.ErrorMessage);
-        Assert.NotNull(result.OutputArtifact);
-        Assert.EndsWith(".png", result.OutputArtifact.Path, StringComparison.OrdinalIgnoreCase);
-        Assert.Equal(ImageContainer.Png, result.ExecutionRecord.OutputContainer);
+        Assert.False(result.Success);
+        Assert.Contains("JPEG and HEIC", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
         Assert.False(result.ExecutionRecord.PixelReencoded);
     }
 

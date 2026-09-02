@@ -23,6 +23,25 @@ public sealed class ImageConverter : IImageConverter
 
         var sw = Stopwatch.StartNew();
 
+        if (request.SourceArtifact.ImageContainer is not ImageContainer.Jpeg and not ImageContainer.Heic)
+        {
+            sw.Stop();
+            return new ImageConversionResult
+            {
+                Success = false,
+                ErrorMessage = "Only JPEG and HEIC image sources are supported.",
+                ExecutionRecord = new ImageExecutionRecord
+                {
+                    InputContainer = request.SourceArtifact.ImageContainer,
+                    OutputContainer = request.TargetContainer,
+                    PixelReencoded = false,
+                    MetadataCopied = false,
+                    PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                    Duration = sw.Elapsed
+                }
+            };
+        }
+
         // Check if strict preservation is requested for cross-container conversion
         if (request.PreservationPolicy == PreservationPolicy.Strict &&
             request.SourceArtifact.ImageContainer != request.TargetContainer &&
@@ -48,8 +67,8 @@ public sealed class ImageConverter : IImageConverter
         string ext = request.TargetContainer switch
         {
             ImageContainer.Heic => ".heic",
-            ImageContainer.Png => ".png",
-            _ => ".jpg"
+            ImageContainer.Jpeg => ".jpg",
+            _ => throw new NotSupportedException("Only JPEG and HEIC image containers are supported.")
         };
         string outPath = Path.Combine(request.TargetDirectory, $"img-conv-{Guid.NewGuid():N}{ext}");
 
@@ -154,11 +173,6 @@ public sealed class ImageConverter : IImageConverter
             if (read >= 2 && header[0] == 0xFF && header[1] == 0xD8)
             {
                 return ImageContainer.Jpeg;
-            }
-            if (read >= 8 && header[..8].SequenceEqual(
-                new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A }))
-            {
-                return ImageContainer.Png;
             }
             if (read >= 12 && header[4] == (byte)'f' && header[5] == (byte)'t' && header[6] == (byte)'y' && header[7] == (byte)'p')
             {

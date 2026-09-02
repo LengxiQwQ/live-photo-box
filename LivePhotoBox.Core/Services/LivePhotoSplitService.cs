@@ -1,4 +1,8 @@
 using LivePhotoBox.Models;
+using LivePhotoBox.Media;
+using LivePhotoBox.Media.Models;
+using LivePhotoBox.Media.Workspace;
+using NeutralMediaBundle = LivePhotoBox.Protocols.Cleaning.NeutralMediaBundle;
 using System;
 using System.Buffers;
 using System.Collections.Generic;
@@ -65,9 +69,82 @@ namespace LivePhotoBox.Services
 
         public static Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int protocolIndex, int outputFormatIndex, CancellationToken token, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false, long? keyTimestampUs = null)
         {
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                return ProcessingPipelineRouter.RunRebuiltAsync("split", () => SplitRebuiltAsync(
+                    sourcePath, outputDirectory, protocolIndex, outputFormatIndex, token,
+                    inputDirectory, outputBaseName, overwriteExisting));
+            }
+
             return ProcessingPipelineRouter.RunAsync("split", () => SplitLegacyAsync(
                 sourcePath, outputDirectory, protocolIndex, outputFormatIndex, token,
                 inputDirectory, outputBaseName, overwriteExisting, keyTimestampUs));
+        }
+
+        // First rebuilt split slice: materialize a source single-file live photo into
+        // two independently usable media files. Target protocol metadata writers are
+        // intentionally not entered here yet; protocolIndex 0 is the format-validation
+        // path for the current stage.
+        private static async Task<LivePhotoSplitResult> SplitRebuiltAsync(
+            string sourcePath,
+            string outputDirectory,
+            int protocolIndex,
+            int outputFormatIndex,
+            CancellationToken token,
+            string? inputDirectory,
+            string? outputBaseName,
+            bool overwriteExisting)
+        {
+            if (protocolIndex != ProtocolFormatMatrix.SplitProtocolNone)
+            {
+                throw new InvalidOperationException(
+                    "Rebuilt split target protocol writers are not enabled yet; use --protocol none for format conversion validation.");
+            }
+
+            MediaFormatRequirement requirement = ProtocolMediaRequirements.GetSplitRequirement(
+                protocolIndex, outputFormatIndex);
+            using var workspace = new MediaWorkspace();
+            NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
+                sourcePath,
+                secondaryPath: null,
+                workspace,
+                requirement,
+                PreservationPolicy.BestEffort,
+                token).ConfigureAwait(false);
+
+            if (bundle.MotionVideo == null || !File.Exists(bundle.MotionVideo.Path))
+                throw new InvalidDataException("Rebuilt split requires a Native-inspected motion video.");
+            if (bundle.GainMap != null)
+                throw new InvalidOperationException(
+                    "Rebuilt split cannot yet reassemble an embedded GainMap into the standalone image without losing HDR data.");
+
+            string imageExtension = bundle.PrimaryImage.ImageContainer == ImageContainer.Heic ? ".HEIC" : ".JPG";
+            string videoExtension = bundle.MotionVideo.VideoContainer == VideoContainer.Mov ? ".MOV" : ".MP4";
+            (string imageOutputPath, string videoOutputPath) = BuildOutputPaths(
+                sourcePath,
+                outputDirectory,
+                imageExtension,
+                videoExtension,
+                inputDirectory,
+                outputBaseName,
+                overwriteExisting);
+
+            try
+            {
+                File.Copy(bundle.PrimaryImage.Path, imageOutputPath, overwrite: true);
+                File.Copy(bundle.MotionVideo.Path, videoOutputPath, overwrite: true);
+                return new LivePhotoSplitResult
+                {
+                    ImageOutputPath = imageOutputPath,
+                    VideoOutputPath = videoOutputPath
+                };
+            }
+            catch
+            {
+                try { if (File.Exists(imageOutputPath)) File.Delete(imageOutputPath); } catch { }
+                try { if (File.Exists(videoOutputPath)) File.Delete(videoOutputPath); } catch { }
+                throw;
+            }
         }
 
         private static async Task<LivePhotoSplitResult> SplitLegacyAsync(string sourcePath, string outputDirectory, int protocolIndex, int outputFormatIndex, CancellationToken token, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false, long? keyTimestampUs = null)

@@ -195,7 +195,7 @@ public sealed class ProcessingBackendSettingsTests
             ProcessingBackendSettingsService.Reset();
             string outputDirectory = Path.Combine(directory, "output");
 
-            await Assert.ThrowsAsync<RebuiltPipelineNotReadyException>(() =>
+            await Assert.ThrowsAsync<FileNotFoundException>(() =>
                 LivePhotoSplitService.SplitAsync(
                     Path.Combine(directory, "missing.jpg"), outputDirectory, 0, 0, CancellationToken.None));
 
@@ -227,7 +227,7 @@ public sealed class ProcessingBackendSettingsTests
             string missingImage = Path.Combine(directory, "missing.jpg");
             string missingVideo = Path.Combine(directory, "missing.mp4");
 
-            RebuiltPipelineNotReadyException exception = await Assert.ThrowsAsync<RebuiltPipelineNotReadyException>(() => operation switch
+            Exception? exception = await Record.ExceptionAsync(() => operation switch
             {
                 "merge" => LivePhotoMergeService.WriteLivePhotoAsync(
                     missingImage, missingVideo, Path.Combine(outputDirectory, "merged.jpg"), 2, CancellationToken.None),
@@ -245,7 +245,16 @@ public sealed class ProcessingBackendSettingsTests
                 _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null)
             });
 
-            Assert.Equal(operation, exception.Operation);
+            Assert.NotNull(exception);
+            if (operation == "split")
+            {
+                Assert.IsType<FileNotFoundException>(exception);
+            }
+            else
+            {
+                var rebuilt = Assert.IsType<RebuiltPipelineNotReadyException>(exception);
+                Assert.Equal(operation, rebuilt.Operation);
+            }
             Assert.False(Directory.Exists(outputDirectory));
         }
         finally

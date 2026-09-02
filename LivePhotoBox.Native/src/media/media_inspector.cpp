@@ -282,9 +282,6 @@ lpb_image_container detect_image_container(std::span<const uint8_t> header) noex
     if (header.size() >= 2 && header[0] == 0xFF && header[1] == 0xD8) {
         return LPB_IMAGE_CONTAINER_JPEG;
     }
-    if (header.size() >= 8 && header[0] == 0x89 && header[1] == 'P' && header[2] == 'N' && header[3] == 'G') {
-        return LPB_IMAGE_CONTAINER_PNG;
-    }
     if (header.size() >= 12 && header[4] == 'f' && header[5] == 't' && header[6] == 'y' && header[7] == 'p') {
         std::string_view brand(reinterpret_cast<const char*>(header.data() + 8), 4);
         if (brand == "heic" || brand == "heix" || brand == "heim" || brand == "heis" ||

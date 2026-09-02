@@ -250,6 +250,14 @@ namespace LivePhotoBox.Cli.Commands
         {
             try
             {
+                if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+                {
+                    return await ProcessingPipelineRouter.RunRebuiltAsync("split", () => RunLegacyAsync(
+                        singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
+                        parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,
+                        after, allVariants, keyTimestampUs, ct));
+                }
+
                 return await ProcessingPipelineRouter.RunAsync("split", () => RunLegacyAsync(
                     singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,

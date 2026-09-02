@@ -214,12 +214,30 @@ namespace LivePhotoBox.Services
             long presentationTimestampUs = 0,
             int outputFormatIndex = 0)
         {
-            return ProcessingPipelineRouter.RunAsync("merge", () => WriteLivePhotoLegacyAsync(
+            return ProcessingPipelineRouter.RunAsync("merge", () => WriteLivePhotoCoreAsync(
                 sourceImg, sourceVid, targetPath, selectedModeIndex, token,
                 presentationTimestampUs, outputFormatIndex));
         }
 
-        private static async Task WriteLivePhotoLegacyAsync(
+        // Rebuilt route: the writer itself is format/protocol byte assembly, while
+        // media probing, extraction and codec work stays in Native/NeutralMediaService.
+        // Keeping this boundary explicit prevents the rebuilt merge path from entering
+        // the archived Legacy router.
+        internal static Task WriteLivePhotoRebuiltAsync(
+            string sourceImg,
+            string sourceVid,
+            string targetPath,
+            int selectedModeIndex,
+            CancellationToken token,
+            long presentationTimestampUs = 0,
+            int outputFormatIndex = 0)
+        {
+            return ProcessingPipelineRouter.RunRebuiltAsync("merge", () => WriteLivePhotoCoreAsync(
+                sourceImg, sourceVid, targetPath, selectedModeIndex, token,
+                presentationTimestampUs, outputFormatIndex));
+        }
+
+        private static async Task WriteLivePhotoCoreAsync(
             string sourceImg,
             string sourceVid,
             string targetPath,

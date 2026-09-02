@@ -7,8 +7,7 @@ public enum ImageContainer
 {
     Unknown = 0,
     Jpeg = 1,
-    Heic = 2,
-    Png = 3
+    Heic = 2
 }
 
 /// <summary>
@@ -18,8 +17,7 @@ public enum ImageCodec
 {
     Unknown = 0,
     Jpeg = 1,
-    Hevc = 2,
-    Png = 3
+    Hevc = 2
 }
 
 /// <summary>

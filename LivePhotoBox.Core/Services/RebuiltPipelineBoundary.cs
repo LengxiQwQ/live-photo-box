@@ -14,8 +14,9 @@ public static class RebuiltPipelineBoundary
 }
 
 /// <summary>
-/// The rebuilt branch deliberately has no protocol writer/reader yet. It must
-/// fail before any Legacy implementation, Native protocol helper, or output is used.
+/// Operations that are not yet rebuilt must fail before any Legacy implementation,
+/// Native protocol helper, or output is used. Merge/split media conversion has its
+/// own rebuilt entry points; this exception remains for the unfinished operations.
 /// </summary>
 public sealed class RebuiltPipelineNotReadyException : InvalidOperationException
 {

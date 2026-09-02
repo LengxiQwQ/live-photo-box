@@ -322,8 +322,7 @@ typedef enum lpb_image_container
 {
     LPB_IMAGE_CONTAINER_UNKNOWN = 0,
     LPB_IMAGE_CONTAINER_JPEG = 1,
-    LPB_IMAGE_CONTAINER_HEIC = 2,
-    LPB_IMAGE_CONTAINER_PNG = 3
+    LPB_IMAGE_CONTAINER_HEIC = 2
 } lpb_image_container;
 
 typedef enum lpb_video_container

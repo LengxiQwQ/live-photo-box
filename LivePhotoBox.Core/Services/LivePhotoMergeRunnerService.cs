@@ -1,5 +1,9 @@
 using LivePhotoBox.Models;
+using LivePhotoBox.Media;
+using LivePhotoBox.Media.Models;
+using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Services.Protocols;
+using NeutralMediaBundle = LivePhotoBox.Protocols.Cleaning.NeutralMediaBundle;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -65,9 +69,154 @@ namespace LivePhotoBox.Services
             Action<IMergeTaskInfo>? onTaskStarted,
             Action<IMergeTaskInfo, bool, string, int>? onTaskCompleted)
         {
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                await ProcessingPipelineRouter.RunRebuiltAsync("merge", () => RunRebuiltAsync(
+                    tasks, options, pauseEvent, cancellationToken, onTaskStarted, onTaskCompleted))
+                    .ConfigureAwait(false);
+                return;
+            }
+
             await ProcessingPipelineRouter.RunAsync("merge", () => RunLegacyAsync(
                 tasks, options, pauseEvent, cancellationToken, onTaskStarted, onTaskCompleted))
                 .ConfigureAwait(false);
+        }
+
+        private static async Task RunRebuiltAsync(
+            IReadOnlyCollection<IMergeTaskInfo> tasks,
+            LivePhotoMergeRunOptions options,
+            ManualResetEventSlim pauseEvent,
+            CancellationToken cancellationToken,
+            Action<IMergeTaskInfo>? onTaskStarted,
+            Action<IMergeTaskInfo, bool, string, int>? onTaskCompleted)
+        {
+            Directory.CreateDirectory(options.OutputDirectory);
+            string tempDir = Path.Combine(options.OutputDirectory, "Temp");
+            Directory.CreateDirectory(tempDir);
+
+            try
+            {
+                int completedCount = 0;
+                int batchSize = Math.Max(1, options.MaxDegreeOfParallelism);
+                foreach (var batch in tasks.Where(task => task.Status != ProcessStatus.Success).Chunk(batchSize))
+                {
+                    await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var runningTasks = batch.Select(async task =>
+                    {
+                        await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        onTaskStarted?.Invoke(task);
+
+                        var result = await ProcessSinglePairRebuiltAsync(
+                            task.ImagePath, task.VideoPath, task.BaseName, task.Index, options, tempDir,
+                            cancellationToken).ConfigureAwait(false);
+                        int currentCompleted = Interlocked.Increment(ref completedCount);
+                        onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
+                    });
+
+                    await Task.WhenAll(runningTasks).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
+                catch (Exception ex) { LogService.Merge($"Failed to clean rebuilt temp dir: {ex.Message}", LogLevel.Warning); }
+            }
+        }
+
+        private static async Task<(bool IsSuccess, string Details)> ProcessSinglePairRebuiltAsync(
+            string imagePath,
+            string videoPath,
+            string baseName,
+            int taskIndex,
+            LivePhotoMergeRunOptions options,
+            string tempDir,
+            CancellationToken token)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            string? finalOutputPath = null;
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                MediaFormatRequirement requirement = ProtocolMediaRequirements.GetMergeRequirement(
+                    options.SelectedModeIndex, options.OutputFormatIndex);
+
+                using var workspace = new MediaWorkspace();
+                NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
+                    imagePath,
+                    videoPath,
+                    workspace,
+                    requirement,
+                    PreservationPolicy.BestEffort,
+                    token).ConfigureAwait(false);
+
+                if (bundle.MotionVideo == null || !File.Exists(bundle.MotionVideo.Path))
+                    throw new InvalidDataException("Rebuilt merge requires a Native-inspected motion video pair.");
+
+                string outputName = LivePhotoMergeService.CreateOutputFileName(
+                    baseName,
+                    options.SelectedModeIndex,
+                    bundle.PrimaryImage.Path,
+                    options.OutputFormatIndex,
+                    options.NamingRuleIndex,
+                    customPattern: options.NamingRuleIndex == 2 ? options.CustomNamingPattern : null,
+                    taskIndex: options.NamingRuleIndex == 2 ? taskIndex : null);
+
+                if (options.OutputFilePath != null)
+                {
+                    finalOutputPath = options.OutputFilePath;
+                    Directory.CreateDirectory(Path.GetDirectoryName(finalOutputPath)!);
+                }
+                else
+                {
+                    string outputDirectory = options.OutputDirectory;
+                    if (options.PreserveSubfolders && !string.IsNullOrEmpty(options.InputDirectory))
+                    {
+                        string? subDir = PathHelper.GetRelativeSubDirectory(options.InputDirectory, imagePath);
+                        if (!string.IsNullOrEmpty(subDir))
+                            outputDirectory = Path.Combine(outputDirectory, subDir);
+                    }
+
+                    Directory.CreateDirectory(outputDirectory);
+                    finalOutputPath = Path.Combine(outputDirectory, outputName);
+                    if (!options.OverwriteExisting)
+                        finalOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, outputName);
+                    else if (File.Exists(finalOutputPath))
+                        File.Delete(finalOutputPath);
+                }
+
+                await LivePhotoMergeService.WriteLivePhotoRebuiltAsync(
+                    bundle.PrimaryImage.Path,
+                    bundle.MotionVideo.Path,
+                    finalOutputPath,
+                    options.SelectedModeIndex,
+                    token,
+                    bundle.Timing.CoverTimestampUs,
+                    options.OutputFormatIndex).ConfigureAwait(false);
+
+                if (!File.Exists(finalOutputPath))
+                    throw new IOException("Rebuilt merge did not produce an output file.");
+
+                stopwatch.Stop();
+                LogService.Merge($"Rebuilt merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
+                return (true, ResourceService.GetString("Task_Success"));
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                stopwatch.Stop();
+                if (finalOutputPath != null && File.Exists(finalOutputPath))
+                {
+                    try { File.Delete(finalOutputPath); } catch { }
+                }
+                LogService.Merge($"Rebuilt merge failed for {baseName}: {ex.Message} ({stopwatch.Elapsed.TotalSeconds:F2}s)", LogLevel.Error, ex);
+                return (false, ResourceService.Format("Task_Error", ex.Message));
+            }
         }
 
         private static async Task RunLegacyAsync(
@@ -170,6 +319,12 @@ namespace LivePhotoBox.Services
             string tempDir,
             CancellationToken token)
         {
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                return ProcessingPipelineRouter.RunRebuiltAsync("merge", () => ProcessSinglePairRebuiltAsync(
+                    imagePath, videoPath, baseName, taskIndex, options, tempDir, token));
+            }
+
             return ProcessingPipelineRouter.RunAsync("merge", () => ProcessSinglePairLegacyAsync(
                 imagePath, videoPath, baseName, taskIndex, options, tempDir, token));
         }

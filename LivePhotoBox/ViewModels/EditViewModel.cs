@@ -2540,7 +2540,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand] private void Export() { }
         /// <summary>
         /// 导出当前帧：弹出多格式另存为窗口，用户选格式后按需转换。
-        /// 支持 JPEG / PNG / WebP / BMP / TIFF / HEIC。
+        /// 支持 JPEG / WebP / BMP / TIFF / HEIC。
         /// </summary>
         [RelayCommand]
         private async Task ExportCurrentFrame()

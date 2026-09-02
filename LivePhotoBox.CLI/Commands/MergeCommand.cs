@@ -251,6 +251,14 @@ namespace LivePhotoBox.Cli.Commands
         {
             try
             {
+                if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+                {
+                    return await ProcessingPipelineRouter.RunRebuiltAsync("merge", () => RunLegacyAsync(
+                        image, video, dir, protocolName, output, formatName, naming, namingExplicit,
+                        parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,
+                        pairing, after, allVariants, keyTimestampUs, ct));
+                }
+
                 return await ProcessingPipelineRouter.RunAsync("merge", () => RunLegacyAsync(
                     image, video, dir, protocolName, output, formatName, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,

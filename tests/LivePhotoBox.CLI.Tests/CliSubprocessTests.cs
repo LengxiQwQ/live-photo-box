@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Linq;
 using System.Text.Json;
 using Xunit;
 
@@ -8,26 +9,19 @@ namespace LivePhotoBox.Cli.Tests;
 public sealed class CliSubprocessTests
 {
     [Theory]
-    [InlineData("merge")]
-    [InlineData("split")]
     [InlineData("cover")]
     [InlineData("repair")]
-    public async Task RebuiltProcessingCommandsFailBeforeCreatingOutput(string operation)
+    public async Task RebuiltUnimplementedCommandsFailBeforeCreatingOutput(string operation)
     {
         string directory = CreateTempDirectory("lpb_cli_rebuilt_process_");
         try
         {
             string imagePath = Path.Combine(directory, "pair.jpg");
-            string videoPath = Path.Combine(directory, "pair.mp4");
             string outputDirectory = Path.Combine(directory, "output");
             await File.WriteAllBytesAsync(imagePath, [0xFF, 0xD8, 0xFF, 0xD9]);
-            await File.WriteAllBytesAsync(videoPath,
-                [0, 0, 0, 8, (byte)'f', (byte)'t', (byte)'y', (byte)'p']);
 
             string[] arguments = operation switch
             {
-                "merge" => ["merge", imagePath, videoPath, "--output", outputDirectory, "--overwrite", "--json"],
-                "split" => ["split", imagePath, "--output", outputDirectory, "--json"],
                 "cover" => ["cover", imagePath, "--at", "0.1", "--output", outputDirectory, "--json"],
                 "repair" => ["repair", imagePath, "--output", outputDirectory, "--json"],
                 _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null)
@@ -45,6 +39,65 @@ public sealed class CliSubprocessTests
             Assert.Equal(operation, json.RootElement.GetProperty("operation").GetString());
             Assert.False(Directory.Exists(outputDirectory));
             Assert.DoesNotContain("unknown bug", result.StdErr, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task RebuiltMergeAndSplitConvertTargetMediaShapes()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string directory = CreateTempDirectory("lpb_cli_rebuilt_conversion_");
+        string imagePath = Path.Combine(repositoryRoot, "designs", "各个机型测试", "苹果-双文件.JPG");
+        string videoPath = Path.Combine(repositoryRoot, "designs", "各个机型测试", "苹果-双文件.MOV");
+        string mergeDirectory = Path.Combine(directory, "merged");
+        string settingsPath = Path.Combine(directory, "rebuilt-settings.json");
+        string imageHash = await ComputeSha256Async(imagePath);
+        string videoHash = await ComputeSha256Async(videoPath);
+
+        try
+        {
+            CliResult merge = await RunCliAsync(
+                directory, settingsPath,
+                "merge", imagePath, videoPath,
+                "--all-variants", "--output", mergeDirectory, "--overwrite", "--yes", "--json");
+
+            Assert.True(merge.ExitCode == 0, $"merge stdout: {merge.StdOut}\nmerge stderr: {merge.StdErr}");
+            DirectoryInfo variantsDirectory = Assert.Single(new DirectoryInfo(mergeDirectory).GetDirectories("*_variants"));
+            FileInfo[] mergedFiles = variantsDirectory.GetFiles();
+            Assert.Equal(12, mergedFiles.Length);
+            Assert.All(mergedFiles, file => Assert.True(
+                file.Extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+                || file.Extension.Equals(".heic", StringComparison.OrdinalIgnoreCase)));
+            Assert.DoesNotContain(mergedFiles, file => file.Extension.Equals(".png", StringComparison.OrdinalIgnoreCase));
+
+            FileInfo mergedImage = mergedFiles.Single(
+                file => file.Name.Equals("苹果-双文件_MotionPhoto_JPEG+MP4.jpg", StringComparison.Ordinal));
+
+            foreach (string format in new[] { "keep", "jpg+mov", "heic+mov", "jpg+mp4" })
+            {
+                string splitDirectory = Path.Combine(directory, $"split-{format.Replace('+', '-')}");
+                CliResult split = await RunCliAsync(
+                    directory, settingsPath,
+                    "split", mergedImage.FullName,
+                    "--protocol", "none", "--format", format,
+                    "--output", splitDirectory, "--overwrite", "--yes", "--json");
+
+                Assert.True(split.ExitCode == 0, $"split {format} stdout: {split.StdOut}\nsplit stderr: {split.StdErr}");
+                FileInfo[] splitFiles = new DirectoryInfo(splitDirectory).GetFiles();
+                Assert.Equal(2, splitFiles.Length);
+                Assert.Contains(splitFiles, file => file.Extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase)
+                    || file.Extension.Equals(".heic", StringComparison.OrdinalIgnoreCase));
+                Assert.Contains(splitFiles, file => file.Extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase)
+                    || file.Extension.Equals(".mov", StringComparison.OrdinalIgnoreCase));
+            }
+
+            Assert.Equal(imageHash, await ComputeSha256Async(imagePath));
+            Assert.Equal(videoHash, await ComputeSha256Async(videoPath));
         }
         finally
         {
@@ -170,6 +223,12 @@ public sealed class CliSubprocessTests
         string directory = Path.Combine(Path.GetTempPath(), prefix + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
         return directory;
+    }
+
+    private static async Task<string> ComputeSha256Async(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        return Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(stream));
     }
 
     private sealed record CliResult(int ExitCode, string StdOut, string StdErr);

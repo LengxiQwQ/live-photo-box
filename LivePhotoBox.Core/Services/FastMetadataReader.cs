@@ -4,7 +4,7 @@
  * 不依赖 exiftool，从文件二进制头直接读取宽高与 EXIF 拍摄日期的快速读取器。
  *
  *   - 扫描目录时替代 exiftool 逐文件查询（数千文件 < 0.1s）
- *   - 支持 JPEG（SOF 标记 + APP1 EXIF IFD）、PNG（IHDR）、GIF、BMP、WebP
+ *   - 支持 JPEG（SOF 标记 + APP1 EXIF IFD）、GIF、BMP、WebP
  *   - HEIC 等不支持的格式返回 (0,0,null)，调用方回退到 exiftool
  */
 
@@ -35,7 +35,6 @@ public static class FastMetadataReader
             return ext switch
             {
                 ".jpg" or ".jpeg" => ReadJpeg(fs),
-                ".png"            => ReadPng(fs),
                 ".gif"            => ReadGif(fs),
                 ".bmp"            => ReadBmp(fs),
                 ".webp"           => ReadWebP(fs),
@@ -235,25 +234,6 @@ public static class FastMetadataReader
         int len = 0;
         while (offset + len < end && buf[offset + len] != 0) len++;
         return len > 0 ? Encoding.ASCII.GetString(buf, offset, len) : null;
-    }
-
-    // ═══════════════════════════════════════════════════
-    //  PNG: IHDR chunk (固定偏移, 一个文件的读取 < 0.1ms)
-    // ═══════════════════════════════════════════════════
-
-    private static (int Width, int Height, string? DateTaken) ReadPng(FileStream fs)
-    {
-        // PNG signature (8 bytes) + IHDR length (4) + "IHDR" (4) = 16 → 数据从 offset 16 开始
-        // offset 16: Width (4B BE), offset 20: Height (4B BE)
-        Span<byte> header = stackalloc byte[24];
-        fs.ReadExactly(header);
-
-        if (header[0] != 0x89 || header[1] != 'P' || header[2] != 'N' || header[3] != 'G')
-            return (0, 0, null);
-
-        int w = BinaryPrimitives.ReadInt32BigEndian(header.Slice(16));
-        int h = BinaryPrimitives.ReadInt32BigEndian(header.Slice(20));
-        return (w, h, null); // PNG 无标准 EXIF 日期
     }
 
     // ═══════════════════════════════════════════════════

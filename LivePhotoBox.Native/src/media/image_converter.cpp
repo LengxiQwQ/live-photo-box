@@ -53,6 +53,12 @@ lpb_result convert_image_file(
 
     lpb_image_container src_cont = detect_image_container(std::span<const uint8_t>(header, sizeof(header)));
 
+    if (target_container != LPB_IMAGE_CONTAINER_JPEG &&
+        target_container != LPB_IMAGE_CONTAINER_HEIC) {
+        set_error(context, "Only JPEG and HEIC image containers are supported.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
     // 1. Same container format -> Direct structure copy (no loss, no re-encoding)
     if (src_cont == target_container && target_container != LPB_IMAGE_CONTAINER_UNKNOWN) {
         if (out_reencoded) *out_reencoded = 0;
@@ -110,9 +116,7 @@ lpb_result convert_image_file(
 
     // Determine target WIC container GUID
     GUID target_guid = GUID_ContainerFormatJpeg;
-    if (target_container == LPB_IMAGE_CONTAINER_PNG) {
-        target_guid = GUID_ContainerFormatPng;
-    } else if (target_container == LPB_IMAGE_CONTAINER_HEIC) {
+    if (target_container == LPB_IMAGE_CONTAINER_HEIC) {
         target_guid = GUID_ContainerFormatHeif;
     }
 
