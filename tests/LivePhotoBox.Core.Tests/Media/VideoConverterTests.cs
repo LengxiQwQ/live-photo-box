@@ -314,6 +314,22 @@ public sealed class VideoConverterTests
     }
 
     [Fact]
+    public async Task Probe_IncompleteIsoBmff_ThrowsInsteadOfReturningGuessedFacts()
+    {
+        using var workspace = new MediaWorkspace();
+        string inputPath = workspace.AllocateFilePath("incomplete_video", ".mp4");
+        await File.WriteAllBytesAsync(inputPath, [
+            0x00, 0x00, 0x00, 0x10, (byte)'f', (byte)'t', (byte)'y', (byte)'p',
+            (byte)'m', (byte)'p', (byte)'4', (byte)'2', 0x00, 0x00, 0x00, 0x00
+        ]);
+
+        var converter = new VideoConverter();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => converter.ProbeAsync(inputPath));
+
+        Assert.Contains("moov/mdat", error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Convert_SourceProbeFailure_DoesNotGuessFromArtifact()
     {
         using var workspace = new MediaWorkspace();

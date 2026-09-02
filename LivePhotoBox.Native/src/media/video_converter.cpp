@@ -112,6 +112,10 @@ lpb_result probe_video_file(
     out_video_facts->file_range.length = static_cast<uint64_t>(file_size);
 
     auto boxes = scan_top_level_boxes(file, static_cast<uint64_t>(file_size));
+    if (boxes.empty() || boxes.back().offset + boxes.back().size != static_cast<uint64_t>(file_size)) {
+        set_error(context, "Video file does not contain a complete ISO-BMFF box layout.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     
     // Check ftyp for container
     bool found_ftyp = false;
@@ -136,11 +140,12 @@ lpb_result probe_video_file(
 
     // Locate and read moov box
     const BoxHeader* moov_box = nullptr;
+    bool has_mdat = false;
     for (const auto& b : boxes) {
         if (std::memcmp(b.type, "moov", 4) == 0) {
             moov_box = &b;
-            break;
         }
+        if (std::memcmp(b.type, "mdat", 4) == 0) has_mdat = true;
     }
 
     if (moov_box && moov_box->size > 8 && moov_box->size <= 64 * 1024 * 1024) {
@@ -348,6 +353,14 @@ lpb_result probe_video_file(
 
             pos = trak_end;
         }
+    }
+
+    const bool has_video_track = out_video_facts->codec != LPB_VIDEO_CODEC_UNKNOWN &&
+        out_video_facts->width > 0 && out_video_facts->height > 0;
+    if (moov_box == nullptr || !has_mdat || !has_video_track ||
+        out_video_facts->duration_seconds <= 0 || out_video_facts->fps <= 0) {
+        set_error(context, "Video probe could not establish a complete video stream (moov/mdat, codec, dimensions, duration, or frame rate missing).");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     return LPB_RESULT_OK;
