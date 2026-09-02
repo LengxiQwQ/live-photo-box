@@ -3287,6 +3287,9 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="EditPage_ExportGifFailed" xml:space="preserve">
     <value>GIF 生成失败</value>
   </data>
+  <data name="EditPage_RebuiltGifUnsupported" xml:space="preserve">
+    <value>新版 Native 媒体管线暂不支持 GIF 导出。</value>
+  </data>
   <data name="EditPage_SaveKeyPhotoFailed" xml:space="preserve">
     <value>更换封面保存失败</value>
   </data>

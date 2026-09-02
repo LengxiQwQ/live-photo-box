@@ -101,6 +101,10 @@ lpb protocols
 # 查看 GUI 与 CLI 共用的处理分支配置
 lpb backend
 
+# 通过新版 Native 媒体管线转换独立媒体（不启动外部媒体 CLI）
+lpb convert input.mov -o output.mp4 --codec h264
+lpb convert input.heic -o output.jpg
+
 # 转换单个文件对（iPhone → Google 相册）
 lpb merge photo.heic video.mov -p motionphoto -y
 
@@ -126,6 +130,7 @@ lpb cover photo.jpg --at 1.5 -y
 
 | 命令 | 说明 |
 |------|------|
+| `lpb convert` | 通过新版 Native 媒体管线转换独立 JPEG/HEIC 图片或 MOV/MP4 视频 |
 | `lpb protocols` | 查看协议 × 格式兼容矩阵与设备支持 |
 | `lpb merge` | 合成图片 + 视频（单对或批量） |
 | `lpb split` | 把单文件实况照片拆回独立的图片与视频 |
@@ -138,7 +143,7 @@ lpb cover photo.jpg --at 1.5 -y
 
 ### `backend` — 配置全局处理分支
 
-GUI 与 CLI 共用 `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`。这里只有一个全局开关，不按协议分别设置。默认是 `rebuilt`：它隔离且尚未实现任何厂商协议，处理命令会在调用旧逻辑前明确停止。只有需要使用保留的 `v2.2.1` 兼容实现时才设为 `legacy`。
+GUI 与 CLI 共用 `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`。这里只有一个全局开关，不按协议分别设置。默认是 `rebuilt`。新版独立媒体转换通过 Native C++ 媒体库执行，不启动 FFmpeg 或其他外部媒体 CLI。目标协议写入器尚未接入，因此 `merge`、`split`、`cover`、`repair` 会在调用旧逻辑前明确停止。只有明确需要保留的 `v2.2.1` 兼容实现时才设为 `legacy`。
 
 | 目标 | 命令 |
 |------|------|
@@ -147,7 +152,18 @@ GUI 与 CLI 共用 `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`。这里�
 | 使用隔离的新重构分支 | `lpb backend mode rebuilt` |
 | 删除共享配置并恢复“新重构分支”默认值 | `lpb backend reset` |
 
-`rebuilt` 绝不自动回退到 `legacy`，也不会产出协议文件。使用 `--json` 时，未就绪错误的 `errorCode` 固定为 `rebuilt_not_ready`，退出码为 1。
+`rebuilt` 绝不自动回退到 `legacy`。`lpb convert` 是第一个面向用户的新版媒体操作；Native 探测或转换失败会明确失败，不会猜测媒体事实或继续产出文件。协议命令仍使用 `--json` 返回固定的 `errorCode=rebuilt_not_ready`，退出码为 1。
+
+### `convert` — 新版 Native 独立媒体转换
+
+`convert` 接受独立的 JPEG/HEIC 图片或 MOV/MP4 视频。图片输出格式由扩展名决定（`.jpg`/`.jpeg` 或 `.heic`/`.heif`），视频输出格式由扩展名决定（`.mp4` 或 `.mov`）。视频可用 `--codec copy`、`--codec h264` 或 `--codec hevc` 选择流复制/remux 或真正的 Native 重编码。转换前一定由 Native 探测源文件；探测失败会明确失败，不会使用调用方提供的猜测值继续转换。
+
+```powershell
+lpb convert input.mov -o output.mp4 --codec h264
+lpb convert input.mp4 -o output.mov --codec hevc
+lpb convert input.heic -o output.jpg
+lpb convert input.jpg -o output.heic --overwrite
+```
 
 ---
 

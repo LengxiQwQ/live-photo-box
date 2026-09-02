@@ -24,10 +24,9 @@ internal static class ConvertCommand
         {
             Description = "Source image or video (.jpg/.jpeg/.heic/.heif/.mp4/.mov)."
         };
-        var output = new Option<FileInfo>("--output", "-o")
+        var output = new Option<FileInfo?>("--output", "-o")
         {
-            Description = "Destination path. The extension selects the target container.",
-            IsRequired = true
+            Description = "Destination path. The extension selects the target container."
         };
         var codec = new Option<string>("--codec")
         {
@@ -55,9 +54,16 @@ internal static class ConvertCommand
         command.SetAction(async (parseResult, cancellationToken) =>
         {
             FileInfo sourceFile = parseResult.GetValue(source)!;
-            FileInfo outputFile = parseResult.GetValue(output)!;
+            FileInfo? outputFile = parseResult.GetValue(output);
             string codecValue = parseResult.GetValue(codec)!;
             bool allowOverwrite = parseResult.GetValue(overwrite);
+
+            if (outputFile == null)
+            {
+                CliConsole.WriteErrorLine("Error: Required option '--output' was not provided.");
+                Environment.ExitCode = 1;
+                return;
+            }
 
             try
             {

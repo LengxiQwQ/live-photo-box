@@ -8,8 +8,8 @@ namespace LivePhotoBox.Services;
 
 /// <summary>
 /// Stores the one product-wide branch switch. It is deliberately not a
-/// protocol/backend matrix: Legacy is the preserved compatibility branch and
-/// Rebuilt is the isolated, currently unimplemented branch.
+/// protocol/backend matrix: Rebuilt is the default Native media branch and
+/// Legacy is retained only as an explicit compatibility branch.
 /// </summary>
 public static class ProcessingBackendSettingsService
 {

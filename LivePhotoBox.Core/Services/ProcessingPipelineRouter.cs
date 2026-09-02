@@ -45,8 +45,9 @@ public sealed class ProcessingOperationSession
 }
 
 /// <summary>
-/// The only product-wide processing router. It selects Legacy or the currently
-/// empty Rebuilt branch before the supplied operation can create or mutate output.
+/// The only product-wide processing router. Legacy operations enter through
+/// <see cref="RunAsync(string, Func{Task})"/>; Native media operations enter
+/// through <see cref="RunRebuiltAsync{T}(string, Func{Task{T}})"/>.
 /// </summary>
 public static class ProcessingPipelineRouter
 {
@@ -94,6 +95,16 @@ public static class ProcessingPipelineRouter
     /// deliberately separate from <see cref="RunAsync{T}"/>, whose callback is
     /// the preserved Legacy implementation used by the old protocol commands.
     /// </summary>
+    public static async Task RunRebuiltAsync(string operation, Func<Task> rebuiltAction)
+    {
+        ArgumentNullException.ThrowIfNull(rebuiltAction);
+        await RunRebuiltAsync<object?>(operation, async () =>
+        {
+            await rebuiltAction().ConfigureAwait(false);
+            return null;
+        }).ConfigureAwait(false);
+    }
+
     public static async Task<T> RunRebuiltAsync<T>(string operation, Func<Task<T>> rebuiltAction)
     {
         ArgumentNullException.ThrowIfNull(rebuiltAction);

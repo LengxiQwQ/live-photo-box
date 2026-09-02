@@ -18,9 +18,12 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Interop;
+using LivePhotoBox.Media;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Video;
+using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Models;
+using LivePhotoBox.Protocols.Cleaning;
 using LivePhotoBox.Services;
 using LivePhotoBox.Services.Protocols;
 using Microsoft.UI.Xaml;
@@ -3343,7 +3346,12 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            string? videoPath = await ResolveVideoPathForExportAsync(item);
+            bool isRebuilt = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt;
+            string? videoPath = isRebuilt
+                ? await ProcessingPipelineRouter.RunRebuiltAsync(
+                    "edit.video-export",
+                    () => ResolveVideoPathForRebuiltExportAsync(item))
+                : await ResolveVideoPathForExportAsync(item);
             if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
             {
                 ShowExportGuardError(ResourceService.GetString("EditPage_GuardNoVideoSource"));
@@ -3368,11 +3376,25 @@ namespace LivePhotoBox.ViewModels
             try
             {
                 var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
-                var result = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt
-                    ? await ExportVideoWithNativeAsync(videoPath, targetFile.Path, cts.Token)
-                    : await VideoTranscodeService.TranscodeToMp4Async(videoPath, targetFile.Path, cts.Token);
+                bool isMp4 = Path.GetExtension(targetFile.Path).Equals(".mp4", StringComparison.OrdinalIgnoreCase);
+                bool success;
+                string? errorMessage;
+                if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+                {
+                    (success, errorMessage) = await ProcessingPipelineRouter.RunRebuiltAsync(
+                        "edit.video-export",
+                        () => ExportVideoWithNativeAsync(videoPath, targetFile.Path, cts.Token));
+                }
+                else
+                {
+                    VideoTranscodeService.TranscodeResult legacyResult = isMp4
+                        ? await VideoTranscodeService.TranscodeToMp4Async(videoPath, targetFile.Path, cts.Token)
+                        : await VideoTranscodeService.TranscodeToMovAsync(videoPath, targetFile.Path, cts.Token);
+                    success = legacyResult.Success;
+                    errorMessage = legacyResult.ErrorMessage;
+                }
 
-                if (result.Success)
+                if (success)
                 {
                     CompleteExportProgress(
                         ResourceService.GetString("EditPage_ExportVideoComplete"),
@@ -3382,7 +3404,7 @@ namespace LivePhotoBox.ViewModels
                 {
                     FailExportProgress(
                         ResourceService.GetString("EditPage_ExportVideoFailed"),
-                        result.ErrorMessage ?? ResourceService.GetString("EditPage_UnknownError"),
+                        errorMessage ?? ResourceService.GetString("EditPage_UnknownError"),
                         Path.GetDirectoryName(targetFile.Path));
                 }
             }
@@ -3443,6 +3465,12 @@ namespace LivePhotoBox.ViewModels
         private async Task ExportGif()
         {
             if (IsExporting && !IsShowingSaveComplete) return;
+
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                ShowExportGuardError(ResourceService.GetString("EditPage_RebuiltGifUnsupported"));
+                return;
+            }
 
             // 1. 验证是实况照片
             var item = FileItems.FirstOrDefault(f =>
@@ -3877,7 +3905,49 @@ namespace LivePhotoBox.ViewModels
             return null;
         }
 
+        /// <summary>
+        /// Resolves the video for Rebuilt export through the Native-backed
+        /// Inspect -> Extract -> Clean pipeline. It deliberately does not use
+        /// the Legacy protocol parsers or FFmpeg extraction helpers.
+        /// </summary>
+        private async Task<string?> ResolveVideoPathForRebuiltExportAsync(
+            EditFileItem item,
+            CancellationToken cancellationToken = default)
+        {
+            CleanupExportMediaWorkspace();
+
+            var workspace = new MediaWorkspace();
+            try
+            {
+                string? secondaryPath = item.LivePhotoType == LivePhotoType.DualFile
+                    && !string.IsNullOrWhiteSpace(item.PairedVideoPath)
+                    ? item.PairedVideoPath
+                    : null;
+
+                NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
+                    item.FilePath,
+                    secondaryPath,
+                    workspace,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+
+                if (bundle.MotionVideo == null || !File.Exists(bundle.MotionVideo.Path))
+                {
+                    workspace.Dispose();
+                    return null;
+                }
+
+                _exportMediaWorkspace = workspace;
+                return bundle.MotionVideo.Path;
+            }
+            catch
+            {
+                workspace.Dispose();
+                throw;
+            }
+        }
+
         private string? _exportTempVideoPath;
+        private IMediaWorkspace? _exportMediaWorkspace;
 
         private void CleanupExportTempVideo()
         {
@@ -3885,6 +3955,16 @@ namespace LivePhotoBox.ViewModels
             {
                 try { if (File.Exists(_exportTempVideoPath)) File.Delete(_exportTempVideoPath); } catch { }
                 _exportTempVideoPath = null;
+            }
+            CleanupExportMediaWorkspace();
+        }
+
+        private void CleanupExportMediaWorkspace()
+        {
+            if (_exportMediaWorkspace != null)
+            {
+                try { _exportMediaWorkspace.Dispose(); } catch { }
+                _exportMediaWorkspace = null;
             }
         }
 
@@ -4103,7 +4183,7 @@ namespace LivePhotoBox.ViewModels
                 videoPath = filePath;
             }
 
-            if (videoPath != null)
+            if (videoPath != null && ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Legacy)
             {
                 LogService.FileOp(
                     $"Timeline[SelectFile]: DualFile, videoPath='{videoPath}', exists={File.Exists(videoPath)}",
@@ -4113,6 +4193,12 @@ namespace LivePhotoBox.ViewModels
                 _earlyFfmpegCts = new CancellationTokenSource();
                 _earlyFfmpegTask = VideoFrameExtractionService.ExtractAllFramesAsync(
                     videoPath, _earlyFfmpegCts.Token);
+            }
+            else if (videoPath != null)
+            {
+                LogService.FileOp(
+                    "Timeline[SelectFile]: Rebuilt Native mode skips the Legacy FFmpeg frame extractor.",
+                    LogLevel.Info);
             }
             else if (item?.LivePhotoType == LivePhotoType.SingleFileJpeg && item.AppendedVideoLength > 0)
             {
@@ -4794,6 +4880,14 @@ namespace LivePhotoBox.ViewModels
             byte[]? originalPhotoBytes = null,
             bool isOppo = false)
         {
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                LogService.FileOp(
+                    "Timeline[Extract] SKIP: Rebuilt Native mode does not use the Legacy FFmpeg frame extractor.",
+                    LogLevel.Info);
+                return;
+            }
+
             bool split = Math.Abs(coverTimeSeconds - photoTimeSeconds) > 0.001;
             LogService.FileOp(
                 $"Timeline[Extract] START: video='{Path.GetFileName(videoPath)}', " +

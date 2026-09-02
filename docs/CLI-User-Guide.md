@@ -101,6 +101,10 @@ lpb protocols
 # View the shared processing-branch configuration
 lpb backend
 
+# Convert standalone media through the Rebuilt Native pipeline (no external media CLI)
+lpb convert input.mov -o output.mp4 --codec h264
+lpb convert input.heic -o output.jpg
+
 # Convert a single pair (iPhone → Google Photos)
 lpb merge photo.heic video.mov -p motionphoto -y
 
@@ -126,6 +130,7 @@ lpb cover photo.jpg --at 1.5 -y
 
 | Command | Description |
 |---------|-------------|
+| `lpb convert` | Convert a standalone JPEG/HEIC image or MOV/MP4 video through the Rebuilt Native media pipeline |
 | `lpb protocols` | View protocol × format compatibility and device support |
 | `lpb merge` | Merge image+video pairs (single pair or batch) |
 | `lpb split` | Split single-file live photos into separate image and video files |
@@ -138,7 +143,7 @@ The `update` / `update-check` commands are covered in the Updating section above
 
 ### `backend` — Configure the global processing branch
 
-The GUI and CLI share `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`. There is one global switch, not one setting per protocol. It defaults to `rebuilt`. The rebuilt branch is isolated and currently implements no vendor protocol, so processing commands stop before Legacy code is used. Set `legacy` only when you want the preserved `v2.2.1` compatibility implementation.
+The GUI and CLI share `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`. There is one global switch, not one setting per protocol. It defaults to `rebuilt`. Rebuilt standalone media conversion runs through the Native C++ media library and does not launch FFmpeg or another external media CLI. Vendor protocol writers are not enabled yet, so `merge`, `split`, `cover`, and `repair` still stop before Legacy code is used. Set `legacy` only when you explicitly need the preserved `v2.2.1` compatibility implementation.
 
 | Goal | Command |
 |------|---------|
@@ -147,7 +152,18 @@ The GUI and CLI share `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`. There
 | Use the new isolated branch | `lpb backend mode rebuilt` |
 | Delete the shared configuration and restore the Rebuilt default | `lpb backend reset` |
 
-`rebuilt` deliberately does not fall back to Legacy. Until the neutral-media pipeline is implemented, a processing command reports a clear not-ready error (`errorCode: rebuilt_not_ready` with `--json`) and creates no output.
+`rebuilt` deliberately does not fall back to Legacy. `lpb convert` is the first user-facing Rebuilt media operation; it fails clearly when Native probing or conversion fails and creates no guessed output. Vendor protocol commands continue to report the not-ready error (`errorCode: rebuilt_not_ready` with `--json`) and create no output.
+
+### `convert` — Rebuilt Native standalone media conversion
+
+`convert` accepts a standalone JPEG/HEIC image or MOV/MP4 video. Image output is selected by the output extension (`.jpg`/`.jpeg` or `.heic`/`.heif`). Video output is selected by the output extension (`.mp4` or `.mov`); use `--codec copy`, `--codec h264`, or `--codec hevc` to select stream copy/remux or a real Native transcode. The source is probed by Native before conversion; a failed probe is an explicit failure and never falls back to caller-supplied guesses.
+
+```powershell
+lpb convert input.mov -o output.mp4 --codec h264
+lpb convert input.mp4 -o output.mov --codec hevc
+lpb convert input.heic -o output.jpg
+lpb convert input.jpg -o output.heic --overwrite
+```
 
 ---
 

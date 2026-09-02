@@ -149,6 +149,41 @@ public sealed class ProcessingBackendSettingsTests
     }
 
     [Fact]
+    public async Task RebuiltRouter_InvokesNativeOperationAndFreezesRebuiltMode()
+    {
+        await SettingsTestLock.WaitAsync();
+        string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
+        string? previous = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
+        try
+        {
+            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", Path.Combine(directory, "settings.json"));
+            ProcessingBackendSettingsService.Reset();
+
+            int calls = 0;
+            string result = await ProcessingPipelineRouter.RunRebuiltAsync("convert", async () =>
+            {
+                Assert.Equal(ProcessingPipelineMode.Rebuilt, ProcessingPipelineRouter.Current?.Mode);
+                Assert.Equal("convert", ProcessingPipelineRouter.Current?.Operation);
+                calls++;
+                ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
+                await Task.Yield();
+                Assert.Equal(ProcessingPipelineMode.Rebuilt, ProcessingPipelineRouter.Current?.Mode);
+                return "native";
+            });
+
+            Assert.Equal("native", result);
+            Assert.Equal(1, calls);
+            Assert.Null(ProcessingPipelineRouter.Current);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", previous);
+            TryDeleteDirectory(directory);
+            SettingsTestLock.Release();
+        }
+    }
+
+    [Fact]
     public async Task RebuiltSplit_StopsBeforeSourceOrOutputHandling()
     {
         await SettingsTestLock.WaitAsync();

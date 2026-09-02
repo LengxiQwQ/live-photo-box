@@ -1,4 +1,9 @@
 using ImageMagick;
+using LivePhotoBox.Media;
+using LivePhotoBox.Media.Models;
+using LivePhotoBox.Media.Workspace;
+using LivePhotoBox.Models;
+using LivePhotoBox.Protocols.Cleaning;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -41,6 +46,14 @@ namespace LivePhotoBox.Services
         {
             token.ThrowIfCancellationRequested();
 
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                await ProcessingPipelineRouter.RunRebuiltAsync(
+                    "edit.image-export",
+                    () => ConvertWithRebuiltNativeAsync(sourcePath, targetPath, quality, token));
+                return;
+            }
+
             string targetExt = Path.GetExtension(targetPath);
 
             // 源和目标格式相同 → 直接复制
@@ -69,6 +82,41 @@ namespace LivePhotoBox.Services
                     LogService.Merge($"ImageFormat: EXIF copy failed (non-fatal): {ex.Message}", LogLevel.Warning);
                 }
             }
+        }
+
+        private static async Task ConvertWithRebuiltNativeAsync(
+            string sourcePath, string targetPath, int quality, CancellationToken token)
+        {
+            ImageContainer targetContainer = Path.GetExtension(targetPath).ToLowerInvariant() switch
+            {
+                ".jpg" or ".jpeg" => ImageContainer.Jpeg,
+                ".heic" or ".heif" => ImageContainer.Heic,
+                _ => throw new NotSupportedException(
+                    "The Rebuilt Native image pipeline currently supports JPEG and HEIC output only.")
+            };
+
+            await using var workspace = new MediaWorkspace();
+            NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
+                sourcePath,
+                secondaryPath: null,
+                workspace,
+                new MediaFormatRequirement
+                {
+                    ImageContainer = targetContainer,
+                    VideoContainer = VideoContainer.Unknown,
+                    VideoCodec = VideoCodec.Copy
+                },
+                PreservationPolicy.AllowDiscard,
+                token).ConfigureAwait(false);
+
+            if (bundle.PrimaryImage == null || !File.Exists(bundle.PrimaryImage.Path))
+                throw new IOException("The Rebuilt Native image pipeline produced no image output.");
+
+            if (quality is < 1 or > 100)
+                throw new ArgumentOutOfRangeException(nameof(quality), "Image quality must be between 1 and 100.");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(targetPath))!);
+            File.Copy(bundle.PrimaryImage.Path, targetPath, overwrite: true);
         }
 
         /// <summary>

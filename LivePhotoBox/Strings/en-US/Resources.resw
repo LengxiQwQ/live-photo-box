@@ -3287,6 +3287,9 @@ The rebuilt branch is not ready yet. Legacy was not called and no output was cre
   <data name="EditPage_ExportGifFailed" xml:space="preserve">
     <value>GIF generation failed</value>
   </data>
+  <data name="EditPage_RebuiltGifUnsupported" xml:space="preserve">
+    <value>GIF export is not available in the Rebuilt Native media pipeline yet.</value>
+  </data>
   <data name="EditPage_SaveKeyPhotoFailed" xml:space="preserve">
     <value>Key Photo save failed</value>
   </data>
