@@ -54,13 +54,49 @@ public sealed class ImageConverterTests
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.False(result.ExecutionRecord.PixelReencoded);
+        Assert.True(result.ExecutionRecord.MetadataCopied);
+        Assert.Equal(PreservationOutcome.Preserved, result.ExecutionRecord.PreservationOutcome);
         Assert.Equal(ImageContainer.Jpeg, result.ExecutionRecord.InputContainer);
         Assert.Equal(ImageContainer.Jpeg, result.ExecutionRecord.OutputContainer);
     }
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Convert_HeicToJpeg_ConvertsPixelsAndEmitsRecord()
+    public async Task Convert_HeicToHeic_PerformsStructureCopyWithoutReencoding()
+    {
+        string sample = ResolveSample("苹果双文件.HEIC");
+        using var workspace = new MediaWorkspace();
+
+        var artifact = new MediaArtifact
+        {
+            Path = sample,
+            Kind = MediaArtifactKind.PrimaryImage,
+            MimeType = "image/heic",
+            ImageContainer = ImageContainer.Heic,
+            ByteLength = new FileInfo(sample).Length
+        };
+
+        var converter = new ImageConverter();
+        var result = await converter.ConvertAsync(new ImageConversionRequest
+        {
+            SourceArtifact = artifact,
+            TargetContainer = ImageContainer.Heic,
+            TargetDirectory = workspace.RootDirectory
+        });
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputArtifact);
+        Assert.True(File.Exists(result.OutputArtifact.Path));
+        Assert.False(result.ExecutionRecord.PixelReencoded);
+        Assert.True(result.ExecutionRecord.MetadataCopied);
+        Assert.Equal(PreservationOutcome.Preserved, result.ExecutionRecord.PreservationOutcome);
+        Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.InputContainer);
+        Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.OutputContainer);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Convert_HeicToJpeg_ConvertsPixelsAndEmitsTruthfulRecord()
     {
         string sample = ResolveSample("苹果双文件.HEIC");
         using var workspace = new MediaWorkspace();
@@ -80,14 +116,81 @@ public sealed class ImageConverterTests
             SourceArtifact = artifact,
             TargetContainer = ImageContainer.Jpeg,
             TargetDirectory = workspace.RootDirectory,
-            Quality = 90
+            Quality = 90,
+            PreservationPolicy = PreservationPolicy.BestEffort
         });
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.True(result.ExecutionRecord.PixelReencoded);
+        Assert.False(result.ExecutionRecord.MetadataCopied);
+        Assert.Equal(PreservationOutcome.DegradedToSdr, result.ExecutionRecord.PreservationOutcome);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.InputContainer);
         Assert.Equal(ImageContainer.Jpeg, result.ExecutionRecord.OutputContainer);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Convert_JpegToHeic_ConvertsPixelsAndEmitsTruthfulRecord()
+    {
+        string sample = ResolveSample("oppo.jpg");
+        using var workspace = new MediaWorkspace();
+
+        var artifact = new MediaArtifact
+        {
+            Path = sample,
+            Kind = MediaArtifactKind.PrimaryImage,
+            MimeType = "image/jpeg",
+            ImageContainer = ImageContainer.Jpeg,
+            ByteLength = new FileInfo(sample).Length
+        };
+
+        var converter = new ImageConverter();
+        var result = await converter.ConvertAsync(new ImageConversionRequest
+        {
+            SourceArtifact = artifact,
+            TargetContainer = ImageContainer.Heic,
+            TargetDirectory = workspace.RootDirectory,
+            PreservationPolicy = PreservationPolicy.BestEffort
+        });
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputArtifact);
+        Assert.True(File.Exists(result.OutputArtifact.Path));
+        Assert.True(result.ExecutionRecord.PixelReencoded);
+        Assert.False(result.ExecutionRecord.MetadataCopied);
+        Assert.Equal(PreservationOutcome.DegradedToSdr, result.ExecutionRecord.PreservationOutcome);
+        Assert.Equal(ImageContainer.Jpeg, result.ExecutionRecord.InputContainer);
+        Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.OutputContainer);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Convert_CrossContainerStrictPolicy_FailsExplicitly()
+    {
+        string sample = ResolveSample("oppo.jpg");
+        using var workspace = new MediaWorkspace();
+
+        var artifact = new MediaArtifact
+        {
+            Path = sample,
+            Kind = MediaArtifactKind.PrimaryImage,
+            MimeType = "image/jpeg",
+            ImageContainer = ImageContainer.Jpeg,
+            ByteLength = new FileInfo(sample).Length
+        };
+
+        var converter = new ImageConverter();
+        var result = await converter.ConvertAsync(new ImageConversionRequest
+        {
+            SourceArtifact = artifact,
+            TargetContainer = ImageContainer.Heic,
+            TargetDirectory = workspace.RootDirectory,
+            PreservationPolicy = PreservationPolicy.Strict
+        });
+
+        Assert.False(result.Success);
+        Assert.Contains("Strict", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
     }
 }

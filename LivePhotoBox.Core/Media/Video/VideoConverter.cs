@@ -25,11 +25,54 @@ public sealed class VideoConverter : IVideoConverter
         ArgumentNullException.ThrowIfNull(request);
 
         var sw = Stopwatch.StartNew();
+
+        // TargetFps handling
+        if (request.TargetFps > 0)
+        {
+            sw.Stop();
+            return new VideoConversionResult
+            {
+                Success = false,
+                ErrorMessage = "Custom TargetFps is not supported in the current media pipeline stage.",
+                ExecutionRecord = new VideoExecutionRecord
+                {
+                    InputContainer = request.SourceArtifact.VideoContainer,
+                    InputCodec = request.SourceArtifact.VideoCodec,
+                    RequestedContainer = request.TargetContainer,
+                    RequestedCodec = request.TargetCodec,
+                    OutputContainer = request.TargetContainer,
+                    OutputCodec = request.TargetCodec,
+                    RemuxUsed = false,
+                    SelectedEncoder = string.Empty,
+                    HardwareFallbackOccurred = false,
+                    AudioPreserved = false,
+                    RotationPreserved = false,
+                    Duration = sw.Elapsed
+                }
+            };
+        }
+
         string ext = request.TargetContainer == VideoContainer.Mov ? ".mov" : ".mp4";
         string outPath = Path.Combine(request.TargetDirectory, $"vid-conv-{Guid.NewGuid():N}{ext}");
 
+        VideoFacts? sourceFacts = null;
         try
         {
+            sourceFacts = await ProbeAsync(request.SourceArtifact.Path, cancellationToken).ConfigureAwait(false);
+        }
+        catch
+        {
+            sourceFacts = new VideoFacts
+            {
+                IsPresent = true,
+                Container = request.SourceArtifact.VideoContainer,
+                Codec = request.SourceArtifact.VideoCodec
+            };
+        }
+
+        try
+        {
+            // Transcode or Remux via Native
             string encoderUsed = await NativeMediaService.TranscodeVideoAsync(
                 request.SourceArtifact.Path,
                 outPath,
@@ -40,16 +83,41 @@ public sealed class VideoConverter : IVideoConverter
 
             sw.Stop();
 
-            bool remuxUsed = encoderUsed.Contains("StreamCopy", StringComparison.OrdinalIgnoreCase) ||
+            if (!File.Exists(outPath))
+            {
+                throw new FileNotFoundException("Converted output video was not found.", outPath);
+            }
+
+            // Re-probe actual output file to validate facts
+            VideoFacts probed = await ProbeAsync(outPath, cancellationToken).ConfigureAwait(false);
+
+            if (request.TargetContainer != VideoContainer.Unknown && probed.Container != request.TargetContainer)
+            {
+                throw new InvalidOperationException(
+                    $"Output container mismatch: expected {request.TargetContainer}, actual {probed.Container}.");
+            }
+
+            if (request.TargetCodec != VideoCodec.Copy && request.TargetCodec != VideoCodec.Unknown && probed.Codec != request.TargetCodec)
+            {
+                throw new InvalidOperationException(
+                    $"Output codec mismatch: expected {request.TargetCodec}, actual {probed.Codec}.");
+            }
+
+            if (probed.DurationSeconds <= 0)
+            {
+                throw new InvalidOperationException("Output video duration could not be determined or is zero.");
+            }
+
+            bool remuxUsed = encoderUsed.Contains("Stream", StringComparison.OrdinalIgnoreCase) ||
                              encoderUsed.Contains("Remux", StringComparison.OrdinalIgnoreCase);
 
             var outArtifact = new MediaArtifact
             {
                 Path = outPath,
                 Kind = request.SourceArtifact.Kind,
-                MimeType = request.TargetContainer == VideoContainer.Mov ? "video/quicktime" : "video/mp4",
-                VideoContainer = request.TargetContainer,
-                VideoCodec = request.TargetCodec == VideoCodec.Copy ? request.SourceArtifact.VideoCodec : request.TargetCodec,
+                MimeType = probed.Container == VideoContainer.Mov ? "video/quicktime" : "video/mp4",
+                VideoContainer = probed.Container,
+                VideoCodec = probed.Codec,
                 ByteLength = new FileInfo(outPath).Length
             };
 
@@ -59,12 +127,17 @@ public sealed class VideoConverter : IVideoConverter
                 OutputArtifact = outArtifact,
                 ExecutionRecord = new VideoExecutionRecord
                 {
-                    InputContainer = request.SourceArtifact.VideoContainer,
-                    OutputContainer = request.TargetContainer,
-                    OutputCodec = request.TargetCodec,
+                    InputContainer = sourceFacts.Container,
+                    InputCodec = sourceFacts.Codec,
+                    RequestedContainer = request.TargetContainer,
+                    RequestedCodec = request.TargetCodec,
+                    OutputContainer = probed.Container,
+                    OutputCodec = probed.Codec,
                     RemuxUsed = remuxUsed,
                     SelectedEncoder = encoderUsed,
                     HardwareFallbackOccurred = false,
+                    AudioPreserved = probed.HasAudio,
+                    RotationPreserved = (sourceFacts.RotationDegrees == probed.RotationDegrees),
                     Duration = sw.Elapsed
                 }
             };
@@ -72,18 +145,28 @@ public sealed class VideoConverter : IVideoConverter
         catch (Exception ex)
         {
             sw.Stop();
+            if (File.Exists(outPath))
+            {
+                try { File.Delete(outPath); } catch { /* ignore cleanup errors */ }
+            }
+
             return new VideoConversionResult
             {
                 Success = false,
                 ErrorMessage = ex.Message,
                 ExecutionRecord = new VideoExecutionRecord
                 {
-                    InputContainer = request.SourceArtifact.VideoContainer,
+                    InputContainer = sourceFacts?.Container ?? request.SourceArtifact.VideoContainer,
+                    InputCodec = sourceFacts?.Codec ?? request.SourceArtifact.VideoCodec,
+                    RequestedContainer = request.TargetContainer,
+                    RequestedCodec = request.TargetCodec,
                     OutputContainer = request.TargetContainer,
                     OutputCodec = request.TargetCodec,
                     RemuxUsed = false,
                     SelectedEncoder = string.Empty,
                     HardwareFallbackOccurred = false,
+                    AudioPreserved = false,
+                    RotationPreserved = false,
                     Duration = sw.Elapsed
                 }
             };

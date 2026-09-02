@@ -20,6 +20,29 @@ public sealed class ImageConverter : IImageConverter
         ArgumentNullException.ThrowIfNull(request);
 
         var sw = Stopwatch.StartNew();
+
+        // Check if strict preservation is requested for cross-container conversion
+        if (request.PreservationPolicy == PreservationPolicy.Strict &&
+            request.SourceArtifact.ImageContainer != request.TargetContainer &&
+            request.SourceArtifact.ImageContainer != ImageContainer.Unknown)
+        {
+            sw.Stop();
+            return new ImageConversionResult
+            {
+                Success = false,
+                ErrorMessage = "Strict preservation policy cannot be satisfied for cross-container image conversion without metadata loss.",
+                ExecutionRecord = new ImageExecutionRecord
+                {
+                    InputContainer = request.SourceArtifact.ImageContainer,
+                    OutputContainer = request.TargetContainer,
+                    PixelReencoded = false,
+                    MetadataCopied = false,
+                    PreservationOutcome = PreservationOutcome.DiscardedNotApplicable,
+                    Duration = sw.Elapsed
+                }
+            };
+        }
+
         string ext = request.TargetContainer == ImageContainer.Heic ? ".heic" : ".jpg";
         string outPath = Path.Combine(request.TargetDirectory, $"img-conv-{Guid.NewGuid():N}{ext}");
 
@@ -34,13 +57,33 @@ public sealed class ImageConverter : IImageConverter
 
             sw.Stop();
 
+            if (!File.Exists(outPath))
+            {
+                throw new FileNotFoundException("Converted output image was not found.", outPath);
+            }
+
+            // Inspect output header to verify actual container
+            ImageContainer actualContainer = DetectOutputContainer(outPath);
+            if (actualContainer != request.TargetContainer && request.TargetContainer != ImageContainer.Unknown)
+            {
+                throw new InvalidOperationException(
+                    $"Output image container mismatch: expected {request.TargetContainer}, actual {actualContainer}.");
+            }
+
+            bool metadataCopied = !reencoded;
+            PreservationOutcome preservationOutcome = !reencoded
+                ? PreservationOutcome.Preserved
+                : (request.PreservationPolicy == PreservationPolicy.AllowDiscard
+                    ? PreservationOutcome.DiscardedNotApplicable
+                    : PreservationOutcome.DegradedToSdr);
+
             var outArtifact = new MediaArtifact
             {
                 Path = outPath,
                 Kind = request.SourceArtifact.Kind,
-                MimeType = request.TargetContainer == ImageContainer.Heic ? "image/heic" : "image/jpeg",
-                ImageContainer = request.TargetContainer,
-                ImageCodec = request.TargetContainer == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
+                MimeType = actualContainer == ImageContainer.Heic ? "image/heic" : "image/jpeg",
+                ImageContainer = actualContainer,
+                ImageCodec = actualContainer == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
                 ByteLength = new FileInfo(outPath).Length
             };
 
@@ -51,10 +94,10 @@ public sealed class ImageConverter : IImageConverter
                 ExecutionRecord = new ImageExecutionRecord
                 {
                     InputContainer = request.SourceArtifact.ImageContainer,
-                    OutputContainer = request.TargetContainer,
+                    OutputContainer = actualContainer,
                     PixelReencoded = reencoded,
-                    MetadataCopied = true,
-                    PreservationOutcome = PreservationOutcome.Preserved,
+                    MetadataCopied = metadataCopied,
+                    PreservationOutcome = preservationOutcome,
                     Duration = sw.Elapsed
                 }
             };
@@ -62,6 +105,11 @@ public sealed class ImageConverter : IImageConverter
         catch (Exception ex)
         {
             sw.Stop();
+            if (File.Exists(outPath))
+            {
+                try { File.Delete(outPath); } catch { /* ignore cleanup errors */ }
+            }
+
             return new ImageConversionResult
             {
                 Success = false,
@@ -77,5 +125,23 @@ public sealed class ImageConverter : IImageConverter
                 }
             };
         }
+    }
+
+    private static ImageContainer DetectOutputContainer(string path)
+    {
+        Span<byte> header = stackalloc byte[16];
+        using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+        {
+            int read = fs.Read(header);
+            if (read >= 2 && header[0] == 0xFF && header[1] == 0xD8)
+            {
+                return ImageContainer.Jpeg;
+            }
+            if (read >= 12 && header[4] == (byte)'f' && header[5] == (byte)'t' && header[6] == (byte)'y' && header[7] == (byte)'p')
+            {
+                return ImageContainer.Heic;
+            }
+        }
+        return ImageContainer.Unknown;
     }
 }

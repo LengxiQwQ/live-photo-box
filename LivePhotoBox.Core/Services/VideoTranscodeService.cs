@@ -924,6 +924,7 @@ namespace LivePhotoBox.Services
                 "could not open encoder", "error opening encoder", "failed to open encoder", "encoder not found",
                 "cuda_error", "cuda error", "nvenc encoder not found", "qsv encoder not found", "amf encoder not found",
                 "unsupported codec", "invalid codec", "encoder error", "encoding error",
+                "error applying encoder options", "unable to parse",
                 "permission denied", "operation not permitted", "out of memory", "allocation failed", "driver not installed", "not supported",
                 "failed to encode", "encoding failed", "encode failed"
             };

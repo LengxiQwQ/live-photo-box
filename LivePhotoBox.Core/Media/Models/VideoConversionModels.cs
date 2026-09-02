@@ -15,11 +15,16 @@ public sealed record VideoConversionRequest
 public sealed record VideoExecutionRecord
 {
     public required VideoContainer InputContainer { get; init; }
+    public required VideoCodec InputCodec { get; init; }
+    public required VideoContainer RequestedContainer { get; init; }
+    public required VideoCodec RequestedCodec { get; init; }
     public required VideoContainer OutputContainer { get; init; }
     public required VideoCodec OutputCodec { get; init; }
     public bool RemuxUsed { get; init; }
     public string SelectedEncoder { get; init; } = string.Empty;
     public bool HardwareFallbackOccurred { get; init; }
+    public bool AudioPreserved { get; init; }
+    public bool RotationPreserved { get; init; }
     public TimeSpan Duration { get; init; }
 }
 

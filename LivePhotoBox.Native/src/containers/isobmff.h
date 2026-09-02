@@ -26,3 +26,9 @@ void adjust_chunk_offsets(
     size_t moov_start,
     size_t threshold,
     size_t removed_bytes) noexcept;
+
+void shift_chunk_offsets(
+    std::vector<uint8_t>& data,
+    size_t moov_start,
+    size_t threshold,
+    int64_t delta) noexcept;
