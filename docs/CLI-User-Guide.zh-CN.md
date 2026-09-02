@@ -156,13 +156,14 @@ GUI 与 CLI 共用 `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`。这里�
 
 ### `convert` — 新版 Native 独立媒体转换
 
-`convert` 接受独立的 JPEG/HEIC 图片或 MOV/MP4 视频。图片输出格式由扩展名决定（`.jpg`/`.jpeg` 或 `.heic`/`.heif`），视频输出格式由扩展名决定（`.mp4` 或 `.mov`）。视频可用 `--codec copy`、`--codec h264` 或 `--codec hevc` 选择流复制/remux 或真正的 Native 重编码。转换前一定由 Native 探测源文件；探测失败会明确失败，不会使用调用方提供的猜测值继续转换。
+`convert` 接受独立的 JPEG/PNG/HEIC 图片或 MOV/MP4 视频。图片输出格式由扩展名决定（`.jpg`/`.jpeg`、`.png` 或 `.heic`/`.heif`），视频输出格式由扩展名决定（`.mp4` 或 `.mov`）。视频可用 `--codec copy`、`--codec h264` 或 `--codec hevc` 选择流复制/remux 或真正的 Native 重编码。转换前一定由 Native 探测源文件；探测失败会明确失败，不会使用调用方提供的猜测值继续转换。
 
 ```powershell
 lpb convert input.mov -o output.mp4 --codec h264
 lpb convert input.mp4 -o output.mov --codec hevc
 lpb convert input.heic -o output.jpg
 lpb convert input.jpg -o output.heic --overwrite
+lpb convert input.jpg -o output.png
 ```
 
 ---

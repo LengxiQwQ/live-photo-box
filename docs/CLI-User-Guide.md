@@ -156,13 +156,14 @@ The GUI and CLI share `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`. There
 
 ### `convert` — Rebuilt Native standalone media conversion
 
-`convert` accepts a standalone JPEG/HEIC image or MOV/MP4 video. Image output is selected by the output extension (`.jpg`/`.jpeg` or `.heic`/`.heif`). Video output is selected by the output extension (`.mp4` or `.mov`); use `--codec copy`, `--codec h264`, or `--codec hevc` to select stream copy/remux or a real Native transcode. The source is probed by Native before conversion; a failed probe is an explicit failure and never falls back to caller-supplied guesses.
+`convert` accepts a standalone JPEG/PNG/HEIC image or MOV/MP4 video. Image output is selected by the output extension (`.jpg`/`.jpeg`, `.png`, `.heic`/`.heif`). Video output is selected by the output extension (`.mp4` or `.mov`); use `--codec copy`, `--codec h264`, or `--codec hevc` to select stream copy/remux or a real Native transcode. The source is probed by Native before conversion; a failed probe is an explicit failure and never falls back to caller-supplied guesses.
 
 ```powershell
 lpb convert input.mov -o output.mp4 --codec h264
 lpb convert input.mp4 -o output.mov --codec hevc
 lpb convert input.heic -o output.jpg
 lpb convert input.jpg -o output.heic --overwrite
+lpb convert input.jpg -o output.png
 ```
 
 ---
