@@ -45,6 +45,9 @@
     <ClInclude Include="src\media\image_converter.h">
       <Filter>src\media</Filter>
     </ClInclude>
+    <ClInclude Include="src\media\media_cleaner.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
     <ClInclude Include="src\media\media_extractor.h">
       <Filter>src\media</Filter>
     </ClInclude>
@@ -84,6 +87,9 @@
       <Filter>src\media</Filter>
     </ClCompile>
     <ClCompile Include="src\media\media_api.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\media_cleaner.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
     <ClCompile Include="src\media\media_extractor.cpp">

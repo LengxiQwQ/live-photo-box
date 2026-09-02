@@ -2,6 +2,7 @@
 #include "media/media_extractor.h"
 #include "media/image_converter.h"
 #include "media/video_converter.h"
+#include "media/media_cleaner.h"
 #include "foundation/internal.h"
 
 using namespace lpb;
@@ -28,6 +29,19 @@ LPB_API lpb_result LPB_CALL lpb_extract_media(
     const char* output_gainmap_path)
 {
     return extract_source(context, primary_path, secondary_path, facts, output_image_path, output_video_path, output_gainmap_path);
+}
+
+LPB_API lpb_result LPB_CALL lpb_clean_source_protocol(
+    lpb_context* context,
+    const lpb_source_media_facts* facts,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    char* out_removed_facts,
+    size_t removed_facts_buffer_size)
+{
+    return clean_source_protocol(context, facts, input_image_path, input_video_path, output_image_path, output_video_path, out_removed_facts, removed_facts_buffer_size);
 }
 
 LPB_API lpb_result LPB_CALL lpb_probe_video(
@@ -72,3 +86,4 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video(
 }
 
 }
+

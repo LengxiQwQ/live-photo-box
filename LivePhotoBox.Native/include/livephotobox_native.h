@@ -488,6 +488,26 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video(
     char* out_encoder_used,
     size_t encoder_buf_len);
 
+/*
+ * Strips vendor-specific Live/Motion Photo protocol metadata and container markers
+ * from extracted media artifacts.
+ * facts: source media facts identified during inspection.
+ * input_image_path: extracted primary image.
+ * input_video_path: extracted motion video (optional).
+ * output_image_path: clean protocol-free image output.
+ * output_video_path: clean protocol-free video output (optional).
+ * out_removed_facts: comma-delimited string of stripped protocol markers.
+ */
+LPB_API lpb_result LPB_CALL lpb_clean_source_protocol(
+    lpb_context* context,
+    const lpb_source_media_facts* facts,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    char* out_removed_facts,
+    size_t removed_facts_buffer_size);
+
 #ifdef __cplusplus
 }
 #endif

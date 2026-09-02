@@ -185,7 +185,7 @@ public static class NativeMediaService
         }, cancellationToken);
     }
 
-    private static unsafe SourceMediaFacts MapFromNativeFacts(in NativeSourceMediaFacts native)
+    internal static unsafe SourceMediaFacts MapFromNativeFacts(in NativeSourceMediaFacts native)
     {
         string? pairingId = null;
         fixed (byte* p = native.PairingIdentifier)
@@ -247,7 +247,7 @@ public static class NativeMediaService
         };
     }
 
-    private static unsafe NativeSourceMediaFacts MapToNativeFacts(SourceMediaFacts facts)
+    internal static unsafe NativeSourceMediaFacts MapToNativeFacts(SourceMediaFacts facts)
     {
         var native = new NativeSourceMediaFacts
         {

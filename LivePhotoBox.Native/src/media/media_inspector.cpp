@@ -274,27 +274,46 @@ static bool check_vivo_x300(
     return false;
 }
 
+static bool has_apple_live_makernote_tag(const uint8_t* data, size_t size) {
+    if (size < 30) return false;
+    const uint8_t sig[] = {'A','p','p','l','e',' ','i','O','S','\0'};
+    for (size_t i = 0; i <= size - 16; i++) {
+        if (data[i] == 'A' && data[i+1] == 'p' && std::memcmp(data + i, sig, 10) == 0 &&
+            data[i+10] == 0x00 && data[i+11] == 0x01 && data[i+12] == 'M' && data[i+13] == 'M') {
+            size_t mnStart = i;
+            if (mnStart + 16 > size) return false;
+            uint16_t entry_count = (static_cast<uint16_t>(data[mnStart + 14]) << 8) | data[mnStart + 15];
+            if (entry_count == 0 || entry_count > 64) continue;
+            size_t entriesStart = mnStart + 16;
+            for (uint16_t j = 0; j < entry_count; j++) {
+                size_t e = entriesStart + j * 12;
+                if (e + 2 > size) break;
+                uint16_t tag = (static_cast<uint16_t>(data[e]) << 8) | data[e + 1];
+                if (tag == 0x0011 || tag == 0x0017 || tag == 0x0025 || tag == 0x002b) {
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 lpb_result inspect_source(
     lpb_context* context,
     const char* primary_path,
     const char* secondary_path,
     lpb_source_media_facts* out_facts) noexcept
 {
-    if (!out_facts || !primary_path) {
-        set_error(context, "Invalid arguments for source inspection.");
+    if (!context || !primary_path || !out_facts) {
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     std::memset(out_facts, 0, sizeof(lpb_source_media_facts));
     out_facts->struct_size = sizeof(lpb_source_media_facts);
-    out_facts->primary_image.struct_size = sizeof(lpb_image_item_facts);
-    out_facts->motion_video.struct_size = sizeof(lpb_video_item_facts);
-    out_facts->gain_map.struct_size = sizeof(lpb_gainmap_item_facts);
-    out_facts->timing.struct_size = sizeof(lpb_timing_facts);
 
     uint64_t primary_size = get_file_size(primary_path);
     if (primary_size == 0) {
-        set_error(context, "Primary file does not exist or is empty.");
+        set_error(context, "Primary file is empty or does not exist.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
@@ -315,24 +334,40 @@ lpb_result inspect_source(
     // Dual file check
     if (secondary_path && std::strlen(secondary_path) > 0) {
         uint64_t secondary_size = get_file_size(secondary_path);
-        auto sec_data = read_file_bytes(secondary_path, 4096);
+        auto sec_data = read_file_bytes(secondary_path, 65536);
         lpb_video_container sec_vid_cont = detect_video_container(sec_data);
 
         if (sec_vid_cont != LPB_VIDEO_CONTAINER_UNKNOWN && secondary_size > 0) {
             std::string_view pri_sv(reinterpret_cast<const char*>(primary_data.data()), primary_data.size());
             if (pri_sv.find("vivo") != std::string_view::npos && pri_sv.find("cameralbum!") != std::string_view::npos) {
                 out_facts->protocol = LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL;
-            } else {
-                out_facts->protocol = LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
+                out_facts->motion_video.is_present = 1;
+                out_facts->motion_video.container = sec_vid_cont;
+                out_facts->motion_video.file_range.offset = 0;
+                out_facts->motion_video.file_range.length = secondary_size;
+                probe_video_file(context, secondary_path, &out_facts->motion_video);
+                return LPB_RESULT_OK;
             }
 
-            out_facts->motion_video.is_present = 1;
-            out_facts->motion_video.container = sec_vid_cont;
-            out_facts->motion_video.file_range.offset = 0;
-            out_facts->motion_video.file_range.length = secondary_size;
+            // Check if Apple ContentIdentifier or live metadata exists in secondary MOV or primary image
+            std::string_view sec_sv(reinterpret_cast<const char*>(sec_data.data()), sec_data.size());
+            bool has_apple_video = (sec_sv.find("com.apple.quicktime.content.identifier") != std::string_view::npos) ||
+                                   (sec_sv.find("com.apple.quicktime.live-photo") != std::string_view::npos) ||
+                                   (sec_sv.find("mebx") != std::string_view::npos);
 
-            probe_video_file(context, secondary_path, &out_facts->motion_video);
-            return LPB_RESULT_OK;
+            bool has_apple_image = has_apple_live_makernote_tag(primary_data.data(), primary_data.size()) ||
+                                   (pri_sv.find("apple-desktop:ContentIdentifier") != std::string_view::npos) ||
+                                   (pri_sv.find("apple-fi:PhotoIdentifier") != std::string_view::npos);
+
+            if (has_apple_video || has_apple_image) {
+                out_facts->protocol = LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
+                out_facts->motion_video.is_present = 1;
+                out_facts->motion_video.container = sec_vid_cont;
+                out_facts->motion_video.file_range.offset = 0;
+                out_facts->motion_video.file_range.length = secondary_size;
+                probe_video_file(context, secondary_path, &out_facts->motion_video);
+                return LPB_RESULT_OK;
+            }
         }
     }
 

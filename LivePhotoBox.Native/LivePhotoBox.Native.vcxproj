@@ -118,6 +118,7 @@
     <ClInclude Include="src\containers\isobmff.h" />
     <ClInclude Include="src\foundation\internal.h" />
     <ClInclude Include="src\media\image_converter.h" />
+    <ClInclude Include="src\media\media_cleaner.h" />
     <ClInclude Include="src\media\media_extractor.h" />
     <ClInclude Include="src\media\media_inspector.h" />
     <ClInclude Include="src\media\video_converter.h" />
@@ -133,6 +134,7 @@
     <ClCompile Include="src\foundation\context.cpp" />
     <ClCompile Include="src\media\image_converter.cpp" />
     <ClCompile Include="src\media\media_api.cpp" />
+    <ClCompile Include="src\media\media_cleaner.cpp" />
     <ClCompile Include="src\media\media_extractor.cpp" />
     <ClCompile Include="src\media\media_inspector.cpp" />
     <ClCompile Include="src\media\video_converter.cpp" />
