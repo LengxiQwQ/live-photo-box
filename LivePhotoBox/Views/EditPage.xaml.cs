@@ -924,6 +924,25 @@ namespace LivePhotoBox.Views
             if (!string.IsNullOrEmpty(cachedVideo) && File.Exists(cachedVideo))
                 return cachedVideo;
 
+            // Rebuilt 缓存未命中时仍必须通过 Native Inspector/Extractor，不能回落到
+            // Legacy 的尾部切取或 HUAWEI 范围解析。
+            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+            {
+                if (item.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic
+                    && File.Exists(item.FilePath))
+                {
+                    var nativeVideo = await LivePhotoVideoExtractor.ExtractVideoAutoAsync(
+                        item.FilePath, item.AppendedVideoLength, CancellationToken.None);
+                    if (!string.IsNullOrEmpty(nativeVideo) && File.Exists(nativeVideo))
+                    {
+                        _previewTempVideoPath = nativeVideo;
+                        return nativeVideo;
+                    }
+                }
+
+                return null;
+            }
+
             // SingleFileJpeg：从文件尾部提取嵌入式视频（标准 XMP 协议，缓存未命中时回退）
             if (item.LivePhotoType == LivePhotoType.SingleFileJpeg
                 && item.AppendedVideoLength > 0
