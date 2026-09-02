@@ -1,70 +1,60 @@
-# LivePhotoBox.Native
 
-`LivePhotoBox.Native` is the x64 Windows C++20 runtime execution engine used by `LivePhotoBox.Core`, the WinUI application, and the CLI. It is a first-class Visual C++ DLL project in `Live Photo Box.sln`.
+`LivePhotoBox.Native` is the x64 Windows C++ runtime used by `LivePhotoBox.Core`, the WinUI application, and the CLI. It is a first-class Visual C++ DLL project in `Live Photo Box.sln`, so Visual Studio provides the normal C++ project model, IntelliSense, build properties, debugging, and error reporting.
 
----
+The runtime started with a stable C ABI foundation:
 
-## 1. Architecture and Boundary
+- ABI and product version negotiation
+- opaque context ownership
+- result codes and per-context diagnostics
+- logging and cancellation callback contracts
+- capability discovery
+- managed runtime smoke tests
 
-The product strictly follows the **"C# = Control Plane, C++ Native = Execution / Data Plane"** architectural principle:
+The source code is organized into a modular, nested structure:
+- `include/livephotobox_native.h`: Public C ABI declarations (only file exposed to C#)
+- `src/foundation/`: Context management, error reporting, and internal logging (`internal.h`, `context.cpp`)
+- `src/binary/`: Low-level byte operations and endianness conversions
+- `src/containers/`: Standard format parsers and writers (ISOBMFF, HEIF, MP4)
+- `src/protocols/`: Vendor-specific live photo format implementations (vivo, Huawei, etc.)
 
-- **C# Control Plane (`LivePhotoBox.Core`)**:
-  - Handles WinUI & CLI user interaction and task orchestration.
-  - Owns DTOs, request models, and immutable facts (`SourceMediaFacts`, `ExtractedMediaBundle`, `NeutralMediaBundle`).
-  - Manages transaction workspace lifecycles (`IMediaWorkspace`) and enforces source file SHA256 immutability before and after processing.
-  - Bridges Native C ABI via `[LibraryImport]` with async marshaling, progress reporting, and cancellation forwarding.
-- **C++ Native Execution Plane (`LivePhotoBox.Native`)**:
-  - Parses binary container structures: JPEG APP segments, TIFF/EXIF, XMP/RDF, HEIF items/boxes, ISOBMFF/QuickTime trees, MakerNotes, and Samsung SEF trailers.
-  - Performs byte-level source inspection, isolated chunked slice extraction, WIC image conversion, and container-aware ISOBMFF video probing/remuxing/transcoding.
-  - Implements vendor-specific protocol cleaners and writers.
-- **No Silent Fallback**:
-  - The product provides only two global modes: `rebuilt` (default) and `legacy` (v2.2.1 golden baseline).
-  - If a capability is not yet implemented or fails in `rebuilt`, it explicitly throws `RebuiltPipelineNotReadyException` / `Unsupported`. **There is no automatic runtime fallback to Legacy.**
+Protocol byte transformations are being moved behind this ABI one path at a time. The first completed path is the vivo legacy (X200 and earlier) dual-file metadata writer:
 
----
+- JPEG `vivoMediaExtInfo` tail append and replacement
+- MP4 top-level vivo UUID replacement
+- legacy `stco` / `co64` offset adjustment
+- managed routing with automatic fallback to the unchanged C# implementation
 
-## 2. Directory Organization
+The same ABI also includes preview Huawei/Honor byte writers:
 
-The source code is organized into modular layers:
+- 60-byte Moving Photo tail construction
+- HEIC `ftyp` brand patching
+- MP4 brand and `Lavf` marker patching
 
-- `include/livephotobox_native.h`: Public C ABI declarations (the only header exposed to C#).
-- `src/foundation/`: Context management, UTF-8 path conversions (`utf8_to_path`), error reporting, diagnostics, and cancellation checks (`internal.h`, `context.cpp`).
-- `src/binary/`: Low-level binary IO, memory buffers, and endianness utilities (`binary_io.h`, `endian.h`).
-- `src/containers/`: Standard format container parsers and writers (`isobmff.cpp`, `heif.cpp`, `mp4_strip.cpp`).
-- `src/metadata/`: Image metadata handlers (`jpeg.cpp`, `exif.cpp`, `exif_rewrite.cpp`).
-- `src/media/`: High-level media execution plane implementations:
-  - `media_inspector.cpp`: Byte-level source protocol inspection across 10 manufacturer formats.
-  - `media_extractor.cpp`: Non-modifying chunked byte range extraction into workspace files.
-  - `image_converter.cpp`: Direct structure copy and Windows Imaging Component (WIC) transcode pipeline.
-  - `video_converter.cpp`: ISOBMFF box traverser for video probing and container stream remuxing.
-  - `media_api.cpp`: Coarse-grained C ABI export implementations.
-- `src/protocols/`: Vendor-specific live photo protocol handlers (`apple.cpp`, `apple_mebx.cpp`, `huawei.cpp`, `samsung_sef.cpp`, `vivo_legacy.cpp`).
+They are still preview features and need differential and real-device validation. The managed C# implementation remains the reference and fallback.
 
----
+C# still handles protocol decisions, JSON construction, asynchronous file I/O, cancellation, and logging. C++ handles the byte-layout transformation. Until a Native implementation passes differential and real-device validation, the C# path remains the reference and fallback.
 
-## 3. Build
+## Build
 
-Build `LivePhotoBox.Native` in Visual Studio, build the full solution, or run from the repository root:
+Build the `LivePhotoBox.Native` project in Visual Studio, build the full solution, or run from the repository root:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/build-native.ps1 -Configuration Release -Architecture x64 -RunTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/build-native.ps1 -Configuration Debug -Architecture x64 -RunTests
 ```
 
-The project uses MSVC directly. Visual Studio 2026 selects toolset `v145`; Visual Studio 2022 and CI images select `v143`. Outputs are written to:
+The project uses MSVC directly. Visual Studio 2026 selects `v145`; Visual Studio 2022 and current CI images select `v143`. The product version is generated from `LivePhotoBox/Package.appxmanifest`, and ignored outputs are written to:
 
 ```text
 artifacts/native/{Configuration}/win-x64/
 ```
 
-Normal `dotnet build` operations build the Native project through the project reference in `LivePhotoBox.Core.csproj`.
+Normal `dotnet build` operations build the Native project through the non-managed project reference in `LivePhotoBox.Core.csproj`. Set `SkipNativeBuild=true` only when a caller has already produced the matching artifact.
 
----
+## ABI rules
 
-## 4. ABI Rules
-
-- **Pure C ABI**: C++ classes, templates, STL types, and exceptions never cross the boundary.
-- **Opaque Handles**: All handles (`lpb_context*`, etc.) are opaque pointers managed by their respective creator APIs.
-- **Extensible Structs**: All extensible C structs start with `struct_size` for forward compatibility.
-- **Memory & Buffers**: Destination buffers and output strings are explicitly sized and caller-allocated or static.
-- **UTF-8 Strings**: All path and string parameters are UTF-8 encoded; Windows file operations convert to UTF-16 wide paths natively.
-- **Exception Safety**: All C++ exceptions are caught internally and mapped to `lpb_result` error codes before returning.
+- The public surface is C ABI only; C++ classes, STL types, and exceptions never cross the boundary.
+- All handles are opaque and released by the API that created them.
+- Extensible structs start with `struct_size` and `abi_version`.
+- Diagnostic strings are UTF-8 and remain owned by the caller-provided buffer or by static Native storage.
+- Native exceptions must be converted to `lpb_result` before an API returns.
+- The initial runtime and release pipeline support x64 only.
