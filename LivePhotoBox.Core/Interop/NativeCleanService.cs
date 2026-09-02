@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -29,56 +28,55 @@ public static class NativeCleanService
             using var ctx = NativeContext.Create(cancellationToken);
             NativeSourceMediaFacts nativeFacts = NativeMediaService.MapToNativeFacts(facts);
 
-            Span<byte> removedBuf = stackalloc byte[1024];
-            NativeResult res;
+            Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[32];
             unsafe
             {
-                fixed (byte* pBuf = removedBuf)
+                fixed (NativeRemovedProtocolFact* pFacts = factsBuf)
                 {
-                    res = NativeMethods.CleanSourceProtocol(
+                    for (int i = 0; i < factsBuf.Length; i++)
+                    {
+                        pFacts[i].StructSize = (uint)sizeof(NativeRemovedProtocolFact);
+                    }
+
+                    NativeResult res = NativeMethods.CleanSourceProtocol(
                         ctx.Handle,
                         in nativeFacts,
                         inputImagePath,
                         inputVideoPath,
                         outputImagePath,
                         outputVideoPath,
-                        pBuf,
-                        (nuint)removedBuf.Length);
-                }
-            }
+                        pFacts,
+                        (nuint)factsBuf.Length,
+                        out nuint outCount);
 
-            ctx.ThrowIfFailed(res);
+                    ctx.ThrowIfFailed(res);
 
-            int nullIdx = removedBuf.IndexOf((byte)0);
-            if (nullIdx < 0) nullIdx = removedBuf.Length;
-            string removedRaw = Encoding.UTF8.GetString(removedBuf[..nullIdx]);
-
-            var factsList = new List<RemovedProtocolFact>();
-            if (!string.IsNullOrWhiteSpace(removedRaw))
-            {
-                var items = removedRaw.Split([',', ';', '\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
-                foreach (var item in items)
-                {
-                    string trimmed = item.Trim();
-                    if (string.IsNullOrEmpty(trimmed)) continue;
-
-                    string proto = facts.Protocol.ToString();
-                    string comp = "Container";
-                    if (trimmed.Contains("Xmp", StringComparison.OrdinalIgnoreCase)) comp = "XMP";
-                    else if (trimmed.Contains("MakerNote", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Exif", StringComparison.OrdinalIgnoreCase)) comp = "EXIF/MakerNote";
-                    else if (trimmed.Contains("Mp4", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Box", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Track", StringComparison.OrdinalIgnoreCase)) comp = "Video Track/Box";
-                    else if (trimmed.Contains("Tail", StringComparison.OrdinalIgnoreCase) || trimmed.Contains("Trailer", StringComparison.OrdinalIgnoreCase)) comp = "Trailer";
-
-                    factsList.Add(new RemovedProtocolFact
+                    var factsList = new List<RemovedProtocolFact>();
+                    int count = Math.Min((int)outCount, factsBuf.Length);
+                    for (int i = 0; i < count; i++)
                     {
-                        ProtocolName = proto,
-                        Component = comp,
-                        Description = trimmed
-                    });
+                        string proto = ReadFixedUtf8String(pFacts[i].ProtocolName, 64);
+                        string comp = ReadFixedUtf8String(pFacts[i].Component, 64);
+                        string desc = ReadFixedUtf8String(pFacts[i].Description, 128);
+
+                        factsList.Add(new RemovedProtocolFact
+                        {
+                            ProtocolName = string.IsNullOrEmpty(proto) ? facts.Protocol.ToString() : proto,
+                            Component = comp,
+                            Description = desc
+                        });
+                    }
+
+                    return (IReadOnlyList<RemovedProtocolFact>)factsList;
                 }
             }
-
-            return (IReadOnlyList<RemovedProtocolFact>)factsList;
         }, cancellationToken);
+    }
+
+    private static unsafe string ReadFixedUtf8String(byte* ptr, int maxLen)
+    {
+        int len = 0;
+        while (len < maxLen && ptr[len] != 0) len++;
+        return len > 0 ? Encoding.UTF8.GetString(ptr, len) : string.Empty;
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 using LivePhotoBox.Media.Extraction;
@@ -70,7 +71,10 @@ public sealed class SourceProtocolCleanerTests
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
         Assert.NotNull(cleanResult.CleanedImage);
         Assert.True(File.Exists(cleanResult.CleanedImage.Path));
-        Assert.NotEmpty(cleanResult.RemovedFacts);
+        // A source protocol may be removed by range extraction (for example
+        // Huawei's 60-byte trailer) before the media cleaner runs.  Keep the
+        // two responsibilities explicit and assert the combined audit trail.
+        Assert.NotEmpty(extracted.ExtractedProtocolFacts.Concat(cleanResult.RemovedFacts));
 
         // 4. Source Immutability Assertion
         Assert.Equal(primaryShaBefore, ComputeSha256(primaryPath));

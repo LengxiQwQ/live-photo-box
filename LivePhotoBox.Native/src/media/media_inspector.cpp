@@ -108,6 +108,46 @@ static bool extract_attr_u64(std::string_view xml, std::string_view attr_name, u
     return endptr != val_str.c_str();
 }
 
+// Returns the first structurally valid JPEG end marker. Bytes after this
+// marker belong to an embedded payload/trailer and are not image bytes.
+static bool find_jpeg_end(const std::vector<uint8_t>& data, uint64_t& out_end) noexcept
+{
+    if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return false;
+    size_t pos = 2;
+    while (pos + 1 < data.size())
+    {
+        if (data[pos] != 0xFF) { ++pos; continue; }
+        uint8_t marker = data[pos + 1];
+        if (marker == 0x00 || marker == 0xFF) { pos += 2; continue; }
+        if (marker == 0xD9) { out_end = pos + 2; return true; }
+        if (marker == 0xDA)
+        {
+            if (pos + 4 > data.size()) return false;
+            const size_t len = (static_cast<size_t>(data[pos + 2]) << 8) | data[pos + 3];
+            if (len < 2 || len > data.size() - pos - 2) return false;
+            pos += 2 + len;
+            while (pos + 1 < data.size())
+            {
+                if (data[pos] == 0xFF)
+                {
+                    const uint8_t scan_marker = data[pos + 1];
+                    if (scan_marker == 0xD9) { out_end = pos + 2; return true; }
+                    if (scan_marker == 0x00 || (scan_marker >= 0xD0 && scan_marker <= 0xD7))
+                    { pos += 2; continue; }
+                }
+                ++pos;
+            }
+            return false;
+        }
+        if (marker >= 0xD0 && marker <= 0xD7) { pos += 2; continue; }
+        if (pos + 4 > data.size()) return false;
+        const size_t len = (static_cast<size_t>(data[pos + 2]) << 8) | data[pos + 3];
+        if (len < 2 || len > data.size() - pos - 2) return false;
+        pos += 2 + len;
+    }
+    return false;
+}
+
 static bool check_huawei_moving_photo(
     const std::vector<uint8_t>& data,
     uint64_t file_size,
@@ -128,13 +168,17 @@ static bool check_huawei_moving_photo(
 
     // Parse LIVE_NNNNNNN
     std::string_view num_part = tail.substr(live_pos + 5);
+    std::string numeric_part(num_part.substr(0, 15));
     char* endptr = nullptr;
-    uint64_t mp4_plus_20 = std::strtoull(std::string(num_part.substr(0, 15)).c_str(), &endptr, 10);
-    if (mp4_plus_20 > 20 && mp4_plus_20 <= file_size) {
+    uint64_t mp4_plus_20 = std::strtoull(numeric_part.c_str(), &endptr, 10);
+    if (endptr != numeric_part.c_str() && mp4_plus_20 > 20 && mp4_plus_20 <= file_size) {
         out_video_len = mp4_plus_20 - 20;
 
         size_t trailer_start = (actual_live_pos >= 40) ? (actual_live_pos - 40) : 0;
+        if (trailer_start < out_video_len || trailer_start > file_size ||
+            out_video_len > file_size - (trailer_start - out_video_len)) return false;
         out_video_offset = trailer_start - out_video_len;
+        if (out_video_len > file_size - out_video_offset) return false;
 
         // Check if Honor (uses v2_f prefix or contains srcDstWh)
         if (tail.find("v2_f") != std::string_view::npos || 
@@ -325,6 +369,8 @@ lpb_result inspect_source(
 
     lpb_image_container img_cont = detect_image_container(primary_data);
     lpb_video_container vid_cont = detect_video_container(primary_data);
+    uint64_t jpeg_end = 0;
+    const bool has_jpeg_end = find_jpeg_end(primary_data, jpeg_end);
 
     out_facts->primary_image.container = img_cont;
     out_facts->primary_image.is_present = (img_cont != LPB_IMAGE_CONTAINER_UNKNOWN) ? 1 : 0;
@@ -345,6 +391,11 @@ lpb_result inspect_source(
                 out_facts->motion_video.container = sec_vid_cont;
                 out_facts->motion_video.file_range.offset = 0;
                 out_facts->motion_video.file_range.length = secondary_size;
+                if (has_jpeg_end && jpeg_end < primary_size) {
+                    out_facts->primary_image.file_range.length = jpeg_end;
+                    out_facts->protocol_tail_range.offset = jpeg_end;
+                    out_facts->protocol_tail_range.length = primary_size - jpeg_end;
+                }
                 probe_video_file(context, secondary_path, &out_facts->motion_video);
                 return LPB_RESULT_OK;
             }
@@ -379,7 +430,7 @@ lpb_result inspect_source(
     if (check_vivo_x300(xmp, primary_size, pri_len, gm_off, gm_len, vid_off, vid_len)) {
         out_facts->protocol = LPB_SOURCE_PROTOCOL_VIVO_X300;
         out_facts->primary_image.file_range.offset = 0;
-        out_facts->primary_image.file_range.length = pri_len;
+        out_facts->primary_image.file_range.length = gm_off > 0 ? gm_off : (has_jpeg_end ? jpeg_end : primary_size);
 
         out_facts->gain_map.is_present = 1;
         out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
@@ -397,7 +448,10 @@ lpb_result inspect_source(
     if (img_cont == LPB_IMAGE_CONTAINER_JPEG && check_samsung_sef_jpeg(primary_data, primary_size, vid_off, vid_len)) {
         out_facts->protocol = LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG;
         out_facts->primary_image.file_range.offset = 0;
-        out_facts->primary_image.file_range.length = vid_off;
+        // Samsung's SEF directory and payload are part of the inspected
+        // source artifact.  The SEF cleaner needs the complete JPEG trailer
+        // to validate and rebuild it; do not pre-truncate it in extraction.
+        out_facts->primary_image.file_range.length = primary_size;
 
         out_facts->motion_video.is_present = 1;
         out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
@@ -410,7 +464,10 @@ lpb_result inspect_source(
     if (img_cont == LPB_IMAGE_CONTAINER_HEIC && check_samsung_sef_heic(primary_data, primary_size, vid_off, vid_len)) {
         out_facts->protocol = LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC;
         out_facts->primary_image.file_range.offset = 0;
-        out_facts->primary_image.file_range.length = vid_off - 8;
+        // mpvd is an ISOBMFF box in the HEIF source.  Keep the complete
+        // container for the structural HEIF cleaner; a byte-range cut would
+        // make the remaining meta/item references unverifiable.
+        out_facts->primary_image.file_range.length = primary_size;
 
         out_facts->motion_video.is_present = 1;
         out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
@@ -425,12 +482,18 @@ lpb_result inspect_source(
     if (check_huawei_moving_photo(primary_data, primary_size, vid_off, vid_len, cover_time_us, is_honor)) {
         out_facts->protocol = is_honor ? LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO : LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO;
         out_facts->primary_image.file_range.offset = 0;
+        // Huawei/Honor stores [image][MP4][60-byte LIVE trailer].  The image
+        // range is therefore the validated start of the embedded MP4.
         out_facts->primary_image.file_range.length = vid_off;
-
         out_facts->motion_video.is_present = 1;
         out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
         out_facts->motion_video.file_range.offset = vid_off;
         out_facts->motion_video.file_range.length = vid_len;
+        const uint64_t video_end = vid_off + vid_len;
+        if (video_end < primary_size) {
+            out_facts->protocol_tail_range.offset = video_end;
+            out_facts->protocol_tail_range.length = primary_size - video_end;
+        }
         out_facts->timing.cover_timestamp_us = cover_time_us;
         return LPB_RESULT_OK;
     }
@@ -444,11 +507,20 @@ lpb_result inspect_source(
         out_facts->protocol = LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO;
         out_facts->motion_video.is_present = 1;
         out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
+        if (item_len == 0 || item_len > primary_size || op_vid_len > item_len) {
+            set_error(context, "OPPO protocol item length is outside the source file.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         out_facts->motion_video.file_range.offset = primary_size - item_len;
         out_facts->motion_video.file_range.length = op_vid_len;
 
         out_facts->primary_image.file_range.offset = 0;
         out_facts->primary_image.file_range.length = out_facts->motion_video.file_range.offset;
+        const uint64_t video_end = out_facts->motion_video.file_range.offset + op_vid_len;
+        if (video_end < primary_size) {
+            out_facts->protocol_tail_range.offset = video_end;
+            out_facts->protocol_tail_range.length = primary_size - video_end;
+        }
         return LPB_RESULT_OK;
     }
 

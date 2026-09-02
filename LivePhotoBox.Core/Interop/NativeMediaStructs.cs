@@ -64,5 +64,15 @@ internal unsafe struct NativeSourceMediaFacts
     public NativeVideoItemFacts MotionVideo;
     public NativeGainMapItemFacts GainMap;
     public NativeTimingFacts Timing;
+    public NativeMediaRange ProtocolTailRange;
     public fixed byte PairingIdentifier[128];
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeRemovedProtocolFact
+{
+    public uint StructSize;
+    public fixed byte ProtocolName[64];
+    public fixed byte Component[64];
+    public fixed byte Description[128];
 }

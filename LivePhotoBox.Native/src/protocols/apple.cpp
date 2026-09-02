@@ -251,22 +251,32 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
     if (!context || !data) return LPB_RESULT_INVALID_ARGUMENT;
 
     size_t search_from = 0;
+    bool malformed_candidate = false;
     while (true) {
         ptrdiff_t mn_start = find_apple_makernote(data, data_size, search_from);
-        if (mn_start < 0) return LPB_RESULT_OK;
+        if (mn_start < 0) {
+            if (malformed_candidate) {
+                set_error(context, "Malformed Apple MakerNote candidate.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            return LPB_RESULT_OK;
+        }
 
         size_t mnStart = static_cast<size_t>(mn_start);
         // Continue after the signature even when this candidate is malformed, so a later
         // valid MakerNote is never hidden by an unrelated byte sequence.
         search_from = mnStart + 14;
-        if (mnStart + 16 > data_size) continue;
+        if (mnStart + 16 > data_size) { malformed_candidate = true; continue; }
 
         uint16_t entry_count = read_be16u(data + mnStart + 14);
-        if (entry_count == 0 || entry_count > 64) continue;
+        if (entry_count == 0 || entry_count > 64) { malformed_candidate = true; continue; }
 
         size_t entriesStart = mnStart + 16;
         size_t entriesLen = entry_count * 12;
-        if (entriesStart + entriesLen + 4 > data_size) continue;
+        if (entriesLen > data_size - entriesStart || entriesStart + entriesLen + 4 > data_size) {
+            malformed_candidate = true;
+            continue;
+        }
 
         std::vector<size_t> keep;
         for (uint16_t i = 0; i < entry_count; i++) {
@@ -306,6 +316,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
         std::memset(data + entriesStart + newEntriesLen, 0, tail - (entriesStart + newEntriesLen));
         write_be16(data + mnStart + 14, static_cast<uint16_t>(newCount));
     }
+
 }
 
 extern "C" LPB_API lpb_result LPB_CALL lpb_apple_write_content_identifier(

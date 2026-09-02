@@ -31,8 +31,19 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         string cleanImgPath = workspace.AllocateFilePath("clean-img", imgExt);
 
         string? cleanVidPath = null;
-        if (request.ExtractedBundle.MotionVideo != null && File.Exists(request.ExtractedBundle.MotionVideo.Path))
+        if (request.ExtractedBundle.MotionVideo != null)
         {
+            if (!File.Exists(request.ExtractedBundle.MotionVideo.Path))
+            {
+                sw.Stop();
+                return new ProtocolCleanResult
+                {
+                    Success = false,
+                    ErrorMessage = "Extracted motion video is missing.",
+                    PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                    Duration = sw.Elapsed
+                };
+            }
             string vidExt = request.ExtractedBundle.MotionVideo.VideoContainer == VideoContainer.Mov ? ".mov" : ".mp4";
             cleanVidPath = workspace.AllocateFilePath("clean-vid", vidExt);
         }
@@ -52,6 +63,10 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             if (!File.Exists(cleanImgPath))
             {
                 throw new FileNotFoundException("Cleaned output image was not generated.", cleanImgPath);
+            }
+            if (cleanVidPath != null && !File.Exists(cleanVidPath))
+            {
+                throw new FileNotFoundException("Cleaned output video was not generated.", cleanVidPath);
             }
 
             var cleanImgArtifact = new MediaArtifact
@@ -81,11 +96,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
 
             // Preservation outcome
+            // Cleaning does not discard the extracted GainMap; the artifact is
+            // carried through unchanged, so reporting it as discarded would
+            // be false even when AllowDiscard was requested for later format
+            // conversion.
             PreservationOutcome outcome = PreservationOutcome.Preserved;
-            if (request.ExtractedBundle.GainMap != null && request.PreservationPolicy == PreservationPolicy.AllowDiscard)
-            {
-                outcome = PreservationOutcome.DiscardedNotApplicable;
-            }
 
             return new ProtocolCleanResult
             {

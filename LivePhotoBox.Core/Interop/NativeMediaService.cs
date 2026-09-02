@@ -225,6 +225,8 @@ public static class NativeMediaService
                 CoverFrameIndex = native.Timing.CoverFrameIndex,
                 TotalFrames = native.Timing.TotalFrames
             },
+            ProtocolTailOffset = checked((long)native.ProtocolTailRange.Offset),
+            ProtocolTailLength = checked((long)native.ProtocolTailRange.Length),
             PairingIdentifier = pairingId
         };
     }
@@ -312,6 +314,12 @@ public static class NativeMediaService
             PrimaryTimestampUs = facts.Timing.PrimaryTimestampUs,
             CoverFrameIndex = facts.Timing.CoverFrameIndex,
             TotalFrames = facts.Timing.TotalFrames
+        };
+
+        native.ProtocolTailRange = new NativeMediaRange
+        {
+            Offset = facts.ProtocolTailOffset < 0 ? 0UL : (ulong)facts.ProtocolTailOffset,
+            Length = facts.ProtocolTailLength < 0 ? 0UL : (ulong)facts.ProtocolTailLength
         };
 
         return native;

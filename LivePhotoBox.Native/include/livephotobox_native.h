@@ -413,6 +413,9 @@ typedef struct lpb_source_media_facts
     lpb_video_item_facts motion_video;
     lpb_gainmap_item_facts gain_map;
     lpb_timing_facts timing;
+    /* Validated source-only bytes after the extracted media ranges.  This is
+       zero for formats without a protocol tail. */
+    lpb_media_range protocol_tail_range;
     char pairing_identifier[128];
 } lpb_source_media_facts;
 
@@ -488,6 +491,13 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video(
     char* out_encoder_used,
     size_t encoder_buf_len);
 
+typedef struct lpb_removed_protocol_fact {
+    uint32_t struct_size;
+    char protocol_name[64];
+    char component[64];
+    char description[128];
+} lpb_removed_protocol_fact;
+
 /*
  * Strips vendor-specific Live/Motion Photo protocol metadata and container markers
  * from extracted media artifacts.
@@ -496,7 +506,9 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video(
  * input_video_path: extracted motion video (optional).
  * output_image_path: clean protocol-free image output.
  * output_video_path: clean protocol-free video output (optional).
- * out_removed_facts: comma-delimited string of stripped protocol markers.
+ * out_facts: array of structured removed protocol facts.
+ * facts_capacity: capacity of out_facts array.
+ * out_facts_count: number of facts actually written.
  */
 LPB_API lpb_result LPB_CALL lpb_clean_source_protocol(
     lpb_context* context,
@@ -505,11 +517,11 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol(
     const char* input_video_path,
     const char* output_image_path,
     const char* output_video_path,
-    char* out_removed_facts,
-    size_t removed_facts_buffer_size);
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count);
 
 #ifdef __cplusplus
 }
 #endif
 #endif
-

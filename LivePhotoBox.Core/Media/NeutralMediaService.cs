@@ -74,6 +74,11 @@ public sealed class NeutralMediaService : INeutralMediaService
         MediaArtifact finalImage = cleanResult.CleanedImage;
         MediaArtifact? finalVideo = cleanResult.CleanedVideo;
 
+        PreservationOutcome imageOutcome = cleanResult.PreservationOutcome;
+        PreservationOutcome videoOutcome = cleanResult.CleanedVideo == null
+            ? PreservationOutcome.Preserved
+            : cleanResult.PreservationOutcome;
+
         // 4. Convert formats if requested
         if (requirement != null)
         {
@@ -93,7 +98,15 @@ public sealed class NeutralMediaService : INeutralMediaService
                 {
                     throw new InvalidOperationException($"Image conversion failed in neutral pipeline: {imgConv.ErrorMessage}");
                 }
+
+                if (preservationPolicy == PreservationPolicy.Strict &&
+                    imgConv.ExecutionRecord.PreservationOutcome != PreservationOutcome.Preserved)
+                {
+                    throw new InvalidOperationException("Strict preservation policy failed during image conversion.");
+                }
+
                 finalImage = imgConv.OutputArtifact;
+                imageOutcome = CombineOutcome(imageOutcome, imgConv.ExecutionRecord.PreservationOutcome);
             }
 
             // Convert Video if video exists and target differs
@@ -114,11 +127,23 @@ public sealed class NeutralMediaService : INeutralMediaService
                 {
                     throw new InvalidOperationException($"Video conversion failed in neutral pipeline: {vidConv.ErrorMessage}");
                 }
+
                 finalVideo = vidConv.OutputArtifact;
+                PreservationOutcome convOutcome = (vidConv.ExecutionRecord.AudioPreserved && vidConv.ExecutionRecord.RotationPreserved)
+                    ? (vidConv.ExecutionRecord.RemuxUsed ? PreservationOutcome.Preserved : PreservationOutcome.TranscodedLossless)
+                    : PreservationOutcome.PartiallyPreserved;
+
+                videoOutcome = CombineOutcome(videoOutcome, convOutcome);
+            }
+
+            if (preservationPolicy == PreservationPolicy.Strict &&
+                videoOutcome != PreservationOutcome.Preserved)
+            {
+                throw new InvalidOperationException("Strict preservation policy failed during video cleaning or conversion.");
             }
         }
 
-        // 5. Build Artifact Manifest
+        // 5. Build Artifact Manifest with truthful outcomes
         var manifest = new List<NeutralArtifactManifest>
         {
             new NeutralArtifactManifest
@@ -128,7 +153,7 @@ public sealed class NeutralMediaService : INeutralMediaService
                 Sha256 = finalImage.Sha256 ?? await workspace.ComputeFileSha256Async(finalImage.Path, cancellationToken).ConfigureAwait(false),
                 ByteLength = finalImage.ByteLength > 0 ? finalImage.ByteLength : new FileInfo(finalImage.Path).Length,
                 ImageContainer = finalImage.ImageContainer,
-                PreservationOutcome = cleanResult.PreservationOutcome
+                PreservationOutcome = imageOutcome
             }
         };
 
@@ -142,7 +167,7 @@ public sealed class NeutralMediaService : INeutralMediaService
                 ByteLength = finalVideo.ByteLength > 0 ? finalVideo.ByteLength : new FileInfo(finalVideo.Path).Length,
                 VideoContainer = finalVideo.VideoContainer,
                 VideoCodec = finalVideo.VideoCodec,
-                PreservationOutcome = PreservationOutcome.Preserved
+                PreservationOutcome = videoOutcome
             });
         }
 
@@ -165,9 +190,18 @@ public sealed class NeutralMediaService : INeutralMediaService
             MotionVideo = finalVideo,
             GainMap = cleanResult.CleanedGainMap,
             SourceProvenance = facts,
-            RemovedProtocolFacts = cleanResult.RemovedFacts,
+            RemovedProtocolFacts = [.. extracted.ExtractedProtocolFacts, .. cleanResult.RemovedFacts],
             Manifest = manifest,
             Timing = facts.Timing
         };
+    }
+
+    private static PreservationOutcome CombineOutcome(PreservationOutcome a, PreservationOutcome b)
+    {
+        if (a == PreservationOutcome.DegradedToSdr || b == PreservationOutcome.DegradedToSdr) return PreservationOutcome.DegradedToSdr;
+        if (a == PreservationOutcome.PartiallyPreserved || b == PreservationOutcome.PartiallyPreserved) return PreservationOutcome.PartiallyPreserved;
+        if (a == PreservationOutcome.DiscardedNotApplicable || b == PreservationOutcome.DiscardedNotApplicable) return PreservationOutcome.DiscardedNotApplicable;
+        if (a == PreservationOutcome.TranscodedLossless || b == PreservationOutcome.TranscodedLossless) return PreservationOutcome.TranscodedLossless;
+        return PreservationOutcome.Preserved;
     }
 }

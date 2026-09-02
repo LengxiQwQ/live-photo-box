@@ -22,6 +22,13 @@ public sealed record RemovedProtocolFact
     public required string ProtocolName { get; init; }
     public required string Component { get; init; }
     public required string Description { get; init; }
+    public ProtocolFactKind Kind { get; init; } = ProtocolFactKind.Removed;
+}
+
+public enum ProtocolFactKind
+{
+    Removed,
+    Extracted
 }
 
 /// <summary>

@@ -343,14 +343,17 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
 
     bool meta_under_udta = false;
     size_t meta = missing;
+    // Some Huawei files contain an ordinary udta/meta (without keys) and a
+    // separate direct moov/meta carrying the mdta key table.  Selecting the
+    // first meta by location silently skipped the protocol table.
+    const size_t direct_meta = find_child_box(data, moov + 8, moov_end, "meta");
+    if (direct_meta != missing) {
+        meta = direct_meta;
+    }
     const size_t udta = find_child_box(data, moov + 8, moov_end, "udta");
-    if (udta != missing) {
+    if (meta == missing && udta != missing) {
         const size_t udta_end = udta + static_cast<size_t>(read_be32(data.data() + udta));
         meta = find_child_box(data, udta + 8, udta_end, "meta");
-    }
-    if (meta == missing) {
-        meta = find_child_box(data, moov + 8, moov_end, "meta");
-    } else {
         meta_under_udta = true;
     }
     if (meta == missing) { *out_written = 0; return LPB_RESULT_OK; }

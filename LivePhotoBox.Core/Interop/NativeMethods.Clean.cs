@@ -15,6 +15,7 @@ internal static partial class NativeMethods
         string? inputVideoPath,
         string? outputImagePath,
         string? outputVideoPath,
-        byte* outRemovedFacts,
-        nuint removedFactsBufLen);
+        NativeRemovedProtocolFact* outFacts,
+        nuint factsCapacity,
+        out nuint outFactsCount);
 }

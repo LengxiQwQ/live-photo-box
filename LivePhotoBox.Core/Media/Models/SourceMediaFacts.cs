@@ -10,6 +10,8 @@ public sealed record SourceMediaFacts
     public VideoFacts? MotionVideo { get; init; }
     public GainMapFacts? GainMap { get; init; }
     public TimingFacts Timing { get; init; } = new();
+    public long ProtocolTailOffset { get; init; }
+    public long ProtocolTailLength { get; init; }
     public string? PairingIdentifier { get; init; }
 }
 

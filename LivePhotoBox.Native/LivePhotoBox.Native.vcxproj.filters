@@ -25,6 +25,9 @@
     <Filter Include="src\protocols">
       <UniqueIdentifier>{62CB4572-B229-1D2F-3AF1-43C35D1039D9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="src\protocols\clean">
+      <UniqueIdentifier>{67FAEB9B-F3B4-0038-3879-ED851E49FBC4}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="include\livephotobox_native.h">
@@ -68,6 +71,18 @@
     </ClInclude>
     <ClInclude Include="src\protocols\apple_mebx_templates.h">
       <Filter>src\protocols</Filter>
+    </ClInclude>
+    <ClInclude Include="src\protocols\clean\heif_cleaner.h">
+      <Filter>src\protocols\clean</Filter>
+    </ClInclude>
+    <ClInclude Include="src\protocols\clean\jpeg_structure_cleaner.h">
+      <Filter>src\protocols\clean</Filter>
+    </ClInclude>
+    <ClInclude Include="src\protocols\clean\samsung_sef_cleaner.h">
+      <Filter>src\protocols\clean</Filter>
+    </ClInclude>
+    <ClInclude Include="src\protocols\clean\xmp_cleaner.h">
+      <Filter>src\protocols\clean</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -115,6 +130,18 @@
     </ClCompile>
     <ClCompile Include="src\protocols\apple_mebx.cpp">
       <Filter>src\protocols</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\clean\heif_cleaner.cpp">
+      <Filter>src\protocols\clean</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\clean\jpeg_structure_cleaner.cpp">
+      <Filter>src\protocols\clean</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\clean\samsung_sef_cleaner.cpp">
+      <Filter>src\protocols\clean</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\clean\xmp_cleaner.cpp">
+      <Filter>src\protocols\clean</Filter>
     </ClCompile>
     <ClCompile Include="src\protocols\huawei.cpp">
       <Filter>src\protocols</Filter>

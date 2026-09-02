@@ -11,7 +11,8 @@ lpb_result clean_source_protocol(
     const char* input_video_path,
     const char* output_image_path,
     const char* output_video_path,
-    char* out_removed_facts,
-    size_t removed_facts_buffer_size);
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count);
 
 } // namespace lpb::media
