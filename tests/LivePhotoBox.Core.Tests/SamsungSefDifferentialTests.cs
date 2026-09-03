@@ -1,39 +1,78 @@
 using LivePhotoBox.Interop;
-using LivePhotoBox.Services.Protocols;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests;
 
-[Trait("Category", "NativeDifferential")]
+[Trait("Category", "NativeContract")]
 public sealed class SamsungSefDifferentialTests
 {
-    [Theory]
-    [InlineData("jpg", 0L)]
-    // Native keeps the historical ABI parameter but emits an mpvd-relative offset.
-    // The Legacy implementation remains the v2.2.1 image-relative contract; this
-    // differential fixture therefore uses the common zero-image-size case.
-    [InlineData("heic", 0L)]
-    public void BuildTrailer_IsByteIdenticalToManagedFallback(string imageType, long imageSize)
+    private static byte[] CreateMinimalMp4()
     {
-        byte[] video = [0x00, 0x00, 0x00, 0x18, (byte)'f', (byte)'t', (byte)'y', (byte)'p', 0x69, 0x73, 0x6F, 0x6D];
+        return [
+            0x00, 0x00, 0x00, 0x10, (byte)'f', (byte)'t', (byte)'y', (byte)'p',
+            (byte)'i', (byte)'s', (byte)'o', (byte)'m', 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x08, (byte)'m', (byte)'d', (byte)'a', (byte)'t',
+            0x00, 0x00, 0x00, 0x08, (byte)'m', (byte)'o', (byte)'o', (byte)'v'];
+    }
 
-        byte[] expected = SamsungMotionPhotoProtocol.BuildTrailer(video, imageType, imageSize);
-        byte[]? actual = NativeSamsungSef.BuildTrailer(video, imageType, imageSize);
+    [Fact]
+    public void BuildTrailer_ParseRoundTrip_UsesExactMotionPayload()
+    {
+        byte[] video = CreateMinimalMp4();
+        byte[]? trailer = NativeSamsungSef.BuildTrailer(video, "jpg");
 
-        Assert.NotNull(actual);
-        Assert.Equal(expected, actual);
+        Assert.NotNull(trailer);
+        byte[] input = [0xFF, 0xD8, 0xFF, 0xD9, .. trailer!];
+        Assert.True(NativeSamsungSef.TryParse(input, out long videoOffset, out long videoSize, out string? error), error);
+        Assert.Equal(video.Length, videoSize);
+        Assert.Equal(video, input.AsSpan(checked((int)videoOffset), checked((int)videoSize)).ToArray());
+    }
+
+    [Fact]
+    public void BuildHeicTrailer_WritesAbsoluteMpv2Pointer()
+    {
+        byte[] video = CreateMinimalMp4();
+        const long imageSize = 4096;
+        byte[]? trailer = NativeSamsungSef.BuildTrailer(video, "heic", imageSize);
+
+        Assert.NotNull(trailer);
+        int mpv2 = trailer!.AsSpan().IndexOf("mpv2"u8);
+        Assert.True(mpv2 >= 0);
+        Assert.Equal((uint)(imageSize + 8), System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(trailer.AsSpan(mpv2 + 4, 4)));
+        Assert.Equal((uint)video.Length, System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(trailer.AsSpan(mpv2 + 8, 4)));
+    }
+
+    [Fact]
+    public void TryParse_RejectsWrongTotalSizeAndOutOfRangeDirectory()
+    {
+        byte[] video = CreateMinimalMp4();
+        byte[] trailer = NativeSamsungSef.BuildTrailer(video, "jpg")!;
+        byte[] input = [0xFF, 0xD8, 0xFF, 0xD9, .. trailer];
+
+        int footer = input.Length - 8;
+        uint total = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(input.AsSpan(footer, 4));
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(input.AsSpan(footer, 4), total + 24);
+        Assert.False(NativeSamsungSef.TryParse(input, out _, out _, out _));
+
+        input = [0xFF, 0xD8, 0xFF, 0xD9, .. trailer];
+        int sefh = input.AsSpan().IndexOf("SEFH"u8);
+        Assert.True(sefh >= 0);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(input.AsSpan(sefh + 16, 4), uint.MaxValue);
+        Assert.False(NativeSamsungSef.TryParse(input, out _, out _, out _));
     }
 
     [Fact]
     public void TryParse_LocatesMotionPhotoDataPayload()
     {
         byte[] imagePrefix = new byte[37];
-        byte[] video = [0x01, 0x02, 0x03, 0x04, 0x05];
-        byte[] trailer = SamsungMotionPhotoProtocol.BuildTrailer(video, "jpg");
+        byte[] video = CreateMinimalMp4();
+        byte[] trailer = NativeSamsungSef.BuildTrailer(video, "jpg")!;
         byte[] input = [.. imagePrefix, .. trailer];
 
         Assert.True(NativeSamsungSef.TryParse(input, out long videoOffset, out long videoSize, out string? error), error);
-        Assert.Equal(imagePrefix.Length + 24L, videoOffset);
+        int relativeVideoOffset = trailer.AsSpan().IndexOf(video);
+        Assert.True(relativeVideoOffset >= 0);
+        Assert.Equal(imagePrefix.Length + relativeVideoOffset, videoOffset);
         Assert.Equal(video.Length, videoSize);
         Assert.Equal(video, input.AsSpan((int)videoOffset, (int)videoSize).ToArray());
     }

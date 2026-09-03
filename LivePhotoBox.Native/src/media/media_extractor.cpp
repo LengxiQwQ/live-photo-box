@@ -1,6 +1,8 @@
 #include "media/media_extractor.h"
 #include "foundation/internal.h"
 #include <fstream>
+#include <filesystem>
+#include <Windows.h>
 #include <vector>
 
 namespace lpb::media {
@@ -15,6 +17,13 @@ static lpb_result copy_slice_to_file(
     if (!src_path || !dst_path || length == 0) return LPB_RESULT_OK;
 
     auto p_src = utf8_to_path(src_path);
+    std::error_code ec;
+    const uintmax_t source_size = std::filesystem::file_size(p_src, ec);
+    if (ec || offset > source_size || length > source_size - offset) {
+        set_error(context, "Requested extraction range is outside the source file.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
     std::ifstream in(p_src, std::ios::binary);
     if (!in.is_open()) {
         set_error(context, "Failed to open source file for reading.");
@@ -28,8 +37,21 @@ static lpb_result copy_slice_to_file(
     }
 
     auto p_dst = utf8_to_path(dst_path);
-    std::ofstream out(p_dst, std::ios::binary | std::ios::trunc);
+    auto temp_dir = p_dst.parent_path();
+    if (temp_dir.empty()) temp_dir = std::filesystem::current_path(ec);
+    if (ec || temp_dir.empty()) {
+        set_error(context, "Failed to resolve destination directory.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    wchar_t temp_name[MAX_PATH]{};
+    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) {
+        set_error(context, "Failed to create temporary extraction artifact.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    const std::filesystem::path temp_path(temp_name);
+    std::ofstream out(temp_path, std::ios::binary | std::ios::trunc);
     if (!out.is_open()) {
+        std::filesystem::remove(temp_path, ec);
         set_error(context, "Failed to open destination file for writing.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -41,6 +63,7 @@ static lpb_result copy_slice_to_file(
     while (remaining > 0) {
         if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
             out.close();
+            std::filesystem::remove(temp_path, ec);
             return LPB_RESULT_CANCELLED;
         }
 
@@ -48,15 +71,35 @@ static lpb_result copy_slice_to_file(
         in.read(buffer.data(), to_read);
         std::streamsize read_bytes = in.gcount();
         if (read_bytes <= 0) {
+            out.close();
+            std::filesystem::remove(temp_path, ec);
             set_error(context, "Unexpected EOF while extracting slice.");
             return LPB_RESULT_INTERNAL_ERROR;
         }
 
         out.write(buffer.data(), read_bytes);
+        if (!out.good()) {
+            out.close();
+            std::filesystem::remove(temp_path, ec);
+            set_error(context, "Failed while writing extracted slice.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
         remaining -= read_bytes;
     }
 
     out.flush();
+    if (!out.good()) {
+        out.close();
+        std::filesystem::remove(temp_path, ec);
+        set_error(context, "Failed to flush extracted slice.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    out.close();
+    if (!MoveFileExW(temp_path.c_str(), p_dst.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        std::filesystem::remove(temp_path, ec);
+        set_error(context, "Failed to publish extracted slice atomically.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
     return LPB_RESULT_OK;
 }
 

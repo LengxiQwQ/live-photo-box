@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <vector>
 #include <string>
+#include <limits>
 
 namespace {
 static bool is_box_type(const uint8_t* p, const char* type) {
@@ -237,9 +238,132 @@ static int type_to_data_length(uint16_t type, uint32_t count) {
         case 13: case 14: unit = 4; break;
         case 16: unit = 8; break;
     }
-    if (unit == 0) return 0;
-    long long len = (long long)unit * count;
-    return len > 4 ? (int)len : 0;
+    if (unit == 0 || count > static_cast<uint64_t>(std::numeric_limits<int>::max()) / static_cast<uint64_t>(unit)) return -1;
+    const uint64_t len = static_cast<uint64_t>(unit) * count;
+    return len > 4 ? static_cast<int>(len) : 0;
+}
+
+struct maker_note_region {
+    size_t start{};
+    size_t end{};
+};
+
+static size_t maker_note_directory_end(const uint8_t* data, size_t size, size_t start, uint16_t count) noexcept {
+    const size_t entries_end = start + 16 + static_cast<size_t>(count) * 12;
+    // Apple MakerNotes normally carry the four-byte next-IFD field. Some
+    // minimal/vendor notes omit it and put the first payload byte here; only
+    // consume the field when it is the conventional zero value.
+    if (entries_end <= size && size - entries_end >= 4 &&
+        data[entries_end] == 0 && data[entries_end + 1] == 0 &&
+        data[entries_end + 2] == 0 && data[entries_end + 3] == 0) {
+        return entries_end + 4;
+    }
+    return entries_end;
+}
+
+static bool read_tiff_u16(const uint8_t* data, size_t start, size_t end, size_t at, bool little, uint16_t& out) noexcept {
+    (void)start;
+    if (at > end || end - at < 2) return false;
+    out = little ? static_cast<uint16_t>(data[at]) | (static_cast<uint16_t>(data[at + 1]) << 8) : read_be16u(data + at);
+    return true;
+}
+
+static bool read_tiff_u32(const uint8_t* data, size_t start, size_t end, size_t at, bool little, uint32_t& out) noexcept {
+    (void)start;
+    if (at > end || end - at < 4) return false;
+    out = little ? static_cast<uint32_t>(data[at]) | (static_cast<uint32_t>(data[at + 1]) << 8) |
+        (static_cast<uint32_t>(data[at + 2]) << 16) | (static_cast<uint32_t>(data[at + 3]) << 24) : read_be32u(data + at);
+    return true;
+}
+
+static bool find_tiff_tag(const uint8_t* data, size_t tiff_start, size_t tiff_end, uint32_t ifd_offset,
+    bool little, uint16_t wanted_tag, uint16_t& out_type, uint32_t& out_count, uint32_t& out_value) noexcept {
+    if (ifd_offset > tiff_end - tiff_start || tiff_start + ifd_offset > tiff_end || tiff_end - (tiff_start + ifd_offset) < 2) return false;
+    const size_t ifd = tiff_start + ifd_offset;
+    uint16_t count = 0;
+    if (!read_tiff_u16(data, tiff_start, tiff_end, ifd, little, count) || count > 4096 ||
+        static_cast<size_t>(count) > (tiff_end - (ifd + 2)) / 12) return false;
+    for (uint16_t i = 0; i < count; ++i) {
+        const size_t entry = ifd + 2 + static_cast<size_t>(i) * 12;
+        uint16_t tag = 0;
+        if (!read_tiff_u16(data, tiff_start, tiff_end, entry, little, tag)) return false;
+        if (tag != wanted_tag) continue;
+        if (!read_tiff_u16(data, tiff_start, tiff_end, entry + 2, little, out_type) ||
+            !read_tiff_u32(data, tiff_start, tiff_end, entry + 4, little, out_count) ||
+            !read_tiff_u32(data, tiff_start, tiff_end, entry + 8, little, out_value)) return false;
+        return true;
+    }
+    return false;
+}
+
+static bool find_structural_maker_note_region(const uint8_t* data, size_t size, size_t expected_start,
+    maker_note_region& out) noexcept {
+    if (!data || expected_start >= size) return false;
+    for (size_t tiff = 0; tiff + 8 <= expected_start; ++tiff) {
+        const bool little = data[tiff] == 'I' && data[tiff + 1] == 'I';
+        const bool big = data[tiff] == 'M' && data[tiff + 1] == 'M';
+        if ((!little && !big) || (little && data[tiff + 2] != 0x2A) || (little && data[tiff + 3] != 0x00) ||
+            (big && read_be16u(data + tiff + 2) != 42)) continue;
+        uint32_t ifd0 = 0;
+        if (!read_tiff_u32(data, tiff, size, tiff + 4, !big, ifd0)) continue;
+        uint16_t type = 0; uint32_t count = 0; uint32_t value = 0;
+        bool found = find_tiff_tag(data, tiff, size, ifd0, !big, 0x927C, type, count, value);
+        if (!found) {
+            uint16_t exif_type = 0; uint32_t exif_count = 0; uint32_t exif_ifd = 0;
+            if (find_tiff_tag(data, tiff, size, ifd0, !big, 0x8769, exif_type, exif_count, exif_ifd) &&
+                exif_type == 4 && exif_count == 1) {
+                found = find_tiff_tag(data, tiff, size, exif_ifd, !big, 0x927C, type, count, value);
+            }
+        }
+        if (!found || type != 7 || count == 0 || value > size - tiff || count > size - tiff - value) continue;
+        const size_t note_start = tiff + static_cast<size_t>(value);
+        if (note_start == expected_start && count <= size - note_start && count >= 14 &&
+            std::memcmp(data + note_start, "Apple iOS\0", 10) == 0) {
+            out = { note_start, note_start + static_cast<size_t>(count) };
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool derive_maker_note_region_from_contents(const uint8_t* data, size_t size, size_t start,
+    maker_note_region& out) noexcept {
+    if (!data || start > size || size - start < 20 || std::memcmp(data + start, "Apple iOS\0", 10) != 0) return false;
+    const uint16_t count = read_be16u(data + start + 14);
+    if (count > 64 || static_cast<size_t>(count) > (size - start - 16) / 12) return false;
+    const size_t entries = start + 16;
+    const size_t directory_end = maker_note_directory_end(data, size, start, count);
+    if (directory_end > size) return false;
+    size_t end = directory_end;
+    if (count == 0) {
+        // A previous in-place strip leaves the old value area zeroed. For the
+        // unwrapped ABI test/utility buffer, retain that zero-owned region but
+        // stop at the first non-zero byte instead of treating the whole file
+        // as MakerNote storage.
+        while (end < size && data[end] == 0) ++end;
+    }
+    for (uint16_t i = 0; i < count; ++i) {
+        const size_t entry = entries + static_cast<size_t>(i) * 12;
+        const uint16_t type = read_be16u(data + entry + 2);
+        const uint32_t value_count = read_be32u(data + entry + 4);
+        const uint64_t unit = type == 1 || type == 2 || type == 6 || type == 7 ? 1 :
+            (type == 3 || type == 8 ? 2 : (type == 4 || type == 9 || type == 11 || type == 13 || type == 14 ? 4 :
+            (type == 5 || type == 10 || type == 12 || type == 16 ? 8 : 0)));
+        if (unit == 0 || value_count > std::numeric_limits<size_t>::max() / unit) continue;
+        const size_t value_size = static_cast<size_t>(unit * value_count);
+        if (value_size > 4) {
+            const uint32_t relative = read_be32u(data + entry + 8);
+            if (relative > size - start || value_size > size - start - relative) return false;
+            end = std::max(end, start + static_cast<size_t>(relative) + value_size);
+        }
+    }
+    out = { start, end };
+    return true;
+}
+
+static bool find_maker_note_region(const uint8_t* data, size_t size, size_t start, maker_note_region& out) noexcept {
+    if (find_structural_maker_note_region(data, size, start, out)) return true;
+    return derive_maker_note_region_from_contents(data, size, start, out);
 }
 
 static std::vector<uint8_t> build_heif_exif_item(const uint8_t* makernote, size_t makernote_size) {
@@ -284,11 +408,13 @@ static bool add_heif_exif_item(
     size_t meta_end = meta_start + meta_len;
     size_t iinf_start, iinf_len, iinf_body;
     size_t iloc_start, iloc_len, iloc_body;
+    size_t idat_start = 0, idat_len = 0, idat_body = 0;
     if (!find_box(input, meta_body + 4, meta_end, "iinf", iinf_start, iinf_len, iinf_body) ||
         !find_box(input, meta_body + 4, meta_end, "iloc", iloc_start, iloc_len, iloc_body)) {
         set_error(context, "HEIF meta lacks iinf or iloc for Exif item creation.");
         return false;
     }
+    const bool have_idat = find_box(input, meta_body + 4, meta_end, "idat", idat_start, idat_len, idat_body);
 
     const size_t iloc_end = iloc_start + iloc_len;
     if (iloc_body + 8 > iloc_end || input[iloc_body] != 1 ||
@@ -310,7 +436,7 @@ static bool add_heif_exif_item(
         uint16_t construction_method = (static_cast<uint16_t>(input[p + 2]) << 8) | input[p + 3];
         uint16_t extent_count = (static_cast<uint16_t>(input[p + 6]) << 8) | input[p + 7];
         max_item_id = std::max(max_item_id, item_id);
-        if (construction_method == 0) {
+        if (construction_method == 0 || construction_method == 1) {
             size_t extent = p + 8;
             for (uint16_t e = 0; e < extent_count; ++e) {
                 if (extent + 8 > iloc_end) {
@@ -322,9 +448,22 @@ static bool add_heif_exif_item(
                     set_error(context, "HEIF iloc offset overflow while creating Exif item.");
                     return false;
                 }
+                const uint32_t old_length = read_be32u(input + extent + 4);
+                const uint64_t owner_size = construction_method == 1 && have_idat
+                    ? static_cast<uint64_t>(idat_start + idat_len - idat_body)
+                    : static_cast<uint64_t>(input_size);
+                if (construction_method == 1 && !have_idat) {
+                    set_error(context, "HEIF iloc construction method 1 has no owning idat box.");
+                    return false;
+                }
+                if (static_cast<uint64_t>(old_offset) > owner_size ||
+                    static_cast<uint64_t>(old_length) > owner_size - old_offset) {
+                    set_error(context, "HEIF iloc extent exceeds its owning data range.");
+                    return false;
+                }
                 extent += 8;
             }
-        } else if (construction_method != 1) {
+        } else {
             set_error(context, "Unsupported HEIF construction method for Exif item creation.");
             return false;
         }
@@ -332,6 +471,14 @@ static bool add_heif_exif_item(
     }
     if (p != iloc_end || max_item_id >= 0xFFFFu || item_count >= 0xFFFFu) {
         set_error(context, "Unsupported HEIF iloc contents for Exif item creation.");
+        return false;
+    }
+
+    if (iinf_len > std::numeric_limits<size_t>::max() - 21 ||
+        iloc_len > std::numeric_limits<size_t>::max() - 16 ||
+        input_size > std::numeric_limits<size_t>::max() - 37 ||
+        makernote_size > std::numeric_limits<size_t>::max() - 32) {
+        set_error(context, "HEIF Exif item size overflow.");
         return false;
     }
 
@@ -380,6 +527,12 @@ static bool add_heif_exif_item(
     write_be16(new_iloc.data() + p + 6, 1);
     std::vector<uint8_t> exif_item = build_heif_exif_item(makernote, makernote_size);
     size_t new_mdat_start = input_size + metadata_delta;
+    if (exif_item.size() > std::numeric_limits<uint32_t>::max() - 8 ||
+        new_mdat_start > std::numeric_limits<uint32_t>::max() - 8 ||
+        meta_len > std::numeric_limits<uint32_t>::max() - metadata_delta) {
+        set_error(context, "HEIF Exif item cannot be represented by 32-bit fields.");
+        return false;
+    }
     write_be32(new_iloc.data() + p + 8, static_cast<uint32_t>(new_mdat_start + 8));
     write_be32(new_iloc.data() + p + 12, static_cast<uint32_t>(exif_item.size()));
 
@@ -443,17 +596,24 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
         }
 
         size_t mnStart = static_cast<size_t>(mn_start);
+        maker_note_region region{};
+        if (!find_maker_note_region(data, data_size, mnStart, region)) {
+            malformed_candidate = true;
+            search_from = mnStart + 14;
+            continue;
+        }
         // Continue after the signature even when this candidate is malformed, so a later
         // valid MakerNote is never hidden by an unrelated byte sequence.
         search_from = mnStart + 14;
-        if (mnStart + 16 > data_size) { malformed_candidate = true; continue; }
+        if (mnStart + 16 > region.end || region.end > data_size) { malformed_candidate = true; continue; }
 
         uint16_t entry_count = read_be16u(data + mnStart + 14);
         if (entry_count == 0 || entry_count > 64) { malformed_candidate = true; continue; }
 
         size_t entriesStart = mnStart + 16;
         size_t entriesLen = entry_count * 12;
-        if (entriesLen > data_size - entriesStart || entriesStart + entriesLen + 4 > data_size) {
+        const size_t directoryEnd = maker_note_directory_end(data, data_size, mnStart, entry_count);
+        if (entriesLen > region.end - entriesStart || directoryEnd > region.end) {
             malformed_candidate = true;
             continue;
         }
@@ -474,9 +634,15 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
             uint32_t offset = read_be32u(data + e + 8);
             int dataLen = type_to_data_length(type, count);
 
+            const size_t relative_directory_end = directoryEnd - mnStart;
+            if (dataLen < 0 || (dataLen > 0 && (offset < relative_directory_end ||
+                offset > region.end - mnStart || static_cast<size_t>(dataLen) > region.end - mnStart - offset))) {
+                malformed_candidate = true;
+                continue;
+            }
             size_t absData = mnStart + offset;
-            if (dataLen > 0 && offset >= (entriesStart - mnStart + entriesLen + 4) && absData + dataLen <= data_size) {
-                std::memset(data + absData, 0, dataLen);
+            if (dataLen > 0) {
+                std::memset(data + absData, 0, static_cast<size_t>(dataLen));
             }
         }
 
@@ -513,40 +679,99 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_write_content_identifier(
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
+    maker_note_region region{};
+    if (!find_maker_note_region(data, data_size, static_cast<size_t>(mn_start), region)) {
+        set_error(context, "Apple MakerNote ownership range could not be established.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
     std::string cid(content_id);
     cid.push_back('\0'); // null-terminated UUID
 
-    size_t dataOffset = 10 + 2 + 2 + 2 + 12 + 4; // 32
-    size_t total = dataOffset + cid.length();
-    size_t pad = (total % 2 == 0) ? 0 : 1;
-    size_t minimalLen = total + pad;
-
-    if (static_cast<size_t>(mn_start) + minimalLen > data_size) {
-        set_error(context, "Apple MakerNote region too small to rebuild.");
-        return LPB_RESULT_INTERNAL_ERROR;
+    const size_t mn_start_size = static_cast<size_t>(mn_start);
+    const uint16_t old_count = read_be16u(data + mn_start_size + 14);
+    if (old_count > 64 || static_cast<size_t>(old_count) > (region.end - mn_start_size - 16) / 12) {
+        set_error(context, "Apple MakerNote directory is malformed.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t old_directory_end = maker_note_directory_end(data, region.end, mn_start_size, old_count) - mn_start_size;
+    if (old_directory_end > region.end - mn_start_size) {
+        set_error(context, "Apple MakerNote directory exceeds its owned range.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    uint8_t* mn = data + mn_start;
-    std::memcpy(mn, "Apple iOS\0", 10);
-    mn[10] = 0x00;
-    mn[11] = 0x01;
-    mn[12] = 'M';
-    mn[13] = 'M';
-    write_be16(mn + 14, 1); // count = 1
-    
-    // Entry 0: tag=0x0011, type=2, count=cid.length(), offset=dataOffset
-    uint8_t* entry = mn + 16;
-    write_be16(entry, 0x0011);
-    write_be16(entry + 2, 2);
-    write_be32(entry + 4, static_cast<uint32_t>(cid.length()));
-    write_be32(entry + 8, static_cast<uint32_t>(dataOffset));
-    
-    // Next IFD = 0
-    write_be32(mn + 28, 0);
+    std::vector<std::array<uint8_t, 12>> kept_entries;
+    std::vector<std::pair<size_t, size_t>> occupied;
+    for (uint16_t i = 0; i < old_count; ++i) {
+        const size_t entry_offset = 16 + static_cast<size_t>(i) * 12;
+        const uint8_t* entry = data + mn_start_size + entry_offset;
+        const uint16_t tag = read_be16u(entry);
+        const bool is_live = tag == 0x0011 || tag == 0x0017 || tag == 0x0025 || tag == 0x002b;
+        const uint16_t type = read_be16u(entry + 2);
+        const uint32_t value_count = read_be32u(entry + 4);
+        const int value_length = type_to_data_length(type, value_count);
+        if (value_length < 0) {
+            set_error(context, "Apple MakerNote entry type or count overflows its value range.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (!is_live) {
+            std::array<uint8_t, 12> copy{};
+            std::memcpy(copy.data(), entry, copy.size());
+            kept_entries.push_back(copy);
+        }
+        if (value_length > 0) {
+            const uint32_t relative = read_be32u(entry + 8);
+            if (relative < old_directory_end || relative > region.end - mn_start_size ||
+                static_cast<size_t>(value_length) > region.end - mn_start_size - relative) {
+                set_error(context, "Apple MakerNote entry points outside its owned payload range.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (!is_live) occupied.emplace_back(relative, relative + static_cast<size_t>(value_length));
+        }
+    }
+    if (kept_entries.size() >= 64) {
+        set_error(context, "Apple MakerNote has no directory slot for a replacement ContentIdentifier.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
-    // Payload
-    std::memcpy(mn + 32, cid.data(), cid.length());
-    if (pad > 0) mn[32 + cid.length()] = 0;
+    const size_t new_count = kept_entries.size() + 1;
+    const size_t new_directory_end = maker_note_directory_end(data, region.end, mn_start_size,
+        static_cast<uint16_t>(new_count)) - mn_start_size;
+    const size_t owner_size = region.end - mn_start_size;
+    if (new_directory_end > owner_size || cid.size() > owner_size - new_directory_end || cid.size() > std::numeric_limits<uint32_t>::max()) {
+        set_error(context, "Apple MakerNote region is too small for a preserving rebuild.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    size_t cid_offset = new_directory_end;
+    while (cid_offset <= owner_size - cid.size()) {
+        bool overlaps = false;
+        for (const auto& range : occupied) {
+            if (cid_offset < range.second && range.first < cid_offset + cid.size()) { overlaps = true; break; }
+        }
+        if (!overlaps) break;
+        ++cid_offset;
+    }
+    if (cid_offset > owner_size - cid.size()) {
+        set_error(context, "Apple MakerNote has no free owned payload range for ContentIdentifier.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    uint8_t* mn = data + mn_start_size;
+    std::memcpy(mn, "Apple iOS\0", 10);
+    mn[10] = 0x00; mn[11] = 0x01; mn[12] = 'M'; mn[13] = 'M';
+    write_be16(mn + 14, static_cast<uint16_t>(new_count));
+    for (size_t i = 0; i < kept_entries.size(); ++i) {
+        std::memcpy(mn + 16 + i * 12, kept_entries[i].data(), 12);
+    }
+    uint8_t* new_entry = mn + 16 + kept_entries.size() * 12;
+    write_be16(new_entry, 0x0011);
+    write_be16(new_entry + 2, 2);
+    write_be32(new_entry + 4, static_cast<uint32_t>(cid.size()));
+    write_be32(new_entry + 8, static_cast<uint32_t>(cid_offset));
+    write_be32(mn + 16 + new_count * 12, 0);
+    if (new_directory_end > old_directory_end) std::memset(mn + old_directory_end, 0, new_directory_end - old_directory_end);
+    std::memcpy(mn + cid_offset, cid.data(), cid.size());
 
     return LPB_RESULT_OK;
 }
@@ -643,7 +868,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
         return LPB_RESULT_OK;
     }
 
-    if (exif_offset + exif_length > input_size) {
+    if (exif_offset > input_size || exif_length > input_size - static_cast<size_t>(exif_offset)) {
         set_error(context, "Exif item out of bounds.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
@@ -657,13 +882,17 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
     }
 
     uint32_t tiff_header_offset = read_be32u(input + offset);
-    size_t tiff = offset + 4 + tiff_header_offset;
+    if (tiff_header_offset > length - 4) {
+        set_error(context, "Exif TIFF header offset is out of bounds.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    size_t tiff = offset + 4 + static_cast<size_t>(tiff_header_offset);
 
     if (tiff_header_offset == 0x45786966) { // "Exif"
         tiff = offset + 6;
     }
 
-    if (tiff + 8 > offset + length) {
+    if (tiff > offset + length || offset + length - tiff < 8) {
         set_error(context, "Truncated Exif TIFF in HEIC.");
         return LPB_RESULT_INTERNAL_ERROR;
     }

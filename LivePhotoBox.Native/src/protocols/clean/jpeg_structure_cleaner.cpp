@@ -1,11 +1,39 @@
 #include "jpeg_structure_cleaner.h"
 #include "foundation/internal.h"
+#include "containers/isobmff.h"
+#include <charconv>
 #include <fstream>
 #include <vector>
 #include <cstring>
 #include <string_view>
+#include <filesystem>
+#include <limits>
+#define NOMINMAX
+#include <Windows.h>
+
+namespace fs = std::filesystem;
 
 namespace lpb::protocols::clean {
+
+static bool write_atomic(const fs::path& path, const std::vector<uint8_t>& data)
+{
+    fs::path temp = path;
+    temp += L".lpb-jpeg-cleaning-tmp";
+    std::error_code ec;
+    fs::remove(temp, ec);
+    {
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        if (!out.is_open()) return false;
+        out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+        out.flush();
+        if (!out.good()) { out.close(); fs::remove(temp, ec); return false; }
+    }
+    if (!MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        fs::remove(temp, ec);
+        return false;
+    }
+    return true;
+}
 
 static void add_fact(
     std::vector<lpb_removed_protocol_fact>& out_facts,
@@ -108,21 +136,47 @@ lpb_result strip_jpeg_tail_data(
         pos += 2 + seg_len;
     }
 
-    if (eoi_pos > 0 && eoi_pos < data_len) {
-        // Trailing tail bytes detected and stripped
-        data.resize(eoi_pos);
-        add_fact(out_facts, proto, comp, desc);
+    if (eoi_pos == 0 || eoi_pos >= data_len || data_len < 60 ||
+        std::memcmp(data.data() + data_len - 20, "LIVE_", 5) != 0) {
+        set_error(context, "Validated Huawei/Honor LIVE trailer was not found after the JPEG.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    auto p_out = utf8_to_path(output_path.c_str());
-    std::ofstream out(p_out, std::ios::binary | std::ios::trunc);
-    if (!out.is_open()) {
-        set_error(context, "Failed to open output JPEG for writing.");
-        return LPB_RESULT_INTERNAL_ERROR;
+    // The last 20 bytes contain LIVE_ plus a decimal MP4-size+20 field.  Do
+    // not strip arbitrary bytes after a JPEG EOI merely because they happen
+    // to contain the marker; confirm the declared media range as well.
+    const char* number = reinterpret_cast<const char*>(data.data() + data_len - 15);
+    const char* number_end = number + 15;
+    const char* digits_end = number;
+    while (digits_end < number_end && *digits_end >= '0' && *digits_end <= '9') ++digits_end;
+    uint64_t mp4_plus_20 = 0;
+    const auto parsed = std::from_chars(number, digits_end, mp4_plus_20, 10);
+    bool padding_ok = digits_end != number;
+    for (const char* p = digits_end; p < number_end; ++p) padding_ok = padding_ok && (*p == ' ' || *p == '\0');
+    if (parsed.ec != std::errc{} || parsed.ptr != digits_end || !padding_ok ||
+        mp4_plus_20 <= 20 || mp4_plus_20 > data_len) {
+        set_error(context, "Huawei/Honor LIVE trailer contains an invalid MP4 length.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t video_length = static_cast<size_t>(mp4_plus_20 - 20);
+    const size_t trailer_start = data_len - 60;
+    if (video_length > trailer_start) {
+        set_error(context, "Huawei/Honor LIVE trailer points before the file start.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t video_offset = trailer_start - video_length;
+    if (video_offset < eoi_pos ||
+        !is_valid_isobmff_media_range(data.data(), data.size(), video_offset, video_length)) {
+        set_error(context, "Huawei/Honor LIVE trailer does not describe a structurally valid MP4 range.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-    if (!out.good()) {
+    // Remove the complete embedded MP4 and its 60-byte protocol footer while
+    // retaining the JPEG and any validated bytes between its EOI and ftyp.
+    data.resize(video_offset);
+    add_fact(out_facts, proto, comp, desc);
+
+    if (!write_atomic(utf8_to_path(output_path.c_str()), data)) {
         set_error(context, "Failed to write clean JPEG.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
@@ -164,27 +218,39 @@ lpb_result clean_huawei_image(
     }
     in.close();
 
-    size_t data_len = data.size();
-    size_t scan_start = data_len > 4096 ? data_len - 4096 : 0;
-    std::string_view tail(reinterpret_cast<const char*>(data.data() + scan_start), data_len - scan_start);
-
-    auto live_pos = tail.rfind("LIVE_");
-    if (live_pos != std::string_view::npos) {
-        size_t actual_live_pos = scan_start + live_pos;
-        size_t trailer_start = (actual_live_pos >= 40) ? (actual_live_pos - 40) : actual_live_pos;
-        data.resize(trailer_start);
-        add_fact(out_facts, "Huawei/Honor", "LIVE Tail", "Removed 60-byte LIVE_ tail marker from HEIC");
+    const size_t data_len = data.size();
+    if (data_len < 60 || std::memcmp(data.data() + data_len - 20, "LIVE_", 5) != 0) {
+        set_error(context, "Validated Huawei/Honor LIVE trailer was not found in the HEIC.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
-
-    auto p_out = utf8_to_path(output_path.c_str());
-    std::ofstream out(p_out, std::ios::binary | std::ios::trunc);
-    if (!out.is_open()) {
-        set_error(context, "Failed to open output Huawei HEIC for writing.");
-        return LPB_RESULT_INTERNAL_ERROR;
+    const char* number = reinterpret_cast<const char*>(data.data() + data_len - 15);
+    const char* number_end = number + 15;
+    const char* digits_end = number;
+    while (digits_end < number_end && *digits_end >= '0' && *digits_end <= '9') ++digits_end;
+    uint64_t mp4_plus_20 = 0;
+    const auto parsed = std::from_chars(number, digits_end, mp4_plus_20, 10);
+    bool padding_ok = digits_end != number;
+    for (const char* p = digits_end; p < number_end; ++p) padding_ok = padding_ok && (*p == ' ' || *p == '\0');
+    if (parsed.ec != std::errc{} || parsed.ptr != digits_end || !padding_ok ||
+        mp4_plus_20 <= 20 || mp4_plus_20 > data_len) {
+        set_error(context, "Huawei/Honor HEIC LIVE trailer contains an invalid MP4 length.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
+    const size_t video_length = static_cast<size_t>(mp4_plus_20 - 20);
+    const size_t trailer_start = data_len - 60;
+    if (video_length > trailer_start) {
+        set_error(context, "Huawei/Honor HEIC LIVE trailer points before the file start.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t video_offset = trailer_start - video_length;
+    if (!is_valid_isobmff_media_range(data.data(), data.size(), video_offset, video_length)) {
+        set_error(context, "Huawei/Honor HEIC LIVE trailer does not describe a structurally valid MP4 range.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    data.resize(video_offset);
+    add_fact(out_facts, "Huawei/Honor", "LIVE Tail", "Removed embedded MP4 and 60-byte LIVE_ tail from HEIC");
 
-    out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-    if (!out.good()) {
+    if (!write_atomic(utf8_to_path(output_path.c_str()), data)) {
         set_error(context, "Failed to write clean Huawei HEIC.");
         return LPB_RESULT_INTERNAL_ERROR;
     }

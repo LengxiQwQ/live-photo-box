@@ -9,6 +9,29 @@ namespace LivePhotoBox.Core.Tests;
 [Trait("Category", "NativeDifferential")]
 public sealed class HeifBoxParserDifferentialTests
 {
+    private static byte[] CreateValidExifFile()
+    {
+        byte[] infePayload = new byte[12];
+        BinaryPrimitives.WriteUInt16BigEndian(infePayload.AsSpan(0), 42);
+        "Exif"u8.CopyTo(infePayload.AsSpan(4));
+        byte[] infe = BuildFullBox("infe", 2, 0, infePayload);
+        byte[] iinfPayload = new byte[2 + infe.Length];
+        BinaryPrimitives.WriteUInt16BigEndian(iinfPayload.AsSpan(0), 1);
+        infe.CopyTo(iinfPayload, 2);
+        byte[] iinf = BuildFullBox("iinf", 0, 0, iinfPayload);
+
+        byte[] ilocPayload = new byte[2 + 2 + 18];
+        ilocPayload[0] = 0x44;
+        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(2), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(4), 42);
+        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(8), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(10), 100);
+        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(14), 200);
+        byte[] iloc = BuildFullBox("iloc", 0, 0, ilocPayload);
+        byte[] meta = BuildFullBox("meta", 0, 0, [.. iinf, .. iloc]);
+        return [.. BuildBox("ftyp", new byte[16]), .. meta, .. new byte[500]];
+    }
+
     private static byte[] BuildBox(string type, byte[] payload)
     {
         byte[] box = new byte[8 + payload.Length];
@@ -124,5 +147,29 @@ public sealed class HeifBoxParserDifferentialTests
             file, out long offset, out long length, out string? error), error);
         Assert.Equal(100L, offset);
         Assert.Equal(200L, length);
+    }
+
+    [Fact]
+    public void LocateExifItem_RejectsUnsupportedOrOutOfRangeIloc()
+    {
+        byte[] file = CreateValidExifFile();
+        int iloc = file.AsSpan().IndexOf("iloc"u8) - 4;
+        Assert.True(iloc >= 8);
+
+        // iloc offset_size=3 is not a layout this implementation can safely
+        // interpret. It must not guess a field width.
+        file[iloc + 12] = 0x34;
+        Assert.False(NativeHeifBoxParser.TryLocateExifItem(file, out _, out _, out _));
+
+        file = CreateValidExifFile();
+        iloc = file.AsSpan().IndexOf("iloc"u8) - 4;
+        // extent_count is at box + 20 for this version-0, 4/4-byte fixture.
+        BinaryPrimitives.WriteUInt16BigEndian(file.AsSpan(iloc + 20), 2);
+        Assert.False(NativeHeifBoxParser.TryLocateExifItem(file, out _, out _, out _));
+
+        file = CreateValidExifFile();
+        iloc = file.AsSpan().IndexOf("iloc"u8) - 4;
+        BinaryPrimitives.WriteUInt32BigEndian(file.AsSpan(iloc + 22), uint.MaxValue);
+        Assert.False(NativeHeifBoxParser.TryLocateExifItem(file, out _, out _, out _));
     }
 }

@@ -5,6 +5,65 @@
 
 using namespace lpb;
 
+bool try_read_box_header(
+    const uint8_t* data,
+    size_t start,
+    size_t end,
+    isobmff_box_header& out) noexcept
+{
+    if (!data || start > end || end - start < 8) return false;
+    const uint32_t size32 = read_be32u(data + start);
+    size_t header_size = 8;
+    uint64_t size = size32;
+    if (size32 == 1)
+    {
+        if (end - start < 16) return false;
+        size = static_cast<uint64_t>(read_be64(data + start + 8));
+        if (size < 16) return false;
+        header_size = 16;
+    }
+    else if (size32 == 0)
+    {
+        size = end - start;
+    }
+    if (size < header_size || size > static_cast<uint64_t>(end - start)) return false;
+    out = { start, static_cast<size_t>(size), header_size, size32, size32 == 0 };
+    return true;
+}
+
+bool is_valid_isobmff_media_range(
+    const uint8_t* data,
+    size_t data_size,
+    uint64_t offset,
+    uint64_t length) noexcept
+{
+    if (!data || offset > data_size || length < 8 || length > data_size - static_cast<size_t>(offset)) return false;
+    const size_t start = static_cast<size_t>(offset);
+    const size_t end = start + static_cast<size_t>(length);
+    size_t position = start;
+    bool saw_ftyp = false;
+    bool saw_mdat = false;
+    bool saw_moov = false;
+    bool first = true;
+    while (position < end)
+    {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data, position, end, box)) return false;
+        const uint8_t* type = data + position + 4;
+        if (first)
+        {
+            if (std::memcmp(type, "ftyp", 4) != 0) return false;
+            if (box.size < box.header_size + 8) return false;
+            first = false;
+        }
+        if (std::memcmp(type, "ftyp", 4) == 0) saw_ftyp = true;
+        else if (std::memcmp(type, "mdat", 4) == 0) saw_mdat = true;
+        else if (std::memcmp(type, "moov", 4) == 0) saw_moov = true;
+        position += box.size;
+    }
+    return position == end && saw_ftyp && saw_mdat && saw_moov;
+}
+
 bool is_type(const std::vector<uint8_t>& data, size_t offset, const char* type) noexcept
 {
     binary_reader reader(data);
@@ -26,19 +85,18 @@ size_t find_child_box(
     if (!reader.try_seek(start)) return std::numeric_limits<size_t>::max();
     if (end > data.size()) end = data.size();
 
-    while (reader.position() + 8 <= end)
+    while (reader.position() <= end && end - reader.position() >= 8)
     {
-        size_t position = reader.position();
-        uint32_t size = 0;
-        if (!reader.try_read_be32u(size) || size < 8) break;
-        if (size > end - position) break;
+        const size_t position = reader.position();
+        isobmff_box_header box{};
+        if (!try_read_box_header(data.data(), position, end, box)) break;
 
         if (is_type(data, position, type))
         {
             return position;
         }
         
-        if (!reader.try_seek(position + size)) break;
+        if (!reader.try_seek(position + box.size)) break;
     }
     return std::numeric_limits<size_t>::max();
 }
@@ -59,10 +117,9 @@ void adjust_trak_chunk_offsets(
     
     auto get_box_end = [&](size_t start, size_t end_limit) -> size_t {
         binary_reader reader(data);
-        if (!reader.try_seek(start)) return missing;
-        uint32_t sz = 0;
-        if (!reader.try_read_be32u(sz) || sz < 8 || sz > end_limit - start) return missing;
-        return start + sz;
+        isobmff_box_header box{};
+        if (!try_read_box_header(data.data(), start, end_limit, box)) return missing;
+        return start + box.size;
     };
 
     const size_t mdia = find_child_box(data, trak_start + 8, trak_end, "mdia");
@@ -86,18 +143,19 @@ void adjust_trak_chunk_offsets(
         binary_reader reader(data);
         if (reader.try_seek(stco + 12)) {
             uint32_t count = 0;
-            if (reader.try_read_be32u(count)) {
+            if (reader.try_read_be32u(count) && stco <= stbl_end && stbl_end - stco >= 16 &&
+                count <= (stbl_end - stco - 16) / 4) {
                 binary_writer writer(data);
                 for (uint32_t index = 0; index < count; ++index)
                 {
                     size_t field = stco + 16 + static_cast<size_t>(index) * 4;
-                    if (field + 4 > stbl_end) break;
+                    if (field > stbl_end - 4) break;
                     
                     uint32_t offset = 0;
                     reader.try_seek(field);
                     reader.try_read_be32u(offset);
                     
-                    if (offset > 0 && static_cast<size_t>(offset) > threshold)
+                    if (offset > 0 && static_cast<size_t>(offset) > threshold && removed_bytes <= offset)
                     {
                         writer.try_seek(field);
                         writer.try_write_be32u(offset - static_cast<uint32_t>(removed_bytes));
@@ -113,18 +171,19 @@ void adjust_trak_chunk_offsets(
         binary_reader reader(data);
         if (reader.try_seek(co64 + 12)) {
             uint32_t count = 0;
-            if (reader.try_read_be32u(count)) {
+            if (reader.try_read_be32u(count) && co64 <= stbl_end && stbl_end - co64 >= 16 &&
+                count <= (stbl_end - co64 - 16) / 8) {
                 binary_writer writer(data);
                 for (uint32_t index = 0; index < count; ++index)
                 {
                     size_t field = co64 + 16 + static_cast<size_t>(index) * 8;
-                    if (field + 8 > stbl_end) break;
+                    if (field > stbl_end - 8) break;
                     
                     int64_t offset = 0;
                     reader.try_seek(field);
                     reader.try_read_be64(offset);
                     
-                    if (offset > 0 && static_cast<uint64_t>(offset) > threshold)
+                    if (offset > 0 && static_cast<uint64_t>(offset) > threshold && removed_bytes <= static_cast<uint64_t>(offset))
                     {
                         writer.try_seek(field);
                         writer.try_write_be64(offset - static_cast<int64_t>(removed_bytes));
@@ -210,12 +269,13 @@ static bool shift_trak_chunk_offsets(
         binary_reader reader(data);
         if (reader.try_seek(stco + 12)) {
             uint32_t count = 0;
-            if (reader.try_read_be32u(count)) {
+            if (reader.try_read_be32u(count) && stco <= stbl_end && stbl_end - stco >= 16 &&
+                count <= (stbl_end - stco - 16) / 4) {
                 binary_writer writer(data);
                 for (uint32_t index = 0; index < count; ++index)
                 {
                     size_t field = stco + 16 + static_cast<size_t>(index) * 4;
-                    if (field + 4 > stbl_end) return false;
+                    if (field > stbl_end - 4) return false;
                     
                     uint32_t offset = 0;
                     reader.try_seek(field);
@@ -223,6 +283,8 @@ static bool shift_trak_chunk_offsets(
                     
                     if (offset > 0 && static_cast<size_t>(offset) > threshold)
                     {
+                        if ((delta > 0 && offset > std::numeric_limits<int64_t>::max() - delta) ||
+                            (delta < 0 && offset < std::numeric_limits<int64_t>::min() - delta)) return false;
                         int64_t shifted = static_cast<int64_t>(offset) + delta;
                         if (shifted <= 0 || shifted > static_cast<int64_t>(std::numeric_limits<uint32_t>::max())) {
                             return false; // underflow / overflow
@@ -241,12 +303,13 @@ static bool shift_trak_chunk_offsets(
         binary_reader reader(data);
         if (reader.try_seek(co64 + 12)) {
             uint32_t count = 0;
-            if (reader.try_read_be32u(count)) {
+            if (reader.try_read_be32u(count) && co64 <= stbl_end && stbl_end - co64 >= 16 &&
+                count <= (stbl_end - co64 - 16) / 8) {
                 binary_writer writer(data);
                 for (uint32_t index = 0; index < count; ++index)
                 {
                     size_t field = co64 + 16 + static_cast<size_t>(index) * 8;
-                    if (field + 8 > stbl_end) return false;
+                    if (field > stbl_end - 8) return false;
                     
                     int64_t offset = 0;
                     reader.try_seek(field);
@@ -254,6 +317,8 @@ static bool shift_trak_chunk_offsets(
                     
                     if (offset > 0 && static_cast<uint64_t>(offset) > threshold)
                     {
+                        if ((delta > 0 && offset > std::numeric_limits<int64_t>::max() - delta) ||
+                            (delta < 0 && offset < std::numeric_limits<int64_t>::min() - delta)) return false;
                         int64_t shifted = offset + delta;
                         if (shifted <= 0) {
                             return false; // underflow

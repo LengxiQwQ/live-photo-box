@@ -42,4 +42,19 @@ public sealed class HuaweiMovingPhotoDifferentialTests
 
         Assert.Equal(expected, actual);
     }
+
+    [Fact]
+    public void BuildTail_RejectsLengthThatCannotFitFixedLiveField()
+    {
+        Assert.False(NativeHuaweiMovingPhoto.TryBuildTail(
+            coverFrame: 0,
+            totalFrames: 1,
+            mp4Size: long.MaxValue,
+            originalCoverMs: 0,
+            originalDurationMs: 0,
+            prefix: "v6_f",
+            out _,
+            out string? error));
+        Assert.Contains("fixed trailer field", error, StringComparison.OrdinalIgnoreCase);
+    }
 }

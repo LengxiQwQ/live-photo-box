@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Core.Tests.Protocols;
+using LivePhotoBox.Interop;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Media;
@@ -133,6 +134,12 @@ public sealed class SourceInspectorTests
         Assert.Equal(VideoContainer.Mp4, facts.MotionVideo.Container);
         Assert.True(facts.MotionVideo.ByteOffset > 0);
 
+        byte[] heic = await File.ReadAllBytesAsync(sample);
+        Assert.True(NativeHeifBoxParser.TryLocateXmpItem(
+            heic, out long xmpOffset, out long xmpLength, out string? xmpError), xmpError);
+        Assert.True(xmpLength > 0);
+        Assert.True(xmpOffset + xmpLength <= heic.Length);
+
         string afterSha = await ComputeSha256Async(sample);
         Assert.Equal(beforeSha, afterSha);
     }
@@ -253,6 +260,10 @@ public sealed class SourceInspectorTests
     {
         string img = ResolveSample("苹果双文件.HEIC");
         string mov = ResolveSample("苹果双文件.MOV");
+
+        byte[] imageBytes = await File.ReadAllBytesAsync(img);
+        Assert.True(NativeHeifBoxParser.TryLocateExifItem(imageBytes, out long exifOffset, out long exifLength, out string? exifError), exifError);
+        Assert.Contains("0BCBD05C-F9F4-4D99-A40D-96D3C6CA8F9C", System.Text.Encoding.ASCII.GetString(imageBytes, checked((int)exifOffset), checked((int)exifLength)));
 
         var inspector = new SourceInspector();
         var facts = await inspector.InspectAsync(img, mov);

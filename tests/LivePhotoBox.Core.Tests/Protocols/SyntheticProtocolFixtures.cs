@@ -50,9 +50,18 @@ internal static class SyntheticProtocolFixtures
         return CreateJpegWithApp1(payload);
     }
 
+    public static byte[] CreateMinimalMp4()
+    {
+        return [
+            0x00, 0x00, 0x00, 0x10, (byte)'f', (byte)'t', (byte)'y', (byte)'p',
+            (byte)'i', (byte)'s', (byte)'o', (byte)'m', 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x08, (byte)'m', (byte)'d', (byte)'a', (byte)'t',
+            0x00, 0x00, 0x00, 0x08, (byte)'m', (byte)'o', (byte)'o', (byte)'v'];
+    }
+
     public static void CreateGoogleV1Jpeg(string outputPath)
     {
-        byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_PAYLOAD_GOOGLE_V1_27B");
+        byte[] dummyMp4 = CreateMinimalMp4();
         string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MicroVideo=\"1\" GCamera:MicroVideoVersion=\"1\" GCamera:MicroVideoOffset=\"{dummyMp4.Length}\" /></rdf:RDF></x:xmpmeta>";
         byte[] jpeg = CreateJpegWithXmp(xmp);
 
@@ -63,9 +72,8 @@ internal static class SyntheticProtocolFixtures
 
     public static void CreateGoogleV2Jpeg(string outputPath, bool withGainMap = true)
     {
-        byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_PAYLOAD_GOOGLE_V2_27B");
-        byte[] dummyGainMap = new byte[64];
-        Array.Fill(dummyGainMap, (byte)'G');
+        byte[] dummyMp4 = CreateMinimalMp4();
+        byte[] dummyGainMap = [0xFF, 0xD8, 0xFF, 0xD9];
         string gainMapItem = withGainMap
             ? $"<rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"GainMap\" Item:Length=\"{dummyGainMap.Length}\" Item:Padding=\"0\" /></rdf:li>"
             : "";
@@ -81,7 +89,7 @@ internal static class SyntheticProtocolFixtures
 
     public static void CreateOppoJpeg(string outputPath)
     {
-        byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_PAYLOAD_OPPO_22B");
+        byte[] dummyMp4 = CreateMinimalMp4();
         string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" OpCamera:OLivePhotoVersion=\"1\" OpCamera:VideoLength=\"{dummyMp4.Length}\" OpCamera:MotionPhotoOwner=\"oplus\" OpCamera:MotionPhotoPrimaryPresentationTimestampUs=\"123\" OpCamera:MotionPhotoEnable=\"True\" /></rdf:RDF></x:xmpmeta>";
         byte[] jpeg = CreateJpegWithXmp(xmp);
 
@@ -92,8 +100,9 @@ internal static class SyntheticProtocolFixtures
 
     public static void CreateGoogleV2JpegWithNormalMotionPhotoText(string outputPath)
     {
-        byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_COLLISION_31B");
+        byte[] dummyMp4 = CreateMinimalMp4();
         string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Camera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" xmlns:Other=\"urn:example:unrelated\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" GCamera:MotionPhoto=\"1\" Camera:MotionPhotoVersion=\"1\" Other:MotionPhoto=\"1\"><dc:description><rdf:Alt><rdf:li xml:lang=\"x-default\">A normal note mentioning MotionPhoto and LIVE_ must survive.</rdf:li></rdf:Alt></dc:description><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Other:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Other:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        xmp = xmp.Replace("<Container:Directory><rdf:Seq>", "<Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" /></rdf:li>");
         byte[] jpeg = CreateJpegWithXmp(xmp);
         using var fs = File.Create(outputPath);
         fs.Write(jpeg);
@@ -112,8 +121,9 @@ internal static class SyntheticProtocolFixtures
 
     public static void CreateGoogleV2JpegWithScopedPrefixRebinding(string outputPath)
     {
-        byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_SCOPED_NAMESPACE_26B");
+        byte[] dummyMp4 = CreateMinimalMp4();
         string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\"><note xmlns:GCamera=\"urn:example:unrelated\" GCamera:MotionPhoto=\"keep-this\" /><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        xmp = xmp.Replace("<Container:Directory><rdf:Seq>", "<Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" /></rdf:li>");
         byte[] jpeg = CreateJpegWithXmp(xmp);
         using var fs = File.Create(outputPath);
         fs.Write(jpeg);
@@ -122,8 +132,8 @@ internal static class SyntheticProtocolFixtures
 
     public static void CreateVivoX300Jpeg(string outputPath)
     {
-        byte[] dummyGainMap = Encoding.UTF8.GetBytes(new string('G', 64));
-        byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_MP4_PAYLOAD_VIVO_26B");
+        byte[] dummyGainMap = [0xFF, 0xD8, 0xFF, 0xD9];
+        byte[] dummyMp4 = CreateMinimalMp4();
         string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:VCamera=\"http://ns.vivo.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" VCamera:VMotionPhotoVersion=\"1\" VCamera:VMotionPhotoFlags=\"0\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"GainMap\" Item:Length=\"{dummyGainMap.Length}\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
         byte[] jpeg = CreateJpegWithXmp(xmp);
 
@@ -136,7 +146,7 @@ internal static class SyntheticProtocolFixtures
     public static void CreateVivoLegacyDualJpeg(string outputPath)
     {
         byte[] jpeg = CreateJpegWithXmp("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"></x:xmpmeta>");
-        byte[] tail = Encoding.UTF8.GetBytes("cameralbum!vivo{\"version\":1,\"motion_photo\":true}");
+        byte[] tail = Encoding.UTF8.GetBytes("vivo{\"com.android.camera.livephoto\":\"synthetic-vivo-id\"}cameralbum!");
 
         using var fs = File.Create(outputPath);
         fs.Write(jpeg);
@@ -153,7 +163,10 @@ internal static class SyntheticProtocolFixtures
         byte[] vivoUuid = [
             0x76, 0x69, 0x76, 0x6F, 0x4D, 0x65, 0x64, 0x69,
             0x61, 0x45, 0x78, 0x74, 0x49, 0x6E, 0x66, 0x6F,
-            0x00, 0x01, 0x02, 0x03
+            0x7B, 0x22, 0x63, 0x6F, 0x6D, 0x2E, 0x61, 0x6E, 0x64, 0x72, 0x6F, 0x69, 0x64,
+            0x2E, 0x63, 0x61, 0x6D, 0x65, 0x72, 0x61, 0x2E, 0x6C, 0x69, 0x76, 0x65, 0x70,
+            0x68, 0x6F, 0x74, 0x6F, 0x22, 0x3A, 0x22, 0x73, 0x79, 0x6E, 0x74, 0x68, 0x65,
+            0x74, 0x69, 0x63, 0x2D, 0x76, 0x69, 0x76, 0x6F, 0x2D, 0x69, 0x64, 0x22, 0x7D
         ];
         WriteBox(ms, "uuid", vivoUuid);
 
@@ -175,11 +188,16 @@ internal static class SyntheticProtocolFixtures
         ms.Write(jpeg);
 
         // SEF Payload 1: MotionPhoto_Data (0x0A30)
-        byte[] mpDataPayload = Encoding.UTF8.GetBytes("MotionPhoto_DataDUMMY_VIDEO_DATA_FOR_SEF");
+        byte[] motionVideo = CreateMinimalMp4();
+        byte[] mpDataPayload = [0x00, 0x00, 0x30, 0x0A, 0x10, 0x00, 0x00, 0x00,
+            (byte)'M', (byte)'o', (byte)'t', (byte)'i', (byte)'o', (byte)'n', (byte)'P', (byte)'h', (byte)'o', (byte)'t', (byte)'o', (byte)'_', (byte)'D', (byte)'a', (byte)'t', (byte)'a',
+            .. motionVideo];
         uint mpDataLen = (uint)mpDataPayload.Length;
 
         // SEF Payload 2: Non-live DualCam (0x0A01)
-        byte[] dualCamPayload = Encoding.UTF8.GetBytes("DualCam_DataNON_LIVE_METADATA");
+        byte[] dualCamPayload = [0x00, 0x00, 0x01, 0x0A, 0x0C, 0x00, 0x00, 0x00,
+            (byte)'D', (byte)'u', (byte)'a', (byte)'l', (byte)'C', (byte)'a', (byte)'m', (byte)'_', (byte)'D', (byte)'a', (byte)'t', (byte)'a',
+            (byte)'N', (byte)'O', (byte)'N', (byte)'_', (byte)'L', (byte)'I', (byte)'V', (byte)'E', (byte)'_', (byte)'M', (byte)'E', (byte)'T', (byte)'A', (byte)'D', (byte)'A', (byte)'T', (byte)'A'];
         uint dualCamLen = (uint)dualCamPayload.Length;
 
         ms.Write(mpDataPayload);
@@ -211,7 +229,7 @@ internal static class SyntheticProtocolFixtures
         }
 
         // Total SEF size + SEFT
-        uint totalSefSize = (uint)(ms.Length - jpeg.Length + 8);
+        uint totalSefSize = (uint)(12 + entryCount * 12);
         WriteLe32(ms, totalSefSize);
         ms.Write(Encoding.UTF8.GetBytes("SEFT"));
 
@@ -226,7 +244,7 @@ internal static class SyntheticProtocolFixtures
         // meta box
         WriteBox(ms, "meta", new byte[16]);
         // mpvd box (Samsung Motion Photo box)
-        WriteBox(ms, "mpvd", Encoding.UTF8.GetBytes("DUMMY_SAMSUNG_HEIC_VIDEO_DATA"));
+        WriteBox(ms, "mpvd", CreateMinimalMp4());
         // mdat box
         WriteBox(ms, "mdat", Encoding.UTF8.GetBytes("DUMMY_IMAGE_ITEM_DATA"));
 
@@ -236,7 +254,7 @@ internal static class SyntheticProtocolFixtures
     public static void CreateHuaweiJpeg(string outputPath)
     {
         byte[] jpeg = CreateJpegWithXmp("<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"></x:xmpmeta>");
-        byte[] dummyMp4 = Encoding.UTF8.GetBytes("DUMMY_HUAWEI_MP4_VIDEO");
+        byte[] dummyMp4 = CreateMinimalMp4();
         
         byte[] liveTail = new byte[60];
         // 40 bytes of padding / timestamp

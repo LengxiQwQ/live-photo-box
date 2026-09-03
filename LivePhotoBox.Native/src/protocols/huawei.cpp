@@ -25,6 +25,10 @@ lpb_result LPB_CALL lpb_huawei_build_tail(
 
     try
     {
+        if (mp4_size > std::numeric_limits<uint64_t>::max() - 20) {
+            set_error(context, "Huawei LIVE_ length overflows the protocol field.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         std::memset(output, 0x20, 60);
 
         const char* p = (prefix && prefix[0] != '\0') ? prefix : "v6_f";
@@ -43,7 +47,11 @@ lpb_result LPB_CALL lpb_huawei_build_tail(
         std::memcpy(output + 20, pq.c_str(), std::min<size_t>(pq.length(), 8));
 
         std::string live = "LIVE_" + std::to_string(mp4_size + 20);
-        std::memcpy(output + 40, live.c_str(), std::min<size_t>(live.length(), 14));
+        if (live.length() > 15) {
+            set_error(context, "Huawei LIVE_ length does not fit the fixed trailer field.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        std::memcpy(output + 40, live.c_str(), live.length());
 
         return LPB_RESULT_OK;
     }

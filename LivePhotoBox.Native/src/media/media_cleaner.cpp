@@ -16,6 +16,10 @@
 #include <limits>
 #include <random>
 #include <string_view>
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <Windows.h>
 
 namespace fs = std::filesystem;
 
@@ -51,21 +55,25 @@ static bool read_file_binary(const std::string& path, std::vector<uint8_t>& out_
 
 static bool write_file_binary(const std::string& path, const std::vector<uint8_t>& data) {
     auto p = utf8_to_path(path.c_str());
-    // Never expose a partially written artifact. The native boundary writes a
-    // sibling temporary file and publishes it only after the complete write.
-    auto temp = p;
-    temp += L".lpb-cleaning-tmp";
     std::error_code ec;
-    fs::remove(temp, ec);
+    auto temp_dir = p.parent_path();
+    if (temp_dir.empty()) temp_dir = fs::current_path(ec);
+    if (ec || temp_dir.empty()) return false;
+    wchar_t temp_name[MAX_PATH]{};
+    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) return false;
+    const fs::path temp(temp_name);
+    // Never expose a partially written artifact. Publish only after the
+    // complete temporary file has been flushed and closed.
     std::ofstream ofs(temp, std::ios::binary | std::ios::trunc);
-    if (!ofs.is_open()) return false;
+    if (!ofs.is_open()) { fs::remove(temp, ec); return false; }
     if (!data.empty()) ofs.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
     ofs.flush();
     if (!ofs.good()) { ofs.close(); fs::remove(temp, ec); return false; }
     ofs.close();
-    fs::remove(p, ec);
-    fs::rename(temp, p, ec);
-    if (ec) { fs::remove(temp, ec); return false; }
+    if (!MoveFileExW(temp.c_str(), p.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        fs::remove(temp, ec);
+        return false;
+    }
     return true;
 }
 
@@ -191,22 +199,18 @@ static bool remove_validated_ranges(
 
 static lpb_result fast_file_copy(lpb_context* context, const char* in_path, const char* out_path) {
     if (!in_path || !out_path) return LPB_RESULT_INVALID_ARGUMENT;
-    auto p_in = utf8_to_path(in_path);
-    auto p_out = utf8_to_path(out_path);
-    std::error_code ec;
-    fs::copy_file(p_in, p_out, fs::copy_options::overwrite_existing, ec);
-    if (ec) {
-        set_error(context, ("Failed to copy media file: " + ec.message()).c_str());
+    std::vector<uint8_t> data;
+    if (!read_file_binary(in_path, data) || !write_file_binary(out_path, data)) {
+        set_error(context, "Failed to copy media file atomically.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
 }
 
-static std::string extract_xmp_string(const std::vector<uint8_t>& data) {
+static std::string extract_xml_fragment(std::string_view sv) {
     const std::string start_tag = "<x:xmpmeta";
     const std::string end_tag = "</x:xmpmeta>";
 
-    std::string_view sv(reinterpret_cast<const char*>(data.data()), data.size());
     auto start_pos = sv.find(start_tag);
     if (start_pos != std::string_view::npos) {
         auto end_pos = sv.find(end_tag, start_pos);
@@ -225,6 +229,34 @@ static std::string extract_xmp_string(const std::vector<uint8_t>& data) {
         }
     }
 
+    return {};
+}
+
+static std::string extract_xmp_string(const std::vector<uint8_t>& data) {
+    if (data.size() < 2 || data[0] != 0xFF || data[1] != 0xD8) return {};
+    constexpr char xmp_header[] = "http://ns.adobe.com/xap/1.0/\0";
+    constexpr size_t xmp_header_size = sizeof(xmp_header) - 1;
+    size_t p = 2;
+    while (p + 2 <= data.size()) {
+        if (data[p] != 0xFF) return {};
+        while (p < data.size() && data[p] == 0xFF) ++p;
+        if (p >= data.size()) return {};
+        const uint8_t marker = data[p++];
+        if (marker == 0xDA || marker == 0xD9) break;
+        if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+        if (p + 2 > data.size()) return {};
+        const size_t segment_length = (static_cast<size_t>(data[p]) << 8) | data[p + 1];
+        if (segment_length < 2 || segment_length - 2 > data.size() - (p + 2)) return {};
+        const size_t payload = p + 2;
+        const size_t payload_size = segment_length - 2;
+        if (marker == 0xE1 && payload_size >= xmp_header_size &&
+            std::memcmp(data.data() + payload, xmp_header, xmp_header_size) == 0) {
+            return extract_xml_fragment(std::string_view(
+                reinterpret_cast<const char*>(data.data() + payload + xmp_header_size),
+                payload_size - xmp_header_size));
+        }
+        p = payload + payload_size;
+    }
     return {};
 }
 
