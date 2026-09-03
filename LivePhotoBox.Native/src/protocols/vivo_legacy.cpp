@@ -85,67 +85,54 @@ namespace
         return true;
     }
 
-    std::vector<uint8_t> strip_vivo_uuid_boxes(const uint8_t* input, size_t input_size)
+    bool strip_vivo_uuid_boxes(
+        const uint8_t* input,
+        size_t input_size,
+        std::vector<uint8_t>& result,
+        std::string& error)
     {
         struct target_box { size_t start; size_t size; };
         std::vector<target_box> targets;
         size_t position = 0;
-        while (position + 8 <= input_size)
+        while (position < input_size)
         {
-            const uint32_t size32 = read_be32u(input + position);
-            uint64_t size = size32;
-            size_t header_size = 8;
-            if (size32 == 1)
+            isobmff_box_header box{};
+            if (!try_read_box_header(input, position, input_size, box))
             {
-                if (position + 16 > input_size)
-                {
-                    break;
-                }
-                const int64_t extended_size = read_be64(input + position + 8);
-                if (extended_size < 0)
-                {
-                    break;
-                }
-                size = static_cast<uint64_t>(extended_size);
-                header_size = 16;
+                error = "Input video contains a malformed ISO-BMFF box.";
+                return false;
             }
-            else if (size32 == 0)
-            {
-                size = input_size - position;
-            }
-
-            if (size < header_size || size > static_cast<uint64_t>(std::numeric_limits<int32_t>::max())
-                || size > input_size - position)
-            {
-                break;
-            }
-            const size_t box_size = static_cast<size_t>(size);
             const bool uuid = input[position + 4] == 'u' && input[position + 5] == 'u'
                 && input[position + 6] == 'i' && input[position + 7] == 'd';
-            if (uuid && box_size >= 24
-                && std::equal(vivo_user_type.begin(), vivo_user_type.end(), input + position + 8))
+            if (uuid && box.size >= box.header_size + vivo_user_type.size()
+                && std::equal(vivo_user_type.begin(), vivo_user_type.end(), input + position + box.header_size))
             {
-                targets.push_back({ position, box_size });
+                targets.push_back({ position, box.size });
             }
-            position += box_size;
+            position += box.size;
         }
 
         if (targets.empty())
         {
-            std::vector<uint8_t> unchanged;
+            result.clear();
             if (input_size != 0)
             {
-                unchanged.assign(input, input + input_size);
+                result.assign(input, input + input_size);
             }
-            return unchanged;
+            return true;
         }
 
         size_t removed = 0;
         for (const target_box& target : targets)
         {
+            if (target.size > input_size - removed)
+            {
+                error = "vivo UUID metadata removal size overflow.";
+                return false;
+            }
             removed += target.size;
         }
-        std::vector<uint8_t> result;
+        result.clear();
         result.reserve(input_size - removed);
         size_t source = 0;
         for (const target_box& target : targets)
@@ -164,9 +151,13 @@ namespace
         const size_t moov = find_top_level_box(result, "moov");
         if (moov != std::numeric_limits<size_t>::max())
         {
-            adjust_chunk_offsets(result, moov, targets.front().start, removed);
+            if (!adjust_chunk_offsets(result, moov, targets.front().start, removed))
+            {
+                error = "Unable to safely relocate MP4 chunk offsets after vivo UUID removal.";
+                return false;
+            }
         }
-        return result;
+        return true;
     }
 
     bool build_vivo_uuid_box(
@@ -285,7 +276,12 @@ lpb_result LPB_CALL lpb_vivo_rewrite_video_metadata(
             return LPB_RESULT_INVALID_ARGUMENT;
         }
 
-        std::vector<uint8_t> result = strip_vivo_uuid_boxes(input, input_size);
+        std::vector<uint8_t> result;
+        if (!strip_vivo_uuid_boxes(input, input_size, result, error))
+        {
+            set_error(context, error.c_str());
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         result.insert(result.end(), box.begin(), box.end());
         return copy_output(context, result, output, output_size, required_size);
     }

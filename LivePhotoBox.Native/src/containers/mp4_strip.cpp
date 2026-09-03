@@ -205,7 +205,11 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_uuid_box(
     const size_t moov = find_top_level_box(result, "moov");
     if (moov != std::numeric_limits<size_t>::max())
     {
-        adjust_chunk_offsets(result, moov, targets.front().start, removed);
+        if (!adjust_chunk_offsets(result, moov, targets.front().start, removed))
+        {
+            set_error(context, "Unable to safely relocate MP4 chunk offsets after UUID removal.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
     }
 
     return copy_output(context, result, output, output_size, out_written);
@@ -345,7 +349,11 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_stsd_tracks(
     
     if (removed_bytes > 0)
     {
-        adjust_chunk_offsets(result, moov, moov, removed_bytes);
+        if (!adjust_chunk_offsets(result, moov, moov, removed_bytes))
+        {
+            set_error(context, "Unable to safely relocate MP4 chunk offsets after track removal.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
     }
 
     return copy_output(context, result, output, output_size, out_written);
@@ -560,7 +568,10 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
     result.insert(result.end(), data.begin() + moov_end, data.end());
 
     if (removed_bytes > 0) {
-        adjust_chunk_offsets(result, moov, moov, removed_bytes);
+        if (!adjust_chunk_offsets(result, moov, moov, removed_bytes)) {
+            set_error(context, "Unable to safely relocate MP4 chunk offsets after metadata removal.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
     }
 
     return copy_output(context, result, output, output_size, out_written);

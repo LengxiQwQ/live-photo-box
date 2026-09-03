@@ -106,7 +106,7 @@ size_t find_top_level_box(const std::vector<uint8_t>& data, const char* type) no
     return find_child_box(data, 0, data.size(), type);
 }
 
-void adjust_trak_chunk_offsets(
+bool adjust_trak_chunk_offsets(
     std::vector<uint8_t>& data,
     size_t trak_start,
     size_t trak_end,
@@ -123,112 +123,97 @@ void adjust_trak_chunk_offsets(
     };
 
     const size_t mdia = find_child_box(data, trak_start + 8, trak_end, "mdia");
-    if (mdia == missing) return;
+    if (mdia == missing) return true;
     const size_t mdia_end = get_box_end(mdia, data.size());
-    if (mdia_end == missing) return;
+    if (mdia_end == missing) return false;
 
     const size_t minf = find_child_box(data, mdia + 8, mdia_end, "minf");
-    if (minf == missing) return;
+    if (minf == missing) return true;
     const size_t minf_end = get_box_end(minf, data.size());
-    if (minf_end == missing) return;
+    if (minf_end == missing) return false;
 
     const size_t stbl = find_child_box(data, minf + 8, minf_end, "stbl");
-    if (stbl == missing) return;
+    if (stbl == missing) return true;
     const size_t stbl_end = get_box_end(stbl, data.size());
-    if (stbl_end == missing) return;
+    if (stbl_end == missing) return false;
 
     const size_t stco = find_child_box(data, stbl + 8, stbl_end, "stco");
-    if (stco != missing && stco + 16 <= stbl_end)
+    if (stco != missing)
     {
+        isobmff_box_header stco_box{};
+        if (!try_read_box_header(data.data(), stco, stbl_end, stco_box) || stco_box.size < 16) return false;
         binary_reader reader(data);
-        if (reader.try_seek(stco + 12)) {
-            uint32_t count = 0;
-            if (reader.try_read_be32u(count) && stco <= stbl_end && stbl_end - stco >= 16 &&
-                count <= (stbl_end - stco - 16) / 4) {
-                binary_writer writer(data);
-                for (uint32_t index = 0; index < count; ++index)
+        if (!reader.try_seek(stco + 12)) return false;
+        uint32_t count = 0;
+        if (!reader.try_read_be32u(count) || count > (stco_box.size - 16) / 4) return false;
+        {
+            binary_writer writer(data);
+            for (uint32_t index = 0; index < count; ++index)
+            {
+                size_t field = stco + 16 + static_cast<size_t>(index) * 4;
+                uint32_t offset = 0;
+                if (!reader.try_seek(field) || !reader.try_read_be32u(offset)) return false;
+                
+                if (offset > 0 && static_cast<size_t>(offset) > threshold && removed_bytes <= offset)
                 {
-                    size_t field = stco + 16 + static_cast<size_t>(index) * 4;
-                    if (field > stbl_end - 4) break;
-                    
-                    uint32_t offset = 0;
-                    reader.try_seek(field);
-                    reader.try_read_be32u(offset);
-                    
-                    if (offset > 0 && static_cast<size_t>(offset) > threshold && removed_bytes <= offset)
-                    {
-                        writer.try_seek(field);
-                        writer.try_write_be32u(offset - static_cast<uint32_t>(removed_bytes));
-                    }
+                    if (removed_bytes > std::numeric_limits<uint32_t>::max()) return false;
+                    if (!writer.try_seek(field) || !writer.try_write_be32u(offset - static_cast<uint32_t>(removed_bytes))) return false;
                 }
             }
         }
     }
 
     const size_t co64 = find_child_box(data, stbl + 8, stbl_end, "co64");
-    if (co64 != missing && co64 + 16 <= stbl_end)
+    if (co64 != missing)
     {
+        isobmff_box_header co64_box{};
+        if (!try_read_box_header(data.data(), co64, stbl_end, co64_box) || co64_box.size < 16) return false;
         binary_reader reader(data);
-        if (reader.try_seek(co64 + 12)) {
-            uint32_t count = 0;
-            if (reader.try_read_be32u(count) && co64 <= stbl_end && stbl_end - co64 >= 16 &&
-                count <= (stbl_end - co64 - 16) / 8) {
-                binary_writer writer(data);
-                for (uint32_t index = 0; index < count; ++index)
+        if (!reader.try_seek(co64 + 12)) return false;
+        uint32_t count = 0;
+        if (!reader.try_read_be32u(count) || count > (co64_box.size - 16) / 8) return false;
+        {
+            binary_writer writer(data);
+            for (uint32_t index = 0; index < count; ++index)
+            {
+                size_t field = co64 + 16 + static_cast<size_t>(index) * 8;
+                int64_t offset = 0;
+                if (!reader.try_seek(field) || !reader.try_read_be64(offset)) return false;
+                
+                if (offset > 0 && static_cast<uint64_t>(offset) > threshold && removed_bytes <= static_cast<uint64_t>(offset))
                 {
-                    size_t field = co64 + 16 + static_cast<size_t>(index) * 8;
-                    if (field > stbl_end - 8) break;
-                    
-                    int64_t offset = 0;
-                    reader.try_seek(field);
-                    reader.try_read_be64(offset);
-                    
-                    if (offset > 0 && static_cast<uint64_t>(offset) > threshold && removed_bytes <= static_cast<uint64_t>(offset))
-                    {
-                        writer.try_seek(field);
-                        writer.try_write_be64(offset - static_cast<int64_t>(removed_bytes));
-                    }
+                    if (removed_bytes > static_cast<size_t>(std::numeric_limits<int64_t>::max()) ||
+                        !writer.try_seek(field) || !writer.try_write_be64(offset - static_cast<int64_t>(removed_bytes))) return false;
                 }
             }
         }
     }
+    return true;
 }
 
-void adjust_chunk_offsets(
+bool adjust_chunk_offsets(
     std::vector<uint8_t>& data,
     size_t moov_start,
     size_t threshold,
     size_t removed_bytes) noexcept
 {
-    binary_reader reader(data);
-    if (!reader.try_seek(moov_start)) return;
+    if (moov_start > data.size()) return false;
+    isobmff_box_header moov_box{};
+    if (!try_read_box_header(data.data(), moov_start, data.size(), moov_box)) return false;
+    const size_t moov_end = moov_start + moov_box.size;
+    size_t position = moov_start + moov_box.header_size;
     
-    uint32_t moov_size = 0;
-    if (!reader.try_read_be32u(moov_size) || moov_size < 8 || moov_size > data.size() - moov_start)
+    while (position < moov_end)
     {
-        return;
-    }
-    
-    const size_t moov_end = moov_start + static_cast<size_t>(moov_size);
-    size_t position = moov_start + 8;
-    
-    while (position + 8 <= moov_end)
-    {
-        if (!reader.try_seek(position)) break;
-        uint32_t child_size = 0;
-        if (!reader.try_read_be32u(child_size) || child_size < 8 || child_size > moov_end - position)
-        {
-            break;
-        }
-        
+        isobmff_box_header child{};
+        if (!try_read_box_header(data.data(), position, moov_end, child)) return false;
         if (is_type(data, position, "trak"))
         {
-            adjust_trak_chunk_offsets(
-                data, position, position + static_cast<size_t>(child_size),
-                threshold, removed_bytes);
+            if (!adjust_trak_chunk_offsets(data, position, position + child.size, threshold, removed_bytes)) return false;
         }
-        position += static_cast<size_t>(child_size);
+        position += child.size;
     }
+    return position == moov_end;
 }
 
 static bool shift_trak_chunk_offsets(
