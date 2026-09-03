@@ -57,7 +57,25 @@ $msbuildArgs = @(
 $buildSucceeded = $false
 $buildExitCode = 1
 for ($attempt = 1; $attempt -le 2; $attempt++) {
-    & $msbuild @msbuildArgs
+    # If the first incremental build fails, the retry must discard the project's
+    # intermediate state. Reusing partially compiled objects could otherwise
+    # produce a successful DLL that still contains stale code.
+    $attemptArgs = @($msbuildArgs)
+    if ($attempt -eq 2 -and $target -eq 'Build') {
+        $attemptArgs = @(
+            $nativeProject,
+            '/nologo',
+            '/m:1',
+            '/t:Rebuild',
+            "/p:Configuration=$Configuration",
+            "/p:Platform=$Architecture",
+            '/p:CL_MPCount=1',
+            '/p:UseMultiToolTask=false',
+            '/v:minimal'
+        )
+    }
+
+    & $msbuild @attemptArgs
     $buildExitCode = $LASTEXITCODE
     if ($buildExitCode -eq 0) {
         $buildSucceeded = $true
