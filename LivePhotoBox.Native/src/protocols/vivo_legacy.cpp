@@ -11,6 +11,33 @@ namespace
         '"', 'c', 'o', 'm', '.', 'a', 'n', 'd', 'r', 'o', 'i', 'd', '.', 'c', 'a', 'm', 'e', 'r', 'a',
         '.', 'l', 'i', 'v', 'e', 'p', 'h', 'o', 't', 'o', '"', ':', '"'};
     constexpr std::array<uint8_t, 5> vivo_marker{'v', 'i', 'v', 'o', '{'};
+    constexpr std::array<uint8_t, 11> camera_album_marker{
+        'c', 'a', 'm', 'e', 'r', 'a', 'l', 'b', 'u', 'm', '!'};
+
+    bool is_valid_vivo_image_tail(const uint8_t* start, const uint8_t* end)
+    {
+        if (!start || !end || start > end || end - start < static_cast<ptrdiff_t>(8 + camera_album_marker.size() + 4 + 4 + vivo_tail_signature.size())) {
+            return false;
+        }
+        const uint8_t* album = std::search(
+            start + vivo_marker.size(), end, camera_album_marker.begin(), camera_album_marker.end());
+        if (album == end || album < start + 8) return false;
+
+        const uint8_t* json_length = album - 4;
+        if (read_be32u(json_length) != static_cast<uint32_t>(album - start - 8)) return false;
+        if (end - album < static_cast<ptrdiff_t>(camera_album_marker.size() + 4)) return false;
+
+        const uint32_t id_record_length = read_be32u(album + camera_album_marker.size());
+        const uint8_t* record_start = album + camera_album_marker.size();
+        if (id_record_length < 19 || id_record_length != static_cast<uint64_t>(end - record_start)) return false;
+
+        const uint8_t* record_end = record_start + id_record_length;
+        if (record_end < album || record_end != end || id_record_length < 19) return false;
+        const size_t id_size = static_cast<size_t>(id_record_length - 19);
+        const uint8_t* separator = record_start + 4 + id_size;
+        if (std::any_of(separator, separator + 4, [](uint8_t b) { return b != 0xFF; })) return false;
+        return std::equal(vivo_tail_signature.begin(), vivo_tail_signature.end(), separator + 4);
+    }
 
     bool build_vivo_tail(
         const uint8_t* json,
@@ -200,11 +227,16 @@ lpb_result LPB_CALL lpb_vivo_rewrite_image_metadata(
                 : 0;
             const uint8_t* begin = input + window_start;
             const uint8_t* end = input + input_size;
-            const uint8_t* found = std::find_end(
-                begin, end, vivo_marker.begin(), vivo_marker.end());
-            if (found != end)
-            {
-                prefix_size = static_cast<size_t>(found - input);
+            const uint8_t* search_end = end;
+            while (search_end > begin) {
+                const uint8_t* found = std::find_end(
+                    begin, search_end, vivo_marker.begin(), vivo_marker.end());
+                if (found == search_end) break;
+                if (is_valid_vivo_image_tail(found, end)) {
+                    prefix_size = static_cast<size_t>(found - input);
+                    break;
+                }
+                search_end = found;
             }
         }
 

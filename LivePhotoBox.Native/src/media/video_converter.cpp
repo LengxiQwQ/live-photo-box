@@ -38,7 +38,7 @@ struct BoxHeader {
 static std::vector<BoxHeader> scan_top_level_boxes(std::ifstream& in, uint64_t file_size) {
     std::vector<BoxHeader> boxes;
     uint64_t pos = 0;
-    while (pos + 8 <= file_size) {
+    while (file_size - pos >= 8) {
         in.seekg(pos, std::ios::beg);
         uint8_t hdr[8];
         in.read(reinterpret_cast<char*>(hdr), 8);
@@ -51,7 +51,7 @@ static std::vector<BoxHeader> scan_top_level_boxes(std::ifstream& in, uint64_t f
 
         uint32_t hdr_len = 8;
         if (box_size == 1) { // 64-bit extended size
-            if (pos + 16 > file_size) break;
+            if (file_size - pos < 16) break;
             uint8_t ext[8];
             in.read(reinterpret_cast<char*>(ext), 8);
             if (in.gcount() < 8) break;
@@ -68,7 +68,7 @@ static std::vector<BoxHeader> scan_top_level_boxes(std::ifstream& in, uint64_t f
             box_size = file_size - pos;
         }
 
-        if (box_size < hdr_len || pos + box_size > file_size) break;
+        if (box_size < hdr_len || box_size > file_size - pos) break;
 
         BoxHeader bh;
         bh.offset = pos;
@@ -112,7 +112,7 @@ lpb_result probe_video_file(
     out_video_facts->file_range.length = static_cast<uint64_t>(file_size);
 
     auto boxes = scan_top_level_boxes(file, static_cast<uint64_t>(file_size));
-    if (boxes.empty() || boxes.back().offset + boxes.back().size != static_cast<uint64_t>(file_size)) {
+    if (boxes.empty() || boxes.back().size != static_cast<uint64_t>(file_size) - boxes.back().offset) {
         set_error(context, "Video file does not contain a complete ISO-BMFF box layout.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -440,11 +440,22 @@ lpb_result remux_video_file(
     int64_t delta = static_cast<int64_t>(new_ftyp.size()) - static_cast<int64_t>(old_ftyp_size);
 
     auto p_out = utf8_to_path(output_video_path);
-    std::ofstream out(p_out, std::ios::binary | std::ios::trunc);
+    fs::path temp_path = p_out;
+    temp_path += L".lpb-remux-tmp";
+    std::error_code temp_ec;
+    fs::remove(temp_path, temp_ec);
+    std::ofstream out(temp_path, std::ios::binary | std::ios::trunc);
     if (!out.is_open()) {
         set_error(context, "Cannot open output video file for remux.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+
+    auto fail_remux = [&](lpb_result result, const char* message) noexcept {
+        out.close();
+        fs::remove(temp_path, temp_ec);
+        set_error(context, message);
+        return result;
+    };
 
     // 1. Write new ftyp box
     out.write(reinterpret_cast<const char*>(new_ftyp.data()), new_ftyp.size());
@@ -455,9 +466,7 @@ lpb_result remux_video_file(
 
     for (const auto& b : boxes) {
         if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
-            out.close();
-            fs::remove(p_out);
-            return LPB_RESULT_CANCELLED;
+            return fail_remux(LPB_RESULT_CANCELLED, "Video remux cancelled.");
         }
 
         if (std::memcmp(b.type, "ftyp", 4) == 0) {
@@ -470,13 +479,13 @@ lpb_result remux_video_file(
             std::vector<uint8_t> moov_data(static_cast<size_t>(b.size));
             in.seekg(b.offset, std::ios::beg);
             in.read(reinterpret_cast<char*>(moov_data.data()), b.size);
+            if (in.gcount() != static_cast<std::streamsize>(b.size)) {
+                return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to read moov during video remux.");
+            }
 
             if (delta != 0) {
                 if (!shift_chunk_offsets(moov_data, 0, old_ftyp_size, delta)) {
-                    out.close();
-                    fs::remove(p_out);
-                    set_error(context, "ISO-BMFF chunk offset shift failed (underflow or corrupted table).");
-                    return LPB_RESULT_INTERNAL_ERROR;
+                    return fail_remux(LPB_RESULT_INTERNAL_ERROR, "ISO-BMFF chunk offset shift failed (underflow or corrupted table).");
                 }
             }
 
@@ -487,23 +496,35 @@ lpb_result remux_video_file(
             uint64_t remaining = b.size;
             while (remaining > 0) {
                 if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
-                    out.close();
-                    fs::remove(p_out);
-                    return LPB_RESULT_CANCELLED;
+                    return fail_remux(LPB_RESULT_CANCELLED, "Video remux cancelled.");
                 }
 
                 size_t to_read = static_cast<size_t>(std::min<uint64_t>(remaining, transfer_buf.size()));
                 in.read(transfer_buf.data(), to_read);
                 std::streamsize read_bytes = in.gcount();
-                if (read_bytes <= 0) break;
+                if (read_bytes != static_cast<std::streamsize>(to_read)) {
+                    return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to read a complete ISO-BMFF box during remux.");
+                }
 
                 out.write(transfer_buf.data(), read_bytes);
                 remaining -= read_bytes;
             }
         }
+        if (!out.good()) {
+            return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to write remuxed video.");
+        }
     }
 
     out.flush();
+    if (!out.good()) {
+        return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to flush remuxed video.");
+    }
+    out.close();
+    if (!MoveFileExW(temp_path.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        fs::remove(temp_path, temp_ec);
+        set_error(context, "Failed to publish remuxed video atomically.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
     return LPB_RESULT_OK;
 }
 

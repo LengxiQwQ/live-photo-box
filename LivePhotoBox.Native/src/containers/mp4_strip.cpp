@@ -67,6 +67,18 @@ static bool starts_with_icase(const std::string& str, const char* prefix) {
     return true;
 }
 
+static bool has_complete_top_level_boxes(const uint8_t* data, size_t data_size) noexcept
+{
+    size_t position = 0;
+    if (!data && data_size != 0) return false;
+    while (position < data_size) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data, position, data_size, box)) return false;
+        position += box.size;
+    }
+    return position == data_size;
+}
+
 struct box_entry { size_t start; size_t size; std::string name; };
 struct ilst_item { size_t start; size_t size; int32_t index; std::string value; };
 
@@ -116,6 +128,11 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_uuid_box(
 {
     if (context == nullptr || input == nullptr || user_type_16 == nullptr || out_written == nullptr)
         return LPB_RESULT_INVALID_ARGUMENT;
+
+    if (input_size < 8 || !has_complete_top_level_boxes(input, input_size)) {
+        set_error(context, "Input video contains a malformed top-level ISO-BMFF box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     struct target_box { size_t start; size_t size; };
     std::vector<target_box> targets;
@@ -215,22 +232,28 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_stsd_tracks(
         *out_written = 0;
         return LPB_RESULT_OK;
     }
-    const int32_t moov_size_signed = read_be32(data.data() + moov);
-    if (moov_size_signed < 8 || static_cast<size_t>(moov_size_signed) > data.size() - moov)
-    {
-        *out_written = 0;
-        return LPB_RESULT_OK;
+    if (!has_complete_top_level_boxes(data.data(), data.size())) {
+        set_error(context, "Input video contains a malformed top-level ISO-BMFF box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
-    const size_t moov_size = static_cast<size_t>(moov_size_signed);
+    isobmff_box_header moov_header{};
+    if (!try_read_box_header(data.data(), moov, data.size(), moov_header)) {
+        set_error(context, "Malformed moov box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t moov_size = moov_header.size;
     const size_t moov_end = moov + moov_size;
 
     std::vector<size_t> remove_pos;
     size_t pos = moov + 8;
     while (pos + 8 <= moov_end)
     {
-        const int32_t size_signed = read_be32(data.data() + pos);
-        if (size_signed < 8 || static_cast<size_t>(size_signed) > moov_end - pos) break;
-        const size_t size = static_cast<size_t>(size_signed);
+        isobmff_box_header child{};
+        if (!try_read_box_header(data.data(), pos, moov_end, child)) {
+            set_error(context, "Malformed moov child box.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        const size_t size = child.size;
 
         if (is_type(data, pos, "trak"))
         {
@@ -239,7 +262,12 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_stsd_tracks(
             const size_t mdia = find_child_box(data, trak_start + 8, trak_end, "mdia");
             if (mdia != missing)
             {
-                const size_t mdia_end = mdia + static_cast<size_t>(read_be32(data.data() + mdia));
+                isobmff_box_header mdia_header{};
+                if (!try_read_box_header(data.data(), mdia, trak_end, mdia_header)) {
+                    set_error(context, "Malformed mdia box.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                const size_t mdia_end = mdia + mdia_header.size;
                 const size_t hdlr = find_child_box(data, mdia + 8, mdia_end, "hdlr");
                 if (hdlr != missing && hdlr + 20 <= mdia_end)
                 {
@@ -286,11 +314,14 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_stsd_tracks(
     new_moov.insert(new_moov.end(), { 'm', 'o', 'o', 'v' });
     
     pos = moov + 8;
-    while (pos + 8 <= moov_end)
+    while (pos < moov_end)
     {
-        const int32_t size_signed = read_be32(data.data() + pos);
-        if (size_signed < 8 || static_cast<size_t>(size_signed) > moov_end - pos) break;
-        const size_t size = static_cast<size_t>(size_signed);
+        isobmff_box_header child{};
+        if (!try_read_box_header(data.data(), pos, moov_end, child)) {
+            set_error(context, "Malformed moov child box during rebuild.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        const size_t size = child.size;
         
         if (std::find(remove_pos.begin(), remove_pos.end(), pos) == remove_pos.end())
         {
@@ -299,6 +330,10 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_stsd_tracks(
         pos += size;
     }
     
+    if (new_moov.size() > moov_size || new_moov.size() > std::numeric_limits<uint32_t>::max()) {
+        set_error(context, "Rebuilt moov is larger than the source box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     write_be32(new_moov.data(), static_cast<int32_t>(new_moov.size()));
     
     size_t removed_bytes = moov_size - new_moov.size();
@@ -334,11 +369,19 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
         return LPB_RESULT_INVALID_ARGUMENT;
 
     std::vector<uint8_t> data(input, input + input_size);
+    if (input_size < 8 || !has_complete_top_level_boxes(data.data(), data.size())) {
+        set_error(context, "Input video contains a malformed top-level ISO-BMFF box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     const size_t missing = std::numeric_limits<size_t>::max();
     const size_t moov = find_top_level_box(data, "moov");
     if (moov == missing) { *out_written = 0; return LPB_RESULT_OK; }
-    
-    const size_t moov_size = static_cast<size_t>(read_be32(data.data() + moov));
+    isobmff_box_header moov_header{};
+    if (!try_read_box_header(data.data(), moov, data.size(), moov_header)) {
+        set_error(context, "Malformed moov box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t moov_size = moov_header.size;
     const size_t moov_end = moov + moov_size;
 
     bool meta_under_udta = false;
@@ -351,42 +394,84 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
         meta = direct_meta;
     }
     const size_t udta = find_child_box(data, moov + 8, moov_end, "udta");
+    size_t udta_end = moov_end;
+    if (udta != missing) {
+        isobmff_box_header udta_header{};
+        if (!try_read_box_header(data.data(), udta, moov_end, udta_header)) {
+            set_error(context, "Malformed QuickTime udta box.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        udta_end = udta + udta_header.size;
+    }
     if (meta == missing && udta != missing) {
-        const size_t udta_end = udta + static_cast<size_t>(read_be32(data.data() + udta));
         meta = find_child_box(data, udta + 8, udta_end, "meta");
         meta_under_udta = true;
     }
     if (meta == missing) { *out_written = 0; return LPB_RESULT_OK; }
 
-    const size_t meta_end = meta + static_cast<size_t>(read_be32(data.data() + meta));
+    isobmff_box_header meta_header{};
+    if (!try_read_box_header(data.data(), meta, meta_under_udta ? udta_end : moov_end, meta_header)) {
+        set_error(context, "Malformed QuickTime metadata box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t meta_end = meta + meta_header.size;
     const size_t meta_children_start = get_meta_children_start(data, meta, meta_end);
 
     const size_t keys = find_child_box(data, meta_children_start, meta_end, "keys");
     const size_t ilst = find_child_box(data, meta_children_start, meta_end, "ilst");
     if (keys == missing || ilst == missing) { *out_written = 0; return LPB_RESULT_OK; }
 
-    const size_t keys_end = keys + static_cast<size_t>(read_be32(data.data() + keys));
-    const size_t ilst_end = ilst + static_cast<size_t>(read_be32(data.data() + ilst));
+    isobmff_box_header keys_header{};
+    isobmff_box_header ilst_header{};
+    if (!try_read_box_header(data.data(), keys, meta_end, keys_header) ||
+        !try_read_box_header(data.data(), ilst, meta_end, ilst_header)) {
+        set_error(context, "Malformed QuickTime keys/ilst box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (keys_header.size < 16 || ilst_header.size < 8) {
+        set_error(context, "QuickTime keys/ilst box is truncated.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t keys_end = keys + keys_header.size;
+    const size_t ilst_end = ilst + ilst_header.size;
 
     std::vector<box_entry> key_entries;
     int32_t key_count = read_be32(data.data() + keys + 12);
+    if (key_count < 0) {
+        set_error(context, "QuickTime keys count is invalid.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     size_t p = keys + 16;
-    for (int32_t i = 0; i < key_count && p + 8 <= keys_end; i++) {
+    for (int32_t i = 0; i < key_count && p <= keys_end && keys_end - p >= 8; i++) {
         int32_t entry_size = read_be32(data.data() + p);
-        if (entry_size < 8 || p + static_cast<size_t>(entry_size) > keys_end) break;
+        if (entry_size < 8 || static_cast<size_t>(entry_size) > keys_end - p) {
+            set_error(context, "QuickTime key entry exceeds its keys box.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         key_entries.push_back({ p, static_cast<size_t>(entry_size), read_key_name(data.data(), p, static_cast<size_t>(entry_size)) });
         p += static_cast<size_t>(entry_size);
+    }
+    if (static_cast<size_t>(key_count) != key_entries.size() || p != keys_end) {
+        set_error(context, "QuickTime keys box is truncated or has trailing bytes.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     std::vector<ilst_item> ilst_items;
     size_t ip = ilst + 8;
-    while (ip + 8 <= ilst_end) {
+    while (ip <= ilst_end && ilst_end - ip >= 8) {
         int32_t item_size = read_be32(data.data() + ip);
-        if (item_size < 12 || ip + static_cast<size_t>(item_size) > ilst_end) break;
+        if (item_size < 12 || static_cast<size_t>(item_size) > ilst_end - ip) {
+            set_error(context, "QuickTime ilst item exceeds its ilst box.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         int32_t index = read_be32(data.data() + ip + 4);
         std::string value = read_ilst_value(data.data(), ip + 8, ip + static_cast<size_t>(item_size));
         ilst_items.push_back({ ip, static_cast<size_t>(item_size), index, value });
         ip += static_cast<size_t>(item_size);
+    }
+    if (ip != ilst_end) {
+        set_error(context, "QuickTime ilst box has trailing malformed bytes.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     std::vector<bool> remove_key(key_entries.size(), false);
@@ -460,8 +545,8 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
     std::vector<uint8_t> new_moov;
 
     if (meta_under_udta) {
-        size_t udta_end = udta + static_cast<size_t>(read_be32(data.data() + udta));
-        std::vector<uint8_t> new_udta = rebuild_container(data, udta, udta_end, udta + 8, &new_meta, meta, nullptr, 0);
+        const size_t rebuilt_udta_end = udta_end;
+        std::vector<uint8_t> new_udta = rebuild_container(data, udta, rebuilt_udta_end, udta + 8, &new_meta, meta, nullptr, 0);
         new_moov = rebuild_container(data, moov, moov_end, moov + 8, &new_udta, udta, nullptr, 0);
     } else {
         new_moov = rebuild_container(data, moov, moov_end, moov + 8, &new_meta, meta, nullptr, 0);

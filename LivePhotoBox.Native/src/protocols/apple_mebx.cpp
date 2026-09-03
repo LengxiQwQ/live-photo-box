@@ -2,36 +2,30 @@
 #include "foundation/internal.h"
 #include "binary/endian.h"
 #include "apple_mebx_templates.h"
+#include "containers/isobmff.h"
 
 #include <vector>
 #include <string>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <limits>
 
 namespace { static bool is_box_type(const uint8_t* p, const char* type) { return p[4] == type[0] && p[5] == type[1] && p[6] == type[2] && p[7] == type[3]; }
     bool find_box_local(
         const uint8_t* data, size_t start, size_t end, const char* type,
         size_t& box_start, size_t& box_len, size_t& body_start) {
         size_t p = start;
-        while (p + 8 <= end) {
-            uint64_t box_sz = read_be32u(data + p);
-            size_t header = 8;
-            if (box_sz == 1) {
-                if (p + 16 > end) break;
-                box_sz = read_be64(data + p + 8);
-                header = 16;
-            } else if (box_sz == 0) {
-                box_sz = end - p;
-            }
-            if (box_sz < header || p + box_sz > end) break;
+        while (p <= end && end - p >= 8) {
+            isobmff_box_header box{};
+            if (!try_read_box_header(data, p, end, box)) break;
             if (is_box_type(data + p, type)) {
                 box_start = p;
-                box_len = static_cast<size_t>(box_sz);
-                body_start = p + header;
+                box_len = box.size;
+                body_start = p + box.header_size;
                 return true;
             }
-            p += static_cast<size_t>(box_sz);
+            p += box.size;
         }
         return false;
     }
@@ -43,22 +37,23 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
     std::vector<BoxInfo> parse_children(const uint8_t* data, size_t start, size_t end) {
         std::vector<BoxInfo> list;
         size_t p = start;
-        while (p + 8 <= end) {
-            uint32_t sz = read_be32u(data + p);
-            if (sz < 8 || p + sz > end) break;
+        while (p <= end && end - p >= 8) {
+            isobmff_box_header box{};
+            if (!try_read_box_header(data, p, end, box)) return {};
             std::string type(reinterpret_cast<const char*>(data + p + 4), 4);
-            list.push_back({type, std::vector<uint8_t>(data + p, data + p + sz)});
-            p += sz;
+            list.push_back({type, std::vector<uint8_t>(data + p, data + p + box.size)});
+            p += box.size;
         }
+        if (p != end) return {};
         return list;
     }
     ptrdiff_t find_atom(const std::vector<uint8_t>& box, size_t start, size_t end, const char* type) {
         size_t p = start;
-        while (p + 8 <= end) {
-            uint32_t sz = read_be32u(box.data() + p);
-            if (sz < 8 || p + sz > end) break;
+        while (p <= end && end - p >= 8) {
+            isobmff_box_header header{};
+            if (!try_read_box_header(box.data(), p, end, header)) break;
             if (is_box_type(box.data() + p, type)) return p;
-            p += sz;
+            p += header.size;
         }
         return -1;
     }
@@ -220,16 +215,16 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
     bool contains_atom_recursive(
         const std::vector<uint8_t>& data, size_t start, size_t end, const char* type) {
         size_t p = start;
-        while (p + 8 <= end) {
-            uint32_t size = read_be32u(data.data() + p);
-            if (size < 8 || p + size > end) break;
+        while (p <= end && end - p >= 8) {
+            isobmff_box_header box{};
+            if (!try_read_box_header(data.data(), p, end, box)) break;
             std::string current(reinterpret_cast<const char*>(data.data() + p + 4), 4);
             if (is_box_type(data.data() + p, type)) return true;
             if (is_box_container(current) &&
-                contains_atom_recursive(data, p + 8, p + size, type)) {
+                contains_atom_recursive(data, p + box.header_size, p + box.size, type)) {
                 return true;
             }
-            p += size;
+            p += box.size;
         }
         return false;
     }
@@ -237,60 +232,71 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
     ptrdiff_t find_atom_recursive(
         const std::vector<uint8_t>& data, size_t start, size_t end, const char* type) {
         size_t p = start;
-        while (p + 8 <= end) {
-            uint32_t size = read_be32u(data.data() + p);
-            if (size < 8 || p + size > end) break;
+        while (p <= end && end - p >= 8) {
+            isobmff_box_header box{};
+            if (!try_read_box_header(data.data(), p, end, box)) break;
             std::string current(reinterpret_cast<const char*>(data.data() + p + 4), 4);
             if (is_box_type(data.data() + p, type)) return static_cast<ptrdiff_t>(p);
             if (is_box_container(current)) {
-                ptrdiff_t nested = find_atom_recursive(data, p + 8, p + size, type);
+                ptrdiff_t nested = find_atom_recursive(data, p + box.header_size, p + box.size, type);
                 if (nested >= 0) return nested;
             }
-            p += size;
+            p += box.size;
         }
         return -1;
     }
     ptrdiff_t find_atom_recursive(
         const std::vector<uint8_t>& data, size_t start, size_t end, const char* type);
 
-    void shift_trak_chunk_offsets_in_range(
+    bool shift_trak_chunk_offsets_in_range(
         std::vector<uint8_t>& data, size_t start, size_t end,
         size_t oldMoovEnd, int delta) {
         size_t p = start;
-        while (p + 8 <= end) {
-            uint32_t size = read_be32u(data.data() + p);
-            if (size < 8 || p + size > end) break;
+        while (p <= end && end - p >= 8) {
+            isobmff_box_header box{};
+            if (!try_read_box_header(data.data(), p, end, box)) return false;
+            const size_t size = box.size;
 
             std::string type(reinterpret_cast<const char*>(data.data() + p + 4), 4);
             if (type == "stco") {
+                if (size < 16) return false;
                 uint32_t count = read_be32u(data.data() + p + 12);
+                if (count > (size - 16) / 4) return false;
                 for (uint32_t i = 0; i < count; i++) {
                     size_t off = p + 16 + static_cast<size_t>(i) * 4;
-                    if (off + 4 > p + size) break;
                     uint32_t v = read_be32u(data.data() + off);
-                    if (v >= oldMoovEnd) write_be32(data.data() + off, v + delta);
+                    if (v >= oldMoovEnd) {
+                        if (delta > 0 && v > std::numeric_limits<uint32_t>::max() - static_cast<uint32_t>(delta)) return false;
+                        if (delta < 0 && v < static_cast<uint32_t>(-static_cast<int64_t>(delta))) return false;
+                        write_be32(data.data() + off, static_cast<uint32_t>(static_cast<int64_t>(v) + delta));
+                    }
                 }
             } else if (type == "co64") {
                 // Large media files use the 64-bit co64 variant.  These
                 // offsets must move together with the rebuilt moov box.
+                if (size < 16) return false;
                 uint32_t count = read_be32u(data.data() + p + 12);
+                if (count > (size - 16) / 8) return false;
                 for (uint32_t i = 0; i < count; i++) {
                     size_t off = p + 16 + static_cast<size_t>(i) * 8;
-                    if (off + 8 > p + size) break;
                     uint64_t v = static_cast<uint64_t>(read_be64(data.data() + off));
-                    if (v >= oldMoovEnd)
+                    if (v >= oldMoovEnd) {
+                        if (delta > 0 && v > std::numeric_limits<uint64_t>::max() - static_cast<uint64_t>(delta)) return false;
+                        if (delta < 0 && v < static_cast<uint64_t>(-static_cast<int64_t>(delta))) return false;
                         write_be64(data.data() + off, static_cast<int64_t>(v) + delta);
+                    }
                 }
             } else if (is_box_container(type)) {
-                shift_trak_chunk_offsets_in_range(data, p + 8, p + size, oldMoovEnd, delta);
+                if (!shift_trak_chunk_offsets_in_range(data, p + box.header_size, p + size, oldMoovEnd, delta)) return false;
             }
 
             p += size;
         }
+        return p == end;
     }
 
-    void shift_trak_chunk_offsets(std::vector<uint8_t>& trak, size_t oldMoovEnd, int delta) {
-        shift_trak_chunk_offsets_in_range(trak, 8, trak.size(), oldMoovEnd, delta);
+    bool shift_trak_chunk_offsets(std::vector<uint8_t>& trak, size_t oldMoovEnd, int delta) {
+        return shift_trak_chunk_offsets_in_range(trak, 8, trak.size(), oldMoovEnd, delta);
     }
 
     std::vector<uint8_t> build_content_describes_track(int trackId, int timescale, double /*videoSeconds*/, int sampleCount, int chunk1, int dataOff) {
@@ -467,8 +473,11 @@ static lpb_result append_mebx_tracks_impl(
     patch_track_timestamps(contentTrak, appleTime);
     patch_track_timestamps(coverTrak, appleTime);
 
-    if (!normVideo.empty()) shift_trak_chunk_offsets(normVideo, oldMoovEnd, moovDelta);
-    if (!normAudio.empty()) shift_trak_chunk_offsets(normAudio, oldMoovEnd, moovDelta);
+    if ((!normVideo.empty() && !shift_trak_chunk_offsets(normVideo, oldMoovEnd, moovDelta)) ||
+        (!normAudio.empty() && !shift_trak_chunk_offsets(normAudio, oldMoovEnd, moovDelta))) {
+        set_error(context, "Apple MOV chunk offset table is malformed or overflows during relocation.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     std::vector<std::vector<uint8_t>> newMoovPayload;
     std::vector<std::vector<uint8_t>> pending;

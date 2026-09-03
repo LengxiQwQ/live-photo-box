@@ -39,6 +39,18 @@ public sealed class VivoNativeMetadataDifferentialTests
     }
 
     [Fact]
+    public void EditedImageReplacement_DoesNotTruncateAnUnrelatedVivoMarker()
+    {
+        byte[] prefix = [0xFF, 0xD8, .. "ordinary vivo{ text"u8, 0xFF, 0xD9];
+        byte[] input = [.. prefix];
+
+        Assert.True(NativeVivoLegacyMetadata.TryRewriteImage(
+            input, Json, replaceExisting: true, out byte[] actual, out string? error), error);
+        Assert.Equal(input, actual.AsSpan(0, input.Length).ToArray());
+        Assert.Equal(BuildLegacyTail(Json), actual.AsSpan(input.Length).ToArray());
+    }
+
+    [Fact]
     public void VideoUuidReplacementAndChunkOffset_IsByteIdenticalToLegacyWriter()
     {
         byte[] oldJson = Encoding.UTF8.GetBytes(
