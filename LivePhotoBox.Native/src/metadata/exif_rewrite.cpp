@@ -3,6 +3,7 @@
 #include <set>
 #include <algorithm>
 #include <cstring>
+#include <limits>
 
 using namespace lpb;
 
@@ -32,8 +33,8 @@ static void write_u32(uint8_t* p, uint32_t val, bool big_endian) {
     writer.try_write_u32_endian(val, big_endian);
 }
 
-static int type_to_data_length(uint16_t type, uint32_t count) {
-    int unit = 0;
+static size_t type_to_data_length(uint16_t type, uint32_t count) {
+    size_t unit = 0;
     switch (type) {
         case 1: case 2: case 7: unit = 1; break;
         case 3: case 8: unit = 2; break;
@@ -44,9 +45,9 @@ static int type_to_data_length(uint16_t type, uint32_t count) {
         case 13: case 14: unit = 4; break;
         case 16: unit = 8; break;
     }
-    if (unit == 0) return 0;
-    long long len = (long long)unit * count;
-    return len > 4 ? (int)len : 0;
+    if (unit == 0 || count > std::numeric_limits<size_t>::max() / unit) return 0;
+    const size_t len = unit * static_cast<size_t>(count);
+    return len > 4 ? len : 0;
 }
 
 struct Fixup {
@@ -66,7 +67,8 @@ static void collect_makernote_cleanup(
     std::vector<size_t>& count_positions,
     std::vector<Fixup>& fixups,
     std::set<size_t>& visited,
-    std::vector<DataRange>& data_ranges)
+    std::vector<DataRange>& data_ranges,
+    std::vector<DataRange>& protected_ranges)
 {
     if (ifd_rel == 0 || !visited.insert(ifd_rel).second) return;
     
@@ -81,7 +83,7 @@ static void collect_makernote_cleanup(
         uint32_t next_val = read_u32(data + next_ifd_pos, big_endian);
         fixups.push_back({next_ifd_pos, next_val});
         if (next_val > 0) {
-            collect_makernote_cleanup(data, data_size, next_val, big_endian, removal_starts, count_positions, fixups, visited, data_ranges);
+            collect_makernote_cleanup(data, data_size, next_val, big_endian, removal_starts, count_positions, fixups, visited, data_ranges, protected_ranges);
         }
     }
 
@@ -99,9 +101,10 @@ static void collect_makernote_cleanup(
             removal_starts.push_back(e);
             count_positions.push_back(p);
             
-            int mn_data_len = type_to_data_length(type, cnt);
-            if (mn_data_len > 4 && off >= 0 && off + mn_data_len <= data_size) {
-                data_ranges.push_back({off, (size_t)mn_data_len});
+            const size_t mn_data_len = type_to_data_length(type, cnt);
+            if (mn_data_len > 0 && static_cast<size_t>(off) <= data_size &&
+                mn_data_len <= data_size - static_cast<size_t>(off)) {
+                data_ranges.push_back({static_cast<size_t>(off), mn_data_len});
             }
             continue;
         }
@@ -109,14 +112,16 @@ static void collect_makernote_cleanup(
         if (tag == 0x8769 || tag == 0x8825 || tag == 0xA005 || tag == 0x014A) {
             fixups.push_back({value_pos, off});
             if (off > 0 && (tag != 0x014A || cnt == 1)) {
-                collect_makernote_cleanup(data, data_size, off, big_endian, removal_starts, count_positions, fixups, visited, data_ranges);
+                collect_makernote_cleanup(data, data_size, off, big_endian, removal_starts, count_positions, fixups, visited, data_ranges, protected_ranges);
             }
             continue;
         }
 
-        int data_len = type_to_data_length(type, cnt);
-        if (data_len > 4) {
+        const size_t data_len = type_to_data_length(type, cnt);
+        if (data_len > 0 && static_cast<size_t>(off) <= data_size &&
+            data_len <= data_size - static_cast<size_t>(off)) {
             fixups.push_back({value_pos, off});
+            protected_ranges.push_back({static_cast<size_t>(off), data_len});
         }
     }
 }
@@ -162,8 +167,8 @@ static void collect_ifd_fixups(
             continue;
         }
 
-        int data_len = type_to_data_length(type, cnt);
-        if (data_len <= 4) continue;
+        const size_t data_len = type_to_data_length(type, cnt);
+        if (data_len == 0) continue;
         
         if (off >= insert_at_rel) {
             fixups.push_back({value_pos, off});
@@ -175,13 +180,15 @@ static void collect_ifd_fixups(
 
 std::vector<uint8_t> lpb_tiff_remove_makernotes(const uint8_t* tiff, size_t tiff_size, size_t ifd0_offset, bool big_endian)
 {
+    if (!tiff || ifd0_offset > tiff_size) return std::vector<uint8_t>();
     std::vector<size_t> entry_starts;
     std::vector<size_t> count_positions;
     std::vector<Fixup> fixups;
     std::set<size_t> visited;
     std::vector<DataRange> data_ranges;
+    std::vector<DataRange> protected_ranges;
     
-    collect_makernote_cleanup(tiff, tiff_size, ifd0_offset, big_endian, entry_starts, count_positions, fixups, visited, data_ranges);
+    collect_makernote_cleanup(tiff, tiff_size, ifd0_offset, big_endian, entry_starts, count_positions, fixups, visited, data_ranges, protected_ranges);
     
     if (entry_starts.empty()) {
         return std::vector<uint8_t>();
@@ -192,7 +199,20 @@ std::vector<uint8_t> lpb_tiff_remove_makernotes(const uint8_t* tiff, size_t tiff
         intervals.push_back({s, 12});
     }
     for (const auto& range : data_ranges) {
-        if (range.length > 0) intervals.push_back(range);
+        if (range.length == 0) continue;
+        const size_t range_end = range.start + range.length;
+        bool exclusively_owned = true;
+        for (const auto& protected_range : protected_ranges) {
+            const size_t protected_end = protected_range.start + protected_range.length;
+            if (range.start < protected_end && protected_range.start < range_end) {
+                exclusively_owned = false;
+                break;
+            }
+        }
+        // A malformed TIFF may point MakerNote into another tag's value.
+        // Removing that shared range would silently destroy unrelated EXIF;
+        // remove only payload whose ownership is proven.
+        if (exclusively_owned) intervals.push_back(range);
     }
     
     std::sort(intervals.begin(), intervals.end(), [](const DataRange& a, const DataRange& b) {
@@ -210,7 +230,10 @@ std::vector<uint8_t> lpb_tiff_remove_makernotes(const uint8_t* tiff, size_t tiff
     }
     
     size_t total_removed = 0;
-    for (const auto& m : merged) total_removed += m.length;
+    for (const auto& m : merged) {
+        if (m.start > tiff_size || m.length > tiff_size - m.start || m.length > tiff_size - total_removed) return std::vector<uint8_t>();
+        total_removed += m.length;
+    }
     
     std::vector<uint8_t> cleaned(tiff_size - total_removed);
     size_t src = 0, dst = 0;
@@ -237,7 +260,10 @@ std::vector<uint8_t> lpb_tiff_remove_makernotes(const uint8_t* tiff, size_t tiff
     for (const auto& fix : fixups) {
         uint32_t new_val = fix.value;
         for (const auto& m : merged) {
-            if (m.start < fix.value) new_val -= (uint32_t)m.length; else break;
+            if (m.start < fix.value) {
+                if (m.length > new_val) return std::vector<uint8_t>();
+                new_val -= static_cast<uint32_t>(m.length);
+            } else break;
         }
         size_t mapped_pos = map_abs(fix.pos);
         if (mapped_pos + 4 <= cleaned.size()) {
@@ -260,16 +286,22 @@ std::vector<uint8_t> lpb_tiff_remove_makernotes(const uint8_t* tiff, size_t tiff
 
 std::vector<uint8_t> lpb_tiff_insert_makernote(const uint8_t* tiff, size_t tiff_size, size_t ifd0_offset, size_t exif_ifd_offset, const uint8_t* makernote, size_t makernote_size, bool big_endian)
 {
+    if (!tiff || (makernote_size > 0 && !makernote) ||
+        tiff_size > std::numeric_limits<uint32_t>::max()) return std::vector<uint8_t>();
     size_t target_ifd = exif_ifd_offset > 0 ? exif_ifd_offset : ifd0_offset;
-    if (target_ifd + 2 > tiff_size) return std::vector<uint8_t>();
+    if (target_ifd > tiff_size || tiff_size - target_ifd < 2) return std::vector<uint8_t>();
     
     uint16_t entry_count = read_u16(tiff + target_ifd, big_endian);
-    if (entry_count <= 0 || entry_count > 256) return std::vector<uint8_t>();
+    if (entry_count == 0 || entry_count > 256) return std::vector<uint8_t>();
     
+    if (tiff_size - target_ifd - 2 < static_cast<size_t>(entry_count) * 12) return std::vector<uint8_t>();
     size_t insert_at = target_ifd + 2 + entry_count * 12;
-    if (insert_at <= 0 || insert_at > tiff_size) { return std::vector<uint8_t>(); }
+    if (insert_at > tiff_size || tiff_size - insert_at < 4) { return std::vector<uint8_t>(); }
     
     size_t pad = (tiff_size % 2 == 0) ? 0 : 1;
+    if (tiff_size > std::numeric_limits<uint32_t>::max() - 12 - pad ||
+        makernote_size > std::numeric_limits<uint32_t>::max() ||
+        makernote_size > std::numeric_limits<size_t>::max() - tiff_size - 12 - pad) return std::vector<uint8_t>();
     size_t mn_offset = tiff_size + 12 + pad;
     
     std::vector<Fixup> fixups;
@@ -277,6 +309,9 @@ std::vector<uint8_t> lpb_tiff_insert_makernote(const uint8_t* tiff, size_t tiff_
     collect_ifd_fixups(tiff, tiff_size, ifd0_offset, insert_at, big_endian, fixups, visited);
     if (target_ifd != ifd0_offset) {
         collect_ifd_fixups(tiff, tiff_size, target_ifd, insert_at, big_endian, fixups, visited);
+    }
+    for (const auto& fix : fixups) {
+        if (fix.value > std::numeric_limits<uint32_t>::max() - 12) return std::vector<uint8_t>();
     }
     
     uint8_t entry[12];
@@ -310,12 +345,13 @@ std::vector<uint8_t> lpb_tiff_insert_makernote(const uint8_t* tiff, size_t tiff_
 
 uint32_t lpb_tiff_find_exif_ptr(const uint8_t* tiff, size_t tiff_size, size_t ifd_offset, bool big_endian)
 {
-    if (ifd_offset + 2 > tiff_size) return 0;
+    if (!tiff || ifd_offset > tiff_size || tiff_size - ifd_offset < 2) return 0;
     uint16_t count = read_u16(tiff + ifd_offset, big_endian);
+    if (static_cast<size_t>(count) > (tiff_size - ifd_offset - 2) / 12) return 0;
     
     size_t p = ifd_offset + 2;
     for (uint16_t i = 0; i < count; i++) {
-        if (p + 12 > tiff_size) break;
+        if (p > tiff_size || tiff_size - p < 12) break;
         uint16_t tag = read_u16(tiff + p, big_endian);
         if (tag == 0x8769) {
             return read_u32(tiff + p + 8, big_endian);

@@ -63,6 +63,7 @@ namespace {
             if (!reader.try_read_be32u(item_count)) return false;
         }
 
+        bool found_target = false;
         for (uint32_t i = 0; i < item_count; i++) {
             uint32_t item_id = 0;
             if (iloc_version < 2) {
@@ -92,7 +93,7 @@ namespace {
             uint16_t extent_count = 0;
             if (!reader.try_read_be16u(extent_count)) break;
             
-            if (item_id == target_item_id && extent_count != 1) return false;
+            if (item_id == target_item_id && (found_target || extent_count != 1)) return false;
             for (uint16_t j = 0; j < extent_count; j++) {
                 if ((iloc_version == 1 || iloc_version == 2) && index_size > 0) {
                     uint64_t ignored = 0;
@@ -110,12 +111,13 @@ namespace {
                         extent_length > data_size - base_offset - extent_offset) return false;
                     *out_offset = base_offset + extent_offset;
                     *out_length = extent_length;
+                    found_target = true;
                 }
             }
             if (reader.position() > iloc_end) return false;
-            if (item_id == target_item_id) return true;
+            if (item_id == target_item_id) continue;
         }
-        return false;
+        return found_target && reader.position() == iloc_end;
     }
 }
 

@@ -15,6 +15,10 @@ static lpb_result copy_slice_to_file(
     const char* dst_path)
 {
     if (!src_path || !dst_path || length == 0) return LPB_RESULT_OK;
+    if (paths_alias(src_path, dst_path)) {
+        set_error(context, "Extraction output must not overwrite its source artifact.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     auto p_src = utf8_to_path(src_path);
     std::error_code ec;
@@ -114,6 +118,17 @@ lpb_result extract_source(
 {
     if (!primary_path || !facts) {
         set_error(context, "Invalid arguments for source extraction.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    if ((output_image_path && paths_alias(primary_path, output_image_path)) ||
+        (output_gainmap_path && paths_alias(primary_path, output_gainmap_path)) ||
+        (output_video_path && paths_alias(primary_path, output_video_path)) ||
+        (secondary_path && output_video_path && paths_alias(secondary_path, output_video_path)) ||
+        (output_image_path && output_video_path && paths_alias(output_image_path, output_video_path)) ||
+        (output_image_path && output_gainmap_path && paths_alias(output_image_path, output_gainmap_path)) ||
+        (output_video_path && output_gainmap_path && paths_alias(output_video_path, output_gainmap_path))) {
+        set_error(context, "Extraction outputs must not overwrite source files or each other.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 

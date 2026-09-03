@@ -15,6 +15,23 @@ namespace fs = std::filesystem;
 
 namespace lpb::protocols::clean {
 
+static bool has_complete_heif_prefix(const std::vector<uint8_t>& data, size_t end) noexcept
+{
+    if (end > data.size() || end < 8) return false;
+    size_t pos = 0;
+    bool first = true;
+    while (pos < end) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data.data(), pos, end, box)) return false;
+        if (first) {
+            if (std::memcmp(data.data() + pos + 4, "ftyp", 4) != 0) return false;
+            first = false;
+        }
+        pos += box.size;
+    }
+    return pos == end && !first;
+}
+
 static bool write_atomic(const fs::path& path, const std::vector<uint8_t>& data)
 {
     fs::path temp = path;
@@ -91,26 +108,23 @@ lpb_result strip_jpeg_tail_data(
     size_t eoi_pos = 0;
 
     while (pos + 1 < data_len) {
-        if (data[pos] != 0xFF) {
-            pos++;
-            continue;
-        }
+        if (data[pos] != 0xFF) break;
+        while (pos < data_len && data[pos] == 0xFF) ++pos;
+        if (pos >= data_len) break;
 
-        uint8_t marker = data[pos + 1];
-        if (marker == 0x00 || marker == 0xFF) {
-            pos += 2;
-            continue;
-        }
+        uint8_t marker = data[pos++];
+        if (marker == 0x00 || marker == 0xFF || (marker >= 0xD0 && marker <= 0xD7)) break;
 
         if (marker == 0xD9) { // EOI
-            eoi_pos = pos + 2;
+            eoi_pos = pos;
             break;
         }
 
         if (marker == 0xDA) { // SOS - Start of Scan
-            if (pos + 4 > data_len) break;
-            uint16_t header_len = (static_cast<uint16_t>(data[pos + 2]) << 8) | data[pos + 3];
-            pos += 2 + header_len;
+            if (pos + 2 > data_len) break;
+            uint16_t header_len = (static_cast<uint16_t>(data[pos]) << 8) | data[pos + 1];
+            if (header_len < 2 || static_cast<size_t>(header_len) > data_len - pos) break;
+            pos += header_len;
 
             // Scan entropy-coded data to find EOI
             while (pos + 1 < data_len) {
@@ -131,9 +145,10 @@ lpb_result strip_jpeg_tail_data(
         }
 
         // Variable length marker
-        if (pos + 4 > data_len) break;
-        uint16_t seg_len = (static_cast<uint16_t>(data[pos + 2]) << 8) | data[pos + 3];
-        pos += 2 + seg_len;
+        if (pos + 2 > data_len) break;
+        uint16_t seg_len = (static_cast<uint16_t>(data[pos]) << 8) | data[pos + 1];
+        if (seg_len < 2 || static_cast<size_t>(seg_len) > data_len - pos) break;
+        pos += seg_len;
     }
 
     if (eoi_pos == 0 || eoi_pos >= data_len || data_len < 60 ||
@@ -243,7 +258,8 @@ lpb_result clean_huawei_image(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     const size_t video_offset = trailer_start - video_length;
-    if (!is_valid_isobmff_media_range(data.data(), data.size(), video_offset, video_length)) {
+    if (!has_complete_heif_prefix(data, video_offset) ||
+        !is_valid_isobmff_media_range(data.data(), data.size(), video_offset, video_length)) {
         set_error(context, "Huawei/Honor HEIC LIVE trailer does not describe a structurally valid MP4 range.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }

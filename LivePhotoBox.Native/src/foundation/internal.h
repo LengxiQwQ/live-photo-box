@@ -35,6 +35,7 @@ constexpr size_t context_options_v1_size =
 void set_error(lpb_context* context, const char* message) noexcept;
 void log_message(lpb_context* context, lpb_log_level level, const char* message) noexcept;
 std::filesystem::path utf8_to_path(const char* utf8_str) noexcept;
+bool paths_alias(const char* first, const char* second) noexcept;
 lpb_result copy_output(
     lpb_context* context,
     const std::vector<uint8_t>& value,

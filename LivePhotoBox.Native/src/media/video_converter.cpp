@@ -376,6 +376,10 @@ lpb_result remux_video_file(
         set_error(context, "Invalid arguments for video remux.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+    if (paths_alias(input_video_path, output_video_path)) {
+        set_error(context, "Video remux output must not overwrite its source file.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     auto p_in = utf8_to_path(input_video_path);
     std::ifstream in(p_in, std::ios::binary | std::ios::ate);
@@ -394,6 +398,21 @@ lpb_result remux_video_file(
     if (boxes.empty()) {
         set_error(context, "No valid ISO-BMFF boxes found in input video.");
         return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    uint64_t scanned_size = 0;
+    for (const auto& box : boxes) {
+        if (box.offset != scanned_size || box.size < box.header_size || box.size > static_cast<uint64_t>(file_size) - scanned_size) {
+            set_error(context, "Input video contains a truncated or overlapping ISO-BMFF box.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        scanned_size += box.size;
+    }
+    if (scanned_size != static_cast<uint64_t>(file_size) ||
+        std::memcmp(boxes.front().type, "ftyp", 4) != 0 ||
+        boxes.front().size < boxes.front().header_size + 8) {
+        set_error(context, "Input video does not contain a complete ISO-BMFF range beginning with ftyp.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     // Structural pre-flight validation: must have moov and mdat
@@ -542,6 +561,10 @@ lpb_result transcode_video_file(
         set_error(context, "Invalid arguments for video transcode.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+    if (paths_alias(input_video_path, output_video_path)) {
+        set_error(context, "Video transcode output must not overwrite its source file.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     // Probe input facts
     lpb_video_item_facts src_facts = {0};
@@ -572,12 +595,14 @@ lpb_result transcode_video_file(
     auto p_in = utf8_to_path(input_video_path);
     auto p_out = utf8_to_path(output_video_path);
 
-    // Intermediate transcode container is MP4
-    fs::path temp_mp4_path = p_out;
-    bool needs_mov_remux = (target_container == LPB_VIDEO_CONTAINER_MOV);
-    if (needs_mov_remux) {
-        temp_mp4_path = p_out.parent_path() / (p_out.stem().string() + "_transcode_tmp.mp4");
-    }
+    // Always transcode to a sibling temporary file. Publishing directly to
+    // the requested path would leave a plausible-looking partial artifact on
+    // encoder failure or cancellation.
+    const bool needs_mov_remux = (target_container == LPB_VIDEO_CONTAINER_MOV);
+    fs::path temp_mp4_path = p_out.parent_path() /
+        (p_out.stem().wstring() + L".lpb-transcode-tmp.mp4");
+    std::error_code temp_path_ec;
+    fs::remove(temp_mp4_path, temp_path_ec);
 
     // 1. Create SourceReader
     IMFAttributes* pReaderAttrs = nullptr;
@@ -851,6 +876,24 @@ lpb_result transcode_video_file(
         fs::remove(temp_mp4_path);
         if (remux_res != LPB_RESULT_OK) {
             return remux_res;
+        }
+        lpb_video_item_facts published_facts{};
+        if (probe_video_file(context, output_video_path, &published_facts) != LPB_RESULT_OK) {
+            set_error(context, "Published MOV failed Native structural validation.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+    } else {
+        lpb_video_item_facts transcoded_facts{};
+        if (probe_video_file(context, temp_mp4_path.string().c_str(), &transcoded_facts) != LPB_RESULT_OK) {
+            fs::remove(temp_mp4_path);
+            set_error(context, "Transcoded MP4 failed Native structural validation.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        std::error_code publish_ec;
+        if (!MoveFileExW(temp_mp4_path.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            fs::remove(temp_mp4_path, publish_ec);
+            set_error(context, "Failed to publish transcoded MP4 atomically.");
+            return LPB_RESULT_INTERNAL_ERROR;
         }
     }
 

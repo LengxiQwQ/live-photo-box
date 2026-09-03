@@ -1,6 +1,7 @@
 ﻿#include <cstdio>
 #include "foundation/internal.h"
 #include "binary/endian.h"
+#include "containers/isobmff.h"
 #include <cstring>
 #include <algorithm>
 #include <vector>
@@ -18,27 +19,32 @@ static bool is_box_type(const uint8_t* p, const char* type) {
 static bool find_box(
     const uint8_t* data, size_t start, size_t end, const char* type,
     size_t& box_start, size_t& box_len, size_t& body_start) {
+    if (!data || !type || start > end) return false;
     size_t p = start;
-    while (p + 8 <= end) {
-        uint64_t box_sz = read_be32u(data + p);
-        size_t header = 8;
-        if (box_sz == 1) {
-            if (p + 16 > end) break;
-            box_sz = read_be64(data + p + 8);
-            header = 16;
-        } else if (box_sz == 0) {
-            box_sz = end - p;
-        }
-        if (box_sz < header || p + box_sz > end) break;
+    while (p < end) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data, p, end, box)) return false;
         if (is_box_type(data + p, type)) {
             box_start = p;
-            box_len = static_cast<size_t>(box_sz);
-            body_start = p + header;
+            box_len = box.size;
+            body_start = p + box.header_size;
             return true;
         }
-        p += static_cast<size_t>(box_sz);
+        p += box.size;
     }
     return false;
+}
+
+static bool has_complete_box_sequence(const uint8_t* data, size_t data_size) noexcept
+{
+    if (!data || data_size < 8) return false;
+    size_t position = 0;
+    while (position < data_size) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data, position, data_size, box)) return false;
+        position += box.size;
+    }
+    return position == data_size;
 }
 
 static void write_uint(uint8_t* p, uint64_t val, size_t size) {
@@ -48,17 +54,24 @@ static void write_uint(uint8_t* p, uint64_t val, size_t size) {
     }
 }
 
+static bool fits_uint(uint64_t value, size_t size) noexcept {
+    if (size == 0 || size > 8) return false;
+    return size == 8 || value < (uint64_t{1} << (size * 8));
+}
+
 static bool try_find_exif_iloc_fields(
-    const uint8_t* data, size_t /*data_size*/,
-    size_t iloc_body, size_t iloc_len,
+    const uint8_t* data, size_t data_size,
+    size_t iloc_body, size_t iloc_end,
     uint32_t target_item_id,
     size_t& base_field_pos, size_t& length_field_pos,
     size_t& base_size, size_t& length_size)
 {
+    if (!data || iloc_body > iloc_end || iloc_end > data_size) return false;
     size_t p = iloc_body;
-    size_t end = iloc_body - 8 + iloc_len;
+    const size_t end = iloc_end;
     if (p + 6 > end) return false;
     uint8_t version = data[p];
+    if (version > 2) return false;
     p += 4;
     uint8_t offset_size = (data[p] >> 4) & 0x0F;
     length_size = data[p] & 0x0F;
@@ -75,49 +88,56 @@ static bool try_find_exif_iloc_fields(
         count = read_be32u(data + p);
         p += 4;
     }
+    bool found_target = false;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t item_id;
         if (version < 2) {
-            if (p + 2 > end) break;
+            if (p + 2 > end) return false;
             item_id = (static_cast<uint16_t>(data[p]) << 8) | data[p+1];
             p += 2;
         } else {
-            if (p + 4 > end) break;
+            if (p + 4 > end) return false;
             item_id = read_be32u(data + p);
             p += 4;
         }
+        uint16_t construction_method = 0;
         if (version == 1 || version == 2) {
-            if (p + 2 > end) break;
+            if (p + 2 > end) return false;
+            construction_method = read_be16u(data + p) & 0x000F;
             p += 2;
         }
-        if (p + 2 > end) break;
+        if (p + 2 > end) return false;
+        const uint16_t data_reference_index = read_be16u(data + p);
         p += 2;
         size_t current_base_pos = p;
         if (base_size > 0) {
-            if (p + base_size > end) break;
+            if (p > end || base_size > end - p) return false;
             p += base_size;
         }
-        if (p + 2 > end) break;
+        if (p + 2 > end) return false;
         uint16_t extent_count = (static_cast<uint16_t>(data[p]) << 8) | data[p+1];
         p += 2;
+        if (item_id == target_item_id && (found_target || construction_method != 0 || data_reference_index != 0 || extent_count != 1)) return false;
         size_t current_len_pos = 0;
         for (uint16_t e = 0; e < extent_count; e++) {
             if ((version == 1 || version == 2) && index_size > 0) {
-                if (p + index_size > end) break;
+                if (p > end || index_size > end - p) return false;
                 p += index_size;
             }
-            if (p + offset_size > end || p + length_size > end) break;
+            if (p > end || offset_size > end - p) return false;
             p += offset_size;
             if (e == 0) current_len_pos = p;
+            if (p > end || length_size > end - p) return false;
             p += length_size;
         }
         if (item_id == target_item_id) {
+            if (current_len_pos == 0) return false;
             base_field_pos = current_base_pos;
             length_field_pos = current_len_pos;
-            return true;
+            found_target = true;
         }
     }
-    return false;
+    return found_target && p == iloc_end;
 }
 
 static bool try_relocate_exif_to_mdat_end(
@@ -131,28 +151,20 @@ static bool try_relocate_exif_to_mdat_end(
     ptrdiff_t mdat_start = -1;
     size_t mdat_size = 0;
     size_t mdat_header = 8;
-    while (p + 8 <= data_size) {
-        uint64_t size = read_be32u(data + p);
-        size_t header = 8;
-        if (size == 1) {
-            if (p + 16 > data_size) return false;
-            size = read_be64(data + p + 8);
-            header = 16;
-        } else if (size == 0) {
-            size = data_size - p;
-        }
-        if (size < header || p + size > data_size) return false;
+    while (p < data_size) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data, p, data_size, box)) return false;
         if (is_box_type(data + p, "mdat")) {
             mdat_start = p;
-            mdat_size = static_cast<size_t>(size);
-            mdat_header = header;
-            if (p + size != data_size) {
+            mdat_size = box.size;
+            mdat_header = box.header_size;
+            if (p + box.size != data_size) {
                 set_error(context, "mdat is not the last box.");
                 return false;
             }
             break;
         }
-        p += static_cast<size_t>(size);
+        p += box.size;
     }
     if (mdat_start < 0) return false;
 
@@ -163,20 +175,21 @@ static bool try_relocate_exif_to_mdat_end(
 
     size_t base_field_pos = 0, length_field_pos = 0;
     size_t base_size = 0, length_size = 0;
-    if (!try_find_exif_iloc_fields(data, data_size, iloc_body, iloc_len, target_item_id, base_field_pos, length_field_pos, base_size, length_size)) {
+    if (!try_find_exif_iloc_fields(data, data_size, iloc_body, iloc_start + iloc_len, target_item_id, base_field_pos, length_field_pos, base_size, length_size)) {
         set_error(context, "Failed to find Exif item iloc fields.");
         return false;
     }
-    if (base_size < 4) {
+    const uint64_t new_base = static_cast<uint64_t>(mdat_start) + mdat_size;
+    if (base_size < 4 || !fits_uint(new_base, base_size)) {
         set_error(context, "iloc base_offset size too small.");
         return false;
     }
-    if (length_size < 4) {
+    if (length_size < 4 || !fits_uint(new_tiff.size(), length_size)) {
         set_error(context, "iloc length size too small.");
         return false;
     }
 
-    uint64_t new_base = static_cast<uint64_t>(mdat_start) + mdat_size;
+    if (new_tiff.size() > std::numeric_limits<size_t>::max() - data_size) return false;
     patched.resize(data_size + new_tiff.size());
     std::memcpy(patched.data(), data, data_size);
     std::memcpy(patched.data() + data_size, new_tiff.data(), new_tiff.size());
@@ -190,10 +203,12 @@ static bool try_relocate_exif_to_mdat_end(
         } else if (old_size == 1) {
             return false;
         } else {
+            if (new_tiff.size() > std::numeric_limits<uint32_t>::max() - old_size) return false;
             write_be32(patched.data() + mdat_start, static_cast<int32_t>(old_size + static_cast<uint32_t>(new_tiff.size())));
         }
     } else {
-        uint64_t old_size = read_be64(patched.data() + mdat_start + 8);
+        uint64_t old_size = static_cast<uint64_t>(read_be64(patched.data() + mdat_start + 8));
+        if (old_size > std::numeric_limits<uint64_t>::max() - new_tiff.size()) return false;
         uint64_t new_sz = old_size + new_tiff.size();
         patched[mdat_start + 8] = static_cast<uint8_t>(new_sz >> 56);
         patched[mdat_start + 9] = static_cast<uint8_t>(new_sz >> 48);
@@ -400,6 +415,10 @@ static bool add_heif_exif_item(
     const uint8_t* makernote, size_t makernote_size,
     std::vector<uint8_t>& output)
 {
+    if (!has_complete_box_sequence(input, input_size)) {
+        set_error(context, "Input HEIF contains a malformed top-level box.");
+        return false;
+    }
     size_t meta_start, meta_len, meta_body;
     if (!find_box(input, 0, input_size, "meta", meta_start, meta_len, meta_body)) {
         set_error(context, "No meta box found while creating HEIF Exif item.");
@@ -415,6 +434,12 @@ static bool add_heif_exif_item(
         return false;
     }
     const bool have_idat = find_box(input, meta_body + 4, meta_end, "idat", idat_start, idat_len, idat_body);
+
+    const size_t iinf_end = iinf_start + iinf_len;
+    if (iinf_body > iinf_end || iinf_end - iinf_body < 6 || input[iinf_body] != 0) {
+        set_error(context, "Unsupported HEIF iinf layout for Exif item creation.");
+        return false;
+    }
 
     const size_t iloc_end = iloc_start + iloc_len;
     if (iloc_body + 8 > iloc_end || input[iloc_body] != 1 ||
@@ -487,6 +512,10 @@ static bool add_heif_exif_item(
     constexpr size_t metadata_delta = 21 + 16;
     std::vector<uint8_t> new_iinf(input + iinf_start, input + iinf_start + iinf_len);
     new_iinf.resize(iinf_len + 21, 0);
+    if (new_iinf.size() > std::numeric_limits<uint32_t>::max()) {
+        set_error(context, "HEIF iinf box exceeds its 32-bit size field.");
+        return false;
+    }
     write_be32(new_iinf.data(), static_cast<uint32_t>(new_iinf.size()));
     uint16_t old_iinf_count = (static_cast<uint16_t>(new_iinf[12]) << 8) | new_iinf[13];
     if (old_iinf_count != item_count) {
@@ -503,6 +532,10 @@ static bool add_heif_exif_item(
 
     std::vector<uint8_t> new_iloc(input + iloc_start, input + iloc_start + iloc_len);
     new_iloc.resize(iloc_len + 16, 0);
+    if (new_iloc.size() > std::numeric_limits<uint32_t>::max()) {
+        set_error(context, "HEIF iloc box exceeds its 32-bit size field.");
+        return false;
+    }
     write_be32(new_iloc.data(), static_cast<uint32_t>(new_iloc.size()));
     // iloc box header is 8 bytes; version/flags are at 8..11, sizes at
     // 12..13, and the version-1 item count is at 14..15.
@@ -531,6 +564,10 @@ static bool add_heif_exif_item(
         new_mdat_start > std::numeric_limits<uint32_t>::max() - 8 ||
         meta_len > std::numeric_limits<uint32_t>::max() - metadata_delta) {
         set_error(context, "HEIF Exif item cannot be represented by 32-bit fields.");
+        return false;
+    }
+    if (input_size > std::numeric_limits<size_t>::max() - metadata_delta - (8 + exif_item.size())) {
+        set_error(context, "HEIF Exif output size overflows the host size type.");
         return false;
     }
     write_be32(new_iloc.data() + p + 8, static_cast<uint32_t>(new_mdat_start + 8));
@@ -789,20 +826,65 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_jpeg(
     uint8_t* output, size_t output_size, size_t* out_written)
 {
     if (!context || !input || !out_written) return LPB_RESULT_INVALID_ARGUMENT;
+    if (makernote_size > 0 && !makernote) {
+        set_error(context, "MakerNote payload pointer is null.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (input_size < 2 || input[0] != 0xFF || input[1] != 0xD8) {
+        set_error(context, "Input is not a valid JPEG.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     size_t pos = 2;
     bool found_exif = false;
     while (pos + 4 <= input_size) {
-        if (input[pos] != 0xFF) break;
-        uint8_t marker = input[pos + 1];
+        if (input[pos] != 0xFF) {
+            set_error(context, "Input JPEG marker stream is malformed.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        const size_t marker_start = pos;
+        ++pos;
+        while (pos < input_size && input[pos] == 0xFF) ++pos;
+        if (pos >= input_size) {
+            set_error(context, "Input JPEG ends inside a marker.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        uint8_t marker = input[pos++];
         if (marker == 0xDA) break;
-        size_t seg_len = (static_cast<size_t>(input[pos + 2]) << 8) | input[pos + 3];
-        if (pos + 2 + seg_len > input_size) break;
+        if (marker == 0xD9) break;
+        if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) {
+            ++pos;
+            continue;
+        }
+        if (pos + 2 > input_size) {
+            set_error(context, "Input JPEG segment header is truncated.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        size_t seg_len = (static_cast<size_t>(input[pos]) << 8) | input[pos + 1];
+        if (seg_len < 2 || seg_len > input_size - pos) {
+            set_error(context, "Input JPEG segment length is invalid.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         
-        if (marker == 0xE1 && seg_len >= 6 && std::memcmp(input + pos + 4, "Exif\0\0", 6) == 0) {
+        if (marker == 0xE1 && seg_len >= 8 && std::memcmp(input + pos + 2, "Exif\0\0", 6) == 0) {
             found_exif = true;
-            size_t tiff = pos + 10;
-            size_t tiff_len = seg_len - 8;
+            const size_t tiff = pos + 2 + 6;
+            const size_t tiff_len = seg_len - 8;
+            if (tiff_len < 8) {
+                set_error(context, "EXIF TIFF header is truncated.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             bool big_endian = (input[tiff] == 'M' && input[tiff + 1] == 'M');
+            const bool little_endian = input[tiff] == 'I' && input[tiff + 1] == 'I';
+            if (!big_endian && !little_endian) {
+                set_error(context, "EXIF TIFF byte order is invalid.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            const uint16_t tiff_magic = big_endian ? read_be16u(input + tiff + 2) :
+                static_cast<uint16_t>(input[tiff + 2]) | (static_cast<uint16_t>(input[tiff + 3]) << 8);
+            if (tiff_magic != 42) {
+                set_error(context, "EXIF TIFF magic is invalid.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             uint32_t ifd0 = read_be32u(input + tiff + 4);
             if (!big_endian) {
                 ifd0 = ((uint32_t)input[tiff + 7] << 24) | ((uint32_t)input[tiff + 6] << 16) | ((uint32_t)input[tiff + 5] << 8) | input[tiff + 4];
@@ -817,17 +899,26 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_jpeg(
             uint32_t exif_ptr = lpb_tiff_find_exif_ptr(work_tiff, work_tiff_size, ifd0, big_endian);
             std::vector<uint8_t> grown = lpb_tiff_insert_makernote(work_tiff, work_tiff_size, ifd0, exif_ptr, makernote, makernote_size, big_endian);
             if (grown.empty()) { char buf[256]; snprintf(buf, sizeof(buf), "TIFF insert failed: ifd0=%u, exif_ptr=%u, tiff_len=%zu, work_tiff_size=%zu", ifd0, exif_ptr, tiff_len, work_tiff_size); set_error(context, buf); return LPB_RESULT_INTERNAL_ERROR; }
-            size_t required = input_size - seg_len - 2 + grown.size() + 8;
+            if (grown.size() > std::numeric_limits<size_t>::max() - 8 || grown.size() + 8 > 0xFFFF) {
+                set_error(context, "Rebuilt EXIF segment is too large for JPEG APP1.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            const size_t source_segment_size = (pos - marker_start) + seg_len;
+            if (source_segment_size > input_size || grown.size() > std::numeric_limits<size_t>::max() - 10) {
+                set_error(context, "JPEG EXIF segment size is invalid.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            const size_t required = input_size - source_segment_size + 10 + grown.size();
             if (output && output_size >= required) {
-                std::memcpy(output, input, pos);
-                output[pos] = 0xFF;
-                output[pos + 1] = 0xE1;
+                std::memcpy(output, input, marker_start);
+                output[marker_start] = 0xFF;
+                output[marker_start + 1] = 0xE1;
                 size_t new_seg_len = grown.size() + 8; 
-                output[pos + 2] = static_cast<uint8_t>(new_seg_len >> 8);
-                output[pos + 3] = static_cast<uint8_t>(new_seg_len & 0xFF);
-                std::memcpy(output + pos + 4, "Exif\0\0", 6);
-                std::memcpy(output + pos + 10, grown.data(), grown.size());
-                std::memcpy(output + pos + 10 + grown.size(), input + pos + 2 + seg_len, input_size - (pos + 2 + seg_len));
+                output[marker_start + 2] = static_cast<uint8_t>(new_seg_len >> 8);
+                output[marker_start + 3] = static_cast<uint8_t>(new_seg_len & 0xFF);
+                std::memcpy(output + marker_start + 4, "Exif\0\0", 6);
+                std::memcpy(output + marker_start + 10, grown.data(), grown.size());
+                std::memcpy(output + marker_start + 10 + grown.size(), input + pos + seg_len, input_size - (pos + seg_len));
                 *out_written = required;
                 return LPB_RESULT_OK;
             } else {
@@ -835,7 +926,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_jpeg(
                 return LPB_RESULT_BUFFER_TOO_SMALL;
             }
         }
-        pos += 2 + seg_len;
+        pos += seg_len;
     }
     if (!found_exif) {
         set_error(context, "EXIF APP1 found but MakerNote could not be inserted.");
@@ -850,6 +941,14 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
     uint8_t* output, size_t output_size, size_t* out_written)
 {
     if (!context || !input || !out_written) return LPB_RESULT_INVALID_ARGUMENT;
+    if (makernote_size > 0 && !makernote) {
+        set_error(context, "MakerNote payload pointer is null.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (!has_complete_box_sequence(input, input_size)) {
+        set_error(context, "Input HEIF contains a malformed top-level box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     uint64_t exif_offset, exif_length;
     if (lpb_heif_locate_exif_item(context, input, input_size, &exif_offset, &exif_length) != LPB_RESULT_OK) {
@@ -941,8 +1040,17 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
     size_t iinf_start, iinf_len, iinf_body;
     if (find_box(input, 0, input_size, "meta", meta_start, meta_len, meta_body) &&
         find_box(input, meta_body + 4, meta_start + meta_len, "iinf", iinf_start, iinf_len, iinf_body)) {
+        const size_t iinf_end = iinf_start + iinf_len;
+        if (iinf_body > iinf_end || iinf_end - iinf_body < 6) {
+            set_error(context, "HEIF iinf box is truncated during Exif relocation.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         size_t p = iinf_body;
         uint8_t version = input[p];
+        if (version > 1) {
+            set_error(context, "Unsupported HEIF iinf version during Exif relocation.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         p += 4;
         uint32_t count = 0;
         if (version == 0) {
@@ -953,24 +1061,33 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
             p += 4;
         }
         for (uint32_t i = 0; i < count; i++) {
-            
-            uint32_t size = read_be32u(input + p);
-            if (is_box_type(input + p, "infe")) {
-                uint8_t infe_version = input[p+8];
+            isobmff_box_header infe{};
+            if (!try_read_box_header(input, p, iinf_end, infe)) {
+                set_error(context, "Malformed HEIF infe entry during Exif relocation.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (is_box_type(input + p, "infe") && infe.header_size == 8 && infe.size >= 12) {
+                uint8_t infe_version = input[p + 8];
                 size_t infe_body = p + 12;
                 uint32_t item_id;
                 if (infe_version >= 2) {
-                    if (infe_version == 2) item_id = (static_cast<uint16_t>(input[infe_body]) << 8) | input[infe_body+1];
-                    else item_id = read_be32u(input + infe_body);
+                    if (infe_version == 2) {
+                        if (infe_body + 2 > p + infe.size) return LPB_RESULT_INVALID_ARGUMENT;
+                        item_id = (static_cast<uint16_t>(input[infe_body]) << 8) | input[infe_body+1];
+                    } else {
+                        if (infe_body + 4 > p + infe.size) return LPB_RESULT_INVALID_ARGUMENT;
+                        item_id = read_be32u(input + infe_body);
+                    }
                     size_t type_pos = infe_version == 2 ? infe_body + 4 : infe_body + 6;
-                    if (input[type_pos] == 'E' && input[type_pos+1] == 'x' && input[type_pos+2] == 'i' && input[type_pos+3] == 'f') {
+                    if (type_pos + 4 <= p + infe.size && input[type_pos] == 'E' && input[type_pos+1] == 'x' && input[type_pos+2] == 'i' && input[type_pos+3] == 'f') {
                         target_item_id = item_id;
                         break;
                     }
                 }
             }
-            p += size;
+            p += infe.size;
         }
+        if (p > iinf_end) return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     if (target_item_id == 0) {

@@ -12,6 +12,16 @@
 #include <limits>
 
 namespace { static bool is_box_type(const uint8_t* p, const char* type) { return p[4] == type[0] && p[5] == type[1] && p[6] == type[2] && p[7] == type[3]; }
+    bool has_complete_box_sequence(const uint8_t* data, size_t data_size) {
+        if (!data || data_size < 8) return false;
+        size_t p = 0;
+        while (p < data_size) {
+            isobmff_box_header box{};
+            if (!try_read_box_header(data, p, data_size, box)) return false;
+            p += box.size;
+        }
+        return p == data_size;
+    }
     bool find_box_local(
         const uint8_t* data, size_t start, size_t end, const char* type,
         size_t& box_start, size_t& box_len, size_t& body_start) {
@@ -65,7 +75,11 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
     }
     std::vector<uint8_t> build_container(const char* type, const std::vector<std::vector<uint8_t>>& children) {
         size_t total = 8;
-        for (const auto& c : children) total += c.size();
+        for (const auto& c : children) {
+            if (c.size() > std::numeric_limits<size_t>::max() - total) return {};
+            total += c.size();
+        }
+        if (total > std::numeric_limits<uint32_t>::max()) return {};
         std::vector<uint8_t> box(total);
         write_be32(box.data(), static_cast<int32_t>(total));
         write_type(box.data(), 4, type);
@@ -77,6 +91,7 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
         return box;
     }
     std::vector<uint8_t> build_box_from_body(const char* type, const std::vector<uint8_t>& body) {
+        if (body.size() > std::numeric_limits<size_t>::max() - 8 || body.size() + 8 > std::numeric_limits<uint32_t>::max()) return {};
         std::vector<uint8_t> box(8 + body.size(), 0);
         write_be32(box.data(), static_cast<int32_t>(box.size()));
         write_type(box.data(), 4, type);
@@ -123,15 +138,18 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
     }
 
     std::vector<uint8_t> rebuild_dref(const std::vector<uint8_t>& dref) {
+        if (dref.size() < 16) return {};
         std::vector<uint8_t> b = dref;
         uint32_t count = read_be32u(b.data() + 12);
         size_t e = 16;
-        for (uint32_t i = 0; i < count && e + 8 <= b.size(); i++) {
+        for (uint32_t i = 0; i < count; i++) {
+            if (e > b.size() || b.size() - e < 8) return {};
             uint32_t esz = read_be32u(b.data() + e);
-            if (esz < 8 || e + esz > b.size()) break;
+            if (esz < 8 || esz > b.size() - e) return {};
             if (is_box_type(b.data() + e, "url ")) write_type(b.data(), e + 4, "alis");
             e += esz;
         }
+        if (e != b.size()) return {};
         return b;
     }
 
@@ -146,6 +164,7 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
     }
 
     std::vector<uint8_t> rebuild_tkhd(const std::vector<uint8_t>& tkhd, uint32_t appleTime) {
+        if (tkhd.size() < 20) return {};
         std::vector<uint8_t> b = tkhd;
         b[9] = 0; b[10] = 0; b[11] = 0x0f;
         write_be32(b.data() + 12, appleTime);
@@ -154,6 +173,7 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
     }
 
     std::vector<uint8_t> rebuild_mdhd(const std::vector<uint8_t>& mdhd, uint32_t appleTime) {
+        if (mdhd.size() < 20) return {};
         std::vector<uint8_t> b = mdhd;
         write_be32(b.data() + 12, appleTime);
         write_be32(b.data() + 16, appleTime);
@@ -162,6 +182,7 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
 
     std::vector<uint8_t> rebuild_minf(const std::vector<uint8_t>& minf, bool isVideo) {
         auto children = parse_children(minf.data(), 8, minf.size());
+        if (children.empty()) return {};
         std::vector<std::vector<uint8_t>> res;
         for (auto& c : children) {
             if (c.type == "vmhd" && isVideo) res.push_back(build_vmhd());
@@ -174,6 +195,7 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
 
     std::vector<uint8_t> rebuild_mdia(const std::vector<uint8_t>& mdia, bool isVideo, uint32_t appleTime) {
         auto children = parse_children(mdia.data(), 8, mdia.size());
+        if (children.empty()) return {};
         std::vector<std::vector<uint8_t>> res;
         for (auto& c : children) {
             if (c.type == "mdhd") res.push_back(rebuild_mdhd(c.data, appleTime));
@@ -186,6 +208,7 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
 
     std::vector<uint8_t> normalize_trak(const std::vector<uint8_t>& trak, bool isVideo, int vw, int vh, uint32_t appleTime) {
         auto children = parse_children(trak.data(), 8, trak.size());
+        if (children.empty()) return {};
         std::vector<std::vector<uint8_t>> res;
         for (auto& c : children) {
             if (c.type == "tkhd") {
@@ -202,9 +225,9 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
 
     void patch_track_timestamps(std::vector<uint8_t>& trak, uint32_t appleTime) {
         ptrdiff_t tkhd = find_atom(trak, 8, trak.size(), "tkhd");
-        if (tkhd >= 0) { write_be32(trak.data() + tkhd + 12, appleTime); write_be32(trak.data() + tkhd + 16, appleTime); }
+        if (tkhd >= 0 && static_cast<size_t>(tkhd) + 20 <= trak.size()) { write_be32(trak.data() + tkhd + 12, appleTime); write_be32(trak.data() + tkhd + 16, appleTime); }
         ptrdiff_t mdhd = find_atom_recursive(trak, 8, trak.size(), "mdhd");
-        if (mdhd >= 0) { write_be32(trak.data() + mdhd + 12, appleTime); write_be32(trak.data() + mdhd + 16, appleTime); }
+        if (mdhd >= 0 && static_cast<size_t>(mdhd) + 20 <= trak.size()) { write_be32(trak.data() + mdhd + 12, appleTime); write_be32(trak.data() + mdhd + 16, appleTime); }
     }
 
     bool is_box_container(const std::string& type) {
@@ -308,6 +331,7 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
         ptrdiff_t stsc = find_atom_recursive(trak, 8, trak.size(), "stsc");
         ptrdiff_t stsz = find_atom_recursive(trak, 8, trak.size(), "stsz");
         ptrdiff_t stco = find_atom_recursive(trak, 8, trak.size(), "stco");
+        if (tkhd < 0 || elst < 0 || mdhd < 0 || stts < 0 || stsc < 0 || stsz < 0 || stco < 0) return {};
 
         int mediaDur = sampleCount * 1000;
         int leadIn = static_cast<int>(std::round(0.05 * timescale));
@@ -335,6 +359,7 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
         ptrdiff_t tkhd = find_atom_recursive(trak, 8, trak.size(), "tkhd");
         ptrdiff_t elst = find_atom_recursive(trak, 8, trak.size(), "elst");
         ptrdiff_t stco = find_atom_recursive(trak, 8, trak.size(), "stco");
+        if (tkhd < 0 || elst < 0 || stco < 0) return {};
 
         int coverDur = static_cast<int>(std::round(coverSeconds * timescale));
         if (coverDur < 0) coverDur = 0;
@@ -396,6 +421,18 @@ static lpb_result append_mebx_tracks_impl(
 {
     if (!context || !data || !out_written) return LPB_RESULT_INVALID_ARGUMENT;
     *out_written = 0;
+    if (!std::isfinite(cover_seconds) || cover_seconds < 0.0) {
+        set_error(context, "Apple cover time must be a finite non-negative value.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (!has_complete_box_sequence(data, data_size) || data_size > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        set_error(context, "Input MOV has an unsupported or malformed top-level box layout.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (content_id != nullptr && strnlen_s(content_id, 256) >= 256) {
+        set_error(context, "Apple ContentIdentifier is too long or not terminated.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     
 
     size_t ftyp_start, ftyp_len, ftyp_body;
@@ -410,21 +447,40 @@ static lpb_result append_mebx_tracks_impl(
     }
     size_t oldMoovEnd = moov_start + moov_len;
 
+    if (moov_body != moov_start + 8) {
+        set_error(context, "Extended-size moov is unsupported by the MEBX template writer.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     auto moov_children = parse_children(data, moov_start + 8, oldMoovEnd);
-    int timescale = 600;
-    int movieDuration = 0;
+    if (moov_children.empty()) {
+        set_error(context, "MOV moov children are malformed or empty.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    uint32_t timescale = 600;
+    uint32_t movieDuration = 0;
+    bool found_mvhd = false;
     uint32_t appleTime = 0;
     for (const auto& c : moov_children) {
         if (c.type == "mvhd") {
+            if (found_mvhd || c.data.size() < 28 || c.data[8] != 0) {
+                set_error(context, "MOV mvhd box is truncated.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            found_mvhd = true;
             appleTime = read_be32u(c.data.data() + 12);
             timescale = read_be32u(c.data.data() + 20);
             movieDuration = read_be32u(c.data.data() + 24);
         }
     }
+    if (!found_mvhd || timescale == 0 || timescale > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+        set_error(context, "MOV mvhd has an unsupported or invalid timescale.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     std::vector<uint8_t> normVideo;
     std::vector<uint8_t> normAudio;
     int videoOldLen = 0, audioOldLen = 0;
+    int video_track_count = 0, audio_track_count = 0;
     int maxTrackId = 0;
 
     for (const auto& c : moov_children) {
@@ -432,49 +488,104 @@ static lpb_result append_mebx_tracks_impl(
         bool isVideo = contains_atom_recursive(c.data, 8, c.data.size(), "vmhd");
         bool isAudio = contains_atom_recursive(c.data, 8, c.data.size(), "smhd");
         ptrdiff_t tkhd = find_atom(c.data, 8, c.data.size(), "tkhd");
-        int tid = tkhd >= 0 ? read_be32u(c.data.data() + tkhd + 20) : 0;
+        if (tkhd >= 0 && static_cast<size_t>(tkhd) + 24 > c.data.size()) {
+            set_error(context, "MOV track header is truncated.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        const uint32_t tid_value = tkhd >= 0 ? read_be32u(c.data.data() + tkhd + 20) : 0;
+        if (tid_value > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
+            set_error(context, "MOV track identifier overflows the template writer.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        int tid = static_cast<int>(tid_value);
         if (tid > maxTrackId) maxTrackId = tid;
 
         if (isVideo) {
+            if (++video_track_count > 1) {
+                set_error(context, "Multiple video tracks are unsupported by the MEBX template writer.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (tkhd < 0 || static_cast<size_t>(tkhd) + 92 > c.data.size()) {
+                set_error(context, "MOV video track header is too short for dimensions.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             int vw = tkhd >= 0 ? (read_be32u(c.data.data() + tkhd + 84) >> 16) : 0;
             int vh = tkhd >= 0 ? (read_be32u(c.data.data() + tkhd + 88) >> 16) : 0;
+            if (vw <= 0 || vh <= 0 || vw > 32767 || vh > 32767) {
+                set_error(context, "MOV video dimensions are outside the template range.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             videoOldLen = static_cast<int>(c.data.size());
             normVideo = normalize_trak(c.data, true, vw, vh, appleTime);
+            if (normVideo.empty()) {
+                set_error(context, "MOV video track could not be structurally rebuilt.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
         } else if (isAudio) {
+            if (++audio_track_count > 1) {
+                set_error(context, "Multiple audio tracks are unsupported by the MEBX template writer.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             audioOldLen = static_cast<int>(c.data.size());
             normAudio = normalize_trak(c.data, false, 0, 0, appleTime);
+            if (normAudio.empty()) {
+                set_error(context, "MOV audio track could not be structurally rebuilt.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
         }
     }
 
-    int normalizationDelta = (normVideo.empty() ? 0 : static_cast<int>(normVideo.size()) - videoOldLen) +
-                             (normAudio.empty() ? 0 : static_cast<int>(normAudio.size()) - audioOldLen);
+    const int64_t normalizationDelta = (normVideo.empty() ? 0 : static_cast<int64_t>(normVideo.size()) - videoOldLen) +
+                                       (normAudio.empty() ? 0 : static_cast<int64_t>(normAudio.size()) - audioOldLen);
     const int MetadataTrakSize = 1043 + 672;
     std::vector<uint8_t> contentMeta;
-    int replacedMetaSize = 0;
+    int64_t replacedMetaSize = 0;
     if (content_id != nullptr) {
         contentMeta = build_apple_content_identifier_meta(content_id);
         for (const auto& c : moov_children) {
-            if (c.type == "meta") replacedMetaSize += static_cast<int>(c.data.size());
+            if (c.type == "meta") replacedMetaSize += static_cast<int64_t>(c.data.size());
         }
     }
-    const int metadataDelta = static_cast<int>(contentMeta.size()) - replacedMetaSize;
-    int moovDelta = normalizationDelta + MetadataTrakSize + metadataDelta;
+    if (content_id != nullptr && contentMeta.empty()) {
+        set_error(context, "Apple ContentIdentifier metadata could not be built.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const int64_t metadataDelta = static_cast<int64_t>(contentMeta.size()) - replacedMetaSize;
+    const int64_t moovDelta = normalizationDelta + MetadataTrakSize + metadataDelta;
+    if (moovDelta < std::numeric_limits<int>::min() || moovDelta > std::numeric_limits<int>::max()) {
+        set_error(context, "MOV moov size delta overflows the template writer.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
-    double videoSeconds = (double)movieDuration / timescale;
+    double videoSeconds = static_cast<double>(movieDuration) / static_cast<double>(timescale);
     int sampleCount = static_cast<int>(std::clamp(std::round(videoSeconds * 60.0), 2.0, 600.0));
     int chunk1 = (sampleCount + 1) / 2;
-    int sampleDataOff = static_cast<int>(data_size) + moovDelta + 8;
+    const int64_t sampleDataOff64 = static_cast<int64_t>(data_size) + moovDelta + 8;
+    if (sampleDataOff64 < 0 || sampleDataOff64 > std::numeric_limits<int>::max()) {
+        set_error(context, "MOV metadata relocation underflows the sample offset.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const int sampleDataOff = static_cast<int>(sampleDataOff64);
+    const int64_t coverDataOff64 = sampleDataOff64 + static_cast<int64_t>(sampleCount) * sizeof(LivePhotoInfoSample);
+    if (coverDataOff64 > std::numeric_limits<int>::max()) {
+        set_error(context, "MEBX cover sample offset overflows the template writer.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     int contentTrackId = maxTrackId + 1;
     int coverTrackId = maxTrackId + 2;
     std::vector<uint8_t> contentTrak = build_content_describes_track(contentTrackId, timescale, videoSeconds, sampleCount, chunk1, sampleDataOff);
-    std::vector<uint8_t> coverTrak = build_mebx_cover_track(coverTrackId, timescale, cover_seconds, sampleDataOff + sampleCount * sizeof(LivePhotoInfoSample));
+    std::vector<uint8_t> coverTrak = build_mebx_cover_track(coverTrackId, timescale, cover_seconds, static_cast<int>(coverDataOff64));
+    if (contentTrak.empty() || coverTrak.empty()) {
+        set_error(context, "MEBX metadata tracks could not be built safely.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     patch_track_timestamps(contentTrak, appleTime);
     patch_track_timestamps(coverTrak, appleTime);
 
-    if ((!normVideo.empty() && !shift_trak_chunk_offsets(normVideo, oldMoovEnd, moovDelta)) ||
-        (!normAudio.empty() && !shift_trak_chunk_offsets(normAudio, oldMoovEnd, moovDelta))) {
+    if ((!normVideo.empty() && !shift_trak_chunk_offsets(normVideo, oldMoovEnd, static_cast<int>(moovDelta))) ||
+        (!normAudio.empty() && !shift_trak_chunk_offsets(normAudio, oldMoovEnd, static_cast<int>(moovDelta)))) {
         set_error(context, "Apple MOV chunk offset table is malformed or overflows during relocation.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -483,6 +594,10 @@ static lpb_result append_mebx_tracks_impl(
     std::vector<std::vector<uint8_t>> pending;
     for (const auto& c : moov_children) {
         if (c.type == "mvhd") {
+            if (c.data.size() < 108) {
+                set_error(context, "MOV mvhd box is too short for MEBX track insertion.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             std::vector<uint8_t> m = c.data;
             write_be32(m.data() + 12, appleTime);
             write_be32(m.data() + 16, appleTime);
@@ -507,10 +622,26 @@ static lpb_result append_mebx_tracks_impl(
     newMoovPayload.insert(newMoovPayload.end(), pending.begin(), pending.end());
 
     std::vector<uint8_t> newMoov = build_container("moov", newMoovPayload);
+    if (newMoov.empty()) {
+        set_error(context, "Rebuilt MOV moov is too large or malformed.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (moovDelta != static_cast<int64_t>(newMoov.size()) - static_cast<int64_t>(moov_len)) {
+        set_error(context, "MEBX moov size delta does not match the rebuilt box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     int samplesSize = sampleCount * sizeof(LivePhotoInfoSample) + sizeof(MebxCoverSample);
     int sampleMdatSize = 8 + samplesSize;
-    size_t finalSize = data_size + moovDelta + sampleMdatSize;
+    const int64_t finalSize64 = static_cast<int64_t>(data_size) + moovDelta + sampleMdatSize;
+    const int64_t sampleMdatOff64 = static_cast<int64_t>(data_size) + moovDelta;
+    if (sampleCount <= 0 || samplesSize <= 0 || sampleMdatSize <= 8 || sampleMdatOff64 < 0 ||
+        static_cast<uint64_t>(sampleMdatOff64) > std::numeric_limits<size_t>::max() || finalSize64 < 0 ||
+        static_cast<uint64_t>(finalSize64) > std::numeric_limits<size_t>::max()) {
+        set_error(context, "MEBX sample output size overflows.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t finalSize = static_cast<size_t>(finalSize64);
     
     *out_written = finalSize;
     if (!output || output_size < finalSize) {
@@ -521,7 +652,7 @@ static lpb_result append_mebx_tracks_impl(
     std::memcpy(output + moov_start, newMoov.data(), newMoov.size());
     std::memcpy(output + moov_start + newMoov.size(), data + oldMoovEnd, data_size - oldMoovEnd);
 
-    size_t sampleMdatOff = data_size + moovDelta;
+    const size_t sampleMdatOff = static_cast<size_t>(sampleMdatOff64);
     write_be32(output + sampleMdatOff, static_cast<int32_t>(sampleMdatSize));
     write_type(output, sampleMdatOff + 4, "mdat");
     for (int i = 0; i < sampleCount; i++) {

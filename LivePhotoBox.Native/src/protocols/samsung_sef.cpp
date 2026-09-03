@@ -64,6 +64,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_samsung_sef_parse(
     bool found_motion = false;
     uint64_t motion_offset = 0;
     uint64_t motion_size = 0;
+    std::vector<std::pair<size_t, size_t>> payload_ranges;
     for (uint32_t i = 0; i < count; i++) {
         const size_t entry = sef_start + 12 + static_cast<size_t>(i) * 12;
         const uint16_t prefix = read_le16(entry);
@@ -79,6 +80,14 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_samsung_sef_parse(
             set_error(context, "SEF entry payload is outside the file-owned trailer.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
+        const size_t payload_end = payload_start + static_cast<size_t>(size);
+        for (const auto& range : payload_ranges) {
+            if (payload_start < range.second && range.first < payload_end) {
+                set_error(context, "SEF entries have overlapping payload ownership.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+        }
+        payload_ranges.emplace_back(payload_start, payload_end);
         if (payload_start > input_size - 8 || read_le16(payload_start) != prefix || read_le16(payload_start + 2) != marker) {
             set_error(context, "SEF entry header does not match its referenced payload.");
             return LPB_RESULT_INVALID_ARGUMENT;
@@ -158,61 +167,68 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_samsung_sef_build_trailer(
 
     std::vector<uint8_t> buffer(final_size);
     binary_writer writer(buffer);
+    bool write_ok = true;
+    const auto check_write = [&](bool ok) noexcept { write_ok = write_ok && ok; };
 
     if (is_heic_bool) {
         uint32_t sefd_len = 8 + static_cast<uint32_t>(total_tags_len) + static_cast<uint32_t>(sef_len);
         uint32_t mpvd_len = 8 + static_cast<uint32_t>(video_size) + sefd_len;
         
-        writer.try_write_be32u(mpvd_len);
-        writer.try_write_bytes((const uint8_t*)"mpvd", 4);
-        writer.try_write_bytes(video_data, video_size);
+        check_write(writer.try_write_be32u(mpvd_len));
+        check_write(writer.try_write_bytes((const uint8_t*)"mpvd", 4));
+        check_write(writer.try_write_bytes(video_data, video_size));
         
-        writer.try_write_be32u(sefd_len);
-        writer.try_write_bytes((const uint8_t*)"sefd", 4);
+        check_write(writer.try_write_be32u(sefd_len));
+        check_write(writer.try_write_bytes((const uint8_t*)"sefd", 4));
     }
 
     // Tag 1 (MotionPhoto_Data)
-    writer.try_write_u16_endian(0, false);
-    writer.try_write_u16_endian(0x0A30, false);
-    writer.try_write_u32_endian(16, false);
-    writer.try_write_bytes((const uint8_t*)"MotionPhoto_Data", 16);
+    check_write(writer.try_write_u16_endian(0, false));
+    check_write(writer.try_write_u16_endian(0x0A30, false));
+    check_write(writer.try_write_u32_endian(16, false));
+    check_write(writer.try_write_bytes((const uint8_t*)"MotionPhoto_Data", 16));
     if (is_heic_bool) {
-        writer.try_write_bytes((const uint8_t*)"mpv2", 4);
+        check_write(writer.try_write_bytes((const uint8_t*)"mpv2", 4));
         // Samsung's mpv2 pointer is an absolute file offset; the MP4 follows
         // the 8-byte ISOBMFF header immediately.
-        writer.try_write_be32u(static_cast<uint32_t>(image_size + 8));
-        writer.try_write_be32u(static_cast<uint32_t>(video_size));
+        check_write(writer.try_write_be32u(static_cast<uint32_t>(image_size + 8)));
+        check_write(writer.try_write_be32u(static_cast<uint32_t>(video_size)));
     } else {
-        writer.try_write_bytes(video_data, video_size);
+        check_write(writer.try_write_bytes(video_data, video_size));
     }
 
     // Tag 2 (MotionPhoto_Version)
-    writer.try_write_u16_endian(0, false);
-    writer.try_write_u16_endian(0x0A31, false);
-    writer.try_write_u32_endian(19, false);
-    writer.try_write_bytes((const uint8_t*)"MotionPhoto_Version", 19);
-    writer.try_write_bytes((const uint8_t*)"mpv3", 4);
+    check_write(writer.try_write_u16_endian(0, false));
+    check_write(writer.try_write_u16_endian(0x0A31, false));
+    check_write(writer.try_write_u32_endian(19, false));
+    check_write(writer.try_write_bytes((const uint8_t*)"MotionPhoto_Version", 19));
+    check_write(writer.try_write_bytes((const uint8_t*)"mpv3", 4));
 
     // SEFH
-    writer.try_write_bytes((const uint8_t*)"SEFH", 4);
-    writer.try_write_u32_endian(107, false);
-    writer.try_write_u32_endian(2, false);
+    check_write(writer.try_write_bytes((const uint8_t*)"SEFH", 4));
+    check_write(writer.try_write_u32_endian(107, false));
+    check_write(writer.try_write_u32_endian(2, false));
 
     // entry 1 (Data)
-    writer.try_write_u16_endian(0, false);
-    writer.try_write_u16_endian(0x0A30, false);
-    writer.try_write_u32_endian((uint32_t)total_tags_len, false);
-    writer.try_write_u32_endian((uint32_t)tag1_len, false);
+    check_write(writer.try_write_u16_endian(0, false));
+    check_write(writer.try_write_u16_endian(0x0A30, false));
+    check_write(writer.try_write_u32_endian((uint32_t)total_tags_len, false));
+    check_write(writer.try_write_u32_endian((uint32_t)tag1_len, false));
 
     // entry 2 (Version)
-    writer.try_write_u16_endian(0, false);
-    writer.try_write_u16_endian(0x0A31, false);
-    writer.try_write_u32_endian((uint32_t)tag2_len, false);
-    writer.try_write_u32_endian((uint32_t)tag2_len, false);
+    check_write(writer.try_write_u16_endian(0, false));
+    check_write(writer.try_write_u16_endian(0x0A31, false));
+    check_write(writer.try_write_u32_endian((uint32_t)tag2_len, false));
+    check_write(writer.try_write_u32_endian((uint32_t)tag2_len, false));
 
     // total_size excludes the trailing total_size field and SEFT marker.
-    writer.try_write_u32_endian(static_cast<uint32_t>(sef_len - 8), false);
-    writer.try_write_bytes((const uint8_t*)"SEFT", 4);
+    check_write(writer.try_write_u32_endian(static_cast<uint32_t>(sef_len - 8), false));
+    check_write(writer.try_write_bytes((const uint8_t*)"SEFT", 4));
+
+    if (!write_ok || writer.position() != buffer.size()) {
+        set_error(context, "Failed to build a complete Samsung SEF trailer.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
 
     return copy_output(context, buffer, output, output_size, out_written);
 }

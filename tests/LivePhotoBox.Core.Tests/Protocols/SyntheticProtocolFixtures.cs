@@ -243,10 +243,35 @@ internal static class SyntheticProtocolFixtures
         WriteBox(ms, "ftyp", Encoding.UTF8.GetBytes("heic\0\0\0\0mif1heic"));
         // meta box
         WriteBox(ms, "meta", new byte[16]);
-        // mpvd box (Samsung Motion Photo box)
-        WriteBox(ms, "mpvd", CreateMinimalMp4());
-        // mdat box
+        // Keep the still-image item before the private motion-photo boxes.
         WriteBox(ms, "mdat", Encoding.UTF8.GetBytes("DUMMY_IMAGE_ITEM_DATA"));
+
+        // mpvd box (Samsung Motion Photo box)
+        byte[] motionVideo = CreateMinimalMp4();
+        long mpvdStart = ms.Position;
+        WriteBox(ms, "mpvd", motionVideo);
+
+        // sefd box with a pointer-style MotionPhoto_Data entry and a valid
+        // SEFH/SEFT directory. The pointer is the absolute file offset of
+        // the MP4 payload immediately after the mpvd header.
+        using var sefd = new MemoryStream();
+        sefd.WriteByte(0); sefd.WriteByte(0); // prefix
+        WriteLe16(sefd, 0x0A30);
+        WriteLe32(sefd, 16);
+        sefd.Write(Encoding.ASCII.GetBytes("MotionPhoto_Data"));
+        sefd.Write(Encoding.ASCII.GetBytes("mpv2"));
+        WriteBe32(sefd, checked((uint)(mpvdStart + 8)));
+        WriteBe32(sefd, checked((uint)motionVideo.Length));
+        sefd.Write(Encoding.ASCII.GetBytes("SEFH"));
+        WriteLe32(sefd, 107);
+        WriteLe32(sefd, 1);
+        WriteLe16(sefd, 0);
+        WriteLe16(sefd, 0x0A30);
+        WriteLe32(sefd, 36);
+        WriteLe32(sefd, 36);
+        WriteLe32(sefd, 24);
+        sefd.Write(Encoding.ASCII.GetBytes("SEFT"));
+        WriteBox(ms, "sefd", sefd.ToArray());
 
         File.WriteAllBytes(outputPath, ms.ToArray());
     }

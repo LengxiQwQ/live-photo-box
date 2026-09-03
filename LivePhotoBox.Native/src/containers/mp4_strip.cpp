@@ -87,6 +87,9 @@ static std::vector<uint8_t> rebuild_container(
     const std::vector<uint8_t>* replace_a, size_t replace_a_pos,
     const std::vector<uint8_t>* replace_b, size_t replace_b_pos)
 {
+    if (box_start > box_end || box_end > data.size() || children_start < box_start + 8 || children_start > box_end) return {};
+    isobmff_box_header container{};
+    if (!try_read_box_header(data.data(), box_start, box_end, container) || container.header_size != 8 || box_start + container.size != box_end) return {};
     std::vector<uint8_t> result;
     result.reserve(box_end - box_start + 64);
     result.insert(result.end(), 4, 0);
@@ -97,9 +100,10 @@ static std::vector<uint8_t> rebuild_container(
     }
     
     size_t pos = children_start;
-    while (pos + 8 <= box_end) {
-        int32_t child_size = read_be32(data.data() + pos);
-        if (child_size < 8 || pos + static_cast<size_t>(child_size) > box_end) break;
+    while (pos < box_end) {
+        isobmff_box_header child{};
+        if (!try_read_box_header(data.data(), pos, box_end, child)) return {};
+        const size_t child_size = child.size;
         
         if (pos == replace_a_pos && replace_a != nullptr) {
             result.insert(result.end(), replace_a->begin(), replace_a->end());
@@ -108,11 +112,11 @@ static std::vector<uint8_t> rebuild_container(
             result.insert(result.end(), replace_b->begin(), replace_b->end());
         }
         else {
-            result.insert(result.end(), data.begin() + pos, data.begin() + pos + static_cast<size_t>(child_size));
+            result.insert(result.end(), data.begin() + pos, data.begin() + pos + child_size);
         }
-        pos += static_cast<size_t>(child_size);
+        pos += child_size;
     }
-    
+    if (pos != box_end || result.size() > std::numeric_limits<uint32_t>::max()) return {};
     write_be32(result.data(), static_cast<int32_t>(result.size()));
     return result;
 }
@@ -205,10 +209,14 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_uuid_box(
     const size_t moov = find_top_level_box(result, "moov");
     if (moov != std::numeric_limits<size_t>::max())
     {
-        if (!adjust_chunk_offsets(result, moov, targets.front().start, removed))
-        {
-            set_error(context, "Unable to safely relocate MP4 chunk offsets after UUID removal.");
-            return LPB_RESULT_INVALID_ARGUMENT;
+        size_t prior_removed = 0;
+        for (const target_box& target : targets) {
+            if (target.start < prior_removed ||
+                !adjust_chunk_offsets(result, moov, target.start - prior_removed, target.size)) {
+                set_error(context, "Unable to safely relocate MP4 chunk offsets after UUID removal.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            prior_removed += target.size;
         }
     }
 
@@ -513,12 +521,28 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
 
     if (!any_removed) { *out_written = 0; return LPB_RESULT_OK; }
 
+    std::vector<int32_t> remapped_key_indices(key_entries.size(), 0);
     int32_t kept_keys = 0;
     size_t total_keys_size = 0;
     for (size_t i = 0; i < key_entries.size(); i++) {
-        if (!remove_key[i]) { kept_keys++; total_keys_size += key_entries[i].size; }
+        if (!remove_key[i]) {
+            if (kept_keys == std::numeric_limits<int32_t>::max()) {
+                set_error(context, "QuickTime metadata key index overflows.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            remapped_key_indices[i] = ++kept_keys;
+            if (key_entries[i].size > std::numeric_limits<size_t>::max() - total_keys_size) {
+                set_error(context, "QuickTime keys box size overflows.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            total_keys_size += key_entries[i].size;
+        }
     }
 
+    if (total_keys_size > std::numeric_limits<uint32_t>::max() - 16) {
+        set_error(context, "QuickTime rebuilt keys box exceeds its 32-bit size field.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     std::vector<uint8_t> new_keys;
     new_keys.reserve(16 + total_keys_size);
     new_keys.insert(new_keys.end(), 16, 0);
@@ -531,33 +555,57 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
     }
 
     size_t total_ilst_size = 0;
-    for (size_t i = 0; i < ilst_items.size(); i++) {
-        if (i < remove_key.size() && remove_key[i]) continue;
-        total_ilst_size += ilst_items[i].size;
+    for (const auto& item : ilst_items) {
+        if (item.index <= 0 || static_cast<size_t>(item.index) > remove_key.size()) {
+            set_error(context, "QuickTime ilst item references an unknown key index.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (remove_key[static_cast<size_t>(item.index) - 1]) continue;
+        if (item.size > std::numeric_limits<size_t>::max() - total_ilst_size) {
+            set_error(context, "QuickTime ilst size overflows.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        total_ilst_size += item.size;
     }
 
+    if (total_ilst_size > std::numeric_limits<uint32_t>::max() - 8) {
+        set_error(context, "QuickTime rebuilt ilst box exceeds its 32-bit size field.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     std::vector<uint8_t> new_ilst;
     new_ilst.reserve(8 + total_ilst_size);
     new_ilst.insert(new_ilst.end(), 8, 0);
     write_be32(new_ilst.data(), static_cast<int32_t>(8 + total_ilst_size));
     new_ilst[4] = 'i'; new_ilst[5] = 'l'; new_ilst[6] = 's'; new_ilst[7] = 't';
-    int32_t new_index = 1;
-    for (size_t i = 0; i < ilst_items.size(); i++) {
-        if (i < remove_key.size() && remove_key[i]) continue;
+    for (const auto& item : ilst_items) {
+        const size_t old_index = static_cast<size_t>(item.index) - 1;
+        if (remove_key[old_index]) continue;
         size_t out_pos = new_ilst.size();
-        new_ilst.insert(new_ilst.end(), data.begin() + ilst_items[i].start, data.begin() + ilst_items[i].start + ilst_items[i].size);
-        write_be32(new_ilst.data() + out_pos + 4, new_index++);
+        new_ilst.insert(new_ilst.end(), data.begin() + item.start, data.begin() + item.start + item.size);
+        write_be32(new_ilst.data() + out_pos + 4, remapped_key_indices[old_index]);
     }
 
     std::vector<uint8_t> new_meta = rebuild_container(data, meta, meta_end, meta_children_start, &new_keys, keys, &new_ilst, ilst);
+    if (new_meta.empty()) {
+        set_error(context, "Failed to rebuild QuickTime metadata container.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     std::vector<uint8_t> new_moov;
 
     if (meta_under_udta) {
         const size_t rebuilt_udta_end = udta_end;
         std::vector<uint8_t> new_udta = rebuild_container(data, udta, rebuilt_udta_end, udta + 8, &new_meta, meta, nullptr, 0);
+        if (new_udta.empty()) {
+            set_error(context, "Failed to rebuild QuickTime udta container.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         new_moov = rebuild_container(data, moov, moov_end, moov + 8, &new_udta, udta, nullptr, 0);
     } else {
         new_moov = rebuild_container(data, moov, moov_end, moov + 8, &new_meta, meta, nullptr, 0);
+    }
+    if (new_moov.empty() || new_moov.size() > moov_size) {
+        set_error(context, "Rebuilt QuickTime moov is invalid or larger than the source box.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     size_t removed_bytes = moov_size - new_moov.size();

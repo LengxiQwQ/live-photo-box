@@ -173,6 +173,15 @@ static bool parse_xml_elements(std::string_view xml, std::vector<parsed_element>
         {
             if (open_elements.empty()) return false;
             parsed_element& element = elements[open_elements.back()];
+            size_t close_name_start = p + 2;
+            size_t close_name_end = close_name_start;
+            while (close_name_end < tag_end && is_name_char(xml[close_name_end])) ++close_name_end;
+            if (close_name_end == close_name_start ||
+                xml.substr(close_name_start, close_name_end - close_name_start) != element.name) {
+                return false;
+            }
+            while (close_name_end < tag_end - 1 && std::isspace(static_cast<unsigned char>(xml[close_name_end]))) ++close_name_end;
+            if (close_name_end != tag_end - 1) return false;
             element.end = tag_end;
             open_elements.pop_back();
             p = tag_end;

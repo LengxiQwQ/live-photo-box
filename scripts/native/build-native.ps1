@@ -39,15 +39,36 @@ if (Test-Path $syncScript) {
 $target = if ($Clean) { 'Rebuild' } else { 'Build' }
 
 Write-Host "[Native] Building $Configuration $Architecture with Visual C++..." -ForegroundColor Cyan
-& $msbuild $nativeProject `
-    /nologo `
-    /m `
-    "/t:$target" `
-    "/p:Configuration=$Configuration" `
-    "/p:Platform=$Architecture" `
-    /v:minimal
-if ($LASTEXITCODE -ne 0) {
-    throw "Native MSBuild failed with exit code $LASTEXITCODE."
+# MSVC 14.51 intermittently crashes with C1001 in zmmintrin.h when this
+# project is compiled through the parallel multi-tool pipeline. Keep the
+# project build deterministic; source-level parallelism is still handled
+# by MSBuild for other independent verification steps.
+$msbuildArgs = @(
+    $nativeProject,
+    '/nologo',
+    '/m:1',
+    "/t:$target",
+    "/p:Configuration=$Configuration",
+    "/p:Platform=$Architecture",
+    '/p:CL_MPCount=1',
+    '/p:UseMultiToolTask=false',
+    '/v:minimal'
+)
+$buildSucceeded = $false
+$buildExitCode = 1
+for ($attempt = 1; $attempt -le 2; $attempt++) {
+    & $msbuild @msbuildArgs
+    $buildExitCode = $LASTEXITCODE
+    if ($buildExitCode -eq 0) {
+        $buildSucceeded = $true
+        break
+    }
+    if ($attempt -lt 2) {
+        Write-Warning "Native MSBuild failed with exit code $buildExitCode; retrying once for transient compiler failures."
+    }
+}
+if (-not $buildSucceeded) {
+    throw "Native MSBuild failed with exit code $buildExitCode."
 }
 
 $nativeDll = Join-Path $artifactDirectory 'LivePhotoBox.Native.dll'

@@ -59,6 +59,31 @@ std::filesystem::path utf8_to_path(const char* utf8_str) noexcept
     return std::filesystem::path(wstr);
 }
 
+bool paths_alias(const char* first, const char* second) noexcept
+{
+    try
+    {
+        const auto left = utf8_to_path(first);
+        const auto right = utf8_to_path(second);
+        if (left.empty() || right.empty()) return false;
+
+        std::error_code left_ec;
+        std::error_code right_ec;
+        auto left_absolute = std::filesystem::absolute(left, left_ec);
+        auto right_absolute = std::filesystem::absolute(right, right_ec);
+        if (left_ec) left_absolute = left;
+        if (right_ec) right_absolute = right;
+        if (left_absolute.lexically_normal() == right_absolute.lexically_normal()) return true;
+
+        std::error_code equivalent_ec;
+        return std::filesystem::equivalent(left, right, equivalent_ec) && !equivalent_ec;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
 lpb_result copy_output(
     lpb_context* context,
     const std::vector<uint8_t>& value,

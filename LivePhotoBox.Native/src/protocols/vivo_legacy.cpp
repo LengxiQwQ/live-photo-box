@@ -19,6 +19,7 @@ namespace
         if (!start || !end || start > end || end - start < static_cast<ptrdiff_t>(8 + camera_album_marker.size() + 4 + 4 + vivo_tail_signature.size())) {
             return false;
         }
+        if (!std::equal(vivo_marker.begin(), vivo_marker.end(), start)) return false;
         const uint8_t* album = std::search(
             start + vivo_marker.size(), end, camera_album_marker.begin(), camera_album_marker.end());
         if (album == end || album < start + 8) return false;
@@ -60,9 +61,23 @@ namespace
         }
         const uint8_t* id_start = key + vivo_id_key.size();
         const uint8_t* id_end = std::find(id_start, json + json_size, static_cast<uint8_t>('"'));
+        if (id_end == json + json_size || id_end == id_start) {
+            error = "vivo JSON contains an unterminated or empty livephoto ID.";
+            return false;
+        }
         const size_t id_size = static_cast<size_t>(id_end - id_start);
 
-        const size_t total_size = json_size + 4 + 11 + 4 + id_size + 4 + vivo_tail_signature.size();
+        size_t total_size = json_size;
+        const auto add_size = [&](size_t value) {
+            if (value > std::numeric_limits<size_t>::max() - total_size) return false;
+            total_size += value;
+            return true;
+        };
+        if (!add_size(4) || !add_size(11) || !add_size(4) || !add_size(id_size) ||
+            !add_size(4) || !add_size(vivo_tail_signature.size())) {
+            error = "vivo metadata size overflows the host size type.";
+            return false;
+        }
         if (total_size > std::numeric_limits<uint32_t>::max()
             || json_size - 4 > std::numeric_limits<uint32_t>::max()
             || id_size > std::numeric_limits<uint32_t>::max() - 19)
@@ -151,10 +166,14 @@ namespace
         const size_t moov = find_top_level_box(result, "moov");
         if (moov != std::numeric_limits<size_t>::max())
         {
-            if (!adjust_chunk_offsets(result, moov, targets.front().start, removed))
-            {
-                error = "Unable to safely relocate MP4 chunk offsets after vivo UUID removal.";
-                return false;
+            size_t prior_removed = 0;
+            for (const target_box& target : targets) {
+                if (target.start < prior_removed ||
+                    !adjust_chunk_offsets(result, moov, target.start - prior_removed, target.size)) {
+                    error = "Unable to safely relocate MP4 chunk offsets after vivo UUID removal.";
+                    return false;
+                }
+                prior_removed += target.size;
             }
         }
         return true;

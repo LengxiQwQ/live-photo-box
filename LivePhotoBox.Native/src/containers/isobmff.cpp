@@ -118,6 +118,7 @@ bool adjust_trak_chunk_offsets(
     auto get_box_end = [&](size_t start, size_t end_limit) -> size_t {
         binary_reader reader(data);
         isobmff_box_header box{};
+        if (start > end_limit) return missing;
         if (!try_read_box_header(data.data(), start, end_limit, box)) return missing;
         return start + box.size;
     };
@@ -249,69 +250,61 @@ static bool shift_trak_chunk_offsets(
     if (stbl_end == missing) return false;
 
     const size_t stco = find_child_box(data, stbl + 8, stbl_end, "stco");
-    if (stco != missing && stco + 16 <= stbl_end)
+    if (stco != missing)
     {
+        if (stco > stbl_end || stbl_end - stco < 16) return false;
         binary_reader reader(data);
-        if (reader.try_seek(stco + 12)) {
-            uint32_t count = 0;
-            if (reader.try_read_be32u(count) && stco <= stbl_end && stbl_end - stco >= 16 &&
-                count <= (stbl_end - stco - 16) / 4) {
-                binary_writer writer(data);
-                for (uint32_t index = 0; index < count; ++index)
-                {
-                    size_t field = stco + 16 + static_cast<size_t>(index) * 4;
-                    if (field > stbl_end - 4) return false;
-                    
-                    uint32_t offset = 0;
-                    reader.try_seek(field);
-                    if (!reader.try_read_be32u(offset)) return false;
-                    
-                    if (offset > 0 && static_cast<size_t>(offset) > threshold)
-                    {
-                        if ((delta > 0 && offset > std::numeric_limits<int64_t>::max() - delta) ||
-                            (delta < 0 && offset < std::numeric_limits<int64_t>::min() - delta)) return false;
-                        int64_t shifted = static_cast<int64_t>(offset) + delta;
-                        if (shifted <= 0 || shifted > static_cast<int64_t>(std::numeric_limits<uint32_t>::max())) {
-                            return false; // underflow / overflow
-                        }
-                        writer.try_seek(field);
-                        writer.try_write_be32u(static_cast<uint32_t>(shifted));
-                    }
+        if (!reader.try_seek(stco + 12)) return false;
+        uint32_t count = 0;
+        if (!reader.try_read_be32u(count) || count > (stbl_end - stco - 16) / 4) return false;
+        binary_writer writer(data);
+        for (uint32_t index = 0; index < count; ++index)
+        {
+            size_t field = stco + 16 + static_cast<size_t>(index) * 4;
+            if (field > stbl_end - 4) return false;
+
+            uint32_t offset = 0;
+            if (!reader.try_seek(field) || !reader.try_read_be32u(offset)) return false;
+
+            if (offset > 0 && static_cast<size_t>(offset) > threshold)
+            {
+                if ((delta > 0 && offset > std::numeric_limits<int64_t>::max() - delta) ||
+                    (delta < 0 && offset < std::numeric_limits<int64_t>::min() - delta)) return false;
+                int64_t shifted = static_cast<int64_t>(offset) + delta;
+                if (shifted <= 0 || shifted > static_cast<int64_t>(std::numeric_limits<uint32_t>::max())) {
+                    return false; // underflow / overflow
                 }
+                if (!writer.try_seek(field) || !writer.try_write_be32u(static_cast<uint32_t>(shifted))) return false;
             }
         }
     }
 
     const size_t co64 = find_child_box(data, stbl + 8, stbl_end, "co64");
-    if (co64 != missing && co64 + 16 <= stbl_end)
+    if (co64 != missing)
     {
+        if (co64 > stbl_end || stbl_end - co64 < 16) return false;
         binary_reader reader(data);
-        if (reader.try_seek(co64 + 12)) {
-            uint32_t count = 0;
-            if (reader.try_read_be32u(count) && co64 <= stbl_end && stbl_end - co64 >= 16 &&
-                count <= (stbl_end - co64 - 16) / 8) {
-                binary_writer writer(data);
-                for (uint32_t index = 0; index < count; ++index)
-                {
-                    size_t field = co64 + 16 + static_cast<size_t>(index) * 8;
-                    if (field > stbl_end - 8) return false;
-                    
-                    int64_t offset = 0;
-                    reader.try_seek(field);
-                    if (!reader.try_read_be64(offset)) return false;
-                    
-                    if (offset > 0 && static_cast<uint64_t>(offset) > threshold)
-                    {
-                        if ((delta > 0 && offset > std::numeric_limits<int64_t>::max() - delta) ||
-                            (delta < 0 && offset < std::numeric_limits<int64_t>::min() - delta)) return false;
-                        int64_t shifted = offset + delta;
-                        if (shifted <= 0) {
-                            return false; // underflow
-                        }
-                        writer.try_seek(field);
-                        writer.try_write_be64(shifted);
-                    }
+        if (!reader.try_seek(co64 + 12)) return false;
+        uint32_t count = 0;
+        if (!reader.try_read_be32u(count) || count > (stbl_end - co64 - 16) / 8) return false;
+        binary_writer writer(data);
+        for (uint32_t index = 0; index < count; ++index)
+        {
+            size_t field = co64 + 16 + static_cast<size_t>(index) * 8;
+            if (field > stbl_end - 8) return false;
+
+            int64_t offset = 0;
+            if (!reader.try_seek(field) || !reader.try_read_be64(offset)) return false;
+
+            if (offset > 0 && static_cast<uint64_t>(offset) > threshold)
+            {
+                if ((delta > 0 && offset > std::numeric_limits<int64_t>::max() - delta) ||
+                    (delta < 0 && offset < std::numeric_limits<int64_t>::min() - delta)) return false;
+                int64_t shifted = offset + delta;
+                if (shifted <= 0) {
+                    return false; // underflow
                 }
+                if (!writer.try_seek(field) || !writer.try_write_be64(shifted)) return false;
             }
         }
     }
@@ -337,8 +330,9 @@ bool shift_chunk_offsets(
     const size_t moov_end = moov_start + static_cast<size_t>(moov_size);
     size_t position = moov_start + 8;
     
-    while (position + 8 <= moov_end)
+    while (position < moov_end)
     {
+        if (moov_end - position < 8) return false;
         if (!reader.try_seek(position)) return false;
         uint32_t child_size = 0;
         if (!reader.try_read_be32u(child_size) || child_size < 8 || child_size > moov_end - position)
@@ -358,5 +352,5 @@ bool shift_chunk_offsets(
         position += static_cast<size_t>(child_size);
     }
 
-    return true;
+    return position == moov_end;
 }

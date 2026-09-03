@@ -18,9 +18,13 @@ static lpb_result fast_file_copy(lpb_context* context, const char* in_path, cons
     if (!in_path || !out_path) return LPB_RESULT_INVALID_ARGUMENT;
     auto p_in = utf8_to_path(in_path);
     auto p_out = utf8_to_path(out_path);
+    fs::path temp = p_out;
+    temp += L".lpb-image-copy-tmp";
     std::error_code ec;
-    fs::copy_file(p_in, p_out, fs::copy_options::overwrite_existing, ec);
-    if (ec) {
+    fs::remove(temp, ec);
+    fs::copy_file(p_in, temp, fs::copy_options::overwrite_existing, ec);
+    if (ec || !MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        fs::remove(temp, ec);
         set_error(context, "Failed to copy image file.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
@@ -37,6 +41,10 @@ lpb_result convert_image_file(
 {
     if (!input_image_path || !output_image_path) {
         set_error(context, "Invalid arguments for image conversion.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (paths_alias(input_image_path, output_image_path)) {
+        set_error(context, "Image conversion output must not overwrite its source file.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
@@ -82,12 +90,23 @@ lpb_result convert_image_file(
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
+    auto p_out = utf8_to_path(output_image_path);
+    fs::path temp_output = p_out;
+    temp_output += L".lpb-image-convert-tmp";
+    std::error_code temp_ec;
+    fs::remove(temp_output, temp_ec);
+    auto cleanup_temp = [&]() noexcept { std::error_code ec; fs::remove(temp_output, ec); };
+
     int in_len = MultiByteToWideChar(CP_UTF8, 0, input_image_path, -1, nullptr, 0);
-    int out_len = MultiByteToWideChar(CP_UTF8, 0, output_image_path, -1, nullptr, 0);
+    const std::wstring temp_output_string = temp_output.wstring();
+    if (in_len <= 0 || temp_output_string.empty()) {
+        cleanup_temp();
+        if (co_initialized) CoUninitialize();
+        set_error(context, "Failed to encode image paths as UTF-16.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     std::wstring w_in(in_len, 0);
-    std::wstring w_out(out_len, 0);
     MultiByteToWideChar(CP_UTF8, 0, input_image_path, -1, w_in.data(), in_len);
-    MultiByteToWideChar(CP_UTF8, 0, output_image_path, -1, w_out.data(), out_len);
 
     IWICBitmapDecoder* decoder = nullptr;
     hr = factory->CreateDecoderFromFilename(
@@ -98,6 +117,7 @@ lpb_result convert_image_file(
         &decoder);
 
     if (FAILED(hr) || !decoder) {
+        cleanup_temp();
         factory->Release();
         if (co_initialized) CoUninitialize();
         set_error(context, "Failed to create WIC decoder for input image.");
@@ -107,6 +127,7 @@ lpb_result convert_image_file(
     IWICBitmapFrameDecode* frame_decode = nullptr;
     hr = decoder->GetFrame(0, &frame_decode);
     if (FAILED(hr) || !frame_decode) {
+        cleanup_temp();
         decoder->Release();
         factory->Release();
         if (co_initialized) CoUninitialize();
@@ -123,7 +144,7 @@ lpb_result convert_image_file(
     IWICStream* stream = nullptr;
     hr = factory->CreateStream(&stream);
     if (SUCCEEDED(hr)) {
-        hr = stream->InitializeFromFilename(w_out.c_str(), GENERIC_WRITE);
+        hr = stream->InitializeFromFilename(temp_output_string.c_str(), GENERIC_WRITE);
     }
 
     IWICBitmapEncoder* encoder = nullptr;
@@ -135,6 +156,7 @@ lpb_result convert_image_file(
     }
 
     if (FAILED(hr) || !encoder) {
+        cleanup_temp();
         if (stream) stream->Release();
         frame_decode->Release();
         decoder->Release();
@@ -212,7 +234,14 @@ lpb_result convert_image_file(
     if (co_initialized) CoUninitialize();
 
     if (FAILED(hr)) {
+        cleanup_temp();
         set_error(context, "WIC image encoding failed.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    if (!MoveFileExW(temp_output.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        cleanup_temp();
+        set_error(context, "Failed to publish converted image atomically.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 

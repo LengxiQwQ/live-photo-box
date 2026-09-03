@@ -36,6 +36,16 @@ public sealed class NativeJpegEditorContractTests
         Assert.True(output.AsSpan().EndsWith(scanData));
     }
 
+    [Fact]
+    public void InjectXmp_RejectsTruncatedSegmentInsteadOfTreatingItAsScanData()
+    {
+        byte[] malformed = [0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x20, 0x01, 0x02];
+
+        Assert.False(NativeJpegEditor.TryInjectXmp(
+            malformed, "new-xmp"u8.ToArray(), out _, out string? error));
+        Assert.False(string.IsNullOrWhiteSpace(error));
+    }
+
     private static byte[] BuildJpeg(string xmp, byte[] scanData)
     {
         byte[] xmpPayload = [.. XmpHeader, .. Encoding.UTF8.GetBytes(xmp)];

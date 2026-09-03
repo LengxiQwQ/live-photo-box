@@ -20,7 +20,7 @@ public sealed class HeifBoxParserDifferentialTests
         infe.CopyTo(iinfPayload, 2);
         byte[] iinf = BuildFullBox("iinf", 0, 0, iinfPayload);
 
-        byte[] ilocPayload = new byte[2 + 2 + 18];
+        byte[] ilocPayload = new byte[18];
         ilocPayload[0] = 0x44;
         BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(2), 1);
         BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(4), 42);
@@ -77,7 +77,7 @@ public sealed class HeifBoxParserDifferentialTests
         infe.CopyTo(iinfPayload, 2);
         byte[] iinf = BuildFullBox("iinf", 0, 0, iinfPayload);
 
-        byte[] ilocPayload = new byte[2 + 2 + 18];
+        byte[] ilocPayload = new byte[18];
         ilocPayload[0] = (4 << 4) | 4; // offset_size=4, length_size=4
         ilocPayload[1] = (0 << 4) | 0; // base_offset_size=0, index_size=0
         BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(2), 1); // item_count
@@ -132,7 +132,7 @@ public sealed class HeifBoxParserDifferentialTests
         infe.CopyTo(iinfPayload, 2);
         byte[] iinf = BuildFullBox("iinf", 0, 0, iinfPayload);
 
-        byte[] ilocPayload = new byte[2 + 2 + 18];
+        byte[] ilocPayload = new byte[18];
         ilocPayload[0] = (4 << 4) | 4; // offset_size=4, length_size=4
         BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(2), 1);
         BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(4), itemId);

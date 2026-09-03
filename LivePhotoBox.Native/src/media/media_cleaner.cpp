@@ -322,6 +322,32 @@ static lpb_result clean_jpeg_xmp(
     return LPB_RESULT_OK;
 }
 
+static lpb_result clean_validated_ranges_then_xmp(
+    lpb_context* context,
+    const std::string& input_path,
+    const std::string& output_path,
+    lpb_source_protocol protocol,
+    const lpb_source_media_facts& facts,
+    std::vector<lpb_removed_protocol_fact>& out_facts)
+{
+    // Range removal and XMP rewriting are one logical operation.  Keep the
+    // range-stripped image unpublished until the XMP pass and its structural
+    // residual check both succeed.
+    const std::string intermediate_path = output_path + ".lpb-range-clean-tmp";
+    std::error_code cleanup_ec;
+    fs::remove(utf8_to_path(intermediate_path.c_str()), cleanup_ec);
+
+    lpb_result result = remove_validated_ranges(
+        context, input_path, intermediate_path, facts, out_facts)
+        ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+    if (result == LPB_RESULT_OK) {
+        result = clean_jpeg_xmp(
+            context, intermediate_path, output_path, protocol, true, out_facts);
+    }
+    fs::remove(utf8_to_path(intermediate_path.c_str()), cleanup_ec);
+    return result;
+}
+
 static lpb_result clean_apple_image(
     lpb_context* context,
     const std::string& in_path,
@@ -578,6 +604,14 @@ lpb_result clean_source_protocol(
     if (!context || !facts || !input_image_path || !output_image_path) {
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+    if (paths_alias(input_image_path, output_image_path) ||
+        (input_video_path && output_image_path && paths_alias(input_video_path, output_image_path)) ||
+        (input_image_path && output_video_path && paths_alias(input_image_path, output_video_path)) ||
+        (input_video_path && output_video_path && paths_alias(input_video_path, output_video_path)) ||
+        (output_image_path && output_video_path && paths_alias(output_image_path, output_video_path))) {
+        set_error(context, "Cleaning outputs must not overwrite source files or each other.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     if (facts_capacity > 0 && !out_facts) {
         set_error(context, "A facts buffer is required when facts_capacity is non-zero.");
         return LPB_RESULT_INVALID_ARGUMENT;
@@ -597,44 +631,32 @@ lpb_result clean_source_protocol(
         break;
 
     case LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1:
-        res = remove_validated_ranges(context, input_image_path, output_image_path, *facts, removed_facts)
-            ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
-        if (res == LPB_RESULT_OK)
-            res = clean_jpeg_xmp(context, output_image_path, output_image_path,
-                static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
+        res = clean_validated_ranges_then_xmp(context, input_image_path, output_image_path,
+            static_cast<lpb_source_protocol>(facts->protocol), *facts, removed_facts);
         if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
             res = fast_file_copy(context, input_video_path, output_video_path);
         }
         break;
 
     case LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2:
-        res = remove_validated_ranges(context, input_image_path, output_image_path, *facts, removed_facts)
-            ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
-        if (res == LPB_RESULT_OK)
-            res = clean_jpeg_xmp(context, output_image_path, output_image_path,
-                static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
+        res = clean_validated_ranges_then_xmp(context, input_image_path, output_image_path,
+            static_cast<lpb_source_protocol>(facts->protocol), *facts, removed_facts);
         if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
             res = fast_file_copy(context, input_video_path, output_video_path);
         }
         break;
 
     case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO:
-        res = remove_validated_ranges(context, input_image_path, output_image_path, *facts, removed_facts)
-            ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
-        if (res == LPB_RESULT_OK)
-            res = clean_jpeg_xmp(context, output_image_path, output_image_path,
-                static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
+        res = clean_validated_ranges_then_xmp(context, input_image_path, output_image_path,
+            static_cast<lpb_source_protocol>(facts->protocol), *facts, removed_facts);
         if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
             res = fast_file_copy(context, input_video_path, output_video_path);
         }
         break;
 
     case LPB_SOURCE_PROTOCOL_VIVO_X300:
-        res = remove_validated_ranges(context, input_image_path, output_image_path, *facts, removed_facts)
-            ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
-        if (res == LPB_RESULT_OK)
-            res = clean_jpeg_xmp(context, output_image_path, output_image_path,
-                static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
+        res = clean_validated_ranges_then_xmp(context, input_image_path, output_image_path,
+            static_cast<lpb_source_protocol>(facts->protocol), *facts, removed_facts);
         if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
             res = fast_file_copy(context, input_video_path, output_video_path);
         }

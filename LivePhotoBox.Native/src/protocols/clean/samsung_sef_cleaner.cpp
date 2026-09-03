@@ -60,6 +60,7 @@ static size_t find_jpeg_eoi(const std::vector<uint8_t>& data, size_t max_search)
         if (marker == 0xDA) { // SOS
             if (pos + 4 > limit) break;
             uint16_t header_len = (static_cast<uint16_t>(data[pos + 2]) << 8) | data[pos + 3];
+            if (header_len < 2 || static_cast<size_t>(header_len) > limit - pos - 2) break;
             pos += 2 + header_len;
 
             while (pos + 1 < limit) {
@@ -176,6 +177,7 @@ lpb_result clean_samsung_sef_jpeg(
                 parsed_sef = true;
                 sef_version = le32(actual_sefh + 4);
                 size_t max_payload_offset = 0;
+                std::vector<std::pair<size_t, size_t>> payload_ranges;
                 for (uint32_t i = 0; i < entry_count; i++) {
                     const size_t entry_pos = actual_sefh + 12 + static_cast<size_t>(i) * 12;
                     const uint16_t prefix = le16(entry_pos);
@@ -192,6 +194,15 @@ lpb_result clean_samsung_sef_jpeg(
                         parsed_sef = false;
                         break;
                     }
+                    const size_t payload_end = payload_pos + static_cast<size_t>(size);
+                    for (const auto& range : payload_ranges) {
+                        if (payload_pos < range.second && range.first < payload_end) {
+                            parsed_sef = false;
+                            break;
+                        }
+                    }
+                    if (!parsed_sef) break;
+                    payload_ranges.emplace_back(payload_pos, payload_end);
                     const uint32_t name_size = le32(payload_pos + 4);
                     if (name_size > size - 8 || name_size > input_size - (payload_pos + 8)) {
                         parsed_sef = false;
@@ -224,6 +235,10 @@ lpb_result clean_samsung_sef_jpeg(
                     add_fact(out_facts, "Samsung", "SEF Trailer", "Removed 0x0A30 MotionPhoto_Data from SEF");
                     const size_t payload_start = actual_sefh >= max_payload_offset ? actual_sefh - max_payload_offset : actual_sefh;
                     eoi = find_jpeg_eoi(data, payload_start);
+                    if (eoi < 2 || eoi > payload_start || data[eoi - 2] != 0xFF || data[eoi - 1] != 0xD9) {
+                        set_error(context, "Samsung SEF payload is not preceded by a complete JPEG EOI.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
                 }
             }
         }
@@ -282,27 +297,40 @@ lpb_result clean_samsung_sef_jpeg(
         uint32_t current_offset = static_cast<uint32_t>(total_payloads_len);
         std::vector<uint32_t> entry_offsets;
         for (const auto& e : retained_entries) {
-            writer.try_write_bytes(e.payload.data(), e.payload.size());
+            if (!writer.try_write_bytes(e.payload.data(), e.payload.size())) {
+                set_error(context, "Failed to rebuild retained Samsung SEF payloads.");
+                return LPB_RESULT_INTERNAL_ERROR;
+            }
             entry_offsets.push_back(current_offset);
             current_offset -= static_cast<uint32_t>(e.payload.size());
         }
 
         // 2. Write SEFH header
-        writer.try_write_bytes(reinterpret_cast<const uint8_t*>("SEFH"), 4);
-        writer.try_write_u32_endian(sef_version, false);
-        writer.try_write_u32_endian(static_cast<uint32_t>(retained_entries.size()), false);
+        if (!writer.try_write_bytes(reinterpret_cast<const uint8_t*>("SEFH"), 4) ||
+            !writer.try_write_u32_endian(sef_version, false) ||
+            !writer.try_write_u32_endian(static_cast<uint32_t>(retained_entries.size()), false)) {
+            set_error(context, "Failed to rebuild Samsung SEF header.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
 
         // 3. Write SEF entries
         for (size_t i = 0; i < retained_entries.size(); i++) {
-            writer.try_write_u16_endian(retained_entries[i].prefix, false);
-            writer.try_write_u16_endian(retained_entries[i].marker, false);
-            writer.try_write_u32_endian(entry_offsets[i], false);
-            writer.try_write_u32_endian(static_cast<uint32_t>(retained_entries[i].payload.size()), false);
+            if (!writer.try_write_u16_endian(retained_entries[i].prefix, false) ||
+                !writer.try_write_u16_endian(retained_entries[i].marker, false) ||
+                !writer.try_write_u32_endian(entry_offsets[i], false) ||
+                !writer.try_write_u32_endian(static_cast<uint32_t>(retained_entries[i].payload.size()), false)) {
+                set_error(context, "Failed to rebuild Samsung SEF directory.");
+                return LPB_RESULT_INTERNAL_ERROR;
+            }
         }
 
         // 4. Write total SEF size + SEFT
-        writer.try_write_u32_endian(static_cast<uint32_t>(new_sef_section_len), false);
-        writer.try_write_bytes(reinterpret_cast<const uint8_t*>("SEFT"), 4);
+        if (!writer.try_write_u32_endian(static_cast<uint32_t>(new_sef_section_len), false) ||
+            !writer.try_write_bytes(reinterpret_cast<const uint8_t*>("SEFT"), 4) ||
+            writer.position() != new_sef.size()) {
+            set_error(context, "Failed to finalize rebuilt Samsung SEF trailer.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
 
         // Append rebuilt SEF directly after the clean JPEG
         data.insert(data.end(), new_sef.begin(), new_sef.end());

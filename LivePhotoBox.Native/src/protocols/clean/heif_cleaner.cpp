@@ -64,6 +64,68 @@ static uint32_t be32(const uint8_t* p) noexcept
         (static_cast<uint32_t>(p[2]) << 8) | p[3];
 }
 
+static uint16_t le16(const uint8_t* p) noexcept
+{
+    return static_cast<uint16_t>(p[0]) | (static_cast<uint16_t>(p[1]) << 8);
+}
+
+static uint32_t le32(const uint8_t* p) noexcept
+{
+    return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
+        (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
+}
+
+static bool validate_samsung_sefd(
+    const std::vector<uint8_t>& data,
+    const isobmff_box_header& sefd,
+    uint64_t video_offset,
+    uint64_t video_length) noexcept
+{
+    if (sefd.header_size != 8 || sefd.size < 16 ||
+        sefd.start > data.size() || sefd.size > data.size() - sefd.start) return false;
+    const size_t sefd_end = sefd.start + sefd.size;
+    const size_t footer_pos = sefd_end - 8;
+    if (std::memcmp(data.data() + footer_pos + 4, "SEFT", 4) != 0) return false;
+    const uint32_t total_size = le32(data.data() + footer_pos);
+    if (total_size < 12 || static_cast<uint64_t>(total_size) > sefd.size - 8) return false;
+    const size_t sefh = footer_pos - static_cast<size_t>(total_size);
+    if (sefh < sefd.start + sefd.header_size || std::memcmp(data.data() + sefh, "SEFH", 4) != 0 ||
+        sefh + 12 > footer_pos) return false;
+    const uint32_t count = le32(data.data() + sefh + 8);
+    if (count > (footer_pos - (sefh + 12)) / 12 ||
+        sefh + 12 + static_cast<size_t>(count) * 12 != footer_pos) return false;
+
+    bool found_motion = false;
+    std::vector<std::pair<size_t, size_t>> payload_ranges;
+    for (uint32_t i = 0; i < count; ++i) {
+        const size_t entry = sefh + 12 + static_cast<size_t>(i) * 12;
+        const uint16_t prefix = le16(data.data() + entry);
+        const uint16_t marker = le16(data.data() + entry + 2);
+        const uint32_t offset = le32(data.data() + entry + 4);
+        const uint32_t size = le32(data.data() + entry + 8);
+        if (size < 8 || static_cast<uint64_t>(offset) > sefh || size > offset) return false;
+        const size_t payload = sefh - static_cast<size_t>(offset);
+        const size_t payload_end = payload + static_cast<size_t>(size);
+        if (payload < sefd.start + sefd.header_size || payload_end > sefh ||
+            le16(data.data() + payload) != prefix || le16(data.data() + payload + 2) != marker) return false;
+        for (const auto& range : payload_ranges) {
+            if (payload < range.second && range.first < payload_end) return false;
+        }
+        payload_ranges.emplace_back(payload, payload_end);
+        const uint32_t name_size = le32(data.data() + payload + 4);
+        if (name_size > size - 8) return false;
+        if (marker == 0x0A30) {
+            if (found_motion || prefix != 0 || name_size != 16 || size != 36 ||
+                std::memcmp(data.data() + payload + 8, "MotionPhoto_Data", 16) != 0 ||
+                std::memcmp(data.data() + payload + 24, "mpv2", 4) != 0) return false;
+            if (be32(data.data() + payload + 28) != video_offset ||
+                be32(data.data() + payload + 32) != video_length) return false;
+            found_motion = true;
+        }
+    }
+    return found_motion;
+}
+
 static bool rewrite_samsung_xmp(
     lpb_context* context,
     std::vector<uint8_t>& data,
@@ -145,6 +207,9 @@ lpb_result clean_samsung_heic(
     size_t offset = 0;
     bool removed_mpvd = false;
     bool removed_sefd = false;
+    isobmff_box_header sefd_box{};
+    uint64_t video_offset = 0;
+    uint64_t video_length = 0;
     while (offset < input.size()) {
         isobmff_box_header box{};
         if (!try_read_box_header(input.data(), offset, input.size(), box)) {
@@ -153,23 +218,59 @@ lpb_result clean_samsung_heic(
         }
         const uint32_t type = be32(input.data() + offset + 4);
         if (type == 0x6D707664U) { // mpvd
-            if (removed_mpvd || !is_valid_isobmff_media_range(
-                    input.data(), input.size(), offset + box.header_size,
-                    box.size - box.header_size)) {
+            if (removed_mpvd || box.header_size != 8) {
+                set_error(context, "Samsung HEIF mpvd payload is not a single valid ISO-BMFF media range.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            const size_t candidate_video_start = offset + box.header_size;
+            size_t candidate_video_end = offset + box.size;
+            size_t nested_pos = candidate_video_start;
+            while (nested_pos < candidate_video_end) {
+                isobmff_box_header nested{};
+                if (!try_read_box_header(input.data(), nested_pos, candidate_video_end, nested)) {
+                    set_error(context, "Samsung HEIC mpvd contains a malformed child box.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                if (std::memcmp(input.data() + nested_pos + 4, "sefd", 4) == 0) {
+                    if (removed_sefd) {
+                        set_error(context, "Duplicate Samsung HEIC sefd boxes.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                    if (nested_pos + nested.size != offset + box.size) {
+                        set_error(context, "Samsung HEIC mpvd contains data after its sefd trailer.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                    removed_sefd = true;
+                    sefd_box = nested;
+                    candidate_video_end = nested_pos;
+                    break;
+                }
+                nested_pos += nested.size;
+            }
+            if (candidate_video_end <= candidate_video_start ||
+                !is_valid_isobmff_media_range(input.data(), input.size(), candidate_video_start,
+                    candidate_video_end - candidate_video_start)) {
                 set_error(context, "Samsung HEIF mpvd payload is not a single valid ISO-BMFF media range.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             removed_mpvd = true;
+            video_offset = candidate_video_start;
+            video_length = candidate_video_end - candidate_video_start;
         } else if (type == 0x73656664U) { // sefd
+            if (removed_sefd) {
+                set_error(context, "Duplicate Samsung HEIF sefd boxes.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             removed_sefd = true;
+            sefd_box = box;
         } else {
             output.insert(output.end(), input.begin() + offset,
                 input.begin() + offset + box.size);
         }
         offset += box.size;
     }
-    if (!removed_mpvd) {
-        set_error(context, "Validated Samsung HEIF mpvd box was not found.");
+    if (!removed_mpvd || !removed_sefd || !validate_samsung_sefd(input, sefd_box, video_offset, video_length)) {
+        set_error(context, "Validated Samsung HEIC mpvd/sefd structure was not found or was malformed.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     if (!write_atomic(utf8_to_path(output_path.c_str()), output)) {

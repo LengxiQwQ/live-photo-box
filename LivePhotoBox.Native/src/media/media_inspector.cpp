@@ -291,6 +291,7 @@ static std::vector<uint8_t> read_file_bytes(const char* path, size_t max_bytes =
     file.seekg(0, std::ios::beg);
     std::vector<uint8_t> buffer(to_read);
     file.read(reinterpret_cast<char*>(buffer.data()), to_read);
+    if (file.gcount() != static_cast<std::streamsize>(to_read)) return {};
     return buffer;
 }
 
@@ -412,16 +413,18 @@ static bool find_jpeg_end(const std::vector<uint8_t>& data, uint64_t& out_end) n
     size_t pos = 2;
     while (pos + 1 < data.size())
     {
-        if (data[pos] != 0xFF) { ++pos; continue; }
-        uint8_t marker = data[pos + 1];
-        if (marker == 0x00 || marker == 0xFF) { pos += 2; continue; }
-        if (marker == 0xD9) { out_end = pos + 2; return true; }
+        if (data[pos] != 0xFF) return false;
+        while (pos < data.size() && data[pos] == 0xFF) ++pos;
+        if (pos >= data.size()) return false;
+        uint8_t marker = data[pos++];
+        if (marker == 0x00 || marker == 0xFF || (marker >= 0xD0 && marker <= 0xD7)) return false;
+        if (marker == 0xD9) { out_end = pos; return true; }
         if (marker == 0xDA)
         {
-            if (pos + 4 > data.size()) return false;
-            const size_t len = (static_cast<size_t>(data[pos + 2]) << 8) | data[pos + 3];
-            if (len < 2 || len > data.size() - pos - 2) return false;
-            pos += 2 + len;
+            if (pos + 2 > data.size()) return false;
+            const size_t len = (static_cast<size_t>(data[pos]) << 8) | data[pos + 1];
+            if (len < 2 || len > data.size() - pos) return false;
+            pos += len;
             while (pos + 1 < data.size())
             {
                 if (data[pos] == 0xFF)
@@ -435,11 +438,10 @@ static bool find_jpeg_end(const std::vector<uint8_t>& data, uint64_t& out_end) n
             }
             return false;
         }
-        if (marker >= 0xD0 && marker <= 0xD7) { pos += 2; continue; }
-        if (pos + 4 > data.size()) return false;
-        const size_t len = (static_cast<size_t>(data[pos + 2]) << 8) | data[pos + 3];
-        if (len < 2 || len > data.size() - pos - 2) return false;
-        pos += 2 + len;
+        if (pos + 2 > data.size()) return false;
+        const size_t len = (static_cast<size_t>(data[pos]) << 8) | data[pos + 1];
+        if (len < 2 || len > data.size() - pos) return false;
+        pos += len;
     }
     return false;
 }
@@ -530,19 +532,97 @@ static bool check_samsung_sef_heic(
 {
     size_t pos = 0;
     bool found_mpvd = false;
+    bool found_sefd = false;
+    isobmff_box_header sefd_box{};
+    uint64_t video_offset = 0;
+    uint64_t video_length = 0;
     while (pos + 8 <= data.size()) {
         isobmff_box_header box{};
         if (!try_read_box_header(data.data(), pos, data.size(), box)) return false;
         if (std::memcmp(data.data() + pos + 4, "mpvd", 4) == 0) {
             if (found_mpvd) return false;
             found_mpvd = true;
-            out_video_offset = pos + box.header_size;
-            out_video_len = box.size - box.header_size;
-            if (!is_valid_isobmff_media_range(data.data(), data.size(), out_video_offset, out_video_len)) return false;
+            const size_t candidate_video_start = pos + box.header_size;
+            size_t candidate_video_end = pos + box.size;
+            size_t nested_pos = candidate_video_start;
+            while (nested_pos < candidate_video_end) {
+                isobmff_box_header nested{};
+                if (!try_read_box_header(data.data(), nested_pos, candidate_video_end, nested)) return false;
+                if (std::memcmp(data.data() + nested_pos + 4, "sefd", 4) == 0) {
+                    if (found_sefd) return false;
+                    if (nested_pos + nested.size != pos + box.size) return false;
+                    found_sefd = true;
+                    sefd_box = nested;
+                    candidate_video_end = nested_pos;
+                    break;
+                }
+                nested_pos += nested.size;
+            }
+            if (candidate_video_end <= candidate_video_start ||
+                !is_valid_isobmff_media_range(data.data(), data.size(), candidate_video_start,
+                    candidate_video_end - candidate_video_start)) return false;
+            video_offset = candidate_video_start;
+            video_length = candidate_video_end - candidate_video_start;
+        } else if (std::memcmp(data.data() + pos + 4, "sefd", 4) == 0) {
+            if (found_sefd || box.header_size != 8) return false;
+            found_sefd = true;
+            sefd_box = box;
         }
         pos += box.size;
     }
-    return found_mpvd && pos == data.size();
+    if (!found_mpvd || !found_sefd || pos != data.size() || sefd_box.size < 16) return false;
+
+    const auto le16 = [&](size_t at) noexcept -> uint16_t {
+        return static_cast<uint16_t>(data[at]) | (static_cast<uint16_t>(data[at + 1]) << 8);
+    };
+    const auto le32 = [&](size_t at) noexcept -> uint32_t {
+        return static_cast<uint32_t>(data[at]) | (static_cast<uint32_t>(data[at + 1]) << 8) |
+            (static_cast<uint32_t>(data[at + 2]) << 16) | (static_cast<uint32_t>(data[at + 3]) << 24);
+    };
+    const size_t sefd_end = sefd_box.start + sefd_box.size;
+    const size_t footer = sefd_end - 8;
+    if (std::memcmp(data.data() + footer + 4, "SEFT", 4) != 0) return false;
+    const uint32_t total_size = le32(footer);
+    if (total_size < 12 || static_cast<uint64_t>(total_size) > sefd_box.size - 8) return false;
+    const size_t sefh = footer - static_cast<size_t>(total_size);
+    if (sefh < sefd_box.start + sefd_box.header_size || sefh + 12 > footer ||
+        std::memcmp(data.data() + sefh, "SEFH", 4) != 0) return false;
+    const uint32_t count = le32(sefh + 8);
+    if (count > (footer - (sefh + 12)) / 12 || sefh + 12 + static_cast<size_t>(count) * 12 != footer) return false;
+
+    bool found_motion = false;
+    std::vector<std::pair<size_t, size_t>> payloads;
+    for (uint32_t i = 0; i < count; ++i) {
+        const size_t entry = sefh + 12 + static_cast<size_t>(i) * 12;
+        const uint16_t prefix = le16(entry);
+        const uint16_t marker = le16(entry + 2);
+        const uint32_t offset = le32(entry + 4);
+        const uint32_t size = le32(entry + 8);
+        if (size < 8 || static_cast<uint64_t>(offset) > sefh || size > offset) return false;
+        const size_t payload = sefh - static_cast<size_t>(offset);
+        const size_t payload_end = payload + static_cast<size_t>(size);
+        if (payload < sefd_box.start + sefd_box.header_size || payload_end > sefh ||
+            le16(payload) != prefix || le16(payload + 2) != marker) return false;
+        for (const auto& range : payloads) {
+            if (payload < range.second && range.first < payload_end) return false;
+        }
+        payloads.emplace_back(payload, payload_end);
+        const uint32_t name_size = le32(payload + 4);
+        if (name_size > size - 8) return false;
+        if (marker == 0x0A30) {
+            if (found_motion || prefix != 0 || name_size != 16 || size != 36 ||
+                std::memcmp(data.data() + payload + 8, "MotionPhoto_Data", 16) != 0 ||
+                std::memcmp(data.data() + payload + 24, "mpv2", 4) != 0 ||
+                read_be32u(data.data() + payload + 28) != video_offset ||
+                read_be32u(data.data() + payload + 32) != video_length) return false;
+            found_motion = true;
+        }
+    }
+    if (found_motion) {
+        out_video_offset = video_offset;
+        out_video_len = video_length;
+    }
+    return found_motion;
 }
 
 static bool check_vivo_x300(
@@ -560,16 +640,18 @@ static bool check_vivo_x300(
         // Resolve by semantic name, not merely by the last two positive
         // lengths.  Auxiliary items may be inserted by camera firmware.
         uint64_t motion_length = 0;
-        uint64_t gainmap_length = 0;
-        size_t item_index = 0;
-        size_t motion_index = 0;
-        size_t gainmap_index = 0;
-        size_t primary_count = 0;
+    uint64_t gainmap_length = 0;
+    size_t item_index = 0;
+    size_t motion_index = 0;
+    size_t gainmap_index = 0;
+    size_t primary_count = 0;
+        size_t gainmap_count = 0;
         for (const auto& element : elements) {
             if (!element_is(element, google_container_namespace, "Item")) continue;
             if (get_attribute_string(element, google_item_namespace, "Semantic", "Primary")) ++primary_count;
             uint64_t len = 0;
             if (get_attribute_string(element, google_item_namespace, "Semantic", "GainMap")) {
+                ++gainmap_count;
                 if (!get_attribute_u64(element, google_item_namespace, "Length", len)) return false;
                 gainmap_length = len; gainmap_index = item_index;
             } else if (get_attribute_string(element, google_item_namespace, "Semantic", "MotionPhoto")) {
@@ -579,7 +661,7 @@ static bool check_vivo_x300(
             ++item_index;
         }
 
-        if (primary_count == 1 && motion_length > 0 && gainmap_length > 0 &&
+        if (primary_count == 1 && gainmap_count == 1 && motion_length > 0 && gainmap_length > 0 &&
             motion_index == item_index - 1 && gainmap_index + 1 == motion_index &&
             gainmap_length <= file_size && motion_length <= file_size - gainmap_length &&
             gainmap_length + motion_length < file_size) {
@@ -819,6 +901,56 @@ static bool extract_apple_cid_from_video(lpb_context* context, const std::vector
     return false;
 }
 
+static bool has_structural_box_type(
+    const std::vector<uint8_t>& data, size_t start, size_t end, const char* wanted) noexcept
+{
+    if (start > end || end > data.size()) return false;
+    size_t pos = start;
+    while (pos < end) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data.data(), pos, end, box)) return false;
+        const uint8_t* type = data.data() + pos + 4;
+        if (std::memcmp(type, wanted, 4) == 0) return true;
+
+        const bool is_container = std::memcmp(type, "moov", 4) == 0 ||
+            std::memcmp(type, "trak", 4) == 0 || std::memcmp(type, "mdia", 4) == 0 ||
+            std::memcmp(type, "minf", 4) == 0 || std::memcmp(type, "stbl", 4) == 0 ||
+            std::memcmp(type, "stsd", 4) == 0 || std::memcmp(type, "udta", 4) == 0 ||
+            std::memcmp(type, "meta", 4) == 0 || std::memcmp(type, "dinf", 4) == 0 ||
+            std::memcmp(type, "edts", 4) == 0;
+        if (is_container) {
+            size_t child_start = pos + box.header_size;
+            const size_t full_box_bytes = std::memcmp(type, "meta", 4) == 0 ? 4 :
+                (std::memcmp(type, "stsd", 4) == 0 ? 8 : 0);
+            if (box.size < box.header_size + full_box_bytes) return false;
+            child_start += full_box_bytes;
+            if (child_start < pos + box.size &&
+                has_structural_box_type(data, child_start, pos + box.size, wanted)) return true;
+        }
+        pos += box.size;
+    }
+    return pos == end;
+}
+
+static bool has_structural_apple_mebx(const std::vector<uint8_t>& data) noexcept
+{
+    size_t pos = 0;
+    size_t moov_start = std::numeric_limits<size_t>::max();
+    size_t moov_end = 0;
+    while (pos < data.size()) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data.data(), pos, data.size(), box)) return false;
+        if (std::memcmp(data.data() + pos + 4, "moov", 4) == 0) {
+            if (moov_start != std::numeric_limits<size_t>::max()) return false;
+            moov_start = pos;
+            moov_end = pos + box.size;
+        }
+        pos += box.size;
+    }
+    return pos == data.size() && moov_start != std::numeric_limits<size_t>::max() &&
+        has_structural_box_type(data, moov_start + 8, moov_end, "mebx");
+}
+
 lpb_result inspect_source(
     lpb_context* context,
     const char* primary_path,
@@ -843,6 +975,7 @@ lpb_result inspect_source(
         set_error(context, "Failed to read primary file.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+    primary_size = primary_data.size();
 
     lpb_image_container img_cont = detect_image_container(primary_data);
     lpb_video_container vid_cont = detect_video_container(primary_data);
@@ -856,8 +989,8 @@ lpb_result inspect_source(
 
     // Dual file check
     if (secondary_path && std::strlen(secondary_path) > 0) {
-        uint64_t secondary_size = get_file_size(secondary_path);
         auto sec_data = read_file_bytes(secondary_path);
+        uint64_t secondary_size = sec_data.size();
         lpb_video_container sec_vid_cont = detect_video_container(sec_data);
 
         if (sec_vid_cont != LPB_VIDEO_CONTAINER_UNKNOWN && secondary_size > 0) {
@@ -892,7 +1025,7 @@ lpb_result inspect_source(
             const bool same_named_legacy_candidate = !image_id_ok && !video_id_ok &&
                 fs::path(primary_path).stem() == fs::path(secondary_path).stem() &&
                 has_apple_live_makernote_tag(primary_data.data(), primary_data.size()) &&
-                std::string_view(reinterpret_cast<const char*>(sec_data.data()), sec_data.size()).find("mebx") != std::string_view::npos;
+                has_structural_apple_mebx(sec_data);
             if ((image_id_ok && video_id_ok && image_content_id == video_content_id) || same_named_legacy_candidate) {
                 out_facts->protocol = LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
                 out_facts->motion_video.is_present = 1;

@@ -33,6 +33,10 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
     size_t* out_written)
 {
     if (!context || !input || !out_written) return LPB_RESULT_INVALID_ARGUMENT;
+    if (xmp_xml_size > 0 && xmp_xml == nullptr) {
+        set_error(context, "XMP payload pointer is null.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
     binary_reader reader(input, input_size);
     uint16_t soi = 0;
@@ -44,10 +48,12 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
     std::vector<jpeg_segment> segments;
     size_t sos_pos = 0;
 
+    bool saw_eoi = false;
     while (reader.remaining() > 0) {
         uint8_t current_byte = 0;
         if (!reader.try_read_u8(current_byte) || current_byte != 0xFF) {
-            break;
+            set_error(context, "Input JPEG contains an invalid marker stream.");
+            return LPB_RESULT_INVALID_ARGUMENT;
         }
         
         size_t marker_start = reader.position() - 1;
@@ -56,22 +62,71 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
         }
         
         uint8_t marker = 0;
-        if (!reader.try_read_u8(marker)) break;
+        if (!reader.try_read_u8(marker)) {
+            set_error(context, "Input JPEG ends inside a marker.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
 
         if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
-        if (marker == 0xD9) break; // EOI
+        if (marker == 0xD9) { // EOI without a scan segment
+            sos_pos = marker_start;
+            saw_eoi = true;
+            break;
+        }
         
         if (marker == 0xDA) { // SOS
             sos_pos = marker_start;
+            uint16_t len = 0;
+            if (!reader.try_read_be16u(len) || len < 2 || reader.remaining() < static_cast<size_t>(len - 2)) {
+                set_error(context, "Input JPEG has a truncated SOS segment.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (!reader.skip(static_cast<size_t>(len - 2))) {
+                set_error(context, "Input JPEG has a truncated SOS payload.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            size_t scan = reader.position();
+            while (scan + 1 < input_size) {
+                if (input[scan] != 0xFF) {
+                    ++scan;
+                    continue;
+                }
+                const uint8_t scan_marker = input[scan + 1];
+                if (scan_marker == 0x00 || (scan_marker >= 0xD0 && scan_marker <= 0xD7)) {
+                    scan += 2;
+                    continue;
+                }
+                if (scan_marker == 0xFF) {
+                    ++scan;
+                    continue;
+                }
+                if (scan_marker == 0xD9) {
+                    saw_eoi = true;
+                    break;
+                }
+                // A marker other than stuffed data/restart/EOI is allowed as
+                // post-scan container data, but the scan itself must already
+                // have a real EOI. Continue searching so trailers are kept.
+                ++scan;
+            }
+            if (!saw_eoi) {
+                set_error(context, "Input JPEG scan has no EOI marker.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             break;
         }
 
         uint16_t len = 0;
-        if (!reader.try_read_be16u(len)) break;
-        if (len < 2) break; // Invalid length
+        if (!reader.try_read_be16u(len) || len < 2) {
+            set_error(context, "Input JPEG has an invalid segment length.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         
         size_t payload_size = len;
-        if (reader.remaining() < static_cast<size_t>(payload_size - 2)) break;
+        if (reader.remaining() < static_cast<size_t>(payload_size - 2)) {
+            set_error(context, "Input JPEG contains a truncated segment.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
 
         bool is_xmp = false;
         if (marker == 0xE1 && payload_size >= 2 + XMP_HEADER_SIZE) {
@@ -81,12 +136,15 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
         }
 
         segments.push_back({ marker_start, reader.position() - 2 - marker_start, payload_size, marker, is_xmp });
-        reader.skip(payload_size - 2);
+        if (!reader.skip(payload_size - 2)) {
+            set_error(context, "Input JPEG segment exceeds the source buffer.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
     }
 
-    if (sos_pos == 0) {
-        // No SOS found, maybe just segments or truncated.
-        sos_pos = reader.position();
+    if (sos_pos == 0 || !saw_eoi) {
+        set_error(context, "Input JPEG has no complete scan or EOI marker.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     // Prepare new APP1 XMP
@@ -121,15 +179,28 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
     // Calculate total size
     size_t total_expected = 2; // SOI
     if (!new_xmp_segment.empty()) {
+        if (new_xmp_segment.size() > std::numeric_limits<size_t>::max() - total_expected) {
+            set_error(context, "JPEG output size overflows the host size type.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         total_expected += new_xmp_segment.size();
     }
     
     for (const auto& seg : segments) {
         if (!seg.is_xmp) {
+            if (seg.marker_size > std::numeric_limits<size_t>::max() - seg.payload_size ||
+                total_expected > std::numeric_limits<size_t>::max() - (seg.marker_size + seg.payload_size)) {
+                set_error(context, "JPEG output size overflows the host size type.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             total_expected += seg.marker_size + seg.payload_size;
         }
     }
-    total_expected += (input_size - sos_pos); // SOS to EOI
+    if (input_size - sos_pos > std::numeric_limits<size_t>::max() - total_expected) {
+        set_error(context, "JPEG output size overflows the host size type.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    total_expected += (input_size - sos_pos); // SOS to EOI/trailer
 
     if (output == nullptr || output_size < total_expected) {
         *out_written = total_expected;
@@ -137,22 +208,22 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
     }
 
     binary_writer out_writer(output, output_size);
-    out_writer.try_write_be16(0xFFD8);
+    if (!out_writer.try_write_be16(0xFFD8)) return LPB_RESULT_INTERNAL_ERROR;
 
     if (insert_idx == 0 && !new_xmp_segment.empty()) {
-        out_writer.try_write_bytes(new_xmp_segment.data(), new_xmp_segment.size());
+        if (!out_writer.try_write_bytes(new_xmp_segment.data(), new_xmp_segment.size())) return LPB_RESULT_INTERNAL_ERROR;
     }
 
     for (size_t i = 0; i < segments.size(); i++) {
         if (!segments[i].is_xmp) {
-            out_writer.try_write_bytes(input + segments[i].start, segments[i].marker_size + segments[i].payload_size);
+            if (!out_writer.try_write_bytes(input + segments[i].start, segments[i].marker_size + segments[i].payload_size)) return LPB_RESULT_INTERNAL_ERROR;
         }
         if (i + 1 == insert_idx && !new_xmp_segment.empty()) {
-            out_writer.try_write_bytes(new_xmp_segment.data(), new_xmp_segment.size());
+            if (!out_writer.try_write_bytes(new_xmp_segment.data(), new_xmp_segment.size())) return LPB_RESULT_INTERNAL_ERROR;
         }
     }
 
-    out_writer.try_write_bytes(input + sos_pos, input_size - sos_pos);
+    if (!out_writer.try_write_bytes(input + sos_pos, input_size - sos_pos)) return LPB_RESULT_INTERNAL_ERROR;
 
     *out_written = out_writer.position();
     return LPB_RESULT_OK;
