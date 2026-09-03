@@ -28,7 +28,7 @@ $coreTests = Join-Path $projectRoot 'tests\LivePhotoBox.Core.Tests\LivePhotoBox.
 $cliTests = Join-Path $projectRoot 'tests\LivePhotoBox.CLI.Tests\LivePhotoBox.CLI.Tests.csproj'
 $cliIntegrationScript = Join-Path $projectRoot 'scripts\testing\run-cli-integration-test.py'
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-$coreTestFilter = if ($env:CI -eq 'true') { 'Category!=RealSamples' } else { $null }
+$realSampleTestFilter = if ($env:CI -eq 'true') { 'Category!=RealSamples' } else { $null }
 $ciTrackedProjects = @(
     'LivePhotoBox\LivePhotoBox.csproj',
     'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj',
@@ -108,20 +108,26 @@ try {
             '--no-restore',
             '--nologo'
         )
-        if ($coreTestFilter) {
+        if ($realSampleTestFilter) {
             Write-Host 'CI excludes [Category=RealSamples]; the local Release gate still runs them.' -ForegroundColor DarkGray
-            $arguments += @('--filter', $coreTestFilter)
+            $arguments += @('--filter', $realSampleTestFilter)
         }
         & dotnet @arguments
     }
 
     Invoke-VerificationStep -Name "Run CLI tests ($Configuration x64)" -Action {
-        & dotnet test $cliTests `
-            -c $Configuration `
-            -p:Platform=x64 `
-            -p:SkipNativeBuild=true `
-            --no-restore `
-            --nologo
+        $arguments = @(
+            'test', $cliTests,
+            '-c', $Configuration,
+            '-p:Platform=x64',
+            '-p:SkipNativeBuild=true',
+            '--no-restore',
+            '--nologo'
+        )
+        if ($realSampleTestFilter) {
+            $arguments += @('--filter', $realSampleTestFilter)
+        }
+        & dotnet @arguments
     }
 
     if ($Scope -in @('Full', 'Release')) {
