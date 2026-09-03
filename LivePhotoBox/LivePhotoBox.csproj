@@ -188,8 +188,9 @@
        <PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' == 'true'">False</PublishReadyToRun>
 		<PublishReadyToRun Condition="'$(Configuration)' != 'Debug' and '$(SelfContained)' != 'true'">False</PublishReadyToRun>
 		<PublishTrimmed>False</PublishTrimmed>
-		<!-- 跳过符号包生成，避免 mspdbcmf.exe 路径问题（GitHub Release 不需要 .appxsym） -->
+		<!-- GitHub Release 不需要 .appxsym；同时关闭新版 MSIX targets 的上传符号包目标，避免在缺少 mspdbcmf.exe 时使普通构建失败。命令行可显式覆盖。 -->
 		<AppxPackageGenerateSymbolsPackage>false</AppxPackageGenerateSymbolsPackage>
+		<AppxSymbolPackageEnabled>false</AppxSymbolPackageEnabled>
      <GenerateTemporaryStoreCertificate Condition="Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">True</GenerateTemporaryStoreCertificate>
 		<GenerateTemporaryStoreCertificate Condition="!Exists('$(MSBuildProjectDirectory)\LivePhotoBox_TemporaryKey.pfx')">False</GenerateTemporaryStoreCertificate>
 		<GenerateAppInstallerFile>False</GenerateAppInstallerFile>
