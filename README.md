@@ -139,24 +139,19 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 
 ## 🛠️ Tech Stack
 
-C# handles the GUI, CLI and workflow orchestration, while LivePhotoBox.Native (C++20) owns the low-level media container, metadata and Live/Motion Photo protocol work.
-
-| Layer | Technology | Version |
-|-------|-----------|---------|
-| Managed Language | C# | 13.0 |
-| Native Language | C++ | C++20 (MSVC x64) |
-| Runtime | .NET | 9.0 |
-| UI Framework | Windows App SDK (WinUI 3) | 1.8 (1.8.260317003) |
-| Architecture | MVVM (CommunityToolkit.Mvvm) | 8.4.2 |
-| Native Media / Protocol Core | `LivePhotoBox.Native` | In-process C++20 |
-| Native ABI | Stable C ABI | — |
-| Image Platform APIs | Windows Imaging Component (WIC) + Win2D | 1.3.2 |
-| Image Scaling | PhotoSauce.MagicScaler | 0.15.0 |
-| Video Platform APIs | Windows Media Foundation | — |
-| Markdown Rendering | Markdig | 1.3.2 |
-| CLI Framework | System.CommandLine | 2.0.11 |
-| Packaging | MSIX self-contained (GUI) / self-contained single-file (CLI) | — |
-
+| Technology                | Version      | Role                                                                 |
+| ------------------------- | ------------ | -------------------------------------------------------------------- |
+| C#                        | 13.0         | GUI, CLI, application workflows and orchestration                    |
+| C++                       | C++20        | Low-level media containers, metadata and Live/Motion Photo protocols |
+| .NET                      | 9.0          | Application runtime                                                  |
+| WinUI 3 / Windows App SDK | 1.8          | Windows desktop UI                                                   |
+| CommunityToolkit.Mvvm     | 8.4.2        | MVVM and state management                                            |
+| LivePhotoBox.Native       | Stable C ABI | Bridge between C# and the Native C++ core                            |
+| WIC                       | Windows      | Image decoding, encoding and conversion                              |
+| Windows Media Foundation  | Windows      | Video probing, remuxing and transcoding                              |
+| PhotoSauce.MagicScaler    | 0.15.0       | Image scaling and processing                                         |
+| System.CommandLine        | 2.0.11       | CLI framework                                                        |
+| MSIX / Self-contained     | —            | GUI and CLI distribution                                             |
 > Note: Some currently published releases still use the previous external-tool-based media pipeline. The development branch is moving these responsibilities into LivePhotoBox.Native, and the new Native architecture will replace that implementation in a future release.
 
 ---
@@ -196,38 +191,6 @@ python scripts/testing/run-cli-integration-test.py
 ```
 
 All three commands must pass before creating a release tag. `scripts/build-release.ps1` also invokes the Native build and checks that `LivePhotoBox.Native.dll` is present in GUI and CLI outputs.
-
----
-
-## 📁 Project Structure
-
-```
-live-photo-box/
-├── LivePhotoBox.Core/        # Shared core library (protocols, merge/split/repair services, localization)
-├── LivePhotoBox.Native/      # C++20 Native backend (stable C ABI; x64 DLL)
-├── LivePhotoBox/             # Main project (WinUI 3 MSIX app)
-│   ├── Assets/               # Icons, screenshots, static resources
-│   ├── Controls/             # Custom controls (fullscreen lightbox, status bar)
-│   ├── Converters/           # XAML value converters
-│   ├── Helpers/              # Utilities (scrolling, formatting, hover preview, etc.)
-│   ├── Models/               # Data models
-│   ├── Services/             # GUI business logic (delegates to LivePhotoBox.Core)
-│   ├── Strings/              # Multilingual resources (zh-Hans / en-US)
-│   ├── ViewModels/           # MVVM ViewModel layer
-│   └── Views/                # XAML pages
-├── LivePhotoBox.CLI/         # Command-line interface (livephotobox)
-├── tests/                    # Test projects (Core / CLI / UI / benchmarks)
-├── docs/                     # Project documentation
-├── changelogs/               # Release notes
-├── scripts/                  # Build & packaging scripts
-│   └── native/                # MSVC/Native build and smoke-test script
-├── artifacts/                # Native build outputs (gitignored)
-├── screenshots/              # Screenshots
-├── lpb.cmd                   # Dev alias for the source CLI (runs current code, same as `dotnet run`)
-└── README.md
-```
-
-📖 See <strong><a href="docs/项目总览.md">Project Overview</a></strong> for the complete directory reference.
 
 ---
 

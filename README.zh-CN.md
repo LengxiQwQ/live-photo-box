@@ -138,23 +138,20 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 
 ## 🛠️ 技术栈
 
-C# 负责 GUI、CLI 与上层流程编排；LivePhotoBox.Native（C++20）负责底层媒体容器、元数据与实况照片协议处理。
+| 技术                        | 版本           | 职责                      |
+| ------------------------- | ------------ | ----------------------- |
+| C#                        | 13.0         | GUI、CLI、业务流程与任务编排       |
+| C++                       | C++20        | 底层媒体容器、元数据与实况照片协议处理     |
+| .NET                      | 9.0          | 应用运行时                   |
+| WinUI 3 / Windows App SDK | 1.8          | Windows 桌面界面            |
+| CommunityToolkit.Mvvm     | 8.4.2        | MVVM 与状态管理              |
+| LivePhotoBox.Native       | Stable C ABI | C# 与 Native C++ 之间的调用接口 |
+| WIC                       | Windows      | 图片解码、编码与格式转换            |
+| Windows Media Foundation  | Windows      | 视频探测、Remux 与转码          |
+| PhotoSauce.MagicScaler    | 0.15.0       | 图片缩放与部分图像处理             |
+| System.CommandLine        | 2.0.11       | CLI 命令行框架               |
+| MSIX / Self-contained     | —            | GUI 与 CLI 打包分发          |
 
-| 层级 | 技术 | 版本 |
-|------|------|------|
-| 托管语言 | C# | 13.0 |
-| 原生语言 | C++ | C++20（MSVC x64） |
-| 运行时 | .NET | 9.0 |
-| UI 框架 | Windows App SDK（WinUI 3） | 1.8（1.8.260317003） |
-| 架构 | MVVM（CommunityToolkit.Mvvm） | 8.4.2 |
-| 原生媒体与协议核心 | `LivePhotoBox.Native` | 进程内 C++20 |
-| 原生 ABI | 稳定 C ABI（Stable C ABI） | — |
-| 图像平台 API | Windows Imaging Component (WIC) + Win2D | 1.3.2 |
-| 图像缩放 | PhotoSauce.MagicScaler | 0.15.0 |
-| 视频平台 API | Windows Media Foundation | — |
-| Markdown 渲染 | Markdig | 1.3.2 |
-| 命令行框架 | System.CommandLine | 2.0.11 |
-| 打包分发 | MSIX 自包含（GUI）/ 独立单文件（CLI） | — |
 
 > 说明：当前已发布的部分版本仍使用上一代外部工具媒体处理实现。开发主线正在将这些能力迁移到 LivePhotoBox.Native，新的 Native 架构将在后续正式版本中替代旧实现。
 
@@ -195,38 +192,6 @@ python scripts/testing/run-cli-integration-test.py
 ```
 
 创建发布标签前，以上三项必须全部通过。`scripts/build-release.ps1` 也会自动构建 Native，并检查 GUI 与 CLI 产物中存在 `LivePhotoBox.Native.dll`。
-
----
-
-## 📁 项目结构
-
-```
-live-photo-box/
-├── LivePhotoBox.Core/        # 共享核心库（协议、合成/拆分/修复服务、本地化）
-├── LivePhotoBox.Native/      # C++20 Native 后端（稳定 C ABI，x64 DLL）
-├── LivePhotoBox/             # 主项目（WinUI 3 MSIX 应用）
-│   ├── Assets/               # 图标、教程截图等静态资源
-│   ├── Controls/             # 自定义控件（全屏灯箱、底部状态栏）
-│   ├── Converters/           # XAML 值转换器
-│   ├── Helpers/              # 工具类（滚动、格式化、悬停预览等）
-│   ├── Models/               # 数据模型
-│   ├── Services/             # GUI 业务逻辑层（委托给 LivePhotoBox.Core）
-│   ├── Strings/              # 多语言资源（中文 / 英文）
-│   ├── ViewModels/           # MVVM ViewModel 层
-│   └── Views/                # XAML 页面
-├── LivePhotoBox.CLI/         # 命令行工具（livephotobox）
-├── tests/                    # 测试项目（Core / CLI / UI / 基准测试）
-├── docs/                     # 项目文档
-├── changelogs/               # 更新日志
-├── scripts/                  # 构建与打包脚本
-│   └── native/               # MSVC/Native 构建与 smoke test 脚本
-├── artifacts/                # Native 构建产物（gitignore）
-├── screenshots/              # 截图资源
-├── lpb.cmd                   # 源码版 CLI 开发别名（直接运行当前源码，等价 dotnet run）
-└── README.md
-```
-
-📖 完整目录说明见 <strong><a href="docs/项目总览.md">项目总览</a></strong>
 
 ---
 
