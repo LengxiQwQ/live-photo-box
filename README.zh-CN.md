@@ -270,8 +270,8 @@ live-photo-box/
 | [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | 高性能图片缩放 | MIT |
 | [Microsoft.Graphics.Win2D](https://github.com/microsoft/Win2D) | GPU 加速 2D 图形渲染 | MIT |
 | [Markdig](https://github.com/xoofx/markdig) | Markdown 渲染 | BSD-2-Clause |
-| [FFmpeg](https://ffmpeg.org/) | 视频编解码与测试基准 | LGPL/GPL |
-| [ExifTool](https://exiftool.org/) | 图像/视频元数据读写与测试基准 | Perl |
+| [FFmpeg](https://ffmpeg.org/) | 历史发布版本与独立验证参考 | LGPL/GPL |
+| [ExifTool](https://exiftool.org/) | 历史发布版本与独立验证参考 | Perl |
 
 ---
 

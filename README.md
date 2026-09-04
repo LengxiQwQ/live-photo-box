@@ -271,8 +271,8 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 | [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | High-performance image scaling | MIT |
 | [Microsoft.Graphics.Win2D](https://github.com/microsoft/Win2D) | GPU-accelerated 2D graphics | MIT |
 | [Markdig](https://github.com/xoofx/markdig) | Markdown rendering | BSD-2-Clause |
-| [FFmpeg](https://ffmpeg.org/) | Video processing & test reference | LGPL/GPL |
-| [ExifTool](https://exiftool.org/) | Metadata processing & test reference | Perl |
+| [FFmpeg](https://ffmpeg.org/) | Previous-generation runtime & independent verification reference | LGPL/GPL |
+| [ExifTool](https://exiftool.org/) | Previous-generation runtime & independent verification reference | Perl |
 
 ---
 

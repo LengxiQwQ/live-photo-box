@@ -98,10 +98,6 @@ lpb --info
 # View protocol × format compatibility matrix
 lpb protocols
 
-# Convert standalone media through the Rebuilt Native pipeline (no external media CLI)
-lpb convert input.mov -o output.mp4 --codec h264
-lpb convert input.heic -o output.jpg
-
 # Convert a single pair (iPhone → Google Photos)
 lpb merge photo.heic video.mov -p motionphoto -y
 
@@ -127,7 +123,6 @@ lpb cover photo.jpg --at 1.5 -y
 
 | Command | Description |
 |---------|-------------|
-| `lpb convert` | Convert a standalone JPEG/HEIC image or MOV/MP4 video through the Rebuilt Native media pipeline |
 | `lpb protocols` | View protocol × format compatibility and device support |
 | `lpb merge` | Merge image+video pairs (single pair or batch) |
 | `lpb split` | Split single-file live photos into separate image and video files |
@@ -137,25 +132,9 @@ lpb cover photo.jpg --at 1.5 -y
 
 The `update` / `update-check` commands are covered in the Updating section above.
 
-### `convert` — Rebuilt Native standalone media conversion
-
-`convert` accepts a standalone JPEG/HEIC image or MOV/MP4 video. Image output is selected by the output extension (`.jpg`/`.jpeg` or `.heic`/`.heif`). Video output is selected by the output extension (`.mp4` or `.mov`); use `--codec copy`, `--codec h264`, or `--codec hevc` to select stream copy/remux or a real Native transcode. The source is probed by Native before conversion; a failed probe is an explicit failure and never falls back to caller-supplied guesses.
-
-```powershell
-lpb convert input.mov -o output.mp4 --codec h264
-lpb convert input.mp4 -o output.mov --codec hevc
-lpb convert input.heic -o output.jpg
-lpb convert input.jpg -o output.heic --overwrite
-lpb convert input.jpg -o output.heic
-```
-
----
-
 ### `protocols` — View protocol × format compatibility and device support
 
 Run `lpb protocols` to view this interactively, or `lpb protocols --json` for structured output.
-
-The command reports runtime engine information and the protocol/format matrix. Standalone conversion, media extraction, and current merge/split paths operate via the Rebuilt Native engine; split exposes protocol-free neutral output. Target protocol writers remain scheduled for a later phase (Roadmap P9). Standalone media conversion is available via `lpb convert`.
 
 **Compatibility matrix** — which output formats each protocol supports:
 
@@ -185,14 +164,16 @@ The command reports runtime engine information and the protocol/format matrix. S
 
 | Protocol | Devices | Status |
 |---|---|---|
-| Neutral split | Any device | ✅ Supported |
+| Apple Live Photo | iPhone / iPad | ✅ Supported |
+| vivo Live Photo | vivo (≤ X200) | 🟡 In testing |
 
 **Split — protocol × format compatibility:**
 
 | Protocol | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | None (split only) | ✅ | ✅ | ✅ | ✅ |
-> In the Rebuilt Native pipeline, split exports protocol-free neutral media (`none`). Target protocol writers are not yet implemented.
+| Apple Live Photo | ✖️ | ✅ | ✅ | ✖️ |
+| vivo Live Photo | ✖️ | ✖️ | ✖️ | ✅ |
 
 **JSON output** for scripting:
 
@@ -345,7 +326,7 @@ In batch mode (`-d`), the tool must decide which image belongs to which video:
 | `cid` | Apple `ContentIdentifier` UUID match, regardless of filename | `IMG_0002.HEIC` + `renamed.MOV` → paired |
 | `vivo` | vivo camera ID in the JPEG tail + MP4 metadata | `vivo_photo.jpg` + `vivo_video.mp4` → paired |
 
-`cid` pairing inspects Apple ContentIdentifier directly via the Native engine; `name` and `vivo` also run natively without external tools.
+`cid` requires `exiftool.exe` in the `Tools\` directory alongside the executable (included in all packages); `name` and `vivo` need no external tools.
 
 #### Naming Templates
 
@@ -391,7 +372,8 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 | Preview without processing | `lpb split -d ./MyPhotos --dry-run` |
 | Only split vivo live photos | `lpb split -d ./MyPhotos --pairing vivo -y` |
 | Overwrite existing outputs | `lpb split photo.jpg -w` |
-| Export all neutral media variants | `lpb split photo.jpg --all-variants` |
+| Export all variants (Apple + vivo + no-protocol) | `lpb split photo.jpg --all-variants` |
+| Set key photo position (Apple conversion) | `lpb split photo.jpg -p apple --key-timestamp 2.500 -y` |
 
 > **Note:** Wildcards (`*.jpg`) are not supported. Pass a folder (`-d`) or list files explicitly.
 
@@ -421,8 +403,9 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 
 | Option | Description |
 |--------|-------------|
-| `-p, --protocol <p>` | Target protocol (default `none`). Only `none` is currently available and exports protocol-free neutral media |
-| `-f, --format <f>` | Output format (default: `keep`): `keep` (no conversion), `jpg+mov` (H.265), `heic+mov` (H.265), `jpg+mp4` (H.264) |
+| `-p, --protocol <p>` | Target phone format (default `none`): `none` (split only), `apple` (Apple Live Photo), `vivo` (vivo Live Photo, ≤ X200). Apple/vivo write pairing metadata (ContentIdentifier / vivo tail + uuid box) |
+| `-f, --format <f>` | Output format (default: first available for the protocol): `keep` (no conversion), `jpg+mov` (H.265), `heic+mov` (H.265), `jpg+mp4` (H.264) |
+| `--key-timestamp <time>` | Override the key photo (cover) position (Apple conversion, single-file only). Accepts seconds (`2.500`), `mm:ss` (`1:30.500`), `hh:mm:ss` (`0:01:30.500`). Default: follow the source |
 | `-n, --naming <rule>` | Output filename rule. Default: `keep`. `keep` (same name) or `custom:TEMPLATE` (tokens below) |
 
 Naming tokens:
@@ -447,7 +430,7 @@ Naming tokens:
 | `-y, --yes` | Skip confirmation prompts. Useful for scripts / automation |
 | `--dry-run` | Preview: show what would be done, don't actually process files |
 | `-v, --verbose` | Show per-file status messages instead of summary only |
-| `--all-variants` | Export all split variants (single-file mode only). Emits 4 protocol-free neutral media variants. Output goes to `{output}/split_{name}_All_Variants/` |
+| `--all-variants` | Export ALL split variants (single-file mode only); output to `{output}/split_{name}_All_Variants/` |
 
 #### Default Output Location
 
@@ -465,7 +448,7 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 
 #### `--all-variants` — Export every split variant
 
-From one single-file live photo, generate all rebuilt neutral split variants in one command. Single-file mode only — batch (`-d`) is rejected.
+From one single-file live photo, generate all 7 supported split variants in one command. Single-file mode only — batch (`-d`) is rejected. Ideal for developer QA and testing.
 
 | Variant | Output pair |
 |---------|-------------|
@@ -473,6 +456,9 @@ From one single-file live photo, generate all rebuilt neutral split variants in 
 | No protocol (JPG+MOV) | `none_jpg+mov.JPG` + `none_jpg+mov.MOV` |
 | No protocol (HEIC+MOV) | `none_heic+mov.HEIC` + `none_heic+mov.MOV` |
 | No protocol (JPG+MP4) | `none_jpg+mp4.JPG` + `none_jpg+mp4.MP4` |
+| Apple Live Photo (JPG+MOV) | `apple_jpg+mov.JPG` + `apple_jpg+mov.MOV` |
+| Apple Live Photo (HEIC+MOV) | `apple_heic+mov.HEIC` + `apple_heic+mov.MOV` |
+| vivo Live Photo (JPG+MP4) | `vivo_jpg+mp4.JPG` + `vivo_jpg+mp4.MP4` |
 
 ```powershell
 # Default: writes to {source_dir}/split_{name}_All_Variants/
@@ -482,17 +468,19 @@ lpb split photo.jpg --all-variants
 lpb split photo.jpg --all-variants -o ./Out
 ```
 
-Files are named `{protocol}_{format}` (lowercase CLI values, e.g. `-p none -f jpg+mov` → `none_jpg+mov`); the original name goes into the **folder** name only; no spaces in any name. For the keep variant the image keeps the source extension and the video keeps the source container (`.MOV` / `.MP4`). `-p` / `-f` / `-n` / `-w` / `--after` are ignored; `-j` still controls parallelism.
+Files are named `{protocol}_{format}` (lowercase CLI values, e.g. `-p apple -f jpg+mov` → `apple_jpg+mov`); the original name goes into the **folder** name only; no spaces in any name. For the keep variant the image keeps the source extension and the video keeps the source container (`.MOV` / `.MP4`). `-p` / `-f` / `-n` / `-w` / `--after` are ignored; `-j` still controls parallelism.
 
 #### Protocol × Format Matrix
 
-In the Rebuilt Native pipeline, split currently operates in neutral media mode (`none`):
+Which output formats each split protocol supports:
 
 | Protocol | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | `none` (split only) | ✅ | ✅ | ✅ | ✅ |
+| `apple` (Apple Live Photo) | ✖️ | ✅ | ✅ | ✖️ |
+| `vivo` (vivo Live Photo) | ✖️ | ✖️ | ✖️ | ✅ |
 
-Omitted `--format` defaults to `keep`.
+Omitted `--format` defaults to the protocol's first available format: `keep` (`none`), `jpg+mov` (`apple`), `jpg+mp4` (`vivo`).
 
 #### Pairing Filter
 
@@ -531,8 +519,6 @@ Only source files from **successfully** split live photos are affected.
 ---
 
 ### `cover` — Change the cover frame (Key Photo)
-
-> ⚠️ **Note**: The command syntax and options are defined, but cover extraction and writing are currently frozen pending Native reconstruction (`rebuilt_not_ready`).
 
 Change the cover frame (Key Photo) of an existing live photo without re-encoding the video. Alias `keyphoto` (aligns with Apple terminology).
 
@@ -633,8 +619,6 @@ The command generates `{source_name}_cover{frame}` by default (e.g. `IMG_1234_co
 
 ### `repair` — Repair live photo metadata
 
-> ⚠️ **Note**: The command syntax, diagnosis, and flags are defined, but the underlying repair execution is currently frozen pending Native reconstruction (`rebuilt_not_ready`, scheduled for Roadmap P8).
-
 Analyzes and fixes four kinds of metadata problems on existing live photo files: image rotation, embedded thumbnails, HEIC orientation, and video rotation. Images: `.jpg .jpeg .heic .heif`; videos: `.mov .mp4`.
 
 | Mode | Arguments | Use case |
@@ -671,10 +655,10 @@ Analyzes and fixes four kinds of metadata problems on existing live photo files:
 
 | Option | Description |
 |--------|-------------|
-| `--no-rotate` | Disable image rotation fix |
+| `--no-rotate` | Disable image rotation fix (jpegtran lossless rotation) |
 | `--no-thumbnail` | Disable embedded thumbnail stripping |
 | `--no-heic` | Disable HEIC/HEIF orientation fix |
-| `--no-video` | Disable video rotation bake |
+| `--no-video` | Disable video rotation bake (FFmpeg re-encode) |
 | `--all-devices` | Repair files from all devices. Default: only Apple Live Photos (identified by their `ContentIdentifier` UUID) are repaired |
 | `--repair-long-videos` | Also repair videos longer than 3.5 s (not real live photos). Default: skipped |
 | `--copy-perfect` | Also copy files that need no repair to the output folder (batch mode only) |
@@ -702,10 +686,10 @@ All four fixes are **on by default** — use the `--no-*` flags to turn individu
 
 | Fix | What it does | Applies to |
 |-----|--------------|------------|
-| Image rotation | Lossless JPEG rotation, resetting EXIF orientation | JPEG |
+| Image rotation | jpegtran lossless rotation, then resets the EXIF orientation tag | JPEG |
 | Thumbnail strip | Strips the embedded thumbnail/preview image (reduces file size) | JPEG |
 | HEIC orientation | Fixes EXIF orientation to match the QuickTime `Rotation` (mirror flag or angle mismatch) | HEIC/HEIF |
-| Video rotation bake | Video rotation baking rotation matrix into pixels | MOV/MP4 |
+| Video rotation bake | FFmpeg re-encode baking the rotation matrix into the pixels | MOV/MP4 |
 
 > **Note:** all four fixes are on by default; pass `--no-heic` to disable HEIC orientation (matches the GUI default).
 
@@ -785,8 +769,8 @@ Run `lpb protocols` to list valid protocol names and shorthand aliases.
 #### Format not available for protocol
 Run `lpb protocols` to view the compatibility matrix. For example, `heic+mp4-h265` is only available for `huawei`.
 
-#### ContentIdentifier (`cid`) pairing
-Apple ContentIdentifier UUID inspection is performed directly in-process by `LivePhotoBox.Native`. No external tools or configuration are required.
+#### "exiftool not found" with `--pairing cid`
+Add `exiftool.exe` to the `Tools\` folder next to the executable.
 
 #### Output file extension differs from source
 Expected behaviour. When the source is HEIC and a JPEG-based format is selected, the output uses `.jpg`.

@@ -98,10 +98,6 @@ lpb --info
 # 查看协议 × 格式兼容矩阵
 lpb protocols
 
-# 通过新版 Native 媒体管线转换独立媒体（不启动外部媒体 CLI）
-lpb convert input.mov -o output.mp4 --codec h264
-lpb convert input.heic -o output.jpg
-
 # 转换单个文件对（iPhone → Google 相册）
 lpb merge photo.heic video.mov -p motionphoto -y
 
@@ -127,7 +123,6 @@ lpb cover photo.jpg --at 1.5 -y
 
 | 命令 | 说明 |
 |------|------|
-| `lpb convert` | 通过新版 Native 媒体管线转换独立 JPEG/HEIC 图片或 MOV/MP4 视频 |
 | `lpb protocols` | 查看协议 × 格式兼容矩阵与设备支持 |
 | `lpb merge` | 合成图片 + 视频（单对或批量） |
 | `lpb split` | 把单文件实况照片拆回独立的图片与视频 |
@@ -137,25 +132,9 @@ lpb cover photo.jpg --at 1.5 -y
 
 `update` / `update-check` 命令见上文「更新」一节。
 
-### `convert` — 新版 Native 独立媒体转换
-
-`convert` 接受独立的 JPEG/HEIC 图片或 MOV/MP4 视频。图片输出格式由扩展名决定（`.jpg`/`.jpeg` 或 `.heic`/`.heif`），视频输出格式由扩展名决定（`.mp4` 或 `.mov`）。视频可用 `--codec copy`、`--codec h264` 或 `--codec hevc` 选择流复制/remux 或真正的 Native 重编码。转换前一定由 Native 探测源文件；探测失败会明确失败，不会使用调用方提供的猜测值继续转换。
-
-```powershell
-lpb convert input.mov -o output.mp4 --codec h264
-lpb convert input.mp4 -o output.mov --codec hevc
-lpb convert input.heic -o output.jpg
-lpb convert input.jpg -o output.heic --overwrite
-lpb convert input.jpg -o output.heic
-```
-
----
-
 ### `protocols` — 查看协议 × 格式兼容矩阵与设备支持
 
 运行 `lpb protocols` 可交互查看，或 `lpb protocols --json` 获取结构化输出。
-
-该命令会报告当前引擎信息（Rebuilt Native）。拆分输出协议无关的中性媒体；合成支持已适配的厂商实况格式。
 
 **兼容矩阵** — 每个协议支持的输出格式：
 
@@ -185,14 +164,16 @@ lpb convert input.jpg -o output.heic
 
 | 协议 | 支持机型 | 状态 |
 |---|---|---|
-| 中性拆分 | 任意设备 | ✅ 可用 |
+| Apple Live Photo | iPhone / iPad | ✅ 可用 |
+| vivo Live Photo | vivo（≤ X200） | 🟡 测试中 |
 
 **拆分 — 协议 × 格式兼容矩阵：**
 
 | 协议 | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | None（仅拆分） | ✅ | ✅ | ✅ | ✅ |
-> 重构版 Native 拆分管线目前导出协议无关的中性媒体（`none`），目标协议写入器尚未实现。
+| Apple Live Photo | ✖️ | ✅ | ✅ | ✖️ |
+| vivo Live Photo | ✖️ | ✖️ | ✖️ | ✅ |
 
 **JSON 输出**（供脚本消费）：
 
@@ -345,7 +326,7 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | `cid` | Apple `ContentIdentifier` UUID 一致，与文件名无关 | `IMG_0002.HEIC` + `renamed.MOV` → 配对 |
 | `vivo` | JPEG 尾部 + MP4 元数据中的 vivo 相机 ID | `vivo_photo.jpg` + `vivo_video.mp4` → 配对 |
 
-`cid` 配对由 Native 引擎直接解析 Apple ContentIdentifier；`name` 与 `vivo` 同样由 Native 原生支持，无需任何外部工具。
+`cid` 需要 `exiftool.exe` 位于可执行文件旁的 `Tools\` 目录中（所有分发包均自带）；`name` 与 `vivo` 无需外部工具。
 
 #### 命名模板速查
 
@@ -422,8 +403,9 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 | 选项 | 说明 |
 |------|------|
-| `-p, --protocol <协议>` | 目标协议（默认 `none`）。当前仅支持 `none`，导出协议无关的中性媒体 |
-| `-f, --format <格式>` | 输出格式（默认：`keep`）：`keep`（不转换）、`jpg+mov` (H.265)、`heic+mov` (H.265)、`jpg+mp4` (H.264) |
+| `-p, --protocol <协议>` | 目标手机格式（默认 `none`）：`none`（仅拆分）、`apple`（Apple Live Photo）、`vivo`（vivo Live Photo，≤ X200）。apple/vivo 会写入配对元数据（ContentIdentifier / vivo 尾标 + uuid box） |
+| `-f, --format <格式>` | 输出格式（默认：指定协议的首个可用格式）：`keep`（不转换）、`jpg+mov` (H.265)、`heic+mov` (H.265)、`jpg+mp4` (H.264) |
+| `--key-timestamp <时间>` | 覆盖封面（key photo）在视频时间轴上的位置（仅 Apple 转换、单文件）。支持秒（`2.500`）、分:秒（`1:30.500`）、时:分:秒（`0:01:30.500`）；默认跟随源 |
 | `-n, --naming <规则>` | 输出文件名规则。默认：`keep`。`keep`（保持原名）或 `custom:模板`（占位符见下） |
 
 命名占位符：
@@ -466,7 +448,7 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 #### `--all-variants` — 一键导出所有拆分变体
 
-从单个单文件实况照片一键导出 rebuilt 的 4 组中性拆分变体。仅单文件模式——批量（`-d`）会被拒绝。
+从单个单文件实况照片一键导出全部 7 组拆分变体。仅单文件模式——批量（`-d`）会被拒绝。适合开发者快速验证各协议的拆分输出。
 
 | 变体 | 输出文件对 |
 |------|-----------|
@@ -474,6 +456,9 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | 无协议（JPG+MOV） | `none_jpg+mov.JPG` + `none_jpg+mov.MOV` |
 | 无协议（HEIC+MOV） | `none_heic+mov.HEIC` + `none_heic+mov.MOV` |
 | 无协议（JPG+MP4） | `none_jpg+mp4.JPG` + `none_jpg+mp4.MP4` |
+| Apple Live Photo (JPG+MOV) | `apple_jpg+mov.JPG` + `apple_jpg+mov.MOV` |
+| Apple Live Photo (HEIC+MOV) | `apple_heic+mov.HEIC` + `apple_heic+mov.MOV` |
+| vivo Live Photo (JPG+MP4) | `vivo_jpg+mp4.JPG` + `vivo_jpg+mp4.MP4` |
 
 ```powershell
 # 默认输出到源文件所在目录的 split_{名称}_All_Variants/
@@ -483,17 +468,19 @@ lpb split photo.jpg --all-variants
 lpb split photo.jpg --all-variants -o ./Out
 ```
 
-文件名按 `{协议}_{格式}` 命名；原文件名只进**文件夹名**，所有名称不含空格。rebuilt 的 4 个变体均为协议无关输出，不写入 Apple/vivo 配对数据。keep 变体图片跟随源扩展名、视频跟随源容器（`.MOV` / `.MP4`）。`-p` / `-f` / `-n` / `-w` / `--after` 被忽略；`-j` 仍控制并行度。
+文件名按 `{协议}_{格式}` 命名（小写 CLI 规范值，如 `-p apple -f jpg+mov` → `apple_jpg+mov`）；原文件名只进**文件夹名**，所有名称不含空格。keep 变体图片跟随源扩展名、视频跟随源容器（`.MOV` / `.MP4`）。`-p` / `-f` / `-n` / `-w` / `--after` 被忽略；`-j` 仍控制并行度。
 
 #### 协议 × 格式矩阵
 
-重构版 Native 拆分管线目前导出协议无关的中性媒体：
+每个拆分协议支持的输出格式：
 
 | 协议 | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | `none`（仅拆分） | ✅ | ✅ | ✅ | ✅ |
+| `apple`（Apple Live Photo） | ✖️ | ✅ | ✅ | ✖️ |
+| `vivo`（vivo Live Photo） | ✖️ | ✖️ | ✖️ | ✅ |
 
-省略 `--format` 时使用 `keep`。
+省略 `--format` 时，默认取该协议的首个可用格式：`none` → `keep`、`apple` → `jpg+mov`、`vivo` → `jpg+mp4`。
 
 #### 配对过滤
 
@@ -532,8 +519,6 @@ split 只支持 `keep`（默认）和 `custom:模板`（无 `suffix` 模式）�
 ---
 
 ### `cover` — 修改实况照片封面帧（Key Photo）
-
-> ⚠️ **注意**：`cover` 命令语法与参数已就绪，当前封面提取与写入管线正在 Native 重建中（返回 `rebuilt_not_ready`）。
 
 修改已有实况照片的封面帧（Key Photo），不重新合成视频。别名 `keyphoto`（对齐 Apple 术语）。
 
@@ -634,8 +619,6 @@ split 只支持 `keep`（默认）和 `custom:模板`（无 `suffix` 模式）�
 
 ### `repair` — 修复实况照片元数据
 
-> ⚠️ **注意**：`repair` 命令语法与参数已就绪，当前底层执行管线正在 Native 重建中（返回 `rebuilt_not_ready`，规划于 Roadmap P8）。
-
 分析并修复现有实况照片文件的四类元数据问题：图片旋转、内嵌缩略图、HEIC 方向、视频旋转。图片：`.jpg .jpeg .heic .heif`；视频：`.mov .mp4`。
 
 | 模式 | 参数 | 使用场景 |
@@ -672,10 +655,10 @@ split 只支持 `keep`（默认）和 `custom:模板`（无 `suffix` 模式）�
 
 | 选项 | 说明 |
 |------|------|
-| `--no-rotate` | 关闭图片旋转修正 |
+| `--no-rotate` | 关闭图片旋转修正（jpegtran 无损旋转） |
 | `--no-thumbnail` | 关闭内嵌缩略图剥离 |
 | `--no-heic` | 关闭 HEIC/HEIF 方向修正 |
-| `--no-video` | 关闭视频旋转烘焙 |
+| `--no-video` | 关闭视频旋转烘焙（FFmpeg 重编码） |
 | `--all-devices` | 修复所有设备的文件。默认只修复 Apple 实况照片（通过 `ContentIdentifier` UUID 识别） |
 | `--repair-long-videos` | 同时修复时长超过 3.5 秒的视频（非实况照片）。默认跳过 |
 | `--copy-perfect` | 把无需修复的完好文件也复制到输出目录（仅批量模式） |
@@ -703,10 +686,10 @@ split 只支持 `keep`（默认）和 `custom:模板`（无 `suffix` 模式）�
 
 | 修复项 | 作用 | 适用 |
 |--------|------|------|
-| 图片旋转 | 无损旋转后重置 EXIF 方向标签 | JPEG |
+| 图片旋转 | jpegtran 无损旋转后重置 EXIF 方向标签 | JPEG |
 | 缩略图剥离 | 剥离内嵌缩略图/预览图（减小文件体积） | JPEG |
 | HEIC 方向 | 修正 EXIF 方向以匹配 QuickTime `Rotation`（镜像标记或角度不一致） | HEIC/HEIF |
-| 视频旋转烘焙 | 重编码把旋转矩阵烘焙进像素 | MOV/MP4 |
+| 视频旋转烘焙 | FFmpeg 重编码，把旋转矩阵烘焙进像素 | MOV/MP4 |
 
 > **说明：** 四项修复默认全开；传 `--no-heic` 可关闭 HEIC 方向修复（对齐 GUI 默认行为）。
 
@@ -786,8 +769,8 @@ JSON 为 UTF-8 编码；脚本读取时请按 UTF-8 解码（如 Python `json.lo
 #### 所选格式不适用于该协议
 运行 `lpb protocols` 查看兼容矩阵。例如，`heic+mp4-h265` 仅可用于 `huawei`。
 
-#### ContentIdentifier (`cid`) 配对说明
-Apple ContentIdentifier UUID 识别已由 `LivePhotoBox.Native` 在进程内直接解析，无需配置任何外部工具。
+#### 使用 `--pairing cid` 时提示找不到 exiftool
+把 `exiftool.exe` 放到可执行文件旁的 `Tools\` 目录即可。
 
 #### 输出文件扩展名与源文件不一致
 正常现象。源文件为 HEIC 且选择了 JPEG 类格式时，输出使用 `.jpg` 扩展名。
