@@ -13,7 +13,6 @@ public sealed class LivePhotoDiscoveryRebuiltTests
     [Fact]
     public async Task Scan_Rebuilt_UsesNativeSingleFileInspection()
     {
-        ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
         string root = Path.Combine(Path.GetTempPath(), $"lpb-rebuilt-discovery-{Guid.NewGuid():N}");
         Directory.CreateDirectory(root);
         try
@@ -31,7 +30,6 @@ public sealed class LivePhotoDiscoveryRebuiltTests
         }
         finally
         {
-            ProcessingBackendSettingsService.Reset();
             try { Directory.Delete(root, recursive: true); } catch { }
         }
     }

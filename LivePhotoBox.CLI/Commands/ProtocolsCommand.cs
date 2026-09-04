@@ -157,7 +157,7 @@ namespace LivePhotoBox.Cli.Commands
             string[] fmtNames = SplitCommand.SplitFormatNames
                 .Select(f => f == "keep" ? "keep" : f.ToUpperInvariant().Replace("+", " + "))
                 .ToArray();
-            bool rebuilt = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt;
+            const bool rebuilt = true;
             int protocolCount = rebuilt ? 1 : SplitProtocols.Length;
             int nameW = Math.Max("Protocol".Length, SplitProtocols.Take(protocolCount).Max(p => p.Name.Length));
             int fmtW = Math.Max(8, fmtNames.Max(f => f.Length) + 1);
@@ -273,7 +273,7 @@ namespace LivePhotoBox.Cli.Commands
 
         private static void PrintJson()
         {
-            bool rebuilt = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt;
+            const bool rebuilt = true;
             var protocols = new object[ProtocolFormatMatrix.Matrix.Length - 1];
             for (int p = 1; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {

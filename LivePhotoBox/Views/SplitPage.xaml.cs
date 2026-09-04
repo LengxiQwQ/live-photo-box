@@ -526,19 +526,17 @@ namespace LivePhotoBox.Views
         }
 
         // Rebuilt 的拆分阶段只导出清洗后的中性媒体，不显示也不接受目标协议 Writer 选项。
-        // Legacy 模式仍保留历史 Apple/vivo 选项，由 SplitService 的 Legacy 分支处理。
         private void ApplySplitBackendOptions()
         {
             if (ProtocolComboBox == null) return;
 
-            bool rebuiltOnly = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt;
             for (int i = 1; i < ProtocolComboBox.Items.Count; i++)
             {
                 if (ProtocolComboBox.Items[i] is ComboBoxItem item)
-                    item.Visibility = rebuiltOnly ? Visibility.Collapsed : Visibility.Visible;
+                    item.Visibility = Visibility.Collapsed;
             }
 
-            if (rebuiltOnly && ViewModel.ProtocolIndex != ProtocolFormatMatrix.SplitProtocolNone)
+            if (ViewModel.ProtocolIndex != ProtocolFormatMatrix.SplitProtocolNone)
             {
                 ViewModel.ProtocolIndex = ProtocolFormatMatrix.SplitProtocolNone;
                 ProtocolComboBox.SelectedIndex = ProtocolFormatMatrix.SplitProtocolNone;

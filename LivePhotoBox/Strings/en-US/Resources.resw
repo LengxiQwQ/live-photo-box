@@ -2345,12 +2345,10 @@ Then click "Start Split".</value>
     <value>Repair</value>
   </data>
   <data name="Processing_NotReady_Title" xml:space="preserve">
-    <value>Rebuilt processing is not ready</value>
+    <value>Operation Not Yet Implemented</value>
   </data>
   <data name="Processing_NotReady_Message" xml:space="preserve">
-    <value>{0} cannot run while “Use rebuilt processing” is enabled.
-
-The rebuilt branch is not ready yet. Legacy was not called and no output was created. Turn off “Use rebuilt processing” in Settings to use the preserved Legacy compatibility flow.</value>
+    <value>{0} is not yet implemented in the current Rebuilt Native pipeline. No output was created.</value>
   </data>
   <data name="Processing_NotReady_Operation_Merge" xml:space="preserve">
     <value>Merge</value>

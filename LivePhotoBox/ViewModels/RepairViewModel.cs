@@ -1712,19 +1712,8 @@ namespace LivePhotoBox.ViewModels
 
             try
             {
-                await ProcessingPipelineRouter.RunAsync("repair", async () =>
-                {
-                    if (IsOutputToDirectory)
-                    {
-                        if (string.IsNullOrWhiteSpace(OutputDirectory))
-                            OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_RepairedPhotos"));
-                        if (!Directory.Exists(OutputDirectory))
-                            Directory.CreateDirectory(OutputDirectory);
-                    }
-
-                    IsDirectoryPanelOpen = false;
-                    await RunLegacyTasksAsync();
-                });
+                await ProcessingPipelineRouter.RunAsync("repair", () =>
+                    throw new RebuiltPipelineNotReadyException("repair"));
             }
             catch (RebuiltPipelineNotReadyException exception)
             {
@@ -1734,7 +1723,8 @@ namespace LivePhotoBox.ViewModels
 
         private Task RunTasksAsync()
         {
-            return ProcessingPipelineRouter.RunAsync("repair", RunLegacyTasksAsync);
+            return ProcessingPipelineRouter.RunAsync("repair", () =>
+                throw new RebuiltPipelineNotReadyException("repair"));
         }
 
         private async Task RunLegacyTasksAsync()

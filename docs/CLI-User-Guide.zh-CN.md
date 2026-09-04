@@ -155,7 +155,7 @@ lpb convert input.jpg -o output.heic
 
 运行 `lpb protocols` 可交互查看，或 `lpb protocols --json` 获取结构化输出。
 
-该命令会报告当前全局后端。默认 `rebuilt` 模式下，下面的矩阵仅表示 Legacy 兼容资料；协议 `merge`、`split`、`cover`、`repair` 写入器尚未启用。当前可通过 `lpb convert` 使用 Native 后端进行独立媒体格式转换。
+该命令会报告当前引擎信息（Rebuilt Native）。拆分输出协议无关的中性媒体；合成支持已适配的厂商实况格式。
 
 **兼容矩阵** — 每个协议支持的输出格式：
 
@@ -192,7 +192,7 @@ lpb convert input.jpg -o output.heic
 | 协议 | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | None（仅拆分） | ✅ | ✅ | ✅ | ✅ |
-> rebuilt 模式当前只启用 `none`（中性拆分）这一行；下方 Apple/vivo 组合仅由 Legacy 兼容分支保留，不代表新版已接入目标协议写入。
+> 重构版 Native 拆分管线目前导出协议无关的中性媒体（`none`），目标协议写入器尚未实现。
 
 **JSON 输出**（供脚本消费）：
 
@@ -422,9 +422,8 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 | 选项 | 说明 |
 |------|------|
-| `-p, --protocol <协议>` | 目标协议（默认 `none`）。rebuilt 模式只允许 `none`，只导出协议无关的中性媒体且不写入目标协议数据；Legacy 兼容分支保留 `apple` / `vivo` |
+| `-p, --protocol <协议>` | 目标协议（默认 `none`）。当前仅支持 `none`，导出协议无关的中性媒体 |
 | `-f, --format <格式>` | 输出格式（默认：`keep`）：`keep`（不转换）、`jpg+mov` (H.265)、`heic+mov` (H.265)、`jpg+mp4` (H.264) |
-| `--key-timestamp <时间>` | 仅 Legacy Apple 转换选项；rebuilt 中性拆分不可用 |
 | `-n, --naming <规则>` | 输出文件名规则。默认：`keep`。`keep`（保持原名）或 `custom:模板`（占位符见下） |
 
 命名占位符：
@@ -467,7 +466,7 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 #### `--all-variants` — 一键导出所有拆分变体
 
-从单个单文件实况照片一键导出 rebuilt 的 4 组中性拆分变体。仅单文件模式——批量（`-d`）会被拒绝。Legacy 模式额外包含 Apple/vivo 兼容变体。
+从单个单文件实况照片一键导出 rebuilt 的 4 组中性拆分变体。仅单文件模式——批量（`-d`）会被拒绝。
 
 | 变体 | 输出文件对 |
 |------|-----------|
@@ -475,9 +474,6 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | 无协议（JPG+MOV） | `none_jpg+mov.JPG` + `none_jpg+mov.MOV` |
 | 无协议（HEIC+MOV） | `none_heic+mov.HEIC` + `none_heic+mov.MOV` |
 | 无协议（JPG+MP4） | `none_jpg+mp4.JPG` + `none_jpg+mp4.MP4` |
-| Apple Live Photo (JPG+MOV) | `apple_jpg+mov.JPG` + `apple_jpg+mov.MOV` |
-| Apple Live Photo (HEIC+MOV) | `apple_heic+mov.HEIC` + `apple_heic+mov.MOV` |
-| vivo Live Photo (JPG+MP4) | `vivo_jpg+mp4.JPG` + `vivo_jpg+mp4.MP4` |
 
 ```powershell
 # 默认输出到源文件所在目录的 split_{名称}_All_Variants/
@@ -491,15 +487,13 @@ lpb split photo.jpg --all-variants -o ./Out
 
 #### 协议 × 格式矩阵
 
-Legacy 兼容分支的拆分协议支持的输出格式如下；rebuilt 模式只启用 `none`：
+重构版 Native 拆分管线目前导出协议无关的中性媒体：
 
 | 协议 | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | `none`（仅拆分） | ✅ | ✅ | ✅ | ✅ |
-| `apple`（Apple Live Photo） | ✖️ | ✅ | ✅ | ✖️ |
-| `vivo`（vivo Live Photo） | ✖️ | ✖️ | ✖️ | ✅ |
 
-rebuilt 省略 `--format` 时使用 `keep`。Legacy 省略时仍取该协议的首个可用格式。
+省略 `--format` 时使用 `keep`。
 
 #### 配对过滤
 

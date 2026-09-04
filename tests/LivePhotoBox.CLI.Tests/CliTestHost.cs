@@ -15,12 +15,8 @@ namespace LivePhotoBox.Cli.Tests
     /// </summary>
     internal static class CliTestHost
     {
-        public static Task<CliResult> RunAsync(Command command, params string[] args) =>
-            RunAsync(command, ProcessingPipelineMode.Rebuilt, args);
-
         public static async Task<CliResult> RunAsync(
             Command command,
-            ProcessingPipelineMode mode,
             params string[] args)
         {
             var outWriter = new StringWriter();
@@ -35,7 +31,6 @@ namespace LivePhotoBox.Cli.Tests
                 Environment.SetEnvironmentVariable(
                     "LIVEPHOTOBOX_BACKEND_SETTINGS_PATH",
                     Path.Combine(settingsDir, "settings.json"));
-                ProcessingBackendSettingsService.SetMode(mode);
                 Console.SetOut(outWriter);
                 Console.SetError(errWriter);
                 int exitCode = await command.Parse(args).InvokeAsync();

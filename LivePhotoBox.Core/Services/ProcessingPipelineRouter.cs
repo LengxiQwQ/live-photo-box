@@ -6,48 +6,31 @@ using LivePhotoBox.Models;
 namespace LivePhotoBox.Services;
 
 /// <summary>
-/// Captures the product-wide processing branch once at the start of an operation.
-/// Nested calls inherit the same session through <see cref="Current"/>.
+/// Captures the operation session context at the start of a processing operation.
+/// Nested calls inherit the same session through <see cref="ProcessingPipelineRouter.Current"/>.
 /// </summary>
 public sealed class ProcessingOperationSession
 {
     internal ProcessingOperationSession(string operation, ProcessingBackendSettings settings)
     {
         Operation = operation;
-        Mode = settings.Mode;
         Revision = settings.Revision;
     }
 
     internal ProcessingOperationSession(string operation, ProcessingOperationSession parent)
     {
         Operation = operation;
-        Mode = parent.Mode;
         Revision = parent.Revision;
     }
 
     public string Operation { get; }
-    public ProcessingPipelineMode Mode { get; }
     public long Revision { get; }
-    public bool IsLegacy => Mode == ProcessingPipelineMode.Legacy;
-
-    internal void EnsureLegacy()
-    {
-        if (!IsLegacy)
-            throw new RebuiltPipelineNotReadyException(Operation);
-    }
-
-    internal void EnsureRebuilt()
-    {
-        if (IsLegacy)
-            throw new InvalidOperationException(
-                $"The rebuilt media pipeline is not available while the explicit Legacy mode is enabled for '{Operation}'.");
-    }
 }
 
 /// <summary>
-/// The only product-wide processing router. Legacy operations enter through
-/// <see cref="RunAsync(string, Func{Task})"/>; Native media operations enter
-/// through <see cref="RunRebuiltAsync{T}(string, Func{Task{T}})"/>.
+/// The processing operation boundary. All processing operations execute through
+/// <see cref="RunAsync(string, Func{Task})"/> or <see cref="RunAsync{T}(string, Func{Task{T}})"/>
+/// within the Rebuilt Native pipeline.
 /// </summary>
 public static class ProcessingPipelineRouter
 {
@@ -63,75 +46,55 @@ public static class ProcessingPipelineRouter
         return new ProcessingOperationSession(operation, ProcessingBackendSettingsService.Load());
     }
 
-    public static async Task RunAsync(string operation, Func<Task> legacyAction)
+    public static async Task RunAsync(string operation, Func<Task> action)
     {
-        ArgumentNullException.ThrowIfNull(legacyAction);
+        ArgumentNullException.ThrowIfNull(action);
         ProcessingOperationSession? inherited = Current;
         ProcessingOperationSession session = inherited != null
             ? new ProcessingOperationSession(string.IsNullOrWhiteSpace(operation) ? inherited.Operation : operation, inherited)
             : Begin(operation);
 
-        session.EnsureLegacy();
-        await RunInSessionAsync(session, legacyAction).ConfigureAwait(false);
+        await RunInSessionAsync(session, action).ConfigureAwait(false);
     }
 
-    public static async Task<T> RunAsync<T>(string operation, Func<Task<T>> legacyAction)
+    public static async Task<T> RunAsync<T>(string operation, Func<Task<T>> action)
     {
-        ArgumentNullException.ThrowIfNull(legacyAction);
+        ArgumentNullException.ThrowIfNull(action);
         ProcessingOperationSession? inherited = Current;
         ProcessingOperationSession session = inherited != null
             ? new ProcessingOperationSession(string.IsNullOrWhiteSpace(operation) ? inherited.Operation : operation, inherited)
             : Begin(operation);
 
-        session.EnsureLegacy();
         T result = default!;
-        await RunInSessionAsync(session, async () => result = await legacyAction().ConfigureAwait(false))
+        await RunInSessionAsync(session, async () => result = await action().ConfigureAwait(false))
             .ConfigureAwait(false);
         return result;
     }
 
     /// <summary>
-    /// Runs a rebuilt operation only when the global switch is Rebuilt.  This is
-    /// deliberately separate from <see cref="RunAsync{T}"/>, whose callback is
-    /// the preserved Legacy implementation used by the old protocol commands.
+    /// Alias for <see cref="RunAsync(string, Func{Task})"/> retained for semantic clarity at caller boundaries.
     /// </summary>
-    public static async Task RunRebuiltAsync(string operation, Func<Task> rebuiltAction)
-    {
-        ArgumentNullException.ThrowIfNull(rebuiltAction);
-        await RunRebuiltAsync<object?>(operation, async () =>
-        {
-            await rebuiltAction().ConfigureAwait(false);
-            return null;
-        }).ConfigureAwait(false);
-    }
+    public static Task RunRebuiltAsync(string operation, Func<Task> action) =>
+        RunAsync(operation, action);
 
-    public static async Task<T> RunRebuiltAsync<T>(string operation, Func<Task<T>> rebuiltAction)
-    {
-        ArgumentNullException.ThrowIfNull(rebuiltAction);
-        ProcessingOperationSession? inherited = Current;
-        ProcessingOperationSession session = inherited != null
-            ? new ProcessingOperationSession(string.IsNullOrWhiteSpace(operation) ? inherited.Operation : operation, inherited)
-            : Begin(operation);
-
-        session.EnsureRebuilt();
-        ProcessingOperationSession? previous = CurrentSlot.Value;
-        CurrentSlot.Value = session;
-        try
-        {
-            return await rebuiltAction().ConfigureAwait(false);
-        }
-        finally
-        {
-            CurrentSlot.Value = previous;
-        }
-    }
+    /// <summary>
+    /// Alias for <see cref="RunAsync{T}(string, Func{Task{T}})"/> retained for semantic clarity at caller boundaries.
+    /// </summary>
+    public static Task<T> RunRebuiltAsync<T>(string operation, Func<Task<T>> action) =>
+        RunAsync(operation, action);
 
     private static async Task RunInSessionAsync(ProcessingOperationSession session, Func<Task> action)
     {
         ProcessingOperationSession? previous = CurrentSlot.Value;
         CurrentSlot.Value = session;
-        try { await action().ConfigureAwait(false); }
-        finally { CurrentSlot.Value = previous; }
+        try
+        {
+            await action().ConfigureAwait(false);
+        }
+        finally
+        {
+            CurrentSlot.Value = previous;
+        }
     }
 }
 

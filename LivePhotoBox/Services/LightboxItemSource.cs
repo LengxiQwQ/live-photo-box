@@ -103,23 +103,6 @@ namespace LivePhotoBox.Services
                 long videoLen = t.AppendedVideoLength;
                 string? videoPath = null;
 
-                // 华为/荣耀无 XMP 视频标记，扫描阶段解析不出长度；
-                // 按内容标记（尾部 LIVE_）补查嵌入式视频范围，不限扩展名
-                if (videoLen == 0
-                    && ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Legacy
-                    && HasLiveTailMarker(t.SourcePath))
-                {
-                    try
-                    {
-                        var hwRange = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(t.SourcePath);
-                        if (hwRange.HasValue)
-                        {
-                            videoLen = hwRange.Value.videoLength;
-                        }
-                    }
-                    catch { /* 非华为/荣耀文件静默跳过 */ }
-                }
-
                 // 兜底：苹果格式同名配对视频（仅当不是单文件实况时才查）
                 videoPath = videoLen > 0 ? null : FindPairedVideo(t.SourcePath);
 
@@ -154,28 +137,16 @@ namespace LivePhotoBox.Services
 
                     if (File.Exists(path))
                     {
-                        if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+                        if (IsImagePath(path))
                         {
-                            if (IsImagePath(path))
+                            try
                             {
-                                try
-                                {
-                                    var facts = await new SourceInspector().InspectAsync(path);
-                                    videoLen = facts.MotionVideo is { IsPresent: true } video
-                                        ? video.ByteLength
-                                        : 0;
-                                }
-                                catch { videoLen = 0; }
+                                var facts = await new SourceInspector().InspectAsync(path);
+                                videoLen = facts.MotionVideo is { IsPresent: true } video
+                                    ? video.ByteLength
+                                    : 0;
                             }
-                        }
-                        else
-                        {
-                            videoPath = FindPairedVideo(path);
-                            if (videoPath == null)
-                            {
-                                // 通用探测：读 XMP 头 + 尾部 LIVE_ 标记，不按扩展名筛选
-                                DetectSingleFileVideo(path, out videoLen);
-                            }
+                            catch { videoLen = 0; }
                         }
                     }
 

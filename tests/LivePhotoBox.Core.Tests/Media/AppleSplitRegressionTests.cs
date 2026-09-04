@@ -11,7 +11,6 @@ public sealed class AppleSplitRegressionTests
     [Fact]
     public async Task RebuiltNeutralSplit_ChunkOffsetsPointIntoMediaData()
     {
-        ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
         string outputDirectory = Path.Combine(Path.GetTempPath(), $"lpb-apple-split-{Guid.NewGuid():N}");
         Directory.CreateDirectory(outputDirectory);
 
@@ -47,7 +46,6 @@ public sealed class AppleSplitRegressionTests
         }
         finally
         {
-            ProcessingBackendSettingsService.Reset();
             try { Directory.Delete(outputDirectory, recursive: true); } catch { }
         }
     }
@@ -55,7 +53,6 @@ public sealed class AppleSplitRegressionTests
     [Fact]
     public async Task RebuiltSplit_RejectsTargetProtocolWriterOptions()
     {
-        ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
         string outputDirectory = Path.Combine(Path.GetTempPath(), $"lpb-neutral-split-{Guid.NewGuid():N}");
 
         try
@@ -73,7 +70,6 @@ public sealed class AppleSplitRegressionTests
         }
         finally
         {
-            ProcessingBackendSettingsService.Reset();
             try { Directory.Delete(outputDirectory, recursive: true); } catch { }
         }
     }

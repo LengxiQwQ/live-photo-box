@@ -46,7 +46,7 @@ namespace LivePhotoBox.Services
             CancellationToken token)
         {
             return ProcessingPipelineRouter.RunAsync<CoverChangeResult>("cover", () =>
-                throw new NotSupportedException("Cover change is not supported in the Rebuilt Native engine (external tools removed)."));
+                throw new RebuiltPipelineNotReadyException("cover"));
         }
 
         /// <summary>

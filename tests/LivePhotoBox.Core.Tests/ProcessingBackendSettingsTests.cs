@@ -1,5 +1,7 @@
 using System;
 using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,61 +16,10 @@ public sealed class ProcessingBackendSettingsTests
     private static readonly SemaphoreSlim SettingsTestLock = new(1, 1);
 
     [Theory]
-    [InlineData("legacy", ProcessingPipelineMode.Legacy)]
-    [InlineData("REBUIlT", ProcessingPipelineMode.Rebuilt)]
-    public void TryParseMode_AcceptsOnlyGlobalModes(string value, ProcessingPipelineMode expected)
-    {
-        Assert.True(ProcessingBackendSettingsService.TryParseMode(value, out ProcessingPipelineMode actual));
-        Assert.Equal(expected, actual);
-    }
-
-    [Theory]
-    [InlineData("native")]
-    [InlineData("auto")]
-    [InlineData("google-v2")]
-    public void TryParseMode_RejectsProtocolAndOldBackendTerms(string value) =>
-        Assert.False(ProcessingBackendSettingsService.TryParseMode(value, out _));
-
-    [Fact]
-    public void Defaults_ToRebuilt()
-    {
-        ProcessingBackendSettings settings = new();
-        Assert.Equal(ProcessingPipelineMode.Rebuilt, settings.Mode);
-    }
-
-    [Fact]
-    public async Task LegacySchema_MigratesToGlobalSwitchWithoutProtocolMatrix()
-    {
-        await SettingsTestLock.WaitAsync();
-        string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
-        string path = Path.Combine(directory, "settings.json");
-        string? previous = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
-        try
-        {
-            Directory.CreateDirectory(directory);
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", path);
-            await File.WriteAllTextAsync(path, """{"schemaVersion":2,"protocols":{"vivo-legacy":"native"}}""");
-
-            ProcessingBackendSettings migrated = ProcessingBackendSettingsService.Load();
-
-            Assert.Equal(ProcessingPipelineMode.Rebuilt, migrated.Mode);
-            using JsonDocument persisted = JsonDocument.Parse(File.ReadAllText(path));
-            Assert.Equal(3, persisted.RootElement.GetProperty("schemaVersion").GetInt32());
-            Assert.Equal("rebuilt", persisted.RootElement.GetProperty("mode").GetString());
-            Assert.False(persisted.RootElement.TryGetProperty("protocols", out _));
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", previous);
-            TryDeleteDirectory(directory);
-            SettingsTestLock.Release();
-        }
-    }
-
-    [Theory]
     [InlineData("{\"schemaVersion\":1,\"mode\":\"legacy\"}")]
     [InlineData("{\"schemaVersion\":2,\"mode\":\"legacy\",\"protocols\":{\"vivo-legacy\":\"native\"}}")]
-    public async Task LegacyModeInV1AndV2Settings_MigratesToLegacy(string json)
+    [InlineData("{\"schemaVersion\":3,\"revision\":42,\"mode\":\"legacy\"}")]
+    public async Task ReadSettings_IgnoresOldLegacyModeSafely(string json)
     {
         await SettingsTestLock.WaitAsync();
         string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
@@ -80,13 +31,40 @@ public sealed class ProcessingBackendSettingsTests
             Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", path);
             await File.WriteAllTextAsync(path, json);
 
-            ProcessingBackendSettings migrated = ProcessingBackendSettingsService.Load();
+            ProcessingBackendSettings loaded = ProcessingBackendSettingsService.Load();
+            Assert.NotNull(loaded);
+            if (json.Contains("\"revision\":42"))
+                Assert.Equal(42, loaded.Revision);
+            else
+                Assert.Equal(0, loaded.Revision);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", previous);
+            TryDeleteDirectory(directory);
+            SettingsTestLock.Release();
+        }
+    }
 
-            Assert.Equal(ProcessingPipelineMode.Legacy, migrated.Mode);
-            using JsonDocument persisted = JsonDocument.Parse(File.ReadAllText(path));
-            Assert.Equal(3, persisted.RootElement.GetProperty("schemaVersion").GetInt32());
-            Assert.Equal("legacy", persisted.RootElement.GetProperty("mode").GetString());
-            Assert.False(persisted.RootElement.TryGetProperty("protocols", out _));
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("{\"schemaVersion\":3,\"revision\":\"not-a-number\"}")]
+    [InlineData("not valid json at all")]
+    public async Task MalformedSettings_FallBackToDefaultsSafely(string json)
+    {
+        await SettingsTestLock.WaitAsync();
+        string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
+        string? previous = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
+        try
+        {
+            Directory.CreateDirectory(directory);
+            string path = Path.Combine(directory, "settings.json");
+            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", path);
+            await File.WriteAllTextAsync(path, json);
+
+            ProcessingBackendSettings loaded = ProcessingBackendSettingsService.Load();
+            Assert.NotNull(loaded);
+            Assert.Equal(0, loaded.Revision);
         }
         finally
         {
@@ -97,22 +75,25 @@ public sealed class ProcessingBackendSettingsTests
     }
 
     [Fact]
-    public async Task SetMode_PersistsOneGlobalValueAcrossConcurrentUpdates()
+    public async Task Save_IncrementsRevisionAndPersists()
     {
         await SettingsTestLock.WaitAsync();
         string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
         string? previous = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
         try
         {
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", Path.Combine(directory, "settings.json"));
-            ProcessingBackendSettingsService.Reset();
-            await Task.WhenAll(
-                Task.Run(() => ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy)),
-                Task.Run(() => ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt)));
+            string path = Path.Combine(directory, "settings.json");
+            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", path);
+
+            var settings = new ProcessingBackendSettings { Revision = 5 };
+            ProcessingBackendSettingsService.Save(settings);
 
             ProcessingBackendSettings reloaded = ProcessingBackendSettingsService.Load();
-            Assert.True(reloaded.Revision >= 2);
-            Assert.Contains(reloaded.Mode, new[] { ProcessingPipelineMode.Legacy, ProcessingPipelineMode.Rebuilt });
+            Assert.True(reloaded.Revision > 5);
+
+            using JsonDocument persisted = JsonDocument.Parse(File.ReadAllText(path));
+            Assert.Equal(3, persisted.RootElement.GetProperty("schemaVersion").GetInt32());
+            Assert.False(persisted.RootElement.TryGetProperty("mode", out _));
         }
         finally
         {
@@ -123,7 +104,7 @@ public sealed class ProcessingBackendSettingsTests
     }
 
     [Fact]
-    public async Task RebuiltBoundary_FailsBeforeAnyLegacyProtocolPath()
+    public async Task SettingsService_FiresChangedEventOnSaveAndReset()
     {
         await SettingsTestLock.WaitAsync();
         string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
@@ -131,14 +112,21 @@ public sealed class ProcessingBackendSettingsTests
         try
         {
             Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", Path.Combine(directory, "settings.json"));
-            ProcessingBackendSettingsService.Reset();
+            int changedCount = 0;
+            EventHandler handler = (_, _) => changedCount++;
+            ProcessingBackendSettingsService.Changed += handler;
+            try
+            {
+                ProcessingBackendSettingsService.Save(new ProcessingBackendSettings());
+                Assert.Equal(1, changedCount);
 
-            RebuiltPipelineNotReadyException exception = await Assert.ThrowsAsync<RebuiltPipelineNotReadyException>(
-                () => ProcessingPipelineRouter.RunAsync("split", () => Task.CompletedTask));
-            Assert.Contains("no Legacy protocol fallback", exception.Message, StringComparison.Ordinal);
-
-            ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
-            Assert.True(ProcessingPipelineRouter.Begin("split").IsLegacy);
+                ProcessingBackendSettingsService.Reset();
+                Assert.Equal(2, changedCount);
+            }
+            finally
+            {
+                ProcessingBackendSettingsService.Changed -= handler;
+            }
         }
         finally
         {
@@ -149,7 +137,7 @@ public sealed class ProcessingBackendSettingsTests
     }
 
     [Fact]
-    public async Task RebuiltRouter_InvokesNativeOperationAndFreezesRebuiltMode()
+    public async Task Router_RunAsync_ExecutesInSessionAndCleansUpContext()
     {
         await SettingsTestLock.WaitAsync();
         string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
@@ -160,18 +148,16 @@ public sealed class ProcessingBackendSettingsTests
             ProcessingBackendSettingsService.Reset();
 
             int calls = 0;
-            string result = await ProcessingPipelineRouter.RunRebuiltAsync("convert", async () =>
+            string result = await ProcessingPipelineRouter.RunAsync("convert", async () =>
             {
-                Assert.Equal(ProcessingPipelineMode.Rebuilt, ProcessingPipelineRouter.Current?.Mode);
-                Assert.Equal("convert", ProcessingPipelineRouter.Current?.Operation);
+                Assert.NotNull(ProcessingPipelineRouter.Current);
+                Assert.Equal("convert", ProcessingPipelineRouter.Current.Operation);
                 calls++;
-                ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
                 await Task.Yield();
-                Assert.Equal(ProcessingPipelineMode.Rebuilt, ProcessingPipelineRouter.Current?.Mode);
-                return "native";
+                return "native-ok";
             });
 
-            Assert.Equal("native", result);
+            Assert.Equal("native-ok", result);
             Assert.Equal(1, calls);
             Assert.Null(ProcessingPipelineRouter.Current);
         }
@@ -184,7 +170,7 @@ public sealed class ProcessingBackendSettingsTests
     }
 
     [Fact]
-    public async Task RebuiltSplit_StopsBeforeSourceOrOutputHandling()
+    public async Task Router_NestedOperationCleansUpContextOnException()
     {
         await SettingsTestLock.WaitAsync();
         string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
@@ -192,14 +178,18 @@ public sealed class ProcessingBackendSettingsTests
         try
         {
             Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", Path.Combine(directory, "settings.json"));
-            ProcessingBackendSettingsService.Reset();
-            string outputDirectory = Path.Combine(directory, "output");
 
-            await Assert.ThrowsAsync<FileNotFoundException>(() =>
-                LivePhotoSplitService.SplitAsync(
-                    Path.Combine(directory, "missing.jpg"), outputDirectory, 0, 0, CancellationToken.None));
+            await ProcessingPipelineRouter.RunAsync("merge", async () =>
+            {
+                Assert.Equal("merge", ProcessingPipelineRouter.Current?.Operation);
 
-            Assert.False(Directory.Exists(outputDirectory));
+                await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                    ProcessingPipelineRouter.RunAsync("split", () => throw new InvalidOperationException("test failure")));
+
+                Assert.Equal("merge", ProcessingPipelineRouter.Current?.Operation);
+            });
+
+            Assert.Null(ProcessingPipelineRouter.Current);
         }
         finally
         {
@@ -255,6 +245,7 @@ public sealed class ProcessingBackendSettingsTests
             {
                 var rebuilt = Assert.IsType<RebuiltPipelineNotReadyException>(exception);
                 Assert.Equal(operation, rebuilt.Operation);
+                Assert.Contains($"'{operation}' is not implemented yet in the Rebuilt Native pipeline", rebuilt.Message);
             }
             Assert.False(Directory.Exists(outputDirectory));
         }
@@ -266,151 +257,29 @@ public sealed class ProcessingBackendSettingsTests
         }
     }
 
-    [Theory]
-    [InlineData("[]")]
-    [InlineData("{\"schemaVersion\":3,\"mode\":123}")]
-    [InlineData("{\"schemaVersion\":3,\"mode\":\"auto\"}")]
-    [InlineData("{\"schemaVersion\":3,\"mode\":\"native\"}")]
-    [InlineData("{\"schemaVersion\":3,\"revision\":\"not-a-number\",\"mode\":\"rebuilt\"}")]
-    public async Task MalformedOrUnsupportedCurrentSettings_DefaultToRebuilt(string json)
-    {
-        await SettingsTestLock.WaitAsync();
-        string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
-        string? previous = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
-        try
-        {
-            Directory.CreateDirectory(directory);
-            string path = Path.Combine(directory, "settings.json");
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", path);
-            await File.WriteAllTextAsync(path, json);
-
-            Assert.Equal(ProcessingPipelineMode.Rebuilt, ProcessingBackendSettingsService.Load().Mode);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", previous);
-            TryDeleteDirectory(directory);
-            SettingsTestLock.Release();
-        }
-    }
-
     [Fact]
-    public async Task Router_InvokesOnlySelectedBranchAndFreezesModeForNestedCalls()
+    public void ArchitectureGuard_NoLegacyRuntimeOrRequireLegacySymbols()
     {
-        await SettingsTestLock.WaitAsync();
-        string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
-        string? previous = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
-        try
+        Assembly coreAssembly = typeof(ProcessingBackendSettingsService).Assembly;
+
+        // 1. Assert no ProcessingPipelineMode enum or type exists
+        Type? modeType = coreAssembly.GetType("LivePhotoBox.Models.ProcessingPipelineMode");
+        Assert.Null(modeType);
+
+        // 2. Assert RebuiltPipelineBoundary has no RequireLegacy method
+        Type? boundaryType = coreAssembly.GetType("LivePhotoBox.Services.RebuiltPipelineBoundary");
+        if (boundaryType != null)
         {
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", Path.Combine(directory, "settings.json"));
-            ProcessingBackendSettingsService.Reset();
-
-            int rebuiltCalls = 0;
-            await Assert.ThrowsAsync<RebuiltPipelineNotReadyException>(() =>
-                ProcessingPipelineRouter.RunAsync("merge", () =>
-                {
-                    rebuiltCalls++;
-                    return Task.CompletedTask;
-                }));
-            Assert.Equal(0, rebuiltCalls);
-
-            ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
-            int legacyCalls = 0;
-            await ProcessingPipelineRouter.RunAsync("merge", async () =>
-            {
-                Assert.Equal(ProcessingPipelineMode.Legacy, ProcessingPipelineRouter.Current?.Mode);
-                Assert.Equal("merge", ProcessingPipelineRouter.Current?.Operation);
-                legacyCalls++;
-                ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
-                await Task.Yield();
-                Assert.Equal(ProcessingPipelineMode.Legacy, ProcessingPipelineRouter.Current?.Mode);
-
-                await ProcessingPipelineRouter.RunAsync("split", () =>
-                {
-                    Assert.Equal(ProcessingPipelineMode.Legacy, ProcessingPipelineRouter.Current?.Mode);
-                    Assert.Equal("split", ProcessingPipelineRouter.Current?.Operation);
-                    return Task.CompletedTask;
-                });
-
-                Assert.Equal("merge", ProcessingPipelineRouter.Current?.Operation);
-            });
-
-            Assert.Equal(1, legacyCalls);
-            Assert.Null(ProcessingPipelineRouter.Current);
+            MethodInfo? requireLegacyMethod = boundaryType.GetMethod("RequireLegacy", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.Null(requireLegacyMethod);
         }
-        finally
-        {
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", previous);
-            TryDeleteDirectory(directory);
-            SettingsTestLock.Release();
-        }
-    }
 
-    [Fact]
-    public async Task Router_NestedOperationCleansUpContextOnException()
-    {
-        await SettingsTestLock.WaitAsync();
-        string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
-        string? previous = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
-        try
-        {
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", Path.Combine(directory, "settings.json"));
-            ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
-
-            await ProcessingPipelineRouter.RunAsync("merge", async () =>
-            {
-                Assert.Equal("merge", ProcessingPipelineRouter.Current?.Operation);
-
-                await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                    ProcessingPipelineRouter.RunAsync("split", () => throw new InvalidOperationException("test failure")));
-
-                Assert.Equal("merge", ProcessingPipelineRouter.Current?.Operation);
-            });
-
-            Assert.Null(ProcessingPipelineRouter.Current);
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", previous);
-            TryDeleteDirectory(directory);
-            SettingsTestLock.Release();
-        }
-    }
-
-    [Fact]
-    public async Task SettingsService_FiresChangedEvent()
-    {
-        await SettingsTestLock.WaitAsync();
-        string directory = Path.Combine(Path.GetTempPath(), "lpb-settings-" + Guid.NewGuid().ToString("N"));
-        string? previous = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH");
-        try
-        {
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", Path.Combine(directory, "settings.json"));
-            int changedCount = 0;
-            EventHandler handler = (_, _) => changedCount++;
-            ProcessingBackendSettingsService.Changed += handler;
-            try
-            {
-                ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
-                Assert.Equal(1, changedCount);
-
-                ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
-                Assert.Equal(2, changedCount);
-
-                ProcessingBackendSettingsService.Reset();
-                Assert.Equal(3, changedCount);
-            }
-            finally
-            {
-                ProcessingBackendSettingsService.Changed -= handler;
-            }
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable("LIVEPHOTOBOX_BACKEND_SETTINGS_PATH", previous);
-            TryDeleteDirectory(directory);
-            SettingsTestLock.Release();
-        }
+        // 3. Assert RebuiltPipelineNotReadyException contains no references to disabling or legacy fallback
+        var ex = new RebuiltPipelineNotReadyException("test_op");
+        Assert.DoesNotContain("switch", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("turn off", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("settings", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("legacy", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void TryDeleteDirectory(string path)

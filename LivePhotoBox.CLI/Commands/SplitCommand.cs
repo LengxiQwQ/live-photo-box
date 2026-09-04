@@ -248,15 +248,7 @@ namespace LivePhotoBox.Cli.Commands
         {
             try
             {
-                if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
-                {
-                    return await ProcessingPipelineRouter.RunRebuiltAsync("split", () => RunLegacyAsync(
-                        singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
-                        parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,
-                        after, allVariants, keyTimestampUs, ct));
-                }
-
-                return await ProcessingPipelineRouter.RunAsync("split", () => RunLegacyAsync(
+                return await ProcessingPipelineRouter.RunAsync("split", () => RunSplitAsync(
                     singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,
                     after, allVariants, keyTimestampUs, ct));
@@ -271,7 +263,7 @@ namespace LivePhotoBox.Cli.Commands
             }
         }
 
-        private static async Task<int> RunLegacyAsync(
+        private static async Task<int> RunSplitAsync(
             string? singlePath, DirectoryInfo? dir,
             string pairingName, string protocolName, string? formatName, DirectoryInfo? output,
             string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,
@@ -280,7 +272,7 @@ namespace LivePhotoBox.Cli.Commands
         {
             bool isSingle = singlePath != null;
             bool isBatch = dir != null;
-            bool isRebuilt = ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt;
+            const bool isRebuilt = true;
 
             // --all-variants 优先给出专属错误（避免先报通用的"缺少输入"误导用户）
             if (allVariants && !isSingle && !isBatch)

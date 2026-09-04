@@ -19,7 +19,6 @@ public sealed class RebuiltSplitIsolationTests
         {
             CliResult result = await CliTestHost.RunAsync(
                 SplitCommand.Create(),
-                ProcessingPipelineMode.Rebuilt,
                 input, "--protocol", "apple", "--dry-run", "--json");
 
             Assert.Equal(1, result.ExitCode);
@@ -41,7 +40,6 @@ public sealed class RebuiltSplitIsolationTests
         {
             CliResult result = await CliTestHost.RunAsync(
                 SplitCommand.Create(),
-                ProcessingPipelineMode.Rebuilt,
                 input, "--all-variants", "--dry-run");
 
             Assert.Equal(0, result.ExitCode);

@@ -18,7 +18,6 @@ public sealed class SameFormatHdrRegressionTests
         Environment.SetEnvironmentVariable(
             "LIVEPHOTOBOX_BACKEND_SETTINGS_PATH",
             Path.Combine(Path.GetTempPath(), "lpb-core-tests", "legacy-pipeline-settings.json"));
-        ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
         AppSettingsService.SetValue("SplitEncoder_hevc", "libx265");
         AppSettingsService.SetValue("SplitEncoder_h264", "libx264");
     }

@@ -7,9 +7,8 @@ using LivePhotoBox.Models;
 namespace LivePhotoBox.Services;
 
 /// <summary>
-/// Stores the one product-wide branch switch. It is deliberately not a
-/// protocol/backend matrix: Rebuilt is the default Native media branch and
-/// Legacy is retained only as an explicit compatibility branch.
+/// Manages persisted processing settings. Rebuilt is the sole native media
+/// pipeline; legacy mode does not exist and historical settings are inert.
 /// </summary>
 public static class ProcessingBackendSettingsService
 {
@@ -47,28 +46,11 @@ public static class ProcessingBackendSettingsService
             if (root.ValueKind != JsonValueKind.Object)
                 throw new JsonException("The processing-pipeline settings root must be a JSON object.");
 
-            int schemaVersion = root.TryGetProperty("schemaVersion", out JsonElement schema)
-                && schema.ValueKind == JsonValueKind.Number
-                && schema.TryGetInt32(out int version) ? version : 1;
-            if (schemaVersion >= ProcessingBackendSettings.CurrentSchemaVersion)
-                return ReadCurrent(root);
-
-            ProcessingBackendSettings migrated = MigrateLegacySettings(root);
-            try
-            {
-                Save(migrated);
-                return Load();
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
-            {
-                LogService.Warn("Processing-pipeline settings migration could not be written back to disk; continuing with migrated settings.",
-                    ex.Message, LogSource.Settings);
-                return migrated;
-            }
+            return ReadSettings(root);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            LogService.Warn("Processing-pipeline settings could not be loaded; using Rebuilt by default.",
+            LogService.Warn("Processing-pipeline settings could not be loaded; using default Rebuilt settings.",
                 ex.Message, LogSource.Settings);
             return new ProcessingBackendSettings();
         }
@@ -102,37 +84,7 @@ public static class ProcessingBackendSettingsService
         Changed?.Invoke(null, EventArgs.Empty);
     }
 
-    /// <summary>Atomically updates the one branch switch.</summary>
-    public static void SetMode(ProcessingPipelineMode mode)
-    {
-        using Mutex mutex = new(false, MutexName);
-        bool acquired = false;
-        try
-        {
-            try
-            {
-                acquired = mutex.WaitOne();
-            }
-            catch (AbandonedMutexException)
-            {
-                acquired = true;
-                LogService.Warn("Processing-pipeline settings mutex was abandoned by a previous process.",
-                    source: LogSource.Settings);
-            }
-
-            ProcessingBackendSettings settings = LoadUnderLock();
-            settings.Mode = mode;
-            SaveUnderLock(settings);
-        }
-        finally
-        {
-            if (acquired) mutex.ReleaseMutex();
-        }
-
-        Changed?.Invoke(null, EventArgs.Empty);
-    }
-
-    /// <summary>Removes persisted configuration so the default Rebuilt branch applies.</summary>
+    /// <summary>Removes persisted configuration so default settings apply.</summary>
     public static void Reset()
     {
         using Mutex mutex = new(false, MutexName);
@@ -161,26 +113,6 @@ public static class ProcessingBackendSettingsService
         Changed?.Invoke(null, EventArgs.Empty);
     }
 
-    public static string FormatMode(ProcessingPipelineMode mode) =>
-        mode == ProcessingPipelineMode.Rebuilt ? "rebuilt" : "legacy";
-
-    public static bool TryParseMode(string? value, out ProcessingPipelineMode mode)
-    {
-        if (string.Equals(value?.Trim(), "rebuilt", StringComparison.OrdinalIgnoreCase))
-        {
-            mode = ProcessingPipelineMode.Rebuilt;
-            return true;
-        }
-        if (string.Equals(value?.Trim(), "legacy", StringComparison.OrdinalIgnoreCase))
-        {
-            mode = ProcessingPipelineMode.Legacy;
-            return true;
-        }
-
-        mode = ProcessingPipelineMode.Rebuilt;
-        return false;
-    }
-
     private static void SaveUnderLock(ProcessingBackendSettings settings)
     {
         string path = SettingsPath;
@@ -194,8 +126,7 @@ public static class ProcessingBackendSettingsService
         string json = JsonSerializer.Serialize(new PersistedSettings
         {
             SchemaVersion = ProcessingBackendSettings.CurrentSchemaVersion,
-            Revision = settings.Revision,
-            Mode = FormatMode(settings.Mode)
+            Revision = settings.Revision
         }, JsonOptions);
         string tempPath = path + ".tmp-" + Guid.NewGuid().ToString("N");
         try
@@ -223,44 +154,25 @@ public static class ProcessingBackendSettingsService
             if (root.ValueKind != JsonValueKind.Object)
                 throw new JsonException("The processing-pipeline settings root must be a JSON object.");
 
-            return root.TryGetProperty("schemaVersion", out JsonElement schema)
-                && schema.ValueKind == JsonValueKind.Number
-                && schema.TryGetInt32(out int version)
-                && version >= ProcessingBackendSettings.CurrentSchemaVersion
-                ? ReadCurrent(root)
-                : MigrateLegacySettings(root);
+            return ReadSettings(root);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
         {
-            LogService.Warn("Processing-pipeline settings were malformed; using Rebuilt by default.", ex.Message,
+            LogService.Warn("Processing-pipeline settings were malformed; using default Rebuilt settings.", ex.Message,
                 LogSource.Settings);
             return new ProcessingBackendSettings();
         }
     }
 
-    private static ProcessingBackendSettings ReadCurrent(JsonElement root)
+    private static ProcessingBackendSettings ReadSettings(JsonElement root)
     {
         var result = new ProcessingBackendSettings();
         if (root.TryGetProperty("revision", out JsonElement revision)
             && revision.ValueKind == JsonValueKind.Number
             && revision.TryGetInt64(out long value))
             result.Revision = Math.Max(0, value);
-        if (root.TryGetProperty("mode", out JsonElement mode)
-            && mode.ValueKind == JsonValueKind.String
-            && TryParseMode(mode.GetString(), out ProcessingPipelineMode parsed))
-            result.Mode = parsed;
-        return result;
-    }
 
-    private static ProcessingBackendSettings MigrateLegacySettings(JsonElement root)
-    {
-        var result = new ProcessingBackendSettings();
-        if (root.TryGetProperty("mode", out JsonElement oldMode)
-            && oldMode.ValueKind == JsonValueKind.String
-            && string.Equals(oldMode.GetString(), "legacy", StringComparison.OrdinalIgnoreCase))
-            result.Mode = ProcessingPipelineMode.Legacy;
-        LogService.Warn("Migrated legacy backend settings to Rebuilt processing-pipeline mode.",
-            source: LogSource.Settings);
+        // Note: Any old "mode" property (including "legacy") is intentionally ignored.
         return result;
     }
 
@@ -268,6 +180,5 @@ public static class ProcessingBackendSettingsService
     {
         public int SchemaVersion { get; set; }
         public long Revision { get; set; }
-        public string Mode { get; set; } = "rebuilt";
     }
 }

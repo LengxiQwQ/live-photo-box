@@ -325,10 +325,7 @@ namespace LivePhotoBox.Services
             };
 
             savePicker.FileTypeChoices.Add("JPEG 图像", new List<string> { ".JPG", ".JPEG" });
-            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
-                savePicker.FileTypeChoices.Add("HEIC 图像", new List<string> { ".HEIC", ".HEIF" });
-            else
-                savePicker.FileTypeChoices.Add("WebP 图像", new List<string> { ".WEBP" });
+            savePicker.FileTypeChoices.Add("HEIC 图像", new List<string> { ".HEIC", ".HEIF" });
 
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
             WinRT.Interop.InitializeWithWindow.Initialize(savePicker, hwnd);

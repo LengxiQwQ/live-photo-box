@@ -140,17 +140,10 @@ def run_cli(args, timeout=300):
     display = short if len(short) <= 120 else short[:117] + "..."
     log(f"    $ lpb {display}")
     try:
-        env = dict(os.environ)
-        settings_file = TEST_ROOT / "legacy-settings.json"
-        if not settings_file.exists():
-            TEST_ROOT.mkdir(parents=True, exist_ok=True)
-            settings_file.write_text('{"schemaVersion":3,"revision":1,"mode":"legacy"}\n', encoding="utf-8")
-        env["LIVEPHOTOBOX_BACKEND_SETTINGS_PATH"] = str(settings_file)
         r = subprocess.run(
             cmd, capture_output=True, text=True,
             encoding="utf-8", errors="replace",
             cwd=str(PROJECT_ROOT), timeout=timeout,
-            env=env,
         )
         if r.returncode != 0:
             log(f"  ⚠ exit={r.returncode}", "WARN")

@@ -85,29 +85,35 @@ public sealed class CliSubprocessTests
     }
 
     [Fact]
-    public async Task LegacyMergeProcessReachesThePreservedProcessingPath()
+    public async Task LegacySettingsAreInertAndIgnoredInCliProcess()
     {
-        string directory = CreateTempDirectory("lpb_cli_legacy_process_");
+        string directory = CreateTempDirectory("lpb_cli_legacy_inert_");
         try
         {
-            string imagePath = Path.Combine(directory, "pair.jpg");
-            string videoPath = Path.Combine(directory, "pair.mp4");
-            string outputDirectory = Path.Combine(directory, "output");
             string settingsPath = Path.Combine(directory, "legacy-settings.json");
-            await File.WriteAllBytesAsync(imagePath, [0xFF, 0xD8, 0xFF, 0xD9]);
-            await File.WriteAllBytesAsync(videoPath,
-                [0, 0, 0, 8, (byte)'f', (byte)'t', (byte)'y', (byte)'p']);
             await File.WriteAllTextAsync(settingsPath,
                 "{\"schemaVersion\":3,\"revision\":1,\"mode\":\"legacy\"}");
 
-            CliResult result = await RunCliAsync(
+            // Verify protocols reports Rebuilt Native engine even when legacy settings are provided
+            CliResult protocolsResult = await RunCliAsync(
                 directory,
                 settingsPath,
-                "merge", imagePath, videoPath, "--output", outputDirectory,
-                "--overwrite", "--json");
+                "protocols", "--json");
 
-            Assert.NotEqual(0, result.ExitCode);
-            Assert.DoesNotContain("rebuilt_not_ready", result.StdOut + result.StdErr,
+            Assert.Equal(0, protocolsResult.ExitCode);
+            Assert.Contains("\"backendMode\": \"rebuilt\"", protocolsResult.StdOut);
+            Assert.DoesNotContain("\"backendMode\": \"legacy\"", protocolsResult.StdOut, StringComparison.OrdinalIgnoreCase);
+
+            // Verify cover still fails with rebuilt_not_ready and does NOT route to any legacy runtime
+            string dummyPath = Path.Combine(directory, "dummy.jpg");
+            await File.WriteAllBytesAsync(dummyPath, [0xFF, 0xD8, 0xFF, 0xD9]);
+            CliResult coverResult = await RunCliAsync(
+                directory,
+                settingsPath,
+                "cover", dummyPath, "--json");
+
+            Assert.NotEqual(0, coverResult.ExitCode);
+            Assert.Contains("rebuilt_not_ready", coverResult.StdOut + coverResult.StdErr,
                 StringComparison.OrdinalIgnoreCase);
         }
         finally
@@ -115,6 +121,7 @@ public sealed class CliSubprocessTests
             Directory.Delete(directory, recursive: true);
         }
     }
+
 
     private static async Task<CliResult> RunCliAsync(
         string workingDirectory,

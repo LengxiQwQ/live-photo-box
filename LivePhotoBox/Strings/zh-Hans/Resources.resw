@@ -2345,12 +2345,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>修复</value>
   </data>
   <data name="Processing_NotReady_Title" xml:space="preserve">
-    <value>重构版处理尚未就绪</value>
+    <value>功能尚未实现</value>
   </data>
   <data name="Processing_NotReady_Message" xml:space="preserve">
-    <value>“{0}”无法在“使用重构版处理”开启时运行。
-
-重构版处理分支尚未就绪，程序没有调用 Legacy，也没有创建输出。请前往设置关闭“使用重构版处理”，以使用保留的旧版兼容流程。</value>
+    <value>“{0}”在当前的重构版 Native 引擎中尚未实现，未创建任何输出。</value>
   </data>
   <data name="Processing_NotReady_Operation_Merge" xml:space="preserve">
     <value>合成</value>

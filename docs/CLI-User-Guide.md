@@ -192,7 +192,7 @@ The command reports the active global backend and the protocol/format matrix. In
 | Protocol | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | None (split only) | ✅ | ✅ | ✅ | ✅ |
-> In `rebuilt` mode only `none` (neutral split) is enabled. Apple/vivo combinations remain available only in the preserved Legacy compatibility branch and do not indicate rebuilt target-writer support.
+> In the Rebuilt Native pipeline, split exports protocol-free neutral media (`none`). Target protocol writers are not yet implemented.
 
 **JSON output** for scripting:
 
@@ -421,9 +421,8 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 
 | Option | Description |
 |--------|-------------|
-| `-p, --protocol <p>` | Target protocol (default `none`). In rebuilt mode only `none` is available and no target protocol metadata is written; Legacy retains `apple` / `vivo` compatibility |
+| `-p, --protocol <p>` | Target protocol (default `none`). Only `none` is currently available and exports protocol-free neutral media |
 | `-f, --format <f>` | Output format (default: `keep`): `keep` (no conversion), `jpg+mov` (H.265), `heic+mov` (H.265), `jpg+mp4` (H.264) |
-| `--key-timestamp <time>` | Legacy Apple conversion option only; unavailable in rebuilt neutral split |
 | `-n, --naming <rule>` | Output filename rule. Default: `keep`. `keep` (same name) or `custom:TEMPLATE` (tokens below) |
 
 Naming tokens:
@@ -448,7 +447,7 @@ Naming tokens:
 | `-y, --yes` | Skip confirmation prompts. Useful for scripts / automation |
 | `--dry-run` | Preview: show what would be done, don't actually process files |
 | `-v, --verbose` | Show per-file status messages instead of summary only |
-| `--all-variants` | Export all split variants (single-file mode only). Rebuilt emits 4 protocol-free media variants; Legacy also emits Apple/vivo compatibility variants. Output goes to `{output}/split_{name}_All_Variants/` |
+| `--all-variants` | Export all split variants (single-file mode only). Emits 4 protocol-free neutral media variants. Output goes to `{output}/split_{name}_All_Variants/` |
 
 #### Default Output Location
 
@@ -466,7 +465,7 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 
 #### `--all-variants` — Export every split variant
 
-From one single-file live photo, generate all rebuilt neutral split variants in one command. Single-file mode only — batch (`-d`) is rejected. Legacy mode additionally includes its compatibility variants.
+From one single-file live photo, generate all rebuilt neutral split variants in one command. Single-file mode only — batch (`-d`) is rejected.
 
 | Variant | Output pair |
 |---------|-------------|
@@ -474,9 +473,6 @@ From one single-file live photo, generate all rebuilt neutral split variants in 
 | No protocol (JPG+MOV) | `none_jpg+mov.JPG` + `none_jpg+mov.MOV` |
 | No protocol (HEIC+MOV) | `none_heic+mov.HEIC` + `none_heic+mov.MOV` |
 | No protocol (JPG+MP4) | `none_jpg+mp4.JPG` + `none_jpg+mp4.MP4` |
-| Apple Live Photo (JPG+MOV) | `apple_jpg+mov.JPG` + `apple_jpg+mov.MOV` |
-| Apple Live Photo (HEIC+MOV) | `apple_heic+mov.HEIC` + `apple_heic+mov.MOV` |
-| vivo Live Photo (JPG+MP4) | `vivo_jpg+mp4.JPG` + `vivo_jpg+mp4.MP4` |
 
 ```powershell
 # Default: writes to {source_dir}/split_{name}_All_Variants/
@@ -486,19 +482,17 @@ lpb split photo.jpg --all-variants
 lpb split photo.jpg --all-variants -o ./Out
 ```
 
-Files are named `{protocol}_{format}` (lowercase CLI values, e.g. `-p apple -f jpg+mov` → `apple_jpg+mov`); the original name goes into the **folder** name only; no spaces in any name. For the keep variant the image keeps the source extension and the video keeps the source container (`.MOV` / `.MP4`). `-p` / `-f` / `-n` / `-w` / `--after` are ignored; `-j` still controls parallelism.
+Files are named `{protocol}_{format}` (lowercase CLI values, e.g. `-p none -f jpg+mov` → `none_jpg+mov`); the original name goes into the **folder** name only; no spaces in any name. For the keep variant the image keeps the source extension and the video keeps the source container (`.MOV` / `.MP4`). `-p` / `-f` / `-n` / `-w` / `--after` are ignored; `-j` still controls parallelism.
 
 #### Protocol × Format Matrix
 
-The following matrix is retained for the Legacy compatibility branch. In rebuilt mode only `none` is enabled:
+In the Rebuilt Native pipeline, split currently operates in neutral media mode (`none`):
 
 | Protocol | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | `none` (split only) | ✅ | ✅ | ✅ | ✅ |
-| `apple` (Apple Live Photo) | ✖️ | ✅ | ✅ | ✖️ |
-| `vivo` (vivo Live Photo) | ✖️ | ✖️ | ✖️ | ✅ |
 
-In rebuilt mode, omitted `--format` defaults to `keep`. Legacy mode retains the protocol-specific defaults shown by the matrix.
+Omitted `--format` defaults to `keep`.
 
 #### Pairing Filter
 

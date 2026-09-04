@@ -23,15 +23,10 @@ public sealed class VivoDualFileCoverMetadataTests
             string outputVideo = Path.Combine(directory, "output.mp4");
             File.Copy(ResolveSample("vivo双文件.jpg"), sourceImage);
             File.Copy(ResolveSample("vivo双文件.mp4"), sourceVideo);
-            Environment.SetEnvironmentVariable(
-                "LIVEPHOTOBOX_BACKEND_SETTINGS_PATH",
-                Path.Combine(directory, "legacy-settings.json"));
-            ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
-
             byte[] sourceTail = ReadVivoTail(await File.ReadAllBytesAsync(sourceImage));
             Assert.NotEmpty(sourceTail);
 
-            await Assert.ThrowsAsync<NotSupportedException>(() =>
+            var exception = await Assert.ThrowsAsync<RebuiltPipelineNotReadyException>(() =>
                 CoverChangeService.ChangeCoverAsync(new CoverChangeRequest
                 {
                     ImagePath = sourceImage,
@@ -42,6 +37,8 @@ public sealed class VivoDualFileCoverMetadataTests
                     OutputImagePath = outputImage,
                     OutputVideoPath = outputVideo
                 }, CancellationToken.None));
+
+            Assert.Equal("cover", exception.Operation);
         }
         finally
         {

@@ -158,7 +158,7 @@ namespace LivePhotoBox.Cli
                 {
                     string message = raw.Replace(" as expected type 'System.Int32'", " as a whole number");
                     if (message == "Required command was not provided.")
-                        message = "No command specified. Try: convert, merge, split, repair, cover, protocols, backend, update";
+                        message = "No command specified. Try: convert, merge, split, repair, cover, protocols, update";
                     string? token = ExtractQuotedToken(message);
                     string suggestion = "";
                     if (token != null && !aliasSet.Contains(token))

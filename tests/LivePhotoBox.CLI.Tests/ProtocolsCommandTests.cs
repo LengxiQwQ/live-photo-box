@@ -15,7 +15,7 @@ public sealed class ProtocolsCommandTests
         var root = new RootCommand { ProtocolsCommand.Create() };
 
         CliResult result = await CliTestHost.RunAsync(
-            root, ProcessingPipelineMode.Rebuilt, "protocols");
+            root, "protocols");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("Engine: Rebuilt (Native)", result.StdOut);
@@ -28,7 +28,7 @@ public sealed class ProtocolsCommandTests
         var root = new RootCommand { ProtocolsCommand.Create() };
 
         CliResult result = await CliTestHost.RunAsync(
-            root, ProcessingPipelineMode.Rebuilt, "protocols", "--json");
+            root, "protocols", "--json");
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("\"backendMode\": \"rebuilt\"", result.StdOut);

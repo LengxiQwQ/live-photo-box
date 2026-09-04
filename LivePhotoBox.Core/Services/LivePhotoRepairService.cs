@@ -36,8 +36,8 @@ namespace LivePhotoBox.Services
             CancellationToken token = default,
             RepairOptions? options = null)
         {
-            return ProcessingPipelineRouter.RunAsync("repair", () =>
-                Task.FromResult((false, "Repair is not supported in the Rebuilt Native engine (external tools removed).")));
+            return ProcessingPipelineRouter.RunAsync<(bool Success, string Message)>("repair", () =>
+                throw new RebuiltPipelineNotReadyException("repair"));
         }
 
         /// <summary>

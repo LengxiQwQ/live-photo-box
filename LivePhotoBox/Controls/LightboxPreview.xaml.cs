@@ -229,26 +229,11 @@ namespace LivePhotoBox.Controls
         {
             try
             {
-                if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
+                var facts = await new SourceInspector().InspectAsync(item.ImagePath);
+                if (facts.MotionVideo is { IsPresent: true } video)
                 {
-                    var facts = await new SourceInspector().InspectAsync(item.ImagePath);
-                    if (facts.MotionVideo is { IsPresent: true } video)
-                    {
-                        item.AppendedVideoLength = video.ByteLength;
-                        item.IsLivePhoto = true;
-                    }
-                }
-                else
-                {
-                    await Task.Run(() =>
-                    {
-                        LightboxItemSource.DetectSingleFileVideo(item.ImagePath, out long videoLen);
-                        if (videoLen > 0)
-                        {
-                            item.AppendedVideoLength = videoLen;
-                            item.IsLivePhoto = true;
-                        }
-                    });
+                    item.AppendedVideoLength = video.ByteLength;
+                    item.IsLivePhoto = true;
                 }
 
                 // 回到 UI 线程更新按钮

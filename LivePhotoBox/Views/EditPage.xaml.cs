@@ -924,110 +924,16 @@ namespace LivePhotoBox.Views
             if (!string.IsNullOrEmpty(cachedVideo) && File.Exists(cachedVideo))
                 return cachedVideo;
 
-            // Rebuilt 缓存未命中时仍必须通过 Native Inspector/Extractor，不能回落到
-            // Legacy 的尾部切取或 HUAWEI 范围解析。
-            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
-            {
-                if (item.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic
-                    && File.Exists(item.FilePath))
-                {
-                    var nativeVideo = await LivePhotoVideoExtractor.ExtractVideoAutoAsync(
-                        item.FilePath, item.AppendedVideoLength, CancellationToken.None);
-                    if (!string.IsNullOrEmpty(nativeVideo) && File.Exists(nativeVideo))
-                    {
-                        _previewTempVideoPath = nativeVideo;
-                        return nativeVideo;
-                    }
-                }
-
-                return null;
-            }
-
-            // SingleFileJpeg：从文件尾部提取嵌入式视频（标准 XMP 协议，缓存未命中时回退）
-            if (item.LivePhotoType == LivePhotoType.SingleFileJpeg
-                && item.AppendedVideoLength > 0
+            // Rebuilt 缓存未命中时通过 Native Inspector/Extractor 提取
+            if (item.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic
                 && File.Exists(item.FilePath))
             {
-                try
+                var nativeVideo = await LivePhotoVideoExtractor.ExtractVideoAutoAsync(
+                    item.FilePath, item.AppendedVideoLength, CancellationToken.None);
+                if (!string.IsNullOrEmpty(nativeVideo) && File.Exists(nativeVideo))
                 {
-                    var tempPath = Path.Combine(
-                        Path.GetTempPath(),
-                        $"lpb_preview_{Guid.NewGuid():N}.mp4");
-
-                    var imagePath = item.FilePath;
-                    var videoLength = item.AppendedVideoLength;
-
-                    await Task.Run(() =>
-                    {
-                        using var src = new FileStream(imagePath, FileMode.Open,
-                            FileAccess.Read, FileShare.Read);
-                        src.Seek(-videoLength, SeekOrigin.End);
-
-                        using var dst = new FileStream(tempPath, FileMode.Create,
-                            FileAccess.Write, FileShare.None);
-                        src.CopyTo(dst);
-                    });
-
-                    if (File.Exists(tempPath))
-                    {
-                        _previewTempVideoPath = tempPath;
-                        return tempPath;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[EditPage] 嵌入式视频提取失败: {ex.Message}");
-                }
-            }
-
-            // 华为/荣耀实况照片：视频嵌在文件中间（缓存未命中时回退）
-            if ((item.LivePhotoType == LivePhotoType.SingleFileHeic
-                 || item.LivePhotoType == LivePhotoType.SingleFileJpeg)
-                && File.Exists(item.FilePath))
-            {
-                try
-                {
-                    var tempPath = Path.Combine(
-                        Path.GetTempPath(),
-                        $"lpb_preview_{Guid.NewGuid():N}.mp4");
-
-                    var imagePath = item.FilePath;
-
-                    await Task.Run(() =>
-                    {
-                        var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(imagePath);
-                        if (range == null)
-                            throw new InvalidOperationException("HUAWEI: cannot locate embedded MP4");
-
-                        var (videoStart, _, videoLen) = range.Value;
-                        using var src = new FileStream(imagePath, FileMode.Open,
-                            FileAccess.Read, FileShare.ReadWrite);
-                        src.Seek(videoStart, SeekOrigin.Begin);
-
-                        using var dst = new FileStream(tempPath, FileMode.Create,
-                            FileAccess.Write, FileShare.None);
-                        var buf = new byte[81920];
-                        long remain = videoLen;
-                        while (remain > 0)
-                        {
-                            int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
-                            if (r == 0) break;
-                            dst.Write(buf, 0, r);
-                            remain -= r;
-                        }
-                    });
-
-                    if (File.Exists(tempPath))
-                    {
-                        _previewTempVideoPath = tempPath;
-                        return tempPath;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[EditPage] 华为嵌入式视频提取失败: {ex.Message}");
+                    _previewTempVideoPath = nativeVideo;
+                    return nativeVideo;
                 }
             }
 
@@ -2320,14 +2226,7 @@ namespace LivePhotoBox.Views
         private static bool IsSupportedMediaFile(string ext)
         {
             var lower = ext.ToLowerInvariant();
-            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
-            {
-                return lower is ".heic" or ".heif" or ".jpg" or ".jpeg"
-                    or ".mov" or ".mp4";
-            }
-
             return lower is ".heic" or ".heif" or ".jpg" or ".jpeg"
-                or ".bmp" or ".gif" or ".tiff" or ".tif" or ".webp"
                 or ".mov" or ".mp4";
         }
 
