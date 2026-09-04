@@ -254,15 +254,12 @@ public static class ProcessingBackendSettingsService
 
     private static ProcessingBackendSettings MigrateLegacySettings(JsonElement root)
     {
-        // v1/v2 stored a protocol matrix. Preserve only an explicit old
-        // all-Legacy choice; every other historic matrix becomes Rebuilt so no
-        // protocol path is silently selected by the new architecture.
         var result = new ProcessingBackendSettings();
         if (root.TryGetProperty("mode", out JsonElement oldMode)
             && oldMode.ValueKind == JsonValueKind.String
             && string.Equals(oldMode.GetString(), "legacy", StringComparison.OrdinalIgnoreCase))
             result.Mode = ProcessingPipelineMode.Legacy;
-        LogService.Warn("Migrated per-protocol backend settings to the global processing-pipeline switch.",
+        LogService.Warn("Migrated legacy backend settings to Rebuilt processing-pipeline mode.",
             source: LogSource.Settings);
         return result;
     }

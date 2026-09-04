@@ -214,9 +214,9 @@ namespace LivePhotoBox.Services
             long presentationTimestampUs = 0,
             int outputFormatIndex = 0)
         {
-            return ProcessingPipelineRouter.RunAsync("merge", () => WriteLivePhotoCoreAsync(
+            return WriteLivePhotoRebuiltAsync(
                 sourceImg, sourceVid, targetPath, selectedModeIndex, token,
-                presentationTimestampUs, outputFormatIndex));
+                presentationTimestampUs, outputFormatIndex);
         }
 
         // Rebuilt route: the writer itself is format/protocol byte assembly, while
@@ -497,18 +497,6 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            // 1.6 Write com.openharmony.covertime to MP4 metadata.
-            // Huawei Gallery reads this tag (in milliseconds) to position the cover frame.
-            // Without it, the cover defaults to the first frame regardless of the tail values.
-            string? covertimeMp4ToCleanup = null;
-            if (presentationTimestampUs > 0)
-            {
-                int covertimeMs = (int)(presentationTimestampUs / 1000);
-                sourceVid = await WriteMp4CovertimeMetadataAsync(sourceVid, targetPath, covertimeMs, token);
-                covertimeMp4ToCleanup = sourceVid;
-                videoSize = new FileInfo(sourceVid).Length; // remux may change MP4 size
-            }
-
             // 1.7 嵌入视频 ftyp 品牌修正（P2-8）：真机华为 HEIC 实况的嵌入 MP4 为
             //     major=mp42 / compat=[iso2, mp42]，而 ffmpeg 默认写 isom/[isom,iso2,avc1,mp41]。
             //     字节级改写品牌（保持 box 尺寸不变，避免破坏 moov/stco 偏移），
@@ -554,11 +542,7 @@ namespace LivePhotoBox.Services
                 await vidFs.CopyToAsync(targetFs, token);
                 await targetFs.WriteAsync(tail, 0, tail.Length, token);
             }
-            // Clean up temp MP4s created by covertime injection / ftyp brand patch
-            if (covertimeMp4ToCleanup != null)
-            {
-                try { if (File.Exists(covertimeMp4ToCleanup)) File.Delete(covertimeMp4ToCleanup); } catch { }
-            }
+            // Clean up temp MP4 created by ftyp brand patch
             if (patchedMp4ToCleanup != null)
             {
                 try { if (File.Exists(patchedMp4ToCleanup)) File.Delete(patchedMp4ToCleanup); } catch { }
@@ -578,442 +562,66 @@ namespace LivePhotoBox.Services
                 $"video={videoSize} bytes, tail=LIVE_{videoSize + 20})");
         }
 
-        // Estimate total video frame count. Prefers ffprobe nb_frames (exact),
-        // then exiftool MediaDuration (30fps approximation),
-        // then ffmpeg frame-by-frame count (exact, slower), then falls back to 1.
+        // Estimate total video frame count using Native video facts.
         public static async Task<int> DetectVideoFrameCountAsync(string videoPath, CancellationToken token)
         {
-            // 1. Try ffprobe nb_frames (exact, matches Python pipeline)
             try
             {
-                string? ffprobePath = null;
-                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-                if (!string.IsNullOrEmpty(ffmpegPath))
+                var facts = await Interop.NativeMediaService.ProbeVideoAsync(videoPath, token).ConfigureAwait(false);
+                if (facts.IsPresent && facts.Fps > 0 && facts.DurationSeconds > 0)
                 {
-                    string candidate = Path.Combine(Path.GetDirectoryName(ffmpegPath)!, "ffprobe.exe");
-                    if (File.Exists(candidate)) ffprobePath = candidate;
-                }
-
-                if (!string.IsNullOrEmpty(ffprobePath))
-                {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = ffprobePath,
-                        Arguments = $"-v error -select_streams v:0 -show_entries stream=nb_frames -of csv=p=0 \"{videoPath}\"",
-                        UseShellExecute = false, CreateNoWindow = true,
-                        RedirectStandardOutput = true, RedirectStandardError = true
-                    };
-                    using var process = Process.Start(psi);
-                    if (process != null)
-                    {
-                        string output = await process.StandardOutput.ReadToEndAsync(token);
-                        await process.WaitForExitAsync(token);
-                        string raw = output.Trim();
-                        if (!string.IsNullOrWhiteSpace(raw) && int.TryParse(raw, out int nb) && nb > 0)
-                            return nb;
-                    }
+                    return Math.Max(1, (int)Math.Round(facts.DurationSeconds * facts.Fps));
                 }
             }
             catch (OperationCanceledException) { throw; }
-            catch { /* fall through to exiftool */ }
+            catch { }
 
-            // 2. Fallback: exiftool MediaDuration × 30fps (legacy)
-            try
-            {
-                string? exifToolPath = ExternalToolLocator.FindExifTool();
-                if (!string.IsNullOrEmpty(exifToolPath))
-                {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = exifToolPath,
-                        Arguments = $"-MediaDuration -s -s -S \"{videoPath}\"",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    };
-
-                    using var process = Process.Start(psi);
-                    if (process != null)
-                    {
-                        string output = await process.StandardOutput.ReadToEndAsync(token);
-                        await process.WaitForExitAsync(token);
-
-                        string raw = output.Trim();
-                        if (!string.IsNullOrWhiteSpace(raw))
-                        {
-                            double duration = ParseMediaDuration(raw);
-                            if (duration > 0)
-                            {
-                                int frames = (int)Math.Ceiling(duration * 30);
-                                return Math.Max(1, frames);
-                            }
-                        }
-                    }
-                }
-            }
-            catch (OperationCanceledException) { throw; }
-            catch { /* fall through to ffmpeg count */ }
-
-            // 3. Fallback: ffmpeg frame-by-frame count (exact for HEVC/VFR).
-            try
-            {
-                return await CountFramesViaFfmpegAsync(videoPath, token);
-            }
-            catch (OperationCanceledException) { throw; }
-            catch
-            {
-                return 1;
-            }
+            return 1;
         }
 
-        private static async Task<int> CountFramesViaFfmpegAsync(string videoPath, CancellationToken token)
-        {
-            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-            if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
-                return 1;
-
-            string frameDir = Path.Combine(Path.GetTempPath(), $"lpb_framecount_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(frameDir);
-            try
-            {
-                string outputPattern = Path.Combine(frameDir, "frame_%06d.jpg");
-                string args = $"-i \"{videoPath}\" -vsync 0 " +
-                              $"-q:v 3 -f image2 \"{outputPattern}\" -y -loglevel error";
-
-                var psi = new ProcessStartInfo
-                {
-                    FileName = ffmpegPath,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true
-                };
-
-                using var process = Process.Start(psi);
-                if (process == null)
-                    return 1;
-
-                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(120));
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
-
-                try
-                {
-                    await process.WaitForExitAsync(linkedCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    try { process.Kill(); } catch { /* best effort */ }
-                    throw;
-                }
-
-                if (process.ExitCode != 0)
-                    return 1;
-
-                int count = Directory.GetFiles(frameDir, "frame_*.jpg").Length;
-                return Math.Max(1, count);
-            }
-            finally
-            {
-                try { Directory.Delete(frameDir, recursive: true); } catch { /* best effort */ }
-            }
-        }
-
-        // Detect actual video FPS from exiftool VideoFrameRate tag.
-        // Returns frames per second as double, or 30.0 on failure.
+        // Detect actual video FPS using Native video facts.
         public static async Task<double> DetectVideoFpsAsync(string videoPath, CancellationToken token)
         {
             try
             {
-                string? exifToolPath = ExternalToolLocator.FindExifTool();
-                if (string.IsNullOrEmpty(exifToolPath)) return 30.0;
-
-                var psi = new ProcessStartInfo
-                {
-                    FileName = exifToolPath,
-                    Arguments = $"-VideoFrameRate -s -s -S \"{videoPath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-                using var process = Process.Start(psi);
-                if (process == null) return 30.0;
-
-                string output = await process.StandardOutput.ReadToEndAsync(token);
-                await process.WaitForExitAsync(token);
-                string raw = output.Trim();
-                if (double.TryParse(raw,
-                    System.Globalization.NumberStyles.Any,
-                    System.Globalization.CultureInfo.InvariantCulture,
-                    out double fps) && fps > 0)
-                    return fps;
+                var facts = await Interop.NativeMediaService.ProbeVideoAsync(videoPath, token).ConfigureAwait(false);
+                if (facts.IsPresent && facts.Fps > 0)
+                    return facts.Fps;
             }
             catch (OperationCanceledException) { throw; }
-            catch { /* fall through to default */ }
+            catch { }
 
-            return 30.0; // fallback: assume 30fps
+            return 30.0;
         }
 
-        // Write com.openharmony.covertime (milliseconds) to MP4 udta metadata.
-        // Uses ffmpeg -c copy remux to inject the tag without re-encoding.
-        // Returns the path to the tagged MP4 (temp file — caller should clean up after use).
-        public static async Task<string> WriteMp4CovertimeMetadataAsync(
+        public static Task<string> WriteMp4CovertimeMetadataAsync(
             string mp4Path, string targetPath, int covertimeMs, CancellationToken token)
         {
-            string taggedPath = Path.Combine(Path.GetTempPath(),
-                $"lpb_ct_{Guid.NewGuid():N}.mp4");
-
-            try
-            {
-                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-                if (string.IsNullOrEmpty(ffmpegPath))
-                {
-                    LogService.Merge("covertime: ffmpeg not found, keeping original MP4", LogLevel.Warning);
-                    return mp4Path;
-                }
-
-                // Remux with -c copy, injecting the covertime metadata tag into udta.
-                // -movflags use_metadata_tags is required for custom tag names to be written.
-                var psi = new ProcessStartInfo
-                {
-                    FileName = ffmpegPath,
-                    Arguments = $"-y -v error -i \"{mp4Path}\" -c copy " +
-                                $"-movflags use_metadata_tags " +
-                                $"-metadata com.openharmony.covertime=\"{covertimeMs}.000000\" " +
-                                $"\"{taggedPath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true
-                };
-
-                using var proc = Process.Start(psi);
-                if (proc == null) return mp4Path;
-
-                string stderr = await proc.StandardError.ReadToEndAsync(token);
-                await proc.WaitForExitAsync(token);
-
-                if (proc.ExitCode == 0 && File.Exists(taggedPath) && new FileInfo(taggedPath).Length > 0)
-                {
-                    LogService.Merge(
-                        $"covertime: wrote {covertimeMs}ms → {Path.GetFileName(taggedPath)}",
-                        LogLevel.Info);
-                    return taggedPath;
-                }
-
-                LogService.Merge(
-                    $"covertime: ffmpeg failed (exit {proc.ExitCode}): {stderr.Trim()}",
-                    LogLevel.Warning);
-                return mp4Path;
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                LogService.Merge($"covertime: error: {ex.Message}", LogLevel.Warning);
-                return mp4Path;
-            }
+            return Task.FromResult(mp4Path);
         }
 
-        /// <summary>
-        /// 使用 ffmpeg 在指定时间戳提取一帧 JPEG，输出到指定目录。
-        /// 使用 -ss 输入索引模式（快速定位）+ -frames:v 1 精确截取一帧。
-        /// GUI（EditViewModel）与 CLI（CoverCommand）共用。
-        /// </summary>
-        /// <param name="videoPath">视频文件路径</param>
-        /// <param name="outputDir">输出目录（必须存在，调用方负责创建和清理）</param>
-        /// <param name="timestampSec">时间戳（秒）</param>
-        /// <param name="token">取消令牌</param>
-        /// <returns>JPEG 文件路径，失败返回 null</returns>
-        public static async Task<string?> ExtractFrameAtTimestampAsync(
+        public static Task<string?> ExtractFrameAtTimestampAsync(
             string videoPath, string outputDir, double timestampSec, CancellationToken token)
         {
-            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-            if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
-            {
-                LogService.Merge("ExtractFrameAtTimestamp: ffmpeg not found", LogLevel.Warning);
-                return null;
-            }
-
-            try
-            {
-                token.ThrowIfCancellationRequested();
-
-                string outputPath = Path.Combine(outputDir, "cover_frame.jpg");
-
-                // -ss 在前（输入索引模式）快速定位，-frames:v 1 只取一帧
-                // -q:v 2 高质量 JPEG
-                string args = $"-y -ss {timestampSec:F3} -i \"{videoPath}\" " +
-                              $"-frames:v 1 -q:v 2 -f image2 \"{outputPath}\" -loglevel error";
-
-                var psi = new ProcessStartInfo
-                {
-                    FileName = ffmpegPath,
-                    Arguments = args,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true
-                };
-
-                using var process = new Process { StartInfo = psi };
-                process.Start();
-
-                using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-                using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, timeoutCts.Token);
-
-                try
-                {
-                    await process.WaitForExitAsync(linkedCts.Token);
-                }
-                catch (OperationCanceledException)
-                {
-                    try { process.Kill(); } catch { }
-                    return null;
-                }
-
-                string stderr = await process.StandardError.ReadToEndAsync(token);
-                if (process.ExitCode != 0)
-                {
-                    LogService.Merge(
-                        $"ExtractFrameAtTimestamp: ffmpeg error (exit {process.ExitCode}) at {timestampSec:F3}s: {stderr.Trim()}",
-                        LogLevel.Warning);
-                    return null;
-                }
-
-                if (!File.Exists(outputPath) || new FileInfo(outputPath).Length == 0)
-                {
-                    LogService.Merge(
-                        $"ExtractFrameAtTimestamp: output file is empty at {timestampSec:F3}s",
-                        LogLevel.Warning);
-                    return null;
-                }
-
-                LogService.Merge(
-                    $"ExtractFrameAtTimestamp: frame at {timestampSec:F3}s -> {outputPath}",
-                    LogLevel.Info);
-
-                return outputPath;
-            }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex)
-            {
-                LogService.Merge($"ExtractFrameAtTimestamp failed: {ex.Message}", LogLevel.Error, ex);
-                return null;
-            }
-        }
-
-        // Parse exiftool MediaDuration PrintConv string to seconds.
-        // Reuses the same parsing logic as LivePhotoRepairService.
-        // Handles: "2.35 s", "0:01:05", "2.35" (raw numeric).
-        private static double ParseMediaDuration(string raw)
-        {
-            // Timecode format: "HH:MM:SS" or "MM:SS"
-            var tcMatch = System.Text.RegularExpressions.Regex.Match(raw,
-                @"^(?:(\d+):)?(\d+):(\d+(?:\.\d+)?)$");
-            if (tcMatch.Success)
-            {
-                int hours = tcMatch.Groups[1].Success ? int.Parse(tcMatch.Groups[1].Value) : 0;
-                int minutes = int.Parse(tcMatch.Groups[2].Value);
-                double secs = double.Parse(tcMatch.Groups[3].Value,
-                    System.Globalization.CultureInfo.InvariantCulture);
-                return hours * 3600 + minutes * 60 + secs;
-            }
-
-            // "2.35 s" format
-            var sMatch = System.Text.RegularExpressions.Regex.Match(raw, @"^([\d.]+)\s*s");
-            if (sMatch.Success && double.TryParse(sMatch.Groups[1].Value,
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out double seconds))
-                return seconds;
-
-            // Raw numeric
-            if (double.TryParse(raw,
-                System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out double rawVal))
-                return rawVal;
-
-            return 0;
+            return Task.FromResult<string?>(null);
         }
 
         /// <summary>
-        /// 检测视频时长（秒）。用 exiftool MediaDuration（不带 ffprobe）。
+        /// 检测视频时长（秒）。基于 Native 探测，零外部工具依赖。
         /// GUI 与 CLI 共用；返回 0 表示无法探测。
         /// </summary>
         public static async Task<double> DetectVideoDurationAsync(string videoPath, CancellationToken token)
         {
             try
             {
-                string? exifToolPath = ExternalToolLocator.FindExifTool();
-                if (!string.IsNullOrEmpty(exifToolPath))
-                {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = exifToolPath,
-                        Arguments = $"-MediaDuration -s -s -S \"{videoPath}\"",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    };
-                    using var process = Process.Start(psi);
-                    if (process != null)
-                    {
-                        string output = await process.StandardOutput.ReadToEndAsync(token);
-                        await process.WaitForExitAsync(token);
-                        string raw = output.Trim();
-                        if (!string.IsNullOrEmpty(raw) && raw != "N/A" && raw != "unknown")
-                        {
-                            double durationSec = ParseMediaDuration(raw);
-                            if (durationSec > 0)
-                                return durationSec;
-                        }
-                    }
-                }
+                var facts = await Interop.NativeMediaService.ProbeVideoAsync(videoPath, token).ConfigureAwait(false);
+                if (facts.IsPresent && facts.DurationSeconds > 0)
+                    return facts.DurationSeconds;
             }
             catch (OperationCanceledException) { throw; }
-            catch { /* fall through to ffmpeg */ }
+            catch { }
 
-            // Fallback: parse Duration from ffmpeg -i output.
-            try
-            {
-                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-                if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
-                    return 0;
-
-                var psi = new ProcessStartInfo
-                {
-                    FileName = ffmpegPath,
-                    Arguments = $"-hide_banner -i \"{videoPath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardError = true,
-                    RedirectStandardOutput = true
-                };
-                using var process = Process.Start(psi);
-                if (process == null)
-                    return 0;
-
-                string stderr = await process.StandardError.ReadToEndAsync(token);
-                await process.WaitForExitAsync(token);
-
-                var match = System.Text.RegularExpressions.Regex.Match(
-                    stderr,
-                    @"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)");
-                if (match.Success &&
-                    int.TryParse(match.Groups[1].Value, out int hours) &&
-                    int.TryParse(match.Groups[2].Value, out int minutes) &&
-                    double.TryParse(
-                        match.Groups[3].Value,
-                        System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture,
-                        out double seconds))
-                {
-                    return hours * 3600 + minutes * 60 + seconds;
-                }
-
-                return 0;
-            }
-            catch (OperationCanceledException) { throw; }
-            catch { return 0; }
+            return 0;
         }
 
         // Insert "tmap" as the last compatible brand in the HEIC ftyp box.
@@ -1222,70 +830,14 @@ namespace LivePhotoBox.Services
         // exiftool handles the ISOBMFF box manipulation correctly for HEIC — its
         // documented namespace-stripping issue is JPEG-specific (APP segment rewrite).
         // For HEIC, XMP is stored as an opaque uuid box inside meta and preserved as-is.
-        private static async Task WriteHeicNativeAsync(
+        private static Task WriteHeicNativeAsync(
             string sourceHeic,
             string sourceVid,
             string targetPath,
             byte[] xmpBytes,
             CancellationToken token)
         {
-            // exiftool is required for HEIC XMP injection
-            if (string.IsNullOrEmpty(ExternalToolLocator.FindExifTool()))
-            {
-                LogService.Merge("exiftool not found — cannot inject XMP into HEIC", LogLevel.Warning);
-                throw new InvalidOperationException("exiftool is required for HEIC live photo creation.");
-            }
-
-            string tempDir = Path.Combine(Path.GetTempPath(),
-                "LivePhotoBox_HeicMerge_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                // 1. Write XMP bytes to a temporary .xmp file
-                string tempXmp = Path.Combine(tempDir, "temp.xmp");
-                await File.WriteAllBytesAsync(tempXmp, xmpBytes, token);
-
-                // 2. Run exiftool: read source HEIC, inject XMP, write temp output
-                //    Using '-o' (not -overwrite_original) avoids copying the source file
-                string tempHeic = Path.Combine(tempDir, "temp_with_xmp.heic");
-                await LivePhotoRepairService.RunExifToolAsync(token,
-                    $"-xmp<={tempXmp}",
-                    "-o", tempHeic,
-                    sourceHeic);
-
-                if (!File.Exists(tempHeic))
-                {
-                    throw new InvalidOperationException("exiftool did not produce output HEIC file.");
-                }
-
-                // 3. Copy exiftool output (HEIC with XMP) to target, then append mpvd box with video
-                using var tempHeicFs = new FileStream(
-                    tempHeic, FileMode.Open, FileAccess.Read, FileShare.Read,
-                    bufferSize: 8192, useAsync: true);
-                using var targetFs = new FileStream(
-                    targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                    bufferSize: 8192, useAsync: true);
-
-                await tempHeicFs.CopyToAsync(targetFs, token);
-
-                // 4. Write mpvd box header (8 bytes) + video data
-                long videoSize = new FileInfo(sourceVid).Length;
-                byte[] mpvdHeader = BuildMpvdHeader(videoSize);
-                await targetFs.WriteAsync(mpvdHeader, 0, mpvdHeader.Length, token);
-
-                using var vidFs = new FileStream(
-                    sourceVid, FileMode.Open, FileAccess.Read, FileShare.Read,
-                    bufferSize: 8192, useAsync: true);
-                await vidFs.CopyToAsync(targetFs, token);
-
-                LogService.Merge(
-                    $"HEIC Motion Photo written: {Path.GetFileName(targetPath)} " +
-                    $"(HEIC + XMP + mpvd[{videoSize} bytes])");
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-            }
+            throw new NotSupportedException("HEIC XMP injection is not supported in the Rebuilt Native engine.");
         }
 
         // ── Samsung write paths ───────────────────────────────────────────
@@ -1386,7 +938,7 @@ namespace LivePhotoBox.Services
         /// Output: [HEIC with V2 XMP] + [mpvd box: mpvd + MP4 + sefd + tags + SEFH/SEFT]
         /// The mpvd box IS the Samsung Trailer for HEIC.
         /// </summary>
-        private static async Task WriteSamsungHeicAsync(
+        private static Task WriteSamsungHeicAsync(
             string sourceHeic,
             string sourceVid,
             string targetPath,
@@ -1396,72 +948,7 @@ namespace LivePhotoBox.Services
             CancellationToken token,
             long presentationTimestampUs)
         {
-            if (string.IsNullOrEmpty(ExternalToolLocator.FindExifTool()))
-            {
-                LogService.Merge("exiftool not found — cannot inject XMP into HEIC", LogLevel.Warning);
-                throw new InvalidOperationException("exiftool is required for HEIC live photo creation.");
-            }
-
-            // Read MP4 video bytes
-            byte[] videoData = await File.ReadAllBytesAsync(sourceVid, token);
-
-            // Build XMP metadata through the actual protocol instance
-            byte[] xmpBytes;
-            if (protocol is MotionPhotoFusionProtocol fusion)
-            {
-                xmpBytes = fusion.BuildXmpMetadata(videoSize, presentationTimestampUs, "image/heic", "8", videoMime, videoSize);
-            }
-            else
-            {
-                xmpBytes = protocol.BuildXmpMetadata(videoSize, presentationTimestampUs, "image/heic", "8", videoMime);
-            }
-
-            string tempDir = Path.Combine(Path.GetTempPath(),
-                "LivePhotoBox_SamsungHeic_" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(tempDir);
-            try
-            {
-                // 1. Write XMP to temp file
-                string tempXmp = Path.Combine(tempDir, "temp.xmp");
-                await File.WriteAllBytesAsync(tempXmp, xmpBytes, token);
-
-                // 2. Inject XMP into HEIC via exiftool
-                string tempHeic = Path.Combine(tempDir, "temp_with_xmp.heic");
-                await LivePhotoRepairService.RunExifToolAsync(token,
-                    $"-xmp<={tempXmp}",
-                    "-o", tempHeic,
-                    sourceHeic);
-
-                if (!File.Exists(tempHeic))
-                    throw new InvalidOperationException("exiftool did not produce output HEIC file.");
-
-                // 3. Copy HEIC (with XMP) to target, get image size for mpv2 offset
-                long imageSize;
-                using (var tempHeicFs = new FileStream(
-                    tempHeic, FileMode.Open, FileAccess.Read, FileShare.Read,
-                    bufferSize: 8192, useAsync: true))
-                {
-                    imageSize = tempHeicFs.Length;
-                    using var targetFs = new FileStream(
-                        targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                        bufferSize: 8192, useAsync: true);
-                    await tempHeicFs.CopyToAsync(targetFs, token);
-
-                    // 4. Build Samsung Trailer (HEIC: complete mpvd box)
-                    byte[] trailer = SamsungMotionPhotoProtocol.BuildTrailer(videoData, "heic", imageSize);
-
-                    // 5. Append trailer (= mpvd box) to target
-                    await targetFs.WriteAsync(trailer, 0, trailer.Length, token);
-                }
-
-                LogService.Merge(
-                    $"Samsung HEIC Motion Photo written: {Path.GetFileName(targetPath)} " +
-                    $"(HEIC + XMP + mpvd[sefd], image={imageSize}, video={videoSize} bytes)");
-            }
-            finally
-            {
-                try { Directory.Delete(tempDir, recursive: true); } catch { }
-            }
+            throw new NotSupportedException("HEIC XMP injection is not supported in the Rebuilt Native engine.");
         }
 
         // Build the 8-byte mpvd (Motion Photo Video Data) ISOBMFF box header.

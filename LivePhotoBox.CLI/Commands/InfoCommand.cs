@@ -1,16 +1,16 @@
 /*
  * InfoCommand.cs
  *
- * --info 全局选项：打印本地环境报告（公共字段 + 内置外部工具版本），不联网。
+ * --info 全局选项：打印本地环境报告（公共字段 + LivePhotoBox.Native 引擎状态），不联网。
  *
- *   - 打印版本、日志路径、外部工具（exiftool/ffmpeg/jpegtran/heif-dec/heif-enc）版本
+ *   - 打印版本、日志路径、Native 引擎状态（ABI 版本与功能支持）
  *   - 不联网，更新检查交由 update-check 命令
  */
 
 using LivePhotoBox.Cli.Infrastructure;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Services;
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
 
@@ -18,14 +18,14 @@ namespace LivePhotoBox.Cli.Commands
 {
     internal static class InfoCommand
     {
-        public static async Task<int> RunAsync()
+        public static Task<int> RunAsync()
         {
             VersionInfo.PrintFull();
             PrintLogInfo();
             Console.WriteLine();
-            await PrintExternalToolsAsync();
+            PrintNativeEngineInfo();
             VersionInfo.PrintFooter();
-            return 0;
+            return Task.FromResult(0);
         }
 
         // 日志位置：非打包固定 %LOCALAPPDATA%\LivePhotoBox\Logs（CLI 为子目录 CLI）。
@@ -39,96 +39,23 @@ namespace LivePhotoBox.Cli.Commands
             CliConsole.WriteFieldRgb("Log file", logName, width: 11, valueColor: CliConsole.PathGreen);
         }
 
-        private static async Task PrintExternalToolsAsync()
+        private static void PrintNativeEngineInfo()
         {
-            CliConsole.WriteLine("External tools:", CliConsole.Accent);
-            await PrintToolAsync("exiftool", ExternalToolLocator.FindExifTool(), "-ver", s => s.Trim());
-            await PrintToolAsync("ffmpeg", ExternalToolLocator.FindFFmpeg(), "-version", ParseFFmpegVersion);
-            // jpegtran 无版本输出开关（-version 仅打印用法），直接标注 n/a
-            PrintToolNoProbe("jpegtran", ExternalToolLocator.FindJpegTran());
-            await PrintToolAsync("heif-dec", ExternalToolLocator.FindHeifDec(), "--version", FirstLine);
-            await PrintToolAsync("heif-enc", ExternalToolLocator.FindHeifEnc(), "--version", FirstLine);
-        }
-
-        private static void PrintToolNoProbe(string name, string? path)
-        {
-            WriteToolLine(name, "n/a", string.IsNullOrEmpty(path) ? "not found" : path);
-        }
-
-        private static async Task PrintToolAsync(string name, string? path,
-            string args, Func<string, string> parse)
-        {
-            if (string.IsNullOrEmpty(path))
+            CliConsole.WriteLine("Native engine:", CliConsole.Accent);
+            var info = NativeRuntime.Probe();
+            if (info.IsAvailable)
             {
-                PrintToolNoProbe(name, path);
-                return;
-            }
-
-            var version = await ProbeVersionAsync(path, args, parse, timeoutMs: 5000);
-            WriteToolLine(name, version, path);
-        }
-
-        private static void WriteToolLine(string name, string version, string path)
-        {
-            if (CliConsole.UseColor)
-            {
-                CliConsole.Write(name.PadRight(10), CliConsole.Accent);
-                CliConsole.Write(version.PadRight(8), CliConsole.Highlight);
-                CliConsole.Write(path, CliConsole.PathGreen);
-                Console.WriteLine();
+                CliConsole.WriteField("Status", "Available", width: 15, valueColor: CliConsole.Success);
+                CliConsole.WriteField("ABI Version", info.AbiVersion.ToString(), width: 15);
+                if (!string.IsNullOrEmpty(info.Version))
+                    CliConsole.WriteField("Engine Version", info.Version, width: 15);
             }
             else
             {
-                Console.WriteLine($"{name.PadRight(10)}{version.PadRight(8)}{path}");
+                CliConsole.WriteField("Status", "Unavailable", width: 15, valueColor: CliConsole.Error);
+                if (!string.IsNullOrEmpty(info.Diagnostic))
+                    CliConsole.WriteField("Diagnostic", info.Diagnostic, width: 15, valueColor: CliConsole.Muted);
             }
-        }
-
-        private static async Task<string> ProbeVersionAsync(
-            string exe, string args, Func<string, string> parse, int timeoutMs)
-        {
-            try
-            {
-                using var p = new Process();
-                p.StartInfo.FileName = exe;
-                p.StartInfo.Arguments = args;
-                p.StartInfo.UseShellExecute = false;
-                p.StartInfo.RedirectStandardOutput = true;
-                p.StartInfo.RedirectStandardError = true;
-                p.StartInfo.CreateNoWindow = true;
-
-                if (!p.Start()) return "n/a";
-
-                var outputTask = p.StandardOutput.ReadToEndAsync();
-                if (!p.WaitForExit(timeoutMs))
-                {
-                    try { p.Kill(entireProcessTree: true); } catch { }
-                    try { await outputTask; } catch { }
-                    return "timeout";
-                }
-
-                var output = await outputTask;
-                var text = parse(output).Trim();
-                return string.IsNullOrEmpty(text) ? "n/a" : text;
-            }
-            catch
-            {
-                return "n/a";
-            }
-        }
-
-        private static string FirstLine(string output) =>
-            output.Split('\n')[0].Trim();
-
-        private static string ParseFFmpegVersion(string output)
-        {
-            var first = output.Split('\n')[0].Trim();
-            var parts = first.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            for (int i = 0; i < parts.Length - 1; i++)
-            {
-                if (parts[i] == "version")
-                    return parts[i + 1];
-            }
-            return first;
         }
     }
 }

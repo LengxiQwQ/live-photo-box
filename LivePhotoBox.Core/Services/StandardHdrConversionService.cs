@@ -331,44 +331,8 @@ public static class StandardHdrConversionService
         {
             return File.Exists(outputPath) && new FileInfo(outputPath).Length > 0;
         }
-
-        // 2) 回退：exiftool 直接提取（对荣耀等 exiftool 解析正确的文件有效）。
-        string? exifToolPath = ExternalToolLocator.FindExifTool();
-        if (string.IsNullOrEmpty(exifToolPath))
-        {
-            return false;
-        }
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = exifToolPath,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-        psi.ArgumentList.Add("-b");
-        psi.ArgumentList.Add("-GainMapImage");
-        psi.ArgumentList.Add(sourcePath);
-
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start exiftool.");
-
-        Task<string> stderrTask = process.StandardError.ReadToEndAsync(token);
-        await using (var output = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true))
-        {
-            await process.StandardOutput.BaseStream.CopyToAsync(output, token);
-        }
-
-        string stderr = await stderrTask;
-        await process.WaitForExitAsync(token);
-
-        if (process.ExitCode != 0)
-        {
-            return false;
-        }
-
-        return File.Exists(outputPath) && new FileInfo(outputPath).Length > 0;
+        // 2) ExifTool fallback removed in Rebuilt
+        return false;
     }
 
     // ── XMP 容器语义定位增益图 ──────────────────────────────────────────
@@ -700,119 +664,26 @@ public static class StandardHdrConversionService
         }
     }
 
-    private static async Task RunHeifEncTwoImagesAsync(
+    private static Task RunHeifEncTwoImagesAsync(
         string primaryPath, string gainMapPath, string outputPath, CancellationToken token)
     {
-        string? heifEncPath = ExternalToolLocator.FindHeifEnc();
-        if (string.IsNullOrEmpty(heifEncPath))
-        {
-            throw new InvalidOperationException(ResourceService.GetString("Error_HeifEncMissing"));
-        }
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = heifEncPath,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardError = true
-        };
-        psi.ArgumentList.Add("-o");
-        psi.ArgumentList.Add(outputPath);
-        psi.ArgumentList.Add("-q");
-        psi.ArgumentList.Add("90");
-        psi.ArgumentList.Add(primaryPath);
-        psi.ArgumentList.Add(gainMapPath);
-
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start heif-enc.");
-
-        string stderr = await process.StandardError.ReadToEndAsync(token);
-        await process.WaitForExitAsync(token);
-
-        if (process.ExitCode != 0 || !File.Exists(outputPath) || new FileInfo(outputPath).Length == 0)
-        {
-            throw new InvalidOperationException(
-                $"heif-enc failed (exit {process.ExitCode}): {stderr.Trim()}");
-        }
+        throw new NotSupportedException("heif-enc is not supported in the Rebuilt Native engine.");
     }
 
-    private static async Task RunHeifDecWithAuxAsync(
+    private static Task RunHeifDecWithAuxAsync(
         string sourcePath, string primaryOutputPath, CancellationToken token)
     {
-        string? heifDecPath = ExternalToolLocator.FindHeifDec();
-        if (string.IsNullOrEmpty(heifDecPath))
-        {
-            throw new InvalidOperationException(ResourceService.GetString("Error_HeifDecMissing"));
-        }
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = heifDecPath,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardError = true
-        };
-        psi.ArgumentList.Add("--with-aux");
-        psi.ArgumentList.Add("-q");
-        psi.ArgumentList.Add("90");
-        psi.ArgumentList.Add("-o");
-        psi.ArgumentList.Add(primaryOutputPath);
-        psi.ArgumentList.Add(sourcePath);
-
-        using var process = Process.Start(psi)
-            ?? throw new InvalidOperationException("Failed to start heif-dec.");
-
-        string stderr = await process.StandardError.ReadToEndAsync(token);
-        await process.WaitForExitAsync(token);
-
-        if (process.ExitCode != 0 || !File.Exists(primaryOutputPath))
-        {
-            throw new InvalidOperationException(
-                $"heif-dec failed (exit {process.ExitCode}): {stderr.Trim()}");
-        }
+        throw new NotSupportedException("heif-dec is not supported in the Rebuilt Native engine.");
     }
 
     private static string ReadExifTags(string sourcePath, CancellationToken token, params string[] args)
     {
-        string? exifToolPath = ExternalToolLocator.FindExifTool();
-        if (string.IsNullOrEmpty(exifToolPath))
-        {
-            return string.Empty;
-        }
-
-        var psi = new ProcessStartInfo
-        {
-            FileName = exifToolPath,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true
-        };
-
-        foreach (string arg in args)
-        {
-            psi.ArgumentList.Add(arg);
-        }
-
-        psi.ArgumentList.Add(sourcePath);
-
-        using var process = Process.Start(psi);
-        if (process == null)
-        {
-            return string.Empty;
-        }
-
-        string stdout = process.StandardOutput.ReadToEnd();
-        _ = process.StandardError.ReadToEnd();
-        process.WaitForExit();
-        return stdout;
+        return string.Empty;
     }
 
     private static void InjectAppleHdrMakerNote(string heicPath, double headroom)
     {
         (HdrSignedRational maker33, HdrSignedRational maker48) = HdrGainMapCodec.ComputeAppleMakerValues(headroom);
-        // heif-enc 会把源 JPEG/HEIC 的 EXIF（含已注入的 Apple ContentIdentifier）带到输出；
-        // 替换为 HDR MakerNote 前先读回 CID，合并写入，避免照片端丢失配对 UUID。
         string? contentId = null;
         if (AppleMakerNoteWriter.TryReadContentIdentifierFromImage(heicPath, out string? cid, out string? readError))
         {
@@ -832,48 +703,9 @@ public static class StandardHdrConversionService
         }
     }
 
-    private static async Task InjectAppleHdrGainMapXmpAsync(string heicPath, CancellationToken token)
+    private static Task InjectAppleHdrGainMapXmpAsync(string heicPath, CancellationToken token)
     {
-        string? exifToolPath = ExternalToolLocator.FindExifTool();
-        if (string.IsNullOrEmpty(exifToolPath))
-        {
-            throw new InvalidOperationException(ResourceService.GetString("Error_ExifToolMissing"));
-        }
-
-        string directory = Path.GetDirectoryName(heicPath)!;
-        string xmpPath = Path.Combine(directory, $".lpb_apple_hdr_{Guid.NewGuid():N}.xmp");
-        string outputPath = Path.Combine(directory, $".lpb_apple_hdr_{Guid.NewGuid():N}.heic");
-
-        try
-        {
-            string xmp =
-                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\" x:xmptk=\"XMP Core 6.0.0\">" +
-                "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
-                "<rdf:Description rdf:about=\"\" " +
-                "xmlns:HDRGainMap=\"http://ns.apple.com/HDRGainMap/1.0/\">" +
-                $"<HDRGainMap:HDRGainMapVersion>{AppleHdrGainMapVersionInteger}</HDRGainMap:HDRGainMapVersion>" +
-                "</rdf:Description>" +
-                "</rdf:RDF></x:xmpmeta>";
-
-            await File.WriteAllTextAsync(xmpPath, xmp, new UTF8Encoding(false), token);
-            await LivePhotoRepairService.RunExifToolAsync(
-                token,
-                $"-xmp<={xmpPath}",
-                "-o", outputPath,
-                heicPath);
-
-            if (!File.Exists(outputPath))
-            {
-                throw new InvalidOperationException("exiftool did not produce the HDR gain map XMP output.");
-            }
-
-            File.Move(outputPath, heicPath, overwrite: true);
-        }
-        finally
-        {
-            TryDelete(xmpPath);
-            TryDelete(outputPath);
-        }
+        throw new NotSupportedException("ExifTool is not supported in the Rebuilt Native engine.");
     }
 
     private static void TryDelete(string path)

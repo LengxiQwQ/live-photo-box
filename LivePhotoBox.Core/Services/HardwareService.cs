@@ -28,9 +28,6 @@ namespace LivePhotoBox.Services
             public string? FfmpegEncoder { get; set; }
         }
 
-        private static HashSet<string>? _cachedAvailableEncoders;
-        private static DateTime _encoderCacheTime = DateTime.MinValue;
-        private static readonly TimeSpan EncoderCacheDuration = TimeSpan.FromMinutes(5);
         private static List<HardwareInfo>? _cachedHardwareList;
         private static readonly object _hwLock = new();
 
@@ -143,9 +140,6 @@ namespace LivePhotoBox.Services
                 "microsoft basic", "llvmpipe", "swiftshader", "software"
             };
 
-            // 先通过 FFmpeg 获取所有可用的硬件编码器
-            var availableEncoders = DetectAvailableEncodersViaFFmpeg();
-
             try
             {
                 using var searcher = new ManagementObjectSearcher("SELECT Name, Description FROM Win32_VideoController");
@@ -183,24 +177,8 @@ namespace LivePhotoBox.Services
                             Type = HardwareType.Gpu
                         };
 
-                        // 根据 GPU 名称猜测可能的编码器
                         (gpuInfo.IsHardwareEncodingSupported, gpuInfo.FfmpegEncoder) = DetermineFfmpegEncoder(name);
-
-                        // 如果猜测支持硬件编码，验证 FFmpeg 是否真的可用
-                        if (gpuInfo.IsHardwareEncodingSupported && !string.IsNullOrEmpty(gpuInfo.FfmpegEncoder))
-                        {
-                            // 检查这个编码器是否在 FFmpeg 中真正可用
-                            if (availableEncoders.Contains(gpuInfo.FfmpegEncoder.ToLowerInvariant()))
-                            {
-                                gpus.Add(gpuInfo);
-                            }
-                            else
-                            {
-                                // 编码器不可用，标记为不支持
-                                gpuInfo.IsHardwareEncodingSupported = false;
-                                gpuInfo.FfmpegEncoder = null;
-                            }
-                        }
+                        gpus.Add(gpuInfo);
                     }
                 }
             }
@@ -212,203 +190,9 @@ namespace LivePhotoBox.Services
             return gpus;
         }
 
-        // 通过 FFmpeg 获取所有可用的硬件编码器名称（小写，带 5 分钟缓存）
-        private static HashSet<string> DetectAvailableEncodersViaFFmpeg()
-        {
-            // 检查缓存是否有效
-            if (_cachedAvailableEncoders != null && DateTime.Now - _encoderCacheTime < EncoderCacheDuration)
-            {
-                return _cachedAvailableEncoders;
-            }
-
-            var availableEncoders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            try
-            {
-                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-                if (string.IsNullOrEmpty(ffmpegPath))
-                {
-                    LogService.Warn("FFmpeg not found, cannot detect hardware encoders", source: LogSource.System);
-                    _cachedAvailableEncoders = availableEncoders;
-                    _encoderCacheTime = DateTime.Now;
-                    return availableEncoders;
-                }
-
-                LogService.Debug($"Using FFmpeg at: {ffmpegPath}", LogSource.System);
-
-                using var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = ffmpegPath,
-                        Arguments = "-hide_banner -encoders",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    }
-                };
-
-                process.Start();
-
-                // 同步读取输出
-                string stdout = process.StandardOutput.ReadToEnd();
-                string stderr = process.StandardError.ReadToEnd();
-                process.WaitForExit(5000);
-
-                // FFmpeg encoders 输出到 stdout
-                string output = !string.IsNullOrEmpty(stdout) ? stdout : stderr;
-
-                // 逐行解析
-                var lines = output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (var rawLine in lines)
-                {
-                    var line = rawLine.TrimStart(); // 只 trim 开头，保留尾部
-
-                    if (string.IsNullOrWhiteSpace(line))
-                        continue;
-
-                    // 跳过图例行 (包含 "=")
-                    if (line.Contains("="))
-                        continue;
-
-                    // 跳过 "------" 分隔线
-                    if (line.StartsWith("------"))
-                        continue;
-
-                    // 必须是 Video 编码器 (V 开头)
-                    if (line.Length < 8 || line[0] != 'V')
-                        continue;
-
-                    // 位置 6 必须是空格，位置 0-5 是标记字符
-                    if (line.Length > 6 && line[6] == ' ')
-                    {
-                        // 编码器名紧跟在空格后面
-                        string afterFlag = line.Substring(7).Trim();
-                        string encoder = afterFlag.Split(' ')[0];
-
-                        // 验证编码器名有效
-                        if (!string.IsNullOrEmpty(encoder) &&
-                            encoder.All(c => char.IsLetterOrDigit(c) || c == '_' || c == '-'))
-                        {
-                            availableEncoders.Add(encoder.ToLowerInvariant());
-                        }
-                    }
-                }
-
-                LogService.Debug($"FFmpeg found {availableEncoders.Count} unique encoders", LogSource.System);
-
-                // 更新缓存
-                _cachedAvailableEncoders = availableEncoders;
-                _encoderCacheTime = DateTime.Now;
-            }
-            catch (Exception ex)
-            {
-                LogService.Warn($"DetectAvailableEncodersViaFFmpeg error: {ex.Message}", source: LogSource.System);
-                _cachedAvailableEncoders = availableEncoders;
-                _encoderCacheTime = DateTime.Now;
-            }
-
-            return availableEncoders;
-        }
-
-        // 获取 FFmpeg 中所有可用编码器的缓存集合（5 分钟有效）。
-        // 供 EncoderHelper.IsEncoderAvailable 快速路径使用，避免每次检查都 spawn ffmpeg。
         public static HashSet<string> GetAvailableEncoders()
         {
-            if (_cachedAvailableEncoders == null || DateTime.Now - _encoderCacheTime >= EncoderCacheDuration)
-                DetectAvailableEncodersViaFFmpeg();
-            return _cachedAvailableEncoders ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        }
-
-        // 通过 FFmpeg 检测可用的硬件编码器
-        private static List<HardwareInfo> DetectGpusViaFFmpeg()
-        {
-            var gpus = new List<HardwareInfo>();
-
-            try
-            {
-                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-                if (string.IsNullOrEmpty(ffmpegPath))
-                {
-                    return gpus;
-                }
-
-                // 检测 NVENC (NVIDIA)
-                if (IsEncoderAvailable(ffmpegPath, "h264_nvenc"))
-                {
-                    gpus.Add(new HardwareInfo
-                    {
-                        Name = "NVIDIA GPU (NVENC)",
-                        Description = "NVIDIA 显卡硬件加速",
-                        Type = HardwareType.Gpu,
-                        IsHardwareEncodingSupported = true,
-                        FfmpegEncoder = "h264_nvenc"
-                    });
-                }
-
-                // 检测 QSV (Intel)
-                if (IsEncoderAvailable(ffmpegPath, "h264_qsv"))
-                {
-                    gpus.Add(new HardwareInfo
-                    {
-                        Name = "Intel GPU (QSV)",
-                        Description = "Intel 核显/独显硬件加速",
-                        Type = HardwareType.Gpu,
-                        IsHardwareEncodingSupported = true,
-                        FfmpegEncoder = "h264_qsv"
-                    });
-                }
-
-                // 检测 AMF (AMD)
-                if (IsEncoderAvailable(ffmpegPath, "h264_amf"))
-                {
-                    gpus.Add(new HardwareInfo
-                    {
-                        Name = "AMD GPU (AMF)",
-                        Description = "AMD 显卡硬件加速",
-                        Type = HardwareType.Gpu,
-                        IsHardwareEncodingSupported = true,
-                        FfmpegEncoder = "h264_amf"
-                    });
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.Warn($"DetectGpusViaFFmpeg error: {ex.Message}", source: LogSource.System);
-            }
-
-            return gpus;
-        }
-
-        // 检查 FFmpeg 编码器是否可用
-        private static bool IsEncoderAvailable(string ffmpegPath, string encoder)
-        {
-            try
-            {
-                using var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = ffmpegPath,
-                        Arguments = "-hide_banner -encoders",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    }
-                };
-
-                process.Start();
-                string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(5000);
-
-                return output.Contains(encoder, StringComparison.OrdinalIgnoreCase);
-            }
-            catch
-            {
-                return false;
-            }
+            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         }
 
         // 根据 GPU 名称判断支持的编码器
@@ -510,8 +294,6 @@ namespace LivePhotoBox.Services
         // 清除编码器缓存，强制重新检测（下次获取硬件信息时会重新检测）
         public static void ClearEncoderCache()
         {
-            _cachedAvailableEncoders = null;
-            _encoderCacheTime = DateTime.MinValue;
         }
     }
 }

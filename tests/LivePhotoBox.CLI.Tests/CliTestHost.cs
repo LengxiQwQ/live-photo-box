@@ -16,7 +16,7 @@ namespace LivePhotoBox.Cli.Tests
     internal static class CliTestHost
     {
         public static Task<CliResult> RunAsync(Command command, params string[] args) =>
-            RunAsync(command, ProcessingPipelineMode.Legacy, args);
+            RunAsync(command, ProcessingPipelineMode.Rebuilt, args);
 
         public static async Task<CliResult> RunAsync(
             Command command,

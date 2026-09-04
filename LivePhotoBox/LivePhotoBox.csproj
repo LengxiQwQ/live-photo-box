@@ -71,19 +71,11 @@
         <!-- Remove any residual font assets that were deleted from disk but still referenced by the project -->
 		<Content Remove="Assets\Fonts\**\*.*" />
 		<None Remove="Assets\Fonts\**\*.*" />
-		<None Remove="Tools\**" />
 	</ItemGroup>
 
 	<ItemGroup>
         <Content Include="Assets\**\*.*">
 		  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-		</Content>
-        <Compile Remove="Tools\**" />
-        <EmbeddedResource Remove="Tools\**" />
-        <Page Remove="Tools\**" />
-		<!-- 外部命令行工具：编译时将整个 Tools 目录复制到构建输出 -->
-		<Content Include="Tools\**\*" Condition="Exists('Tools')">
-			<CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
 		</Content>
 		<!-- CLI 使用手册：编译时复制到构建输出，供关于页"CLI 手册"按钮本地读取（发布脚本也复制，此处兜底开发/商店版） -->
 		<Content Include="..\docs\CLI-User-Guide.md" Condition="Exists('..\docs\CLI-User-Guide.md')">
@@ -235,7 +227,4 @@
 		<Exec Command="powershell -NoProfile -NoLogo -Command &quot;Get-ChildItem '$(OutDir)' -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^[a-z]{2,3}(-[A-Za-z0-9]+)+$' -and $_.Name -notin @('en-US','en-us','zh-Hans','zh-CN') } | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue&quot;" IgnoreExitCode="true" />
 	</Target>
 
-		<ItemGroup>
-		  <PRIResource Remove="Tools\**" />
-		</ItemGroup>
 </Project>

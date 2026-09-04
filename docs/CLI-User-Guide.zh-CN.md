@@ -98,9 +98,6 @@ lpb --info
 # 查看协议 × 格式兼容矩阵
 lpb protocols
 
-# 查看 GUI 与 CLI 共用的处理分支配置
-lpb backend
-
 # 通过新版 Native 媒体管线转换独立媒体（不启动外部媒体 CLI）
 lpb convert input.mov -o output.mp4 --codec h264
 lpb convert input.heic -o output.jpg
@@ -136,23 +133,9 @@ lpb cover photo.jpg --at 1.5 -y
 | `lpb split` | 把单文件实况照片拆回独立的图片与视频 |
 | `lpb cover` | 修改已有实况照片的封面帧（Key Photo），别名 `keyphoto` |
 | `lpb repair` | 分析并修复实况照片元数据 |
-| `lpb backend` | 查看或配置全局 `rebuilt` / `legacy` 分支 |
 | `lpb --info` / `lpb --version`（`-v`） | 查看版本、环境与内置工具版本 |
 
 `update` / `update-check` 命令见上文「更新」一节。
-
-### `backend` — 配置全局处理分支
-
-GUI 与 CLI 共用 `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`。这里只有一个全局开关，不按协议分别设置。默认是 `rebuilt`。新版独立媒体转换通过 Native C++ 媒体库执行，不启动 FFmpeg 或其他外部媒体 CLI。目标协议写入器尚未接入，因此 `merge`、`split`、`cover`、`repair` 会在调用旧逻辑前明确停止。只有明确需要保留的 `v2.2.1` 兼容实现时才设为 `legacy`。
-
-| 目标 | 命令 |
-|------|------|
-| 查看配置路径和当前分支 | `lpb backend` |
-| 使用保留的旧版兼容实现 | `lpb backend mode legacy` |
-| 使用隔离的新重构分支 | `lpb backend mode rebuilt` |
-| 删除共享配置并恢复“新重构分支”默认值 | `lpb backend reset` |
-
-`rebuilt` 绝不自动回退到 `legacy`。`lpb convert` 以及当前已接入的新版合成/拆分媒体路径使用 Native 完成探测、转换和清理。新版拆分只导出协议无关的中性文件，不调用 Apple/vivo 目标 writer；目标协议写入器留待后续阶段。尚未完成的操作会明确失败，不会猜测媒体事实或继续产出文件。
 
 ### `convert` — 新版 Native 独立媒体转换
 

@@ -70,7 +70,6 @@ namespace LivePhotoBox.Cli
                          "  lpb convert input.mov -o output.mp4 Convert media through Rebuilt Native\n" +
                          "  lpb cover photo.jpg --at 2.5        Change cover frame\n" +
                         "  lpb cover photo.jpg                  View current cover info\n" +
-                        "  lpb backend                          View or configure processing backends\n" +
                         "  lpb --info                          Show detailed environment info")
                     {
                         MergeCommand.Create(),
@@ -80,12 +79,11 @@ namespace LivePhotoBox.Cli
                         ProtocolsCommand.Create(),
                         UpdateCommand.Create(),
                         UpdateCommand.CreateUpdate(),
-                        CoverCommand.Create(),
-                        BackendCommand.Create()
+                        CoverCommand.Create()
                     };
 
                     // Declare --info so `lpb --help` lists it (the fast path above handles actual invocation).
-                    root.Add(new Option<bool>("--info") { Description = "Show detailed environment info (build date, runtime, platform, channel, location, bundled tools)" });
+                    root.Add(new Option<bool>("--info") { Description = "Show detailed environment info (build date, runtime, platform, channel, location, native engine)" });
 
                     var parseResult = root.Parse(args);
                     if (parseResult.Errors.Count > 0)

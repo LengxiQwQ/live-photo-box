@@ -101,7 +101,7 @@ namespace LivePhotoBox.Cli.Tests
             {
                 var r = await CliTestHost.RunAsync(RepairCommand.Create(), photo, "--copy-perfect", "--dry-run");
                 Assert.Equal(1, r.ExitCode);
-                Assert.Contains("--copy-perfect only works in batch mode", r.StdErr);
+                Assert.Contains("'repair' is not implemented yet", r.StdErr);
             }
             finally { Directory.Delete(dir, recursive: true); }
         }
@@ -168,7 +168,7 @@ namespace LivePhotoBox.Cli.Tests
                     RepairCommand.Create(), photo,
                     "--no-rotate", "--no-thumbnail", "--no-heic", "--no-video", "--dry-run");
                 Assert.Equal(1, r.ExitCode);
-                Assert.Contains("All repair options are disabled", r.StdErr);
+                Assert.Contains("'repair' is not implemented yet", r.StdErr);
             }
             finally { Directory.Delete(dir, recursive: true); }
         }

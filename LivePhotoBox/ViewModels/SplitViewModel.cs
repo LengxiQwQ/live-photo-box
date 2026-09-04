@@ -1312,15 +1312,10 @@ namespace LivePhotoBox.ViewModels
         // 执行所有拆分任务的异步核心方法。
         private Task RunTasksAsync()
         {
-            // SplitAsync 内部负责根据全局模式选择 rebuilt/Legacy。
-            // 不能先用 Legacy-only Router 包住它，否则默认 rebuilt 会在
-            // 真正进入拆分管线前被 RebuiltPipelineNotReadyException 拦截。
-            return ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt
-                ? RunLegacyTasksAsync()
-                : ProcessingPipelineRouter.RunAsync("split", RunLegacyTasksAsync);
+            return RunSplitTasksAsync();
         }
 
-        private async Task RunLegacyTasksAsync()
+        private async Task RunSplitTasksAsync()
         {
             InitializeRunState();
             _stopwatch = Stopwatch.StartNew();
@@ -1390,7 +1385,7 @@ namespace LivePhotoBox.ViewModels
                             {
                                 if (token.IsCancellationRequested)
                                 {
-                                    // 取消引发的第三方工具异常（ffmpeg/exiftool 被终止）——按取消处理，不展示错误详情。
+                                    // 取消引发的异常——按取消处理，不展示错误详情。
                                     isCanceled = true;
                                     detailMessage = ResourceService.GetString("Task_Cancelled");
                                 }

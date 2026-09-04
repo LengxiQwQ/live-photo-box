@@ -120,7 +120,6 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 int processed = 0;
-                var exifToolPath = ExternalToolLocator.FindExifTool();
 
                 // Process files with limited parallelism (4 at a time)
                 var parallelOptions = new ParallelOptions
@@ -133,7 +132,7 @@ namespace LivePhotoBox.ViewModels
                 {
                     try
                     {
-                        var history = await AnalyzeFileAsync(exifToolPath, file, ct);
+                        var history = await AnalyzeFileAsync(file, ct);
                         if (history != null)
                         {
                             lock (Files)
@@ -188,17 +187,11 @@ namespace LivePhotoBox.ViewModels
 
         // 使用 ExifTool 读取图片的 XMP 元数据，解析并返回文件历史信息。
         // 如果文件不包含实况照片或 LivePhotoBox 相关元数据，返回 null。
-        private async Task<FileHistoryInfo?> AnalyzeFileAsync(
-            string? exifToolPath, string filePath, CancellationToken ct)
+        // 如果文件不包含实况照片或 LivePhotoBox 相关元数据，返回 null。
+        private async Task<FileHistoryInfo?> AnalyzeFileAsync(string filePath, CancellationToken ct)
         {
-            if (string.IsNullOrEmpty(exifToolPath) || !File.Exists(exifToolPath))
-            {
-                LogService.History($"ExifTool not found at '{exifToolPath}'", Models.LogLevel.Warning);
-                return null;
-            }
-
-            // 1. Get raw XMP XML via exiftool
-            string xmpXml = await ReadRawXmpAsync(exifToolPath, filePath, ct);
+            ct.ThrowIfCancellationRequested();
+            string xmpXml = await Task.Run(() => ExtractXmpXml(filePath), ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(xmpXml))
             {
                 // No XMP at all — not a Live Photo
@@ -210,51 +203,34 @@ namespace LivePhotoBox.ViewModels
             return info;
         }
 
-        // 调用 ExifTool 命令行工具，读取文件的原始 XMP XML 数据。
-        private static async Task<string> ReadRawXmpAsync(
-            string exifToolPath, string filePath, CancellationToken ct)
+        private static string ExtractXmpXml(string filePath)
         {
-            var tempDir = Path.GetTempPath();
-            var toolDir = Path.GetDirectoryName(exifToolPath) ?? AppContext.BaseDirectory;
-
-            var psi = new ProcessStartInfo
+            try
             {
-                FileName = exifToolPath,
-                WorkingDirectory = toolDir,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                StandardOutputEncoding = Encoding.UTF8,
-            };
+                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                int probeLength = (int)Math.Min(fs.Length, 256 * 1024);
+                byte[] buffer = new byte[probeLength];
+                int bytesRead = fs.Read(buffer, 0, probeLength);
+                string text = Encoding.UTF8.GetString(buffer, 0, bytesRead);
 
-            psi.Environment["TEMP"] = tempDir;
-            psi.Environment["TMP"] = tempDir;
+                int start = text.IndexOf("<x:xmpmeta", StringComparison.OrdinalIgnoreCase);
+                if (start >= 0)
+                {
+                    int end = text.IndexOf("</x:xmpmeta>", start, StringComparison.OrdinalIgnoreCase);
+                    if (end > start)
+                        return text.Substring(start, end + "</x:xmpmeta>".Length - start);
+                }
 
-            // Request full XMP XML
-            psi.ArgumentList.Add("-charset");
-            psi.ArgumentList.Add("utf8");
-            psi.ArgumentList.Add("-xmp");
-            psi.ArgumentList.Add("-b");
-            psi.ArgumentList.Add(filePath);
-
-            using var process = Process.Start(psi);
-            if (process == null) return string.Empty;
-
-            var outputTask = process.StandardOutput.ReadToEndAsync(ct);
-            var errorTask = process.StandardError.ReadToEndAsync(ct);
-
-            try { await process.WaitForExitAsync(ct); }
-            catch (OperationCanceledException) { process.Kill(); throw; }
-
-            string output = await outputTask;
-            string error = await errorTask;
-
-            // exiftool returns empty string if no XMP
-            if (string.IsNullOrWhiteSpace(output))
-                return string.Empty;
-
-            return output;
+                int rdfStart = text.IndexOf("<rdf:RDF", StringComparison.OrdinalIgnoreCase);
+                if (rdfStart >= 0)
+                {
+                    int rdfEnd = text.IndexOf("</rdf:RDF>", rdfStart, StringComparison.OrdinalIgnoreCase);
+                    if (rdfEnd > rdfStart)
+                        return text.Substring(rdfStart, rdfEnd + "</rdf:RDF>".Length - rdfStart);
+                }
+            }
+            catch { }
+            return string.Empty;
         }
 
         // 解析 XMP XML，提取实况照片协议信息（Google MicroVideo、MotionPhoto、OPPO）

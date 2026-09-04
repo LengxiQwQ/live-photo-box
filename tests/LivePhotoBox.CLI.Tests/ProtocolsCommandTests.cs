@@ -18,8 +18,8 @@ public sealed class ProtocolsCommandTests
             root, ProcessingPipelineMode.Rebuilt, "protocols");
 
         Assert.Equal(0, result.ExitCode);
-        Assert.Contains("Current backend: Rebuilt", result.StdOut);
-        Assert.Contains("current merge/split paths are active", result.StdOut);
+        Assert.Contains("Engine: Rebuilt (Native)", result.StdOut);
+        Assert.Contains("merge/split paths are active", result.StdOut);
     }
 
     [Fact]
@@ -32,6 +32,6 @@ public sealed class ProtocolsCommandTests
 
         Assert.Equal(0, result.ExitCode);
         Assert.Contains("\"backendMode\": \"rebuilt\"", result.StdOut);
-        Assert.Contains("\"protocolCommands\": \"partial\"", result.StdOut);
+        Assert.Contains("\"protocolCommands\": \"rebuilt\"", result.StdOut);
     }
 }

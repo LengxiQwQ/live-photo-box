@@ -1,4 +1,4 @@
-﻿# LivePhotoBox CLI-Only Release Build — 编译 + 打包独立 CLI zip（不含 GUI）
+# LivePhotoBox CLI-Only Release Build — 编译 + 打包独立 CLI zip（不含 GUI）
 # 用法: powershell -ExecutionPolicy Bypass -File build-cli-release.ps1
 #       powershell -ExecutionPolicy Bypass -File build-cli-release.ps1 -CI  (GitHub Actions)
 #
@@ -117,26 +117,9 @@ if ($goCmd -and (Test-Path $shimSrc)) {
     if (-not (Test-Path $shimSrc)) { Write-Host "       $shimSrc not found" -ForegroundColor DarkYellow }
 }
 
-# ── 2. 复制外部工具 + 本地化 ──────────────────────────────────
+# ── 2. Clean unnecessary files ─────────────────────────────────
 Write-Host ''
-Write-Host '[2/4] Copying external tools...' -ForegroundColor Yellow
-
-# Copy external tools (jpegtran.exe included — CLI 后续将支持修复功能)
-$toolsSrc = Join-Path $projectRoot 'LivePhotoBox\Tools'
-if (Test-Path $toolsSrc) {
-    New-Item -ItemType Directory -Path "$outDir\Tools" -Force | Out-Null
-    Get-ChildItem $toolsSrc | ForEach-Object {
-        Copy-Item $_.FullName "$outDir\Tools\" -Recurse -Force
-    }
-    Write-Host '       Tools\ copied (jpegtran.exe included)' -ForegroundColor Green
-}
-else {
-    Write-Host '       WARNING: Tools\ not found, CLI may not work' -ForegroundColor DarkYellow
-}
-
-# ── 3. Clean unnecessary files ─────────────────────────────────
-Write-Host ''
-Write-Host '[3/4] Cleaning unnecessary files...' -ForegroundColor Yellow
+Write-Host '[2/3] Cleaning unnecessary files...' -ForegroundColor Yellow
 
 # 1. Strip all locale satellite dirs (CLI English-only, resw embedded in Core.dll)
 $count = 0
@@ -161,9 +144,9 @@ Copy-Item 'scripts\install\add-to-path.cmd'      "$outDir\add-to-path.cmd"      
 Copy-Item 'scripts\install\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
 Write-Host '       PATH helper scripts (add/remove-to-path.cmd) copied' -ForegroundColor Green
 
-# ── 4. 打包 zip ───────────────────────────────────────────────
+# ── 3. 打包 zip ───────────────────────────────────────────────
 Write-Host ''
-Write-Host '[4/4] Creating CLI zip...' -ForegroundColor Yellow
+Write-Host '[3/3] Creating CLI zip...' -ForegroundColor Yellow
 
 $zipName = "Live-Photo-Box-v$version-x64-cli.zip"
 $zipPath = "publish\$zipName"

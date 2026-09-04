@@ -40,146 +40,15 @@ namespace LivePhotoBox.Services
     public static class VideoFrameExtractionService
     {
         /// <summary>
-        /// 使用 ffmpeg 将视频全部帧提取为缩略图 JPEG，输出到临时目录。
+        /// 使用 Native 提取视频帧（当前未开放，安全返回 null）。
         /// </summary>
-        /// <param name="videoPath">视频文件路径</param>
-        /// <param name="ct">取消令牌</param>
-        /// <returns>提取结果（临时目录 + 帧数 + JPEG 路径列表），失败返回 null</returns>
-        public static async Task<FrameExtractionResult?> ExtractAllFramesAsync(
+        public static Task<FrameExtractionResult?> ExtractAllFramesAsync(
             string videoPath, CancellationToken ct)
         {
-            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
-            {
-                LogService.FileOp(
-                    "VideoFrameExtraction skipped: Rebuilt uses Native media execution; FFmpeg is Legacy-only.",
-                    Models.LogLevel.Info);
-                return null;
-            }
-
-            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-            if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
-            {
-                LogService.FileOp("VideoFrameExtraction: ffmpeg not found", Models.LogLevel.Warning);
-                return null;
-            }
-
-            // 创建临时输出目录
-            string tempDir = Path.Combine(Path.GetTempPath(), $"lpb_frames_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tempDir);
-
-            try
-            {
-                ct.ThrowIfCancellationRequested();
-
-                // ffmpeg 参数：
-                //   -fps_mode passthrough — 不丢帧不重复，每帧都输出（FFmpeg 9+）
-                //   -q:v 3       — JPEG 质量（2-5，3=高质量小体积）
-                //   frame_%06d   — 六位零填充序号（ffmpeg 从 1 开始编号）
-                //   不缩放 — 输出原始尺寸，缩略图由 DecodePixelWidth 控制
-                string outputPattern = Path.Combine(tempDir, "frame_%06d.jpg");
-
-                string args = $"-i \"{videoPath}\" -fps_mode passthrough " +
-                              $"-q:v 3 -f image2 \"{outputPattern}\" -y -loglevel error";
-
-                var run = await ExternalToolProcessGuard.RunAsync(
-                    () => new ProcessStartInfo
-                    {
-                        FileName = ffmpegPath,
-                        Arguments = args,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    },
-                    timeout: TimeSpan.FromSeconds(90),
-                    operation: $"timeline frame extraction: {Path.GetFileName(videoPath)}",
-                    cancellationToken: ct,
-                    prepareAttempt: _ =>
-                    {
-                        try
-                        {
-                            foreach (string oldFrame in Directory.GetFiles(tempDir, "frame_*.jpg"))
-                                File.Delete(oldFrame);
-                        }
-                        catch { }
-                    }).ConfigureAwait(false);
-
-                // 检查 ffmpeg 是否成功
-                if (!run.IsSuccess && !string.IsNullOrWhiteSpace(run.StandardError))
-                {
-                    LogService.FileOp(
-                        $"VideoFrameExtraction ffmpeg error (exit {run.ExitCode}, attempts={run.Attempts}, timeout={run.TimedOut}): {run.StandardError.Trim()}",
-                        Models.LogLevel.Warning);
-                }
-
-                if (!run.IsSuccess)
-                {
-                    CleanupTempDir(tempDir);
-                    return null;
-                }
-
-                // 收集输出文件（按路径排序，frame_000001 在前）
-                var jpegPaths = new List<string>();
-                try
-                {
-                    var files = Directory.GetFiles(tempDir, "frame_*.jpg");
-                    Array.Sort(files, StringComparer.OrdinalIgnoreCase);
-                    jpegPaths.AddRange(files);
-                }
-                catch (Exception ex)
-                {
-                    LogService.FileOp($"VideoFrameExtraction: failed to list output files: {ex.Message}",
-                        Models.LogLevel.Error, ex);
-                    CleanupTempDir(tempDir);
-                    return null;
-                }
-
-                if (jpegPaths.Count == 0)
-                {
-                    LogService.FileOp("VideoFrameExtraction: no frames extracted (empty output)",
-                        Models.LogLevel.Warning);
-                    CleanupTempDir(tempDir);
-                    return null;
-                }
-
-                LogService.FileOp(
-                    $"VideoFrameExtraction: {jpegPaths.Count} frames extracted to '{tempDir}'",
-                    Models.LogLevel.Info);
-
-                return new FrameExtractionResult
-                {
-                    TempDirectory = tempDir,
-                    FrameCount = jpegPaths.Count,
-                    JpegPaths = jpegPaths
-                };
-            }
-            catch (OperationCanceledException)
-            {
-                CleanupTempDir(tempDir);
-                throw;
-            }
-            catch (Exception ex)
-            {
-                LogService.FileOp($"VideoFrameExtraction failed: {ex.Message}",
-                    Models.LogLevel.Error, ex);
-                CleanupTempDir(tempDir);
-                return null;
-            }
-        }
-
-        /// <summary>安全清理临时目录</summary>
-        private static void CleanupTempDir(string tempDir)
-        {
-            try
-            {
-                if (Directory.Exists(tempDir))
-                    Directory.Delete(tempDir, recursive: true);
-            }
-            catch (Exception ex)
-            {
-                LogService.FileOp($"VideoFrameExtraction: failed to cleanup temp dir: {ex.Message}",
-                    Models.LogLevel.Warning);
-            }
+            LogService.FileOp(
+                "VideoFrameExtraction skipped: Rebuilt uses Native media execution; FFmpeg has been removed.",
+                Models.LogLevel.Info);
+            return Task.FromResult<FrameExtractionResult?>(null);
         }
     }
 }

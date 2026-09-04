@@ -170,17 +170,21 @@ public sealed class CliSubprocessTests
 #endif
         string[] candidateDirs =
         [
-            Path.Combine(repositoryRoot, "LivePhotoBox.CLI", "bin", "x64", configuration, "net9.0-windows10.0.19041.0"),
             Path.Combine(repositoryRoot, "LivePhotoBox.CLI", "bin", configuration, "net9.0-windows10.0.19041.0"),
+            Path.Combine(repositoryRoot, "LivePhotoBox.CLI", "bin", "x64", configuration, "net9.0-windows10.0.19041.0"),
         ];
 
+        var candidates = new List<string>();
         foreach (string dir in candidateDirs)
         {
             string exe = Path.Combine(dir, "livephotobox-boot.exe");
-            if (File.Exists(exe)) return exe;
+            if (File.Exists(exe)) candidates.Add(exe);
             string dll = Path.Combine(dir, "livephotobox-boot.dll");
-            if (File.Exists(dll)) return dll;
+            if (File.Exists(dll)) candidates.Add(dll);
         }
+
+        if (candidates.Count > 0)
+            return candidates.OrderByDescending(File.GetLastWriteTimeUtc).First();
 
         throw new FileNotFoundException("Could not locate compiled CLI executable or DLL.");
     }

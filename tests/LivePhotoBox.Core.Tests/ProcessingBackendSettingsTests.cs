@@ -238,6 +238,7 @@ public sealed class ProcessingBackendSettingsTests
                     ImagePath = missingImage,
                     LivePhotoType = LivePhotoType.SingleFileJpeg,
                     Protocol = LivePhotoProtocolType.GoogleV1,
+                    TimestampUs = 0,
                     OutputImagePath = Path.Combine(outputDirectory, "cover.jpg")
                 }, CancellationToken.None),
                 "repair" => LivePhotoRepairService.RepairAsync(
@@ -246,7 +247,7 @@ public sealed class ProcessingBackendSettingsTests
             });
 
             Assert.NotNull(exception);
-            if (operation == "split")
+            if (operation is "split" or "merge")
             {
                 Assert.IsType<FileNotFoundException>(exception);
             }

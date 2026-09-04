@@ -1,4 +1,4 @@
-﻿# LivePhotoBox Dev Build — 编译并发布（未打包），含 GUI + CLI
+# LivePhotoBox Dev Build — 编译并发布（未打包），含 GUI + CLI
 # 用法: powershell -ExecutionPolicy Bypass -File build-dev.ps1
 #       powershell -ExecutionPolicy Bypass -File build-dev.ps1 -CI
 
@@ -120,15 +120,6 @@ if (-not (Test-Path 'publish\cli_multi\livephotobox-boot.exe')) {
     $cliDir = 'publish\cli_standalone'
     if (Test-Path $cliDir) { Remove-Item -Recurse -Force $cliDir }
     Copy-Item 'publish\cli_multi' $cliDir -Recurse -Force
-
-    # Copy external tools (jpegtran.exe included — CLI 后续将支持修复功能)
-    $toolsSrc = Join-Path $projectRoot 'LivePhotoBox\Tools'
-    if (Test-Path $toolsSrc) {
-        New-Item -ItemType Directory -Path "$cliDir\Tools" -Force | Out-Null
-        Get-ChildItem $toolsSrc | ForEach-Object {
-            Copy-Item $_.FullName "$cliDir\Tools\" -Recurse -Force
-        }
-    }
 
     # Strip all locale satellite dirs (CLI English-only)
     foreach ($dir in (Get-ChildItem $cliDir -Directory -ErrorAction SilentlyContinue)) {

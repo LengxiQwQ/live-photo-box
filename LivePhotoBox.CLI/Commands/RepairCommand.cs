@@ -810,7 +810,7 @@ namespace LivePhotoBox.Cli.Commands
             string filePath, HashSet<string>? appleFiles, bool repairLongVideos, bool copyPerfect,
             RepairOptions options, CancellationToken ct)
         {
-            var analysis = await LivePhotoRepairService.AnalyzeFileAsync(filePath, null, ct);
+            var analysis = await LivePhotoRepairService.AnalyzeFileAsync(filePath, ct);
 
             if (appleFiles != null && !appleFiles.Contains(filePath))
                 return (analysis, RepairClass.Skip, "non-Apple device");
@@ -877,20 +877,11 @@ namespace LivePhotoBox.Cli.Commands
             });
 
         // Apple 实况照片检测：读取每个文件的 ContentIdentifier UUID，返回苹果实况照片路径集。
-        // exiftool 缺失或检测失败时返回 null（表示不过滤，全部当 Apple 处理）。
         private static async Task<HashSet<string>?> DetectAppleFilesAsync(List<string> filePaths, bool json, CancellationToken ct)
         {
-            string? exifToolPath = ExternalToolLocator.FindExifTool();
-            if (string.IsNullOrEmpty(exifToolPath) || !File.Exists(exifToolPath))
-            {
-                if (!json) CliConsole.WriteLine("(exiftool not found, skipping Apple detection)", CliConsole.Muted);
-                return null;
-            }
-
             try
             {
-                using var tool = new PersistentExifTool(exifToolPath);
-                return await LivePhotoMetadataMatcher.FilterAppleDevicesAsync(filePaths, tool, ct);
+                return await LivePhotoMetadataMatcher.FilterAppleDevicesAsync(filePaths, ct);
             }
             catch (Exception ex)
             {

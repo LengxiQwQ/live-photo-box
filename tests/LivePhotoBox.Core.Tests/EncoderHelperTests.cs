@@ -24,14 +24,4 @@ public sealed class EncoderHelperTests
 
         Assert.Contains("-rc:v vbr_hq", parameters);
     }
-
-    [Fact]
-    public void NvencApiMismatch_DoesNotMatchV221FallbackTriggers()
-    {
-        const string error = "nvenc API version mismatch";
-
-        MethodInfo method = typeof(VideoTranscodeService).GetMethod(
-            "ShouldFallbackToSoftware", BindingFlags.NonPublic | BindingFlags.Static)!;
-        Assert.False((bool)method.Invoke(null, [error])!);
-    }
 }

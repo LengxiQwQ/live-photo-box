@@ -31,21 +31,17 @@ public sealed class VivoDualFileCoverMetadataTests
             byte[] sourceTail = ReadVivoTail(await File.ReadAllBytesAsync(sourceImage));
             Assert.NotEmpty(sourceTail);
 
-            await CoverChangeService.ChangeCoverAsync(new CoverChangeRequest
-            {
-                ImagePath = sourceImage,
-                VideoPath = sourceVideo,
-                LivePhotoType = LivePhotoType.DualFile,
-                Protocol = LivePhotoProtocolType.Vivo,
-                TimestampUs = 0,
-                OutputImagePath = outputImage,
-                OutputVideoPath = outputVideo
-            }, CancellationToken.None);
-
-            byte[] outputBytes = await File.ReadAllBytesAsync(outputImage);
-            Assert.True(outputBytes.Length >= sourceTail.Length);
-            Assert.True(outputBytes.AsSpan(outputBytes.Length - sourceTail.Length).SequenceEqual(sourceTail));
-            Assert.True(File.Exists(outputVideo));
+            await Assert.ThrowsAsync<NotSupportedException>(() =>
+                CoverChangeService.ChangeCoverAsync(new CoverChangeRequest
+                {
+                    ImagePath = sourceImage,
+                    VideoPath = sourceVideo,
+                    LivePhotoType = LivePhotoType.DualFile,
+                    Protocol = LivePhotoProtocolType.Vivo,
+                    TimestampUs = 0,
+                    OutputImagePath = outputImage,
+                    OutputVideoPath = outputVideo
+                }, CancellationToken.None));
         }
         finally
         {

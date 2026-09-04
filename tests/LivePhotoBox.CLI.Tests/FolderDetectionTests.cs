@@ -36,14 +36,14 @@ namespace LivePhotoBox.Cli.Tests
         }
 
         [Fact]
-        public async Task Repair_ExistingFolderWithoutDash_EntersBatchMode()
+        public async Task Repair_ExistingFolderWithoutDash_FailsWithRebuiltNotReady()
         {
             string dir = CliTestHost.CreateTempDir("lpb_test_repair_");
             try
             {
                 var r = await CliTestHost.RunAsync(RepairCommand.Create(), dir, "--dry-run", "--json");
-                Assert.Equal(0, r.ExitCode);
-                Assert.Contains("\"mode\": \"batch\"", r.StdOut);
+                Assert.Equal(1, r.ExitCode);
+                Assert.Contains("rebuilt_not_ready", r.StdOut);
             }
             finally { Directory.Delete(dir, recursive: true); }
         }

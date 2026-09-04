@@ -14,6 +14,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 namespace LivePhotoBox.Services
 {
@@ -140,111 +141,35 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// 从 Apple Live Photo 的 MOV 文件中读取 Still Image 元数据轨的时间。
-        /// Apple MOV 的 PosterTime 永远为 0，真正的封面/照片时间藏在 mebx 元数据轨中，
-        /// 通过 exiftool -ee 提取 StillImageTime 所在轨道的 TrackDuration 获得。
-        ///
-        /// 为什么不用 ffprobe：ffprobe 不在项目的 Tools 打包目录中，分发后不可用。
-        /// exiftool 在 Tools 目录中随 app 分发，保证可用性。
         /// </summary>
         /// <param name="movPath">MOV 视频文件路径</param>
         /// <returns>Still Image 轨的 TrackDuration（秒），失败返回 null</returns>
         public static double? ReadAppleStillImageTime(string movPath)
         {
+            if (string.IsNullOrEmpty(movPath) || !File.Exists(movPath))
+                return null;
+
             try
             {
-                string? exifToolPath = ExternalToolLocator.FindExifTool();
-                if (string.IsNullOrEmpty(exifToolPath))
-                    return null;
-
-                if (!File.Exists(movPath))
-                    return null;
-
-                var psi = new ProcessStartInfo
+                var inspector = new LivePhotoBox.Media.Inspection.SourceInspector();
+                var facts = inspector.InspectAsync(movPath, null, CancellationToken.None).GetAwaiter().GetResult();
+                if (facts.Timing.CoverTimestampUs > 0)
                 {
-                    FileName = exifToolPath,
-                    Arguments = $"-api LargeFileSupport=1 -ee -a -G1 -s " +
-                                $"-StillImageTime -TrackDuration \"{movPath}\"",
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
-
-                using var proc = Process.Start(psi);
-                if (proc == null) return null;
-
-                string stdout = proc.StandardOutput.ReadToEnd();
-                proc.WaitForExit(10000);
-
-                if (string.IsNullOrWhiteSpace(stdout))
-                    return null;
-
-                // exiftool -ee 输出格式（逐行）：
-                //   [TrackN]  StillImageTime  : -1      ← 有 StillImageTime 的轨
-                //   [Track1]  TrackDuration   : 2.77 s
-                //   [TrackN]  TrackDuration   : 1.30 s  ← 同一轨的 Duration 就是照片/封面位置
-                //
-                // 逐行解析：先找有 StillImageTime 的轨编号，再找同一轨的 TrackDuration。
-
-                string? trackWithStill = null;
-                double? result = null;
-                foreach (var rawLine in stdout.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    string line = rawLine.Trim();
-
-                    // 匹配 [TrackN]  标签（如 [Track4]）
-                    var trackMatch = Regex.Match(line, @"^\[(Track\d+)\]\s+");
-                    if (!trackMatch.Success)
-                        continue;
-
-                    string currentTrack = trackMatch.Groups[1].Value;
-                    string valuePart = line.Substring(trackMatch.Index + trackMatch.Length).Trim();
-
-                    // 如果这一行是 StillImageTime，记录轨编号（排除无效值 - 或 -1）
-                    if (valuePart.StartsWith("StillImageTime"))
-                    {
-                        // 排除 "StillImageTime : -" 和 "StillImageTime : -1" 等无意义值
-                        var valMatch = Regex.Match(valuePart, @"([\d.]+)");
-                        if (valMatch.Success && double.TryParse(valMatch.Groups[1].Value,
-                            System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture,
-                            out double stVal) && stVal >= 0)
-                            trackWithStill = currentTrack;
-                    }
-                    // 如果这一行是 TrackDuration，并且这是我们要找的轨，取值
-                    else if (valuePart.StartsWith("TrackDuration") && currentTrack == trackWithStill)
-                    {
-                        var durMatch = Regex.Match(valuePart, @"([\d.]+)");
-                        if (durMatch.Success &&
-                            double.TryParse(durMatch.Groups[1].Value,
-                                System.Globalization.NumberStyles.Any,
-                                System.Globalization.CultureInfo.InvariantCulture,
-                                out double dur) &&
-                            dur > 0)
-                        {
-                            result = dur;
-                            break;
-                        }
-                    }
-                }
-
-                if (result.HasValue)
-                {
+                    double sec = facts.Timing.CoverTimestampUs / 1_000_000.0;
                     LogService.FileOp(
-                        $"KeyPhotoTiming[Apple] MOV still image track {trackWithStill}: {result.Value:F4}s",
+                        $"KeyPhotoTiming[Apple] MOV still image track duration: {sec:F4}s",
                         Models.LogLevel.Info);
-                    return result.Value;
+                    return sec;
                 }
-
-                return null;
             }
             catch (Exception ex)
             {
                 LogService.FileOp(
                     $"KeyPhotoTiming[Apple] Failed to read MOV still time: {ex.Message}",
                     Models.LogLevel.Warning);
-                return null;
             }
+
+            return null;
         }
 
         /// <summary>
@@ -300,123 +225,30 @@ namespace LivePhotoBox.Services
         /// </summary>
         public static double? ReadHuaweiCovertimeSeconds(string filePath)
         {
+            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
+                return null;
+
             try
             {
-                // 1. Locate the embedded MP4
-                var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(filePath);
-                if (range == null) return null;
-                var (videoStart, videoEnd, videoLength) = range.Value;
-
-                // 2. Extract MP4 to temp file
-                string tempPath = Path.Combine(Path.GetTempPath(),
-                    $"lpb_hw_ct_{Guid.NewGuid():N}.mp4");
-                try
+                var inspector = new LivePhotoBox.Media.Inspection.SourceInspector();
+                var facts = inspector.InspectAsync(filePath, null, CancellationToken.None).GetAwaiter().GetResult();
+                if (facts.Timing.CoverTimestampUs > 0)
                 {
-                    using (var src = new FileStream(filePath, FileMode.Open,
-                        FileAccess.Read, FileShare.ReadWrite))
-                    using (var dst = new FileStream(tempPath, FileMode.Create,
-                        FileAccess.Write, FileShare.None))
-                    {
-                        src.Seek(videoStart, SeekOrigin.Begin);
-                        var buf = new byte[81920];
-                        long remain = videoLength;
-                        while (remain > 0)
-                        {
-                            int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
-                            if (r == 0) break;
-                            dst.Write(buf, 0, r);
-                            remain -= r;
-                        }
-                    }
-
-                    // 3. Read covertime via ffprobe
-                    string? ffprobePath = null;
-                    string? ffmpegDir = ExternalToolLocator.FindFFmpeg();
-                    if (!string.IsNullOrEmpty(ffmpegDir))
-                    {
-                        string candidate = Path.Combine(
-                            Path.GetDirectoryName(ffmpegDir)!, "ffprobe.exe");
-                        if (File.Exists(candidate)) ffprobePath = candidate;
-                    }
-                    // Fallback: try PATH
-                    if (string.IsNullOrEmpty(ffprobePath))
-                    {
-                        try
-                        {
-                            var wherePsi = new ProcessStartInfo
-                            {
-                                FileName = "where", Arguments = "ffprobe",
-                                UseShellExecute = false, CreateNoWindow = true,
-                                RedirectStandardOutput = true
-                            };
-                            using var whereProc = Process.Start(wherePsi);
-                            if (whereProc != null)
-                            {
-                                string whereOut = whereProc.StandardOutput.ReadToEnd();
-                                whereProc.WaitForExit(1000);
-                                string? firstLine = null;
-                                foreach (var line in whereOut.Split('\n',
-                                    StringSplitOptions.RemoveEmptyEntries))
-                                {
-                                    var trimmed = line.Trim();
-                                    if (!string.IsNullOrEmpty(trimmed))
-                                    {
-                                        firstLine = trimmed;
-                                        break;
-                                    }
-                                }
-                                if (!string.IsNullOrEmpty(firstLine) && File.Exists(firstLine))
-                                    ffprobePath = firstLine;
-                            }
-                        }
-                        catch { }
-                    }
-
-                    if (!string.IsNullOrEmpty(ffprobePath))
-                    {
-                        var psi = new ProcessStartInfo
-                        {
-                            FileName = ffprobePath,
-                            Arguments = $"-v error -show_entries format_tags=com.openharmony.covertime " +
-                                        $"-of csv=p=0 \"{tempPath}\"",
-                            UseShellExecute = false, CreateNoWindow = true,
-                            RedirectStandardOutput = true, RedirectStandardError = true
-                        };
-                        using var proc = Process.Start(psi);
-                        if (proc != null)
-                        {
-                            string output = proc.StandardOutput.ReadToEnd();
-                            proc.WaitForExit(5000);
-                            string raw = output.Trim();
-                            if (!string.IsNullOrWhiteSpace(raw) &&
-                                double.TryParse(raw,
-                                    System.Globalization.NumberStyles.Any,
-                                    System.Globalization.CultureInfo.InvariantCulture,
-                                    out double covertimeMs) && covertimeMs >= 0)
-                            {
-                                double seconds = covertimeMs / 1000.0;
-                                LogService.FileOp(
-                                    $"KeyPhotoTiming[HUAWEI] covertime: {covertimeMs}ms = {seconds:F4}s",
-                                    Models.LogLevel.Info);
-                                return seconds;
-                            }
-                        }
-                    }
+                    double seconds = facts.Timing.CoverTimestampUs / 1_000_000.0;
+                    LogService.FileOp(
+                        $"KeyPhotoTiming[HUAWEI] covertime: {seconds:F4}s",
+                        Models.LogLevel.Info);
+                    return seconds;
                 }
-                finally
-                {
-                    try { if (File.Exists(tempPath)) File.Delete(tempPath); } catch { }
-                }
-
-                return null;
             }
             catch (Exception ex)
             {
                 LogService.FileOp(
                     $"KeyPhotoTiming[HUAWEI] covertime read failed: {ex.Message}",
                     Models.LogLevel.Warning);
-                return null;
             }
+
+            return null;
         }
 
         /// <summary>

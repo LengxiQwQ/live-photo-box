@@ -195,10 +195,6 @@ namespace LivePhotoBox.Services
             }
 
             // 2. Apple ContentIdentifier 匹配目录中的视频。
-            string? exifToolPath = ExternalToolLocator.FindExifTool();
-            if (string.IsNullOrEmpty(exifToolPath))
-                return null;
-
             var videoPaths = Directory
                 .EnumerateFiles(dir, "*.*")
                 .Where(f => VideoExtensions.Contains(Path.GetExtension(f)))
@@ -212,7 +208,7 @@ namespace LivePhotoBox.Services
                 var match = await LivePhotoMetadataMatcher.MatchAsync(
                     new[] { imagePath },
                     videoPaths,
-                    exifToolPath,
+                    null,
                     token).ConfigureAwait(false);
 
                 return match.Pairs.FirstOrDefault()?.VideoPath;

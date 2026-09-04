@@ -254,11 +254,11 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // ── Worker ──
+        private const int MaxWorkerAttempts = 3;
 
         private static async Task SuperviseWorkerAsync(int workerId, CancellationToken token)
         {
-            for (int attempt = 1; attempt <= ExternalToolProcessGuard.MaxAttempts && !token.IsCancellationRequested; attempt++)
+            for (int attempt = 1; attempt <= MaxWorkerAttempts && !token.IsCancellationRequested; attempt++)
             {
                 try
                 {
@@ -272,16 +272,16 @@ namespace LivePhotoBox.Services
                 catch (Exception ex)
                 {
                     LogService.Merge(
-                        $"[Scheduler] Worker#{workerId} crashed (attempt {attempt}/{ExternalToolProcessGuard.MaxAttempts}): {ex.Message}",
+                        $"[Scheduler] Worker#{workerId} crashed (attempt {attempt}/{MaxWorkerAttempts}): {ex.Message}",
                         LogLevel.Error,
                         ex);
-                    if (attempt < ExternalToolProcessGuard.MaxAttempts)
+                    if (attempt < MaxWorkerAttempts)
                         await Task.Delay(250, token).ConfigureAwait(false);
                 }
             }
 
             LogService.Merge(
-                $"[Scheduler] Worker#{workerId} disabled after {ExternalToolProcessGuard.MaxAttempts} crashes; remaining workers continue",
+                $"[Scheduler] Worker#{workerId} disabled after {MaxWorkerAttempts} crashes; remaining workers continue",
                 LogLevel.Error);
         }
 

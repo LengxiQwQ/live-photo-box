@@ -1,3 +1,5 @@
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using LivePhotoBox.Models;
 using System;
 using System.Collections.Generic;
@@ -46,7 +48,7 @@ namespace LivePhotoBox.Services
     //   - ContentIdentifier UUID: Apple Live Photo 配对
     //   - com.android.camera.livephoto ID: vivo 双文件配对
     // 两种调用路径：
-    //   - MatchAsync: Merge 页面，内部启动 exiftool 提取 ContentIdentifier
+    //   - MatchAsync: Merge 页面，使用 Native SourceInspector 提取 ContentIdentifier
     //   - MatchFromAnalysis: Repair 页面，复用已有的 RepairAnalysisResult
     //   - MatchVivo: Merge 页面，纯文件 I/O 解析 vivo JSON 尾部
     public static partial class LivePhotoMetadataMatcher
@@ -60,8 +62,8 @@ namespace LivePhotoBox.Services
         public static async Task<LivePhotoProtocolType> DetectDualFileProtocolAsync(
             string imagePath,
             string videoPath,
-            string? exifToolPath,
-            CancellationToken token)
+            string? exifToolPath = null,
+            CancellationToken token = default)
         {
             if (!File.Exists(imagePath) || !File.Exists(videoPath))
                 return LivePhotoProtocolType.Unknown;
@@ -77,21 +79,25 @@ namespace LivePhotoBox.Services
             if (vivoMatch.Pairs.Count > 0)
                 return LivePhotoProtocolType.Vivo;
 
-            if (string.IsNullOrWhiteSpace(exifToolPath) || !File.Exists(exifToolPath))
-                return LivePhotoProtocolType.Unknown;
+            try
+            {
+                var inspector = new SourceInspector();
+                SourceMediaFacts facts = await inspector.InspectAsync(imagePath, videoPath, token).ConfigureAwait(false);
+                if (facts.Protocol == SourceProtocol.AppleLivePhoto)
+                    return LivePhotoProtocolType.Apple;
+                if (facts.Protocol == SourceProtocol.VivoLegacyDualFile)
+                    return LivePhotoProtocolType.Vivo;
+            }
+            catch (OperationCanceledException) { throw; }
+            catch { /* fallback to Unknown */ }
 
-            MetadataMatchOutput appleMatch = await MatchAsync(
-                [imagePath], [videoPath], exifToolPath, token);
-            return appleMatch.Pairs.Count > 0
-                ? LivePhotoProtocolType.Apple
-                : LivePhotoProtocolType.Unknown;
+            return LivePhotoProtocolType.Unknown;
         }
 
         // ── CID 匹配（Apple Live Photo）──
-        // 内部启动 PersistentExifTool 批量查询 ContentIdentifier 和 CreateDate。
+        // 使用 Native SourceInspector 查询 ContentIdentifier。
         // unmatchedImagePaths: 文件名匹配后未配对的照片路径
         // unmatchedVideoPaths: 文件名匹配后未配对的视频路径
-        // exifToolPath: exiftool.exe 的完整路径
         // token: 取消令牌
         // 返回: 额外匹配到的配对 + 剩余未匹配计数
         // ContentIdentifier UUID 精确匹配 — Apple Live Photo 专用。
@@ -99,8 +105,8 @@ namespace LivePhotoBox.Services
         public static async Task<MetadataMatchOutput> MatchAsync(
             IReadOnlyList<string> unmatchedImagePaths,
             IReadOnlyList<string> unmatchedVideoPaths,
-            string exifToolPath,
-            CancellationToken token,
+            string? exifToolPath = null,
+            CancellationToken token = default,
             Action<int>? onFileProcessed = null)
         {
             if (unmatchedImagePaths.Count == 0 || unmatchedVideoPaths.Count == 0)
@@ -118,8 +124,8 @@ namespace LivePhotoBox.Services
             allPaths.AddRange(unmatchedVideoPaths);
 
             var contentIdMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var inspector = new SourceInspector();
 
-            using var exifTool = new PersistentExifTool(exifToolPath);
             int processed = 0;
             foreach (var filePath in allPaths)
             {
@@ -127,22 +133,14 @@ namespace LivePhotoBox.Services
                 onFileProcessed?.Invoke(++processed);
                 try
                 {
-                    string output = await exifTool.SendCommandAsync(token,
-                        "-j", "-ContentIdentifier", filePath);
-                    if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
-                        continue;
-
-                    using var doc = System.Text.Json.JsonDocument.Parse(output);
-                    var root = doc.RootElement[0];
-
-                    string cid = GetJsonValueAsString(root, "ContentIdentifier");
-                    if (!string.IsNullOrWhiteSpace(cid))
-                        contentIdMap[filePath] = cid;
+                    SourceMediaFacts facts = await inspector.InspectAsync(filePath, null, token).ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(facts.PairingIdentifier))
+                        contentIdMap[filePath] = facts.PairingIdentifier;
                 }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
-                    LogService.Scan($"CID match: exiftool read failed for {Path.GetFileName(filePath)}: {ex.Message}", LogLevel.Warning);
+                    LogService.Scan($"CID match: native inspect failed for {Path.GetFileName(filePath)}: {ex.Message}", LogLevel.Warning);
                 }
             }
 
@@ -441,20 +439,17 @@ namespace LivePhotoBox.Services
         // still image and the paired video), not the Make tag — Make can be stripped or rewritten,
         // and ordinary non-live Apple photos also carry Make=Apple.
         public static async Task<HashSet<string>> FilterAppleDevicesAsync(
-            IReadOnlyList<string> filePaths, PersistentExifTool exifTool, CancellationToken token)
+            IReadOnlyList<string> filePaths, CancellationToken token = default)
         {
             var appleFiles = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var inspector = new SourceInspector();
             foreach (var path in filePaths)
             {
                 token.ThrowIfCancellationRequested();
                 try
                 {
-                    string output = await exifTool.SendCommandAsync(token, "-j", "-ContentIdentifier", path);
-                    if (string.IsNullOrWhiteSpace(output) || !output.TrimStart().StartsWith("["))
-                        continue;
-                    using var doc = System.Text.Json.JsonDocument.Parse(output);
-                    string cid = GetJsonValueAsString(doc.RootElement[0], "ContentIdentifier");
-                    if (!string.IsNullOrWhiteSpace(cid))
+                    SourceMediaFacts facts = await inspector.InspectAsync(path, null, token).ConfigureAwait(false);
+                    if (!string.IsNullOrWhiteSpace(facts.PairingIdentifier) || facts.Protocol == SourceProtocol.AppleLivePhoto)
                         appleFiles.Add(path);
                 }
                 catch { /* skip */ }

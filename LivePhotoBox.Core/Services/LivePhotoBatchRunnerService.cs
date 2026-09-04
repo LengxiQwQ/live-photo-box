@@ -45,7 +45,7 @@ namespace LivePhotoBox.Services
             Action<IMergeTaskInfo>? onTaskStarted,
             Action<IMergeTaskInfo, bool, string, int>? onTaskCompleted)
         {
-            await ProcessingPipelineRouter.RunAsync("merge", () => RunLegacyAsync(
+            await ProcessingPipelineRouter.RunRebuiltAsync("merge", () => RunLegacyAsync(
                 tasks, options, pauseEvent, cancellationToken, onTaskStarted, onTaskCompleted))
                 .ConfigureAwait(false);
         }

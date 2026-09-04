@@ -16,8 +16,7 @@ public sealed class VivoDualFileProtocolDetectionTests
         LivePhotoProtocolType protocol = await LivePhotoMetadataMatcher.DetectDualFileProtocolAsync(
             ResolveSample("vivo双文件.jpg"),
             ResolveSample("vivo双文件.mp4"),
-            ExternalToolLocator.FindExifTool(),
-            CancellationToken.None);
+            token: CancellationToken.None);
 
         Assert.Equal(LivePhotoProtocolType.Vivo, protocol);
     }
@@ -25,14 +24,10 @@ public sealed class VivoDualFileProtocolDetectionTests
     [Fact]
     public async Task DetectDualFileProtocol_RealApplePair_ReturnsApple()
     {
-        string? exifToolPath = ExternalToolLocator.FindExifTool();
-        Assert.False(string.IsNullOrWhiteSpace(exifToolPath));
-
         LivePhotoProtocolType protocol = await LivePhotoMetadataMatcher.DetectDualFileProtocolAsync(
             ResolveSample("苹果双文件.HEIC"),
             ResolveSample("苹果双文件.MOV"),
-            exifToolPath,
-            CancellationToken.None);
+            token: CancellationToken.None);
 
         Assert.Equal(LivePhotoProtocolType.Apple, protocol);
     }
@@ -53,8 +48,7 @@ public sealed class VivoDualFileProtocolDetectionTests
             LivePhotoProtocolType protocol = await LivePhotoMetadataMatcher.DetectDualFileProtocolAsync(
                 imagePath,
                 videoPath,
-                ExternalToolLocator.FindExifTool(),
-                CancellationToken.None);
+                token: CancellationToken.None);
 
             Assert.Equal(LivePhotoProtocolType.Unknown, protocol);
         }
@@ -80,8 +74,7 @@ public sealed class VivoDualFileProtocolDetectionTests
             LivePhotoProtocolType protocol = await LivePhotoMetadataMatcher.DetectDualFileProtocolAsync(
                 imagePath,
                 videoPath,
-                ExternalToolLocator.FindExifTool(),
-                CancellationToken.None);
+                token: CancellationToken.None);
 
             Assert.Equal(LivePhotoProtocolType.Unknown, protocol);
         }

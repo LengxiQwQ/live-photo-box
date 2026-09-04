@@ -1,4 +1,4 @@
-﻿# LivePhotoBox Release Build — 编译 + 打包 3 个产物: 便携版 zip + CLI zip + 安装包
+# LivePhotoBox Release Build — 编译 + 打包 3 个产物: 便携版 zip + CLI zip + 安装包
 # 用法: powershell -ExecutionPolicy Bypass -File build-release.ps1
 #       powershell -ExecutionPolicy Bypass -File build-release.ps1 -CI  (GitHub Actions)
 
@@ -171,15 +171,6 @@ if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
 
     # 复制 CLI 发布输出
     Copy-Item 'publish\cli_single' $cliDir -Recurse -Force
-
-    # Copy external tools (jpegtran.exe included — CLI 后续将支持修复功能)
-    $toolsSrc = Join-Path $projectRoot 'LivePhotoBox\Tools'
-    if (Test-Path $toolsSrc) {
-        New-Item -ItemType Directory -Path "$cliDir\Tools" -Force | Out-Null
-        Get-ChildItem $toolsSrc | ForEach-Object {
-            Copy-Item $_.FullName "$cliDir\Tools\" -Recurse -Force
-        }
-    }
 
     # Strip all locale satellite dirs (CLI is English-only, resw embedded in Core.dll)
     foreach ($dir in (Get-ChildItem $cliDir -Directory -ErrorAction SilentlyContinue)) {

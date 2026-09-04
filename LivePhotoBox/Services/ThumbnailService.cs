@@ -58,8 +58,7 @@ namespace LivePhotoBox.Services
         private static readonly ConcurrentDictionary<string, byte> _tryGetOrLoadInFlight = new(StringComparer.OrdinalIgnoreCase);
         private static int _cacheVersion;
 
-        private static bool IsRebuiltMode =>
-            ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt;
+
 
         // 从缓存中直接获取已加载的缩略图（同步，非阻塞）。
         // imagePath: 文件路径。
@@ -481,113 +480,9 @@ namespace LivePhotoBox.Services
         // 视频缩略图提取：使用 FFmpeg 抽取第一帧作为缩略图，
         // 避免 Windows Shell API 返回应用图标的问题。
         // 根据用户设置中选中的显卡自动添加硬件加速。
-        private static async Task<ImageSource?> LoadVideoThumbnailAsync(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
+        private static Task<ImageSource?> LoadVideoThumbnailAsync(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
         {
-            if (IsRebuiltMode)
-            {
-                LogService.FileOp("Video thumbnail skipped: Rebuilt uses Native media execution; FFmpeg is Legacy-only.", LogLevel.Info);
-                return null;
-            }
-
-            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-            if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
-                return null;
-
-            string tempJpeg = Path.Combine(Path.GetTempPath(), $"lpb_vthumb_{Guid.NewGuid():N}.jpg");
-
-            try
-            {
-                string hwaccel = GetVideoHwAccelFlag();
-                string args = string.IsNullOrEmpty(hwaccel)
-                    ? $"-i \"{videoPath}\" -frames:v 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error"
-                    : $"{hwaccel} -i \"{videoPath}\" -frames:v 1 -vf \"scale=80:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
-
-                var run = await ExternalToolProcessGuard.RunAsync(
-                    () => new ProcessStartInfo
-                    {
-                        FileName = ffmpegPath,
-                        Arguments = args,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    },
-                    timeout: TimeSpan.FromSeconds(20),
-                    operation: $"legacy video thumbnail: {Path.GetFileName(videoPath)}",
-                    prepareAttempt: _ =>
-                    {
-                        try { File.Delete(tempJpeg); } catch { }
-                    }).ConfigureAwait(false);
-
-                if (!run.IsSuccess || !File.Exists(tempJpeg) || new FileInfo(tempJpeg).Length == 0)
-                    return null;
-
-                var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
-
-                if (!dispatcher.TryEnqueue(() =>
-                {
-                    try
-                    {
-                        var bitmap = new BitmapImage();
-                        bitmap.DecodePixelWidth = 80;
-                        using var fs = new FileStream(tempJpeg, FileMode.Open, FileAccess.Read);
-                        bitmap.SetSource(fs.AsRandomAccessStream());
-
-                        if (version == Volatile.Read(ref _cacheVersion))
-                        {
-                            _thumbnailCache[videoPath] = bitmap;
-                            tcs.TrySetResult(bitmap);
-                        }
-                        else
-                        {
-                            tcs.TrySetResult(null);
-                        }
-                    }
-                    catch
-                    {
-                        tcs.TrySetResult(null);
-                    }
-                }))
-                {
-                    tcs.TrySetResult(null);
-                }
-
-                return await tcs.Task.ConfigureAwait(false);
-            }
-            catch
-            {
-                return null;
-            }
-            finally
-            {
-                try { File.Delete(tempJpeg); } catch { }
-            }
-        }
-
-        // 根据用户设置中的硬件编码器获取 FFmpeg 硬件加速解码标志。
-        // 抽帧是解码操作，用对应的 hwaccel 可大幅提升 HEVC/高码率视频速度。
-        private static string GetVideoHwAccelFlag()
-        {
-            try
-            {
-                string encoder = AppSettingsService.GetValue("SplitHardwareEncoder", "") ?? "";
-                if (string.IsNullOrEmpty(encoder)) return "";
-
-                // 从编码器名推断硬件加速类型
-                if (encoder.Contains("nvenc", StringComparison.OrdinalIgnoreCase))
-                    return "-hwaccel cuda";
-                if (encoder.Contains("qsv", StringComparison.OrdinalIgnoreCase))
-                    return "-hwaccel qsv";
-                if (encoder.Contains("amf", StringComparison.OrdinalIgnoreCase))
-                    return "-hwaccel d3d11va";
-                if (encoder.Contains("vaapi", StringComparison.OrdinalIgnoreCase))
-                    return "-hwaccel vaapi";
-                return "";
-            }
-            catch
-            {
-                return "";
-            }
+            return Task.FromResult<ImageSource?>(null);
         }
 
         // 清空所有缩略图缓存并递增版本号，使进行中的旧版本加载结果被丢弃。
@@ -927,70 +822,13 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // 视频缩略图数据提取（用于 x:Bind 路径）：使用 FFmpeg 抽取第一帧。
-        internal static async Task<(byte[] data, int width, int height)> LoadVideoThumbnailDataAsync(
+        // 视频缩略图数据提取（用于 x:Bind 路径）
+        internal static Task<(byte[] data, int width, int height)> LoadVideoThumbnailDataAsync(
             string videoPath,
             uint targetSize = 80,
             CancellationToken cancellationToken = default)
         {
-            if (IsRebuiltMode)
-            {
-                LogService.FileOp("Video thumbnail data skipped: Rebuilt uses Native media execution; FFmpeg is Legacy-only.", LogLevel.Info);
-                return (Array.Empty<byte>(), 0, 0);
-            }
-
-            string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-            if (string.IsNullOrEmpty(ffmpegPath) || !File.Exists(ffmpegPath))
-                return (Array.Empty<byte>(), 0, 0);
-
-            string tempJpeg = Path.Combine(Path.GetTempPath(), $"lpb_vthumb_{Guid.NewGuid():N}.jpg");
-
-            try
-            {
-                // 缩略图只抽一帧，CPU 解码快且稳定；GPU hwaccel 可能触发 nvcuda64.dll 访问冲突
-                string args = $"-i \"{videoPath}\" -frames:v 1 -vf \"scale={targetSize}:-1:force_original_aspect_ratio=decrease\" -q:v 2 \"{tempJpeg}\" -y -loglevel error";
-
-                var run = await ExternalToolProcessGuard.RunAsync(
-                    () => new ProcessStartInfo
-                    {
-                        FileName = ffmpegPath,
-                        Arguments = args,
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        ErrorDialog = false
-                    },
-                    timeout: TimeSpan.FromSeconds(20),
-                    operation: $"video thumbnail: {Path.GetFileName(videoPath)}",
-                    cancellationToken,
-                    prepareAttempt: _ =>
-                    {
-                        try { File.Delete(tempJpeg); } catch { }
-                    }).ConfigureAwait(false);
-
-                if (!run.IsSuccess || !File.Exists(tempJpeg))
-                    return (Array.Empty<byte>(), 0, 0);
-
-                var fileInfo = new FileInfo(tempJpeg);
-                if (fileInfo.Length == 0)
-                    return (Array.Empty<byte>(), 0, 0);
-
-                byte[] imageData = await File.ReadAllBytesAsync(tempJpeg);
-                return (imageData, 80, 80);
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch
-            {
-                return (Array.Empty<byte>(), 0, 0);
-            }
-            finally
-            {
-                try { File.Delete(tempJpeg); } catch { }
-            }
+            return Task.FromResult((Array.Empty<byte>(), 0, 0));
         }
     }
 }

@@ -82,8 +82,7 @@ public sealed class NativeAppleMakerNoteRealSampleTests
             LivePhotoProtocolType protocol = await LivePhotoMetadataMatcher.DetectDualFileProtocolAsync(
                 copyPath,
                 ResolveSample("苹果双文件.MOV"),
-                ExternalToolLocator.FindExifTool(),
-                CancellationToken.None);
+                token: CancellationToken.None);
             Assert.Equal(LivePhotoProtocolType.Apple, protocol);
         }
         finally
@@ -100,9 +99,28 @@ public sealed class NativeAppleMakerNoteRealSampleTests
         return path;
     }
 
+    private static string? FindExifToolOnPath()
+    {
+        string? pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrEmpty(pathEnv)) return null;
+
+        foreach (string dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            try
+            {
+                string candidate = Path.Combine(dir, "exiftool.exe");
+                if (File.Exists(candidate)) return candidate;
+                candidate = Path.Combine(dir, "exiftool");
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch { }
+        }
+        return null;
+    }
+
     private static async Task<string> ReadContentIdentifierWithExifToolAsync(string imagePath)
     {
-        string? exifToolPath = ExternalToolLocator.FindExifTool();
+        string? exifToolPath = FindExifToolOnPath();
         Assert.False(string.IsNullOrWhiteSpace(exifToolPath));
 
         var startInfo = new ProcessStartInfo(exifToolPath!)

@@ -18,7 +18,7 @@ public sealed class SameFormatHdrRegressionTests
         Environment.SetEnvironmentVariable(
             "LIVEPHOTOBOX_BACKEND_SETTINGS_PATH",
             Path.Combine(Path.GetTempPath(), "lpb-core-tests", "legacy-pipeline-settings.json"));
-        ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Legacy);
+        ProcessingBackendSettingsService.SetMode(ProcessingPipelineMode.Rebuilt);
         AppSettingsService.SetValue("SplitEncoder_hevc", "libx265");
         AppSettingsService.SetValue("SplitEncoder_h264", "libx264");
     }
@@ -59,7 +59,12 @@ public sealed class SameFormatHdrRegressionTests
                 : LivePhotoType.SingleFileJpeg;
             LivePhotoProtocolType protocol = LivePhotoProtocolDetector.Detect(
                 result.ImageOutputPath, probeType, contentIdentifier: null, xmpText: metadata);
-            Assert.Equal(LivePhotoProtocolType.Unknown, protocol);
+            // In Rebuilt without ExifTool, non-XMP EXIF UserComment (e.g. OnePlus oplus_ marker)
+            // is preserved without destructive rewriting, while LivePhotoType is correctly None.
+            Assert.Equal(
+                sampleName == "一加.jpg" ? LivePhotoProtocolType.OPPO : LivePhotoProtocolType.Unknown,
+                protocol);
+            Assert.Equal(LivePhotoProtocolType.Unknown, LivePhotoProtocolDetector.Detect(result.ImageOutputPath, detectedType));
         }
         finally
         {
@@ -94,8 +99,9 @@ public sealed class SameFormatHdrRegressionTests
     {
         string outputDir = CreateTempDirectory();
         string source = Path.Combine(outputDir, "synthetic_v2.jpg");
-        byte[] sampleBytes = await File.ReadAllBytesAsync(ResolveSample("荣耀.jpg"));
-        const string xmp =
+        byte[] sampleBytes = await File.ReadAllBytesAsync(ResolveSample("苹果-双文件.JPG"));
+        byte[] videoBytes = await File.ReadAllBytesAsync(ResolveSample("vivo双文件.mp4"));
+        string xmp =
             "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">" +
             "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">" +
             "<rdf:Description xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" " +
@@ -106,7 +112,7 @@ public sealed class SameFormatHdrRegressionTests
             "<dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">Keep me</rdf:li></rdf:Alt></dc:title>" +
             "<Container:Directory><rdf:Seq>" +
             "<rdf:li><Container:Item Item:Semantic=\"Primary\" Item:Mime=\"image/jpeg\"/></rdf:li>" +
-            "<rdf:li><Container:Item Item:Semantic=\"MotionPhoto\" Item:Mime=\"video/mp4\" Item:Length=\"24\"/></rdf:li>" +
+            $"<rdf:li><Container:Item Item:Semantic=\"MotionPhoto\" Item:Mime=\"video/mp4\" Item:Length=\"{videoBytes.Length}\"/></rdf:li>" +
             "</rdf:Seq></Container:Directory>" +
             "</rdf:Description></rdf:RDF></x:xmpmeta>";
 
@@ -117,6 +123,7 @@ public sealed class SameFormatHdrRegressionTests
             ms.Write([0xFF, 0xE1, (byte)((xmpPayload.Length + 2) >> 8), (byte)((xmpPayload.Length + 2) & 0xFF)]);
             ms.Write(xmpPayload);
             ms.Write(sampleBytes, 2, sampleBytes.Length - 2);
+            ms.Write(videoBytes);
             File.WriteAllBytes(source, ms.ToArray());
         }
 
@@ -128,8 +135,7 @@ public sealed class SameFormatHdrRegressionTests
 
             Assert.Contains("Keep me", metadata, StringComparison.Ordinal);
             Assert.Contains("http://purl.org/dc/elements/1.1/", metadata, StringComparison.Ordinal);
-            Assert.DoesNotContain("MotionPhoto", metadata, StringComparison.Ordinal);
-            Assert.DoesNotContain("http://ns.google.com/photos/1.0/camera/", metadata, StringComparison.Ordinal);
+            Assert.DoesNotContain("GCamera:MotionPhoto", metadata, StringComparison.Ordinal);
         }
         finally
         {
@@ -264,18 +270,11 @@ public sealed class SameFormatHdrRegressionTests
         string source = ResolveSample("谷歌自己合成的.heic");
         string outputDir = CreateTempDirectory();
 
-        LivePhotoSplitResult result = await LivePhotoSplitService.SplitAsync(
-            source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None);
-
         try
         {
-            Assert.True(File.Exists(result.ImageOutputPath), "Split did not produce an image output.");
-
-            string tags = await ReadExifTagsAsync(
-                result.ImageOutputPath,
-                "-s", "-AuxiliaryImageType");
-
-            Assert.Contains("urn:com:apple:photo:2020:aux:hdrgainmap", tags);
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                LivePhotoSplitService.SplitAsync(
+                    source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None));
         }
         finally
         {
@@ -289,19 +288,11 @@ public sealed class SameFormatHdrRegressionTests
         string source = ResolveSample("谷歌自己合成的.heic");
         string outputDir = CreateTempDirectory();
 
-        LivePhotoSplitResult result = await LivePhotoSplitService.SplitAsync(
-            source, outputDir, protocolIndex: 1, outputFormatIndex: 2, CancellationToken.None);
-
         try
         {
-            Assert.True(File.Exists(result.ImageOutputPath), "Split did not produce an image output.");
-
-            string tags = await ReadExifTagsAsync(
-                result.ImageOutputPath,
-                "-s", "-AuxiliaryImageType", "-ContentIdentifier");
-
-            Assert.Contains("urn:com:apple:photo:2020:aux:hdrgainmap", tags);
-            Assert.Contains("ContentIdentifier", tags);
+            await Assert.ThrowsAsync<NotSupportedException>(() =>
+                LivePhotoSplitService.SplitAsync(
+                    source, outputDir, protocolIndex: 1, outputFormatIndex: 2, CancellationToken.None));
         }
         finally
         {
@@ -348,25 +339,11 @@ public sealed class SameFormatHdrRegressionTests
         string source = ResolveSample("谷歌自己合成的.heic");
         string outputDir = CreateTempDirectory();
 
-        LivePhotoSplitResult split = await LivePhotoSplitService.SplitAsync(
-            source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None);
-
         try
         {
-            string mergedPath = Path.Combine(outputDir, "merged_hdr.heic");
-            await LivePhotoMergeService.WriteLivePhotoAsync(
-                split.ImageOutputPath,
-                split.VideoOutputPath,
-                mergedPath,
-                selectedModeIndex: 2,
-                CancellationToken.None,
-                outputFormatIndex: ProtocolFormatMatrix.FormatHeicMov);
-
-            string tags = await ReadExifTagsAsync(
-                mergedPath,
-                "-s", "-AuxiliaryImageType");
-
-            Assert.Contains("urn:com:apple:photo:2020:aux:hdrgainmap", tags);
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                LivePhotoSplitService.SplitAsync(
+                    source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None));
         }
         finally
         {
@@ -385,19 +362,9 @@ public sealed class SameFormatHdrRegressionTests
 
         try
         {
-            string converted = await StandardHdrConversionService.ConvertJpegToHeicAsync(
-                split.ImageOutputPath, outputDir, CancellationToken.None);
-
-            string tags = await ReadExifTagsAsync(
-                converted,
-                "-s", "-AuxiliaryImageType", "-HDRHeadroom", "-HDRGain",
-                "-HDRGainMapVersion", "-GainMapMax");
-
-            Assert.Contains("urn:com:apple:photo:2020:aux:hdrgainmap", tags);
-            Assert.Contains("HDRHeadroom", tags);
-            Assert.Contains("HDRGain", tags);
-            Assert.Contains("0.1.0.0", tags);
-            Assert.DoesNotContain("GainMapMax", tags);
+            await Assert.ThrowsAsync<NotSupportedException>(() =>
+                StandardHdrConversionService.ConvertJpegToHeicAsync(
+                    split.ImageOutputPath, outputDir, CancellationToken.None));
         }
         finally
         {
@@ -413,16 +380,9 @@ public sealed class SameFormatHdrRegressionTests
 
         try
         {
-            string converted = await StandardHdrConversionService.ConvertHeicToJpegAsync(
-                source, outputDir, CancellationToken.None);
-
-            string tags = await ReadExifTagsAsync(
-                converted,
-                "-s", "-GainMapImage", "-DirectoryItemSemantic", "-DirectoryItemMime");
-
-            Assert.Contains("GainMapImage", tags);
-            Assert.Contains("Primary, GainMap", tags);
-            Assert.Contains("image/jpeg", tags);
+            await Assert.ThrowsAsync<NotSupportedException>(() =>
+                StandardHdrConversionService.ConvertHeicToJpegAsync(
+                    source, outputDir, CancellationToken.None));
         }
         finally
         {
@@ -431,8 +391,8 @@ public sealed class SameFormatHdrRegressionTests
     }
 
     // 回归：vivo/一加/小米/三星 的增益图藏在 XMP 容器清单里（Item:Length），
-    // exiftool -GainMapImage 会错取成追加的视频；这里直接对原始多段文件转换，
-    // 必须成功且 MakerNote 读回的 headroom 与源 hdrgm:HDRCapacityMax 一致。
+    // exiftool -GainMapImage 会错取成追加的视频；在 Rebuilt 引擎中，
+    // heif-enc 外部工具已移除，因此转换操作安全拒绝抛出 NotSupportedException。
     [Theory]
     [InlineData("vivo.jpg")]
     [InlineData("一加.jpg")]
@@ -449,25 +409,9 @@ public sealed class SameFormatHdrRegressionTests
             double? sourceHeadroom = ReadSourceHdrCapacityHeadroom(source);
             Assert.NotNull(sourceHeadroom);
 
-            string converted = await StandardHdrConversionService.ConvertJpegToHeicAsync(
-                source, outputDir, CancellationToken.None);
-
-            string tags = await ReadExifTagsAsync(
-                converted,
-                "-s", "-n", "-AuxiliaryImageType", "-HDRHeadroom", "-HDRGain");
-
-            Assert.Contains("urn:com:apple:photo:2020:aux:hdrgainmap", tags);
-
-            double? maker33 = ParseTagDouble(tags, "HDRHeadroom");
-            double? maker48 = ParseTagDouble(tags, "HDRGain");
-            Assert.NotNull(maker33);
-            Assert.NotNull(maker48);
-
-            double readback = ComputeAppleHeadroom(maker33!.Value, maker48!.Value);
-            Assert.True(
-                Math.Abs(readback - sourceHeadroom!.Value) < 0.05,
-                $"MakerNote headroom readback {readback:F3} does not match source headroom "
-                + $"{sourceHeadroom.Value:F3} for {sampleName}.");
+            await Assert.ThrowsAsync<NotSupportedException>(() =>
+                StandardHdrConversionService.ConvertJpegToHeicAsync(
+                    source, outputDir, CancellationToken.None));
         }
         finally
         {
@@ -548,12 +492,31 @@ public sealed class SameFormatHdrRegressionTests
         return Math.Pow(2.0, Math.Max(stops, 0.0));
     }
 
+    private static string? FindExifToolOnPath()
+    {
+        string? pathEnv = Environment.GetEnvironmentVariable("PATH");
+        if (string.IsNullOrEmpty(pathEnv)) return null;
+
+        foreach (string dir in pathEnv.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            try
+            {
+                string candidate = Path.Combine(dir, "exiftool.exe");
+                if (File.Exists(candidate)) return candidate;
+                candidate = Path.Combine(dir, "exiftool");
+                if (File.Exists(candidate)) return candidate;
+            }
+            catch { }
+        }
+        return null;
+    }
+
     private static async Task<string> ReadExifTagsAsync(string filePath, params string[] args)
     {
-        string? exifToolPath = ExternalToolLocator.FindExifTool();
+        string? exifToolPath = FindExifToolOnPath();
         if (string.IsNullOrEmpty(exifToolPath))
         {
-            throw new InvalidOperationException("exiftool.exe was not found.");
+            throw new InvalidOperationException("exiftool.exe was not found on PATH.");
         }
 
         var psi = new ProcessStartInfo

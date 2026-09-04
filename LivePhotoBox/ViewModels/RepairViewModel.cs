@@ -955,35 +955,30 @@ namespace LivePhotoBox.ViewModels
                 HashSet<string>? appleFiles = null;
                 if (appleOnlyScan)
                 {
-                    string appleFilterExifTool = ExternalToolLocator.FindExifTool()
-                        ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
-                    if (File.Exists(appleFilterExifTool))
+                    var allFilePaths = new List<string>();
+                    foreach (var item in pairedWorkItems)
                     {
-                        var allFilePaths = new List<string>();
-                        foreach (var item in pairedWorkItems)
-                        {
-                            if (item.imagePath != null) allFilePaths.Add(item.imagePath);
-                            if (item.videoPath != null) allFilePaths.Add(item.videoPath);
-                        }
-                        foreach (var item in standaloneWorkItems)
-                        {
-                            if (item.imagePath != null) allFilePaths.Add(item.imagePath);
-                            if (item.videoPath != null) allFilePaths.Add(item.videoPath);
-                        }
+                        if (item.imagePath != null) allFilePaths.Add(item.imagePath);
+                        if (item.videoPath != null) allFilePaths.Add(item.videoPath);
+                    }
+                    foreach (var item in standaloneWorkItems)
+                    {
+                        if (item.imagePath != null) allFilePaths.Add(item.imagePath);
+                        if (item.videoPath != null) allFilePaths.Add(item.videoPath);
+                    }
 
-                        using (var checkTool = new PersistentExifTool(appleFilterExifTool))
-                        {
-                            appleFiles = await LivePhotoMetadataMatcher.FilterAppleDevicesAsync(
-                                allFilePaths, checkTool, token);
-                        }
+                    try
+                    {
+                        appleFiles = await LivePhotoMetadataMatcher.FilterAppleDevicesAsync(
+                            allFilePaths, token);
 
                         LogService.Repair(
                             $"Apple-only scan: {appleFiles.Count}/{allFilePaths.Count} Apple files detected, " +
                             $"non-Apple files will be marked as skipped");
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        LogService.Repair("Apple-only scan: exiftool not found, skipping detection", LogLevel.Warning);
+                        LogService.Repair($"Apple-only scan failed: {ex.Message}", LogLevel.Warning);
                     }
                 }
 
@@ -1001,47 +996,15 @@ namespace LivePhotoBox.ViewModels
                 var scanProgress = CreateScanProgressReporter();
                 scanProgress.Report(new WorkProgressSnapshot(totalFiles, 0));
 
-                // 创建常驻 exiftool 进程
-                string exifToolPath = ExternalToolLocator.FindExifTool()
-                    ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
-                bool hasExifTool = File.Exists(exifToolPath);
-
                 int processedCount = 0;  // 已分析的文件数（Entry 维度）
                 int entryIndex = 0;      // 按文件（Entry）维度的序号，配对格子里两个文件各算一个
                 int taskGridIndex = 0;  // 格子序号，供滚动定位
 
                 await Task.Run(async () =>
                 {
-                    // ── 创建 exiftool 并行实例池 ──
-                    // 多个独立 PersistentExifTool 实例可绕过单实例 SemaphoreSlim(1) 的串行化瓶颈，
-                    // 实现真正并行的文件分析。每对实况照片消耗 2 个实例（照片+视频并行），
-                    // 独立文件各消耗 1 个实例。默认 4 个实例，可由用户通过设置调整。
-                    int exifToolParallelCount = AppSettingsService.GetValue("ExifToolParallelCount", 4);
-                    exifToolParallelCount = Math.Clamp(exifToolParallelCount, 1, 8);
-                    var exifToolPool = new List<PersistentExifTool>(exifToolParallelCount);
-                    if (hasExifTool)
-                    {
-                        for (int i = 0; i < exifToolParallelCount; i++)
-                        {
-                            var tool = new PersistentExifTool(exifToolPath);
-                            int toolIndex = i; // 捕获用于日志
-                            tool.OnRestarted += (msg) =>
-                            {
-                                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                                {
-                                    AppendDirectStatus($"[exiftool#{toolIndex}] {msg}");
-                                });
-                            };
-                            exifToolPool.Add(tool);
-                        }
-                    }
+                    int repairParallelCount = AppSettingsService.GetValue("RepairParallelCount", 4);
+                    repairParallelCount = Math.Clamp(repairParallelCount, 1, 8);
 
-                    // 从池中按索引取实例（轮转分配，避免单实例过载）
-                    PersistentExifTool? GetExifTool(int index) =>
-                        exifToolPool.Count > 0 ? exifToolPool[index % exifToolPool.Count] : null;
-
-                    try
-                    {
                     var itemBuffer = new List<RepairTask>();
                     long lastFlushMs = Environment.TickCount64;
                     const long flushIntervalMs = 120;
@@ -1082,9 +1045,7 @@ namespace LivePhotoBox.ViewModels
                     var pendingStandaloneVideos = new List<(string baseName, RepairFileEntry entry, int analysisEntryIndex)>();
 
                     // ── 第一遍：批量并行处理文件名配对的项 ──
-                    // 每批处理 exifToolPool.Count/2 对（每对消耗 2 个 exiftool 实例），
-                    // 批内所有照片+视频分析完全并行，充分利用多实例池的吞吐能力
-                    int pairBatchSize = Math.Max(1, exifToolPool.Count / 2);
+                    int pairBatchSize = Math.Max(1, repairParallelCount / 2);
                     for (int batchStart = 0; batchStart < pairedWorkItems.Count; batchStart += pairBatchSize)
                     {
                         if (token.IsCancellationRequested) break;
@@ -1092,7 +1053,7 @@ namespace LivePhotoBox.ViewModels
                         int batchEnd = Math.Min(batchStart + pairBatchSize, pairedWorkItems.Count);
                         int batchCount = batchEnd - batchStart;
 
-                        // ── 启动批次内所有分析任务（照片+视频各用独立的池实例并行执行）──
+                        // ── 启动批次内所有分析任务（照片+视频并行执行）──
                         var batchTasks = new (int wi, string? imagePath, string? videoPath, string baseName,
                             Task<RepairFileEntry?> imageTask, Task<RepairFileEntry?> videoTask)[batchCount];
 
@@ -1101,11 +1062,8 @@ namespace LivePhotoBox.ViewModels
                             int wi = batchStart + bi;
                             var (imagePath, videoPath, baseName, _) = pairedWorkItems[wi];
 
-                            var imgTool = GetExifTool(bi * 2);
-                            var vidTool = GetExifTool(bi * 2 + 1);
-
-                            var imageTask = AnalyzeFileAndCreateEntry(imagePath!, imgTool, heicRepairEnabled, token, appleFiles);
-                            var videoTask = AnalyzeFileAndCreateEntry(videoPath!, vidTool, heicRepairEnabled, token, appleFiles);
+                            var imageTask = AnalyzeFileAndCreateEntry(imagePath!, heicRepairEnabled, token, appleFiles);
+                            var videoTask = AnalyzeFileAndCreateEntry(videoPath!, heicRepairEnabled, token, appleFiles);
 
                             batchTasks[bi] = (wi, imagePath, videoPath, baseName, imageTask, videoTask);
                         }
@@ -1209,7 +1167,7 @@ namespace LivePhotoBox.ViewModels
                         if (imagePath != null)
                         {
                             imageEntry = await AnalyzeFileAndCreateEntry(
-                                imagePath, GetExifTool(0), heicRepairEnabled, token, appleFiles);
+                                imagePath, heicRepairEnabled, token, appleFiles);
                             if (imageEntry != null)
                             {
                                 entryIndex++; processedCount++;
@@ -1235,7 +1193,7 @@ namespace LivePhotoBox.ViewModels
                         if (videoPath != null)
                         {
                             videoEntry = await AnalyzeFileAndCreateEntry(
-                                videoPath, GetExifTool(1), heicRepairEnabled, token, appleFiles);
+                                videoPath, heicRepairEnabled, token, appleFiles);
                             if (videoEntry != null)
                             {
                                 entryIndex++; processedCount++;
@@ -1406,13 +1364,6 @@ namespace LivePhotoBox.ViewModels
                         // 只需确保 itemBuffer 中的剩余项（如果有）被 Flush
                         FlushBuffer(processedCount);
                     }
-                    }
-                    finally
-                    {
-                        // 释放所有常驻 exiftool 实例。
-                        foreach (var tool in exifToolPool)
-                            tool.Dispose();
-                    }
                 }, token);
 
                 FlushPendingScanProgress();
@@ -1488,7 +1439,7 @@ namespace LivePhotoBox.ViewModels
 
         // 分析单个文件并创建 RepairFileEntry。返回 null 表示被取消。
         private async Task<RepairFileEntry?> AnalyzeFileAndCreateEntry(
-            string filePath, PersistentExifTool? persistentExifTool,
+            string filePath,
             bool heicRepairEnabled, CancellationToken token,
             HashSet<string>? appleFiles = null)
         {
@@ -1502,7 +1453,7 @@ namespace LivePhotoBox.ViewModels
             // HEIC修复开关只管"修不修"，不管"匹不匹配" — 诊断和配对始终执行
             try
             {
-                analysis = await LivePhotoRepairService.AnalyzeFileAsync(filePath, persistentExifTool, token);
+                analysis = await LivePhotoRepairService.AnalyzeFileAsync(filePath, token);
             }
             catch (OperationCanceledException)
             {
@@ -1891,8 +1842,7 @@ namespace LivePhotoBox.ViewModels
                                 try
                                 {
                                     var result = await LivePhotoRepairService.RepairAsync(entry.FilePath, targetPath, entry.AnalysisResult!, token, RepairOptions);
-                                    // 用户取消时第三方工具（ffmpeg/exiftool 等）会返回失败：
-                                    // 这是取消造成的，任务应显示"已取消"而不是错误详情。
+                                    // 用户取消时任务应显示"已取消"而不是错误详情。
                                     if (!result.Success && token.IsCancellationRequested)
                                     {
                                         isCanceled = true;

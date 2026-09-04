@@ -314,11 +314,9 @@ namespace LivePhotoBox.Cli.Commands
 
             var json = JsonSerializer.Serialize(new
             {
-                backendMode = rebuilt ? "rebuilt" : "legacy",
-                protocolCommands = rebuilt ? "partial" : "legacy",
-                notice = rebuilt
-                    ? "Rebuilt Native media conversion and the current merge/split paths are active for media work; neutral split exports only protocol-free files, and target protocol writers remain isolated for a later phase."
-                    : "Protocol commands use the Legacy compatibility pipeline.",
+                backendMode = "rebuilt",
+                protocolCommands = "rebuilt",
+                notice = "Native media conversion and merge/split paths are active; neutral split exports protocol-free files.",
                 protocols,
                 split
             }, new JsonSerializerOptions { WriteIndented = true });
@@ -327,17 +325,10 @@ namespace LivePhotoBox.Cli.Commands
 
         private static void PrintBackendNotice()
         {
-            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
-            {
-                CliConsole.WriteLine("Current backend: Rebuilt (Native)", CliConsole.Accent);
-                CliConsole.WriteLine(
-                    "Rebuilt Native media conversion and the current merge/split paths are active for media work; neutral split exports only protocol-free files, and target protocol writers remain isolated for a later phase.",
-                    CliConsole.Notice);
-            }
-            else
-            {
-                CliConsole.WriteLine("Current backend: Legacy", CliConsole.Accent);
-            }
+            CliConsole.WriteLine("Engine: Rebuilt (Native)", CliConsole.Accent);
+            CliConsole.WriteLine(
+                "Native media conversion and merge/split paths are active; neutral split exports protocol-free files.",
+                CliConsole.Notice);
         }
     }
 }

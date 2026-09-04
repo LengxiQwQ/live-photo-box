@@ -13,47 +13,10 @@ namespace LivePhotoBox.Services
     {
         // ── 编码器可用性 ────────────────────────────────
 
-        // 检查 FFmpeg 编码器是否可用。优先走 HardwareService 的缓存（5 分钟有效），
-        // 缓存不可用时 spawn ffmpeg -encoders 直接检查。
-        // 这是全项目唯一的编码器可用性检查入口。
+        // 检查编码器是否可用。Rebuilt 模式不再支持外部 FFmpeg 编码器。
         public static bool IsEncoderAvailable(string encoder)
         {
-            if (string.IsNullOrEmpty(encoder)) return false;
-
-            // 快速路径：HardwareService 缓存的编码器集合
-            var cached = HardwareService.GetAvailableEncoders();
-            if (cached.Count > 0)
-                return cached.Contains(encoder);
-
-            // 慢速路径：直接 spawn ffmpeg
-            return CheckEncoderViaFFmpeg(encoder);
-        }
-
-        private static bool CheckEncoderViaFFmpeg(string encoder)
-        {
-            try
-            {
-                string? ffmpegPath = ExternalToolLocator.FindFFmpeg();
-                if (string.IsNullOrEmpty(ffmpegPath)) return false;
-
-                using var process = new Process
-                {
-                    StartInfo = new ProcessStartInfo
-                    {
-                        FileName = ffmpegPath,
-                        Arguments = "-hide_banner -encoders",
-                        UseShellExecute = false,
-                        CreateNoWindow = true,
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true
-                    }
-                };
-                process.Start();
-                string output = process.StandardOutput.ReadToEnd();
-                process.WaitForExit(5000);
-                return output.Contains(encoder, StringComparison.OrdinalIgnoreCase);
-            }
-            catch { return false; }
+            return false;
         }
 
         // ── 硬件编码器判定 ─────────────────────────────

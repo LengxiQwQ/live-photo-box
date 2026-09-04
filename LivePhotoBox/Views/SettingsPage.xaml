@@ -9,7 +9,6 @@
     xmlns:controls="using:CommunityToolkit.WinUI.Controls"
     xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
     xmlns:ic="using:FluentIcons.WinUI"
-    xmlns:appControls="using:LivePhotoBox.Controls"
     mc:Ignorable="d" Background="Transparent"
     NavigationCacheMode="Required">
 
@@ -299,8 +298,6 @@
                         <TextBlock x:Uid="SettingsPage_General_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                     </StackPanel>
 
-                    <appControls:ProcessingEngineSettingsControl/>
-
                     <controls:SettingsCard FontFamily="Microsoft YaHei UI">
                     <controls:SettingsCard.Header>
                         <TextBlock x:Uid="SettingsPage_General_RecursiveScan" FontFamily="Microsoft YaHei UI"/>
@@ -496,45 +493,7 @@
                     <TextBlock x:Uid="SettingsPage_Merge_Header" FontSize="18" FontWeight="SemiBold" FontFamily="Microsoft YaHei UI"/>
                 </StackPanel>
 
-                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
-                    <controls:SettingsCard.Header>
-                        <TextBlock x:Uid="SettingsPage_Merge_HeicDecoder" FontFamily="Microsoft YaHei UI"/>
-                    </controls:SettingsCard.Header>
-                    <controls:SettingsCard.Description>
-                        <StackPanel Spacing="2">
-                            <TextBlock x:Uid="SettingsPage_Merge_HeicDecoder_Desc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                            <!-- 两个链接放在 WrapPanel 中，一行放不下时自动换行 -->
-                            <toolkit:WrapPanel HorizontalSpacing="16" VerticalSpacing="4">
-                                <HyperlinkButton FontSize="12"
-                                                 Padding="0"
-                                                 Click="OpenHeifStoreLink_Click">
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <TextBlock x:Uid="SettingsPage_Merge_HeicDecoder_HeifLinkText" VerticalAlignment="Center"/>
-                                        <FontIcon Glyph="&#xE8A7;" FontSize="11" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </HyperlinkButton>
-                                <HyperlinkButton FontSize="12"
-                                                 Padding="0"
-                                                 Click="OpenHevcStoreLink_Click">
-                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                        <TextBlock x:Uid="SettingsPage_Merge_HeicDecoder_HevcLinkText" VerticalAlignment="Center"/>
-                                        <FontIcon Glyph="&#xE8A7;" FontSize="11" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </HyperlinkButton>
-                            </toolkit:WrapPanel>
-                        </StackPanel>
-                    </controls:SettingsCard.Description>
-                    <controls:SettingsCard.HeaderIcon>
-                        <ic:SymbolIcon Symbol="DeveloperBoardSearch" />
-                    </controls:SettingsCard.HeaderIcon>
-                    <ComboBox x:Name="HeicDecoderComboBox"
-                              SelectedIndex="{x:Bind ViewModel.HeicDecoderIndex, Mode=TwoWay}"
-                              Loaded="AppearanceComboBox_Loaded"
-                              MinWidth="200">
-                        <ComboBoxItem x:Uid="SettingsPage_Merge_HeicDecoder_MagickNET"/>
-                        <ComboBoxItem x:Uid="SettingsPage_Merge_HeicDecoder_HeifDec"/>
-                    </ComboBox>
-                </controls:SettingsCard>
+
 
                 <controls:SettingsCard FontFamily="Microsoft YaHei UI">
                     <controls:SettingsCard.Header>
@@ -938,12 +897,6 @@
                                         <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                             <FontIcon Glyph="&#xE72C;" FontSize="14"/>
                                             <TextBlock x:Uid="SettingsPage_RestartApp_Button_Text" FontSize="13" VerticalAlignment="Center"/>
-                                        </StackPanel>
-                                    </Button>
-                                    <Button Click="CheckExternalTools_Click">
-                                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                            <FontIcon Glyph="&#xE9D2;" FontSize="14"/>
-                                            <TextBlock x:Uid="SettingsPage_CheckTools_Button_Text" FontSize="13" VerticalAlignment="Center"/>
                                         </StackPanel>
                                     </Button>
                                 </toolkit:WrapPanel>

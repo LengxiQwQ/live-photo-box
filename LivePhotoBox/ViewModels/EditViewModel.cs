@@ -339,8 +339,6 @@ namespace LivePhotoBox.ViewModels
 
         [ObservableProperty] private string _timelineInfo = string.Empty;
 
-        /// <summary>视频帧率数值（fps），用于绑定 FpsDisplayText 计算</summary>
-        private double _videoFps = 30.0;
 
         /// <summary>FPS 显示文本，如 "30fps"</summary>
         [ObservableProperty] private string _fpsDisplayText = string.Empty;
@@ -1019,14 +1017,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private async Task Save()
         {
-            try
-            {
-                await ProcessingPipelineRouter.RunAsync("cover", SaveLegacyAsync);
-            }
-            catch (RebuiltPipelineNotReadyException exception)
-            {
-                await ProcessingNotReadyDialogService.ShowAsync(exception.Operation);
-            }
+            await ProcessingNotReadyDialogService.ShowAsync("cover");
         }
 
         private async Task SaveLegacyAsync()
@@ -1324,50 +1315,7 @@ namespace LivePhotoBox.ViewModels
         /// <summary>
         /// 用 exiftool 回读已保存文件的 PresentationTimestamp，验证写入正确。
         /// 返回微秒值，读取失败或标签不存在时返回 null。
-        /// </summary>
-        private static async Task<long?> ReadTimestampFromFileAsync(string filePath)
-        {
-            try
-            {
-                string? exifToolPath = ExternalToolLocator.FindExifTool();
-                if (string.IsNullOrEmpty(exifToolPath)) return null;
-
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = exifToolPath,
-                    Arguments = $"-MotionPhotoPresentationTimestampUs -MicroVideoPresentationTimestampUs -s -s -S \"{filePath}\"",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-
-                using var proc = System.Diagnostics.Process.Start(psi);
-                if (proc == null) return null;
-
-                string output = await proc.StandardOutput.ReadToEndAsync();
-                proc.WaitForExit(5000);
-
-                // exiftool -s -s -S 输出格式：每行 "TagName: Value"
-                foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    var trimmed = line.Trim();
-                    if (trimmed.StartsWith("MotionPhotoPresentationTimestampUs:", StringComparison.OrdinalIgnoreCase)
-                        || trimmed.StartsWith("MicroVideoPresentationTimestampUs:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var colonIdx = trimmed.IndexOf(':');
-                        if (colonIdx >= 0 && long.TryParse(trimmed[(colonIdx + 1)..].Trim(), out long val))
-                            return val;
-                    }
-                }
-
-                return null;
-            }
-            catch
-            {
-                return null;
-            }
-        }
+        private static Task<long?> ReadTimestampFromFileAsync(string filePath) => Task.FromResult<long?>(null);
 
         /// <summary>
         /// Huawei / Honor Moving Photo 的"设为封面并保存为副本"。
@@ -2218,33 +2166,7 @@ namespace LivePhotoBox.ViewModels
                 BeginExportProgress(ResourceService.GetString("EditPage_SaveKeyPhotoInProgress"));
 
                 // ── 3b. 读取原 HEIC 的 ContentIdentifier（Apple 配对 UUID）──
-                //     后续显式写回 HEIC 和 MOV，确保重新扫描时能识别为实况照片
                 string? contentIdentifier = null;
-                try
-                {
-                    string? exifPath = ExternalToolLocator.FindExifTool();
-                    if (!string.IsNullOrEmpty(exifPath))
-                    {
-                        var cidPsi = new System.Diagnostics.ProcessStartInfo
-                        {
-                            FileName = exifPath,
-                            Arguments = $"-j -ContentIdentifier \"{photoPath}\"",
-                            UseShellExecute = false, CreateNoWindow = true,
-                            RedirectStandardOutput = true, RedirectStandardError = true
-                        };
-                        using var cidProc = System.Diagnostics.Process.Start(cidPsi);
-                        if (cidProc != null)
-                        {
-                            string cidJson = await cidProc.StandardOutput.ReadToEndAsync();
-                            cidProc.WaitForExit(5000);
-                            using var doc = JsonDocument.Parse(cidJson);
-                            var root = doc.RootElement[0];
-                            if (root.TryGetProperty("ContentIdentifier", out var cidEl))
-                                contentIdentifier = cidEl.GetString();
-                        }
-                    }
-                }
-                catch { /* non-fatal */ }
                 LogService.FileOp(
                     $"KeyPhoto Save[Apple]: original ContentIdentifier = {contentIdentifier ?? "(null)"}",
                     LogLevel.Info);
@@ -3817,6 +3739,7 @@ namespace LivePhotoBox.ViewModels
                 pathBox.Text);
         }
 
+
         /// <summary>解析实况照片的视频源路径</summary>
         private async Task<string?> ResolveVideoPathForExportAsync(EditFileItem item)
         {
@@ -4284,28 +4207,7 @@ namespace LivePhotoBox.ViewModels
         //  exiftool 属性加载（选中文件时）
         // ══════════════════════════════════════════════════════════════
 
-        /// <summary>属性查询用的 PersistentExifTool 单例（懒加载，一个足够）</summary>
-        private PersistentExifTool? _propExifTool;
-
-        private PersistentExifTool GetPropExifTool()
-        {
-            if (_propExifTool != null) return _propExifTool;
-
-            string? exifToolPath = ExternalToolLocator.FindExifTool()
-                ?? Path.Combine(AppContext.BaseDirectory, "Tools", "exiftool.exe");
-            if (!File.Exists(exifToolPath)) throw new InvalidOperationException("exiftool not found");
-
-            _propExifTool = new PersistentExifTool(exifToolPath);
-            _propExifTool.OnRestarted += (msg) =>
-                LogService.FileOp($"[KeyPhoto exiftool] {msg}", LogLevel.Warning);
-            return _propExifTool;
-        }
-
-        private void DisposeExifTool()
-        {
-            try { _propExifTool?.Dispose(); } catch { }
-            _propExifTool = null;
-        }
+        private void DisposeExifTool() { }
 
         /// <summary>全部 exiftool 查询标签（一次查询拿到所有属性）</summary>
         private static readonly string[] PropTags =
@@ -4348,7 +4250,6 @@ namespace LivePhotoBox.ViewModels
                 $"embeddedVideoLen={embeddedVideoLen}",
                 LogLevel.Info);
 
-            string? tempVideoPath = null;
             try
             {
                 if (!IsImageOrVideo(imagePath))
@@ -4357,19 +4258,19 @@ namespace LivePhotoBox.ViewModels
                     return;
                 }
 
-                if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
-                {
-                    await LoadRebuiltPropertiesAsync(imagePath, videoPath, generation, token).ConfigureAwait(false);
-                    return;
-                }
-
-                PersistentExifTool exifTool;
-                try { exifTool = GetPropExifTool(); }
-                catch (InvalidOperationException ex)
-                {
-                    LogService.FileOp($"Timeline[LoadProps] SKIP: exiftool not available: {ex.Message}", LogLevel.Error);
-                    return;
-                }
+                await LoadRebuiltPropertiesAsync(imagePath, videoPath, generation, token).ConfigureAwait(false);
+                return;
+            }
+            catch (OperationCanceledException)
+            {
+                LogService.FileOp("Timeline[LoadProps] CANCELLED (OperationCanceledException)", LogLevel.Warning);
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"Timeline[LoadProps] EXCEPTION: {ex.GetType().Name}: {ex.Message}", LogLevel.Error, ex);
+            }
+        }
+#if false
 
                 // 华为实况照片：视频嵌在文件中间（非尾部），需特殊提取
                 // 华为没有 XMP，embeddedVideoLen 始终为 0。先读文件尾检查是否有 LIVE_ 标记。
@@ -4767,9 +4668,8 @@ namespace LivePhotoBox.ViewModels
                 if (tempVideoPath != null)
                 {
                     _tempVideoPath = tempVideoPath;
-                }
-            }
         }
+#endif
 
         private static string TruncateJson(string json, int maxLen = 300)
         {
@@ -6270,11 +6170,9 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         private async Task ReadResolutionsAsync(List<EditFileItem> files, List<string> videoPaths, CancellationToken token)
         {
-            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
-            {
-                await ReadRebuiltResolutionsAsync(files, token).ConfigureAwait(false);
-                return;
-            }
+            await ReadRebuiltResolutionsAsync(files, token).ConfigureAwait(false);
+        }
+#if false
 
             var dispatcher = App.MainWindow?.DispatcherQueue;
             if (dispatcher == null) return;
@@ -6653,6 +6551,7 @@ namespace LivePhotoBox.ViewModels
                 $"KeyPhoto resolution done: {resSuccess} success, {files.Count - resSuccess} failed " +
                 $"(out of {files.Count})");
         }
+#endif
 
         /// <summary>将文件列表按 batchSize 分批，供 exiftool 批量查询使用。</summary>
         private static List<List<(int Index, string Path)>> BuildBatches(
@@ -7174,10 +7073,9 @@ namespace LivePhotoBox.ViewModels
         {
             if (filePaths.Count == 0) return null;
 
-            if (ProcessingBackendSettingsService.Load().Mode == ProcessingPipelineMode.Rebuilt)
-                return await LoadDroppedFilesRebuiltAsync(filePaths);
-
-            IsScanning = true;
+            return await LoadDroppedFilesRebuiltAsync(filePaths);
+        }
+#if false
             try
             {
                 var dispatcher = App.MainWindow?.DispatcherQueue;
@@ -7566,6 +7464,7 @@ namespace LivePhotoBox.ViewModels
                 IsScanning = false;
             }
         }
+#endif
 
         private async Task<string?> LoadDroppedFilesRebuiltAsync(List<string> filePaths)
         {
@@ -7785,6 +7684,7 @@ namespace LivePhotoBox.ViewModels
             return null;
         }
 
+#if false
         /// <summary>快速查询两个文件的 ContentIdentifier（各一次 exiftool，O(1)）。</summary>
         private static async Task<(string? Cid1, string? Cid2)> QueryTwoCidsAsync(
             string exifToolPath, string path1, string path2)
@@ -7874,6 +7774,7 @@ namespace LivePhotoBox.ViewModels
 
             await Task.WhenAll(tasks);
         }
+#endif
 
         // ══════════════════════════════════════════════════════════════
         //  结构化属性（exiftool 解析结果）

@@ -684,21 +684,13 @@ namespace LivePhotoBox.Cli.Commands
             int metaPairs = 0;
             if (useCid && scanResult.StandaloneImagePaths.Count > 0 && scanResult.StandaloneVideoPaths.Count > 0)
             {
-                string? exifToolPath = ExternalToolLocator.FindExifTool();
-                if (!string.IsNullOrEmpty(exifToolPath) && File.Exists(exifToolPath))
-                {
-                    if (!json) Console.Write("CID matching... ");
-                    var metaResult = await LivePhotoMetadataMatcher.MatchAsync(
-                        scanResult.StandaloneImagePaths, scanResult.StandaloneVideoPaths,
-                        exifToolPath, ct);
-                    foreach (var mp in metaResult.Pairs)
-                        allPairs.Add((mp.ImagePath, mp.VideoPath, Path.GetFileNameWithoutExtension(mp.ImagePath)));
-                    metaPairs = metaResult.Pairs.Count;
-                }
-                else
-                {
-                    if (!json) Console.Write("(exiftool not found, skip CID) ");
-                }
+                if (!json) Console.Write("CID matching... ");
+                var metaResult = await LivePhotoMetadataMatcher.MatchAsync(
+                    scanResult.StandaloneImagePaths, scanResult.StandaloneVideoPaths,
+                    token: ct);
+                foreach (var mp in metaResult.Pairs)
+                    allPairs.Add((mp.ImagePath, mp.VideoPath, Path.GetFileNameWithoutExtension(mp.ImagePath)));
+                metaPairs = metaResult.Pairs.Count;
             }
             else if (useVivo && scanResult.StandaloneImagePaths.Count > 0 && scanResult.StandaloneVideoPaths.Count > 0)
             {

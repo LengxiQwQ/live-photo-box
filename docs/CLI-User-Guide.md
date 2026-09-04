@@ -98,9 +98,6 @@ lpb --info
 # View protocol × format compatibility matrix
 lpb protocols
 
-# View the shared processing-branch configuration
-lpb backend
-
 # Convert standalone media through the Rebuilt Native pipeline (no external media CLI)
 lpb convert input.mov -o output.mp4 --codec h264
 lpb convert input.heic -o output.jpg
@@ -136,23 +133,9 @@ lpb cover photo.jpg --at 1.5 -y
 | `lpb split` | Split single-file live photos into separate image and video files |
 | `lpb cover` | Change the cover frame (Key Photo) of an existing live photo; alias `keyphoto` |
 | `lpb repair` | Analyze and repair live photo metadata |
-| `lpb backend` | View or configure the global `rebuilt` / `legacy` branch |
 | `lpb --info` / `lpb --version` (`-v`) | Show version, environment, and bundled tool versions |
 
 The `update` / `update-check` commands are covered in the Updating section above.
-
-### `backend` — Configure the global processing branch
-
-The GUI and CLI share `%LOCALAPPDATA%\LivePhotoBox\backend-settings.json`. There is one global switch, not one setting per protocol. It defaults to `rebuilt`. Rebuilt standalone media conversion runs through the Native C++ media library and does not launch FFmpeg or another external media CLI. Vendor protocol writers are not enabled yet, so `merge`, `split`, `cover`, and `repair` still stop before Legacy code is used. Set `legacy` only when you explicitly need the preserved `v2.2.1` compatibility implementation.
-
-| Goal | Command |
-|------|---------|
-| View configuration path and active branch | `lpb backend` |
-| Use the preserved compatibility implementation | `lpb backend mode legacy` |
-| Use the new isolated branch | `lpb backend mode rebuilt` |
-| Delete the shared configuration and restore the Rebuilt default | `lpb backend reset` |
-
-`rebuilt` deliberately does not fall back to Legacy. `lpb convert` and the current rebuilt merge/split media paths use Native probing, conversion, and cleaning. Rebuilt split exports only protocol-free neutral files; Apple/vivo target writers remain isolated for a later phase. Unsupported operations fail clearly and create no guessed output.
 
 ### `convert` — Rebuilt Native standalone media conversion
 
