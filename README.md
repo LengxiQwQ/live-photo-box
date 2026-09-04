@@ -300,7 +300,7 @@ Views: **2,390** ｜ Uniques: **183** (14-day) ｜ Clones: **2,068** ｜ Cloners
 **Top referrers (14-day):** github.com · Bing · Google · chatgpt.com · t.co · doubao.com  
 **Top content (14-day):** releases · releases/tag/v2.2.1 · README.zh-CN.md · releases/tag/v2.2.0
 
-> Data since 2026-08-02 · Last updated: 2026-09-03 (UTC+8)
+> Data since 2026-08-02 · Last updated: 2026-09-04 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
