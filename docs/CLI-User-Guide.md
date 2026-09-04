@@ -155,7 +155,7 @@ lpb convert input.jpg -o output.heic
 
 Run `lpb protocols` to view this interactively, or `lpb protocols --json` for structured output.
 
-The command reports the active global backend and the protocol/format matrix. In the default `rebuilt` mode, standalone conversion and the current merge/split media paths use Native; rebuilt split exposes only protocol-free neutral output. Target protocol writers remain isolated for a later phase. Standalone media conversion is available via `lpb convert`.
+The command reports runtime engine information and the protocol/format matrix. Standalone conversion, media extraction, and current merge/split paths operate via the Rebuilt Native engine; split exposes protocol-free neutral output. Target protocol writers remain scheduled for a later phase (Roadmap P9). Standalone media conversion is available via `lpb convert`.
 
 **Compatibility matrix** — which output formats each protocol supports:
 
@@ -345,7 +345,7 @@ In batch mode (`-d`), the tool must decide which image belongs to which video:
 | `cid` | Apple `ContentIdentifier` UUID match, regardless of filename | `IMG_0002.HEIC` + `renamed.MOV` → paired |
 | `vivo` | vivo camera ID in the JPEG tail + MP4 metadata | `vivo_photo.jpg` + `vivo_video.mp4` → paired |
 
-`cid` requires `exiftool.exe` in the `Tools\` directory alongside the executable (included in all packages); `name` and `vivo` need no external tools.
+`cid` pairing inspects Apple ContentIdentifier directly via the Native engine; `name` and `vivo` also run natively without external tools.
 
 #### Naming Templates
 
@@ -532,6 +532,8 @@ Only source files from **successfully** split live photos are affected.
 
 ### `cover` — Change the cover frame (Key Photo)
 
+> ⚠️ **Note**: The command syntax and options are defined, but cover extraction and writing are currently frozen pending Native reconstruction (`rebuilt_not_ready`).
+
 Change the cover frame (Key Photo) of an existing live photo without re-encoding the video. Alias `keyphoto` (aligns with Apple terminology).
 
 Auto-detects single-file (Huawei/V2/OPPO/Samsung/Fusion) and dual-file (Apple HEIC+MOV, Vivo old dual-file) formats.
@@ -631,6 +633,8 @@ The command generates `{source_name}_cover{frame}` by default (e.g. `IMG_1234_co
 
 ### `repair` — Repair live photo metadata
 
+> ⚠️ **Note**: The command syntax, diagnosis, and flags are defined, but the underlying repair execution is currently frozen pending Native reconstruction (`rebuilt_not_ready`, scheduled for Roadmap P8).
+
 Analyzes and fixes four kinds of metadata problems on existing live photo files: image rotation, embedded thumbnails, HEIC orientation, and video rotation. Images: `.jpg .jpeg .heic .heif`; videos: `.mov .mp4`.
 
 | Mode | Arguments | Use case |
@@ -667,10 +671,10 @@ Analyzes and fixes four kinds of metadata problems on existing live photo files:
 
 | Option | Description |
 |--------|-------------|
-| `--no-rotate` | Disable image rotation fix (jpegtran lossless rotation) |
+| `--no-rotate` | Disable image rotation fix |
 | `--no-thumbnail` | Disable embedded thumbnail stripping |
 | `--no-heic` | Disable HEIC/HEIF orientation fix |
-| `--no-video` | Disable video rotation bake (FFmpeg re-encode) |
+| `--no-video` | Disable video rotation bake |
 | `--all-devices` | Repair files from all devices. Default: only Apple Live Photos (identified by their `ContentIdentifier` UUID) are repaired |
 | `--repair-long-videos` | Also repair videos longer than 3.5 s (not real live photos). Default: skipped |
 | `--copy-perfect` | Also copy files that need no repair to the output folder (batch mode only) |
@@ -698,10 +702,10 @@ All four fixes are **on by default** — use the `--no-*` flags to turn individu
 
 | Fix | What it does | Applies to |
 |-----|--------------|------------|
-| Image rotation | jpegtran lossless rotation, then resets the EXIF orientation tag | JPEG |
+| Image rotation | Lossless JPEG rotation, resetting EXIF orientation | JPEG |
 | Thumbnail strip | Strips the embedded thumbnail/preview image (reduces file size) | JPEG |
 | HEIC orientation | Fixes EXIF orientation to match the QuickTime `Rotation` (mirror flag or angle mismatch) | HEIC/HEIF |
-| Video rotation bake | FFmpeg re-encode baking the rotation matrix into the pixels | MOV/MP4 |
+| Video rotation bake | Video rotation baking rotation matrix into pixels | MOV/MP4 |
 
 > **Note:** all four fixes are on by default; pass `--no-heic` to disable HEIC orientation (matches the GUI default).
 
@@ -781,8 +785,8 @@ Run `lpb protocols` to list valid protocol names and shorthand aliases.
 #### Format not available for protocol
 Run `lpb protocols` to view the compatibility matrix. For example, `heic+mp4-h265` is only available for `huawei`.
 
-#### "exiftool not found" with `--pairing cid`
-Add `exiftool.exe` to the `Tools\` folder next to the executable.
+#### ContentIdentifier (`cid`) pairing
+Apple ContentIdentifier UUID inspection is performed directly in-process by `LivePhotoBox.Native`. No external tools or configuration are required.
 
 #### Output file extension differs from source
 Expected behaviour. When the source is HEIC and a JPEG-based format is selected, the output uses `.jpg`.

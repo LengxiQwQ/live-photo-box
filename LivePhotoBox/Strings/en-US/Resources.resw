@@ -1172,21 +1172,6 @@ You can open the log folder or export the latest log now to help diagnose the is
   <data name="RepairPage_ColIssue.Text" xml:space="preserve">
     <value>Diagnosis</value>
   </data>
-  <data name="Error_ExifToolMissing" xml:space="preserve">
-    <value>Missing core tool: Tools\exiftool.exe</value>
-  </data>
-  <data name="Error_JpegTranMissing" xml:space="preserve">
-    <value>Missing core tool: Tools\jpegtran.exe</value>
-  </data>
-  <data name="Error_CannotStartExifTool" xml:space="preserve">
-    <value>Failed to start exiftool process</value>
-  </data>
-  <data name="Error_CannotStartJpegTran" xml:space="preserve">
-    <value>Failed to start jpegtran process</value>
-  </data>
-  <data name="Error_ExifToolError" xml:space="preserve">
-    <value>ExifTool error: {0}</value>
-  </data>
   <data name="Error_CSharpException" xml:space="preserve">
     <value>Internal exception: {0}</value>
   </data>
@@ -1842,12 +1827,6 @@ Open the output folder when done — your photos are back to normal ~</value>
   </data>
   <data name="Error_HeicConversionFailed" xml:space="preserve">
     <value>HEIC/HEIF file "{0}" conversion failed: {1}</value>
-  </data>
-  <data name="Error_HeifEncMissing" xml:space="preserve">
-    <value>Missing built-in tool: Tools\heif-enc.exe</value>
-  </data>
-  <data name="Error_HeifDecMissing" xml:space="preserve">
-    <value>Missing built-in tool: Tools\heif-dec.exe</value>
   </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
     <value>Combine photos and videos into standard Live Photos with batch protocol conversion</value>
@@ -4373,6 +4352,4 @@ Then click "Start Split".</value>
   <data name="RepairPage_FilterButton.ToolTipService.ToolTip" xml:space="preserve"><value>Filter tasks (Ctrl+F)</value></data>
   <data name="RepairPage_ClearButton.ToolTipService.ToolTip" xml:space="preserve"><value>Clear list (C) / Pause or resume (P)</value></data>
   <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve"><value>Start repairing (Ctrl+Enter) / Stop (press Esc twice)</value></data>
-  <data name="SettingsPage_General_ProcessingVersion.Text" xml:space="preserve"><value>Use rebuilt processing</value></data>
-  <data name="SettingsPage_General_ProcessingVersion_Desc.Text" xml:space="preserve"><value>Rebuilt is the new isolated branch and currently has no protocol implementation; turn it off to use the preserved Legacy compatibility flow</value></data>
 </root>

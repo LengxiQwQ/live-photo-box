@@ -27,13 +27,10 @@ namespace LivePhotoBox.Cli.Commands
         private static readonly bool[] MergeSupported =
             [false, true, true, true, false, false, true];
 
-        // Split protocols retained for the Legacy compatibility branch. Rebuilt exposes
-        // only the protocol-free neutral split path; target writers are intentionally isolated.
+        // Rebuilt exposes only the protocol-free neutral split path; target writers are deferred to P9.
         private static readonly (string Name, string Devices, bool Supported)[] SplitProtocols =
         [
             ("None (split only)",  "Any device", true),
-            ("Apple Live Photo",   "iPhone / iPad", true),
-            ("vivo Live Photo",    "vivo (≤ X200)", true),
         ];
 
         public static Command Create()
@@ -108,7 +105,7 @@ namespace LivePhotoBox.Cli.Commands
                 SplitProtocols.Select(p => p.Supported).ToArray());
 
             PrintSplitFormatMatrix();
-            WriteIndexLine("Split protocol indices: ", "none=0  apple=1  vivo=2");
+            WriteIndexLine("Split protocol indices: ", "none=0");
             WriteIndexLine("Split format indices:   ", "keep=0  jpg+mov=1  heic+mov=2  jpg+mp4=3");
 
             // Repair — fixes metadata; no protocol choice involved.
@@ -157,9 +154,8 @@ namespace LivePhotoBox.Cli.Commands
             string[] fmtNames = SplitCommand.SplitFormatNames
                 .Select(f => f == "keep" ? "keep" : f.ToUpperInvariant().Replace("+", " + "))
                 .ToArray();
-            const bool rebuilt = true;
-            int protocolCount = rebuilt ? 1 : SplitProtocols.Length;
-            int nameW = Math.Max("Protocol".Length, SplitProtocols.Take(protocolCount).Max(p => p.Name.Length));
+            int protocolCount = SplitProtocols.Length;
+            int nameW = Math.Max("Protocol".Length, SplitProtocols.Max(p => p.Name.Length));
             int fmtW = Math.Max(8, fmtNames.Max(f => f.Length) + 1);
 
             Console.Write("Protocol".PadRight(nameW));
@@ -273,7 +269,6 @@ namespace LivePhotoBox.Cli.Commands
 
         private static void PrintJson()
         {
-            const bool rebuilt = true;
             var protocols = new object[ProtocolFormatMatrix.Matrix.Length - 1];
             for (int p = 1; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
@@ -293,7 +288,7 @@ namespace LivePhotoBox.Cli.Commands
                 };
             }
 
-            int splitProtocolCount = rebuilt ? 1 : SplitProtocols.Length;
+            int splitProtocolCount = SplitProtocols.Length;
             var split = new object[splitProtocolCount];
             for (int s = 0; s < splitProtocolCount; s++)
             {

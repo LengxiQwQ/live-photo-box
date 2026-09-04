@@ -60,64 +60,71 @@ It also preserves as much of the original detail and information as possible, in
 
 ---
 
-## ✨ Core Features
+> ℹ️ **Historical Releases vs. Current Architecture**
+>
+> Earlier Live Photo Box releases used bundled external tools such as FFmpeg, ExifTool, jpegtran and libheif command-line utilities for parts of the media and metadata pipeline. The current development branch has moved to a Rebuilt / Native-only architecture, and those external executables are no longer part of the current product runtime. As a result, older published releases may differ from the current master branch in dependencies, architecture and temporary feature availability.
 
-### 🖼️ Live Photo Edit
+---
 
-Freely change your Live Photo cover — pick the perfect moment from the video timeline.
+## ✨ Core Features & Development Status
 
-- Filmstrip timeline with frame-by-frame preview
-- Replace cover, export a single frame, or all frames — or export the clip as video / GIF
-- Quick Live Photo protocol conversion
-- Inspect file properties and detect the Live Photo protocol
+Live Photo Box strictly separates **Source Inspection / Cleaning**, **Neutral Extraction**, and **Target Writing**:
 
-### 🔗 Merge Live Photo
+```text
+GUI / CLI → Core Orchestration → LivePhotoBox.Native (C++20)
+(Rebuilt-only · No Legacy Runtime · No Bundled External Executables)
+```
+
+### 🔗 Merge Live Photo (Combo)
 
 Convert a **dual-file Live Photo** (or any image + video pair) into a **single-file Live Photo**, viewable on Windows and Android devices.
 
 - **Merge anything in one click**: drag & drop or pick an image (`JPG` / `HEIC`) + a video (`MP4` / `MOV`), or scan a whole folder and auto-pair everything into a batch queue
-- **Smart pairing**: auto-match image + video by filename, Apple `ContentIdentifier` UUID, or vivo camera ID — or merge an existing dual-file Live Photo pair directly
-- **Any target protocol**: switch between all major phone protocols in one click, with `JPEG+MP4` / `JPEG+MOV` / `HEIC+MP4` / `HEIC+MOV` / `HEIC+MP4 (H.265)` outputs — available formats adapt to the selected protocol
-- **Batch file naming**: quickly compose filenames from template segments (original name / protocol / date / time / EXIF date-time / counter / custom text) with drag-to-reorder, presets, separators, and live preview — no regex needed
-- **Post-processing**: after merging, move outputs to a folder, or recycle the sources
-- **Parallel batch merging**: a queue with search, multi-dimension sorting, and status filters — multiple tasks process in parallel with live progress, success/fail counts, and elapsed time
+- **Smart pairing**: auto-match image + video by filename, Apple `ContentIdentifier` UUID (inspected directly by Native without external tools), or vivo camera ID
+- **Target protocols**: JPEG outputs supported across Google Micro Video (v1), Google Motion Photo (v2), OPPO O-Live, vivo, Samsung Motion Photo, and HUAWEI Moving Photo. Samsung and HUAWEI HEIC formats are supported via Native tail writers.
+- **Batch file naming**: quickly compose filenames from template segments with drag-to-reorder, presets, separators, and live preview
+- **Parallel batch merging**: queue with search, multi-dimension sorting, and status filters
 
-| Merge Protocol | Devices | Status |
+| Target Merge Protocol | Format Support | Status in Master |
 |---|---|---|
-| Google - Micro Video (V1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
-| Google - Motion Photo (V2) | Windows / Xiaomi / Pixel | ✅ Supported |
-| OPPO - O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
-| HUAWEI - Moving Photo | HUAWEI / Honor | ✅ Supported |
-| Samsung - Motion Photo | Windows / Samsung | ✅ Supported |
-| vivo - Live Photo | Windows / vivo (≥ x300) | 🟡 In testing |
+| Google - Micro Video (V1) | JPEG + MP4/MOV | ✅ Supported |
+| Google - Motion Photo (V2) | JPEG + MP4/MOV | ✅ Supported |
+| OPPO - O-Live Photo | JPEG + MP4/MOV | ✅ Supported |
+| HUAWEI - Moving Photo | JPEG + MP4/MOV, HEIC + MP4 | ✅ Supported |
+| Samsung - Motion Photo | JPEG + MP4/MOV, HEIC + MP4 | ✅ Supported (SEF trailer) |
+| vivo - Live Photo | JPEG + MP4/MOV | ✅ Supported |
+| Google / OPPO / vivo (HEIC target) | HEIC + MP4/MOV | 🟡 Safely rejected (Native HEIC XMP writer pending) |
+| Apple - Live Photo (dual-file target) | HEIC/JPEG + MOV | ⏳ Deferred (Target writer roadmap P9) |
 
 ### 📸 Split Live Photo
 
-Split a **Live Photo** (single-file form) back into a **dual-file Live Photo**, or into an independent still image (`JPG` / `HEIC`) and video (`MP4` / `MOV`).
+Split a **Live Photo** into independent protocol-free neutral still image (`JPG` / `HEIC`) and video (`MP4` / `MOV`).
 
-- **Batch split**: scan a folder, auto-detect and queue all Live Photos; filter by protocol (Google / OPPO / vivo / Samsung / HUAWEI) to split only a specific brand
-- **Protocol output**: convert to an Apple / vivo dual-file Live Photo (writes pairing metadata), or re-encode to `HEIC+MOV` / `JPG+MOV` / `JPG+MP4`
-- **Strips Live Photo metadata** so the split image is no longer re-identified as a Live Photo, while preserving all other metadata — `EXIF` / `ICC` / `GPS` / shooting parameters are retained
-- **Naming templates**: same segment-based naming as the Merge page, with drag-to-reorder and live preview
+- **Batch split**: scan a folder, auto-detect and queue all Live Photos across Google, OPPO, vivo, Samsung, and HUAWEI
+- **Neutral extraction & cleaning**: strips live photo metadata (XMP namespaces, SEF motion photo tags, Huawei LIVE marker) so the extracted image is no longer re-identified as a live photo, while preserving EXIF, ICC, GPS, and HDR gain maps
+- **Naming templates**: segment-based naming with live preview
 
-> ⚠️ **About iPhone / iPad**: due to iOS restrictions, Live Photos cannot be imported directly into iOS devices. This tool only produces the Live Photo data — import them via third-party software such as i4Tools (爱思助手).
-
-| Split Protocol | Devices | Status |
+| Capability | Scope | Status in Master |
 |---|---|---|
-| Apple - Live Photo | iPhone / iPad | ✅ Supported |
-| vivo - Live Photo | vivo (≤ x200) | ✅ Supported |
+| Source Inspection | Google, OPPO, vivo, Samsung, HUAWEI, Apple | ✅ Supported (Native) |
+| Neutral Split / Clean | Extract clean neutral image + video | ✅ Supported (Native) |
+| Target Protocol Packaging | Re-package into Apple/vivo dual-file targets | ⏳ Deferred (Target writer roadmap P9) |
+
+### 🖼️ Live Photo Edit (Cover / Key Photo)
+
+Change Live Photo cover frame and export video frames.
+
+> ⏳ **Status in Master**: The UI and CLI command exist, but the Rebuilt Native pipeline is not ready (`RebuiltPipelineNotReady`). Temporarily frozen pending Native reconstruction.
 
 ### 🛠️ Repair Live Photo
 
-Repair the display anomalies that appear when Apple Live Photos are exported. After scanning, review **diagnostic details** for each photo and filter by file type or repair status.
+Repair display anomalies from exported Apple Live Photos (excess thumbnails, front camera orientation).
 
-- **Excess thumbnail & horizontal stretch** (pre-iOS 17.3): Apple once embedded low-resolution thumbnails tagged with orientation, which Windows misinterprets as landscape, causing stretching or squashing. Losslessly fixed via `jpegtran` rotation + stripping the extraneous thumbnail
-- **Front-camera video rotation**: the iPhone front camera stores vertical pixels horizontally and relies on an orientation tag — which Windows ignores. Fixed by `FFmpeg` re-encode to bake the rotation matrix into the pixel data
-- **HEIC orientation correction**: rectifies miswritten `Orientation` tags (if present)
+> ⏳ **Status in Master**: The UI and CLI command exist, but the Rebuilt Native pipeline is not ready (`RebuiltPipelineNotReady`). Temporarily frozen pending Native reconstruction (Roadmap P8).
 
 ### 📂 Photo Organize (In Development)
 
-Automatically scan, categorize, and archive photos by device, date, and Live Photo type based on EXIF metadata. Starting with iPhone photos, expanding to more brands.
+Automatically scan, categorize, and archive photos by device, date, and Live Photo type based on metadata. Starting with iPhone photos, expanding to more brands.
 
 ---
 
@@ -126,9 +133,9 @@ Automatically scan, categorize, and archive photos by device, date, and Live Pho
 
 Live Photo Box ships a **command-line interface** — `livephotobox` — that shares 100% of its core logic with the GUI, ideal for scripting and AI agents.
 
-- **Commands**: `merge` (single-pair or batch), `split` (back to image + video), `cover` / `keyphoto` (change cover frame), `repair` (fix Apple Live Photo display issues), `protocols` (query protocol × format compatibility matrix), `backend` (choose the global `rebuilt` / `legacy` branch), `update` / `update-check` (check & install updates)
+- **Commands**: `convert` (standalone media conversion), `protocols` (protocol & format compatibility), `merge` (single-pair or batch), `split` (extract neutral photo + video), `cover` / `keyphoto` (cover frame; pending Native rebuild), `repair` (metadata repair; pending Native rebuild), `update` / `update-check` (check & install updates)
 - **Four executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lpb`
-- **Batch pairing & naming**: auto-pair by filename, Apple `ContentIdentifier` UUID, or vivo camera ID; rename outputs with templates like `-n custom:{name}_{date}` (`{frame}` token for the cover command); `--after` moves sources to a folder / recycle bin on completion
+- **Batch pairing & naming**: auto-pair by filename, Apple `ContentIdentifier` UUID, or vivo camera ID; rename outputs with templates like `-n custom:{name}_{date}`; `--after` moves sources to a folder / recycle bin on completion
 - **Script-friendly**: `--json` outputs structured results that scripts and AI agents can consume directly; `--dry-run` previews operations without touching files
 - **Sane output defaults**: single-pair merges write next to the source photo (protocol-suffixed name); batch merges write into a `{folder}_<protocol>` subfolder — never the terminal’s current directory. `-w` overwrites existing outputs instead of auto-renaming
 - **Distribution**: bundled with the installer / portable build (optional “Add to PATH”), or a standalone single-file `-x64-cli.zip` (no install needed; ships `add-to-path.cmd` / `remove-from-path.cmd` helpers to add/remove PATH in one click); install the CLI-only edition via `winget install LengxiQwQ.LivePhotoBox`
@@ -146,21 +153,15 @@ Live Photo Box ships a **command-line interface** — `livephotobox` — that sh
 | Runtime | .NET | 9.0 |
 | UI Framework | Windows App SDK (WinUI 3) | 1.8 |
 | Architecture | MVVM (CommunityToolkit.Mvvm) | 8.4.2 |
-| Image Processing | Magick.NET (ImageMagick) + Win2D | 14.16.0 / 1.3.2 |
+| Media & Protocol Engine | `LivePhotoBox.Native` (in-process C++20 ISO-BMFF / JPEG / SEF / Apple MakerNote inspection, cleaning, extraction, and composition) | — |
 | Image Scaling | PhotoSauce.MagicScaler | 0.15.0 |
-| Metadata Engine | `ExifTool` (daemon mode) | 13.59 |
-| Video Processing | `FFmpeg` (NVENC / QSV / AMF hardware acceleration) | n9.0.1 |
-| JPEG Operations | `jpegtran` (lossless rotation, thumbnail stripping) | — |
-| HEIC Codec | `libheif` (`heif-enc` / `heif-dec`) | 1.23.1 |
-| HEIC Native Decode | PhotoSauce.NativeCodecs.Libheif (MagicScaler pipeline) | 1.19.5-preview1 |
+| Image Processing (GUI) | Windows Imaging Component (WIC) + Win2D | — / 1.3.2 |
 | Markdown Rendering | Markdig | 1.3.2 |
 | UI Extensions | CommunityToolkit.WinUI + FluentIcons | — |
 | Command Line | System.CommandLine | 2.0.11 |
-| Packaging | MSIX self-contained (no runtime required) | — |
+| Packaging | MSIX self-contained (GUI) / Single-file zip (CLI) | — |
 
-> `ExifTool` / `FFmpeg` / `jpegtran` / `libheif` are bundled external tools (in the `Tools/` folder) that handle metadata read/write and audio-video processing.
->
-> Native support is kept outside the product-wide `rebuilt` / `legacy` switch in this phase. The default `rebuilt` branch does not implement or call any vendor protocol; `legacy` preserves the v2.2.1 compatibility path. Native protocol work is deferred until the neutral-media pipeline and independent verification are complete.
+> The current product runtime operates exclusively on the **Rebuilt / Native** engine (`LivePhotoBox.Native`) via a stable C ABI. Bundled external tool executables and Legacy runtimes have been completely removed from the product runtime.
 
 ---
 
@@ -270,15 +271,12 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 
 | Tool / Library | Purpose | License |
 |---------------|---------|---------|
-| [FFmpeg](https://ffmpeg.org/) | Video transcoding and stream remuxing | LGPL/GPL |
-| [ExifTool](https://exiftool.org/) by Phil Harvey | Global metadata parsing, injection, XMP reconstruction | Perl |
-| [libheif](https://github.com/strukturag/libheif) | HEIC/HEIF encoding & decoding pipeline | LGPL-3.0 |
-| [jpegtran](https://jpegclub.org/) | Lossless JPEG transforms (DCT coefficient space) | Free software |
-| [Magick.NET](https://github.com/dlemstra/Magick.NET) by dlemstra | HEIC/HEIF decoding via libheif | Apache 2.0 |
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM framework | MIT |
 | [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | High-performance image scaling | MIT |
+| [Microsoft.Graphics.Win2D](https://github.com/microsoft/Win2D) | GPU-accelerated 2D graphics | MIT |
 | [Markdig](https://github.com/xoofx/markdig) | Markdown rendering | BSD-2-Clause |
 | [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent icon set | MIT |
+| [ExifTool](https://exiftool.org/) / [FFmpeg](https://ffmpeg.org/) | Historical releases & offline verification test fixtures (`run-cli-integration-test.py`) | Perl / LGPL |
 
 ---
 

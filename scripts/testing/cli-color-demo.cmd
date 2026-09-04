@@ -12,7 +12,7 @@ rem    [5]   lpb merge --help             (grouped colored help)
 rem    [5a]  lpb protocols --help
 rem    [5b]  lpb --help                   (root help with global flags)
 rem    [5c]  lpb update-check --help
-rem    [5d]  lpb backend                (backend fields and status table)
+rem    [5d]  lpb --info                   (engine and system info)
 rem    [6]   merge dry-run                 (single-pair summary)
 rem    [7]   merge error path              (red error output)
 rem    [8]   merge batch dry-run           (batch scan summary)
@@ -111,9 +111,9 @@ echo ============================================================
 echo.
 
 echo ============================================================
-echo  [5d] lpb backend
+echo  [5d] lpb --info
 echo ============================================================
-"%EXE%" backend
+"%EXE%" --info
 echo.
 
 echo ============================================================

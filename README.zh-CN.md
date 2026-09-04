@@ -63,60 +63,68 @@
 
 ---
 
-## ✨ 核心功能
+> ℹ️ **历史版本与当前架构说明**
+>
+> Live Photo Box 的部分历史发布版本曾使用 FFmpeg、ExifTool、jpegtran 和 libheif 命令行工具完成部分媒体与元数据处理。当前开发主线已经迁移至 Rebuilt / Native-only 架构，这些外部可执行工具不再属于当前产品运行时设计。因此，旧发布版本与当前 master 在目录结构、依赖和部分功能可用性上可能存在差异。
 
-### 🖼️ 实况照片编辑
+---
 
-自由更换实况照片的封面帧，从视频时间轴中选取最完美的一刻。
+## ✨ 核心功能与开发状态
 
-- 视频帧时间轴胶片条，逐帧预览
-- 一键替换封面、导出单帧或全部视频帧，或者导出为视频以及 GIF 动图
-- 快速实况照片协议转换
-- 文件基本属性查看，实况照片协议查看
+Live Photo Box 严格区分**来源协议识别与清理**、**中性媒体提取**与**目标协议组装**：
+
+```text
+GUI / CLI → Core 编排调度 → LivePhotoBox.Native (C++20)
+（仅保留 Rebuilt 引擎 · 无 Legacy 运行时 · 无随包外部工具二进制）
+```
 
 ### 🔗 实况照片合成
 
-将**双文件实况照片协议**（或任意图片 + 视频）转换为**单文件实况照片**，在 Windows 及 Android 设备上均可查看。
+将**双文件实况照片**（或任意图片 + 视频）转换为**单文件实况照片**，在 Windows 及 Android 设备上均可查看。
 
 - **任意素材，一键合成**：拖拽或选择图片（`JPG` / `HEIC`）+ 视频（`MP4` / `MOV`）直接合成；也可以扫描整个文件夹，自动识别配对、批量入队
-- **多种智能配对**：按文件名、Apple `ContentIdentifier` UUID、vivo 相机 ID 自动匹配图片与视频；也可直接合并现成的双文件实况照片
-- **多品牌协议自由切换**：主流品牌目标协议一键切换，配合 `JPEG+MP4` / `JPEG+MOV` / `HEIC+MP4` / `HEIC+MOV` / `HEIC+MP4(H.265)` 输出格式，随协议自动筛选可用项
-- **批量文件命名**：命名模板快速编排（原名 / 协议 / 日期 / 时间 / EXIF 日期时间 / 计数器 / 自定义文本），支持拖拽排序、预设模板、分隔符选择与实时预览——无需编写正则表达式即可批量重命名
+- **多种智能配对**：按文件名、Apple `ContentIdentifier` UUID（由 Native 直接解析，无需外部工具）、vivo 相机 ID 自动匹配图片与视频
+- **目标协议输出**：JPEG 组合完整支持 Google Micro Video (v1)、Google Motion Photo (v2)、OPPO O-Live、vivo、Samsung Motion Photo（SEF 尾标）与 HUAWEI Moving Photo；Samsung 与 HUAWEI 亦支持 HEIC 尾标合成
+- **批量文件命名**：命名模板快速编排，支持拖拽排序、预设模板、分隔符选择与实时预览
 - **收尾处理**：合成完成后可选择移动到指定目录，或移入回收站
-- **并行批量合成**：任务队列支持搜索、多维度排序与状态筛选，多任务并行处理，实时显示进度、成功/失败统计与耗时
+- **并行批量合成**：任务队列支持搜索、多维度排序与状态筛选，多任务并行处理，实时显示进度与耗时
 
-| 合成协议 | 支持设备 | 状态 |
+| 目标合成协议 | 支持格式组合 | 当前 master 状态 |
 |---|---|---|
-| Google - Micro Video (V1) | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
-| Google - Motion Photo (V2) | Windows / 小米 / Pixel | ✅ 可用 |
-| OPPO - O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
-| HUAWEI - Moving Photo | 华为 / 荣耀 | ✅ 可用 |
-| Samsung - Motion Photo | Windows / Samsung | ✅ 可用 |
-| vivo - Live Photo | Windows / vivo（≥ x300） | 🟡 测试中 |
+| Google - Micro Video (V1) | JPEG + MP4/MOV | ✅ 可用 |
+| Google - Motion Photo (V2) | JPEG + MP4/MOV | ✅ 可用 |
+| OPPO - O-Live Photo | JPEG + MP4/MOV | ✅ 可用 |
+| HUAWEI - Moving Photo | JPEG + MP4/MOV, HEIC + MP4 | ✅ 可用 |
+| Samsung - Motion Photo | JPEG + MP4/MOV, HEIC + MP4 | ✅ 可用（SEF 尾标） |
+| vivo - Live Photo | JPEG + MP4/MOV | ✅ 可用 |
+| Google / OPPO / vivo (HEIC 目标) | HEIC + MP4/MOV | 🟡 安全拒绝（待 Native HEIC XMP 写入能力） |
+| Apple - Live Photo（双文件目标） | HEIC/JPEG + MOV | ⏳ 暂未开放（规划于协议 Writer 阶段 P9） |
 
 ### 📸 实况照片拆分
 
-将**实况照片**（单文件形式）拆分为**双文件实况照片**形式，或独立的静态图片（`JPG` / `HEIC`）和视频（`MP4` / `MOV`）。
+将**实况照片**（单文件形式）拆分为协议无关的独立中性静态图片（`JPG` / `HEIC`）和视频（`MP4` / `MOV`）。
 
-- **批量拆分**：扫描整个文件夹自动识别实况照片、批量入队；可按协议筛选（Google / OPPO / vivo / Samsung / 华为），只拆分目标品牌
-- **协议输出**：可转为 Apple / vivo 双文件实况照片（写入配对元数据），也可重新封装为 `HEIC+MOV` / `JPG+MOV` / `JPG+MP4` 格式
-- **剥离实况照片元数据**：防止拆分后的图片被再次误识别为实况照片；保留照片其他元数据，不丢失 `EXIF` / `ICC` / `GPS` / 拍摄参数
+- **批量拆分**：扫描整个文件夹自动识别实况照片、批量入队；支持 Google、OPPO、vivo、Samsung、华为等协议来源
+- **中性提取与协议清理**：剥离实况照片专有元数据（XMP 命名空间、SEF MotionPhoto 标签、华为尾标等），防止拆分出的图片被再次误识别为实况照片；同时完整保留原始 `EXIF` / `ICC` / `GPS` / 拍摄参数与 HDR 增益图
 - **命名模板**：与合成页一致的片段式命名，支持拖拽排序与实时预览
 
-> ⚠️ **关于 iPhone / iPad**：受 iOS 系统限制，实况照片无法直接导入 iOS 设备。本软件只负责生成实况照片数据，导入需通过爱思助手（i4Tools）等第三方软件完成。
-
-| 拆分协议 | 支持机型 | 状态 |
+| 能力阶段 | 范围 | 当前 master 状态 |
 |---|---|---|
-| Apple - Live Photo | iPhone / iPad | ✅ 可用 |
-| vivo - Live Photo | vivo（≤ x200） | ✅ 可用 |
+| 来源识别 (Inspect) | Google、OPPO、vivo、Samsung、HUAWEI、Apple | ✅ 可用（Native） |
+| 中性拆分与清理 (Split & Clean) | 提取协议无关中性图片与视频 | ✅ 可用（Native） |
+| 目标协议重封装 (Target Packaging) | 重新组装为 Apple/vivo 双文件实况照片 | ⏳ 暂未开放（规划于协议 Writer 阶段 P9） |
+
+### 🖼️ 实况照片编辑（封面 / Key Photo）
+
+更换实况照片的封面帧，从视频时间轴中选取精彩瞬间。
+
+> ⏳ **当前 master 状态**：界面与 CLI 命令已保留，但底层中性媒体管线尚未就绪（抛出 `RebuiltPipelineNotReady`）。当前冻结，待 Native 重构完成。
 
 ### 🛠️ 实况照片修复
 
-修复针对 Apple 实况照片导出后出现的显示异常。扫描后可查看每张照片的**诊断详情**，可以按文件类型或修复状态快速筛选。
+修复针对 Apple 实况照片导出后出现的显示异常（多余缩略图横向拉伸、前置镜头方向异常等）。
 
-- **多余缩略图及横向拉伸**（iOS 17.3 之前）：Apple 曾嵌入低分辨率缩略图但带有方向标签，Windows 误将其当作横向图片处理，导致拉宽或压扁 。我们使用 `jpegtran` 无损旋转 + 剥离多余缩略图
-- **前置摄像头视频旋转**：iPhone 前置镜头纵向像素横向存储，依赖方向标签指示角度，Windows 不识别。我们用 `FFmpeg` 重编码消除旋转矩阵
-- **HEIC 方向错误**：修正错误的 `Orientation` 标签（如果存在）
+> ⏳ **当前 master 状态**：界面与 CLI 命令已保留，但底层中性媒体管线尚未就绪（抛出 `RebuiltPipelineNotReady`）。当前冻结，规划于 Roadmap P8。
 
 ### 📂 自动整理相册（功能开发中）
 
@@ -128,16 +136,15 @@
 
 Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 100% 核心逻辑，适合脚本和 AI Agent 调用。
 
-- **命令**：`merge`（单对或批量合成）、`split`（拆回图片 + 视频）、`cover` / `keyphoto`（修改封面帧）、`repair`（修复 Apple 实况照片显示问题）、`protocols`（协议 × 格式兼容矩阵查询）、`backend`（选择全局 `rebuilt` / `legacy` 分支）、`update` / `update-check`（检查并安装更新）
+- **命令**：`convert`（独立媒体格式转换）、`protocols`（协议 × 格式兼容矩阵查询）、`merge`（单对或批量合成）、`split`（拆分提取中性图片 + 视频）、`cover` / `keyphoto`（修改封面帧；待 Native 重构）、`repair`（元数据修复；待 Native 重构）、`update` / `update-check`（检查并安装更新）
 - **四个可执行别名**：`livephotobox` / `livephoto` / `livebox` / `lpb`
 - **批量配对和命名方式**：按文件名、Apple `ContentIdentifier` UUID、vivo 相机 ID 自动配对；`-n custom:{name}_{date}` 等命名模板批量重命名输出；`--after` 支持完成后移动到文件夹 / 回收站
-- **脚本友好**：使用`--json` 输出结构化结果，供脚本与 AI Agent 直接消费；`--dry-run` 可预览操作而不实际处理文件
+- **脚本友好**：使用 `--json` 输出结构化结果，供脚本与 AI Agent 直接消费；`--dry-run` 可预览操作而不实际处理文件
 - **分发**：随安装包 / 便携版内置（可选"添加到 PATH"），或独立 `-x64-cli.zip`（单文件免安装，包内附 `add-to-path.cmd` / `remove-from-path.cmd` 辅助脚本，双击即可一键加入 / 移除 PATH）；也可用 `winget install LengxiQwQ.LivePhotoBox` 一键安装纯 CLI 版
 
 📖 **CLI 使用指南**：[English](docs/CLI-User-Guide.md) · [简体中文](docs/CLI-User-Guide.zh-CN.md)
 
 ---
-
 
 ## 🛠️ 技术栈
 
@@ -148,21 +155,15 @@ Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 
 | 运行时 | .NET | 9.0 |
 | UI 框架 | Windows App SDK（WinUI 3） | 1.8 |
 | 架构 | MVVM（CommunityToolkit.Mvvm） | 8.4.2 |
-| 图像处理 | Magick.NET（ImageMagick）+ Win2D | 14.16.0 / 1.3.2 |
+| 媒体与协议引擎 | `LivePhotoBox.Native`（进程内 C++20 ISO-BMFF / JPEG / SEF / Apple MakerNote 解析、清洗、提取与合成） | — |
 | 图像缩放 | PhotoSauce.MagicScaler | 0.15.0 |
-| 元数据引擎 | `ExifTool`（常驻进程模式） | 13.59 |
-| 视频处理 | `FFmpeg` (NVENC / QSV / AMF 硬件加速) | n9.0.1 |
-| JPEG 操作 | `jpegtran`（无损旋转、缩略图剥离） | — |
-| HEIC 编解码 | `libheif`（`heif-enc` / `heif-dec`） | 1.23.1 |
-| HEIC 原生解码 | PhotoSauce.NativeCodecs.Libheif（MagicScaler 管线） | 1.19.5-preview1 |
+| 图像处理 (GUI) | Windows Imaging Component (WIC) + Win2D | — / 1.3.2 |
 | Markdown 渲染 | Markdig | 1.3.2 |
 | UI 扩展 | CommunityToolkit.WinUI + FluentIcons | — |
 | 命令行 | System.CommandLine | 2.0.11 |
-| 打包 | MSIX 自包含（无需安装运行时） | — |
+| 打包 | MSIX 自包含（GUI）/ 单文件 zip（CLI） | — |
 
-> `ExifTool` / `FFmpeg` / `jpegtran` / `libheif` 为随包附带的外部工具（`Tools/` 目录），负责元数据读写与音视频处理。
->
-> 本阶段 Native 协议能力不接入产品的全局分流。默认 `rebuilt` 不实现也不调用任何厂商协议；`legacy` 保留 v2.2.1 兼容路径。Native 协议工作要等中性媒体管线和独立验证完成后再开始。
+> 当前产品运行时完全基于 **Rebuilt / Native** 引擎（`LivePhotoBox.Native`）通过稳定 C ABI 运行。旧运行时代码与随包外部工具已从产品运行时中彻底移除。
 
 ---
 
@@ -272,15 +273,12 @@ live-photo-box/
 
 | 工具/库 | 用途 | 许可 |
 |---------|------|------|
-| [FFmpeg](https://ffmpeg.org/) | 视频编解码 | LGPL/GPL |
-| [ExifTool](https://exiftool.org/) | 图像/视频元数据读写 | Perl |
-| [libheif](https://github.com/strukturag/libheif) | HEIC/HEIF 编解码管线 | LGPL-3.0 |
-| [jpegtran](https://jpegclub.org/) | JPEG 无损变换 | 自由软件 |
-| [Magick.NET](https://github.com/dlemstra/Magick.NET) | HEIC 解码 | Apache 2.0 |
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM 框架 | MIT |
 | [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | 高性能图片缩放 | MIT |
+| [Microsoft.Graphics.Win2D](https://github.com/microsoft/Win2D) | GPU 加速 2D 图形渲染 | MIT |
 | [Markdig](https://github.com/xoofx/markdig) | Markdown 渲染 | BSD-2-Clause |
 | [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent 图标集 | MIT |
+| [ExifTool](https://exiftool.org/) / [FFmpeg](https://ffmpeg.org/) | 历史发布版本与离线测试独立验证夹具 (`run-cli-integration-test.py`) | Perl / LGPL |
 
 ---
 

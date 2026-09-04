@@ -2,10 +2,7 @@
  * RepairCommand.cs
  *
  * 修复命令：分析并修复实况照片/视频的元数据问题（旋转、缩略图、HEIC 方向、视频旋转）。
- *
- *   - 复用 Core 层 LivePhotoRepairService.AnalyzeFileAsync / RepairAsync，与 GUI 修复页同源
- *   - 单文件与批量两种模式，默认只修复 Apple 实况照片（--all-devices 关闭过滤）
- *   - 默认 4 项修复全开，--no-* 关闭；批量确认前列出待修复清单
+ * 当前处于 Rebuilt-only 架构，Native 修复能力未就绪（P8 阶段实现），运行时返回 rebuilt_not_ready。
  */
 
 using LivePhotoBox.Cli.Infrastructure;
@@ -37,10 +34,10 @@ namespace LivePhotoBox.Cli.Commands
 
             var dirOpt = new Option<DirectoryInfo?>("--dir", "-d") { Description = "Folder with images and videos. Every detected file is analyzed and repaired. For batch mode; a folder path can also be passed as the positional argument." };
             var outputOpt = new Option<DirectoryInfo?>("--output", "-o") { Description = "Output folder. Default: a \"_repaired\" suffix next to the source for single-file; a \"{folder}_repaired\" subfolder inside the input folder for batch mode." };
-            var noRotateOpt = new Option<bool>("--no-rotate") { Description = "Disable image rotation fix (jpegtran lossless rotation)." };
+            var noRotateOpt = new Option<bool>("--no-rotate") { Description = "Disable image rotation fix." };
             var noThumbnailOpt = new Option<bool>("--no-thumbnail") { Description = "Disable embedded thumbnail stripping." };
             var noHeicOpt = new Option<bool>("--no-heic") { Description = "Disable HEIC/HEIF orientation fix." };
-            var noVideoOpt = new Option<bool>("--no-video") { Description = "Disable video rotation bake (FFmpeg re-encode)." };
+            var noVideoOpt = new Option<bool>("--no-video") { Description = "Disable video rotation bake." };
 
             var allDevicesOpt = new Option<bool>("--all-devices") { Description = "Repair files from all devices. Default: only Apple Live Photos (ContentIdentifier UUID) are repaired." };
 

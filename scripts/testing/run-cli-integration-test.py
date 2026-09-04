@@ -42,6 +42,9 @@ SAMPLES_DIR = TEST_ROOT / "samples"
 OUTPUT_DIR = TEST_ROOT / "output"
 REPORT_PATH = TEST_ROOT / "test-report.md"
 
+# Verification-only test harness dependencies:
+# Used strictly by this offline test script to independently verify output artifacts.
+# These are NOT product runtime dependencies of Live Photo Box.
 EXIFTOOL = shutil.which("exiftool") or r"C:\Software\exiftool\exiftool.exe"
 FFPROBE = shutil.which("ffprobe") or "ffprobe"
 

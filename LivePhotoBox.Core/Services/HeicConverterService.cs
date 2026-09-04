@@ -83,7 +83,7 @@ namespace LivePhotoBox.Services
 
         /// <summary>
         /// 将 JPEG 图片转换为 HEIC 格式，用于合并导出时生成 HEIC 变体。
-        /// 使用项目内置的 heif-enc.exe（libheif + x265），自包含、零 Windows 商店扩展。
+        /// 使用 Native 媒体管线编码，自包含、零 Windows 商店扩展。
         /// </summary>
         /// <param name="sourcePath">源图片文件路径（仅 JPEG）</param>
         /// <param name="outputDirectory">输出目录</param>
@@ -122,7 +122,7 @@ namespace LivePhotoBox.Services
                 resultPath = await ConvertPlainHeicAsync(sourcePath, outputDirectory, token);
             }
 
-            // heif-enc（libheif 定制版）对大端源 TIFF 会把 Exif item 写成
+            // 底层 HEIC 编码对大端源 TIFF 会把 Exif item 写成
             // [offset=0][TIFF]（缺 "Exif\0\0" 前缀），iOS 等严格解析器会读不到
             // EXIF/MakerNote 导致实况照片无法配对导入。统一规范化为标准布局。
             if (AppleMakerNoteWriter.TryNormalizeExifItem(resultPath, out string? normalizeError))
@@ -138,7 +138,7 @@ namespace LivePhotoBox.Services
                     LogLevel.Warning);
             }
 
-            // heif-enc 对部分 JPEG 源（华为等 EXIF ColorSpace 未校准且带 ICC）只写 ICC 不写
+            // 部分编码产物对部分 JPEG 源（华为等 EXIF ColorSpace 未校准且带 ICC）只写 ICC 不写
             // nclx；iOS 导入实况照片时可能因缺少色彩属性无法解析。无 nclx 时补 sRGB nclx。
             if (HeifAuxImageWriter.TryHasNclxColr(resultPath, out bool hasNclx, out string? nclxCheckError))
             {

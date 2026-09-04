@@ -345,7 +345,7 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | `cid` | Apple `ContentIdentifier` UUID 一致，与文件名无关 | `IMG_0002.HEIC` + `renamed.MOV` → 配对 |
 | `vivo` | JPEG 尾部 + MP4 元数据中的 vivo 相机 ID | `vivo_photo.jpg` + `vivo_video.mp4` → 配对 |
 
-`cid` 需要 `exiftool.exe` 位于可执行文件旁的 `Tools\` 目录中（所有分发包均自带）；`name` 与 `vivo` 无需外部工具。
+`cid` 配对由 Native 引擎直接解析 Apple ContentIdentifier；`name` 与 `vivo` 同样由 Native 原生支持，无需任何外部工具。
 
 #### 命名模板速查
 
@@ -533,6 +533,8 @@ split 只支持 `keep`（默认）和 `custom:模板`（无 `suffix` 模式）�
 
 ### `cover` — 修改实况照片封面帧（Key Photo）
 
+> ⚠️ **注意**：`cover` 命令语法与参数已就绪，当前封面提取与写入管线正在 Native 重建中（返回 `rebuilt_not_ready`）。
+
 修改已有实况照片的封面帧（Key Photo），不重新合成视频。别名 `keyphoto`（对齐 Apple 术语）。
 
 自动识别单文件（华为/V2/OPPO/Samsung/Fusion）和双文件（Apple HEIC+MOV、Vivo 旧双文件）格式。
@@ -632,6 +634,8 @@ split 只支持 `keep`（默认）和 `custom:模板`（无 `suffix` 模式）�
 
 ### `repair` — 修复实况照片元数据
 
+> ⚠️ **注意**：`repair` 命令语法与参数已就绪，当前底层执行管线正在 Native 重建中（返回 `rebuilt_not_ready`，规划于 Roadmap P8）。
+
 分析并修复现有实况照片文件的四类元数据问题：图片旋转、内嵌缩略图、HEIC 方向、视频旋转。图片：`.jpg .jpeg .heic .heif`；视频：`.mov .mp4`。
 
 | 模式 | 参数 | 使用场景 |
@@ -668,10 +672,10 @@ split 只支持 `keep`（默认）和 `custom:模板`（无 `suffix` 模式）�
 
 | 选项 | 说明 |
 |------|------|
-| `--no-rotate` | 关闭图片旋转修正（jpegtran 无损旋转） |
+| `--no-rotate` | 关闭图片旋转修正 |
 | `--no-thumbnail` | 关闭内嵌缩略图剥离 |
 | `--no-heic` | 关闭 HEIC/HEIF 方向修正 |
-| `--no-video` | 关闭视频旋转烘焙（FFmpeg 重编码） |
+| `--no-video` | 关闭视频旋转烘焙 |
 | `--all-devices` | 修复所有设备的文件。默认只修复 Apple 实况照片（通过 `ContentIdentifier` UUID 识别） |
 | `--repair-long-videos` | 同时修复时长超过 3.5 秒的视频（非实况照片）。默认跳过 |
 | `--copy-perfect` | 把无需修复的完好文件也复制到输出目录（仅批量模式） |
@@ -699,10 +703,10 @@ split 只支持 `keep`（默认）和 `custom:模板`（无 `suffix` 模式）�
 
 | 修复项 | 作用 | 适用 |
 |--------|------|------|
-| 图片旋转 | jpegtran 无损旋转后重置 EXIF 方向标签 | JPEG |
+| 图片旋转 | 无损旋转后重置 EXIF 方向标签 | JPEG |
 | 缩略图剥离 | 剥离内嵌缩略图/预览图（减小文件体积） | JPEG |
 | HEIC 方向 | 修正 EXIF 方向以匹配 QuickTime `Rotation`（镜像标记或角度不一致） | HEIC/HEIF |
-| 视频旋转烘焙 | FFmpeg 重编码，把旋转矩阵烘焙进像素 | MOV/MP4 |
+| 视频旋转烘焙 | 重编码把旋转矩阵烘焙进像素 | MOV/MP4 |
 
 > **说明：** 四项修复默认全开；传 `--no-heic` 可关闭 HEIC 方向修复（对齐 GUI 默认行为）。
 
@@ -782,8 +786,8 @@ JSON 为 UTF-8 编码；脚本读取时请按 UTF-8 解码（如 Python `json.lo
 #### 所选格式不适用于该协议
 运行 `lpb protocols` 查看兼容矩阵。例如，`heic+mp4-h265` 仅可用于 `huawei`。
 
-#### 使用 `--pairing cid` 时提示找不到 exiftool
-把 `exiftool.exe` 放到可执行文件旁的 `Tools\` 目录即可。
+#### ContentIdentifier (`cid`) 配对说明
+Apple ContentIdentifier UUID 识别已由 `LivePhotoBox.Native` 在进程内直接解析，无需配置任何外部工具。
 
 #### 输出文件扩展名与源文件不一致
 正常现象。源文件为 HEIC 且选择了 JPEG 类格式时，输出使用 `.jpg` 扩展名。

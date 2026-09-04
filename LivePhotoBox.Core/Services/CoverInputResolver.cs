@@ -208,7 +208,6 @@ namespace LivePhotoBox.Services
                 var match = await LivePhotoMetadataMatcher.MatchAsync(
                     new[] { imagePath },
                     videoPaths,
-                    null,
                     token).ConfigureAwait(false);
 
                 return match.Pairs.FirstOrDefault()?.VideoPath;

@@ -62,7 +62,6 @@ namespace LivePhotoBox.Services
         public static async Task<LivePhotoProtocolType> DetectDualFileProtocolAsync(
             string imagePath,
             string videoPath,
-            string? exifToolPath = null,
             CancellationToken token = default)
         {
             if (!File.Exists(imagePath) || !File.Exists(videoPath))
@@ -105,7 +104,6 @@ namespace LivePhotoBox.Services
         public static async Task<MetadataMatchOutput> MatchAsync(
             IReadOnlyList<string> unmatchedImagePaths,
             IReadOnlyList<string> unmatchedVideoPaths,
-            string? exifToolPath = null,
             CancellationToken token = default,
             Action<int>? onFileProcessed = null)
         {

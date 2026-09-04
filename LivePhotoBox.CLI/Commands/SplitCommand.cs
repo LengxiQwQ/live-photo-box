@@ -49,7 +49,7 @@ namespace LivePhotoBox.Cli.Commands
         // Split format short names, ordered by outputFormatIndex (for the protocols command matrix / JSON).
         internal static readonly string[] SplitFormatNames = ProtocolFormatMatrix.SplitFormatNames;
 
-        // Legacy 默认格式：该协议的第一个可用格式（none→keep、apple→jpg+mov、vivo→jpg+mp4）。
+        // 默认格式：该协议的第一个可用格式（none→keep）。
         private static int GetSplitDefaultFormat(int protocolIndex)
             => ProtocolFormatMatrix.GetDefaultSplitFormat(protocolIndex);
 
@@ -87,8 +87,7 @@ namespace LivePhotoBox.Cli.Commands
             var dirOpt = new Option<DirectoryInfo?>("--dir", "-d") { Description = "Folder with single-file live photos. All detected live photos are split. For batch mode; a folder path can also be passed as the positional argument." };
             var pairingOpt = new Option<string>("--pairing") { DefaultValueFactory = _ => "all", Description = "Only split live photos of this protocol. all (no filter)|v1 (MicroVideo)|v2 (MotionPhoto)|oppo|vivo|samsung|huawei." };
 
-            var protocolOpt = new Option<string>("--protocol", "-p") { DefaultValueFactory = _ => "none", Description = "Target phone format. In rebuilt mode only none is available (protocol-free split); Legacy mode also retains apple/vivo compatibility.\n" +
-                "Rebuilt split never writes target protocol metadata." };
+            var protocolOpt = new Option<string>("--protocol", "-p") { DefaultValueFactory = _ => "none", Description = "Target phone format. Rebuilt split exports protocol-free neutral media (none); target protocol writers are deferred to P9." };
             var formatOpt = new Option<string?>("--format", "-f") { Description = "Output format. keep (no conversion)|jpg+mov (H.265)|heic+mov (H.265)|jpg+mp4 (H.264).\nDefault: first available for the chosen protocol." };
             var keyTimestampOpt = new Option<string?>("--key-timestamp") { Description = "Override the key photo (cover) position on the video timeline (Apple conversion, single-file mode).\n" +
                 "Accepts seconds (2.500), mm:ss (1:30.500) or hh:mm:ss (0:01:30.500).\n" +
@@ -108,7 +107,7 @@ namespace LivePhotoBox.Cli.Commands
             var preserveSubdirsOpt = new Option<bool>("--preserve-subdirs", "-s") { Description = "Keep source subdirectory structure in the output folder." };
             var afterOpt = new Option<string>("--after") { DefaultValueFactory = _ => "none", Description = "After successful split: none (keep source)|move:PATH (move to folder)|recycle (Windows recycle bin)." };
 
-            var allVariantsOpt = new Option<bool>("--all-variants") { Description = "Export ALL split variants from a single live photo (single-file mode only). Rebuilt exports the 4 protocol-free media variants; Legacy also includes Apple/vivo compatibility variants.\n" +
+            var allVariantsOpt = new Option<bool>("--all-variants") { Description = "Export ALL split variants from a single live photo (single-file mode only). Exports the 4 protocol-free media variants (none_keep, none_jpg+mov, none_heic+mov, none_jpg+mp4).\n" +
                 "Output goes to {output}/split_{name}_All_Variants/. Files are named {protocol}_{format}.ext." };
 
             var cmd = new Command("split",
@@ -675,29 +674,18 @@ namespace LivePhotoBox.Cli.Commands
             string variantsDir = Path.Combine(outputDir, $"split_{originalBaseName}_All_Variants");
             Directory.CreateDirectory(variantsDir);
 
-            // Rebuilt 只导出中性媒体；Legacy 保留历史 Apple/vivo 兼容变体。
-            // 数组顺序（keep → apple → vivo → none 其余转换格式）只决定 dry-run 清单展示；
+            // 导出 4 个中性媒体变体（协议无关拆分）。
+            // 数组顺序（keep → none 其余转换格式）只决定 dry-run 清单展示；
             // 实际打印为并行完成顺序（谁快谁先，编号单调递增）。
             // 每个变体 = 图片+视频一对文件，共享 base name、扩展名不同。
             // 文件名 = 协议_格式（不含原名，原名进文件夹名）。
-            var variants = rebuiltOnly
-                ? new (int Proto, int Fmt, string BaseName, string Label)[]
-                {
-                    (0, 0, "none_keep",    "No protocol (keep original)"),
-                    (0, 1, "none_jpg+mov", "No protocol (JPG+MOV)"),
-                    (0, 2, "none_heic+mov", "No protocol (HEIC+MOV)"),
-                    (0, 3, "none_jpg+mp4", "No protocol (JPG+MP4)"),
-                }
-                : new (int Proto, int Fmt, string BaseName, string Label)[]
-                {
-                    (0, 0, "none_keep",      "No protocol (keep original)"),
-                    (1, 1, "apple_jpg+mov",  "Apple Live Photo (JPG+MOV)"),
-                    (1, 2, "apple_heic+mov", "Apple Live Photo (HEIC+MOV)"),
-                    (2, 3, "vivo_jpg+mp4",   "vivo Live Photo (JPG+MP4)"),
-                    (0, 1, "none_jpg+mov",   "No protocol (JPG+MOV)"),
-                    (0, 2, "none_heic+mov",  "No protocol (HEIC+MOV)"),
-                    (0, 3, "none_jpg+mp4",   "No protocol (JPG+MP4)"),
-                };
+            var variants = new (int Proto, int Fmt, string BaseName, string Label)[]
+            {
+                (0, 0, "none_keep",    "No protocol (keep original)"),
+                (0, 1, "none_jpg+mov", "No protocol (JPG+MOV)"),
+                (0, 2, "none_heic+mov", "No protocol (HEIC+MOV)"),
+                (0, 3, "none_jpg+mp4", "No protocol (JPG+MP4)"),
+            };
 
             // keep 变体（Fmt=0）的扩展名跟随源文件，用于 dry-run 展示。
             string sourceImageExt = Path.GetExtension(sourcePath);

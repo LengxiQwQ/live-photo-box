@@ -1171,21 +1171,6 @@
   <data name="RepairPage_ColIssue.Text" xml:space="preserve">
     <value>诊断结果</value>
   </data>
-  <data name="Error_ExifToolMissing" xml:space="preserve">
-    <value>找不到核心工具: Tools\exiftool.exe</value>
-  </data>
-  <data name="Error_JpegTranMissing" xml:space="preserve">
-    <value>找不到核心工具: Tools\jpegtran.exe</value>
-  </data>
-  <data name="Error_CannotStartExifTool" xml:space="preserve">
-    <value>无法启动 exiftool 进程</value>
-  </data>
-  <data name="Error_CannotStartJpegTran" xml:space="preserve">
-    <value>无法启动 jpegtran 进程</value>
-  </data>
-  <data name="Error_ExifToolError" xml:space="preserve">
-    <value>ExifTool 报错: {0}</value>
-  </data>
   <data name="Error_CSharpException" xml:space="preserve">
     <value>内部异常: {0}</value>
   </data>
@@ -1842,12 +1827,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="Error_HeicConversionFailed" xml:space="preserve">
     <value>HEIC/HEIF 文件 "{0}" 转换失败：{1}</value>
-  </data>
-  <data name="Error_HeifEncMissing" xml:space="preserve">
-    <value>缺少内置工具：Tools\heif-enc.exe</value>
-  </data>
-  <data name="Error_HeifDecMissing" xml:space="preserve">
-    <value>缺少内置工具：Tools\heif-dec.exe</value>
   </data>
   <data name="HomePage_MergeSubtitle.Text" xml:space="preserve">
     <value>将照片与视频合成为标准实况照片，支持批量转换协议</value>
@@ -4415,6 +4394,4 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve">
     <value>开始修复（Ctrl+Enter）/ 停止（双击 Esc）</value>
   </data>
-  <data name="SettingsPage_General_ProcessingVersion.Text" xml:space="preserve"><value>使用重构版处理</value></data>
-  <data name="SettingsPage_General_ProcessingVersion_Desc.Text" xml:space="preserve"><value>重构版是隔离的新分支，当前尚未实现任何协议；关闭后使用保留的旧版兼容流程</value></data>
 </root>
