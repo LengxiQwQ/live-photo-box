@@ -127,6 +127,10 @@
     "2026-09-02": {
       "count": 133,
       "uniques": 16
+    },
+    "2026-09-03": {
+      "count": 93,
+      "uniques": 37
     }
   },
   "clones": {
@@ -257,6 +261,10 @@
     "2026-09-02": {
       "count": 475,
       "uniques": 36
+    },
+    "2026-09-03": {
+      "count": 42,
+      "uniques": 15
     }
   },
   "referrer_snapshots": [
@@ -2465,6 +2473,61 @@
         },
         {
           "referrer": "reporank.net",
+          "count": 1,
+          "uniques": 1
+        }
+      ]
+    },
+    {
+      "fetched_at": "2026-09-05T06:56:21Z",
+      "referrers": [
+        {
+          "referrer": "github.com",
+          "count": 554,
+          "uniques": 47
+        },
+        {
+          "referrer": "Bing",
+          "count": 69,
+          "uniques": 33
+        },
+        {
+          "referrer": "Google",
+          "count": 67,
+          "uniques": 42
+        },
+        {
+          "referrer": "chatgpt.com",
+          "count": 35,
+          "uniques": 16
+        },
+        {
+          "referrer": "t.co",
+          "count": 13,
+          "uniques": 4
+        },
+        {
+          "referrer": "doubao.com",
+          "count": 10,
+          "uniques": 6
+        },
+        {
+          "referrer": "yandex.ru",
+          "count": 3,
+          "uniques": 2
+        },
+        {
+          "referrer": "linkedin.com",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "referrer": "away.vk.ru",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "referrer": "fosswin.com",
           "count": 1,
           "uniques": 1
         }
@@ -5461,6 +5524,71 @@
           "uniques": 1
         }
       ]
+    },
+    {
+      "fetched_at": "2026-09-05T06:56:21Z",
+      "paths": [
+        {
+          "path": "/LengxiQwQ/live-photo-box",
+          "title": "Overview",
+          "count": 649,
+          "uniques": 147
+        },
+        {
+          "path": "/lengxiqwq/live-photo-box/releases",
+          "title": "/releases",
+          "count": 131,
+          "uniques": 44
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases",
+          "title": "/releases",
+          "count": 67,
+          "uniques": 31
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases/tag/v2.2.1",
+          "title": "/releases/tag/v2.2.1",
+          "count": 44,
+          "uniques": 22
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/README.zh-CN.md",
+          "title": "/blob/master/README.zh-CN.md",
+          "count": 38,
+          "uniques": 29
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/issues",
+          "title": "/issues",
+          "count": 20,
+          "uniques": 11
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases/tag/v2.2.0",
+          "title": "/releases/tag/v2.2.0",
+          "count": 20,
+          "uniques": 11
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/stargazers",
+          "title": "/stargazers",
+          "count": 20,
+          "uniques": 1
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/commits/master",
+          "title": "/commits/master",
+          "count": 16,
+          "uniques": 2
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/tree/master",
+          "title": "/tree/master",
+          "count": 13,
+          "uniques": 2
+        }
+      ]
     }
   ],
   "repo_meta_snapshots": [
@@ -5877,7 +6005,16 @@
       "open_issues": 0,
       "network": 2,
       "pushed_at": "2026-09-03T08:50:24Z"
+    },
+    {
+      "fetched_at": "2026-09-05T06:56:21Z",
+      "stars": 32,
+      "forks": 2,
+      "watchers": 1,
+      "open_issues": 0,
+      "network": 2,
+      "pushed_at": "2026-09-05T06:50:14Z"
     }
   ],
-  "updated_at": "2026-09-04T07:14:03Z"
+  "updated_at": "2026-09-05T06:56:21Z"
 }
