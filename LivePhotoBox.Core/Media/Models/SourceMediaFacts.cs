@@ -15,6 +15,7 @@ public sealed record SourceMediaFacts
     public string? PairingIdentifier { get; init; }
     public string PrimarySha256 { get; init; } = string.Empty;
     public string? SecondarySha256 { get; init; }
+    public System.Collections.Generic.IReadOnlyList<ConfirmedProtocolResidue> ConfirmedResidues { get; init; } = [];
 }
 
 public sealed record ImageFacts

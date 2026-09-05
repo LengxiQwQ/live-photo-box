@@ -101,107 +101,64 @@ static bool contains_text_in_moov(const std::vector<uint8_t>& data, std::string_
     return std::search(begin, end, value.begin(), value.end()) != end;
 }
 
-static bool remove_validated_ranges(
-    lpb_context* context,
-    const std::string& input_path,
-    const std::string& output_path,
-    const lpb_source_media_facts& facts,
-    std::vector<lpb_removed_protocol_fact>& out_facts)
-{
-    std::vector<uint8_t> data;
-    if (!read_file_binary(input_path, data))
-    {
-        set_error(context, "Failed to read source artifact for validated range cleaning.");
-        return false;
-    }
-
-    std::vector<std::pair<uint64_t, uint64_t>> ranges;
-    const auto add_range = [&](uint64_t offset, uint64_t length) {
-        if (length == 0) return true;
-        if (offset > data.size() || length > data.size() - static_cast<size_t>(offset)) return false;
-        ranges.emplace_back(offset, length);
-        return true;
-    };
-
-    // These ranges were validated by Inspector. They are only applicable when
-    // the extractor kept the source container in the image artifact.
-    const auto range_is_in_artifact = [&](const lpb_media_range& range) {
-        return range.length == 0 ||
-            (range.offset <= data.size() && range.length <= data.size() - static_cast<size_t>(range.offset));
-    };
-    // The source facts use offsets in the original source file.  An extracted
-    // primary image can itself have length == data.size(), so equality alone
-    // must not be used to decide that it is still the complete source.
-    const bool full_source_artifact = facts.primary_image.file_range.offset == 0 &&
-        facts.primary_image.file_range.length == data.size() &&
-        range_is_in_artifact(facts.motion_video.file_range) &&
-        range_is_in_artifact(facts.gain_map.file_range) &&
-        range_is_in_artifact(facts.protocol_tail_range);
-    if (!full_source_artifact) return write_file_binary(output_path, data);
-
-    if (facts.protocol != LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL && facts.motion_video.is_present &&
-        facts.motion_video.file_range.offset > 0)
-    {
-        if (!add_range(facts.motion_video.file_range.offset, facts.motion_video.file_range.length))
-        {
-            set_error(context, "Inspector video range is outside the source artifact.");
-            return false;
-        }
-    }
-    // GainMap is an auxiliary artifact and is extracted separately. Remove its
-    // embedded copy from the primary artifact only when Inspector supplied an
-    // exact range; never infer it from item ordering or a string.
-    if (facts.gain_map.is_present && facts.gain_map.file_range.offset > 0)
-    {
-        if (!add_range(facts.gain_map.file_range.offset, facts.gain_map.file_range.length))
-        {
-            set_error(context, "Inspector GainMap range is outside the source artifact.");
-            return false;
-        }
-    }
-    if (!add_range(facts.protocol_tail_range.offset, facts.protocol_tail_range.length))
-    {
-        set_error(context, "Inspector protocol-tail range is outside the source artifact.");
-        return false;
-    }
-
-    if (ranges.empty()) return write_file_binary(output_path, data);
-    std::sort(ranges.begin(), ranges.end());
-    uint64_t previous_end = 0;
-    for (const auto& range : ranges)
-    {
-        if (range.first < previous_end)
-        {
-            set_error(context, "Inspector protocol ranges overlap.");
-            return false;
-        }
-        previous_end = range.first + range.second;
-    }
-
-    std::vector<uint8_t> cleaned;
-    cleaned.reserve(data.size());
-    size_t cursor = 0;
-    for (const auto& range : ranges)
-    {
-        const size_t start = static_cast<size_t>(range.first);
-        cleaned.insert(cleaned.end(), data.begin() + cursor, data.begin() + start);
-        cursor = start + static_cast<size_t>(range.second);
-        lpb_removed_protocol_fact fact{};
-        fact.struct_size = sizeof(fact);
-        strncpy_s(fact.protocol_name, "Source protocol", _TRUNCATE);
-        strncpy_s(fact.component, "Validated embedded range", _TRUNCATE);
-        strncpy_s(fact.description, "Removed bytes at an Inspector-validated protocol range", _TRUNCATE);
-        out_facts.push_back(fact);
-    }
-    cleaned.insert(cleaned.end(), data.begin() + cursor, data.end());
-    return write_file_binary(output_path, cleaned);
-}
-
 static lpb_result fast_file_copy(lpb_context* context, const char* in_path, const char* out_path) {
     if (!in_path || !out_path) return LPB_RESULT_INVALID_ARGUMENT;
-    std::vector<uint8_t> data;
-    if (!read_file_binary(in_path, data) || !write_file_binary(out_path, data)) {
-        set_error(context, "Failed to copy media file atomically.");
+    auto p_in = utf8_to_path(in_path);
+    auto p_out = utf8_to_path(out_path);
+    std::error_code ec;
+
+    auto temp_dir = p_out.parent_path();
+    if (temp_dir.empty()) temp_dir = fs::current_path(ec);
+    if (ec || temp_dir.empty()) {
+        set_error(context, "Invalid output directory for copy.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    wchar_t temp_name[MAX_PATH]{};
+    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) {
+        set_error(context, "Failed to allocate temporary copy file.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    const fs::path temp(temp_name);
+
+    std::ifstream src(p_in, std::ios::binary);
+    if (!src.is_open()) {
+        fs::remove(temp, ec);
+        set_error(context, "Failed to open source file for copy.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    std::ofstream dst(temp, std::ios::binary | std::ios::trunc);
+    if (!dst.is_open()) {
+        fs::remove(temp, ec);
+        set_error(context, "Failed to open destination temp file for copy.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    constexpr size_t buffer_size = 1024 * 1024; // 1MB streaming buffer (bounded memory)
+    std::vector<char> buffer(buffer_size);
+    while (src.read(buffer.data(), buffer_size) || src.gcount() > 0) {
+        dst.write(buffer.data(), src.gcount());
+        if (!dst.good()) {
+            dst.close();
+            fs::remove(temp, ec);
+            set_error(context, "Failed writing copy stream.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+    }
+    dst.flush();
+    if (!dst.good()) {
+        dst.close();
+        fs::remove(temp, ec);
+        set_error(context, "Failed flushing copy stream.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    dst.close();
+    src.close();
+
+    if (!MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        fs::remove(temp, ec);
+        set_error(context, "Failed to publish copied file atomically.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
@@ -322,32 +279,6 @@ static lpb_result clean_jpeg_xmp(
     return LPB_RESULT_OK;
 }
 
-static lpb_result clean_validated_ranges_then_xmp(
-    lpb_context* context,
-    const std::string& input_path,
-    const std::string& output_path,
-    lpb_source_protocol protocol,
-    const lpb_source_media_facts& facts,
-    std::vector<lpb_removed_protocol_fact>& out_facts)
-{
-    // Range removal and XMP rewriting are one logical operation.  Keep the
-    // range-stripped image unpublished until the XMP pass and its structural
-    // residual check both succeed.
-    const std::string intermediate_path = output_path + ".lpb-range-clean-tmp";
-    std::error_code cleanup_ec;
-    fs::remove(utf8_to_path(intermediate_path.c_str()), cleanup_ec);
-
-    lpb_result result = remove_validated_ranges(
-        context, input_path, intermediate_path, facts, out_facts)
-        ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
-    if (result == LPB_RESULT_OK) {
-        result = clean_jpeg_xmp(
-            context, intermediate_path, output_path, protocol, true, out_facts);
-    }
-    fs::remove(utf8_to_path(intermediate_path.c_str()), cleanup_ec);
-    return result;
-}
-
 static lpb_result clean_apple_image(
     lpb_context* context,
     const std::string& in_path,
@@ -364,7 +295,7 @@ static lpb_result clean_apple_image(
     lpb_result res = lpb_apple_strip_live_photo_entries(context, data.data(), data.size());
     if (res == LPB_RESULT_OK) {
         if (data != before_makernote) {
-            add_fact(out_facts, "Apple", "MakerNote Live Tags", "Removed 0x0011/0x0017 MakerNote Live Photo tags");
+            add_fact(out_facts, "Apple", "MakerNote Live Tags", "Removed 0x0011/0x0017/0x0025/0x002b MakerNote Live Photo tags");
         }
     } else {
         return res;
@@ -497,12 +428,11 @@ static lpb_result clean_vivo_legacy_video(
     const char* starts[] = {
         "com.android.camera.livephoto",
         "com.android.camera.imageTime",
-        "com.vivo.gallery.livePhoto",
-        "bestTime"
+        "com.vivo.gallery.livePhoto"
     };
     std::vector<uint8_t> out_a(data.size() + 4096);
     size_t written_a = 0;
-    lpb_result strip_mdta = lpb_mp4_strip_mdta_keys(context, data.data(), data.size(), starts, 4, nullptr, 0, nullptr, 0, out_a.data(), out_a.size(), &written_a);
+    lpb_result strip_mdta = lpb_mp4_strip_mdta_keys(context, data.data(), data.size(), starts, 3, nullptr, 0, nullptr, 0, out_a.data(), out_a.size(), &written_a);
     if (strip_mdta != LPB_RESULT_OK) return strip_mdta;
     if (written_a > 0) {
         out_a.resize(written_a);
@@ -535,17 +465,15 @@ static lpb_result clean_huawei_video(
     }
 
     const bool had_huawei_metadata = contains_text(data, "com.openharmony.movingphoto") ||
-        contains_text(data, "com.huawei.movingphoto") || contains_text(data, "covertime") ||
-        contains_text(data, "meta_id");
+        contains_text(data, "com.huawei.movingphoto") || contains_text(data, "com.openharmony.covertime");
     const char* starts[] = {
         "com.openharmony.movingphoto",
-        "com.huawei.movingphoto",
-        "meta_id"
+        "com.huawei.movingphoto"
     };
-    const char* contains[] = { "com.openharmony.covertime", "covertime" };
+    const char* contains[] = { "com.openharmony.covertime" };
     std::vector<uint8_t> out_a(data.size() + 4096);
     size_t written_a = 0;
-    lpb_result strip_mdta = lpb_mp4_strip_mdta_keys(context, data.data(), data.size(), starts, 3, contains, 2, nullptr, 0, out_a.data(), out_a.size(), &written_a);
+    lpb_result strip_mdta = lpb_mp4_strip_mdta_keys(context, data.data(), data.size(), starts, 2, contains, 1, nullptr, 0, out_a.data(), out_a.size(), &written_a);
     if (strip_mdta != LPB_RESULT_OK) return strip_mdta;
     if (written_a > 0) {
         out_a.resize(written_a);
@@ -554,15 +482,12 @@ static lpb_result clean_huawei_video(
     }
 
     const char* track_patterns[] = {
-        "com.openharmony.timed_metadata.movingphoto",
-        "movingphoto",
-        "covertime",
-        "meta_id"
+        "com.openharmony.timed_metadata.movingphoto"
     };
     std::vector<uint8_t> out_b(data.size() + 4096);
     size_t written_b = 0;
     lpb_result strip_tracks = lpb_mp4_strip_stsd_tracks(
-        context, data.data(), data.size(), track_patterns, 4,
+        context, data.data(), data.size(), track_patterns, 1,
         out_b.data(), out_b.size(), &written_b);
     if (strip_tracks != LPB_RESULT_OK) return strip_tracks;
     if (written_b > 0) {
@@ -571,8 +496,6 @@ static lpb_result clean_huawei_video(
         add_fact(out_facts, "Huawei", "Moving Photo metadata track", "Removed the validated movingphoto timed-metadata track");
     }
 
-    // meta_id is a generic vendor field and may be an ordinary value; only
-    // reject residual keys whose protocol ownership was proven by Inspector.
     if (had_huawei_metadata && (contains_text(data, "com.openharmony.movingphoto") ||
         contains_text(data, "com.huawei.movingphoto") || contains_text(data, "com.openharmony.covertime"))) {
         set_error(context, contains_text(data, "com.openharmony.covertime")
@@ -631,40 +554,39 @@ lpb_result clean_source_protocol(
         break;
 
     case LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1:
-        res = clean_validated_ranges_then_xmp(context, input_image_path, output_image_path,
-            static_cast<lpb_source_protocol>(facts->protocol), *facts, removed_facts);
+        res = clean_jpeg_xmp(context, input_image_path, output_image_path,
+            static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
         if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
             res = fast_file_copy(context, input_video_path, output_video_path);
         }
         break;
 
     case LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2:
-        res = clean_validated_ranges_then_xmp(context, input_image_path, output_image_path,
-            static_cast<lpb_source_protocol>(facts->protocol), *facts, removed_facts);
+        res = clean_jpeg_xmp(context, input_image_path, output_image_path,
+            static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
         if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
             res = fast_file_copy(context, input_video_path, output_video_path);
         }
         break;
 
     case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO:
-        res = clean_validated_ranges_then_xmp(context, input_image_path, output_image_path,
-            static_cast<lpb_source_protocol>(facts->protocol), *facts, removed_facts);
+        res = clean_jpeg_xmp(context, input_image_path, output_image_path,
+            static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
         if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
             res = fast_file_copy(context, input_video_path, output_video_path);
         }
         break;
 
     case LPB_SOURCE_PROTOCOL_VIVO_X300:
-        res = clean_validated_ranges_then_xmp(context, input_image_path, output_image_path,
-            static_cast<lpb_source_protocol>(facts->protocol), *facts, removed_facts);
+        res = clean_jpeg_xmp(context, input_image_path, output_image_path,
+            static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
         if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
             res = fast_file_copy(context, input_video_path, output_video_path);
         }
         break;
 
     case LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL:
-        res = remove_validated_ranges(context, input_image_path, output_image_path, *facts, removed_facts)
-            ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+        res = fast_file_copy(context, input_image_path, output_image_path);
         if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
             res = clean_vivo_legacy_video(context, input_video_path, output_video_path, removed_facts);
         }
@@ -686,8 +608,7 @@ lpb_result clean_source_protocol(
 
     case LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO:
     case LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO:
-        res = remove_validated_ranges(context, input_image_path, output_image_path, *facts, removed_facts)
-            ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+        res = fast_file_copy(context, input_image_path, output_image_path);
         if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
             res = clean_huawei_video(context, input_video_path, output_video_path, removed_facts);
         }
@@ -703,6 +624,9 @@ lpb_result clean_source_protocol(
     }
 
         if (res == LPB_RESULT_OK && removed_facts.size() > facts_capacity) {
+            std::error_code ec;
+            fs::remove(utf8_to_path(output_image_path), ec);
+            if (output_video_path) fs::remove(utf8_to_path(output_video_path), ec);
             if (out_facts_count) *out_facts_count = removed_facts.size();
             set_error(context, "The supplied protocol-fact buffer is too small.");
             return LPB_RESULT_BUFFER_TOO_SMALL;

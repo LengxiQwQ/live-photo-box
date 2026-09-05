@@ -72,6 +72,12 @@ public sealed class SourceProtocolCleanerTests
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
         Assert.NotNull(cleanResult.CleanedImage);
         Assert.True(File.Exists(cleanResult.CleanedImage.Path));
+        Assert.Equal(PreservationOutcome.Preserved, cleanResult.PreservationOutcome);
+        Assert.NotNull(cleanResult.PreservationReport);
+        Assert.Equal(PreservationOutcome.Preserved, cleanResult.PreservationReport.OverallOutcome);
+        Assert.NotNull(cleanResult.CleanupPlan);
+        Assert.NotEmpty(cleanResult.CleanupPlan.Actions);
+
         // A source protocol may be removed by range extraction (for example
         // Huawei's 60-byte trailer) before the media cleaner runs.  Keep the
         // two responsibilities explicit and assert the combined audit trail.
@@ -104,6 +110,8 @@ public sealed class SourceProtocolCleanerTests
         Assert.True(secondCleanResult.Success, secondCleanResult.ErrorMessage);
         Assert.NotNull(secondCleanResult.CleanedImage);
         Assert.True(File.Exists(secondCleanResult.CleanedImage.Path));
+        Assert.Empty(secondCleanResult.RemovedFacts);
+        Assert.Equal(PreservationOutcome.Preserved, secondCleanResult.PreservationOutcome);
     }
 
     [Fact]

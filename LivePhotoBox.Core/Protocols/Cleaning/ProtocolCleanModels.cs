@@ -6,16 +6,35 @@ namespace LivePhotoBox.Protocols.Cleaning;
 
 /// <summary>
 /// Strongly-typed request to clean source protocol-specific markers from extracted media artifacts.
+/// The single trusted authority is ExtractedBundle; SourceFacts is derived directly from the bundle.
 /// </summary>
 public sealed record ProtocolCleanRequest
 {
-    public required SourceMediaFacts SourceFacts { get; init; }
+    private readonly SourceMediaFacts? _explicitSourceFacts;
+
     public required ExtractedMediaBundle ExtractedBundle { get; init; }
+
+    public SourceMediaFacts SourceFacts
+    {
+        get => _explicitSourceFacts ?? ExtractedBundle.SourceFacts;
+        init
+        {
+            _explicitSourceFacts = value;
+        }
+    }
+
     public PreservationPolicy PreservationPolicy { get; init; } = PreservationPolicy.BestEffort;
+}
+
+public enum ProtocolFactKind
+{
+    Removed,
+    Extracted
 }
 
 /// <summary>
 /// Description of a specific vendor protocol marker or feature that was removed during cleaning.
+/// Contains both human-readable descriptions and machine-verifiable authorization IDs.
 /// </summary>
 public sealed record RemovedProtocolFact
 {
@@ -23,12 +42,136 @@ public sealed record RemovedProtocolFact
     public required string Component { get; init; }
     public required string Description { get; init; }
     public ProtocolFactKind Kind { get; init; } = ProtocolFactKind.Removed;
+
+    public string? ResidueId { get; init; }
+    public MediaArtifactKind? ArtifactRole { get; init; }
+    public ResidueStructureKind? StructureKind { get; init; }
+    public string? Operation { get; init; }
+    public string? BeforeFingerprint { get; init; }
+    public string? AfterStatus { get; init; }
 }
 
-public enum ProtocolFactKind
+/// <summary>
+/// An individual planned cleanup mutation derived from P1-authorized residues.
+/// </summary>
+public sealed record PlannedCleanupAction
 {
-    Removed,
-    Extracted
+    public required string ResidueId { get; init; }
+    public required MediaArtifactKind ArtifactRole { get; init; }
+    public required ResidueStructureKind StructureKind { get; init; }
+    public required string Selector { get; init; }
+    public ResidueRemovalMode RemovalMode { get; init; } = ResidueRemovalMode.Delete;
+    public string? ExpectedFingerprint { get; init; }
+    public bool IsMandatory { get; init; } = true;
+}
+
+/// <summary>
+/// Immutable plan generated and validated before any destructive mutations occur.
+/// </summary>
+public sealed record ProtocolCleanupPlan
+{
+    public required SourceProtocol Protocol { get; init; }
+    public required IReadOnlyList<PlannedCleanupAction> Actions { get; init; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
+public enum PreservationCheckStatus
+{
+    VerifiedPreserved,
+    SemanticallyPreserved,
+    IntentionallyRemovedProtocolData,
+    NotApplicable,
+    UnableToVerify,
+    Failed
+}
+
+public sealed record PreservationReportItem
+{
+    public required string Name { get; init; }
+    public required PreservationCheckStatus Status { get; init; }
+    public string? Details { get; init; }
+}
+
+/// <summary>
+/// Auditable evidence verifying that non-protocol metadata and media samples remained preserved.
+/// </summary>
+public sealed record PreservationReport
+{
+    public required PreservationOutcome OverallOutcome { get; init; }
+    public required IReadOnlyList<PreservationReportItem> Items { get; init; }
+    public string? Summary { get; init; }
+}
+
+public enum CleanerFailureCategory
+{
+    None,
+    // Authority / Precondition
+    FactsNotConfirmed,
+    CleanupAuthorizationMissing,
+    ArtifactChangedSinceExtraction,
+    UnsupportedProtocol,
+    AmbiguousProtocol,
+    ArtifactFactMismatch,
+    // Cleaning
+    AuthorizedResidueNotFound,
+    AuthorizedResidueAmbiguous,
+    StructureChanged,
+    RemovalWouldTouchUnknownData,
+    StructuredRewriteFailed,
+    // Preservation / Validation
+    UnexpectedMetadataChange,
+    MediaPayloadChanged,
+    GainMapChanged,
+    HdrMetadataChanged,
+    MediaInvalid,
+    ProtocolStillDetected,
+    // Environment
+    OutputCreateFailed,
+    DiskFull,
+    AccessDenied,
+    LockedFile,
+    InvalidPath,
+    Cancelled,
+    // Transaction
+    PublishFailed,
+    RollbackFailed
+}
+
+public enum CleanerFailureStage
+{
+    Preflight,
+    ArtifactVerification,
+    Authorization,
+    Planning,
+    Staging,
+    PreservationDiff,
+    MediaValidation,
+    PostCleanInspection,
+    Commit,
+    Rollback
+}
+
+public class CleanerException : Exception
+{
+    public CleanerFailureCategory Category { get; }
+    public CleanerFailureStage Stage { get; }
+    public SourceProtocol Protocol { get; }
+    public MediaArtifactKind? ArtifactRole { get; }
+
+    public CleanerException(
+        CleanerFailureCategory category,
+        CleanerFailureStage stage,
+        SourceProtocol protocol,
+        string message,
+        MediaArtifactKind? artifactRole = null,
+        Exception? innerException = null)
+        : base(message, innerException)
+    {
+        Category = category;
+        Stage = stage;
+        Protocol = protocol;
+        ArtifactRole = artifactRole;
+    }
 }
 
 /// <summary>
@@ -42,6 +185,10 @@ public sealed record ProtocolCleanResult
     public MediaArtifact? CleanedGainMap { get; init; }
     public IReadOnlyList<RemovedProtocolFact> RemovedFacts { get; init; } = [];
     public PreservationOutcome PreservationOutcome { get; init; }
+    public PreservationReport? PreservationReport { get; init; }
+    public ProtocolCleanupPlan? CleanupPlan { get; init; }
+    public CleanerFailureCategory? FailureCategory { get; init; }
+    public CleanerFailureStage? FailureStage { get; init; }
     public TimeSpan Duration { get; init; }
     public string? ErrorMessage { get; init; }
 }

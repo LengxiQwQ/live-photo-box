@@ -28,7 +28,7 @@ public static class NativeCleanService
             using var ctx = NativeContext.Create(cancellationToken);
             NativeSourceMediaFacts nativeFacts = NativeMediaService.MapToNativeFacts(facts);
 
-            Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[32];
+            Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[64];
             unsafe
             {
                 fixed (NativeRemovedProtocolFact* pFacts = factsBuf)
@@ -59,11 +59,36 @@ public static class NativeCleanService
                         string comp = ReadFixedUtf8String(pFacts[i].Component, 64);
                         string desc = ReadFixedUtf8String(pFacts[i].Description, 128);
 
+                        string? matchedResidueId = null;
+                        MediaArtifactKind? matchedRole = null;
+                        ResidueStructureKind? matchedKind = null;
+
+                        if (facts.ConfirmedResidues != null)
+                        {
+                            foreach (var resItem in facts.ConfirmedResidues)
+                            {
+                                if (desc.Contains(resItem.Selector, StringComparison.OrdinalIgnoreCase) ||
+                                    comp.Contains(resItem.Selector, StringComparison.OrdinalIgnoreCase) ||
+                                    (resItem.ExpectedSemantic != null && desc.Contains(resItem.ExpectedSemantic, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    matchedResidueId = resItem.Id;
+                                    matchedRole = resItem.ArtifactRole;
+                                    matchedKind = resItem.StructureKind;
+                                    break;
+                                }
+                            }
+                        }
+
                         factsList.Add(new RemovedProtocolFact
                         {
                             ProtocolName = string.IsNullOrEmpty(proto) ? facts.Protocol.ToString() : proto,
                             Component = comp,
-                            Description = desc
+                            Description = desc,
+                            ResidueId = matchedResidueId,
+                            ArtifactRole = matchedRole,
+                            StructureKind = matchedKind,
+                            Operation = "Strip",
+                            AfterStatus = "Removed"
                         });
                     }
 

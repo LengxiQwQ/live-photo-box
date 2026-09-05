@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
+using System.Text.Json;
 using System.Threading.Tasks;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Extraction;
@@ -169,6 +170,9 @@ public sealed class ExtractorRealSampleTests
         var workspaceFiles = Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories);
         Assert.Equal(expectedArtifactCount, workspaceFiles.Length);
         Assert.DoesNotContain(workspaceFiles, f => Path.GetFileName(f).Contains("tmp", StringComparison.OrdinalIgnoreCase));
+
+        // 6. Optional Export for Real-Device Validation Artifacts
+        ExportValidationArtifacts(bundle, fileName, isDual: false, secondaryFileName: null);
     }
 
     [Theory]
@@ -230,6 +234,79 @@ public sealed class ExtractorRealSampleTests
         var workspaceFiles = Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories);
         Assert.Equal(2, workspaceFiles.Length);
         Assert.DoesNotContain(workspaceFiles, f => Path.GetFileName(f).Contains("tmp", StringComparison.OrdinalIgnoreCase));
+
+        // 5. Optional Export for Real-Device Validation Artifacts
+        ExportValidationArtifacts(bundle, primaryFileName, isDual: true, secondaryFileName: secondaryFileName);
+    }
+
+    private static void ExportValidationArtifacts(ExtractedMediaBundle bundle, string primaryFileName, bool isDual, string? secondaryFileName)
+    {
+        string? exportDir = Environment.GetEnvironmentVariable("LPB_EXPORT_VALIDATION_DIR");
+        if (string.IsNullOrEmpty(exportDir)) return;
+
+        string sampleName = Path.GetFileNameWithoutExtension(primaryFileName);
+        string extSuffix = Path.GetExtension(primaryFileName).TrimStart('.').ToLowerInvariant();
+        string sampleDirName = $"{sampleName}_{extSuffix}";
+        string targetSubdir = Path.Combine(exportDir, isDual ? "dual" : "single", sampleDirName);
+        Directory.CreateDirectory(targetSubdir);
+
+        string imgDest = Path.Combine(targetSubdir, $"{sampleName}_primary{Path.GetExtension(bundle.PrimaryImage.Path)}");
+        File.Copy(bundle.PrimaryImage.Path, imgDest, overwrite: true);
+
+        string? vidDest = null;
+        if (bundle.MotionVideo != null)
+        {
+            vidDest = Path.Combine(targetSubdir, $"{sampleName}_video{Path.GetExtension(bundle.MotionVideo.Path)}");
+            File.Copy(bundle.MotionVideo.Path, vidDest, overwrite: true);
+        }
+
+        string? gmDest = null;
+        if (bundle.GainMap != null)
+        {
+            gmDest = Path.Combine(targetSubdir, $"{sampleName}_gainmap{Path.GetExtension(bundle.GainMap.Path)}");
+            File.Copy(bundle.GainMap.Path, gmDest, overwrite: true);
+        }
+
+        var summary = new
+        {
+            Sample = primaryFileName,
+            SecondarySample = secondaryFileName,
+            IsDual = isDual,
+            Protocol = bundle.SourceFacts.Protocol.ToString(),
+            PrimaryImage = new
+            {
+                Container = bundle.SourceFacts.PrimaryImage.Container.ToString(),
+                Offset = bundle.SourceFacts.PrimaryImage.ByteOffset,
+                Length = bundle.PrimaryImage.ByteLength,
+                Sha256 = bundle.PrimaryImage.Sha256,
+                Width = bundle.SourceFacts.PrimaryImage.Width,
+                Height = bundle.SourceFacts.PrimaryImage.Height,
+                ExportFile = Path.GetFileName(imgDest)
+            },
+            MotionVideo = bundle.MotionVideo == null ? null : new
+            {
+                Container = bundle.SourceFacts.MotionVideo?.Container.ToString(),
+                Offset = bundle.SourceFacts.MotionVideo?.ByteOffset,
+                Length = bundle.MotionVideo.ByteLength,
+                Sha256 = bundle.MotionVideo.Sha256,
+                SourceIndex = bundle.SourceFacts.MotionVideo?.SourceIndex,
+                Width = bundle.SourceFacts.MotionVideo?.Width,
+                Height = bundle.SourceFacts.MotionVideo?.Height,
+                DurationSeconds = bundle.SourceFacts.MotionVideo?.DurationSeconds,
+                ExportFile = vidDest != null ? Path.GetFileName(vidDest) : null
+            },
+            GainMap = bundle.GainMap == null ? null : new
+            {
+                Container = bundle.SourceFacts.GainMap?.Container.ToString(),
+                Offset = bundle.SourceFacts.GainMap?.ByteOffset,
+                Length = bundle.GainMap.ByteLength,
+                Sha256 = bundle.GainMap.Sha256,
+                ExportFile = gmDest != null ? Path.GetFileName(gmDest) : null
+            }
+        };
+
+        string json = JsonSerializer.Serialize(summary, new JsonSerializerOptions { WriteIndented = true });
+        File.WriteAllText(Path.Combine(targetSubdir, "extraction_summary.json"), json);
     }
 
     private static async Task AssertImageDecodableAndDimensionsMatchAsync(string imagePath, ImageFacts facts)

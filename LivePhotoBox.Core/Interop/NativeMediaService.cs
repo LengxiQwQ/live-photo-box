@@ -234,7 +234,7 @@ public static class NativeMediaService
             secondaryShaHex = Convert.ToHexString(secondarySha);
         }
 
-        return new SourceMediaFacts
+        var facts = new SourceMediaFacts
         {
             Protocol = (SourceProtocol)native.Protocol,
             PrimarySha256 = primaryShaHex,
@@ -266,6 +266,11 @@ public static class NativeMediaService
             ProtocolTailOffset = checked((long)native.ProtocolTailRange.Offset),
             ProtocolTailLength = checked((long)native.ProtocolTailRange.Length),
             PairingIdentifier = pairingId
+        };
+
+        return facts with
+        {
+            ConfirmedResidues = CleanupAuthorizationAuthority.ResolveAuthorizations(facts)
         };
     }
 
