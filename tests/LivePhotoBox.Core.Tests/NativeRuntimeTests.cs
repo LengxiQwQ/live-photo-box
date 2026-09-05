@@ -31,4 +31,44 @@ public sealed class NativeRuntimeTests
         Assert.All(results, result => Assert.True(result.IsAvailable, result.Diagnostic));
         Assert.Single(results.Select(result => result.Version).Distinct());
     }
+
+    [Fact]
+    public void SupportedAbiVersion_IsTwo()
+    {
+        Assert.Equal(2u, NativeRuntime.SupportedAbiVersion);
+    }
+
+    [Theory]
+    [InlineData(1u)]
+    [InlineData(0u)]
+    [InlineData(3u)]
+    [InlineData(999u)]
+    public unsafe void CreateContext_MismatchedAbiVersion_FailsClosed(uint wrongAbi)
+    {
+        var options = new NativeContextOptions
+        {
+            StructSize = (uint)sizeof(NativeContextOptions),
+            AbiVersion = wrongAbi
+        };
+
+        NativeResult res = NativeMethods.CreateContext((nint)(&options), out nint handle);
+        Assert.Equal(NativeResult.AbiMismatch, res);
+        Assert.Equal(nint.Zero, handle);
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(10u)]
+    public unsafe void CreateContext_InvalidStructSize_FailsClosed(uint invalidSize)
+    {
+        var options = new NativeContextOptions
+        {
+            StructSize = invalidSize,
+            AbiVersion = NativeRuntime.SupportedAbiVersion
+        };
+
+        NativeResult res = NativeMethods.CreateContext((nint)(&options), out nint handle);
+        Assert.Equal(NativeResult.InvalidArgument, res);
+        Assert.Equal(nint.Zero, handle);
+    }
 }

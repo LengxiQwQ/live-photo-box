@@ -92,6 +92,11 @@ lpb_result probe_video_file(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
+    if (out_video_facts->struct_size < sizeof(lpb_video_item_facts)) {
+        set_error(context, "out_video_facts struct_size is invalid.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
     auto p_vid = utf8_to_path(video_path);
     std::ifstream file(p_vid, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
@@ -568,6 +573,7 @@ lpb_result transcode_video_file(
 
     // Probe input facts
     lpb_video_item_facts src_facts = {0};
+    src_facts.struct_size = sizeof(lpb_video_item_facts);
     lpb_result probe_res = probe_video_file(context, input_video_path, &src_facts);
     if (probe_res != LPB_RESULT_OK) {
         return probe_res;
@@ -878,12 +884,14 @@ lpb_result transcode_video_file(
             return remux_res;
         }
         lpb_video_item_facts published_facts{};
+        published_facts.struct_size = sizeof(lpb_video_item_facts);
         if (probe_video_file(context, output_video_path, &published_facts) != LPB_RESULT_OK) {
             set_error(context, "Published MOV failed Native structural validation.");
             return LPB_RESULT_INTERNAL_ERROR;
         }
     } else {
         lpb_video_item_facts transcoded_facts{};
+        transcoded_facts.struct_size = sizeof(lpb_video_item_facts);
         if (probe_video_file(context, temp_mp4_path.string().c_str(), &transcoded_facts) != LPB_RESULT_OK) {
             fs::remove(temp_mp4_path);
             set_error(context, "Transcoded MP4 failed Native structural validation.");

@@ -73,7 +73,9 @@ bool paths_alias(const char* first, const char* second) noexcept
         auto right_absolute = std::filesystem::absolute(right, right_ec);
         if (left_ec) left_absolute = left;
         if (right_ec) right_absolute = right;
-        if (left_absolute.lexically_normal() == right_absolute.lexically_normal()) return true;
+        std::wstring left_norm = left_absolute.lexically_normal().wstring();
+        std::wstring right_norm = right_absolute.lexically_normal().wstring();
+        if (_wcsicmp(left_norm.c_str(), right_norm.c_str()) == 0) return true;
 
         std::error_code equivalent_ec;
         return std::filesystem::equivalent(left, right, equivalent_ec) && !equivalent_ec;

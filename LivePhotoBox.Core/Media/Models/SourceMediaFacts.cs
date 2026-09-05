@@ -13,6 +13,8 @@ public sealed record SourceMediaFacts
     public long ProtocolTailOffset { get; init; }
     public long ProtocolTailLength { get; init; }
     public string? PairingIdentifier { get; init; }
+    public string PrimarySha256 { get; init; } = string.Empty;
+    public string? SecondarySha256 { get; init; }
 }
 
 public sealed record ImageFacts

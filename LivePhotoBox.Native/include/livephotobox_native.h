@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define LPB_NATIVE_ABI_VERSION 1u
+#define LPB_NATIVE_ABI_VERSION 2u
 
 typedef struct lpb_context lpb_context;
 
@@ -428,6 +428,9 @@ typedef struct lpb_source_media_facts
        zero for formats without a protocol tail. */
     lpb_media_range protocol_tail_range;
     char pairing_identifier[128];
+    uint8_t primary_sha256[32];
+    uint8_t secondary_sha256[32];
+    int32_t has_secondary_source;
 } lpb_source_media_facts;
 
 /*

@@ -37,7 +37,7 @@ internal sealed class NativeContext : IDisposable
             var options = new NativeContextOptions
             {
                 StructSize = (uint)sizeof(NativeContextOptions),
-                AbiVersion = 1,
+                AbiVersion = NativeRuntime.SupportedAbiVersion,
                 LogCallback = nint.Zero,
                 CancelCallback = (nint)cancelFunc,
                 UserData = GCHandle.ToIntPtr(_selfHandle)
@@ -108,6 +108,10 @@ internal sealed class NativeContext : IDisposable
                 throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts, msg);
             if (msg.StartsWith("[InvalidAlias]", StringComparison.OrdinalIgnoreCase))
                 throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidAlias, msg);
+            if (msg.StartsWith("[SourceChanged]", StringComparison.OrdinalIgnoreCase))
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceChanged, msg);
+            if (msg.StartsWith("[CleanupFailed]", StringComparison.OrdinalIgnoreCase))
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.CleanupFailed, msg);
             if (msg.StartsWith("[Cancelled]", StringComparison.OrdinalIgnoreCase))
                 throw new OperationCanceledException(msg, _cancellationToken);
         }

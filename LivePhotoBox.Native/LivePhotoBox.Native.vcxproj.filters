@@ -45,6 +45,9 @@
     <ClInclude Include="src\foundation\internal.h">
       <Filter>src\foundation</Filter>
     </ClInclude>
+    <ClInclude Include="src\foundation\sha256.h">
+      <Filter>src\foundation</Filter>
+    </ClInclude>
     <ClInclude Include="src\media\image_converter.h">
       <Filter>src\media</Filter>
     </ClInclude>
@@ -96,6 +99,9 @@
       <Filter>src\containers</Filter>
     </ClCompile>
     <ClCompile Include="src\foundation\context.cpp">
+      <Filter>src\foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="src\foundation\sha256.cpp">
       <Filter>src\foundation</Filter>
     </ClCompile>
     <ClCompile Include="src\media\image_converter.cpp">

@@ -1,7 +1,9 @@
 using System;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
@@ -107,6 +109,8 @@ public sealed class ExtractorRealSampleTests
             Assert.Equal((byte)'p', imgHeader[7]);
         }
 
+        await AssertImageDecodableAndDimensionsMatchAsync(bundle.PrimaryImage.Path, facts.PrimaryImage);
+
         // 3. Motion Video Validation & Byte Exactness
         int expectedArtifactCount = 1;
         if (facts.MotionVideo is { IsPresent: true } vidFacts)
@@ -127,6 +131,8 @@ public sealed class ExtractorRealSampleTests
             Assert.Equal((byte)'t', vidHeader[5]);
             Assert.Equal((byte)'y', vidHeader[6]);
             Assert.Equal((byte)'p', vidHeader[7]);
+
+            await AssertVideoProbedValidAsync(bundle.MotionVideo.Path, vidFacts);
         }
 
         // 4. GainMap Validation & Byte Exactness (e.g. vivo.jpg)
@@ -209,9 +215,58 @@ public sealed class ExtractorRealSampleTests
         Assert.Equal((byte)'y', vidHeader[6]);
         Assert.Equal((byte)'p', vidHeader[7]);
 
+        await AssertImageDecodableAndDimensionsMatchAsync(bundle.PrimaryImage.Path, facts.PrimaryImage);
+        await AssertVideoProbedValidAsync(bundle.MotionVideo.Path, facts.MotionVideo!);
+
         // 4. Workspace Cleanliness
         var workspaceFiles = Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories);
         Assert.Equal(2, workspaceFiles.Length);
         Assert.DoesNotContain(workspaceFiles, f => Path.GetFileName(f).Contains("tmp", StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static async Task AssertImageDecodableAndDimensionsMatchAsync(string imagePath, ImageFacts facts)
+    {
+        Assert.True(File.Exists(imagePath));
+        Assert.True(new FileInfo(imagePath).Length > 0);
+
+        try
+        {
+            using var fileStream = File.OpenRead(imagePath);
+            using var mem = new MemoryStream();
+            await fileStream.CopyToAsync(mem);
+            mem.Position = 0;
+            using var randomStream = mem.AsRandomAccessStream();
+            var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(randomStream);
+            Assert.True(decoder.PixelWidth > 0);
+            Assert.True(decoder.PixelHeight > 0);
+            if (facts.Width > 0 && facts.Height > 0)
+            {
+                bool dimsMatch = (decoder.PixelWidth == facts.Width && decoder.PixelHeight == facts.Height) ||
+                                 (decoder.PixelWidth == facts.Height && decoder.PixelHeight == facts.Width);
+                Assert.True(dimsMatch, $"Decoded dimensions {decoder.PixelWidth}x{decoder.PixelHeight} do not match facts {facts.Width}x{facts.Height}");
+            }
+        }
+        catch (COMException)
+        {
+            // System without HEVC/HEIC codec installed; container and facts checked
+            Assert.True(facts.Width > 0 && facts.Height > 0);
+        }
+    }
+
+    private static async Task AssertVideoProbedValidAsync(string videoPath, VideoFacts expectedFacts)
+    {
+        Assert.True(File.Exists(videoPath));
+        Assert.True(new FileInfo(videoPath).Length > 0);
+
+        var probed = await NativeMediaService.ProbeVideoAsync(videoPath);
+        Assert.True(probed.IsPresent);
+        Assert.True(probed.Width > 0, $"Probed video width must be > 0, got {probed.Width}");
+        Assert.True(probed.Height > 0, $"Probed video height must be > 0, got {probed.Height}");
+        Assert.True(probed.DurationSeconds > 0, $"Probed video duration must be > 0, got {probed.DurationSeconds}");
+        if (expectedFacts.Width > 0 && expectedFacts.Height > 0)
+        {
+            Assert.Equal(expectedFacts.Width, probed.Width);
+            Assert.Equal(expectedFacts.Height, probed.Height);
+        }
     }
 }

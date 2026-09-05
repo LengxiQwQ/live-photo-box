@@ -89,9 +89,16 @@ public sealed class SourceExtractor : ISourceExtractor
                 }
                 videoSource = secondaryPath;
             }
-            else
+            else if (videoFacts.SourceIndex == 0)
             {
                 videoSource = primaryPath;
+            }
+            else
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.InvalidFacts,
+                    $"Motion video specifies invalid SourceIndex: {videoFacts.SourceIndex}.",
+                    artifactKind: MediaArtifactKind.MotionVideo);
             }
 
             long videoSourceLength = new FileInfo(videoSource).Length;
@@ -119,18 +126,53 @@ public sealed class SourceExtractor : ISourceExtractor
         }
 
         string beforePrimarySha = await workspace.ComputeFileSha256Async(primaryPath, cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(facts.PrimarySha256))
+        {
+            bool isAllZero = true;
+            for (int i = 0; i < facts.PrimarySha256.Length; i++)
+            {
+                if (facts.PrimarySha256[i] != '0') { isAllZero = false; break; }
+            }
+            if (!isAllZero && !string.Equals(facts.PrimarySha256.Trim(), beforePrimarySha, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.SourceChanged,
+                    $"Source media file '{primaryPath}' was modified after inspection: SHA-256 mismatch.",
+                    sourcePath: primaryPath);
+            }
+        }
+
         string? beforeSecondarySha = (secondaryPath != null && File.Exists(secondaryPath))
             ? await workspace.ComputeFileSha256Async(secondaryPath, cancellationToken).ConfigureAwait(false)
             : null;
+        if (!string.IsNullOrWhiteSpace(facts.SecondarySha256) && secondaryPath != null && beforeSecondarySha != null)
+        {
+            bool isAllZero = true;
+            for (int i = 0; i < facts.SecondarySha256.Length; i++)
+            {
+                if (facts.SecondarySha256[i] != '0') { isAllZero = false; break; }
+            }
+            if (!isAllZero && !string.Equals(facts.SecondarySha256.Trim(), beforeSecondarySha, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.SourceChanged,
+                    $"Secondary source file '{secondaryPath}' was modified after inspection: SHA-256 mismatch.",
+                    sourcePath: secondaryPath);
+            }
+        }
 
         string imgExt = facts.PrimaryImage.Container == ImageContainer.Heic ? ".heic" : ".jpg";
         string outputImagePath = workspace.AllocateFilePath("primary", imgExt);
+        if (File.Exists(outputImagePath))
+            throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, $"Destination file already exists: {outputImagePath}");
 
         string? outputVideoPath = null;
         if (facts.MotionVideo != null && facts.MotionVideo.IsPresent)
         {
             string vidExt = facts.MotionVideo.Container == VideoContainer.Mov ? ".mov" : ".mp4";
             outputVideoPath = workspace.AllocateFilePath("motion", vidExt);
+            if (File.Exists(outputVideoPath))
+                throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, $"Destination file already exists: {outputVideoPath}");
         }
 
         string? outputGainmapPath = null;
@@ -138,6 +180,8 @@ public sealed class SourceExtractor : ISourceExtractor
         {
             string gmExt = facts.GainMap.Container == ImageContainer.Heic ? ".heic" : ".jpg";
             outputGainmapPath = workspace.AllocateFilePath("gainmap", gmExt);
+            if (File.Exists(outputGainmapPath))
+                throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, $"Destination file already exists: {outputGainmapPath}");
         }
 
         try

@@ -44,7 +44,7 @@ namespace LivePhotoBox.Interop
     public static class NativeRuntime
     {
         /// <summary>The ABI version supported by this managed interop layer.</summary>
-        public const uint SupportedAbiVersion = 1;
+        public const uint SupportedAbiVersion = 2;
 
         /// <summary>Foundation capability exposed by the Phase 1 native runtime.</summary>
         public const ulong FoundationCapability = 1UL << 0;

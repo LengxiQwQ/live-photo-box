@@ -210,9 +210,35 @@ public static class NativeMediaService
             }
         }
 
+        byte[] primarySha = new byte[32];
+        fixed (byte* pSha = native.PrimarySha256)
+        {
+            fixed (byte* pDst = primarySha)
+            {
+                Buffer.MemoryCopy(pSha, pDst, 32, 32);
+            }
+        }
+        string primaryShaHex = Convert.ToHexString(primarySha);
+
+        string? secondaryShaHex = null;
+        if (native.HasSecondarySource != 0)
+        {
+            byte[] secondarySha = new byte[32];
+            fixed (byte* pSha = native.SecondarySha256)
+            {
+                fixed (byte* pDst = secondarySha)
+                {
+                    Buffer.MemoryCopy(pSha, pDst, 32, 32);
+                }
+            }
+            secondaryShaHex = Convert.ToHexString(secondarySha);
+        }
+
         return new SourceMediaFacts
         {
             Protocol = (SourceProtocol)native.Protocol,
+            PrimarySha256 = primaryShaHex,
+            SecondarySha256 = secondaryShaHex,
             PrimaryImage = new ImageFacts
             {
                 IsPresent = native.PrimaryImage.IsPresent != 0,
@@ -282,6 +308,50 @@ public static class NativeMediaService
                 }
             }
         };
+
+        if (!string.IsNullOrWhiteSpace(facts.PrimarySha256))
+        {
+            try
+            {
+                byte[] sha = Convert.FromHexString(facts.PrimarySha256.Trim());
+                if (sha.Length == 32)
+                {
+                    for (int i = 0; i < 32; i++)
+                    {
+                        native.PrimarySha256[i] = sha[i];
+                    }
+                }
+            }
+            catch (FormatException) { }
+        }
+
+        if (!string.IsNullOrWhiteSpace(facts.SecondarySha256))
+        {
+            try
+            {
+                byte[] sha = Convert.FromHexString(facts.SecondarySha256.Trim());
+                if (sha.Length == 32)
+                {
+                    native.HasSecondarySource = 1;
+                    for (int i = 0; i < 32; i++)
+                    {
+                        native.SecondarySha256[i] = sha[i];
+                    }
+                }
+            }
+            catch (FormatException) { }
+        }
+
+        if (!string.IsNullOrEmpty(facts.PairingIdentifier))
+        {
+            byte[] idBytes = Encoding.UTF8.GetBytes(facts.PairingIdentifier);
+            int copyLen = Math.Min(idBytes.Length, 127);
+            for (int i = 0; i < copyLen; i++)
+            {
+                native.PairingIdentifier[i] = idBytes[i];
+            }
+            native.PairingIdentifier[copyLen] = 0;
+        }
 
         if (facts.MotionVideo != null)
         {

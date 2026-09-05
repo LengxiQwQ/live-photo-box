@@ -1,6 +1,7 @@
 #include "media/media_inspector.h"
 #include "media/video_converter.h"
 #include "foundation/internal.h"
+#include "foundation/sha256.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
 #include <fstream>
@@ -1216,8 +1217,17 @@ lpb_result inspect_source(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
+    if (out_facts->struct_size < sizeof(lpb_source_media_facts)) {
+        set_error(context, "out_facts struct_size is smaller than expected lpb_source_media_facts size.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
     std::memset(out_facts, 0, sizeof(lpb_source_media_facts));
     out_facts->struct_size = sizeof(lpb_source_media_facts);
+    out_facts->primary_image.struct_size = sizeof(lpb_image_item_facts);
+    out_facts->motion_video.struct_size = sizeof(lpb_video_item_facts);
+    out_facts->gain_map.struct_size = sizeof(lpb_gainmap_item_facts);
+    out_facts->timing.struct_size = sizeof(lpb_timing_facts);
 
     uint64_t primary_size = get_file_size(primary_path);
     if (primary_size == 0) {
@@ -1231,6 +1241,7 @@ lpb_result inspect_source(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     primary_size = primary_data.size();
+    lpb::crypto::sha256_buffer(primary_data.data(), primary_data.size(), out_facts->primary_sha256);
 
     lpb_image_container img_cont = detect_image_container(primary_data);
     lpb_video_container vid_cont = detect_video_container(primary_data);
@@ -1250,6 +1261,9 @@ lpb_result inspect_source(
             set_error(context, "Secondary file is empty or does not exist.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
+        lpb::crypto::sha256_buffer(sec_data.data(), sec_data.size(), out_facts->secondary_sha256);
+        out_facts->has_secondary_source = 1;
+
         lpb_video_container sec_vid_cont = detect_video_container(sec_data);
         if (sec_vid_cont == LPB_VIDEO_CONTAINER_UNKNOWN) {
             set_error(context, "Secondary file is not a supported video container.");

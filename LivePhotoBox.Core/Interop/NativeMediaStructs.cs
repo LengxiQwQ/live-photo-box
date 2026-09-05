@@ -67,6 +67,9 @@ internal unsafe struct NativeSourceMediaFacts
     public NativeTimingFacts Timing;
     public NativeMediaRange ProtocolTailRange;
     public fixed byte PairingIdentifier[128];
+    public fixed byte PrimarySha256[32];
+    public fixed byte SecondarySha256[32];
+    public int HasSecondarySource;
 }
 
 [StructLayout(LayoutKind.Sequential)]

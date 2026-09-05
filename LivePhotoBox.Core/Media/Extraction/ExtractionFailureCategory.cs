@@ -14,5 +14,6 @@ public enum ExtractionFailureCategory
     OutputPublishFailed,
     UnsupportedLayout,
     InvalidAlias,
+    CleanupFailed,
     InternalError
 }
