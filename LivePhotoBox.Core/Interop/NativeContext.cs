@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -54,6 +54,11 @@ internal sealed class NativeContext : IDisposable
 
     public nint Handle => _contextHandle;
 
+    internal void SetExtractorFault(NativeExtractorFault fault, int targetArtifact = 0, ulong triggerAfterBytes = 0, nint callback = 0, nint userData = 0)
+    {
+        NativeMethods.TestSetExtractorFault(_contextHandle, fault, targetArtifact, triggerAfterBytes, callback, userData);
+    }
+
     public static NativeContext Create(CancellationToken cancellationToken = default)
     {
         return new NativeContext(cancellationToken);
@@ -87,6 +92,26 @@ internal sealed class NativeContext : IDisposable
             throw new OperationCanceledException(_cancellationToken);
         }
         string? msg = GetLastError();
+        if (!string.IsNullOrWhiteSpace(msg))
+        {
+            if (msg.StartsWith("[DiskFull]", StringComparison.OrdinalIgnoreCase))
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.DiskFull, msg);
+            if (msg.StartsWith("[SourceRangeUnreadable]", StringComparison.OrdinalIgnoreCase))
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceRangeUnreadable, msg);
+            if (msg.StartsWith("[OutputWriteFailed]", StringComparison.OrdinalIgnoreCase))
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.OutputWriteFailed, msg);
+            if (msg.StartsWith("[OutputPublishFailed]", StringComparison.OrdinalIgnoreCase))
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.OutputPublishFailed, msg);
+            if (msg.StartsWith("[UnsupportedLayout]", StringComparison.OrdinalIgnoreCase))
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.UnsupportedLayout, msg);
+            if (msg.StartsWith("[InvalidFacts]", StringComparison.OrdinalIgnoreCase))
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts, msg);
+            if (msg.StartsWith("[InvalidAlias]", StringComparison.OrdinalIgnoreCase))
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidAlias, msg);
+            if (msg.StartsWith("[Cancelled]", StringComparison.OrdinalIgnoreCase))
+                throw new OperationCanceledException(msg, _cancellationToken);
+        }
+
         throw new InvalidOperationException(string.IsNullOrWhiteSpace(msg)
             ? $"Native media operation failed with result: {res}"
             : $"Native media operation failed ({res}): {msg}");

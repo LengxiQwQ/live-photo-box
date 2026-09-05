@@ -31,6 +31,23 @@ LPB_API lpb_result LPB_CALL lpb_extract_media(
     return extract_source(context, primary_path, secondary_path, facts, output_image_path, output_video_path, output_gainmap_path);
 }
 
+LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
+    lpb_context* context,
+    lpb_extractor_fault fault,
+    int32_t target_artifact,
+    uint64_t trigger_after_bytes,
+    lpb_extractor_step_callback callback,
+    void* user_data)
+{
+    if (!context) return LPB_RESULT_INVALID_ARGUMENT;
+    context->extractor_hook.fault = fault;
+    context->extractor_hook.target_artifact = target_artifact;
+    context->extractor_hook.trigger_after_bytes = trigger_after_bytes;
+    context->extractor_hook.step_callback = callback;
+    context->extractor_hook.callback_user_data = user_data;
+    return LPB_RESULT_OK;
+}
+
 LPB_API lpb_result LPB_CALL lpb_clean_source_protocol(
     lpb_context* context,
     const lpb_source_media_facts* facts,

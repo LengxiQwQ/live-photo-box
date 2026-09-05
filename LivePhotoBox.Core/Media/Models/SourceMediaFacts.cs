@@ -38,6 +38,7 @@ public sealed record VideoFacts
     public bool HasAudio { get; init; }
     public long ByteOffset { get; init; }
     public long ByteLength { get; init; }
+    public int SourceIndex { get; init; }
 }
 
 public sealed record GainMapFacts

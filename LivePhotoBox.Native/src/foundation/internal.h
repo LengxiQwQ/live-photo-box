@@ -20,6 +20,15 @@
 
 #include <filesystem>
 
+struct lpb_extractor_test_hook
+{
+    lpb_extractor_fault fault{LPB_EXTRACTOR_FAULT_NONE};
+    int32_t target_artifact{0};
+    uint64_t trigger_after_bytes{0};
+    lpb_extractor_step_callback step_callback{nullptr};
+    void* callback_user_data{nullptr};
+};
+
 struct lpb_context
 {
     lpb_log_callback log_callback{};
@@ -27,6 +36,7 @@ struct lpb_context
     void* user_data{};
     std::mutex error_mutex;
     std::string last_error;
+    lpb_extractor_test_hook extractor_hook{};
 };
 
 constexpr size_t context_options_v1_size =

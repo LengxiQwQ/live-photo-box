@@ -51,6 +51,17 @@ public static class NativeMediaService
         string? outputImagePath,
         string? outputVideoPath,
         string? outputGainmapPath,
+        CancellationToken cancellationToken = default) =>
+        ExtractMediaAsync(primaryPath, secondaryPath, facts, outputImagePath, outputVideoPath, outputGainmapPath, null, cancellationToken);
+
+    internal static Task ExtractMediaAsync(
+        string primaryPath,
+        string? secondaryPath,
+        SourceMediaFacts facts,
+        string? outputImagePath,
+        string? outputVideoPath,
+        string? outputGainmapPath,
+        Action<NativeContext>? configureContext,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -58,6 +69,7 @@ public static class NativeMediaService
         return Task.Run(() =>
         {
             using var ctx = NativeContext.Create(cancellationToken);
+            configureContext?.Invoke(ctx);
             NativeSourceMediaFacts nativeFacts = MapToNativeFacts(facts);
 
             NativeResult res = NativeMethods.ExtractMedia(
@@ -245,7 +257,8 @@ public static class NativeMediaService
             Fps = native.Fps,
             HasAudio = native.HasAudio != 0,
             ByteOffset = (long)native.FileRange.Offset,
-            ByteLength = (long)native.FileRange.Length
+            ByteLength = (long)native.FileRange.Length,
+            SourceIndex = native.SourceIndex
         };
     }
 
@@ -288,7 +301,8 @@ public static class NativeMediaService
                 {
                     Offset = (ulong)facts.MotionVideo.ByteOffset,
                     Length = (ulong)facts.MotionVideo.ByteLength
-                }
+                },
+                SourceIndex = facts.MotionVideo.SourceIndex
             };
         }
 

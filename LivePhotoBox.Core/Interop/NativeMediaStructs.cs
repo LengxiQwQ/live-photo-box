@@ -34,6 +34,7 @@ internal struct NativeVideoItemFacts
     public double Fps;
     public int HasAudio;
     public NativeMediaRange FileRange;
+    public int SourceIndex;
 }
 
 [StructLayout(LayoutKind.Sequential)]

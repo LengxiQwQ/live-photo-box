@@ -1304,6 +1304,7 @@ lpb_result inspect_source(
                 out_facts->motion_video.container = sec_vid_cont;
                 out_facts->motion_video.file_range.offset = 0;
                 out_facts->motion_video.file_range.length = secondary_size;
+                out_facts->motion_video.source_index = 1;
                 strncpy_s(out_facts->pairing_identifier, image_content_id.c_str(), _TRUNCATE);
                 return LPB_RESULT_OK;
             } else {
@@ -1339,6 +1340,7 @@ lpb_result inspect_source(
                 out_facts->motion_video.container = sec_vid_cont;
                 out_facts->motion_video.file_range.offset = 0;
                 out_facts->motion_video.file_range.length = secondary_size;
+                out_facts->motion_video.source_index = 1;
                 if (has_jpeg_end && jpeg_end < primary_size) {
                     out_facts->primary_image.file_range.length = jpeg_end;
                     out_facts->protocol_tail_range.offset = jpeg_end;

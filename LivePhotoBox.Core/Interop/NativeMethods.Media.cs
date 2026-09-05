@@ -66,4 +66,24 @@ internal static partial class NativeMethods
         int crf,
         byte* outEncoderUsed,
         nuint encoderBufLen);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_test_set_extractor_fault")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult TestSetExtractorFault(
+        nint context,
+        NativeExtractorFault fault,
+        int targetArtifact,
+        ulong triggerAfterBytes,
+        nint callback,
+        nint userData);
+}
+
+internal enum NativeExtractorFault
+{
+    None = 0,
+    DiskFull = 1,
+    WriteFail = 2,
+    PublishFail = 3,
+    ShortRead = 4
 }

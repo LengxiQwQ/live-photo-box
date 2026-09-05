@@ -396,6 +396,7 @@ typedef struct lpb_video_item_facts
     double fps;
     int32_t has_audio;
     lpb_media_range file_range;
+    int32_t source_index;
 } lpb_video_item_facts;
 
 typedef struct lpb_gainmap_item_facts
@@ -453,6 +454,29 @@ LPB_API lpb_result LPB_CALL lpb_extract_media(
     const char* output_image_path,
     const char* output_video_path,
     const char* output_gainmap_path);
+
+typedef enum lpb_extractor_fault
+{
+    LPB_EXTRACTOR_FAULT_NONE = 0,
+    LPB_EXTRACTOR_FAULT_DISK_FULL = 1,
+    LPB_EXTRACTOR_FAULT_WRITE_FAIL = 2,
+    LPB_EXTRACTOR_FAULT_PUBLISH_FAIL = 3,
+    LPB_EXTRACTOR_FAULT_SHORT_READ = 4
+} lpb_extractor_fault;
+
+typedef void(LPB_CALL* lpb_extractor_step_callback)(
+    void* user_data,
+    int32_t step,
+    uint64_t bytes_processed);
+
+/* Test-only hook for deterministic fault injection and mid-stream synchronization */
+LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
+    lpb_context* context,
+    lpb_extractor_fault fault,
+    int32_t target_artifact,
+    uint64_t trigger_after_bytes,
+    lpb_extractor_step_callback callback,
+    void* user_data);
 
 /*
  * Probes a video file natively (ISOBMFF box tree traversal: moov/trak/stsd/tkhd/stts/mvhd)
