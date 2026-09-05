@@ -4,6 +4,8 @@ using System.Security.Cryptography;
 using System.Threading.Tasks;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Media.Workspace;
+using LivePhotoBox.Services;
 using LivePhotoBox.Core.Tests.Protocols;
 using LivePhotoBox.Interop;
 using Xunit;
@@ -479,6 +481,275 @@ public sealed class SourceInspectorTests
             string shaAfter = await ComputeSha256Async(path);
             Assert.Equal(shaBefore, shaAfter);
         }
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV1_MissingMicroVideo_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v1_missing_mv", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV1JpegMissingMicroVideo(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("MicroVideo", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV1_DisabledMicroVideo_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v1_disabled_mv", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV1JpegDisabledMicroVideo(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("MicroVideo must be 1", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV1_UnsupportedVersion_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v1_bad_version", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV1JpegUnsupportedVersion(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("MicroVideo version", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV1_ConflictingOffset_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v1_conflicting_offset", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV1JpegConflictingOffset(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("MicroVideoOffset", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV1_StaleInV2_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v1_stale_in_v2", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV1JpegStaleInV2(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("Container:Directory", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV2_MissingVersion_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v2_missing_ver", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV2JpegMissingVersion(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("MotionPhotoVersion", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV2_PrimaryNotFirst_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v2_primary_not_first", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV2JpegPrimaryNotFirst(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("Primary", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV2_DuplicateMotionPhoto_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v2_dup_motion", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV2JpegDuplicateMotionPhoto(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("exactly one MotionPhoto", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV2_WrongMotionMime_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v2_wrong_motion_mime", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV2JpegWrongMotionMime(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("MotionPhoto item MIME", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV2_DuplicateGainMap_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v2_dup_gainmap", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV2JpegDuplicateGainMap(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("duplicate GainMap", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV2_WrongGainMapMime_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("v2_wrong_gainmap_mime", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV2JpegWrongGainMapMime(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("GainMap item MIME", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_Oppo_VideoLengthOnly_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("oppo_videolength_only", ".jpg");
+        SyntheticProtocolFixtures.CreateOppoVideoLengthOnlyJpeg(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("OPPO Live Photo candidate missing", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_Oppo_WrongOwner_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("oppo_wrong_owner", ".jpg");
+        SyntheticProtocolFixtures.CreateOppoWrongOwnerJpeg(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("MotionPhotoOwner", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_Oppo_ItemLengthSmallerThanVideoLength_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("oppo_bad_item_len", ".jpg");
+        SyntheticProtocolFixtures.CreateOppoItemLengthSmallerThanVideoLength(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("smaller than VideoLength", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_VivoX300_MissingOrUnsupportedVersion_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("vivo_bad_version", ".jpg");
+        SyntheticProtocolFixtures.CreateVivoX300MissingVersionJpeg(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("Vivo X300+", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_VivoX300_NonThreeItems_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("vivo_non_3_items", ".jpg");
+        SyntheticProtocolFixtures.CreateVivoX300NonThreeItemsJpeg(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("Vivo X300+", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_VivoX300_WrongMime_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("vivo_wrong_mime", ".jpg");
+        SyntheticProtocolFixtures.CreateVivoX300WrongMimeJpeg(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("Vivo X300+", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_AppleDual_CorruptPrimaryJpeg_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string imgPath = ws.AllocateFilePath("corrupt_apple", ".jpg");
+        string movPath = ws.AllocateFilePath("valid_apple", ".mov");
+        SyntheticProtocolFixtures.CreateAppleCorruptDualJpeg(imgPath);
+        SyntheticProtocolFixtures.CreateAppleMov(movPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(imgPath, movPath));
+        Assert.Contains("structurally malformed", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_AppleDual_CorruptSecondaryMov_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string imgPath = ws.AllocateFilePath("valid_apple", ".jpg");
+        string movPath = ws.AllocateFilePath("corrupt_apple", ".mov");
+        SyntheticProtocolFixtures.CreateAppleJpeg(imgPath);
+        SyntheticProtocolFixtures.CreateAppleCorruptDualMov(movPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(imgPath, movPath));
+        Assert.Contains("structurally malformed", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void MatchVivo_SyntheticPairs_SuccessfullyMatchesAndConfirms()
+    {
+        using var ws = new MediaWorkspace();
+        string imgPath = ws.AllocateFilePath("vivo_match", ".jpg");
+        string vidPath = ws.AllocateFilePath("vivo_match", ".mp4");
+        string dummyImgPath = ws.AllocateFilePath("dummy_unmatched", ".jpg");
+
+        SyntheticProtocolFixtures.CreateVivoLegacyDualJpeg(imgPath);
+        SyntheticProtocolFixtures.CreateVivoLegacyDualMp4(vidPath);
+        File.WriteAllBytes(dummyImgPath, SyntheticProtocolFixtures.CreateMinimalJpeg());
+
+        var result = LivePhotoMetadataMatcher.MatchVivo([imgPath, dummyImgPath], [vidPath]);
+        Assert.Single(result.Pairs);
+        Assert.Equal(imgPath, result.Pairs[0].ImagePath);
+        Assert.Equal(vidPath, result.Pairs[0].VideoPath);
+        Assert.Equal(MatchSource.VivoLivePhoto, result.Pairs[0].Source);
+        Assert.Equal(1, result.RemainingImages);
+        Assert.Equal(0, result.RemainingVideos);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public void MatchVivo_RealSamples_SuccessfullyMatchesAndConfirms()
+    {
+        string img = ResolveSample("vivo双文件.jpg");
+        string vid = ResolveSample("vivo双文件.mp4");
+
+        var result = LivePhotoMetadataMatcher.MatchVivo([img], [vid]);
+        Assert.Single(result.Pairs);
+        Assert.Equal(img, result.Pairs[0].ImagePath);
+        Assert.Equal(vid, result.Pairs[0].VideoPath);
+        Assert.Equal(MatchSource.VivoLivePhoto, result.Pairs[0].Source);
+        Assert.Equal(0, result.RemainingImages);
+        Assert.Equal(0, result.RemainingVideos);
     }
 
     private static async Task<string> ComputeSha256Async(string filePath)

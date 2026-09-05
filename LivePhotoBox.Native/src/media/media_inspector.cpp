@@ -404,10 +404,21 @@ static bool find_container_directory(const std::vector<xmp_node>& nodes,
 
         container_item_info info{};
         info.node_index = item_node->node_index;
-        get_node_attribute_value(*item_node, google_item_namespace, "Semantic", info.semantic);
-        get_node_attribute_value(*item_node, google_item_namespace, "Mime", info.mime);
+        if (!get_node_attribute_value(*item_node, google_item_namespace, "Semantic", info.semantic) && item_node != &seq_item) {
+            get_node_attribute_value(seq_item, google_item_namespace, "Semantic", info.semantic);
+        }
+        if (!get_node_attribute_value(*item_node, google_item_namespace, "Mime", info.mime) && item_node != &seq_item) {
+            get_node_attribute_value(seq_item, google_item_namespace, "Mime", info.mime);
+        }
         info.has_length = get_node_attribute_u64(*item_node, google_item_namespace, "Length", info.length);
+        if (!info.has_length && item_node != &seq_item) {
+            info.has_length = get_node_attribute_u64(seq_item, google_item_namespace, "Length", info.length);
+        }
         info.has_padding = get_node_attribute_u64(*item_node, google_item_namespace, "Padding", info.padding);
+        if (!info.has_padding && item_node != &seq_item) {
+            info.has_padding = get_node_attribute_u64(seq_item, google_item_namespace, "Padding", info.padding);
+        }
+        if (info.semantic.empty()) continue;
         out_dir.items.push_back(info);
     }
 
@@ -849,50 +860,45 @@ static bool check_vivo_x300(
         return false;
     }
 
-    container_directory_info dir;
-    if (!find_container_directory(nodes, dir) || dir.items.empty()) {
+    uint64_t v_ver = 0;
+    int v_res = get_global_attribute_u64(nodes, vivo_camera_namespace, "VMotionPhotoVersion", v_ver);
+    if (v_res <= 0 || v_ver != 1) {
         return false;
     }
 
-    uint64_t motion_length = 0;
-    uint64_t gainmap_length = 0;
-    size_t motion_index = 0;
-    size_t gainmap_index = 0;
-    size_t primary_count = 0;
-    size_t gainmap_count = 0;
-    size_t motion_count = 0;
-
-    for (size_t i = 0; i < dir.items.size(); ++i) {
-        const auto& item = dir.items[i];
-        if (item.semantic == "Primary") {
-            ++primary_count;
-        } else if (item.semantic == "GainMap") {
-            ++gainmap_count;
-            if (!item.has_length || item.length == 0) return false;
-            gainmap_length = item.length;
-            gainmap_index = i;
-        } else if (item.semantic == "MotionPhoto") {
-            ++motion_count;
-            if (!item.has_length || item.length == 0) return false;
-            motion_length = item.length;
-            motion_index = i;
-        }
+    container_directory_info dir;
+    if (!find_container_directory(nodes, dir) || dir.items.size() != 3) {
+        return false;
     }
 
-    if (primary_count == 1 && gainmap_count == 1 && motion_count == 1 &&
-        motion_length > 0 && gainmap_length > 0 &&
-        motion_index == dir.items.size() - 1 && gainmap_index + 1 == motion_index &&
-        gainmap_length <= file_size && motion_length <= file_size - gainmap_length &&
-        gainmap_length + motion_length < file_size) {
-        out_video_len = motion_length;
-        out_video_offset = file_size - motion_length;
-        out_gm_len = gainmap_length;
-        out_gm_offset = out_video_offset - gainmap_length;
-        out_primary_len = out_gm_offset;
-        return true;
+    const auto& item0 = dir.items[0];
+    const auto& item1 = dir.items[1];
+    const auto& item2 = dir.items[2];
+
+    if (item0.semantic != "Primary" || (!item0.mime.empty() && item0.mime != "image/jpeg")) {
+        return false;
+    }
+    if (item1.semantic != "GainMap" || item1.mime != "image/jpeg" || !item1.has_length || item1.length == 0) {
+        return false;
+    }
+    if (item2.semantic != "MotionPhoto" || item2.mime != "video/mp4" || !item2.has_length || item2.length == 0) {
+        return false;
     }
 
-    return false;
+    const uint64_t gainmap_length = item1.length;
+    const uint64_t motion_length = item2.length;
+
+    if (gainmap_length >= file_size || motion_length >= file_size ||
+        gainmap_length + motion_length >= file_size) {
+        return false;
+    }
+
+    out_video_len = motion_length;
+    out_video_offset = file_size - motion_length;
+    out_gm_len = gainmap_length;
+    out_gm_offset = out_video_offset - gainmap_length;
+    out_primary_len = out_gm_offset;
+    return true;
 }
 
 static bool looks_like_uuid(std::string_view value) noexcept {
@@ -1207,6 +1213,36 @@ lpb_result inspect_source(
 
         if (image_id_ok && video_id_ok) {
             if (image_content_id == video_content_id) {
+                if (img_cont == LPB_IMAGE_CONTAINER_JPEG) {
+                    if (!is_valid_jpeg_media_range(primary_data.data(), primary_data.size(), 0, primary_size)) {
+                        set_error(context, "Apple Live Photo primary JPEG image is structurally malformed or truncated.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                } else if (img_cont == LPB_IMAGE_CONTAINER_HEIC) {
+                    if (!is_valid_heic_container(primary_data.data(), primary_data.size())) {
+                        set_error(context, "Apple Live Photo primary HEIC image is structurally malformed.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                } else {
+                    set_error(context, "Apple Live Photo primary image container is unsupported.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+
+                if (sec_vid_cont == LPB_VIDEO_CONTAINER_MOV) {
+                    if (!is_valid_mov_container(sec_data.data(), sec_data.size())) {
+                        set_error(context, "Apple Live Photo secondary MOV video is structurally malformed.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                } else if (sec_vid_cont == LPB_VIDEO_CONTAINER_MP4) {
+                    if (!is_valid_isobmff_media_range(sec_data.data(), sec_data.size(), 0, sec_data.size())) {
+                        set_error(context, "Apple Live Photo secondary MP4 video is structurally malformed.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                } else {
+                    set_error(context, "Apple Live Photo secondary video container is unsupported.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+
                 out_facts->protocol = LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
                 out_facts->motion_video.is_present = 1;
                 out_facts->motion_video.container = sec_vid_cont;
@@ -1399,7 +1435,7 @@ lpb_result inspect_source(
         if (has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMotionPhotoVersion")) {
             uint64_t pri_len = 0, gm_off = 0, gm_len = 0, vid_off = 0, vid_len = 0;
             if (!check_vivo_x300(nodes, primary_size, pri_len, gm_off, gm_len, vid_off, vid_len)) {
-                set_error(context, "Vivo X300+ XMP contains invalid or missing container directory.");
+                set_error(context, "Vivo X300+ XMP contains invalid or missing container directory, unsupported version, or malformed items.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             if (!is_valid_jpeg_media_range(primary_data.data(), primary_data.size(), gm_off, gm_len)) {
@@ -1412,7 +1448,7 @@ lpb_result inspect_source(
             }
             out_facts->protocol = LPB_SOURCE_PROTOCOL_VIVO_X300;
             out_facts->primary_image.file_range.offset = 0;
-            out_facts->primary_image.file_range.length = gm_off > 0 ? gm_off : (has_jpeg_end ? jpeg_end : primary_size);
+            out_facts->primary_image.file_range.length = pri_len;
             out_facts->gain_map.is_present = 1;
             out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
             out_facts->gain_map.file_range.offset = gm_off;
@@ -1421,90 +1457,248 @@ lpb_result inspect_source(
             out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
             out_facts->motion_video.file_range.offset = vid_off;
             out_facts->motion_video.file_range.length = vid_len;
+            int64_t cover_time = 0;
+            if (get_global_attribute_i64(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs", cover_time) > 0) {
+                out_facts->timing.cover_timestamp_us = cover_time;
+            }
             return LPB_RESULT_OK;
         }
 
         // OPPO / OnePlus Live Photo
-        if (has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "VideoLength")) {
+        const bool is_oppo_candidate = has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "VideoLength") ||
+            has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "MotionPhotoOwner") ||
+            has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "OLivePhotoVersion");
+        if (is_oppo_candidate) {
+            std::string_view g_mp;
+            int g_mp_res = get_global_attribute_string(nodes, google_camera_namespace, "MotionPhoto", g_mp);
+            if (g_mp_res <= 0 || g_mp != "1") {
+                set_error(context, "OPPO Live Photo candidate missing required GCamera:MotionPhoto=\"1\".");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            uint64_t g_mp_ver = 0;
+            int g_mp_ver_res = get_global_attribute_u64(nodes, google_camera_namespace, "MotionPhotoVersion", g_mp_ver);
+            if (g_mp_ver_res <= 0 || g_mp_ver != 1) {
+                set_error(context, "OPPO Live Photo candidate missing required GCamera:MotionPhotoVersion=1.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            std::string_view op_owner;
+            int op_owner_res = get_global_attribute_string(nodes, oppo_camera_namespace, "MotionPhotoOwner", op_owner);
+            if (op_owner_res <= 0 || op_owner != "oplus") {
+                set_error(context, "OPPO Live Photo candidate missing or invalid OpCamera:MotionPhotoOwner (must be \"oplus\").");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            uint64_t olive_ver = 0;
+            int olive_res = get_global_attribute_u64(nodes, oppo_camera_namespace, "OLivePhotoVersion", olive_ver);
+            if (olive_res <= 0 || (olive_ver != 1 && olive_ver != 2)) {
+                set_error(context, "OPPO Live Photo candidate missing or unsupported OpCamera:OLivePhotoVersion (must be 1 or 2).");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
             uint64_t op_vid_len = 0;
             int op_res = get_global_attribute_u64(nodes, oppo_camera_namespace, "VideoLength", op_vid_len);
             if (op_res <= 0 || op_vid_len == 0) {
                 set_error(context, "OPPO VideoLength attribute is missing, malformed, conflicting, or zero.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
+
             container_directory_info dir;
-            uint64_t motion_item_len = 0;
-            if (find_container_directory(nodes, dir)) {
-                for (const auto& item : dir.items) {
-                    if (item.semantic == "MotionPhoto" && item.has_length) {
-                        motion_item_len = item.length;
-                        break;
-                    }
-                }
+            if (!find_container_directory(nodes, dir) || dir.items.empty()) {
+                set_error(context, "OPPO Live Photo candidate missing or malformed Container:Directory.");
+                return LPB_RESULT_INVALID_ARGUMENT;
             }
-            uint64_t video_offset = 0;
-            if (motion_item_len > 0) {
-                if (motion_item_len > primary_size || op_vid_len > motion_item_len) {
-                    set_error(context, "OPPO container directory MotionPhoto item length exceeds file size or is smaller than VideoLength.");
+
+            if (dir.items[0].semantic != "Primary") {
+                set_error(context, "OPPO Live Photo Container:Directory Primary item must be first.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            const container_item_info* motion_item = nullptr;
+            const container_item_info* gainmap_item = nullptr;
+            size_t primary_count = 0, motion_count = 0, gainmap_count = 0;
+            for (const auto& item : dir.items) {
+                if (item.semantic == "Primary") {
+                    ++primary_count;
+                } else if (item.semantic == "MotionPhoto") {
+                    ++motion_count;
+                    motion_item = &item;
+                } else if (item.semantic == "GainMap") {
+                    ++gainmap_count;
+                    gainmap_item = &item;
+                } else {
+                    set_error(context, "OPPO Live Photo Container:Directory contains unrecognized item.");
                     return LPB_RESULT_INVALID_ARGUMENT;
                 }
-                video_offset = primary_size - motion_item_len;
-            } else {
-                if (op_vid_len > primary_size) {
-                    set_error(context, "OPPO VideoLength exceeds file size.");
-                    return LPB_RESULT_INVALID_ARGUMENT;
-                }
-                video_offset = primary_size - op_vid_len;
             }
-            if (!is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), video_offset, op_vid_len)) {
+
+            if (primary_count != 1 || motion_count != 1 || dir.items.back().semantic != "MotionPhoto") {
+                set_error(context, "OPPO Live Photo Container:Directory must have exactly 1 Primary and 1 MotionPhoto (last).");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (gainmap_count > 1) {
+                set_error(context, "OPPO Live Photo Container:Directory contains duplicate GainMap items.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (!motion_item->has_length || motion_item->length < op_vid_len) {
+                set_error(context, "OPPO MotionPhoto item length is smaller than VideoLength or missing.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            const uint64_t motion_item_len = motion_item->length;
+            if (motion_item_len >= primary_size) {
+                set_error(context, "OPPO MotionPhoto item length exceeds file size.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            const uint64_t motion_item_offset = primary_size - motion_item_len;
+            const uint64_t video_offset = motion_item_offset;
+            const uint64_t pure_vid_len = op_vid_len;
+            const uint64_t tail_len = motion_item_len - pure_vid_len;
+            const uint64_t tail_offset = video_offset + pure_vid_len;
+
+            if (!is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), video_offset, pure_vid_len)) {
                 set_error(context, "OPPO video range is not a valid ISO-BMFF MP4.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
+
             out_facts->protocol = LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO;
             out_facts->motion_video.is_present = 1;
             out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
             out_facts->motion_video.file_range.offset = video_offset;
-            out_facts->motion_video.file_range.length = op_vid_len;
-            out_facts->primary_image.file_range.offset = 0;
-            out_facts->primary_image.file_range.length = video_offset;
-            const uint64_t video_end = video_offset + op_vid_len;
-            if (video_end < primary_size) {
-                out_facts->protocol_tail_range.offset = video_end;
-                out_facts->protocol_tail_range.length = primary_size - video_end;
+            out_facts->motion_video.file_range.length = pure_vid_len;
+
+            if (tail_len > 0) {
+                out_facts->protocol_tail_range.offset = tail_offset;
+                out_facts->protocol_tail_range.length = tail_len;
+            }
+
+            if (gainmap_item && gainmap_item->has_length && gainmap_item->length > 0) {
+                const uint64_t gm_len = gainmap_item->length;
+                if (gm_len >= motion_item_offset) {
+                    set_error(context, "OPPO GainMap length exceeds image boundary.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                const uint64_t gm_off = motion_item_offset - gm_len;
+                if (!is_valid_jpeg_media_range(primary_data.data(), primary_data.size(), gm_off, gm_len)) {
+                    set_error(context, "OPPO GainMap range is not a valid JPEG.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                out_facts->gain_map.is_present = 1;
+                out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
+                out_facts->gain_map.file_range.offset = gm_off;
+                out_facts->gain_map.file_range.length = gm_len;
+                out_facts->primary_image.file_range.offset = 0;
+                out_facts->primary_image.file_range.length = gm_off;
+            } else {
+                out_facts->primary_image.file_range.offset = 0;
+                out_facts->primary_image.file_range.length = video_offset;
+            }
+
+            int64_t cover_time = 0;
+            if (get_global_attribute_i64(nodes, oppo_camera_namespace, "MotionPhotoPrimaryPresentationTimestampUs", cover_time) > 0 ||
+                get_global_attribute_i64(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs", cover_time) > 0) {
+                out_facts->timing.cover_timestamp_us = cover_time;
             }
             return LPB_RESULT_OK;
         }
 
         // Google Motion Photo V2 / Xiaomi
-        std::string_view mp_val;
-        int mp_res = get_global_attribute_string(nodes, google_camera_namespace, "MotionPhoto", mp_val);
-        if (mp_res < 0) {
-            set_error(context, "Conflicting or malformed MotionPhoto attributes in XMP.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-        if (mp_res > 0 && mp_val == "1") {
+        const bool is_google_v2_candidate = has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhoto");
+        if (is_google_v2_candidate) {
+            std::string_view mp_val;
+            int mp_res = get_global_attribute_string(nodes, google_camera_namespace, "MotionPhoto", mp_val);
+            if (mp_res < 0) {
+                set_error(context, "Conflicting or malformed MotionPhoto attributes in XMP.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (mp_res == 0 || mp_val != "1") {
+                set_error(context, "Google Motion Photo is not enabled (MotionPhoto must be 1).");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            uint64_t mp_ver = 0;
+            int mp_ver_res = get_global_attribute_u64(nodes, google_camera_namespace, "MotionPhotoVersion", mp_ver);
+            if (mp_ver_res < 0) {
+                set_error(context, "Conflicting or malformed MotionPhotoVersion attribute in XMP.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (mp_ver_res == 0) {
+                set_error(context, "Google Motion Photo V2 missing MotionPhotoVersion attribute.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (mp_ver != 1) {
+                set_error(context, "Unsupported Google Motion Photo version (must be 1).");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
             container_directory_info dir;
             if (!find_container_directory(nodes, dir) || dir.items.empty()) {
                 set_error(context, "Google Motion Photo V2 has MotionPhoto=1 but missing or malformed Container:Directory.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
-            const container_item_info* motion_item = nullptr;
-            const container_item_info* gainmap_item = nullptr;
-            for (const auto& item : dir.items) {
-                if (item.semantic == "MotionPhoto") {
-                    if (motion_item != nullptr) {
-                        set_error(context, "Google Motion Photo V2 has duplicate MotionPhoto items.");
-                        return LPB_RESULT_INVALID_ARGUMENT;
-                    }
-                    motion_item = &item;
-                } else if (item.semantic == "GainMap") {
-                    gainmap_item = &item;
-                }
-            }
-            if (!motion_item || !motion_item->has_length || motion_item->length == 0) {
-                set_error(context, "Google Motion Photo V2 missing MotionPhoto item or length.");
+
+            if (dir.items[0].semantic != "Primary") {
+                set_error(context, "Google Motion Photo V2 Container:Directory Primary item must be first.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
+            if (!dir.items[0].mime.empty() && dir.items[0].mime != "image/jpeg" && dir.items[0].mime != "image/heic") {
+                set_error(context, "Google Motion Photo V2 Primary item MIME must be image/jpeg or image/heic.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            const container_item_info* motion_item = nullptr;
+            const container_item_info* gainmap_item = nullptr;
+            size_t primary_count = 0, motion_count = 0, gainmap_count = 0;
+            for (const auto& item : dir.items) {
+                if (item.semantic == "Primary") {
+                    ++primary_count;
+                } else if (item.semantic == "MotionPhoto") {
+                    ++motion_count;
+                    motion_item = &item;
+                } else if (item.semantic == "GainMap") {
+                    ++gainmap_count;
+                    gainmap_item = &item;
+                } else {
+                    set_error(context, "Google Motion Photo V2 Container:Directory contains unrecognized item.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+            }
+
+            if (primary_count != 1) {
+                set_error(context, "Google Motion Photo V2 must have exactly one Primary item.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (motion_count != 1 || dir.items.back().semantic != "MotionPhoto") {
+                set_error(context, "Google Motion Photo V2 must have exactly one MotionPhoto item as the last item.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (gainmap_count > 1) {
+                set_error(context, "Google Motion Photo V2 Container:Directory contains duplicate GainMap items.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            if (motion_item->mime != "video/mp4" && motion_item->mime != "video/quicktime") {
+                set_error(context, "Google Motion Photo V2 MotionPhoto item MIME must be video/mp4 or video/quicktime.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (!motion_item->has_length || motion_item->length == 0) {
+                set_error(context, "Google Motion Photo V2 missing MotionPhoto item length.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            if (gainmap_item != nullptr) {
+                if (gainmap_item->mime != "image/jpeg") {
+                    set_error(context, "Google Motion Photo V2 GainMap item MIME must be image/jpeg.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                if (!gainmap_item->has_length || gainmap_item->length == 0) {
+                    set_error(context, "Google Motion Photo V2 GainMap item length must be greater than zero.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+            }
+
             const uint64_t mp_vid_len = motion_item->length;
             if (mp_vid_len >= primary_size) {
                 set_error(context, "Google Motion Photo V2 video length exceeds file size.");
@@ -1537,8 +1731,10 @@ lpb_result inspect_source(
                 out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
                 out_facts->gain_map.file_range.offset = gm_offset;
                 out_facts->gain_map.file_range.length = gm_len;
+                out_facts->primary_image.file_range.offset = 0;
                 out_facts->primary_image.file_range.length = gm_offset;
             } else {
+                out_facts->primary_image.file_range.offset = 0;
                 out_facts->primary_image.file_range.length = vid_offset;
             }
 
@@ -1550,13 +1746,49 @@ lpb_result inspect_source(
         }
 
         // Google MicroVideo V1
-        uint64_t mv_offset = 0;
-        int mv_res = get_global_attribute_u64(nodes, google_camera_namespace, "MicroVideoOffset", mv_offset);
-        if (mv_res < 0) {
-            set_error(context, "Conflicting or malformed MicroVideoOffset attribute in XMP.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-        if (mv_res > 0) {
+        const bool is_google_v1_candidate = has_attribute_name_in_nodes(nodes, google_camera_namespace, "MicroVideo") ||
+            has_attribute_name_in_nodes(nodes, google_camera_namespace, "MicroVideoOffset");
+        if (is_google_v1_candidate) {
+            uint64_t mv_val = 0;
+            int mv_val_res = get_global_attribute_u64(nodes, google_camera_namespace, "MicroVideo", mv_val);
+            if (mv_val_res < 0) {
+                set_error(context, "Conflicting or malformed MicroVideo attribute in XMP.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (mv_val_res == 0) {
+                set_error(context, "Google MicroVideo candidate missing required MicroVideo attribute.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (mv_val != 1) {
+                set_error(context, "Google MicroVideo is not enabled (MicroVideo must be 1).");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            uint64_t mv_ver = 0;
+            int mv_ver_res = get_global_attribute_u64(nodes, google_camera_namespace, "MicroVideoVersion", mv_ver);
+            if (mv_ver_res < 0) {
+                set_error(context, "Conflicting or malformed MicroVideoVersion attribute in XMP.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (mv_ver_res == 0) {
+                set_error(context, "Google MicroVideo candidate missing MicroVideoVersion attribute.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (mv_ver != 1) {
+                set_error(context, "Unsupported Google MicroVideo version (must be 1).");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            uint64_t mv_offset = 0;
+            int mv_res = get_global_attribute_u64(nodes, google_camera_namespace, "MicroVideoOffset", mv_offset);
+            if (mv_res < 0) {
+                set_error(context, "Conflicting or malformed MicroVideoOffset attribute in XMP.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (mv_res == 0) {
+                set_error(context, "Google MicroVideo candidate missing MicroVideoOffset attribute.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             if (mv_offset == 0 || mv_offset >= primary_size) {
                 set_error(context, "Google MicroVideo V1 offset is zero or exceeds file size.");
                 return LPB_RESULT_INVALID_ARGUMENT;

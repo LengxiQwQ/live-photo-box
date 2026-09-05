@@ -74,10 +74,6 @@ namespace LivePhotoBox.Services
 
             token.ThrowIfCancellationRequested();
 
-            MetadataMatchOutput vivoMatch = MatchVivo([imagePath], [videoPath]);
-            if (vivoMatch.Pairs.Count > 0)
-                return LivePhotoProtocolType.Vivo;
-
             try
             {
                 var inspector = new SourceInspector();
@@ -255,76 +251,9 @@ namespace LivePhotoBox.Services
         // ── vivo 双文件配对 ─────────────────────────────────────────
 
         /// <summary>
-        /// Extract the vivo live photo pairing ID from a JPEG or MP4 file.
-        /// JPEG: reads the last 8KB, searches for vivo{JSON}cameralbum! pattern and
-        ///        extracts the "com.android.camera.livephoto" field value.
-        /// MP4:  searches for vivo{JSON} inside the file, typically inside a
-        ///        uuid box with user type "vivoMediaExtInfo".
-        /// Returns null if no vivo live photo ID is found.
-        /// </summary>
-        private static string? ExtractVivoLivePhotoId(string filePath)
-        {
-            try
-            {
-                const int tailSize = 8192;
-                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 4096);
-                long fileLen = fs.Length;
-                if (fileLen < 64) return null;
-
-                // vivo JSON sits at the tail of both JPEG and MP4
-                long searchStart = Math.Max(0, fileLen - tailSize);
-                int searchLen = (int)(fileLen - searchStart);
-
-                byte[] buffer = new byte[searchLen];
-                fs.Seek(searchStart, SeekOrigin.Begin);
-                int bytesRead = fs.Read(buffer, 0, searchLen);
-
-                // Search for "vivo{" (UTF-8 bytes)
-                byte[] vivoMarker = "vivo{"u8.ToArray();
-                int idx = IndexOfBytes(buffer.AsSpan(0, bytesRead), vivoMarker);
-                if (idx < 0) return null;
-
-                // Find the matching closing brace before "cameralbum!" or end of vivo JSON
-                int jsonStart = idx + vivoMarker.Length;
-                int braceDepth = 0;
-                int jsonEnd = -1;
-                for (int i = jsonStart; i < bytesRead; i++)
-                {
-                    if (buffer[i] == '{') braceDepth++;
-                    else if (buffer[i] == '}')
-                    {
-                        if (braceDepth == 0) { jsonEnd = i + 1; break; }
-                        braceDepth--;
-                    }
-                }
-                if (jsonEnd < 0) return null;
-
-                // Extract JSON bytes
-                int jsonLen = jsonEnd - idx;
-                string jsonText = System.Text.Encoding.UTF8.GetString(buffer, idx, jsonLen);
-
-                // Parse out com.android.camera.livephoto value
-                const string key = "\"com.android.camera.livephoto\":\"";
-                int keyIdx = jsonText.IndexOf(key, StringComparison.Ordinal);
-                if (keyIdx < 0) return null;
-
-                int valStart = keyIdx + key.Length;
-                int valEnd = jsonText.IndexOf('"', valStart);
-                if (valEnd < 0) return null;
-
-                return jsonText.Substring(valStart, valEnd - valStart);
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        /// <summary>
         /// Match unmatched photos and videos by vivo live photo pairing ID.
-        /// Parses "vivo{JSON}" from JPEG tails and MP4 uuid boxes, extracts
-        /// "com.android.camera.livephoto", and pairs files with matching IDs.
-        /// Does NOT require exiftool — pure file I/O.
+        /// Extracts pairing identifier facts using SourceInspector and pairs files
+        /// with matching IDs after confirming the candidate pair via dual-file inspection.
         /// </summary>
         public static MetadataMatchOutput MatchVivo(
             IReadOnlyList<string> unmatchedImagePaths,
@@ -345,20 +274,28 @@ namespace LivePhotoBox.Services
                 };
             }
 
-            // Extract vivo IDs from images (JPEG only — vivo dual-file always uses JPEG+MP4)
+            var inspector = new SourceInspector();
             var imgIdToPath = new Dictionary<string, string>(StringComparer.Ordinal);
             int processed = 0;
+
             foreach (var imgPath in remainingImages.ToList())
             {
                 onFileProcessed?.Invoke(++processed);
                 string ext = Path.GetExtension(imgPath).ToLowerInvariant();
                 if (ext != ".jpg" && ext != ".jpeg") continue;
 
-                string? id = ExtractVivoLivePhotoId(imgPath);
-                if (!string.IsNullOrWhiteSpace(id) && id.Length > 8) // meaningful IDs are ~30 chars
+                try
                 {
-                    if (!imgIdToPath.ContainsKey(id))
-                        imgIdToPath[id] = imgPath;
+                    SourceMediaFacts facts = inspector.InspectAsync(imgPath).GetAwaiter().GetResult();
+                    if (!string.IsNullOrWhiteSpace(facts.PairingIdentifier) && facts.PairingIdentifier.Length > 8)
+                    {
+                        if (!imgIdToPath.ContainsKey(facts.PairingIdentifier))
+                            imgIdToPath[facts.PairingIdentifier] = imgPath;
+                    }
+                }
+                catch
+                {
+                    // Skip if inspection fails
                 }
             }
 
@@ -372,25 +309,43 @@ namespace LivePhotoBox.Services
                 };
             }
 
-            // Match videos by ID
             foreach (var vidPath in remainingVideos.ToList())
             {
                 onFileProcessed?.Invoke(++processed);
                 string ext = Path.GetExtension(vidPath).ToLowerInvariant();
                 if (ext != ".mp4") continue;
 
-                string? id = ExtractVivoLivePhotoId(vidPath);
-                if (!string.IsNullOrWhiteSpace(id) && imgIdToPath.TryGetValue(id, out var matchedImg))
+                try
                 {
-                    pairs.Add(new MetadataPair
+                    SourceMediaFacts facts = inspector.InspectAsync(vidPath).GetAwaiter().GetResult();
+                    if (!string.IsNullOrWhiteSpace(facts.PairingIdentifier) &&
+                        imgIdToPath.TryGetValue(facts.PairingIdentifier, out var matchedImg))
                     {
-                        ImagePath = matchedImg,
-                        VideoPath = vidPath,
-                        Source = MatchSource.VivoLivePhoto
-                    });
-                    remainingImages.Remove(matchedImg);
-                    remainingVideos.Remove(vidPath);
-                    imgIdToPath.Remove(id);
+                        try
+                        {
+                            SourceMediaFacts dualFacts = inspector.InspectAsync(matchedImg, vidPath).GetAwaiter().GetResult();
+                            if (dualFacts.Protocol == SourceProtocol.VivoLegacyDualFile)
+                            {
+                                pairs.Add(new MetadataPair
+                                {
+                                    ImagePath = matchedImg,
+                                    VideoPath = vidPath,
+                                    Source = MatchSource.VivoLivePhoto
+                                });
+                                remainingImages.Remove(matchedImg);
+                                remainingVideos.Remove(vidPath);
+                                imgIdToPath.Remove(facts.PairingIdentifier);
+                            }
+                        }
+                        catch
+                        {
+                            // Dual inspection rejected candidate
+                        }
+                    }
+                }
+                catch
+                {
+                    // Skip
                 }
             }
 
@@ -400,21 +355,6 @@ namespace LivePhotoBox.Services
                 RemainingImages = remainingImages.Count,
                 RemainingVideos = remainingVideos.Count
             };
-        }
-
-        private static int IndexOfBytes(ReadOnlySpan<byte> span, byte[] pattern)
-        {
-            int end = span.Length - pattern.Length;
-            for (int i = 0; i <= end; i++)
-            {
-                bool match = true;
-                for (int j = 0; j < pattern.Length; j++)
-                {
-                    if (span[i + j] != pattern[j]) { match = false; break; }
-                }
-                if (match) return i;
-            }
-            return -1;
         }
 
         // ── Helpers ─────────────────────────────────────────────────────
