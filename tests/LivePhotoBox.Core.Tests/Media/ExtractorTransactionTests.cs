@@ -929,6 +929,203 @@ public sealed class ExtractorTransactionTests
         Assert.Contains(bundle.ExtractedProtocolFacts, f => f.Component == "Embedded motion video");
     }
 
+    private static string? s_raceTargetDestination;
+    private static byte[]? s_raceSentinelBytes;
+    private static int s_raceCallbackInvoked;
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void OnDestinationRaceStep(nint userData, int targetArtifact, ulong bytesProcessed)
+    {
+        if (bytesProcessed > 0 && s_raceTargetDestination != null && s_raceSentinelBytes != null)
+        {
+            if (Interlocked.CompareExchange(ref s_raceCallbackInvoked, 1, 0) == 0)
+            {
+                try
+                {
+                    File.WriteAllBytes(s_raceTargetDestination, s_raceSentinelBytes);
+                }
+                catch { }
+            }
+        }
+    }
+
+    private sealed class TrackingMediaWorkspace : IMediaWorkspace
+    {
+        private readonly MediaWorkspace _inner = new();
+        public string? AllocatedImagePath { get; private set; }
+        public string? AllocatedVideoPath { get; private set; }
+        public string? AllocatedGainmapPath { get; private set; }
+        public Action<string, string>? OnAllocated { get; set; }
+
+        public string RootDirectory => _inner.RootDirectory;
+
+        public string AllocateFilePath(string prefix, string extension)
+        {
+            string path = _inner.AllocateFilePath(prefix, extension);
+            if (prefix == "primary") AllocatedImagePath = path;
+            else if (prefix == "motion") AllocatedVideoPath = path;
+            else if (prefix == "gainmap") AllocatedGainmapPath = path;
+            OnAllocated?.Invoke(prefix, path);
+            return path;
+        }
+
+        public Task<string> ComputeFileSha256Async(string filePath, CancellationToken cancellationToken = default)
+            => _inner.ComputeFileSha256Async(filePath, cancellationToken);
+
+        public Task AssertSourceUnmodifiedAsync(string sourcePath, string expectedSha256, CancellationToken cancellationToken = default)
+            => _inner.AssertSourceUnmodifiedAsync(sourcePath, expectedSha256, cancellationToken);
+
+        public void Dispose() => _inner.Dispose();
+        public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+    }
+
+    [Fact]
+    public async Task DestinationCreatedAfterManagedPreflight_IsPreserved_AndRollsBackOwnedOnly()
+    {
+        using var tempDir = new DisposableTempDirectory();
+        string dummySource = Path.Combine(tempDir.Path, "source.jpg");
+        byte[] dummyBytes = CreateDummyFileBytes(8192);
+        await File.WriteAllBytesAsync(dummySource, dummyBytes);
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMicroVideoV1,
+            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = 0, ByteLength = 4096 },
+            MotionVideo = new VideoFacts { IsPresent = true, Container = VideoContainer.Mp4, ByteOffset = 4096, ByteLength = 4096, SourceIndex = 0 },
+            PrimarySha256 = ComputeSha(dummyBytes)
+        };
+
+        using var workspace = new TrackingMediaWorkspace();
+        byte[] foreignSentinelBytes = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
+        s_raceSentinelBytes = foreignSentinelBytes;
+        s_raceCallbackInvoked = 0;
+
+        workspace.OnAllocated = (prefix, path) =>
+        {
+            if (prefix == "motion")
+            {
+                s_raceTargetDestination = path;
+            }
+        };
+
+        nint callbackPtr;
+        unsafe
+        {
+            delegate* unmanaged[Cdecl]<nint, int, ulong, void> cb = &OnDestinationRaceStep;
+            callbackPtr = (nint)cb;
+        }
+
+        var extractor = new SourceExtractor();
+
+        var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
+            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            {
+                ctx.SetExtractorFault(NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
+            }));
+
+        Assert.Equal(ExtractionFailureCategory.OutputPublishFailed, ex.Category);
+        Assert.True(s_raceCallbackInvoked > 0, "Race step callback was not invoked during staging!");
+
+        // Foreign sentinel must NOT have been deleted by C# catch block!
+        Assert.NotNull(workspace.AllocatedVideoPath);
+        Assert.True(File.Exists(workspace.AllocatedVideoPath), "Foreign destination file was deleted by cleanup! Ownership contract violated.");
+        byte[] remainingBytes = await File.ReadAllBytesAsync(workspace.AllocatedVideoPath);
+        Assert.Equal(foreignSentinelBytes, remainingBytes);
+
+        // Owned primary image must have been rolled back by Native
+        Assert.NotNull(workspace.AllocatedImagePath);
+        Assert.False(File.Exists(workspace.AllocatedImagePath), "Transaction's primary image was not rolled back after publish failure!");
+
+        // No temporary files left behind
+        var files = Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories);
+        Assert.Single(files); // Only the foreign sentinel in the workspace root
+        Assert.Equal(workspace.AllocatedVideoPath, files[0]);
+    }
+
+    [Fact]
+    public async Task NativeSuccessThenManagedValidationFailure_CleansOwnedOutputs()
+    {
+        using var tempDir = new DisposableTempDirectory();
+        string dummySource = Path.Combine(tempDir.Path, "source.jpg");
+        byte[] dummyBytes = CreateDummyFileBytes(8192);
+        await File.WriteAllBytesAsync(dummySource, dummyBytes);
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMicroVideoV1,
+            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = 0, ByteLength = 4096 },
+            MotionVideo = new VideoFacts { IsPresent = true, Container = VideoContainer.Mp4, ByteOffset = 4096, ByteLength = 4096, SourceIndex = 0 },
+            PrimarySha256 = ComputeSha(dummyBytes)
+        };
+
+        using var workspace = new TrackingMediaWorkspace();
+
+        // Mutate source file during step callback so Native finishes successfully,
+        // but post-Native immutability validation in C# detects modification and fails.
+        string sourceToMutate = dummySource;
+        unsafe
+        {
+            delegate* unmanaged[Cdecl]<nint, int, ulong, void> cb = &OnDestinationRaceStep;
+        }
+
+        // We can hook step callback to mutate source right before Native completes:
+        // Actually, Native locks source with FILE_SHARE_READ. But we can inject a test workspace
+        // that mutates source after Native finishes or throws during post-native validation!
+        // A delegating workspace can fail ComputeFileSha256Async on after-primary check:
+        var failingWorkspace = new FaultingPostNativeWorkspace(workspace, failOnAfterPrimarySha: true);
+
+        var extractor = new SourceExtractor();
+
+        var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
+            extractor.ExtractAsync(facts, dummySource, null, failingWorkspace));
+
+        Assert.Equal(ExtractionFailureCategory.SourceChanged, ex.Category);
+
+        // Since Native succeeded, C# owns the published outputs and MUST have cleaned them up!
+        Assert.NotNull(workspace.AllocatedImagePath);
+        Assert.False(File.Exists(workspace.AllocatedImagePath), "Owned primary image was not cleaned up after post-native validation failure!");
+        if (workspace.AllocatedVideoPath != null)
+        {
+            Assert.False(File.Exists(workspace.AllocatedVideoPath), "Owned motion video was not cleaned up after post-native validation failure!");
+        }
+    }
+
+    private sealed class FaultingPostNativeWorkspace : IMediaWorkspace
+    {
+        private readonly TrackingMediaWorkspace _inner;
+        private readonly bool _failOnAfterPrimarySha;
+        private int _shaComputations;
+
+        public FaultingPostNativeWorkspace(TrackingMediaWorkspace inner, bool failOnAfterPrimarySha)
+        {
+            _inner = inner;
+            _failOnAfterPrimarySha = failOnAfterPrimarySha;
+        }
+
+        public string RootDirectory => _inner.RootDirectory;
+        public string AllocateFilePath(string prefix, string extension) => _inner.AllocateFilePath(prefix, extension);
+
+        public Task<string> ComputeFileSha256Async(string filePath, CancellationToken cancellationToken = default)
+        {
+            int count = Interlocked.Increment(ref _shaComputations);
+            // 1st SHA computation is before-primary.
+            // 2nd SHA computation (if dual) is before-secondary.
+            // Next is after-primary SHA computation (line 298 of SourceExtractor).
+            if (_failOnAfterPrimarySha && count >= 2)
+            {
+                // Return mismatched hash to trigger immutability violation
+                return Task.FromResult("0000000000000000000000000000000000000000000000000000000000000000");
+            }
+            return _inner.ComputeFileSha256Async(filePath, cancellationToken);
+        }
+
+        public Task AssertSourceUnmodifiedAsync(string sourcePath, string expectedSha256, CancellationToken cancellationToken = default)
+            => _inner.AssertSourceUnmodifiedAsync(sourcePath, expectedSha256, cancellationToken);
+
+        public void Dispose() => _inner.Dispose();
+        public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
+    }
+
     private sealed class DisposableTempDirectory : IDisposable
     {
         public string Path { get; }

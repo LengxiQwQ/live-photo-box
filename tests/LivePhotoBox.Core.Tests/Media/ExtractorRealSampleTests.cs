@@ -237,27 +237,19 @@ public sealed class ExtractorRealSampleTests
         Assert.True(File.Exists(imagePath));
         Assert.True(new FileInfo(imagePath).Length > 0);
 
-        try
+        using var fileStream = File.OpenRead(imagePath);
+        using var mem = new MemoryStream();
+        await fileStream.CopyToAsync(mem);
+        mem.Position = 0;
+        using var randomStream = mem.AsRandomAccessStream();
+        var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(randomStream);
+        Assert.True(decoder.PixelWidth > 0);
+        Assert.True(decoder.PixelHeight > 0);
+        if (facts.Width > 0 && facts.Height > 0)
         {
-            using var fileStream = File.OpenRead(imagePath);
-            using var mem = new MemoryStream();
-            await fileStream.CopyToAsync(mem);
-            mem.Position = 0;
-            using var randomStream = mem.AsRandomAccessStream();
-            var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(randomStream);
-            Assert.True(decoder.PixelWidth > 0);
-            Assert.True(decoder.PixelHeight > 0);
-            if (facts.Width > 0 && facts.Height > 0)
-            {
-                bool dimsMatch = (decoder.PixelWidth == facts.Width && decoder.PixelHeight == facts.Height) ||
-                                 (decoder.PixelWidth == facts.Height && decoder.PixelHeight == facts.Width);
-                Assert.True(dimsMatch, $"Decoded dimensions {decoder.PixelWidth}x{decoder.PixelHeight} do not match facts {facts.Width}x{facts.Height}");
-            }
-        }
-        catch (COMException) when (facts.Container == ImageContainer.Heic)
-        {
-            // System without HEVC/HEIC codec installed; container and facts checked
-            Assert.True(facts.Width > 0 && facts.Height > 0);
+            bool dimsMatch = (decoder.PixelWidth == facts.Width && decoder.PixelHeight == facts.Height) ||
+                             (decoder.PixelWidth == facts.Height && decoder.PixelHeight == facts.Width);
+            Assert.True(dimsMatch, $"Decoded dimensions {decoder.PixelWidth}x{decoder.PixelHeight} do not match facts {facts.Width}x{facts.Height}");
         }
     }
 

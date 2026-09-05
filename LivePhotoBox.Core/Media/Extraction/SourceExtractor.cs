@@ -275,6 +275,7 @@ public sealed class SourceExtractor : ISourceExtractor
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, $"Destination file already exists: {outputGainmapPath}");
         }
 
+        bool nativeExtractionSucceeded = false;
         try
         {
             await NativeMediaService.ExtractMediaAsync(
@@ -286,6 +287,8 @@ public sealed class SourceExtractor : ISourceExtractor
                 outputGainmapPath,
                 configureContext,
                 cancellationToken).ConfigureAwait(false);
+
+            nativeExtractionSucceeded = true;
 
             if (!File.Exists(outputImagePath))
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a primary image artifact.", MediaArtifactKind.PrimaryImage);
@@ -404,34 +407,39 @@ public sealed class SourceExtractor : ISourceExtractor
         catch (Exception ex)
         {
             // If Native failed, Native already rolled back its staged/published outputs.
-            // If post-Native validation in C# failed, delete published outputs and surface CleanupFailed if deletion fails.
+            // Under no circumstances should C# delete files if Native failed, because any file
+            // existing at the output path was NOT published by this transaction (e.g. race/TOCTOU sentinel).
+            // Only if Native succeeded and subsequent managed validation failed should C# delete published outputs.
             string? cleanupFailedFile = null;
             Exception? cleanupError = null;
 
-            if (File.Exists(outputImagePath))
+            if (nativeExtractionSucceeded)
             {
-                try { File.Delete(outputImagePath); }
-                catch (Exception delEx) { cleanupFailedFile ??= outputImagePath; cleanupError ??= delEx; }
-            }
-            if (outputVideoPath != null && File.Exists(outputVideoPath))
-            {
-                try { File.Delete(outputVideoPath); }
-                catch (Exception delEx) { cleanupFailedFile ??= outputVideoPath; cleanupError ??= delEx; }
-            }
-            if (outputGainmapPath != null && File.Exists(outputGainmapPath))
-            {
-                try { File.Delete(outputGainmapPath); }
-                catch (Exception delEx) { cleanupFailedFile ??= outputGainmapPath; cleanupError ??= delEx; }
-            }
+                if (File.Exists(outputImagePath))
+                {
+                    try { File.Delete(outputImagePath); }
+                    catch (Exception delEx) { cleanupFailedFile ??= outputImagePath; cleanupError ??= delEx; }
+                }
+                if (outputVideoPath != null && File.Exists(outputVideoPath))
+                {
+                    try { File.Delete(outputVideoPath); }
+                    catch (Exception delEx) { cleanupFailedFile ??= outputVideoPath; cleanupError ??= delEx; }
+                }
+                if (outputGainmapPath != null && File.Exists(outputGainmapPath))
+                {
+                    try { File.Delete(outputGainmapPath); }
+                    catch (Exception delEx) { cleanupFailedFile ??= outputGainmapPath; cleanupError ??= delEx; }
+                }
 
-            if (cleanupFailedFile != null)
-            {
-                ExtractionFailureCategory origCat = (ex is ExtractionException ee) ? ee.Category : ExtractionFailureCategory.InternalError;
-                throw new ExtractionException(
-                    ExtractionFailureCategory.CleanupFailed,
-                    $"Post-extraction cleanup failed: unable to delete artifact '{cleanupFailedFile}'. Original error: {ex.Message}",
-                    innerException: cleanupError,
-                    originalCategory: origCat);
+                if (cleanupFailedFile != null)
+                {
+                    ExtractionFailureCategory origCat = (ex is ExtractionException ee) ? ee.Category : ExtractionFailureCategory.InternalError;
+                    throw new ExtractionException(
+                        ExtractionFailureCategory.CleanupFailed,
+                        $"Post-extraction cleanup failed: unable to delete artifact '{cleanupFailedFile}'. Original error: {ex.Message}",
+                        innerException: cleanupError,
+                        originalCategory: origCat);
+                }
             }
 
             throw;
